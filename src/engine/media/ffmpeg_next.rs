@@ -636,6 +636,9 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
         size: VideoDecodeSize,
         cancelled: &AtomicBool,
     ) -> Result<DecodedVideoFrame, MediaError> {
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(MediaError::Cancelled);
+        }
         if size.max_width == 0 || size.max_height == 0 {
             return Err(MediaError::external("映像フレーム要求が不正です"));
         }
@@ -692,8 +695,16 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
             .last_frame
             .take()
             .filter(|frame| frame.presentation_time <= presentation_time);
-        while let Some(decoded) = self.next_decoded_frame()? {
+        loop {
             if cancelled.load(Ordering::Relaxed) {
+                self.last_frame = candidate;
+                return Err(MediaError::Cancelled);
+            }
+            let Some(decoded) = self.next_decoded_frame()? else {
+                break;
+            };
+            if cancelled.load(Ordering::Relaxed) {
+                self.pending_decoded = Some(decoded);
                 self.last_frame = candidate;
                 return Err(MediaError::Cancelled);
             }
@@ -711,6 +722,8 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
                         .checked_sub(frame.presentation_time)
                         .filter(|duration| !duration.is_zero())
                         .unwrap_or(frame.duration);
+                    // The deferred frame has not consumed its fallback timestamp yet.
+                    self.fallback_time = frame_time;
                     self.pending_decoded = Some(decoded);
                     self.last_frame = Some(frame.clone());
                     return Ok(frame);
@@ -753,6 +766,9 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
         size: VideoDecodeSize,
         cancelled: &AtomicBool,
     ) -> Result<Vec<DecodedVideoFrame>, MediaError> {
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(MediaError::Cancelled);
+        }
         if frame_count == 0 {
             return Err(MediaError::external("映像フレーム要求が不正です"));
         }
@@ -773,11 +789,17 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
         frames.push(first);
         while frames.len() < frame_count {
             if cancelled.load(Ordering::Relaxed) {
+                self.last_frame = frames.last().cloned();
                 return Err(MediaError::Cancelled);
             }
             let Some(decoded) = self.next_decoded_frame()? else {
                 break;
             };
+            if cancelled.load(Ordering::Relaxed) {
+                self.pending_decoded = Some(decoded);
+                self.last_frame = frames.last().cloned();
+                return Err(MediaError::Cancelled);
+            }
             let frame_time = self
                 .frame_presentation_time(&decoded)
                 .unwrap_or(self.fallback_time);
@@ -797,6 +819,10 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
             });
         }
 
+        self.last_frame = frames.last().cloned();
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(MediaError::Cancelled);
+        }
         if frames.len() == frame_count {
             if let Some(next) = self.next_decoded_frame()? {
                 let next_time = self
@@ -819,6 +845,9 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
                 .unwrap_or(last.duration);
         }
         self.last_frame = frames.last().cloned();
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(MediaError::Cancelled);
+        }
         Ok(frames)
     }
 }

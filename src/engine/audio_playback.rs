@@ -16,7 +16,7 @@ use crate::{
     domain::timeline::{Frame, FrameRate, ItemId, TimelineItem},
     engine::media::{
         AudioFormat, AudioGainEvaluation, AudioTimelineError, AudioTimelineGraph,
-        MediaReaderRegistry, sample_boundary,
+        MediaReaderRegistry,
     },
 };
 
@@ -83,7 +83,7 @@ struct AudioPlaybackSession {
     stop: Arc<AtomicBool>,
     worker: Option<thread::JoinHandle<Result<(), AudioTimelineError>>>,
     played_sample_frames: Arc<AtomicU64>,
-    start_frame: Frame,
+    start_seconds: f64,
     sample_rate: u32,
     gains: HashMap<ItemId, Arc<AtomicU32>>,
     events: Arc<Mutex<VecDeque<AudioPlaybackEvent>>>,
@@ -98,7 +98,13 @@ struct RetiringAudioWorker {
     underrun_reported: bool,
 }
 
+struct PendingAudioPlayback {
+    items: Vec<TimelineItem>,
+    frame_rate: FrameRate,
+}
+
 pub(crate) struct AudioPlaybackEngine {
+    pending: Option<PendingAudioPlayback>,
     session: Option<AudioPlaybackSession>,
     retiring: Vec<RetiringAudioWorker>,
     media_readers: Arc<MediaReaderRegistry>,
@@ -108,6 +114,7 @@ pub(crate) struct AudioPlaybackEngine {
 impl AudioPlaybackEngine {
     pub(crate) fn new(media_readers: Arc<MediaReaderRegistry>) -> Self {
         Self {
+            pending: None,
             session: None,
             retiring: Vec::new(),
             media_readers,
@@ -123,8 +130,34 @@ impl AudioPlaybackEngine {
     ) -> Result<PlaybackClock, AudioPlaybackError> {
         self.request_stop();
         if !self.retiring.is_empty() {
+            self.pending = Some(PendingAudioPlayback { items, frame_rate });
             return Ok(PlaybackClock::Wall);
         }
+        self.start(items, frame_rate.frame_to_seconds(start_frame), frame_rate)
+    }
+
+    pub(crate) fn resume_pending(
+        &mut self,
+        seconds: f64,
+    ) -> Option<Result<PlaybackClock, AudioPlaybackError>> {
+        let pending = self.take_pending_if_ready()?;
+        Some(self.start(pending.items, seconds, pending.frame_rate))
+    }
+
+    fn take_pending_if_ready(&mut self) -> Option<PendingAudioPlayback> {
+        self.reap_finished_workers();
+        if !self.retiring.is_empty() {
+            return None;
+        }
+        self.pending.take()
+    }
+
+    fn start(
+        &mut self,
+        items: Vec<TimelineItem>,
+        start_seconds: f64,
+        frame_rate: FrameRate,
+    ) -> Result<PlaybackClock, AudioPlaybackError> {
         let host = cpal::default_host();
         let device = host
             .default_output_device()
@@ -156,7 +189,7 @@ impl AudioPlaybackEngine {
             .saturating_mul(AUDIO_BUFFER_SECONDS)
             .max(channels);
         let (mut producer, consumer) = rtrb::RingBuffer::<f32>::new(capacity);
-        let start_sample_frame = sample_boundary(start_frame.get(), frame_rate, format.sample_rate);
+        let start_sample_frame = (start_seconds * f64::from(format.sample_rate)).round() as u64;
         let mut render_cursor = start_sample_frame;
         let mut prebuffered_frames = 0u64;
         let prebuffer_target =
@@ -251,7 +284,7 @@ impl AudioPlaybackEngine {
             stop,
             worker: Some(worker),
             played_sample_frames,
-            start_frame,
+            start_seconds: start_sample_frame as f64 / f64::from(format.sample_rate),
             sample_rate: format.sample_rate,
             gains,
             events,
@@ -279,8 +312,9 @@ impl AudioPlaybackEngine {
 
     pub(crate) fn request_stop(&mut self) -> bool {
         self.reap_finished_workers();
+        let had_pending = self.pending.take().is_some();
         let Some(mut session) = self.session.take() else {
-            return false;
+            return had_pending;
         };
         session.stop.store(true, Ordering::Release);
         drop(session.stream.take());
@@ -391,13 +425,10 @@ impl AudioPlaybackEngine {
             .is_some_and(thread::JoinHandle::is_finished)
     }
 
-    pub(crate) fn playhead_seconds(&self, frame_rate: FrameRate) -> Option<f64> {
+    pub(crate) fn playhead_seconds(&self) -> Option<f64> {
         let session = self.session.as_ref()?;
         let played = session.played_sample_frames.load(Ordering::Acquire);
-        Some(
-            frame_rate.frame_to_seconds(session.start_frame)
-                + played as f64 / f64::from(session.sample_rate),
-        )
+        Some(session.start_seconds + played as f64 / f64::from(session.sample_rate))
     }
 }
 

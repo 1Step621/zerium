@@ -1,6 +1,6 @@
 mod video;
 
-use video::VideoPlaybackRequest;
+use video::VideoPlaybackBatchRequest;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -309,37 +309,22 @@ impl Preview {
         size: VideoDecodeSize,
         cx: &mut Context<Self>,
     ) -> PreparedVideoFrames {
-        let mut prepared = PreparedVideoFrames {
-            revision: 0,
-            frames: HashMap::new(),
-            error: None,
-        };
-        for (time, active_items) in requests {
-            let snapshot = self.video_playback.update(cx, |playback, cx| {
-                playback.prepare(
-                    VideoPlaybackRequest {
-                        active_items,
-                        playhead: time.nearest_frame(),
-                        frame_rate,
-                        playback_seconds: Some(time.seconds(frame_rate)),
-                        mode,
-                        size,
-                    },
-                    cx,
-                )
-            });
-            prepared.revision = snapshot.revision;
-            if snapshot.error.is_some() {
-                prepared.error = snapshot.error;
-            }
-            prepared.frames.extend(
-                snapshot
-                    .frames
-                    .into_iter()
-                    .map(|(input, frame)| ((time.frames().to_bits(), input), frame)),
-            );
+        let snapshot = self.video_playback.update(cx, |playback, cx| {
+            playback.prepare(
+                VideoPlaybackBatchRequest {
+                    samples: requests,
+                    frame_rate,
+                    mode,
+                    size,
+                },
+                cx,
+            )
+        });
+        PreparedVideoFrames {
+            revision: snapshot.revision,
+            frames: snapshot.frames,
+            error: snapshot.error,
         }
-        prepared
     }
 
     fn render_latest_frame(&mut self, cx: &mut Context<Self>) {

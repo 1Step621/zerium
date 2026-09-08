@@ -26,7 +26,7 @@ pub(crate) enum PreviewPlaybackMode {
 
 #[derive(Clone, Copy, Debug)]
 struct PlaybackSession {
-    start_frame: Frame,
+    start_seconds: f64,
     started_at: Instant,
     uses_audio_clock: bool,
 }
@@ -115,7 +115,7 @@ impl TransportController {
             }
         };
         self.mode = TransportMode::Playing(PlaybackSession {
-            start_frame,
+            start_seconds: frame_rate.frame_to_seconds(start_frame),
             started_at: Instant::now(),
             uses_audio_clock: clock == PlaybackClock::Audio,
         });
@@ -204,22 +204,46 @@ impl TransportController {
 
     pub(crate) fn advance(&mut self, cx: &mut Context<Self>) {
         self.report_audio_events(cx);
-        let TransportMode::Playing(playback) = self.mode else {
+        let TransportMode::Playing(mut playback) = self.mode else {
             return;
         };
         let (frame_rate, end) = {
             let editor = self.editor.read(cx);
             (editor.frame_rate(), editor.end_frame_exclusive())
         };
-        let seconds = if playback.uses_audio_clock {
-            self.audio
-                .read(cx)
-                .playhead_seconds(frame_rate)
-                .unwrap_or_else(|| frame_rate.frame_to_seconds(playback.start_frame))
+        let audio_seconds = self.audio.read(cx).playhead_seconds();
+        if playback.uses_audio_clock && audio_seconds.is_none() {
+            // Continue from the last displayed position if the audio worker exits.
+            let editor = self.editor.read(cx);
+            playback.start_seconds = editor
+                .playback_time_seconds()
+                .unwrap_or_else(|| frame_rate.frame_to_seconds(editor.playhead()));
+            playback.started_at = Instant::now();
+            playback.uses_audio_clock = false;
+        }
+        let mut seconds = if playback.uses_audio_clock {
+            audio_seconds.unwrap()
         } else {
-            frame_rate.frame_to_seconds(playback.start_frame)
-                + playback.started_at.elapsed().as_secs_f64()
+            playback.start_seconds + playback.started_at.elapsed().as_secs_f64()
         };
+        if !playback.uses_audio_clock && frame_rate.seconds_to_frame(seconds) < end {
+            match self
+                .audio
+                .update(cx, |audio, _| audio.resume_pending(seconds))
+            {
+                Some(Ok(PlaybackClock::Audio)) => {
+                    playback.uses_audio_clock = true;
+                    seconds = self.audio.read(cx).playhead_seconds().unwrap_or(seconds);
+                }
+                Some(Err(error)) => {
+                    self.notifications.update(cx, |notifications, cx| {
+                        notifications.push(format!("音声再生を開始できません: {error}"), cx);
+                    });
+                }
+                _ => {}
+            }
+        }
+        self.mode = TransportMode::Playing(playback);
         let frame = frame_rate.seconds_to_frame(seconds);
         if frame >= end {
             self.stop(cx);
