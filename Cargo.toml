@@ -1,0 +1,34 @@
+[package]
+name = "zerium"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+bytemuck = { version = "1.25", features = ["derive"] }
+cpal = "0.15"
+cosmic-text = "0.18.2"
+directories = "5"
+ffmpeg-next = { version = "9", default-features = false, features = ["format", "software-resampling", "software-scaling"] }
+# Keep these branch sources identical to WGPUI-Component's manifest so Cargo does
+# not create two incompatible gpui source identities. Cargo.lock pins WGPUI to
+# 1e75af96162160fb74260d98b722811f6d8dabe4 and UI to
+# 1c5bff9c6a5a8918c9f0fb3524e003268cc9e686.
+gpui = { package = "gpui-ce", git = "https://github.com/1Step621/WGPUI", branch = "fix/input-selection-replacement" }
+ui = { git = "https://github.com/1Step621/WGPUI-Component", branch = "fix/input-selection-replacement" }
+naga = { version = "30", features = ["wgsl-in"] }
+pollster = "0.4"
+rtrb = "0.3"
+rust-embed = { version = "8.12", features = ["debug-embed"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+semver = "1"
+wgpu = { version = "30", default-features = false }
+
+[dev-dependencies]
+gpui = { package = "gpui-ce", git = "https://github.com/1Step621/WGPUI", branch = "fix/input-selection-replacement", features = ["test-support"] }
+
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3

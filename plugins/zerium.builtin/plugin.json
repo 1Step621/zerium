@@ -1,0 +1,1702 @@
+{
+  "$schema": "../plugin.schema.json",
+  "api_version": 1,
+  "id": "zerium.builtin",
+  "items": [
+    {
+      "id": "rectangle",
+      "label": "四角形",
+      "category": "図形",
+      "tags": ["矩形", "長方形", "square", "box"],
+      "symbol": "■",
+      "capabilities": {
+        "visual": {
+          "type": "procedural",
+          "shader": {
+            "source": "rectangle.wgsl"
+          }
+        },
+        "editor": { "size": "size" }
+      },
+      "parameters": [
+        {
+          "id": "position",
+          "type": { "tuple": ["f32", "f32"] },
+          "default": [0, 0],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "X", "unit": "px" },
+              { "label": "Y", "unit": "px" }
+            ]
+          },
+          "label": "位置",
+          "constraints": {
+            "elements": [
+              { "min": -1000000, "max": 1000000 },
+              { "min": -1000000, "max": 1000000 }
+            ]
+          }
+        },
+        {
+          "id": "size",
+          "type": { "tuple": ["f32", "f32"] },
+          "default": [320, 180],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "幅", "unit": "px" },
+              { "label": "高さ", "unit": "px" }
+            ]
+          },
+          "label": "サイズ",
+          "constraints": {
+            "elements": [
+              { "min": 1, "max": 10000 },
+              { "min": 1, "max": 10000 }
+            ]
+          }
+        },
+        {
+          "id": "color",
+          "type": "color",
+          "default": [1, 0.28, 0.035, 1],
+          "animatable": true,
+          "label": "色"
+        },
+        {
+          "id": "corner_radius",
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "ui": {
+            "unit": "px"
+          },
+          "label": "角丸",
+          "constraints": {
+            "min": 0,
+            "max": 5000
+          }
+        }
+      ]
+    },
+    {
+      "id": "triangle",
+      "label": "三角形",
+      "category": "図形",
+      "tags": ["さんかく", "triangle"],
+      "symbol": "▲",
+      "capabilities": {
+        "visual": {
+          "type": "procedural",
+          "shader": {
+            "source": "triangle.wgsl"
+          }
+        },
+        "editor": { "size": "size" }
+      },
+      "parameters": [
+        {
+          "id": "position",
+          "type": { "tuple": ["f32", "f32"] },
+          "default": [0, 0],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "X", "unit": "px" },
+              { "label": "Y", "unit": "px" }
+            ]
+          },
+          "label": "位置",
+          "constraints": {
+            "elements": [
+              { "min": -1000000, "max": 1000000 },
+              { "min": -1000000, "max": 1000000 }
+            ]
+          }
+        },
+        {
+          "id": "size",
+          "type": { "tuple": ["f32", "f32"] },
+          "default": [240, 200],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "幅", "unit": "px" },
+              { "label": "高さ", "unit": "px" }
+            ]
+          },
+          "label": "サイズ",
+          "constraints": {
+            "elements": [
+              { "min": 1, "max": 10000 },
+              { "min": 1, "max": 10000 }
+            ]
+          }
+        },
+        {
+          "id": "color",
+          "type": "color",
+          "default": [1, 0.52, 0.06, 1],
+          "animatable": true,
+          "label": "色"
+        },
+        {
+          "id": "apex_position",
+          "type": "f32",
+          "default": 0.5,
+          "animatable": true,
+          "ui": {
+            "unit": "%",
+            "step": 0.01,
+            "display_scale": 100
+          },
+          "label": "頂点位置",
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "ellipse",
+      "label": "楕円",
+      "category": "図形",
+      "tags": ["円", "丸", "circle", "oval"],
+      "symbol": "●",
+      "capabilities": {
+        "visual": {
+          "type": "procedural",
+          "shader": {
+            "source": "ellipse.wgsl"
+          }
+        }
+      },
+      "parameters": [
+        {
+          "id": "position",
+          "type": { "tuple": ["f32", "f32"] },
+          "default": [0, 0],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "X", "unit": "px" },
+              { "label": "Y", "unit": "px" }
+            ]
+          },
+          "label": "位置",
+          "constraints": {
+            "elements": [
+              { "min": -1000000, "max": 1000000 },
+              { "min": -1000000, "max": 1000000 }
+            ]
+          }
+        },
+        {
+          "id": "radius",
+          "type": { "tuple": ["f32", "f32"] },
+          "default": [120, 80],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "横", "unit": "px" },
+              { "label": "縦", "unit": "px" }
+            ]
+          },
+          "label": "半径",
+          "constraints": {
+            "elements": [
+              { "min": 1, "max": 10000 },
+              { "min": 1, "max": 10000 }
+            ]
+          }
+        },
+        {
+          "id": "color",
+          "type": "color",
+          "default": [0.92, 0.18, 0.025, 1],
+          "animatable": true,
+          "label": "色"
+        }
+      ]
+    },
+    {
+      "id": "polygon",
+      "label": "多角形",
+      "category": "図形",
+      "tags": ["ポリゴン", "polygon"],
+      "symbol": "⬟",
+      "capabilities": {
+        "visual": {
+          "type": "procedural",
+          "shader": {
+            "source": "polygon.wgsl"
+          }
+        },
+        "editor": { "size": "size" }
+      },
+      "parameters": [
+        {
+          "id": "position",
+          "type": { "tuple": ["f32", "f32"] },
+          "default": [0, 0],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "X", "unit": "px" },
+              { "label": "Y", "unit": "px" }
+            ]
+          },
+          "label": "位置",
+          "constraints": {
+            "elements": [
+              { "min": -1000000, "max": 1000000 },
+              { "min": -1000000, "max": 1000000 }
+            ]
+          }
+        },
+        {
+          "id": "size",
+          "type": { "tuple": ["f32", "f32"] },
+          "default": [320, 240],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "幅", "unit": "px" },
+              { "label": "高さ", "unit": "px" }
+            ]
+          },
+          "label": "サイズ",
+          "constraints": {
+            "elements": [
+              { "min": 1, "max": 10000 },
+              { "min": 1, "max": 10000 }
+            ]
+          }
+        },
+        {
+          "id": "points",
+          "type": {
+            "array": {
+              "type": { "tuple": ["f32", "f32"] },
+              "min_items": 3,
+              "max_items": 1024
+            }
+          },
+          "default": [
+            [0.5, 0],
+            [1, 1],
+            [0, 1]
+          ],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "X", "unit": "%", "step": 0.01, "display_scale": 100 },
+              { "label": "Y", "unit": "%", "step": 0.01, "display_scale": 100 }
+            ]
+          },
+          "label": "頂点",
+          "constraints": {
+            "elements": [
+              { "min": 0, "max": 1 },
+              { "min": 0, "max": 1 }
+            ]
+          }
+        },
+        {
+          "id": "color",
+          "type": "color",
+          "default": [1, 0.52, 0.06, 1],
+          "animatable": true,
+          "label": "色"
+        }
+      ]
+    },
+    {
+      "id": "line",
+      "label": "直線",
+      "category": "図形",
+      "tags": ["線", "line"],
+      "symbol": "╱",
+      "capabilities": {
+        "visual": {
+          "type": "procedural",
+          "shader": {
+            "source": "line.wgsl"
+          }
+        },
+        "editor": { "size": "size" }
+      },
+      "parameters": [
+        {
+          "id": "position",
+          "type": { "tuple": ["f32", "f32"] },
+          "default": [0, 0],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "X", "unit": "px" },
+              { "label": "Y", "unit": "px" }
+            ]
+          },
+          "label": "位置",
+          "constraints": {
+            "elements": [
+              { "min": -1000000, "max": 1000000 },
+              { "min": -1000000, "max": 1000000 }
+            ]
+          }
+        },
+        {
+          "id": "size",
+          "type": { "tuple": ["f32", "f32"] },
+          "default": [400, 12],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "長さ", "unit": "px" },
+              { "label": "太さ", "unit": "px" }
+            ]
+          },
+          "label": "サイズ",
+          "constraints": {
+            "elements": [
+              { "min": 1, "max": 10000 },
+              { "min": 1, "max": 10000 }
+            ]
+          }
+        },
+        {
+          "id": "angle",
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "ui": {
+            "unit": "°",
+            "step": 1
+          },
+          "label": "角度",
+          "constraints": {
+            "min": -360,
+            "max": 360
+          }
+        },
+        {
+          "id": "color",
+          "type": "color",
+          "default": [1, 1, 1, 1],
+          "animatable": true,
+          "label": "色"
+        },
+        {
+          "id": "round_ends",
+          "type": "bool",
+          "default": true,
+          "label": "端を丸める"
+        }
+      ]
+    },
+    {
+      "id": "star",
+      "label": "星",
+      "category": "図形",
+      "tags": ["スター", "star"],
+      "symbol": "★",
+      "capabilities": {
+        "visual": {
+          "type": "procedural",
+          "shader": {
+            "source": "star.wgsl"
+          }
+        },
+        "editor": { "size": "size" }
+      },
+      "parameters": [
+        {
+          "id": "position",
+          "type": { "tuple": ["f32", "f32"] },
+          "default": [0, 0],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "X", "unit": "px" },
+              { "label": "Y", "unit": "px" }
+            ]
+          },
+          "label": "位置",
+          "constraints": {
+            "elements": [
+              { "min": -1000000, "max": 1000000 },
+              { "min": -1000000, "max": 1000000 }
+            ]
+          }
+        },
+        {
+          "id": "size",
+          "type": { "tuple": ["f32", "f32"] },
+          "default": [240, 240],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "幅", "unit": "px" },
+              { "label": "高さ", "unit": "px" }
+            ]
+          },
+          "label": "サイズ",
+          "constraints": {
+            "elements": [
+              { "min": 1, "max": 10000 },
+              { "min": 1, "max": 10000 }
+            ]
+          }
+        },
+        {
+          "id": "points",
+          "type": "u32",
+          "default": 5,
+          "ui": {
+            "step": 1
+          },
+          "label": "頂点数",
+          "constraints": {
+            "min": 3,
+            "max": 16
+          }
+        },
+        {
+          "id": "inner_radius",
+          "type": "f32",
+          "default": 0.45,
+          "animatable": true,
+          "ui": {
+            "unit": "%",
+            "step": 0.01,
+            "display_scale": 100
+          },
+          "label": "内側半径",
+          "constraints": {
+            "min": 0.05,
+            "max": 0.95
+          }
+        },
+        {
+          "id": "rotation",
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "ui": {
+            "unit": "°",
+            "step": 1
+          },
+          "label": "回転",
+          "constraints": {
+            "min": -360,
+            "max": 360
+          }
+        },
+        {
+          "id": "color",
+          "type": "color",
+          "default": [1, 0.74, 0.04, 1],
+          "animatable": true,
+          "label": "色"
+        }
+      ]
+    },
+    {
+      "id": "text",
+      "label": "テキスト",
+      "category": "テキスト",
+      "tags": ["文字", "字幕", "title", "caption"],
+      "symbol": "T",
+      "capabilities": {
+        "visual": {
+          "type": "text",
+          "shader": {
+            "source": "text.wgsl"
+          },
+          "size": "size",
+          "text": "text",
+          "font_family": "font_family",
+          "font_size": "font_size",
+          "color": "color",
+          "outline_width": "outline_width",
+          "outline_color": "outline_color",
+          "bold": "bold",
+          "italic": "italic",
+          "horizontal_alignment": "horizontal_alignment",
+          "vertical_alignment": "vertical_alignment"
+        },
+        "editor": { "size": "size", "label": "text" }
+      },
+      "parameters": [
+        {
+          "id": "position",
+          "type": { "tuple": ["f32", "f32"] },
+          "default": [0, 0],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "X", "unit": "px" },
+              { "label": "Y", "unit": "px" }
+            ]
+          },
+          "label": "位置",
+          "constraints": {
+            "elements": [
+              { "min": -1000000, "max": 1000000 },
+              { "min": -1000000, "max": 1000000 }
+            ]
+          }
+        },
+        {
+          "id": "size",
+          "type": { "tuple": ["f32", "f32"] },
+          "default": [640, 240],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "幅", "unit": "px" },
+              { "label": "高さ", "unit": "px" }
+            ]
+          },
+          "label": "サイズ",
+          "constraints": {
+            "elements": [
+              { "min": 1, "max": 10000 },
+              { "min": 1, "max": 10000 }
+            ]
+          }
+        },
+        {
+          "id": "text",
+          "type": "string",
+          "default": "テキスト",
+          "label": "テキスト",
+          "ui": {
+            "multiline": true
+          }
+        },
+        {
+          "id": "font_family",
+          "type": { "array": { "type": "string", "max_items": 1024 } },
+          "default": [],
+          "label": "フォント",
+          "ui": {
+            "editor": "font_family"
+          }
+        },
+        {
+          "id": "font_size",
+          "type": "f32",
+          "default": 64,
+          "animatable": true,
+          "ui": {
+            "unit": "px"
+          },
+          "label": "文字サイズ",
+          "constraints": {
+            "min": 1,
+            "max": 1000
+          }
+        },
+        {
+          "id": "color",
+          "type": "color",
+          "default": [1, 1, 1, 1],
+          "animatable": true,
+          "label": "色"
+        },
+        {
+          "id": "outline_width",
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "ui": {
+            "unit": "px"
+          },
+          "label": "枠線",
+          "constraints": {
+            "min": 0,
+            "max": 64
+          }
+        },
+        {
+          "id": "outline_color",
+          "type": "color",
+          "default": [1, 1, 1, 1],
+          "animatable": true,
+          "label": "枠線色"
+        },
+        {
+          "id": "horizontal_alignment",
+          "type": { "enum": [0, 1, 2] },
+          "default": 1,
+          "label": "左右揃え",
+          "ui": {
+            "enum_variants": { "0": "左揃え", "1": "中央揃え", "2": "右揃え" }
+          }
+        },
+        {
+          "id": "vertical_alignment",
+          "type": { "enum": [0, 1, 2] },
+          "default": 1,
+          "label": "上下揃え",
+          "ui": {
+            "enum_variants": { "0": "上揃え", "1": "中央揃え", "2": "下揃え" }
+          }
+        },
+        {
+          "id": "bold",
+          "type": "bool",
+          "default": false,
+          "label": "太字"
+        },
+        {
+          "id": "italic",
+          "type": "bool",
+          "default": false,
+          "label": "イタリック"
+        }
+      ]
+    },
+    {
+      "id": "video",
+      "label": "動画",
+      "category": "メディア",
+      "tags": ["映像", "movie", "clip"],
+      "symbol": "▶",
+      "capabilities": {
+        "files": [
+          {
+            "id": "source",
+            "label": "動画",
+            "reader": "zerium.ffmpeg",
+            "media_type": "video",
+            "extensions": ["mp4", "mov", "mkv", "webm", "avi", "m4v", "gif"]
+          }
+        ],
+        "visual": {
+          "type": "media",
+          "shader": {
+            "source": "media.wgsl"
+          }
+        },
+        "audio": {
+          "inputs": ["source"],
+          "volume": "volume"
+        },
+        "editor": { "size": "size" }
+      },
+      "parameters": [
+        {
+          "id": "position",
+          "type": { "tuple": ["f32", "f32"] },
+          "default": [0, 0],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "X", "unit": "px" },
+              { "label": "Y", "unit": "px" }
+            ]
+          },
+          "label": "位置",
+          "constraints": {
+            "elements": [
+              { "min": -1000000, "max": 1000000 },
+              { "min": -1000000, "max": 1000000 }
+            ]
+          }
+        },
+        {
+          "id": "size",
+          "type": { "tuple": ["f32", "f32"] },
+          "default": [960, 540],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "幅", "unit": "px" },
+              { "label": "高さ", "unit": "px" }
+            ]
+          },
+          "label": "サイズ",
+          "constraints": {
+            "elements": [
+              { "min": 1, "max": 10000 },
+              { "min": 1, "max": 10000 }
+            ]
+          }
+        },
+        {
+          "id": "volume",
+          "type": "f32",
+          "default": 1,
+          "animatable": true,
+          "ui": {
+            "step": 0.01
+          },
+          "label": "音量",
+          "constraints": {
+            "min": 0,
+            "max": 2
+          }
+        }
+      ]
+    },
+    {
+      "id": "image",
+      "label": "画像",
+      "category": "メディア",
+      "tags": ["静止画", "写真", "photo", "picture"],
+      "symbol": "▧",
+      "capabilities": {
+        "files": [
+          {
+            "id": "source",
+            "label": "画像",
+            "reader": "zerium.ffmpeg",
+            "media_type": "image",
+            "extensions": ["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"]
+          }
+        ],
+        "visual": {
+          "type": "media",
+          "shader": {
+            "source": "media.wgsl"
+          }
+        },
+        "editor": { "size": "size" }
+      },
+      "parameters": [
+        {
+          "id": "position",
+          "type": { "tuple": ["f32", "f32"] },
+          "default": [0, 0],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "X", "unit": "px" },
+              { "label": "Y", "unit": "px" }
+            ]
+          },
+          "label": "位置",
+          "constraints": {
+            "elements": [
+              { "min": -1000000, "max": 1000000 },
+              { "min": -1000000, "max": 1000000 }
+            ]
+          }
+        },
+        {
+          "id": "size",
+          "type": { "tuple": ["f32", "f32"] },
+          "default": [960, 540],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "幅", "unit": "px" },
+              { "label": "高さ", "unit": "px" }
+            ]
+          },
+          "label": "サイズ",
+          "constraints": {
+            "elements": [
+              { "min": 1, "max": 10000 },
+              { "min": 1, "max": 10000 }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "audio",
+      "label": "音声",
+      "category": "メディア",
+      "tags": ["音楽", "サウンド", "music", "sound"],
+      "symbol": "♪",
+      "capabilities": {
+        "files": [
+          {
+            "id": "source",
+            "label": "音声",
+            "reader": "zerium.ffmpeg",
+            "media_type": "audio",
+            "extensions": ["wav", "mp3", "m4a", "aac", "flac", "ogg", "opus"]
+          }
+        ],
+        "audio": {
+          "inputs": ["source"],
+          "volume": "volume"
+        }
+      },
+      "parameters": [
+        {
+          "id": "volume",
+          "type": "f32",
+          "default": 1,
+          "animatable": true,
+          "ui": {
+            "step": 0.01
+          },
+          "label": "音量",
+          "constraints": {
+            "min": 0,
+            "max": 2
+          }
+        }
+      ]
+    }
+  ],
+  "effects": [
+    {
+      "id": "translate",
+      "label": "移動",
+      "category": "変形",
+      "tags": ["位置", "ずらす", "position", "move"],
+      "passes": [
+        {
+          "type": "render",
+          "shader": {
+            "source": "translate.wgsl"
+          }
+        }
+      ],
+      "parameters": [
+        {
+          "id": "offset",
+          "type": {
+            "tuple": ["f32", "f32"]
+          },
+          "default": [0, 0],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "X", "unit": "px" },
+              { "label": "Y", "unit": "px" }
+            ]
+          },
+          "label": "移動量",
+          "constraints": {
+            "elements": [
+              { "min": -1000000, "max": 1000000 },
+              { "min": -1000000, "max": 1000000 }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "rotate_2d",
+      "label": "回転",
+      "category": "変形",
+      "tags": ["角度", "rotate", "rotation"],
+      "passes": [
+        {
+          "type": "render",
+          "shader": {
+            "source": "rotate_2d.wgsl"
+          }
+        }
+      ],
+      "parameters": [
+        {
+          "id": "angle",
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "ui": {
+            "unit": "°",
+            "step": 1
+          },
+          "label": "角度",
+          "constraints": {
+            "min": -360,
+            "max": 360
+          }
+        },
+        {
+          "id": "center",
+          "type": {
+            "tuple": ["f32", "f32"]
+          },
+          "default": [0, 0],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "X", "unit": "px" },
+              { "label": "Y", "unit": "px" }
+            ]
+          },
+          "label": "中心",
+          "constraints": {
+            "elements": [
+              { "min": -1000000, "max": 1000000 },
+              { "min": -1000000, "max": 1000000 }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "rotate_3d",
+      "label": "3D回転",
+      "category": "変形",
+      "tags": ["立体", "遠近", "perspective", "rotation"],
+      "passes": [
+        {
+          "type": "render",
+          "shader": {
+            "source": "rotate_3d.wgsl"
+          }
+        }
+      ],
+      "parameters": [
+        {
+          "id": "rotation",
+          "type": {
+            "tuple": ["f32", "f32", "f32"]
+          },
+          "default": [0, 0, 0],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "X", "unit": "°", "step": 1 },
+              { "label": "Y", "unit": "°", "step": 1 },
+              { "label": "Z", "unit": "°", "step": 1 }
+            ]
+          },
+          "label": "回転",
+          "constraints": {
+            "elements": [
+              { "min": -360, "max": 360 },
+              { "min": -360, "max": 360 },
+              { "min": -360, "max": 360 }
+            ]
+          }
+        },
+        {
+          "id": "perspective",
+          "type": "f32",
+          "default": 1000,
+          "animatable": true,
+          "ui": {
+            "unit": "px",
+            "step": 1
+          },
+          "label": "遠近感",
+          "constraints": {
+            "min": 50,
+            "max": 5000
+          }
+        },
+        {
+          "id": "center",
+          "type": {
+            "tuple": ["f32", "f32"]
+          },
+          "default": [0, 0],
+          "animatable": true,
+          "ui": {
+            "elements": [
+              { "label": "X", "unit": "px" },
+              { "label": "Y", "unit": "px" }
+            ]
+          },
+          "label": "中心",
+          "constraints": {
+            "elements": [
+              { "min": -1000000, "max": 1000000 },
+              { "min": -1000000, "max": 1000000 }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "id": "color_adjustment",
+      "label": "色調補正",
+      "category": "カラー調整",
+      "tags": ["明るさ", "コントラスト", "彩度", "color correction", "grading"],
+      "passes": [
+        {
+          "type": "render",
+          "shader": {
+            "source": "color_adjustment.wgsl"
+          }
+        }
+      ],
+      "parameters": [
+        {
+          "id": "brightness",
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "ui": {
+            "step": 0.01
+          },
+          "label": "明るさ",
+          "constraints": {
+            "min": -1,
+            "max": 1
+          }
+        },
+        {
+          "id": "contrast",
+          "type": "f32",
+          "default": 1,
+          "animatable": true,
+          "ui": {
+            "step": 0.01
+          },
+          "label": "コントラスト",
+          "constraints": {
+            "min": 0,
+            "max": 3
+          }
+        },
+        {
+          "id": "saturation",
+          "type": "f32",
+          "default": 1,
+          "animatable": true,
+          "ui": {
+            "step": 0.01
+          },
+          "label": "彩度",
+          "constraints": {
+            "min": 0,
+            "max": 3
+          }
+        },
+        {
+          "id": "temperature",
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "ui": {
+            "step": 0.01
+          },
+          "label": "色温度",
+          "constraints": {
+            "min": -1,
+            "max": 1
+          }
+        },
+        {
+          "id": "tint",
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "ui": {
+            "step": 0.01
+          },
+          "label": "色かぶり",
+          "constraints": {
+            "min": -1,
+            "max": 1
+          }
+        },
+        {
+          "id": "gamma",
+          "type": "f32",
+          "default": 1,
+          "animatable": true,
+          "ui": {
+            "step": 0.01
+          },
+          "label": "ガンマ",
+          "constraints": {
+            "min": 0.1,
+            "max": 3
+          }
+        }
+      ]
+    },
+    {
+      "id": "opacity",
+      "label": "不透明度",
+      "category": "カラー調整",
+      "tags": ["透明", "透過", "alpha", "transparency"],
+      "passes": [
+        {
+          "type": "render",
+          "shader": {
+            "source": "opacity.wgsl"
+          }
+        }
+      ],
+      "parameters": [
+        {
+          "id": "opacity",
+          "type": "f32",
+          "default": 1,
+          "animatable": true,
+          "ui": {
+            "unit": "%",
+            "step": 0.01,
+            "display_scale": 100
+          },
+          "label": "不透明度",
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        }
+      ]
+    },
+    {
+      "id": "linear_gradient",
+      "label": "線形グラデーション",
+      "category": "塗り",
+      "tags": ["グラデ", "gradient", "fill"],
+      "passes": [
+        {
+          "type": "render",
+          "shader": {
+            "source": "linear_gradient.wgsl"
+          }
+        }
+      ],
+      "parameters": [
+        {
+          "id": "start_color",
+          "type": "color",
+          "default": [0.08, 0.12, 0.28, 1],
+          "animatable": true,
+          "label": "開始色"
+        },
+        {
+          "id": "end_color",
+          "type": "color",
+          "default": [0.92, 0.18, 0.32, 1],
+          "animatable": true,
+          "label": "終了色"
+        },
+        {
+          "id": "angle",
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "ui": {
+            "unit": "°",
+            "step": 1
+          },
+          "label": "角度",
+          "constraints": {
+            "min": -360,
+            "max": 360
+          }
+        }
+      ]
+    },
+    {
+      "id": "glow",
+      "label": "光彩",
+      "category": "スタイル",
+      "tags": ["発光", "ネオン", "bloom", "neon"],
+      "render_scale": 2,
+      "parameters": [
+        {
+          "id": "width",
+          "type": "f32",
+          "default": 20,
+          "animatable": true,
+          "ui": {
+            "unit": "px",
+            "step": 1
+          },
+          "label": "半径",
+          "constraints": {
+            "min": 0,
+            "max": 128
+          }
+        },
+        {
+          "id": "intensity",
+          "type": "f32",
+          "default": 1,
+          "animatable": true,
+          "ui": {
+            "unit": "%",
+            "step": 0.01,
+            "display_scale": 100
+          },
+          "label": "強さ",
+          "constraints": {
+            "min": 0,
+            "max": 5
+          }
+        },
+        {
+          "id": "spread",
+          "type": "f32",
+          "default": 0.2,
+          "animatable": true,
+          "ui": {
+            "unit": "%",
+            "step": 0.01,
+            "display_scale": 100
+          },
+          "label": "広がり",
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        },
+        {
+          "id": "color",
+          "type": "color",
+          "default": [0.1, 0.55, 1, 1],
+          "animatable": true,
+          "label": "色"
+        }
+      ],
+      "passes": [
+        {
+          "type": "compute",
+          "shader": {
+            "source": "distance_field.wgsl"
+          },
+          "constants": [
+            {
+              "id": "phase",
+              "type": "u32",
+              "value": 0
+            }
+          ]
+        },
+        {
+          "type": "compute",
+          "shader": {
+            "source": "distance_field.wgsl"
+          },
+          "constants": [
+            {
+              "id": "phase",
+              "type": "u32",
+              "value": 1
+            }
+          ]
+        },
+        {
+          "type": "compute",
+          "shader": {
+            "source": "distance_field.wgsl"
+          },
+          "constants": [
+            {
+              "id": "phase",
+              "type": "u32",
+              "value": 2
+            }
+          ]
+        },
+        {
+          "type": "render",
+          "shader": {
+            "source": "glow.wgsl"
+          }
+        }
+      ]
+    },
+    {
+      "id": "outline",
+      "label": "枠線",
+      "category": "スタイル",
+      "tags": ["縁取り", "ストローク", "border", "stroke"],
+      "render_scale": 2,
+      "parameters": [
+        {
+          "id": "width",
+          "type": "f32",
+          "default": 4,
+          "animatable": true,
+          "ui": {
+            "unit": "px",
+            "step": 1
+          },
+          "label": "太さ",
+          "constraints": {
+            "min": 0,
+            "max": 64
+          }
+        },
+        {
+          "id": "position",
+          "type": { "enum": [0, 1, 2] },
+          "default": 0,
+          "label": "位置",
+          "ui": {
+            "enum_variants": { "0": "外側", "1": "中央", "2": "内側" }
+          }
+        },
+        {
+          "id": "color",
+          "type": "color",
+          "default": [1, 1, 1, 1],
+          "animatable": true,
+          "label": "色"
+        }
+      ],
+      "passes": [
+        {
+          "type": "compute",
+          "shader": {
+            "source": "distance_field.wgsl"
+          },
+          "constants": [
+            {
+              "id": "phase",
+              "type": "u32",
+              "value": 0
+            }
+          ]
+        },
+        {
+          "type": "compute",
+          "shader": {
+            "source": "distance_field.wgsl"
+          },
+          "constants": [
+            {
+              "id": "phase",
+              "type": "u32",
+              "value": 1
+            }
+          ]
+        },
+        {
+          "type": "compute",
+          "shader": {
+            "source": "distance_field.wgsl"
+          },
+          "constants": [
+            {
+              "id": "phase",
+              "type": "u32",
+              "value": 2
+            }
+          ]
+        },
+        {
+          "type": "render",
+          "shader": {
+            "source": "outline.wgsl"
+          }
+        }
+      ]
+    },
+    {
+      "id": "vignette",
+      "label": "ビネット",
+      "category": "スタイル",
+      "tags": ["周辺減光", "vignette"],
+      "passes": [
+        {
+          "type": "render",
+          "shader": {
+            "source": "vignette.wgsl"
+          }
+        }
+      ],
+      "parameters": [
+        {
+          "id": "amount",
+          "type": "f32",
+          "default": 0.45,
+          "animatable": true,
+          "ui": {
+            "step": 0.01
+          },
+          "label": "強さ",
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        },
+        {
+          "id": "softness",
+          "type": "f32",
+          "default": 0.5,
+          "animatable": true,
+          "ui": {
+            "step": 0.01
+          },
+          "label": "ぼかし",
+          "constraints": {
+            "min": 0.01,
+            "max": 1
+          }
+        },
+        {
+          "id": "roundness",
+          "type": "f32",
+          "default": 1,
+          "animatable": true,
+          "ui": {
+            "step": 0.01
+          },
+          "label": "丸み",
+          "constraints": {
+            "min": 0.25,
+            "max": 4
+          }
+        }
+      ]
+    },
+    {
+      "id": "pixelate",
+      "label": "ピクセル化",
+      "category": "フィルター",
+      "tags": ["モザイク", "ドット", "mosaic", "pixel"],
+      "passes": [
+        {
+          "type": "render",
+          "shader": {
+            "source": "pixelate.wgsl"
+          }
+        }
+      ],
+      "parameters": [
+        {
+          "id": "block_size",
+          "type": "f32",
+          "default": 12,
+          "animatable": true,
+          "ui": {
+            "unit": "px",
+            "step": 1
+          },
+          "label": "ブロック幅",
+          "constraints": {
+            "min": 1,
+            "max": 256
+          }
+        }
+      ]
+    },
+    {
+      "id": "chromatic_aberration",
+      "label": "色収差",
+      "category": "フィルター",
+      "tags": ["色ずれ", "RGBずれ", "chromatic", "fringing"],
+      "passes": [
+        {
+          "type": "render",
+          "shader": {
+            "source": "chromatic_aberration.wgsl"
+          }
+        }
+      ],
+      "parameters": [
+        {
+          "id": "amount",
+          "type": "f32",
+          "default": 4,
+          "animatable": true,
+          "ui": {
+            "unit": "px",
+            "step": 1
+          },
+          "label": "ずれ",
+          "constraints": {
+            "min": 0,
+            "max": 100
+          }
+        },
+        {
+          "id": "angle",
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "ui": {
+            "unit": "°",
+            "step": 1
+          },
+          "label": "角度",
+          "constraints": {
+            "min": -180,
+            "max": 180
+          }
+        }
+      ]
+    },
+    {
+      "id": "gaussian_blur",
+      "label": "ガウスぼかし",
+      "category": "フィルター",
+      "tags": ["ぼかし", "ブラー", "soft focus", "blur"],
+      "parameters": [
+        {
+          "id": "radius",
+          "type": "f32",
+          "default": 12,
+          "animatable": true,
+          "ui": {
+            "unit": "px",
+            "step": 1
+          },
+          "label": "半径",
+          "constraints": {
+            "min": 0,
+            "max": 64
+          }
+        }
+      ],
+      "passes": [
+        {
+          "type": "compute",
+          "shader": {
+            "source": "gaussian_blur.wgsl"
+          },
+          "constants": [
+            {
+              "id": "direction",
+              "type": {
+                "tuple": ["f32", "f32"]
+              },
+              "value": [1, 0]
+            }
+          ]
+        },
+        {
+          "type": "compute",
+          "shader": {
+            "source": "gaussian_blur.wgsl"
+          },
+          "constants": [
+            {
+              "id": "direction",
+              "type": {
+                "tuple": ["f32", "f32"]
+              },
+              "value": [0, 1]
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "motion_blur",
+      "label": "モーションブラー",
+      "category": "フィルター",
+      "tags": ["残像", "動き", "速度", "motion blur", "temporal"],
+      "parameters": [
+        {
+          "id": "samples",
+          "type": "u32",
+          "default": 8,
+          "ui": {
+            "step": 1
+          },
+          "label": "サンプル数",
+          "constraints": {
+            "min": 1,
+            "max": 16
+          }
+        },
+        {
+          "id": "shutter_angle",
+          "type": "f32",
+          "default": 180,
+          "animatable": true,
+          "ui": {
+            "unit": "°",
+            "step": 1
+          },
+          "label": "シャッター角度",
+          "constraints": {
+            "min": 0,
+            "max": 720
+          }
+        },
+        {
+          "id": "shutter_phase",
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "ui": {
+            "step": 0.01
+          },
+          "label": "シャッター位相",
+          "constraints": {
+            "min": -1,
+            "max": 1
+          }
+        }
+      ],
+      "passes": [
+        {
+          "type": "temporal",
+          "sampling": {
+            "type": "shutter",
+            "sample_count": "samples",
+            "angle": "shutter_angle",
+            "phase": "shutter_phase"
+          },
+          "reducer": {
+            "source": "motion_blur.wgsl"
+          }
+        }
+      ]
+    },
+    {
+      "id": "pixel_sort",
+      "label": "ピクセルソート",
+      "category": "フィルター",
+      "tags": ["グリッチ", "並べ替え", "glitch", "sort"],
+      "parameters": [
+        {
+          "id": "block_size",
+          "type": "u32",
+          "default": 64,
+          "ui": {
+            "unit": "px",
+            "step": 1
+          },
+          "label": "ブロック幅",
+          "constraints": {
+            "min": 2,
+            "max": 256
+          }
+        },
+        {
+          "id": "threshold",
+          "type": "f32",
+          "default": 0.25,
+          "animatable": true,
+          "ui": {
+            "step": 0.01
+          },
+          "label": "しきい値",
+          "constraints": {
+            "min": 0,
+            "max": 1
+          }
+        },
+        {
+          "id": "vertical",
+          "type": "bool",
+          "default": false,
+          "label": "縦方向"
+        },
+        {
+          "id": "descending",
+          "type": "bool",
+          "default": false,
+          "label": "明るい順"
+        }
+      ],
+      "passes": [
+        {
+          "type": "compute",
+          "shader": {
+            "source": "pixel_sort.wgsl"
+          },
+          "dispatch": ["width", "height", "one"]
+        }
+      ]
+    }
+  ]
+}

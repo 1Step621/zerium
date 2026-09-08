@@ -1,0 +1,863 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://raw.githubusercontent.com/1Step621/zerium/refs/heads/main/plugins/plugin.schema.json",
+  "title": "Zerium plugin API",
+  "$comment": "Structural tooling schema. Cross-reference, WGSL namespace, typed numeric, and total ABI budget invariants are enforced by the Rust wire/domain source of truth.",
+  "x-zerium-parameter-abi-byte-budget": 8388608,
+  "x-zerium-max-string-bytes": 4096,
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["api_version", "id"],
+  "anyOf": [
+    { "properties": { "items": { "minItems": 1 } }, "required": ["items"] },
+    { "properties": { "effects": { "minItems": 1 } }, "required": ["effects"] }
+  ],
+  "properties": {
+    "$schema": { "type": "string" },
+    "api_version": { "const": 1 },
+    "id": { "$ref": "#/$defs/logicalId" },
+    "items": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/item" }
+    },
+    "effects": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/effect" }
+    }
+  },
+  "$defs": {
+    "logicalId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
+    },
+    "wgslId": {
+      "type": "string",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+      "not": { "pattern": "^(?:_|__.*)$" }
+    },
+    "wgslSuffix": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_]+$"
+    },
+    "shaderSource": {
+      "type": "string",
+      "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\\.wgsl$"
+    },
+    "shader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": { "$ref": "#/$defs/shaderSource" },
+        "vertex_entry": { "$ref": "#/$defs/wgslId" },
+        "fragment_entry": { "$ref": "#/$defs/wgslId" }
+      }
+    },
+    "computeShader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source"],
+      "properties": {
+        "source": { "$ref": "#/$defs/shaderSource" },
+        "entry": { "$ref": "#/$defs/wgslId" }
+      }
+    },
+    "file": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "media_type", "reader"],
+      "properties": {
+        "id": {
+          "allOf": [
+            { "$ref": "#/$defs/wgslSuffix" },
+            { "not": { "enum": ["inputs", "sampler"] } }
+          ]
+        },
+        "label": { "type": "string", "minLength": 1 },
+        "media_type": { "enum": ["video", "audio", "image"] },
+        "reader": { "$ref": "#/$defs/logicalId" },
+        "extensions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9]+$" }
+        }
+      }
+    },
+    "visual": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "shader"],
+      "properties": {
+        "type": { "enum": ["procedural", "media", "text"] },
+        "shader": { "$ref": "#/$defs/shader" },
+        "vertex_count": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
+        "size": { "$ref": "#/$defs/wgslId" },
+        "text": { "$ref": "#/$defs/wgslId" },
+        "font_family": { "$ref": "#/$defs/wgslId" },
+        "font_size": { "$ref": "#/$defs/wgslId" },
+        "color": { "$ref": "#/$defs/wgslId" },
+        "outline_width": { "$ref": "#/$defs/wgslId" },
+        "outline_color": { "$ref": "#/$defs/wgslId" },
+        "bold": { "$ref": "#/$defs/wgslId" },
+        "italic": { "$ref": "#/$defs/wgslId" },
+        "horizontal_alignment": { "$ref": "#/$defs/wgslId" },
+        "vertical_alignment": { "$ref": "#/$defs/wgslId" }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "text" } } },
+          "then": {
+            "required": [
+              "size", "text", "font_family", "font_size", "color",
+              "outline_width", "outline_color", "bold", "italic",
+              "horizontal_alignment", "vertical_alignment"
+            ]
+          },
+          "else": {
+            "properties": {
+              "size": false,
+              "text": false,
+              "font_family": false,
+              "font_size": false,
+              "color": false,
+              "outline_width": false,
+              "outline_color": false,
+              "bold": false,
+              "italic": false,
+              "horizontal_alignment": false,
+              "vertical_alignment": false
+            }
+          }
+        }
+      ]
+    },
+    "capabilities": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "files": { "type": "array", "items": { "$ref": "#/$defs/file" } },
+        "visual": { "$ref": "#/$defs/visual" },
+        "audio": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["inputs", "volume"],
+          "properties": {
+            "inputs": {
+              "type": "array",
+              "minItems": 1,
+              "uniqueItems": true,
+              "items": { "$ref": "#/$defs/wgslSuffix" }
+            },
+            "volume": { "$ref": "#/$defs/wgslId" }
+          }
+        },
+        "editor": {
+          "type": "object",
+          "additionalProperties": false,
+          "minProperties": 1,
+          "properties": {
+            "size": { "$ref": "#/$defs/wgslId" },
+            "label": { "$ref": "#/$defs/wgslId" }
+          }
+        }
+      }
+    },
+    "scalarType": {
+      "oneOf": [
+        {
+          "enum": [
+            "f32",
+            "i32",
+            "u32",
+            "bool",
+            "color",
+            "string"
+          ]
+        },
+        {
+          "$ref": "#/$defs/enumType"
+        }
+      ]
+    },
+    "tupleType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "tuple"
+      ],
+      "properties": {
+        "tuple": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/scalarType"
+          }
+        }
+      }
+    },
+    "passValueType": {
+      "description": "Fixed-size values prepacked once when the pass schema is compiled.",
+      "oneOf": [
+        {
+          "$ref": "#/$defs/fixedScalarType"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "tuple"
+          ],
+          "properties": {
+            "tuple": {
+              "type": "array",
+              "minItems": 2,
+              "maxItems": 64,
+              "items": {
+                "$ref": "#/$defs/fixedScalarType"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "arrayValueType": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/scalarType"
+        },
+        {
+          "$ref": "#/$defs/tupleType"
+        }
+      ]
+    },
+    "enumType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enum"],
+      "properties": {
+        "enum": {
+          "type": "array",
+          "minItems": 1,
+          "uniqueItems": true,
+          "items": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+        }
+      }
+    },
+    "arrayType": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "array"
+      ],
+      "properties": {
+        "array": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "max_items"
+          ],
+          "properties": {
+            "type": {
+              "$ref": "#/$defs/arrayValueType"
+            },
+            "min_items": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 1000000
+            },
+            "max_items": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 1000000
+            }
+          }
+        }
+      }
+    },
+    "parameterType": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/arrayValueType"
+        },
+        {
+          "$ref": "#/$defs/arrayType"
+        }
+      ]
+    },
+    "parameter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "id",
+        "label",
+        "type",
+        "default"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/wgslId"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "type": {
+          "$ref": "#/$defs/parameterType"
+        },
+        "default": true,
+        "animatable": {
+          "type": "boolean"
+        },
+        "scene_bindable": {
+          "type": "boolean"
+        },
+        "constraints": {
+          "$ref": "#/$defs/parameterConstraints"
+        },
+        "ui": {
+          "$ref": "#/$defs/parameterUi"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "tuple"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "array"
+                    ],
+                    "properties": {
+                      "array": {
+                        "type": "object",
+                        "required": [
+                          "type"
+                        ],
+                        "properties": {
+                          "type": {
+                            "type": "object",
+                            "required": [
+                              "tuple"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "ui": {
+                "$ref": "#/$defs/tupleUi"
+              },
+              "constraints": {
+                "$ref": "#/$defs/tupleConstraints"
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "ui": {
+                "$ref": "#/$defs/scalarUi"
+              },
+              "constraints": {
+                "$ref": "#/$defs/numericConstraints"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "ui": {
+                "properties": {
+                  "editor": {
+                    "const": "font_family"
+                  }
+                },
+                "required": [
+                  "editor"
+                ]
+              }
+            },
+            "required": [
+              "ui"
+            ]
+          },
+          "then": {
+            "properties": {
+              "type": {
+                "allOf": [
+                  {
+                    "$ref": "#/$defs/arrayType"
+                  },
+                  {
+                    "properties": {
+                      "array": {
+                        "type": "object",
+                        "required": [
+                          "type"
+                        ],
+                        "properties": {
+                          "type": {
+                            "const": "string"
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "f32"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "default": {
+                "type": "number"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "i32"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "default": {
+                "type": "integer",
+                "minimum": -2147483648,
+                "maximum": 2147483647
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "u32"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "default": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4294967295
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "bool"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "default": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "string"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "default": {
+                "type": "string",
+                "maxLength": 4096
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "color"
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "default": {
+                "type": "array",
+                "minItems": 4,
+                "maxItems": 4,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "items": false
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "type": "object",
+                "properties": {
+                  "array": {
+                    "type": "object",
+                    "required": [
+                      "type"
+                    ],
+                    "properties": {
+                      "type": {
+                        "const": "string"
+                      }
+                    }
+                  }
+                },
+                "required": [
+                  "array"
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "default": {
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 4096
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "item": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "category", "symbol", "capabilities"],
+      "properties": {
+        "id": { "$ref": "#/$defs/logicalId" },
+        "label": { "type": "string", "minLength": 1 },
+        "category": { "type": "string", "minLength": 1 },
+        "tags": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "symbol": { "type": "string", "minLength": 1 },
+        "capabilities": { "$ref": "#/$defs/capabilities" },
+        "parameters": { "type": "array", "items": { "$ref": "#/$defs/parameter" } }
+      }
+    },
+    "passConstant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "type", "value"],
+      "properties": {
+        "id": { "$ref": "#/$defs/wgslId" },
+        "type": { "$ref": "#/$defs/passValueType" },
+        "value": true
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "f32" } }, "required": ["type"] },
+          "then": { "properties": { "value": { "type": "number" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "i32" } }, "required": ["type"] },
+          "then": { "properties": { "value": { "type": "integer", "minimum": -2147483648, "maximum": 2147483647 } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "u32" } }, "required": ["type"] },
+          "then": { "properties": { "value": { "type": "integer", "minimum": 0, "maximum": 4294967295 } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "bool" } }, "required": ["type"] },
+          "then": { "properties": { "value": { "type": "boolean" } } }
+        },
+        {
+          "if": { "properties": { "type": { "const": "color" } }, "required": ["type"] },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "array",
+                "minItems": 4,
+                "maxItems": 4,
+                "prefixItems": [
+                  { "type": "number" }, { "type": "number" },
+                  { "type": "number" }, { "type": "number" }
+                ],
+                "items": false
+              }
+            }
+          }
+        }
+      ]
+    },
+    "renderPass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "shader"],
+      "properties": {
+        "type": { "const": "render" },
+        "shader": { "$ref": "#/$defs/shader" },
+        "constants": { "type": "array", "items": { "$ref": "#/$defs/passConstant" } }
+      }
+    },
+    "computePass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "shader"],
+      "properties": {
+        "type": { "const": "compute" },
+        "shader": { "$ref": "#/$defs/computeShader" },
+        "dispatch": {
+          "type": "array",
+          "minItems": 3,
+          "maxItems": 3,
+          "prefixItems": [
+            { "$ref": "#/$defs/dispatchDimension" },
+            { "$ref": "#/$defs/dispatchDimension" },
+            { "$ref": "#/$defs/dispatchDimension" }
+          ]
+        },
+        "constants": { "type": "array", "items": { "$ref": "#/$defs/passConstant" } }
+      }
+    },
+    "dispatchDimension": { "enum": ["width", "height", "max_dimension", "one"] },
+    "temporalPass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "sampling", "reducer"],
+      "properties": {
+        "type": { "const": "temporal" },
+        "sampling": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "sample_count", "angle"],
+          "properties": {
+            "type": { "const": "shutter" },
+            "sample_count": { "$ref": "#/$defs/wgslId" },
+            "angle": { "$ref": "#/$defs/wgslId" },
+            "phase": { "$ref": "#/$defs/wgslId" }
+          }
+        },
+        "reducer": { "$ref": "#/$defs/shader" },
+        "constants": { "type": "array", "items": { "$ref": "#/$defs/passConstant" } }
+      }
+    },
+    "effect": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["id", "label", "category", "parameters", "passes"],
+      "properties": {
+        "id": { "$ref": "#/$defs/logicalId" },
+        "label": { "type": "string", "minLength": 1 },
+        "category": { "type": "string", "minLength": 1 },
+        "tags": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+        "render_scale": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "parameters": { "type": "array", "items": { "$ref": "#/$defs/parameter" } },
+        "passes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/renderPass" },
+              { "$ref": "#/$defs/computePass" },
+              { "$ref": "#/$defs/temporalPass" }
+            ]
+          }
+        }
+      }
+    },
+    "fixedScalarType": {
+      "oneOf": [
+        {
+          "enum": [
+            "f32",
+            "i32",
+            "u32",
+            "bool",
+            "color"
+          ]
+        },
+        {
+          "$ref": "#/$defs/enumType"
+        }
+      ]
+    },
+    "numericConstraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "min": {
+          "type": "number"
+        },
+        "max": {
+          "type": "number"
+        }
+      }
+    },
+    "scalarUi": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "unit": {
+          "type": "string"
+        },
+        "step": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "display_scale": {
+          "type": "number",
+          "exclusiveMinimum": 0
+        },
+        "visible": {
+          "type": "boolean"
+        },
+        "multiline": {
+          "type": "boolean"
+        },
+        "editor": {
+          "enum": [
+            "font_family"
+          ]
+        },
+        "enum_variants": {
+          "type": "object",
+          "minProperties": 1,
+          "patternProperties": {
+            "^[0-9]+$": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "additionalProperties": false
+        }
+      }
+    },
+    "parameterConstraints": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/numericConstraints"
+        },
+        {
+          "$ref": "#/$defs/tupleConstraints"
+        }
+      ]
+    },
+    "parameterUi": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/scalarUi"
+        },
+        {
+          "$ref": "#/$defs/tupleUi"
+        }
+      ]
+    },
+    "tupleUi": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "elements": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/scalarUi"
+          }
+        }
+      }
+    },
+    "tupleConstraints": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "elements": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/numericConstraints"
+          }
+        }
+      }
+    }
+  }
+}
