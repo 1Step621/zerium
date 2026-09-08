@@ -2,15 +2,14 @@ use super::{
     document::TimelineDocument,
     editor::TimelineEditor,
     evaluation::{
-        EvaluatedSceneNode, evaluated_visible_document_graph_at_time,
-        evaluated_visible_document_items_at_time, visibility_filtered_document_items,
+        EvaluatedSceneNode, document_items, evaluated_document_graph_at_time,
+        evaluated_document_items_at_time, evaluated_visible_document_graph_at_time,
     },
     ids::{ItemId, LayerId, ProjectId, SceneId},
     item::TimelineItem,
     scene::SceneDefinition,
     settings::ProjectResolution,
     time::{Frame, FrameRate, TimelineTime},
-    visibility::PreviewVisibility,
 };
 
 /// Immutable, detached timeline state for background save and export jobs.
@@ -25,7 +24,6 @@ pub(crate) struct TimelineSnapshot {
     project_id: ProjectId,
     resolution: ProjectResolution,
     playhead: Frame,
-    visibility: PreviewVisibility,
     project_revision: u64,
 }
 
@@ -52,7 +50,6 @@ impl TimelineSnapshot {
         project_id: ProjectId,
         resolution: ProjectResolution,
         playhead: Frame,
-        visibility: PreviewVisibility,
         project_revision: u64,
     ) -> Self {
         Self {
@@ -61,7 +58,6 @@ impl TimelineSnapshot {
             project_id,
             resolution,
             playhead,
-            visibility,
             project_revision,
         }
     }
@@ -105,37 +101,15 @@ impl TimelineView for TimelineSnapshot {
     }
 
     fn active_items_at_time(&self, time: TimelineTime) -> Vec<(LayerId, TimelineItem)> {
-        evaluated_visible_document_items_at_time(
-            &self.document,
-            &self.scenes,
-            &self.visibility,
-            time,
-        )
-        .into_iter()
-        .map(|(layer, mut item)| {
-            self.visibility.retain_visible_effects(&mut item);
-            (layer, item)
-        })
-        .collect()
+        evaluated_document_items_at_time(&self.document, &self.scenes, time)
     }
 
     fn active_scene_graph_at_time(&self, time: TimelineTime) -> Vec<EvaluatedSceneNode> {
-        evaluated_visible_document_graph_at_time(
-            &self.document,
-            &self.scenes,
-            &self.visibility,
-            time,
-        )
+        evaluated_document_graph_at_time(&self.document, &self.scenes, time)
     }
 
     fn visible_items(&self) -> Vec<TimelineItem> {
-        visibility_filtered_document_items(&self.document, &self.scenes, &self.visibility)
-            .into_iter()
-            .map(|mut item| {
-                self.visibility.retain_visible_effects(&mut item);
-                item
-            })
-            .collect()
+        document_items(&self.document, &self.scenes)
     }
 
     fn end_frame_exclusive(&self) -> Frame {

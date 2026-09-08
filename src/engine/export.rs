@@ -176,33 +176,25 @@ pub(crate) fn export_timeline(
             text_frames.retain_active(active_items.iter().map(|(_, item)| item.id));
             let effect_size =
                 RenderScene::effect_render_size_for_timeline(&timeline, render_time, size)?;
-            let mut decode_error = None;
             let scene = RenderScene::from_timeline(
                 &timeline,
                 render_time,
                 size,
-                |request| match decode_texture_frame(
-                    &timeline,
-                    request.item_id,
-                    request.input_id,
-                    request.time,
-                    effect_size,
-                    &mut decoders,
-                    &media_readers,
-                ) {
-                    Ok(frame) => frame,
-                    Err(error) => {
-                        decode_error = Some(error);
-                        None
-                    }
+                |request| {
+                    decode_texture_frame(
+                        &timeline,
+                        request.item_id,
+                        request.input_id,
+                        request.time,
+                        effect_size,
+                        &mut decoders,
+                        &media_readers,
+                    )
                 },
                 |item, schema, target_size| {
                     text_frames.frame_for(item, schema, target_size, composition_size)
                 },
             )?;
-            if let Some(error) = decode_error {
-                return Err(error);
-            }
             if let Some(frame) = readbacks.submit(frame_index, &scene)? {
                 send_frame(&frames_to_encode, frame)?;
             }

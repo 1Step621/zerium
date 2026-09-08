@@ -5,7 +5,7 @@ use gpui::{Context, SharedString};
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ProjectSessionId(u64);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum ProjectActivity {
     Import,
     Probe,
@@ -107,15 +107,15 @@ impl ProjectSession {
         !self.operations.is_empty()
     }
 
-    pub(crate) fn busy_label(&self) -> Option<&'static str> {
-        let activity = self.operations.values().next()?;
-        Some(match activity {
-            ProjectActivity::Import => "ファイル読み込み",
-            ProjectActivity::Probe => "メディア解析",
-            ProjectActivity::Save => "保存",
-            ProjectActivity::Load => "プロジェクト読み込み",
-            ProjectActivity::Export => "書き出し",
-        })
+    pub(crate) fn busy_activities(&self) -> Vec<ProjectActivity> {
+        let mut activities = Vec::new();
+        for activity in self.operations.values() {
+            if !activities.contains(activity) {
+                activities.push(*activity);
+            }
+        }
+        activities.sort();
+        activities
     }
 }
 

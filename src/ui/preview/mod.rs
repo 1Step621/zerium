@@ -20,7 +20,9 @@ use crate::{
     },
     engine::{
         media::{MediaReaderRegistry, VideoDecodeSize},
-        rendering::{FrameRenderer, RenderError, RenderScene, RenderSize, TextFrameCache},
+        rendering::{
+            FrameRenderer, RenderError, RenderScene, RenderSize, RendererBuilder, TextFrameCache,
+        },
     },
     ui::{
         session::{ProjectSession, ProjectSessionId, UiNotifications},
@@ -143,12 +145,14 @@ impl Preview {
             wgpu::TextureFormat::Rgba8UnormSrgb,
         );
         let (renderer, error) = match &surface {
-            Some(surface) => match FrameRenderer::new(
+            Some(surface) => match RendererBuilder::new(
                 Arc::new(surface.device().clone()),
                 Arc::new(surface.queue().clone()),
-                &plugins,
-            ) {
-                Ok(renderer) => (Some(Arc::new(renderer)), None),
+            )
+            .and_then(|builder| builder.register_plugins(&plugins))
+            .map(|builder| Arc::new(builder.build().create_session()))
+            {
+                Ok(renderer) => (Some(renderer), None),
                 Err(error) => (None, Some(error.to_string().into())),
             },
             None => (
@@ -232,7 +236,7 @@ impl Preview {
                     if requested_time_keys.insert(key) {
                         requested_times.push(request.time);
                     }
-                    None
+                    Ok(None)
                 },
                 |item, schema, size| text_frames.frame_for(item, schema, size, composition_size),
             )?
@@ -274,7 +278,7 @@ impl Preview {
                 render_time,
                 size,
                 |request| {
-                    playback
+                    Ok(playback
                         .frames
                         .get(&(
                             request.time.frames().to_bits(),
@@ -283,7 +287,7 @@ impl Preview {
                                 input_id: request.input_id.to_owned(),
                             },
                         ))
-                        .cloned()
+                        .cloned())
                 },
                 |item, schema, size| text_frames.frame_for(item, schema, size, composition_size),
             )?

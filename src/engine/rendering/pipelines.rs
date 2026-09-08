@@ -1,12 +1,10 @@
 use super::*;
 
-impl FrameRenderer {
+impl RendererBuilder {
     pub(crate) fn new(
         device: Arc<wgpu::Device>,
         queue: Arc<wgpu::Queue>,
-        plugins: &PluginRegistry,
     ) -> Result<Self, RenderError> {
-        validate_plugin_shaders(plugins)?;
         let item_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("zerium-item-bind-group-layout"),
@@ -340,8 +338,8 @@ impl FrameRenderer {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
-        let mut renderer = Self {
-            shared: Arc::new(RendererDevice {
+        Ok(Self {
+            device: RendererDevice {
                 device,
                 queue,
                 pipeline_layout,
@@ -360,12 +358,17 @@ impl FrameRenderer {
                 output_pipeline,
                 texture_pipelines: HashMap::new(),
                 sampler,
-            }),
-            resources: Mutex::new(HashMap::new()),
-            video_textures: Mutex::new(VideoTextureCache::default()),
-        };
-        for descriptor in Self::plugin_item_shaders(plugins)? {
-            renderer.register_item_shader(descriptor)?;
+            },
+        })
+    }
+
+    pub(crate) fn register_plugins(
+        mut self,
+        plugins: &PluginRegistry,
+    ) -> Result<Self, RenderError> {
+        validate_plugin_shaders(plugins)?;
+        for descriptor in RendererDevice::plugin_item_shaders(plugins)? {
+            self.device.register_item_shader(descriptor)?;
         }
         for (plugin_id, schema) in plugins.effects() {
             for (pass_index, pass) in schema.passes().iter().enumerate() {
@@ -391,23 +394,32 @@ impl FrameRenderer {
                             format!("{} pass {pass_index}", schema.id()),
                             source.to_owned(),
                         )?;
-                        renderer.register_effect_shader(descriptor)?;
+                        self.device.register_effect_shader(descriptor)?;
                     }
                     EffectPassSchema::Compute { shader, .. } => {
-                        renderer.register_compute_shader(schema, pass, id, shader, source)?;
+                        self.device
+                            .register_compute_shader(schema, pass, id, shader, source)?;
                     }
                     EffectPassSchema::Temporal { reducer, .. } => {
-                        renderer.register_temporal_shader(schema, pass, id, reducer, source)?;
+                        self.device
+                            .register_temporal_shader(schema, pass, id, reducer, source)?;
                     }
                 }
             }
         }
-        for (plugin_id, schema, source) in Self::plugin_texture_shaders(plugins)? {
-            renderer.register_texture_shader(plugin_id, schema, source)?;
+        for (plugin_id, schema, source) in RendererDevice::plugin_texture_shaders(plugins)? {
+            self.device
+                .register_texture_shader(plugin_id, schema, source)?;
         }
-        Ok(renderer)
+        Ok(self)
     }
 
+    pub(crate) fn build(self) -> Arc<RendererDevice> {
+        Arc::new(self.device)
+    }
+}
+
+impl RendererDevice {
     pub(super) fn register_compute_shader(
         &mut self,
         schema: &EffectSchema,

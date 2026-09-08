@@ -227,6 +227,8 @@ pub(crate) struct MediaFrameRequest<'a> {
     pub time: TimelineTime,
 }
 
+type MediaFrameCache<E> = HashMap<(ItemId, usize, u64), Result<Option<Arc<RgbaFrame>>, E>>;
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RenderScene {
     pub size: RenderSize,
@@ -300,17 +302,17 @@ impl RenderScene {
         })
     }
 
-    pub(crate) fn from_timeline(
+    pub(crate) fn from_timeline<E: From<RenderError> + Clone>(
         timeline: &dyn TimelineView,
         time: TimelineTime,
         size: RenderSize,
-        mut media_frame: impl FnMut(MediaFrameRequest<'_>) -> Option<Arc<RgbaFrame>>,
+        mut media_frame: impl FnMut(MediaFrameRequest<'_>) -> Result<Option<Arc<RgbaFrame>>, E>,
         mut text_frame: impl FnMut(
             &TimelineItem,
             &ItemSchema,
             RenderSize,
         ) -> Result<Arc<RgbaFrame>, RenderError>,
-    ) -> Result<Self, RenderError> {
+    ) -> Result<Self, E> {
         let graph = timeline.active_scene_graph_at_time(time);
         let mut graph_cache = HashMap::from([(time.frames().to_bits(), graph.clone())]);
         let mut timeline_cache =
@@ -338,16 +340,16 @@ impl RenderScene {
                 roots.push(rendered);
             }
         }
-        Self::from_roots(
+        Ok(Self::from_roots(
             size,
             RenderSize::from(timeline.resolution()),
             [0.008, 0.006, 0.005, 1.],
             roots,
-        )
+        )?)
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn render_evaluated_node(
+    fn render_evaluated_node<E: From<RenderError> + Clone>(
         node: &EvaluatedSceneNode,
         scene_effect_count: Option<usize>,
         timeline: &dyn TimelineView,
@@ -358,14 +360,14 @@ impl RenderScene {
         graph_cache: &mut HashMap<u64, Vec<EvaluatedSceneNode>>,
         timeline_cache: &mut HashMap<u64, Vec<(LayerId, TimelineItem)>>,
         render_cache: &mut HashMap<RenderCacheKey, Option<RenderItem>>,
-        media_cache: &mut HashMap<(ItemId, usize, u64), Option<Arc<RgbaFrame>>>,
-        media_frame: &mut impl FnMut(MediaFrameRequest<'_>) -> Option<Arc<RgbaFrame>>,
+        media_cache: &mut MediaFrameCache<E>,
+        media_frame: &mut impl FnMut(MediaFrameRequest<'_>) -> Result<Option<Arc<RgbaFrame>>, E>,
         text_frame: &mut impl FnMut(
             &TimelineItem,
             &ItemSchema,
             RenderSize,
         ) -> Result<Arc<RgbaFrame>, RenderError>,
-    ) -> Result<Option<RenderNode>, RenderError> {
+    ) -> Result<Option<RenderNode>, E> {
         let metadata = RenderNodeMetadata {
             layer: node.layer,
             clip_start: TimelineTime::from_frame(node.clip.start),
@@ -446,9 +448,9 @@ impl RenderScene {
                                 return Ok(None);
                             };
                             if temporal_depth >= MAX_TEMPORAL_DEPTH {
-                                return Err(RenderError::resource_limit(format!(
+                                return Err(E::from(RenderError::resource_limit(format!(
                                     "temporal effect depth exceeds {MAX_TEMPORAL_DEPTH}"
-                                )));
+                                ))));
                             }
                             offsets
                                 .into_iter()
@@ -497,10 +499,10 @@ impl RenderScene {
                                         input,
                                     })
                                 })
-                                .collect::<Result<Vec<_>, RenderError>>()
+                                .collect::<Result<Vec<_>, E>>()
                                 .map(Some)
                         })
-                        .collect::<Result<Vec<_>, RenderError>>()?;
+                        .collect::<Result<Vec<_>, E>>()?;
                     effects.push(Self::render_effect(effect, temporal_samples));
                 }
                 Ok(Some(RenderNode::scene(
@@ -561,7 +563,7 @@ impl RenderScene {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn render_item(
+    fn render_item<E: From<RenderError> + Clone>(
         item: &TimelineItem,
         effect_count: usize,
         timeline: &dyn TimelineView,
@@ -572,14 +574,14 @@ impl RenderScene {
         temporal_nodes_remaining: &mut usize,
         render_cache: &mut HashMap<RenderCacheKey, Option<RenderItem>>,
         timeline_cache: &mut HashMap<u64, Vec<(LayerId, TimelineItem)>>,
-        media_cache: &mut HashMap<(ItemId, usize, u64), Option<Arc<RgbaFrame>>>,
-        media_frame: &mut impl FnMut(MediaFrameRequest<'_>) -> Option<Arc<RgbaFrame>>,
+        media_cache: &mut MediaFrameCache<E>,
+        media_frame: &mut impl FnMut(MediaFrameRequest<'_>) -> Result<Option<Arc<RgbaFrame>>, E>,
         text_frame: &mut impl FnMut(
             &TimelineItem,
             &ItemSchema,
             RenderSize,
         ) -> Result<Arc<RgbaFrame>, RenderError>,
-    ) -> Result<Option<RenderItem>, RenderError> {
+    ) -> Result<Option<RenderItem>, E> {
         let cache_key = RenderCacheKey {
             item_id: item.id,
             effect_count,
@@ -625,9 +627,11 @@ impl RenderScene {
                                         .into_iter()
                                         .map(|offset| {
                                             if temporal_depth >= MAX_TEMPORAL_DEPTH {
-                                                return Err(RenderError::resource_limit(format!(
-                                                    "temporal effect depth exceeds {MAX_TEMPORAL_DEPTH}"
-                                                )));
+                                                return Err(E::from(
+                                                    RenderError::resource_limit(format!(
+                                                        "temporal effect depth exceeds {MAX_TEMPORAL_DEPTH}"
+                                                    )),
+                                                ));
                                             }
                                             let sample_time = time.offset(offset);
                                             let sample = timeline_cache
@@ -681,16 +685,16 @@ impl RenderScene {
                                                 }),
                                             })
                                         })
-                                        .collect::<Result<Vec<_>, RenderError>>()?,
+                                        .collect::<Result<Vec<_>, E>>()?,
                                 ),
                                 None => None,
                             },
                         )
                     })
-                    .collect::<Result<Vec<_>, RenderError>>()?;
+                    .collect::<Result<Vec<_>, E>>()?;
                 Ok(Self::render_effect(effect, temporal_samples))
             })
-            .collect::<Result<Vec<_>, RenderError>>()?;
+            .collect::<Result<Vec<_>, E>>()?;
         let params = Self::pack_item_params(item, schema);
         let render_item = match visual {
             VisualCapability::Procedural { .. } => RenderItem::Shader(RenderShaderItem {
@@ -705,26 +709,27 @@ impl RenderScene {
                 render_scale,
             }),
             VisualCapability::Media { .. } => {
-                let frames = schema
-                    .texture_inputs()
-                    .enumerate()
-                    .map(|(input_slot, input)| {
-                        let key = (item.id, input_slot, time.frames().to_bits());
-                        media_cache
-                            .entry(key)
-                            .or_insert_with(|| {
-                                media_frame(MediaFrameRequest {
-                                    item_id: item.id,
-                                    input_id: input.id(),
-                                    time,
-                                })
+                let mut frames = Vec::new();
+                for (input_slot, input) in schema.texture_inputs().enumerate() {
+                    let key = (item.id, input_slot, time.frames().to_bits());
+                    let frame = media_cache
+                        .entry(key)
+                        .or_insert_with(|| {
+                            media_frame(MediaFrameRequest {
+                                item_id: item.id,
+                                input_id: input.id(),
+                                time,
                             })
-                            .clone()
-                    })
-                    .collect::<Option<Vec<_>>>();
-                let Some(frames) = frames.filter(|frames| !frames.is_empty()) else {
+                        })
+                        .clone()?;
+                    let Some(frame) = frame else {
+                        return Ok(None);
+                    };
+                    frames.push(frame);
+                }
+                if frames.is_empty() {
                     return Ok(None);
-                };
+                }
                 RenderItem::Texture(RenderTextureItem {
                     shader: TextureShaderId::new(format!(
                         "{}::item::{}",

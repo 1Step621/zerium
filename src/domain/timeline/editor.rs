@@ -1,5 +1,5 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet, VecDeque},
     sync::{
         Arc,
         atomic::{AtomicU64, Ordering},
@@ -26,7 +26,6 @@ use super::{
     visibility::PreviewVisibility,
 };
 
-const INITIAL_PLAYHEAD_SECONDS: f64 = 18.4;
 const HISTORY_LIMIT: usize = 100;
 const HISTORY_COALESCE_INTERVAL: Duration = Duration::from_millis(750);
 
@@ -146,7 +145,6 @@ impl TimelineEditor {
         resolution: ProjectResolution,
         plugins: Arc<PluginRegistry>,
     ) -> Self {
-        let frame_rate = document.frame_rate();
         let next_effect_id = Self::next_effect_id(&document, std::iter::empty());
         Self {
             plugins,
@@ -160,7 +158,7 @@ impl TimelineEditor {
             next_scene_id: Some(1),
             next_effect_id,
             scene_duration_cache: HashMap::new(),
-            playhead: frame_rate.seconds_to_frame(INITIAL_PLAYHEAD_SECONDS),
+            playhead: Frame::new(0),
             realtime_preview: false,
             playback_time: None,
             selection: SelectionState::default(),
@@ -212,7 +210,6 @@ impl TimelineEditor {
             self.project().id,
             self.project().resolution,
             self.playhead,
-            self.visibility.clone(),
             self.project_revision,
         )
     }
@@ -249,7 +246,6 @@ impl TimelineEditor {
         });
         if active_duration_changed {
             self.clamp_scene_instance_durations();
-            self.refresh_scene_duration_cache();
         }
         let scoped_key = key.map(|key| (self.active_scene_id(), key));
         self.history.record(before, scoped_key);
@@ -269,33 +265,124 @@ impl TimelineEditor {
     }
 
     fn clamp_scene_instance_durations(&mut self) {
-        loop {
-            let durations = self
+        let Some(seed) = self.active_scene_id() else {
+            return;
+        };
+        let Some(current) = self
+            .project()
+            .scenes
+            .get(&seed)
+            .map(SceneDefinition::duration)
+        else {
+            return;
+        };
+        if self
+            .scene_duration_cache
+            .get(&seed)
+            .is_some_and(|old| old.get() <= current.get())
+        {
+            self.scene_duration_cache.insert(seed, current);
+            let missing = self
                 .project()
                 .scenes
                 .iter()
+                .filter(|(id, _)| !self.scene_duration_cache.contains_key(*id))
                 .map(|(id, scene)| (*id, scene.duration()))
-                .collect::<HashMap<_, _>>();
-            let mut changed = false;
-            let clamp_document = |document: &mut TimelineDocument, changed: &mut bool| {
-                for item in document.items_mut() {
-                    let Some(maximum) = item.scene_id().and_then(|id| durations.get(&id)) else {
-                        continue;
-                    };
-                    if item.duration.get() > maximum.get() {
-                        item.duration = *maximum;
-                        *changed = true;
+                .collect::<Vec<_>>();
+            for (id, duration) in missing {
+                self.scene_duration_cache.insert(id, duration);
+            }
+            return;
+        }
+        let mut durations = self.current_scene_durations();
+        let dependents = self.scene_dependents();
+        {
+            let project = self.project_mut();
+            let Some(seed_scene) = project.scenes.get_mut(&seed) else {
+                return;
+            };
+            clamp_document_instances(seed_scene.document_mut(), &durations);
+            durations.insert(seed, seed_scene.duration());
+        }
+        let mut queue = VecDeque::from([seed]);
+        let mut queued = HashSet::from([seed]);
+        self.propagate_scene_clamps(&mut durations, &dependents, &mut queue, &mut queued);
+        self.scene_duration_cache = durations;
+    }
+
+    fn propagate_scene_clamps(
+        &mut self,
+        durations: &mut HashMap<SceneId, FrameDuration>,
+        dependents: &HashMap<SceneId, HashSet<Option<SceneId>>>,
+        queue: &mut VecDeque<SceneId>,
+        queued: &mut HashSet<SceneId>,
+    ) {
+        while let Some(target) = queue.pop_front() {
+            queued.remove(&target);
+            let Some(maximum) = durations.get(&target).copied() else {
+                continue;
+            };
+            let Some(containers) = dependents.get(&target).cloned() else {
+                continue;
+            };
+            for container in containers {
+                let Some(id) = container else {
+                    clamp_document_reference(&mut self.project_mut().document, target, maximum);
+                    continue;
+                };
+                let changed = self.project_mut().scenes.get_mut(&id).is_some_and(|scene| {
+                    clamp_document_reference(scene.document_mut(), target, maximum)
+                });
+                if !changed {
+                    continue;
+                }
+                let Some(scene) = self.project().scenes.get(&id) else {
+                    continue;
+                };
+                let shrunk = scene.duration();
+                if durations
+                    .get(&id)
+                    .is_some_and(|old| shrunk.get() < old.get())
+                {
+                    durations.insert(id, shrunk);
+                    if queued.insert(id) {
+                        queue.push_back(id);
                     }
                 }
-            };
-            clamp_document(&mut self.project_mut().document, &mut changed);
-            for scene in self.project_mut().scenes.values_mut() {
-                clamp_document(scene.document_mut(), &mut changed);
-            }
-            if !changed {
-                break;
             }
         }
+    }
+
+    fn current_scene_durations(&self) -> HashMap<SceneId, FrameDuration> {
+        self.project()
+            .scenes
+            .iter()
+            .map(|(id, scene)| (*id, scene.duration()))
+            .collect()
+    }
+
+    fn scene_dependents(&self) -> HashMap<SceneId, HashSet<Option<SceneId>>> {
+        let mut dependents = HashMap::new();
+        for (id, scene) in self.project().scenes.iter() {
+            for reference in scene.document().items().filter_map(TimelineItem::scene_id) {
+                dependents
+                    .entry(reference)
+                    .or_insert_with(HashSet::new)
+                    .insert(Some(*id));
+            }
+        }
+        for reference in self
+            .project()
+            .document
+            .items()
+            .filter_map(TimelineItem::scene_id)
+        {
+            dependents
+                .entry(reference)
+                .or_insert_with(HashSet::new)
+                .insert(None);
+        }
+        dependents
     }
 
     fn refresh_scene_duration_cache(&mut self) {
@@ -308,8 +395,36 @@ impl TimelineEditor {
     }
 
     pub(super) fn clamp_all_scene_instances(&mut self) {
-        self.clamp_scene_instance_durations();
-        self.refresh_scene_duration_cache();
+        let mut durations = self.current_scene_durations();
+        let dependents = self.scene_dependents();
+        let mut queue = VecDeque::new();
+        let mut queued = HashSet::new();
+        clamp_document_instances(&mut self.project_mut().document, &durations);
+        let ids = self.project().scenes.keys().copied().collect::<Vec<_>>();
+        for id in ids {
+            let changed =
+                self.project_mut().scenes.get_mut(&id).is_some_and(|scene| {
+                    clamp_document_instances(scene.document_mut(), &durations)
+                });
+            if !changed {
+                continue;
+            }
+            let Some(scene) = self.project().scenes.get(&id) else {
+                continue;
+            };
+            let shrunk = scene.duration();
+            if durations
+                .get(&id)
+                .is_some_and(|old| shrunk.get() < old.get())
+            {
+                durations.insert(id, shrunk);
+                if queued.insert(id) {
+                    queue.push_back(id);
+                }
+            }
+        }
+        self.propagate_scene_clamps(&mut durations, &dependents, &mut queue, &mut queued);
+        self.scene_duration_cache = durations;
     }
 
     pub(super) fn restore_history_snapshot(&mut self, snapshot: HistorySnapshot) {
@@ -671,4 +786,39 @@ impl TimelineEditor {
             .max()
             .unwrap_or(Frame::new(0))
     }
+}
+
+fn clamp_document_instances(
+    document: &mut TimelineDocument,
+    durations: &HashMap<SceneId, FrameDuration>,
+) -> bool {
+    let mut changed = false;
+    for item in document.items_mut() {
+        let Some(maximum) = item.scene_id().and_then(|id| durations.get(&id)) else {
+            continue;
+        };
+        if item.duration.get() > maximum.get() {
+            item.duration = *maximum;
+            changed = true;
+        }
+    }
+    changed
+}
+
+fn clamp_document_reference(
+    document: &mut TimelineDocument,
+    target: SceneId,
+    maximum: FrameDuration,
+) -> bool {
+    let mut changed = false;
+    for item in document.items_mut() {
+        if item.scene_id() != Some(target) {
+            continue;
+        }
+        if item.duration.get() > maximum.get() {
+            item.duration = maximum;
+            changed = true;
+        }
+    }
+    changed
 }

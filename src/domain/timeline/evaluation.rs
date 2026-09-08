@@ -317,6 +317,14 @@ pub(crate) fn evaluated_visible_document_graph_at_time(
     evaluated_document_graph_with_visibility(document, scenes, time, Some(visibility))
 }
 
+pub(crate) fn evaluated_document_graph_at_time(
+    document: &TimelineDocument,
+    scenes: &HashMap<SceneId, SceneDefinition>,
+    time: TimelineTime,
+) -> Vec<EvaluatedSceneNode> {
+    evaluated_document_graph_with_visibility(document, scenes, time, None)
+}
+
 fn evaluated_document_items_with_visibility(
     document: &TimelineDocument,
     scenes: &HashMap<SceneId, SceneDefinition>,
@@ -345,6 +353,14 @@ pub(crate) fn evaluated_visible_document_items_at_time(
     time: TimelineTime,
 ) -> Vec<(LayerId, TimelineItem)> {
     evaluated_document_items_with_visibility(document, scenes, time, Some(visibility))
+}
+
+pub(crate) fn evaluated_document_items_at_time(
+    document: &TimelineDocument,
+    scenes: &HashMap<SceneId, SceneDefinition>,
+    time: TimelineTime,
+) -> Vec<(LayerId, TimelineItem)> {
+    evaluated_document_items_with_visibility(document, scenes, time, None)
 }
 
 fn visible_document_items_with_visibility(
@@ -430,4 +446,11 @@ pub(crate) fn visibility_filtered_document_items(
     visibility: &PreviewVisibility,
 ) -> Vec<TimelineItem> {
     visible_document_items_with_visibility(document, scenes, Some(visibility))
+}
+
+pub(crate) fn document_items(
+    document: &TimelineDocument,
+    scenes: &HashMap<SceneId, SceneDefinition>,
+) -> Vec<TimelineItem> {
+    visible_document_items_with_visibility(document, scenes, None)
 }

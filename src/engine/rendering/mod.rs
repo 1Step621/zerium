@@ -12,7 +12,7 @@ use std::{
     error::Error,
     fmt,
     num::NonZeroU64,
-    ops::{Deref, DerefMut, Range},
+    ops::{Deref, Range},
     sync::{Arc, Mutex},
 };
 
@@ -107,6 +107,10 @@ pub(crate) struct FrameRenderer {
     video_textures: Mutex<VideoTextureCache>,
 }
 
+pub(crate) struct RendererBuilder {
+    device: RendererDevice,
+}
+
 impl RendererDevice {
     pub(crate) fn create_session(self: &Arc<Self>) -> FrameRenderer {
         FrameRenderer {
@@ -128,13 +132,6 @@ impl Deref for FrameRenderer {
 
     fn deref(&self) -> &Self::Target {
         &self.shared
-    }
-}
-
-impl DerefMut for FrameRenderer {
-    fn deref_mut(&mut self) -> &mut Self::Target {
-        Arc::get_mut(&mut self.shared)
-            .expect("renderer device is uniquely owned while pipelines are registered")
     }
 }
 

@@ -121,7 +121,9 @@ impl TransportController {
     }
 
     fn stop_audio(&self, cx: &mut Context<Self>) {
-        self.audio.update(cx, |audio, _| audio.stop());
+        self.audio.update(cx, |audio, _| {
+            audio.request_stop();
+        });
     }
 
     pub(crate) fn begin_scrub(&mut self, source: ScrubSource, cx: &mut Context<Self>) {

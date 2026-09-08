@@ -4,7 +4,7 @@ use std::{
     fmt,
     sync::{
         Arc, Mutex,
-        atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering},
+        atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
     },
     thread,
     time::Duration,
@@ -71,6 +71,12 @@ impl Error for AudioPlaybackError {
     }
 }
 
+struct AudioUnderrunState {
+    active: AtomicBool,
+    pending: AtomicBool,
+    missing: AtomicUsize,
+}
+
 struct AudioPlaybackSession {
     stream: Option<cpal::Stream>,
     stop: Arc<AtomicBool>,
@@ -80,10 +86,20 @@ struct AudioPlaybackSession {
     sample_rate: u32,
     gains: HashMap<ItemId, Arc<AtomicU32>>,
     events: Arc<Mutex<VecDeque<AudioPlaybackEvent>>>,
+    underrun: Arc<AudioUnderrunState>,
+    underrun_reported: bool,
+}
+
+struct RetiringAudioWorker {
+    worker: Option<thread::JoinHandle<Result<(), AudioTimelineError>>>,
+    events: Arc<Mutex<VecDeque<AudioPlaybackEvent>>>,
+    underrun: Arc<AudioUnderrunState>,
+    underrun_reported: bool,
 }
 
 pub(crate) struct AudioPlaybackEngine {
     session: Option<AudioPlaybackSession>,
+    retiring: Vec<RetiringAudioWorker>,
     media_readers: Arc<MediaReaderRegistry>,
     completed_events: VecDeque<AudioPlaybackEvent>,
 }
@@ -92,6 +108,7 @@ impl AudioPlaybackEngine {
     pub(crate) fn new(media_readers: Arc<MediaReaderRegistry>) -> Self {
         Self {
             session: None,
+            retiring: Vec::new(),
             media_readers,
             completed_events: VecDeque::new(),
         }
@@ -103,7 +120,7 @@ impl AudioPlaybackEngine {
         start_frame: Frame,
         frame_rate: FrameRate,
     ) -> Result<PlaybackClock, AudioPlaybackError> {
-        self.stop();
+        self.request_stop();
         let host = cpal::default_host();
         let device = host
             .default_output_device()
@@ -147,12 +164,18 @@ impl AudioPlaybackEngine {
 
         let played_sample_frames = Arc::new(AtomicU64::new(0));
         let events = Arc::new(Mutex::new(VecDeque::with_capacity(16)));
+        let underrun = Arc::new(AudioUnderrunState {
+            active: AtomicBool::new(false),
+            pending: AtomicBool::new(false),
+            missing: AtomicUsize::new(0),
+        });
         let stream = build_output_stream(
             &device,
             &supported,
             consumer,
             played_sample_frames.clone(),
             events.clone(),
+            underrun.clone(),
         )?;
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
@@ -197,7 +220,7 @@ impl AudioPlaybackEngine {
 
         if let Err(error) = stream.play() {
             stop.store(true, Ordering::Release);
-            let _ = worker.join();
+            self.retire_worker(worker, events, underrun, false);
             return Err(AudioPlaybackError::Stream(format!(
                 "音声再生を開始できません: {error}"
             )));
@@ -211,13 +234,16 @@ impl AudioPlaybackEngine {
             sample_rate: format.sample_rate,
             gains,
             events,
+            underrun,
+            underrun_reported: false,
         });
         Ok(PlaybackClock::Audio)
     }
 
     pub(crate) fn update_gains(&mut self, items: &[TimelineItem]) {
+        self.reap_finished_workers();
         if self.worker_finished() {
-            self.stop();
+            self.request_stop();
             return;
         }
         let Some(session) = &self.session else {
@@ -230,33 +256,109 @@ impl AudioPlaybackEngine {
         }
     }
 
-    pub(crate) fn stop(&mut self) -> bool {
+    pub(crate) fn request_stop(&mut self) -> bool {
+        self.reap_finished_workers();
         let Some(mut session) = self.session.take() else {
             return false;
         };
         session.stop.store(true, Ordering::Release);
         drop(session.stream.take());
-        if let Some(worker) = session.worker.take() {
-            match worker.join() {
-                Ok(Ok(())) => {}
-                Ok(Err(_)) => {}
-                Err(_) => push_event(&session.events, AudioPlaybackEvent::WorkerPanicked),
-            }
-        }
+        poll_underrun(
+            &session.underrun,
+            &mut session.underrun_reported,
+            &mut self.completed_events,
+        );
         if let Ok(mut events) = session.events.lock() {
             self.completed_events.extend(events.drain(..));
+        }
+        if let Some(worker) = session.worker.take() {
+            self.retire_worker(
+                worker,
+                session.events,
+                session.underrun,
+                session.underrun_reported,
+            );
         }
         true
     }
 
+    fn retire_worker(
+        &mut self,
+        worker: thread::JoinHandle<Result<(), AudioTimelineError>>,
+        events: Arc<Mutex<VecDeque<AudioPlaybackEvent>>>,
+        underrun: Arc<AudioUnderrunState>,
+        mut underrun_reported: bool,
+    ) {
+        poll_underrun(
+            &underrun,
+            &mut underrun_reported,
+            &mut self.completed_events,
+        );
+        if worker.is_finished() {
+            match worker.join() {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) => {}
+                Err(_) => push_event(&events, AudioPlaybackEvent::WorkerPanicked),
+            }
+            if let Ok(mut pending) = events.lock() {
+                self.completed_events.extend(pending.drain(..));
+            }
+            return;
+        }
+        self.retiring.push(RetiringAudioWorker {
+            worker: Some(worker),
+            events,
+            underrun,
+            underrun_reported,
+        });
+    }
+
+    fn reap_finished_workers(&mut self) {
+        let mut index = 0;
+        while index < self.retiring.len() {
+            let underrun = self.retiring[index].underrun.clone();
+            let mut reported = self.retiring[index].underrun_reported;
+            poll_underrun(&underrun, &mut reported, &mut self.completed_events);
+            self.retiring[index].underrun_reported = reported;
+            if let Ok(mut pending) = self.retiring[index].events.lock() {
+                self.completed_events.extend(pending.drain(..));
+            }
+            let finished = self.retiring[index]
+                .worker
+                .as_ref()
+                .is_some_and(thread::JoinHandle::is_finished);
+            if !finished {
+                index += 1;
+                continue;
+            }
+            let mut retiring = self.retiring.remove(index);
+            if let Some(worker) = retiring.worker.take() {
+                match worker.join() {
+                    Ok(Ok(())) => {}
+                    Ok(Err(_)) => {}
+                    Err(_) => push_event(&retiring.events, AudioPlaybackEvent::WorkerPanicked),
+                }
+            }
+            if let Ok(mut pending) = retiring.events.lock() {
+                self.completed_events.extend(pending.drain(..));
+            }
+        }
+    }
+
     pub(crate) fn take_events(&mut self) -> Vec<AudioPlaybackEvent> {
         if self.worker_finished() {
-            self.stop();
+            self.request_stop();
         }
-        if let Some(session) = &self.session
-            && let Ok(mut events) = session.events.lock()
-        {
-            self.completed_events.extend(events.drain(..));
+        self.reap_finished_workers();
+        if let Some(session) = self.session.as_mut() {
+            poll_underrun(
+                &session.underrun,
+                &mut session.underrun_reported,
+                &mut self.completed_events,
+            );
+            if let Ok(mut events) = session.events.lock() {
+                self.completed_events.extend(events.drain(..));
+            }
         }
         self.completed_events.drain(..).collect()
     }
@@ -280,7 +382,7 @@ impl AudioPlaybackEngine {
 
 impl Drop for AudioPlaybackEngine {
     fn drop(&mut self) {
-        self.stop();
+        self.request_stop();
     }
 }
 
@@ -290,12 +392,13 @@ fn build_output_stream(
     consumer: rtrb::Consumer<f32>,
     played_sample_frames: Arc<AtomicU64>,
     events: Arc<Mutex<VecDeque<AudioPlaybackEvent>>>,
+    underrun: Arc<AudioUnderrunState>,
 ) -> Result<cpal::Stream, AudioPlaybackError> {
     let config = supported.config();
     let channels = usize::from(config.channels).max(1);
     let error_events = events.clone();
     let error_callback = move |error: cpal::StreamError| {
-        try_push_event(
+        push_event(
             &error_events,
             AudioPlaybackEvent::DeviceFailed(error.to_string()),
         );
@@ -303,7 +406,7 @@ fn build_output_stream(
     match supported.sample_format() {
         cpal::SampleFormat::F32 => {
             let mut consumer = consumer;
-            let underrun = Arc::new(AtomicBool::new(false));
+            let underrun = underrun.clone();
             device
                 .build_output_stream(
                     &config,
@@ -313,7 +416,6 @@ fn build_output_stream(
                             channels,
                             &mut consumer,
                             &played_sample_frames,
-                            &events,
                             &underrun,
                             |sample| sample,
                         )
@@ -327,7 +429,7 @@ fn build_output_stream(
         }
         cpal::SampleFormat::I16 => {
             let mut consumer = consumer;
-            let underrun = Arc::new(AtomicBool::new(false));
+            let underrun = underrun.clone();
             device
                 .build_output_stream(
                     &config,
@@ -337,7 +439,6 @@ fn build_output_stream(
                             channels,
                             &mut consumer,
                             &played_sample_frames,
-                            &events,
                             &underrun,
                             |sample| (sample * f32::from(i16::MAX)) as i16,
                         )
@@ -351,7 +452,7 @@ fn build_output_stream(
         }
         cpal::SampleFormat::U16 => {
             let mut consumer = consumer;
-            let underrun = Arc::new(AtomicBool::new(false));
+            let underrun = underrun.clone();
             device
                 .build_output_stream(
                     &config,
@@ -361,7 +462,6 @@ fn build_output_stream(
                             channels,
                             &mut consumer,
                             &played_sample_frames,
-                            &events,
                             &underrun,
                             |sample| ((sample * 0.5 + 0.5) * f32::from(u16::MAX)) as u16,
                         )
@@ -384,8 +484,7 @@ fn fill_output<T: Copy>(
     channels: usize,
     consumer: &mut rtrb::Consumer<f32>,
     played_sample_frames: &AtomicU64,
-    events: &Mutex<VecDeque<AudioPlaybackEvent>>,
-    underrun: &AtomicBool,
+    underrun: &AudioUnderrunState,
     convert: impl Fn(f32) -> T,
 ) {
     let queued_samples = consumer.slots().min(output.len());
@@ -399,28 +498,38 @@ fn fill_output<T: Copy>(
         *output_sample = convert(sample);
     }
     if queued_samples < output.len() {
-        if !underrun.swap(true, Ordering::AcqRel) {
-            try_push_event(
-                events,
-                AudioPlaybackEvent::Underrun {
-                    missing_sample_frames: (output.len() - queued_samples).div_ceil(channels),
-                },
-            );
-        }
-    } else if underrun.swap(false, Ordering::AcqRel) {
-        try_push_event(events, AudioPlaybackEvent::Recovered);
+        let missing = (output.len() - queued_samples).div_ceil(channels);
+        underrun.missing.fetch_add(missing, Ordering::Relaxed);
+        underrun.pending.store(true, Ordering::Release);
+        underrun.active.store(true, Ordering::Relaxed);
+    } else {
+        underrun.active.store(false, Ordering::Relaxed);
     }
     played_sample_frames.fetch_add((output.len() / channels) as u64, Ordering::Release);
 }
 
-fn push_event(events: &Mutex<VecDeque<AudioPlaybackEvent>>, event: AudioPlaybackEvent) {
-    if let Ok(mut events) = events.lock() {
-        events.push_back(event);
+fn poll_underrun(
+    state: &AudioUnderrunState,
+    reported: &mut bool,
+    out: &mut VecDeque<AudioPlaybackEvent>,
+) {
+    let had = state.pending.swap(false, Ordering::AcqRel);
+    let missing = state.missing.swap(0, Ordering::AcqRel);
+    let active = state.active.load(Ordering::Acquire);
+    if had && !*reported {
+        out.push_back(AudioPlaybackEvent::Underrun {
+            missing_sample_frames: missing,
+        });
+        *reported = true;
+    }
+    if *reported && !active {
+        out.push_back(AudioPlaybackEvent::Recovered);
+        *reported = false;
     }
 }
 
-fn try_push_event(events: &Mutex<VecDeque<AudioPlaybackEvent>>, event: AudioPlaybackEvent) {
-    if let Ok(mut events) = events.try_lock() {
+fn push_event(events: &Mutex<VecDeque<AudioPlaybackEvent>>, event: AudioPlaybackEvent) {
+    if let Ok(mut events) = events.lock() {
         events.push_back(event);
     }
 }
