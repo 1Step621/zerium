@@ -121,6 +121,9 @@ impl AudioPlaybackEngine {
         frame_rate: FrameRate,
     ) -> Result<PlaybackClock, AudioPlaybackError> {
         self.request_stop();
+        if !self.retiring.is_empty() {
+            return Ok(PlaybackClock::Wall);
+        }
         let host = cpal::default_host();
         let device = host
             .default_output_device()
@@ -500,10 +503,10 @@ fn fill_output<T: Copy>(
     if queued_samples < output.len() {
         let missing = (output.len() - queued_samples).div_ceil(channels);
         underrun.missing.fetch_add(missing, Ordering::Relaxed);
-        underrun.pending.store(true, Ordering::Release);
         underrun.active.store(true, Ordering::Relaxed);
+        underrun.pending.store(true, Ordering::Release);
     } else {
-        underrun.active.store(false, Ordering::Relaxed);
+        underrun.active.store(false, Ordering::Release);
     }
     played_sample_frames.fetch_add((output.len() / channels) as u64, Ordering::Release);
 }

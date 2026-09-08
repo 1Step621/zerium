@@ -227,7 +227,7 @@ pub(crate) struct MediaFrameRequest<'a> {
     pub time: TimelineTime,
 }
 
-type MediaFrameCache<E> = HashMap<(ItemId, usize, u64), Result<Option<Arc<RgbaFrame>>, E>>;
+type MediaFrameCache = HashMap<(ItemId, usize, u64), Option<Arc<RgbaFrame>>>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RenderScene {
@@ -302,7 +302,7 @@ impl RenderScene {
         })
     }
 
-    pub(crate) fn from_timeline<E: From<RenderError> + Clone>(
+    pub(crate) fn from_timeline<E: From<RenderError>>(
         timeline: &dyn TimelineView,
         time: TimelineTime,
         size: RenderSize,
@@ -349,7 +349,7 @@ impl RenderScene {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn render_evaluated_node<E: From<RenderError> + Clone>(
+    fn render_evaluated_node<E: From<RenderError>>(
         node: &EvaluatedSceneNode,
         scene_effect_count: Option<usize>,
         timeline: &dyn TimelineView,
@@ -360,7 +360,7 @@ impl RenderScene {
         graph_cache: &mut HashMap<u64, Vec<EvaluatedSceneNode>>,
         timeline_cache: &mut HashMap<u64, Vec<(LayerId, TimelineItem)>>,
         render_cache: &mut HashMap<RenderCacheKey, Option<RenderItem>>,
-        media_cache: &mut MediaFrameCache<E>,
+        media_cache: &mut MediaFrameCache,
         media_frame: &mut impl FnMut(MediaFrameRequest<'_>) -> Result<Option<Arc<RgbaFrame>>, E>,
         text_frame: &mut impl FnMut(
             &TimelineItem,
@@ -563,7 +563,7 @@ impl RenderScene {
     }
 
     #[allow(clippy::too_many_arguments)]
-    fn render_item<E: From<RenderError> + Clone>(
+    fn render_item<E: From<RenderError>>(
         item: &TimelineItem,
         effect_count: usize,
         timeline: &dyn TimelineView,
@@ -574,7 +574,7 @@ impl RenderScene {
         temporal_nodes_remaining: &mut usize,
         render_cache: &mut HashMap<RenderCacheKey, Option<RenderItem>>,
         timeline_cache: &mut HashMap<u64, Vec<(LayerId, TimelineItem)>>,
-        media_cache: &mut MediaFrameCache<E>,
+        media_cache: &mut MediaFrameCache,
         media_frame: &mut impl FnMut(MediaFrameRequest<'_>) -> Result<Option<Arc<RgbaFrame>>, E>,
         text_frame: &mut impl FnMut(
             &TimelineItem,
@@ -712,16 +712,19 @@ impl RenderScene {
                 let mut frames = Vec::new();
                 for (input_slot, input) in schema.texture_inputs().enumerate() {
                     let key = (item.id, input_slot, time.frames().to_bits());
-                    let frame = media_cache
-                        .entry(key)
-                        .or_insert_with(|| {
-                            media_frame(MediaFrameRequest {
+                    let frame = match media_cache.entry(key) {
+                        std::collections::hash_map::Entry::Occupied(entry) => {
+                            entry.into_mut().clone()
+                        }
+                        std::collections::hash_map::Entry::Vacant(entry) => {
+                            let frame = media_frame(MediaFrameRequest {
                                 item_id: item.id,
                                 input_id: input.id(),
                                 time,
-                            })
-                        })
-                        .clone()?;
+                            })?;
+                            entry.insert(frame.clone()).clone()
+                        }
+                    };
                     let Some(frame) = frame else {
                         return Ok(None);
                     };
