@@ -1103,13 +1103,10 @@ impl TimelineEditor {
         true
     }
 
-    pub(crate) fn set_realtime_preview(&mut self, realtime: bool) -> bool {
-        let realtime_changed = self.realtime_preview != realtime;
-        let playback_changed = !realtime && self.playback_time.take().is_some();
-        if !realtime_changed && !playback_changed {
+    pub(crate) fn clear_playback_time(&mut self) -> bool {
+        if self.playback_time.take().is_none() {
             return false;
         }
-        self.realtime_preview = realtime;
         self.advance_render_revision();
         true
     }

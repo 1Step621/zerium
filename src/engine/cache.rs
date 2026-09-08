@@ -19,9 +19,8 @@ pub(crate) struct TimestampCacheHit<V> {
 
 /// A byte-budgeted LRU cache keyed by media presentation timestamps.
 ///
-/// A lookup first selects the preceding frame only when the requested time is
-/// inside that frame's presentation interval. For timestamp gaps it selects the
-/// closest following frame, matching `VideoDecoderSession::decode_at`.
+/// A lookup hits only when a cached frame's presentation interval covers the
+/// requested time. Otherwise the caller must decode.
 pub(crate) struct BudgetedTimestampCache<K, V> {
     sequences: HashMap<K, BTreeMap<u64, CachedTimestampValue<V>>>,
     total_cost: usize,
@@ -116,16 +115,10 @@ where
     fn position_for_time(&self, sequence: &K, requested: Duration) -> Option<u64> {
         let requested = timestamp_position(requested);
         let values = self.sequences.get(sequence)?;
-        if let Some((position, cached)) = values.range(..=requested).next_back() {
-            let end = position.saturating_add(timestamp_position(cached.duration));
-            if requested < end || (cached.duration.is_zero() && requested == *position) {
-                return Some(*position);
-            }
-        }
-        values
-            .range(requested..)
-            .next()
-            .map(|(position, _)| *position)
+        let (position, cached) = values.range(..=requested).next_back()?;
+        let end = position.saturating_add(timestamp_position(cached.duration));
+        (requested < end || (cached.duration.is_zero() && requested == *position))
+            .then_some(*position)
     }
 
     fn least_recently_used(&self, mut include: impl FnMut(&(K, u64)) -> bool) -> Option<(K, u64)> {
@@ -168,4 +161,84 @@ where
 
 fn timestamp_position(time: Duration) -> u64 {
     u64::try_from(time.as_nanos()).unwrap_or(u64::MAX)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn test_cache() -> BudgetedTimestampCache<String, u64> {
+        BudgetedTimestampCache::new(1024)
+    }
+
+    #[test]
+    fn lookup_misses_without_covering_frame() {
+        let mut cache = test_cache();
+        cache.insert(
+            "sequence".to_owned(),
+            Duration::from_secs(10),
+            Duration::from_millis(40),
+            1,
+            8,
+        );
+        assert!(!cache.contains_time(&"sequence".to_owned(), Duration::from_secs(5)));
+        assert!(
+            cache
+                .get_for_time(&"sequence".to_owned(), Duration::from_secs(5))
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn lookup_hits_covering_frame() {
+        let mut cache = test_cache();
+        cache.insert(
+            "sequence".to_owned(),
+            Duration::from_secs(10),
+            Duration::from_millis(40),
+            1,
+            8,
+        );
+        let hit = cache
+            .get_for_time(
+                &"sequence".to_owned(),
+                Duration::from_secs(10) + Duration::from_millis(10),
+            )
+            .expect("covering frame must hit");
+        assert_eq!(hit.presentation_time, Duration::from_secs(10));
+        assert_eq!(hit.value, 1);
+        assert!(
+            cache
+                .get_for_time(
+                    &"sequence".to_owned(),
+                    Duration::from_secs(10) + Duration::from_millis(40)
+                )
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn zero_duration_frame_hits_exact_time() {
+        let mut cache = test_cache();
+        cache.insert(
+            "sequence".to_owned(),
+            Duration::from_secs(3),
+            Duration::ZERO,
+            7,
+            8,
+        );
+        assert!(
+            cache
+                .get_for_time(&"sequence".to_owned(), Duration::from_secs(3))
+                .is_some()
+        );
+        assert!(
+            cache
+                .get_for_time(
+                    &"sequence".to_owned(),
+                    Duration::from_secs(3) + Duration::from_nanos(1)
+                )
+                .is_none()
+        );
+    }
 }

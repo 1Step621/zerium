@@ -4,7 +4,10 @@ use std::{
     hash::{Hash, Hasher},
     io,
     path::{Path, PathBuf},
-    sync::mpsc::{self, SyncSender},
+    sync::{
+        atomic::AtomicBool,
+        mpsc::{self, SyncSender},
+    },
     thread,
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
@@ -486,6 +489,7 @@ fn create_proxy_file(
         },
     )
     .map_err(MediaError::external)?;
+    let cancelled = AtomicBool::new(false);
     for target_frame in 0..target_frame_count {
         let target_time = source_start
             .checked_add(
@@ -502,6 +506,7 @@ fn create_proxy_file(
                 max_width: width,
                 max_height: height,
             },
+            &cancelled,
         )?;
         encoder
             .encode_video(&decoded.frame, target_frame)

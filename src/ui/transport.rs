@@ -17,6 +17,13 @@ pub(crate) enum ScrubSource {
     AnimationCurve,
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PreviewPlaybackMode {
+    Idle,
+    Scrubbing,
+    Playing,
+}
+
 #[derive(Clone, Copy, Debug)]
 struct PlaybackSession {
     start_frame: Frame,
@@ -56,6 +63,14 @@ impl TransportController {
         matches!(self.mode, TransportMode::Playing(_))
     }
 
+    pub(crate) fn playback_mode(&self) -> PreviewPlaybackMode {
+        match self.mode {
+            TransportMode::Stopped => PreviewPlaybackMode::Idle,
+            TransportMode::Scrubbing(_) => PreviewPlaybackMode::Scrubbing,
+            TransportMode::Playing(_) => PreviewPlaybackMode::Playing,
+        }
+    }
+
     pub(crate) fn toggle_playback(&mut self, cx: &mut Context<Self>) {
         if self.is_playing() {
             self.stop(cx);
@@ -68,7 +83,12 @@ impl TransportController {
         self.stop_audio(cx);
         let (start_frame, frame_rate, items, active_items) = {
             let editor = self.editor.read(cx);
-            let start_frame = editor.playhead();
+            let playhead = editor.playhead();
+            let start_frame = if playhead >= editor.end_frame_exclusive() {
+                Frame::new(0)
+            } else {
+                playhead
+            };
             (
                 start_frame,
                 editor.frame_rate(),
@@ -100,9 +120,10 @@ impl TransportController {
             uses_audio_clock: clock == PlaybackClock::Audio,
         });
         let start_seconds = frame_rate.frame_to_seconds(start_frame);
-        self.editor.update(cx, |editor, _| {
-            editor.set_realtime_preview(true);
-            editor.set_playback_position(start_seconds, start_frame);
+        self.editor.update(cx, |editor, cx| {
+            if editor.set_playback_position(start_seconds, start_frame) {
+                cx.notify();
+            }
         });
         cx.notify();
     }
@@ -113,8 +134,10 @@ impl TransportController {
         }
         self.stop_audio(cx);
         self.mode = TransportMode::Stopped;
-        self.editor.update(cx, |editor, _| {
-            editor.set_realtime_preview(false);
+        self.editor.update(cx, |editor, cx| {
+            if editor.clear_playback_time() {
+                cx.notify();
+            }
         });
         cx.notify();
         true
@@ -129,9 +152,6 @@ impl TransportController {
     pub(crate) fn begin_scrub(&mut self, source: ScrubSource, cx: &mut Context<Self>) {
         self.stop_audio(cx);
         self.mode = TransportMode::Scrubbing(source);
-        self.editor.update(cx, |editor, _| {
-            editor.set_realtime_preview(true);
-        });
         cx.notify();
     }
 
@@ -140,13 +160,21 @@ impl TransportController {
             return;
         }
         self.mode = TransportMode::Stopped;
-        self.editor.update(cx, |editor, _| {
-            editor.set_realtime_preview(false);
+        self.editor.update(cx, |editor, cx| {
+            if editor.clear_playback_time() {
+                cx.notify();
+            }
         });
         cx.notify();
     }
 
     pub(crate) fn seek(&mut self, frame: Frame, cx: &mut Context<Self>) -> bool {
+        if matches!(self.mode, TransportMode::Playing(_)) {
+            self.stop(cx);
+            let changed = self.set_playhead(frame, cx);
+            self.play(cx);
+            return changed;
+        }
         let changed = self.editor.update(cx, |editor, _| editor.seek(frame));
         if changed {
             cx.notify();
@@ -179,7 +207,10 @@ impl TransportController {
         let TransportMode::Playing(playback) = self.mode else {
             return;
         };
-        let frame_rate = self.editor.read(cx).frame_rate();
+        let (frame_rate, end) = {
+            let editor = self.editor.read(cx);
+            (editor.frame_rate(), editor.end_frame_exclusive())
+        };
         let seconds = if playback.uses_audio_clock {
             self.audio
                 .read(cx)
@@ -190,6 +221,11 @@ impl TransportController {
                 + playback.started_at.elapsed().as_secs_f64()
         };
         let frame = frame_rate.seconds_to_frame(seconds);
+        if frame >= end {
+            self.stop(cx);
+            self.set_playhead(end, cx);
+            return;
+        }
         let changed = self
             .editor
             .update(cx, |editor, _| editor.set_playback_position(seconds, frame));

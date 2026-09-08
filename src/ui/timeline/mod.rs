@@ -2045,11 +2045,6 @@ impl Timeline {
 
 impl Render for Timeline {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        if self.transport.read(cx).is_playing() {
-            self.transport
-                .update(cx, |transport, cx| transport.advance(cx));
-            window.request_animation_frame();
-        }
         let layer_count = self.dynamic_layer_count(window, cx);
         let colors = cx.theme().colors;
         let viewport_width = Self::track_viewport_width(window);

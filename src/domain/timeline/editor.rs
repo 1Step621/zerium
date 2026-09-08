@@ -109,7 +109,6 @@ pub(crate) struct TimelineEditor {
     pub(super) next_effect_id: Option<u64>,
     scene_duration_cache: HashMap<SceneId, FrameDuration>,
     pub(super) playhead: Frame,
-    pub(super) realtime_preview: bool,
     pub(super) playback_time: Option<TimelineTime>,
     pub(super) selection: SelectionState,
     pub(super) visibility: PreviewVisibility,
@@ -159,7 +158,6 @@ impl TimelineEditor {
             next_effect_id,
             scene_duration_cache: HashMap::new(),
             playhead: Frame::new(0),
-            realtime_preview: false,
             playback_time: None,
             selection: SelectionState::default(),
             visibility: PreviewVisibility::default(),
@@ -445,7 +443,6 @@ impl TimelineEditor {
         }
         self.selection = snapshot.selection;
         self.project_revision = snapshot.project_revision;
-        self.realtime_preview = false;
         self.playback_time = None;
         self.advance_render_revision();
     }
@@ -476,7 +473,6 @@ impl TimelineEditor {
         self.next_scene_id = Some(1);
         self.next_effect_id = Self::next_effect_id(&self.project().document, std::iter::empty());
         self.playhead = playhead;
-        self.realtime_preview = false;
         self.playback_time = None;
         self.selection.clear();
         self.visibility.clear();
@@ -591,10 +587,6 @@ impl TimelineEditor {
 
     pub(crate) fn playhead(&self) -> Frame {
         self.playhead
-    }
-
-    pub(crate) fn is_realtime_preview(&self) -> bool {
-        self.realtime_preview
     }
 
     pub(crate) fn playback_time_seconds(&self) -> Option<f64> {

@@ -1,4 +1,11 @@
-use std::{collections::HashMap, error::Error, fmt, fs, path::Path, sync::Arc, time::Duration};
+use std::{
+    collections::HashMap,
+    error::Error,
+    fmt, fs,
+    path::Path,
+    sync::{Arc, atomic::AtomicBool},
+    time::Duration,
+};
 
 use crate::{
     domain::{
@@ -73,6 +80,7 @@ pub(crate) trait VideoDecoderSession: Send {
         &mut self,
         presentation_time: Duration,
         size: VideoDecodeSize,
+        cancelled: &AtomicBool,
     ) -> Result<DecodedVideoFrame, MediaError>;
 
     fn decode_from(
@@ -80,6 +88,7 @@ pub(crate) trait VideoDecoderSession: Send {
         presentation_time: Duration,
         frame_count: usize,
         size: VideoDecodeSize,
+        cancelled: &AtomicBool,
     ) -> Result<Vec<DecodedVideoFrame>, MediaError>;
 }
 
@@ -340,6 +349,7 @@ pub(crate) enum MediaError {
     InvalidInput(String),
     ReaderUnavailable(String),
     External(String),
+    Cancelled,
 }
 
 impl MediaError {
@@ -358,12 +368,13 @@ impl MediaError {
 
 impl fmt::Display for MediaError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
+        match self {
+            Self::Cancelled => formatter.write_str("キャンセルされました"),
             Self::Unsupported(message)
             | Self::InvalidInput(message)
             | Self::ReaderUnavailable(message)
-            | Self::External(message) => message,
-        })
+            | Self::External(message) => formatter.write_str(message),
+        }
     }
 }
 

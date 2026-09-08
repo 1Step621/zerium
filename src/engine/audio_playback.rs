@@ -22,6 +22,7 @@ use crate::{
 
 const AUDIO_BUFFER_SECONDS: usize = 2;
 const MIX_BLOCK_SAMPLE_FRAMES: usize = 2_048;
+const PREBUFFER_MILLIS: u64 = 200;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PlaybackClock {
@@ -156,13 +157,24 @@ impl AudioPlaybackEngine {
             .max(channels);
         let (mut producer, consumer) = rtrb::RingBuffer::<f32>::new(capacity);
         let start_sample_frame = sample_boundary(start_frame.get(), frame_rate, format.sample_rate);
-        let initial = graph
-            .render(start_sample_frame, MIX_BLOCK_SAMPLE_FRAMES)
-            .map_err(AudioPlaybackError::Timeline)?;
-        for sample in initial {
-            producer.push(sample).map_err(|_| {
-                AudioPlaybackError::Worker("初期音声バッファが不足しています".to_owned())
-            })?;
+        let mut render_cursor = start_sample_frame;
+        let mut prebuffered_frames = 0u64;
+        let prebuffer_target =
+            u64::from(format.sample_rate).saturating_mul(PREBUFFER_MILLIS) / 1000;
+        while prebuffered_frames < prebuffer_target {
+            let block = graph
+                .render(render_cursor, MIX_BLOCK_SAMPLE_FRAMES)
+                .map_err(AudioPlaybackError::Timeline)?;
+            if block.is_empty() {
+                break;
+            }
+            for sample in block {
+                producer.push(sample).map_err(|_| {
+                    AudioPlaybackError::Worker("初期音声バッファが不足しています".to_owned())
+                })?;
+            }
+            prebuffered_frames = prebuffered_frames.saturating_add(MIX_BLOCK_SAMPLE_FRAMES as u64);
+            render_cursor = render_cursor.saturating_add(MIX_BLOCK_SAMPLE_FRAMES as u64);
         }
 
         let played_sample_frames = Arc::new(AtomicU64::new(0));
@@ -183,11 +195,17 @@ impl AudioPlaybackEngine {
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
         let worker_events = events.clone();
+        let worker_played = played_sample_frames.clone();
         let worker = thread::Builder::new()
             .name("zerium-audio-render".to_owned())
             .spawn(move || {
-                let mut cursor = start_sample_frame.saturating_add(MIX_BLOCK_SAMPLE_FRAMES as u64);
+                let mut cursor = render_cursor;
                 while !worker_stop.load(Ordering::Acquire) {
+                    let expected =
+                        start_sample_frame.saturating_add(worker_played.load(Ordering::Acquire));
+                    if expected > cursor {
+                        cursor = expected;
+                    }
                     let mixed = match graph.render(cursor, MIX_BLOCK_SAMPLE_FRAMES) {
                         Ok(mixed) => mixed,
                         Err(error) => {

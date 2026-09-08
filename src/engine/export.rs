@@ -3,7 +3,7 @@ use std::{
     error::Error,
     fmt,
     path::PathBuf,
-    sync::{Arc, mpsc},
+    sync::{Arc, atomic::AtomicBool, mpsc},
     thread,
     time::Duration,
 };
@@ -167,6 +167,7 @@ pub(crate) fn export_timeline(
         })?;
     let mut decoders = HashMap::<TextureInputId, ExportDecoder>::new();
     let mut text_frames = TextFrameCache::new();
+    let cancelled = AtomicBool::new(false);
 
     let render_result = (|| {
         for frame_index in 0..frame_count {
@@ -189,6 +190,7 @@ pub(crate) fn export_timeline(
                         effect_size,
                         &mut decoders,
                         &media_readers,
+                        &cancelled,
                     )
                 },
                 |item, schema, target_size| {
@@ -304,6 +306,7 @@ fn encode_frames(
     Err(EncoderWorkerError::IncompleteInput)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn decode_texture_frame(
     timeline: &dyn TimelineView,
     item_id: ItemId,
@@ -312,6 +315,7 @@ fn decode_texture_frame(
     size: RenderSize,
     decoders: &mut HashMap<TextureInputId, ExportDecoder>,
     media_readers: &MediaReaderRegistry,
+    cancelled: &AtomicBool,
 ) -> Result<Option<Arc<RgbaFrame>>, ExportError> {
     let Some(item) = timeline
         .active_items_at_time(time)
@@ -363,6 +367,7 @@ fn decode_texture_frame(
             max_width: size.width,
             max_height: size.height,
         },
+        cancelled,
     )?;
     Ok(Some(Arc::new(decoded.frame)))
 }

@@ -1,6 +1,9 @@
 use std::{
     collections::{HashMap, HashSet, VecDeque},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -15,11 +18,14 @@ use crate::{
         cache::BudgetedTimestampCache,
         frame::RgbaFrame,
         media::{
-            MediaReaderRegistry, VideoDecodeSize, VideoDecoderSession, VideoProxy,
+            MediaError, MediaReaderRegistry, VideoDecodeSize, VideoDecoderSession, VideoProxy,
             VideoProxyRequest,
         },
     },
-    ui::session::{ProjectSession, ProjectSessionId, UiNotifications},
+    ui::{
+        session::{ProjectSession, ProjectSessionId, UiNotifications},
+        transport::PreviewPlaybackMode,
+    },
 };
 
 pub(super) struct VideoPlaybackRequest<'a> {
@@ -27,37 +33,77 @@ pub(super) struct VideoPlaybackRequest<'a> {
     pub playhead: Frame,
     pub frame_rate: FrameRate,
     pub playback_seconds: Option<f64>,
-    pub realtime: bool,
+    pub mode: PreviewPlaybackMode,
     pub size: VideoDecodeSize,
+}
+
+struct InFlightVideoDecode {
+    generation: u64,
+    cancel: Arc<AtomicBool>,
+    source: MediaAsset,
+    presentation_time: Duration,
+    size: VideoDecodeSize,
 }
 
 #[derive(Default)]
 struct InFlightVideoDecodes {
-    generations: HashMap<VideoInputId, u64>,
+    active: HashMap<VideoInputId, InFlightVideoDecode>,
     next_generation: u64,
 }
 
 impl InFlightVideoDecodes {
-    fn contains(&self, input: &VideoInputId) -> bool {
-        self.generations.contains_key(input)
+    fn get(&self, input: &VideoInputId) -> Option<&InFlightVideoDecode> {
+        self.active.get(input)
     }
 
-    fn start(&mut self, input: VideoInputId) -> Option<u64> {
-        if self.contains(&input) {
-            return None;
+    fn spawn(
+        &mut self,
+        input: VideoInputId,
+        source: MediaAsset,
+        presentation_time: Duration,
+        size: VideoDecodeSize,
+    ) -> (u64, Arc<AtomicBool>) {
+        if let Some(active) = self.active.get(&input) {
+            active.cancel.store(true, Ordering::Release);
         }
         self.next_generation = self.next_generation.wrapping_add(1);
         let generation = self.next_generation;
-        self.generations.insert(input, generation);
-        Some(generation)
+        let cancel = Arc::new(AtomicBool::new(false));
+        self.active.insert(
+            input,
+            InFlightVideoDecode {
+                generation,
+                cancel: cancel.clone(),
+                source,
+                presentation_time,
+                size,
+            },
+        );
+        (generation, cancel)
     }
 
-    fn finish(&mut self, input: &VideoInputId, generation: u64) -> bool {
-        if self.generations.get(input) != Some(&generation) {
-            return false;
+    fn complete(&mut self, input: &VideoInputId, generation: u64) -> bool {
+        if self
+            .active
+            .get(input)
+            .is_some_and(|active| active.generation == generation)
+        {
+            self.active.remove(input);
+            true
+        } else {
+            false
         }
-        self.generations.remove(input);
-        true
+    }
+
+    fn cancel_orphans(&mut self, active_inputs: &HashSet<VideoInputId>) {
+        self.active.retain(|input, decode| {
+            if active_inputs.contains(input) {
+                true
+            } else {
+                decode.cancel.store(true, Ordering::Release);
+                false
+            }
+        });
     }
 }
 
@@ -156,7 +202,7 @@ pub(super) struct VideoPlaybackEngine {
     frame_cache: BudgetedTimestampCache<VideoFrameSequence, Arc<RgbaFrame>>,
     requested_frames: HashMap<VideoInputId, RequestedVideoFrame>,
     last_presented_frames: HashMap<VideoInputId, PresentedVideoFrame>,
-    in_flight_decodes: InFlightVideoDecodes,
+    in_flight: InFlightVideoDecodes,
     decoders: HashMap<VideoInputId, VideoDecoderState>,
     proxies: HashMap<VideoProxyKey, VideoProxy>,
     queued_proxies: VecDeque<VideoProxyJob>,
@@ -168,6 +214,7 @@ pub(super) struct VideoPlaybackEngine {
     notifications: Entity<UiNotifications>,
     decode_tasks: HashMap<VideoInputId, Task<()>>,
     proxy_tasks: Vec<Task<()>>,
+    decode_mode: PreviewPlaybackMode,
     revision: u64,
     error: Option<String>,
     _session_subscription: Subscription,
@@ -210,7 +257,7 @@ impl VideoPlaybackEngine {
             frame_cache: BudgetedTimestampCache::new(Self::FRAME_CACHE_BUDGET_BYTES),
             requested_frames: HashMap::new(),
             last_presented_frames: HashMap::new(),
-            in_flight_decodes: InFlightVideoDecodes::default(),
+            in_flight: InFlightVideoDecodes::default(),
             decoders: HashMap::new(),
             proxies: HashMap::new(),
             queued_proxies: VecDeque::new(),
@@ -222,6 +269,7 @@ impl VideoPlaybackEngine {
             notifications,
             decode_tasks: HashMap::new(),
             proxy_tasks: Vec::new(),
+            decode_mode: PreviewPlaybackMode::Idle,
             revision: 0,
             error: None,
             _session_subscription: session_subscription,
@@ -239,7 +287,8 @@ impl VideoPlaybackEngine {
             request.frame_rate,
             request.playback_seconds,
         );
-        self.ensure_frames(requests, request.realtime, request.size, cx);
+        let mode = request.mode;
+        self.ensure_frames(requests, mode, request.size, cx);
         let requested = self
             .requested_frames
             .iter()
@@ -282,10 +331,18 @@ impl VideoPlaybackEngine {
                 if presentation_changed {
                     self.revision = self.revision.saturating_add(1);
                 }
-            } else if let Some(presented) = self
-                .last_presented_frames
-                .get(&input)
-                .filter(|presented| presented.asset == request.asset)
+            } else if (mode == PreviewPlaybackMode::Playing
+                || !self
+                    .failed_frames
+                    .get(&input)
+                    .is_some_and(|(failed_source, failed_time)| {
+                        failed_source == &request.source
+                            && *failed_time == request.presentation_time
+                    }))
+                && let Some(presented) = self
+                    .last_presented_frames
+                    .get(&input)
+                    .filter(|presented| presented.asset == request.asset)
             {
                 frames.insert(input, presented.frame.clone());
             }
@@ -486,10 +543,11 @@ impl VideoPlaybackEngine {
     fn ensure_frames(
         &mut self,
         requests: Vec<VideoDecodeRequest>,
-        realtime: bool,
+        mode: PreviewPlaybackMode,
         size: VideoDecodeSize,
         cx: &mut Context<Self>,
     ) {
+        self.decode_mode = mode;
         let active_inputs = requests
             .iter()
             .map(|request| request.input.clone())
@@ -498,25 +556,30 @@ impl VideoPlaybackEngine {
             .retain(|input, _| active_inputs.contains(input));
         self.last_presented_frames
             .retain(|input, _| active_inputs.contains(input));
-        self.decoders
-            .retain(|input, _| active_inputs.contains(input));
         self.failed_frames
+            .retain(|input, _| active_inputs.contains(input));
+        self.in_flight.cancel_orphans(&active_inputs);
+        self.decode_tasks
+            .retain(|input, _| active_inputs.contains(input));
+        self.decoders
             .retain(|input, _| active_inputs.contains(input));
 
         self.update_proxy_queue(&requests);
         for request in requests {
-            let proxy = realtime
-                .then(|| {
-                    self.proxies
-                        .get(&request.proxy_key(Self::PROXY_CHUNK_SECONDS))
-                })
-                .flatten();
+            let proxy = matches!(
+                mode,
+                PreviewPlaybackMode::Playing | PreviewPlaybackMode::Scrubbing
+            )
+            .then(|| {
+                self.proxies
+                    .get(&request.proxy_key(Self::PROXY_CHUNK_SECONDS))
+            })
+            .flatten();
             let (source, source_start) = proxy.map_or_else(
                 || (request.asset.clone(), Duration::ZERO),
                 |proxy| (proxy.asset.clone(), proxy.source_start),
             );
             let presentation_time = request.presentation_time_in(source_start);
-            let sequence = VideoFrameSequence::new(&request.asset, &source, source_start, size);
             self.requested_frames.insert(
                 request.input.clone(),
                 RequestedVideoFrame {
@@ -527,136 +590,177 @@ impl VideoPlaybackEngine {
                     size,
                 },
             );
+            self.decode_input_if_needed(&request.input, cx);
+        }
+        self.start_next_proxy(cx);
+    }
 
-            if self.frame_cache.contains_time(&sequence, presentation_time)
-                || self.in_flight_decodes.contains(&request.input)
-                || self.failed_frames.get(&request.input).is_some_and(
-                    |(failed_source, failed_time)| {
-                        failed_source == &source && *failed_time == presentation_time
-                    },
-                )
+    fn decode_input_if_needed(&mut self, input: &VideoInputId, cx: &mut Context<Self>) {
+        let Some(requested) = self.requested_frames.get(input).cloned() else {
+            return;
+        };
+        let sequence = VideoFrameSequence::new(
+            &requested.asset,
+            &requested.source,
+            requested.source_start,
+            requested.size,
+        );
+        if self
+            .frame_cache
+            .contains_time(&sequence, requested.presentation_time)
+        {
+            return;
+        }
+        if self
+            .failed_frames
+            .get(input)
+            .is_some_and(|(failed_source, failed_time)| {
+                failed_source == &requested.source && *failed_time == requested.presentation_time
+            })
+        {
+            return;
+        }
+        if let Some(active) = self.in_flight.get(input) {
+            if active.source != requested.source
+                || active.presentation_time != requested.presentation_time
+                || active.size != requested.size
             {
-                continue;
+                active.cancel.store(true, Ordering::Release);
             }
-
-            let frame_count = if realtime {
-                usize::try_from(Self::decode_batch_frames(
-                    size,
-                    Self::PREFETCH_BATCH_FRAMES,
-                    Self::PREFETCH_BATCH_FRAMES,
-                ))
-                .unwrap_or(1)
-            } else {
-                1
-            };
-            let input = request.input;
-            let decoder = self
-                .decoders
-                .remove(&input)
-                .filter(|decoder| decoder.source == source);
-            let Some(generation) = self.in_flight_decodes.start(input.clone()) else {
-                continue;
-            };
-            let media_readers = self.media_readers.clone();
-            let source_for_open = source.clone();
-            let session = self.session.clone();
-            let session_id = session.read(cx).id();
-            let task_input = input.clone();
-            let task = cx.spawn(async move |playback, cx| {
-                let (decoder, result) = cx
-                    .background_spawn(async move {
-                        let mut decoder = match decoder {
-                            Some(decoder) => decoder,
-                            None => match media_readers.open_video_decoder(&source_for_open) {
-                                Ok(decoder) => VideoDecoderState {
-                                    source: source_for_open,
-                                    decoder,
-                                },
-                                Err(error) => return (None, Err(error.to_string())),
+            return;
+        }
+        let source = requested.source.clone();
+        let presentation_time = requested.presentation_time;
+        let size = requested.size;
+        let frame_count = match self.decode_mode {
+            PreviewPlaybackMode::Playing => usize::try_from(Self::decode_batch_frames(
+                size,
+                Self::PREFETCH_BATCH_FRAMES,
+                Self::PREFETCH_BATCH_FRAMES,
+            ))
+            .unwrap_or(1),
+            PreviewPlaybackMode::Scrubbing | PreviewPlaybackMode::Idle => 1,
+        };
+        let decoder = self
+            .decoders
+            .remove(input)
+            .filter(|decoder| decoder.source == source);
+        let (generation, cancel) =
+            self.in_flight
+                .spawn(input.clone(), source.clone(), presentation_time, size);
+        let media_readers = self.media_readers.clone();
+        let source_for_open = source.clone();
+        let session = self.session.clone();
+        let session_id = session.read(cx).id();
+        let task_input = input.clone();
+        let task = cx.spawn(async move |playback, cx| {
+            let (decoder, result) = cx
+                .background_spawn(async move {
+                    let mut decoder = match decoder {
+                        Some(decoder) => decoder,
+                        None => match media_readers.open_video_decoder(&source_for_open) {
+                            Ok(decoder) => VideoDecoderState {
+                                source: source_for_open,
+                                decoder,
                             },
-                        };
-                        let result = decoder
+                            Err(error) => return (None, Err(error)),
+                        },
+                    };
+                    let result =
+                        decoder
                             .decoder
-                            .decode_from(presentation_time, frame_count, size)
-                            .map_err(|error| error.to_string());
-                        (Some(decoder), result)
-                    })
-                    .await;
-                if !session.update(cx, |session, _| session.is_current(session_id)) {
-                    return;
-                }
-                if let Some(playback) = playback.upgrade() {
-                    playback.update(cx, |playback, cx| {
-                        if !playback.in_flight_decodes.finish(&input, generation) {
-                            return;
+                            .decode_from(presentation_time, frame_count, size, &cancel);
+                    (Some(decoder), result)
+                })
+                .await;
+            if !session.update(cx, |session, _| session.is_current(session_id)) {
+                return;
+            }
+            if let Some(playback) = playback.upgrade() {
+                playback.update(cx, |playback, cx| {
+                    let matched = playback.in_flight.complete(&task_input, generation);
+                    if let Some(decoder) = decoder {
+                        let reuse = playback
+                            .requested_frames
+                            .get(&task_input)
+                            .is_some_and(|request| request.source == decoder.source);
+                        if reuse {
+                            playback.decoders.insert(task_input.clone(), decoder);
                         }
-                        let request_is_current =
-                            playback
+                    }
+                    if !matched {
+                        return;
+                    }
+                    match result {
+                        Err(MediaError::Cancelled) => {}
+                        Ok(frames) => {
+                            for decoded in frames {
+                                let cost = decoded.frame.rgba.len();
+                                playback.frame_cache.insert(
+                                    sequence.clone(),
+                                    decoded.presentation_time,
+                                    decoded.duration,
+                                    Arc::new(decoded.frame),
+                                    cost,
+                                );
+                            }
+                            playback.frame_cache.evict_to_budget(
+                                playback.requested_frames.values().map(|request| {
+                                    (
+                                        VideoFrameSequence::new(
+                                            &request.asset,
+                                            &request.source,
+                                            request.source_start,
+                                            request.size,
+                                        ),
+                                        request.presentation_time,
+                                    )
+                                }),
+                            );
+                            playback.failed_frames.remove(&task_input);
+                            if playback
                                 .requested_frames
-                                .get(&input)
+                                .get(&task_input)
                                 .is_some_and(|request| {
                                     request.source == source
                                         && request.presentation_time == presentation_time
                                         && request.size == size
-                                });
-                        if request_is_current && let Some(decoder) = decoder {
-                            playback.decoders.insert(input.clone(), decoder);
-                        }
-                        match result {
-                            Ok(frames) => {
-                                for decoded in frames {
-                                    let cost = decoded.frame.rgba.len();
-                                    playback.frame_cache.insert(
-                                        sequence.clone(),
-                                        decoded.presentation_time,
-                                        decoded.duration,
-                                        Arc::new(decoded.frame),
-                                        cost,
-                                    );
-                                }
-                                playback.frame_cache.evict_to_budget(
-                                    playback.requested_frames.values().map(|request| {
-                                        (
-                                            VideoFrameSequence::new(
-                                                &request.asset,
-                                                &request.source,
-                                                request.source_start,
-                                                request.size,
-                                            ),
-                                            request.presentation_time,
-                                        )
-                                    }),
-                                );
-                                playback.failed_frames.remove(&input);
-                                if request_is_current {
-                                    playback.error = None;
-                                }
+                                })
+                            {
+                                playback.error = None;
                             }
-                            Err(error) => {
+                        }
+                        Err(error) => {
+                            let current =
                                 playback
-                                    .failed_frames
-                                    .insert(input.clone(), (source, presentation_time));
-                                if request_is_current {
-                                    playback.error = Some(error.clone());
-                                    playback.notifications.update(cx, |notifications, cx| {
-                                        notifications.push(
-                                            format!(
-                                                "動画フレームの読み込みに失敗しました: {error}"
-                                            ),
-                                            cx,
-                                        );
+                                    .requested_frames
+                                    .get(&task_input)
+                                    .is_some_and(|request| {
+                                        request.source == source
+                                            && request.presentation_time == presentation_time
+                                            && request.size == size
                                     });
-                                }
+                            playback
+                                .failed_frames
+                                .insert(task_input.clone(), (source, presentation_time));
+                            if current {
+                                playback.error = Some(error.to_string());
+                                playback.notifications.update(cx, |notifications, cx| {
+                                    notifications.push(
+                                        format!("動画フレームの読み込みに失敗しました: {error}"),
+                                        cx,
+                                    );
+                                });
                             }
                         }
-                        playback.revision = playback.revision.saturating_add(1);
-                        cx.notify();
-                    });
-                }
-            });
-            self.decode_tasks.insert(task_input, task);
-        }
-        self.start_next_proxy(cx);
+                    }
+                    playback.revision = playback.revision.saturating_add(1);
+                    playback.decode_input_if_needed(&task_input, cx);
+                    cx.notify();
+                });
+            }
+        });
+        self.decode_tasks.insert(input.clone(), task);
     }
 
     fn reset_for_project_change(&mut self) {
@@ -665,7 +769,7 @@ impl VideoPlaybackEngine {
         self.frame_cache = BudgetedTimestampCache::new(Self::FRAME_CACHE_BUDGET_BYTES);
         self.requested_frames.clear();
         self.last_presented_frames.clear();
-        self.in_flight_decodes = InFlightVideoDecodes::default();
+        self.in_flight = InFlightVideoDecodes::default();
         self.decoders.clear();
         self.proxies.clear();
         self.queued_proxies.clear();
@@ -685,5 +789,108 @@ impl VideoPlaybackEngine {
             .unwrap_or(1)
             .max(1);
         desired.min(memory_limited).min(available)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use crate::domain::media::{MediaAsset, MediaKind};
+
+    use super::*;
+
+    fn test_asset() -> MediaAsset {
+        MediaAsset {
+            reader_id: "test".to_owned(),
+            path: PathBuf::from("test.mp4"),
+            name: "test".to_owned(),
+            duration: Duration::from_secs(60),
+            kind: MediaKind::Image {
+                width: 64,
+                height: 64,
+            },
+        }
+    }
+
+    fn test_input() -> VideoInputId {
+        VideoInputId {
+            item_id: ItemId(1),
+            input_id: "video".to_owned(),
+        }
+    }
+
+    fn test_size() -> VideoDecodeSize {
+        VideoDecodeSize {
+            max_width: 64,
+            max_height: 64,
+        }
+    }
+
+    #[test]
+    fn newer_seek_supersedes_in_flight_decode() {
+        let mut in_flight = InFlightVideoDecodes::default();
+        let input = test_input();
+        let (first, _) = in_flight.spawn(
+            input.clone(),
+            test_asset(),
+            Duration::from_secs(1),
+            test_size(),
+        );
+        let (second, _) = in_flight.spawn(
+            input.clone(),
+            test_asset(),
+            Duration::from_secs(10),
+            test_size(),
+        );
+        let (third, _) = in_flight.spawn(
+            input.clone(),
+            test_asset(),
+            Duration::from_secs(30),
+            test_size(),
+        );
+        assert!(!in_flight.complete(&input, first));
+        assert!(!in_flight.complete(&input, second));
+        assert!(in_flight.complete(&input, third));
+        assert!(!in_flight.complete(&input, third));
+    }
+
+    #[test]
+    fn superseded_decode_requests_cancellation() {
+        use std::sync::atomic::Ordering;
+
+        let mut in_flight = InFlightVideoDecodes::default();
+        let input = test_input();
+        let (_, first_cancel) = in_flight.spawn(
+            input.clone(),
+            test_asset(),
+            Duration::from_secs(1),
+            test_size(),
+        );
+        assert!(!first_cancel.load(Ordering::Acquire));
+        in_flight.spawn(
+            input.clone(),
+            test_asset(),
+            Duration::from_secs(30),
+            test_size(),
+        );
+        assert!(first_cancel.load(Ordering::Acquire));
+    }
+
+    #[test]
+    fn orphaned_inputs_are_cancelled() {
+        use std::sync::atomic::Ordering;
+
+        let mut in_flight = InFlightVideoDecodes::default();
+        let input = test_input();
+        let (_, cancel) = in_flight.spawn(
+            input.clone(),
+            test_asset(),
+            Duration::from_secs(1),
+            test_size(),
+        );
+        in_flight.cancel_orphans(&HashSet::new());
+        assert!(cancel.load(Ordering::Acquire));
+        assert!(in_flight.get(&input).is_none());
     }
 }

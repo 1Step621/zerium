@@ -26,7 +26,7 @@ use crate::{
     },
     ui::{
         session::{ProjectSession, ProjectSessionId, UiNotifications},
-        transport::TransportController,
+        transport::{PreviewPlaybackMode, TransportController},
     },
 };
 
@@ -212,11 +212,11 @@ impl Preview {
         size: RenderSize,
         cx: &mut Context<Self>,
     ) -> Result<(RenderScene, PreparedVideoFrames), RenderError> {
-        let (frame_rate, realtime, resolution) = {
+        let (frame_rate, mode, resolution) = {
             let editor = self.editor.read(cx);
             (
                 editor.frame_rate(),
-                editor.is_realtime_preview(),
+                self.transport.read(cx).playback_mode(),
                 editor.resolution(),
             )
         };
@@ -258,7 +258,7 @@ impl Preview {
         let playback = self.prepare_video_frames(
             &timed_items,
             frame_rate,
-            realtime,
+            mode,
             VideoDecodeSize {
                 max_width: effect_size.width,
                 max_height: effect_size.height,
@@ -305,7 +305,7 @@ impl Preview {
             )>,
         )],
         frame_rate: crate::domain::timeline::FrameRate,
-        realtime: bool,
+        mode: PreviewPlaybackMode,
         size: VideoDecodeSize,
         cx: &mut Context<Self>,
     ) -> PreparedVideoFrames {
@@ -322,7 +322,7 @@ impl Preview {
                         playhead: time.nearest_frame(),
                         frame_rate,
                         playback_seconds: Some(time.seconds(frame_rate)),
-                        realtime,
+                        mode,
                         size,
                     },
                     cx,
@@ -431,6 +431,8 @@ impl Preview {
 impl Render for Preview {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.transport.read(cx).is_playing() {
+            self.transport
+                .update(cx, |transport, cx| transport.advance(cx));
             window.request_animation_frame();
         }
         self.render_latest_frame(cx);

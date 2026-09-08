@@ -1,4 +1,12 @@
-use std::{collections::VecDeque, path::Path, sync::OnceLock, time::Duration};
+use std::{
+    collections::VecDeque,
+    path::Path,
+    sync::{
+        OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Duration,
+};
 
 use ffmpeg_next as ffmpeg;
 
@@ -626,6 +634,7 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
         &mut self,
         presentation_time: Duration,
         size: VideoDecodeSize,
+        cancelled: &AtomicBool,
     ) -> Result<DecodedVideoFrame, MediaError> {
         if size.max_width == 0 || size.max_height == 0 {
             return Err(MediaError::external("映像フレーム要求が不正です"));
@@ -684,6 +693,10 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
             .take()
             .filter(|frame| frame.presentation_time <= presentation_time);
         while let Some(decoded) = self.next_decoded_frame()? {
+            if cancelled.load(Ordering::Relaxed) {
+                self.last_frame = candidate;
+                return Err(MediaError::Cancelled);
+            }
             let frame_time = self
                 .frame_presentation_time(&decoded)
                 .unwrap_or(self.fallback_time);
@@ -738,11 +751,12 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
         presentation_time: Duration,
         frame_count: usize,
         size: VideoDecodeSize,
+        cancelled: &AtomicBool,
     ) -> Result<Vec<DecodedVideoFrame>, MediaError> {
         if frame_count == 0 {
             return Err(MediaError::external("映像フレーム要求が不正です"));
         }
-        let first = self.decode_at(presentation_time, size)?;
+        let first = self.decode_at(presentation_time, size, cancelled)?;
         if matches!(self.asset.kind, MediaKind::Image { .. }) || frame_count == 1 {
             return Ok(vec![first]);
         }
@@ -758,6 +772,9 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
         let mut frames = Vec::with_capacity(frame_count);
         frames.push(first);
         while frames.len() < frame_count {
+            if cancelled.load(Ordering::Relaxed) {
+                return Err(MediaError::Cancelled);
+            }
             let Some(decoded) = self.next_decoded_frame()? else {
                 break;
             };
