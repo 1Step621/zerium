@@ -1,6 +1,7 @@
+use super::control::ArrayGroup;
 use super::*;
 
-pub(super) fn append_default(field: &ArrayField) -> ParameterValue {
+pub(super) fn append_default(field: &ArrayGroup) -> ParameterValue {
     let ui = field.parameter.ui();
     let constraints = field.parameter.constraints();
     let display_scale = f64::from(ui.display_scale());
@@ -60,7 +61,7 @@ pub(super) fn append_default(field: &ArrayField) -> ParameterValue {
         .unwrap_or(value)
 }
 
-fn interpolated_or_last(field: &ArrayField) -> Option<ParameterValue> {
+fn interpolated_or_last(field: &ArrayGroup) -> Option<ParameterValue> {
     match field.values.as_slice() {
         [first, .., last] => array_element_midpoint(first, last).or_else(|| Some(last.clone())),
         [.., last] => Some(last.clone()),

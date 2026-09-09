@@ -1628,69 +1628,6 @@ impl TimelineEditor {
         self.finish_project_edit_if_changed(changed, before, Some(key))
     }
 
-    pub(crate) fn update_selected_parameter_numeric_scalar(
-        &mut self,
-        parameter_id: &str,
-        coordinate: Option<usize>,
-        value: f64,
-    ) -> bool {
-        if !value.is_finite() {
-            return false;
-        }
-
-        let ids = self.selection.sorted_current();
-        let updates = ids
-            .iter()
-            .map(|id| {
-                let source = self.active_document().item(*id)?;
-                let materialized = self.materialized_item(source);
-                let item = &materialized;
-                let parameter = resolve_parameter_schema(
-                    &self.project().scenes,
-                    item,
-                    SceneBindingOwner::Item,
-                    parameter_id,
-                )
-                .cloned()?;
-                let scene_schema = item.scene_id().is_some().then_some(parameter.clone());
-                let is_size = item
-                    .schema()
-                    .is_some_and(|schema| schema.is_size_parameter(parameter_id));
-                if coordinate == Some(1) && is_size && item.preserves_aspect_ratio() {
-                    return None;
-                }
-                let mut updated = item.parameters.get(parameter_id)?.clone();
-                let scalar = updated.scalar_at_mut(coordinate)?;
-                *scalar = scalar.with_numeric_scalar(value)?;
-                updated
-                    .matches_type(&parameter.ty)
-                    .then_some((*id, updated, scene_schema))
-            })
-            .collect::<Option<Vec<_>>>();
-        let Some(updates) = updates.filter(|updates| !updates.is_empty()) else {
-            return false;
-        };
-
-        let key = if ids.len() == 1 {
-            HistoryKey::ItemParameter(ids[0], parameter_id.to_owned())
-        } else {
-            HistoryKey::ItemsParameter(ids, parameter_id.to_owned())
-        };
-        let before = self.history_snapshot_for_edit(Some(&key));
-        let mut changed = false;
-        for (id, value, scene_schema) in updates {
-            changed |= if let Some(schema) = scene_schema {
-                self.active_document_mut()
-                    .item_mut(id)
-                    .is_some_and(|item| set_scene_instance_override(item, &schema, value))
-            } else {
-                self.active_document_mut()
-                    .update_item_parameter(id, parameter_id, value)
-            };
-        }
-        self.finish_project_edit_if_changed(changed, before, Some(key))
-    }
-
     pub(crate) fn add_selected_effect(
         &mut self,
         plugin_id: &str,

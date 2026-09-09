@@ -1,21 +1,12 @@
-mod animation;
-mod array;
-mod choice;
-mod color;
-mod effects;
-mod fields;
-mod inputs;
+mod control;
+mod edit;
 mod model;
-mod number;
 mod numeric;
 mod render;
-mod scalar;
-mod scene;
+mod rows;
+mod scene_args;
+mod state;
 use numeric::NumericInput;
-mod scene_view;
-mod string;
-mod tuple;
-mod view;
 
 use std::collections::{HashMap, HashSet};
 
@@ -54,16 +45,68 @@ use crate::ui::property::PropertyPath;
 use crate::ui::search_picker::{SearchPicker, SearchPickerEntry};
 use crate::ui::session::{ProjectActivity, ProjectSession, ProjectSessionId, UiNotifications};
 
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(super) struct ControlId(String);
+
+impl ControlId {
+    pub(super) fn property(path: &PropertyPath) -> Self {
+        Self(format!("property:{path}"))
+    }
+
+    pub(super) fn scene_name(scene_id: SceneId) -> Self {
+        Self(format!("scene:{}/name", scene_id.get()))
+    }
+
+    pub(super) fn scene_argument_name(scene_id: SceneId, argument_id: &str) -> Self {
+        Self(format!(
+            "scene:{}/argument:{argument_id}/name",
+            scene_id.get()
+        ))
+    }
+
+    pub(super) fn scene_argument_expression(scene_id: SceneId, argument_id: &str) -> Self {
+        Self(format!(
+            "scene:{}/argument:{argument_id}/expression",
+            scene_id.get()
+        ))
+    }
+
+    pub(super) fn scene_argument_default(scene_id: SceneId, argument_id: &str) -> Self {
+        Self(format!(
+            "scene:{}/argument:{argument_id}/default",
+            scene_id.get()
+        ))
+    }
+
+    pub(super) fn scene_argument_setting(
+        scene_id: SceneId,
+        argument_id: &str,
+        setting: SceneArgumentSetting,
+    ) -> Self {
+        Self(format!(
+            "scene:{}/argument:{argument_id}/setting:{setting:?}",
+            scene_id.get()
+        ))
+    }
+
+    pub(super) fn scene_argument_color(scene_id: SceneId, argument_id: &str) -> Self {
+        Self(format!(
+            "scene:{}/argument:{argument_id}/color",
+            scene_id.get()
+        ))
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct PropertyTarget {
-    key: PropertyPath,
-    parameter_id: String,
-    effect_id: Option<EffectInstanceId>,
-    value_path: SceneBindingValuePath,
+pub(super) struct PropertyTarget {
+    pub key: PropertyPath,
+    pub parameter_id: String,
+    pub effect_id: Option<EffectInstanceId>,
+    pub value_path: SceneBindingValuePath,
 }
 
 impl PropertyTarget {
-    fn animation_enabled(&self, item: &TimelineItem) -> bool {
+    pub(super) fn animation_enabled(&self, item: &TimelineItem) -> bool {
         item.animation(
             self.effect_id,
             &self.parameter_id,
@@ -72,7 +115,7 @@ impl PropertyTarget {
         .is_some_and(|animation| animation.channel_enabled(self.animation_address().channel))
     }
 
-    fn animation_address(&self) -> ParameterAnimationAddress {
+    pub(super) fn animation_address(&self) -> ParameterAnimationAddress {
         ParameterAnimationAddress {
             array_index: self.value_path.array_element(),
             channel: self
@@ -82,7 +125,7 @@ impl PropertyTarget {
         }
     }
 
-    fn animation_target(&self, item_id: ItemId) -> AnimationTarget {
+    pub(super) fn animation_target(&self, item_id: ItemId) -> AnimationTarget {
         AnimationTarget {
             item_id,
             effect_id: self.effect_id,
@@ -94,221 +137,99 @@ impl PropertyTarget {
 }
 
 #[derive(Clone)]
-struct NumberInputSettings {
-    suffix: String,
-    min: f64,
-    max: f64,
-    step: f64,
-    display_scale: f64,
+pub(super) struct SceneArgumentOption {
+    pub scene_id: SceneId,
+    pub id: String,
+    pub label: String,
+    pub schema: ParameterSchema,
+    pub binding_count: usize,
+    pub bindings: Vec<SceneBindingTarget>,
+    pub derived: bool,
+    pub referenced_by_derived: bool,
 }
 
 #[derive(Clone)]
-struct NumberField {
-    target: PropertyTarget,
-    input: NumberInputSettings,
-    label: String,
-    element_label: Option<String>,
-    animatable: bool,
-    is_size: bool,
-    scalar_type: ScalarParameterType,
-    scene_bindable: bool,
-}
-
-#[derive(Clone)]
-struct SceneArgumentOption {
-    scene_id: SceneId,
-    id: String,
-    label: String,
-    schema: ParameterSchema,
-    binding_count: usize,
-    bindings: Vec<SceneBindingTarget>,
-    derived: bool,
-    referenced_by_derived: bool,
-}
-
-#[derive(Clone)]
-struct SceneFieldBinding {
-    target: SceneBindingTarget,
-    connected: Option<(String, String)>,
-    compatible: Vec<(String, String)>,
+pub(super) struct SceneFieldBinding {
+    pub target: SceneBindingTarget,
+    pub connected: Option<(String, String)>,
+    pub compatible: Vec<(String, String)>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-enum SceneArgumentSetting {
+pub(super) enum SceneArgumentSetting {
     Default,
     Min,
     Max,
 }
 
 #[derive(Clone)]
-struct NumberAnimationDisplay {
-    source_parameter_id: String,
-    source_address: ParameterAnimationAddress,
-    value_scale: f64,
-    from: f64,
-    to: f64,
+pub(super) struct NumberAnimationDisplay {
+    pub source_parameter_id: String,
+    pub source_address: ParameterAnimationAddress,
+    pub value_scale: f64,
+    pub from: f64,
+    pub to: f64,
+}
+
+#[derive(Clone)]
+pub(super) struct ColorAnimationDisplay {
+    pub from: [f32; 4],
+    pub to: [f32; 4],
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash)]
-enum AnimationEndpoint {
+pub(super) enum AnimationEndpoint {
     From,
     To,
 }
 
-#[derive(Clone)]
-struct AnimationInputBinding {
-    path: PropertyPath,
-    endpoint: AnimationEndpoint,
-}
-
-struct BoolField {
-    target: PropertyTarget,
-    label: String,
-    element_label: Option<String>,
-    value: bool,
-    mixed: bool,
-    scene_bindable: bool,
-}
-
 #[derive(Clone, Copy)]
-struct AspectRatioLockState {
-    value: bool,
-    mixed: bool,
-    multiple: bool,
-    disabled_by_scene_size_argument: bool,
+pub(super) struct AspectRatioLockState {
+    pub value: bool,
+    pub mixed: bool,
+    pub multiple: bool,
+    pub disabled_by_scene_size_argument: bool,
 }
 
 impl AspectRatioLockState {
-    fn checked(self) -> bool {
+    pub(super) fn checked(self) -> bool {
         self.value && !self.mixed
     }
 }
 
-struct StringField {
-    target: PropertyTarget,
-    label: String,
-    element_label: Option<String>,
-    multiline: bool,
-    value: String,
-    scene_bindable: bool,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum ArrayElementEditor {
-    Scalar,
-    FontFamily,
-}
-
-enum PropertyControl {
-    Number(NumberField),
-    Array(ArrayField),
-    String(StringField),
-    Choice(ChoiceField),
-    Bool(BoolField),
-    Color(ColorField),
-    Tuple(TupleField),
-}
-
-struct TupleField {
-    label: String,
-    controls: Vec<PropertyControl>,
-}
-
-impl PropertyControl {
-    fn parameter_id(&self) -> &str {
-        match self {
-            Self::Number(field) => &field.target.parameter_id,
-            Self::Array(field) => &field.target.parameter_id,
-            Self::String(field) => &field.target.parameter_id,
-            Self::Choice(field) => &field.target.parameter_id,
-            Self::Bool(field) => &field.target.parameter_id,
-            Self::Color(field) => &field.target.parameter_id,
-            Self::Tuple(tuple) => tuple
-                .controls
-                .first()
-                .map(PropertyControl::parameter_id)
-                .unwrap_or(""),
-        }
-    }
-
-    fn disable_animation(&mut self) {
-        match self {
-            Self::Number(field) => {
-                field.animatable = false;
-            }
-            Self::Array(field) => field.animation_allowed = false,
-            Self::Color(field) => field.animatable = false,
-            Self::Tuple(tuple) => {
-                for control in &mut tuple.controls {
-                    control.disable_animation();
-                }
-            }
-            Self::String(_) | Self::Choice(_) | Self::Bool(_) => {}
-        }
-    }
-}
-
-struct ChoiceField {
-    target: PropertyTarget,
-    ty: ParameterType,
-    scene_bindable: bool,
-    label: String,
-    element_label: Option<String>,
-    value: u32,
-    options: Vec<(String, u32)>,
+#[derive(Clone)]
+pub(super) struct ParameterBinding {
+    pub item_id: ItemId,
+    pub target: PropertyTarget,
 }
 
 #[derive(Clone)]
-struct ArrayField {
-    target: PropertyTarget,
-    parameter: Box<ParameterSchema>,
-    values: Vec<ParameterValue>,
-    element_editor: ArrayElementEditor,
-    animation_allowed: bool,
+pub(super) struct PropertyValueDrag {
+    pub inspector_id: EntityId,
+    pub path: PropertyPath,
+    pub animation_endpoint: Option<AnimationEndpoint>,
 }
 
 #[derive(Clone)]
-struct ParameterBinding {
-    item_id: ItemId,
-    target: PropertyTarget,
+pub(super) struct PropertyValueDragOrigin {
+    pub target: PropertyTarget,
+    pub animation_endpoint: Option<AnimationEndpoint>,
+    pub start_x: f32,
+    pub start_value: f64,
+    pub min: f64,
+    pub max: f64,
+    pub step: f64,
+    pub sensitivity: f64,
+    pub animation_scale: f64,
+    pub display_scale: f64,
 }
 
 #[derive(Clone)]
-struct ColorField {
-    target: PropertyTarget,
-    label: String,
-    element_label: Option<String>,
-    animatable: bool,
-    scene_bindable: bool,
-}
-
-#[derive(Clone)]
-struct PropertyValueDrag {
-    inspector_id: EntityId,
-    path: PropertyPath,
-    animation_endpoint: Option<AnimationEndpoint>,
-}
-
-#[derive(Clone)]
-struct PropertyValueDragOrigin {
-    target: PropertyTarget,
-    animation_endpoint: Option<AnimationEndpoint>,
-    start_x: f32,
-    start_value: f64,
-    min: f64,
-    max: f64,
-    step: f64,
-    sensitivity: f64,
-    animation_scale: f64,
-    display_scale: f64,
-}
-
-#[derive(Clone)]
-struct SceneArgumentValueDrag {
-    inspector_id: EntityId,
-    scene_id: SceneId,
-    argument_id: String,
-    setting: SceneArgumentSetting,
+pub(super) struct SceneArgumentValueDrag {
+    pub inspector_id: EntityId,
+    pub scene_id: SceneId,
+    pub argument_id: String,
+    pub setting: SceneArgumentSetting,
 }
 
 impl Render for SceneArgumentValueDrag {
@@ -317,57 +238,24 @@ impl Render for SceneArgumentValueDrag {
     }
 }
 
-struct SceneArgumentValueDragOrigin {
-    scene_id: SceneId,
-    argument_id: String,
-    setting: SceneArgumentSetting,
-    start_x: f32,
-    start_value: f64,
-    number: NumericInput,
-    sensitivity: f64,
+pub(super) struct SceneArgumentValueDragOrigin {
+    pub scene_id: SceneId,
+    pub argument_id: String,
+    pub setting: SceneArgumentSetting,
+    pub start_x: f32,
+    pub start_value: f64,
+    number: numeric::NumericInput,
+    pub sensitivity: f64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-struct InspectorInputStructure {
-    item_id: Option<ItemId>,
-    effect_ids: Vec<EffectInstanceId>,
-    array_lengths: Vec<(Option<u64>, String, usize)>,
-    item_scene_arguments: Vec<String>,
-    active_scene: Option<SceneId>,
-    active_scene_arguments: Vec<String>,
-}
-
-struct InspectorRenderContext<'a> {
-    colors: ThemeColor,
-    inspector: Entity<PropertyInspector>,
-    editor: &'a Entity<TimelineEditor>,
-    focus_handle: &'a FocusHandle,
-    inputs: &'a HashMap<PropertyPath, Entity<InputState>>,
-    animation_inputs: &'a HashMap<PropertyPath, (Entity<InputState>, Entity<InputState>)>,
-    color_pickers: &'a HashMap<PropertyPath, Entity<ColorPickerState>>,
-    animation_color_pickers:
-        &'a HashMap<(PropertyPath, AnimationEndpoint), Entity<ColorPickerState>>,
-    font_names: &'a [String],
-    active_scene_name_input: Option<Entity<InputState>>,
-}
-
-struct InspectorSelectionView {
-    item: TimelineItem,
-    item_label: String,
-    selected_count: usize,
-    aspect_ratio_lock: Option<AspectRatioLockState>,
-    property_controls: Vec<PropertyControl>,
-    effects: Vec<EffectInstance>,
-    scene_arguments: Vec<SceneArgumentOption>,
-    file_inputs: Vec<(FileCapability, Option<MediaAsset>)>,
-    available_effects: Vec<SearchPickerEntry<(String, String)>>,
-    hidden_effects: HashSet<EffectInstanceId>,
-    multiple: bool,
-    editing_scene: bool,
-    has_visual: bool,
-    items_hidden: bool,
-    item_visibility_mixed: bool,
-    kind_label: String,
+pub(super) struct InspectorInputStructure {
+    pub item_id: Option<ItemId>,
+    pub effect_ids: Vec<EffectInstanceId>,
+    pub array_lengths: Vec<(Option<u64>, String, usize)>,
+    pub item_scene_arguments: Vec<String>,
+    pub active_scene: Option<SceneId>,
+    pub active_scene_arguments: Vec<String>,
 }
 
 impl Render for PropertyValueDrag {
@@ -377,54 +265,30 @@ impl Render for PropertyValueDrag {
 }
 
 pub(crate) struct PropertyInspector {
-    editor: Entity<TimelineEditor>,
-    animation_selection: Entity<AnimationSelection>,
-    media_readers: std::sync::Arc<MediaReaderRegistry>,
-    session: Entity<ProjectSession>,
-    session_id: ProjectSessionId,
-    notifications: Entity<UiNotifications>,
-    focus_handle: FocusHandle,
-    controls: InspectorControls,
-    font_names: Vec<String>,
-    expanded_scene_arguments: HashSet<(SceneId, String)>,
-    loading_file: bool,
-    file_error: Option<SharedString>,
-    _file_task: Task<()>,
-    _editor_subscription: Subscription,
-    _session_subscription: Subscription,
-}
-
-/// Owns the lifecycle of all ephemeral controls as one unit. A structural
-/// selection change replaces this value, so entities and their subscriptions
-/// cannot survive independently in parallel maps.
-#[derive(Default)]
-pub(crate) struct InspectorControls {
-    input_structure: Option<InspectorInputStructure>,
-    inputs: HashMap<PropertyPath, Entity<InputState>>,
-    animation_inputs: HashMap<PropertyPath, (Entity<InputState>, Entity<InputState>)>,
-    animation_input_subscriptions: HashMap<PropertyPath, Vec<Subscription>>,
-    color_pickers: HashMap<PropertyPath, Entity<ColorPickerState>>,
-    animation_color_pickers: HashMap<(PropertyPath, AnimationEndpoint), Entity<ColorPickerState>>,
-    animation_color_subscriptions: HashMap<(PropertyPath, AnimationEndpoint), Subscription>,
-    scene_name_inputs: HashMap<SceneId, Entity<InputState>>,
-    scene_argument_name_inputs: HashMap<(SceneId, String), Entity<InputState>>,
-    scene_argument_setting_inputs:
-        HashMap<(SceneId, String, SceneArgumentSetting), Entity<InputState>>,
-    scene_argument_default_inputs: HashMap<(SceneId, String), Entity<InputState>>,
-    scene_argument_expression_inputs: HashMap<(SceneId, String), Entity<InputState>>,
-    scene_argument_color_pickers: HashMap<(SceneId, String), Entity<ColorPickerState>>,
-    value_drag_origin: Option<PropertyValueDragOrigin>,
-    scene_argument_value_drag_origin: Option<SceneArgumentValueDragOrigin>,
-    input_subscriptions: Vec<Subscription>,
+    pub(super) editor: Entity<TimelineEditor>,
+    pub(super) animation_selection: Entity<AnimationSelection>,
+    pub(super) media_readers: std::sync::Arc<MediaReaderRegistry>,
+    pub(super) session: Entity<ProjectSession>,
+    pub(super) session_id: ProjectSessionId,
+    pub(super) notifications: Entity<UiNotifications>,
+    pub(super) focus_handle: FocusHandle,
+    store: state::ControlStore,
+    pub(super) font_names: Vec<String>,
+    pub(super) expanded_scene_arguments: HashSet<(SceneId, String)>,
+    pub(super) loading_file: bool,
+    pub(super) file_error: Option<SharedString>,
+    pub(super) _file_task: Task<()>,
+    pub(super) _editor_subscription: Subscription,
+    pub(super) _session_subscription: Subscription,
 }
 
 impl PropertyInspector {
-    const PARAMETER_LABEL_WIDTH: f32 = 64.;
-    const DRAG_RANGE_PIXELS: f64 = 200.;
-    const MIN_STEP_MULTIPLIER: f64 = 0.1;
-    const MAX_STEP_MULTIPLIER: f64 = 2.;
+    pub(super) const PARAMETER_LABEL_WIDTH: f32 = 64.;
+    pub(super) const DRAG_RANGE_PIXELS: f64 = 200.;
+    pub(super) const MIN_STEP_MULTIPLIER: f64 = 0.1;
+    pub(super) const MAX_STEP_MULTIPLIER: f64 = 2.;
 
-    fn parameter_label_column(label: impl Into<SharedString>) -> Div {
+    pub(super) fn parameter_label_column(label: impl Into<SharedString>) -> Div {
         div()
             .w(px(Self::PARAMETER_LABEL_WIDTH))
             .h(px(24.))
@@ -469,7 +333,7 @@ impl PropertyInspector {
             session_id,
             notifications,
             focus_handle: cx.focus_handle(),
-            controls: InspectorControls::default(),
+            store: state::ControlStore::default(),
             font_names: {
                 let mut names = cx.text_system().all_font_names();
                 names.sort_unstable();
