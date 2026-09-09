@@ -9,10 +9,6 @@ cpal = "0.15"
 cosmic-text = "0.18.2"
 directories = "5"
 ffmpeg-next = { version = "9", default-features = false, features = ["format", "software-resampling", "software-scaling"] }
-# Keep these branch sources identical to WGPUI-Component's manifest so Cargo does
-# not create two incompatible gpui source identities. Cargo.lock pins WGPUI to
-# 1e75af96162160fb74260d98b722811f6d8dabe4 and UI to
-# 1c5bff9c6a5a8918c9f0fb3524e003268cc9e686.
 gpui = { package = "gpui-ce", git = "https://github.com/1Step621/WGPUI", branch = "fix/input-selection-replacement" }
 ui = { git = "https://github.com/1Step621/WGPUI-Component", branch = "fix/input-selection-replacement" }
 naga = { version = "30", features = ["wgsl-in"] }

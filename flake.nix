@@ -3,7 +3,6 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
-
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -12,60 +11,62 @@
 
   outputs =
     {
-      self,
       nixpkgs,
       rust-overlay,
       ...
     }:
     let
+      inherit (nixpkgs) lib;
+
       systems = [
         "x86_64-linux"
         "aarch64-linux"
         "aarch64-darwin"
       ];
 
-      forAllSystems = nixpkgs.lib.genAttrs systems;
+      forAllSystems = lib.genAttrs systems;
+
+      pkgsFor = forAllSystems (
+        system:
+        import nixpkgs {
+          inherit system;
+          overlays = [
+            rust-overlay.overlays.default
+          ];
+        }
+      );
     in
     {
       devShells = forAllSystems (
         system:
         let
-          pkgs = import nixpkgs {
-            inherit system;
-            overlays = [
-              (import rust-overlay)
-            ];
-          };
+          pkgs = pkgsFor.${system};
+          isLinux = pkgs.stdenv.hostPlatform.isLinux;
 
-          toolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+          rustToolchain = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+
+          linuxLibraries = [
+            pkgs.alsa-lib
+            pkgs.dbus
+            pkgs.fontconfig
+            pkgs.libx11
+            pkgs.libxkbcommon
+            pkgs.vulkan-loader
+            pkgs.wayland
+          ];
         in
         {
           default = pkgs.mkShell {
-            packages = [
-              toolchain
-              pkgs.ffmpeg.lib
+            strictDeps = true;
+
+            nativeBuildInputs = [
+              rustToolchain
               pkgs.pkg-config
-            ]
-            ++ pkgs.lib.optionals pkgs.stdenv.hostPlatform.isLinux [
-              pkgs.fontconfig
-              pkgs.libx11
-              pkgs.alsa-lib
-              pkgs.wayland
-              pkgs.vulkan-loader
-              pkgs.libxkbcommon
+              pkgs.rustPlatform.bindgenHook
             ];
 
-            LIBCLANG_PATH = "${pkgs.libclang.lib}/lib";
-            PKG_CONFIG_PATH = "${pkgs.ffmpeg.dev}/lib/pkgconfig";
-            BINDGEN_EXTRA_CLANG_ARGS = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux "-I${pkgs.glibc.dev}/include";
-
-            LD_LIBRARY_PATH = pkgs.lib.optionalString pkgs.stdenv.hostPlatform.isLinux (
-              pkgs.lib.makeLibraryPath [
-                pkgs.vulkan-loader
-                pkgs.libxkbcommon
-                pkgs.wayland
-              ]
-            );
+            buildInputs = [ pkgs.ffmpeg ] ++ lib.optionals isLinux linuxLibraries;
+            LD_LIBRARY_PATH = lib.optionalString isLinux (lib.makeLibraryPath linuxLibraries);
           };
         }
       );
