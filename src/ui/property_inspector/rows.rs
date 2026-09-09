@@ -511,6 +511,54 @@ impl PropertyInspector {
             .into_any_element()
     }
 
+    fn number_editor(
+        target: &PropertyTarget,
+        spec: &NumberSpec,
+        input: &Entity<InputState>,
+        animation: Option<(Entity<InputState>, Entity<InputState>)>,
+        animation_enabled: bool,
+        disabled: bool,
+        ctx: &RenderCtx,
+    ) -> gpui::AnyElement {
+        match animation.filter(|_| animation_enabled) {
+            Some((from, to)) => Self::animated_number_pair(
+                target,
+                spec,
+                &from,
+                &to,
+                &ctx.inspector,
+                ctx.focus_handle,
+                disabled,
+            ),
+            None => Self::draggable_number_input(
+                target,
+                spec,
+                input,
+                &ctx.inspector,
+                ctx.focus_handle,
+                disabled,
+            ),
+        }
+    }
+
+    fn text_editor(input: &Entity<InputState>, multiline: bool) -> impl IntoElement {
+        Input::new(input)
+            .small()
+            .w_full()
+            .when(multiline, |input| input.h(px(72.)))
+    }
+
+    fn color_editor(
+        picker: &Entity<ColorPickerState>,
+        animation: Option<(Entity<ColorPickerState>, Entity<ColorPickerState>)>,
+        animation_enabled: bool,
+    ) -> gpui::AnyElement {
+        match animation.filter(|_| animation_enabled) {
+            Some((from, to)) => Self::animated_color_pair(&from, &to),
+            None => ColorPicker::new(picker).small().w_full().into_any_element(),
+        }
+    }
+
     fn number_full_row(
         common: &LeafControl,
         spec: &NumberSpec,
@@ -550,26 +598,15 @@ impl PropertyInspector {
                 SharedString::from(format!("bind-scene-argument-{}", common.target.key)),
             )
         });
-        let value_input = if let Some((from, to)) = animation.filter(|_| animation_enabled) {
-            Self::animated_number_pair(
-                &common.target,
-                spec,
-                from,
-                to,
-                &ctx.inspector,
-                ctx.focus_handle,
-                false,
-            )
-        } else {
-            Self::draggable_number_input(
-                &common.target,
-                spec,
-                input,
-                &ctx.inspector,
-                ctx.focus_handle,
-                false,
-            )
-        };
+        let value_input = Self::number_editor(
+            &common.target,
+            spec,
+            input,
+            animation.cloned(),
+            animation_enabled,
+            false,
+            ctx,
+        );
         div()
             .w_full()
             .flex()
@@ -639,26 +676,15 @@ impl PropertyInspector {
                 &ctx.inspector,
             )
         });
-        let value_input = if let Some((from, to)) = animation {
-            Self::animated_number_pair(
-                &common.target,
-                spec,
-                &from,
-                &to,
-                &ctx.inspector,
-                ctx.focus_handle,
-                disabled,
-            )
-        } else {
-            Self::draggable_number_input(
-                &common.target,
-                spec,
-                input,
-                &ctx.inspector,
-                ctx.focus_handle,
-                disabled,
-            )
-        };
+        let value_input = Self::number_editor(
+            &common.target,
+            spec,
+            input,
+            animation,
+            coordinate_animation_enabled,
+            disabled,
+            ctx,
+        );
         let select_inspector = ctx.inspector.clone();
         let select_target = common.target.clone();
         let select_spec = spec.clone();
@@ -715,12 +741,7 @@ impl PropertyInspector {
                 .items_center()
                 .gap_1()
                 .when(!is_bound, |this| {
-                    this.child(
-                        Input::new(input)
-                            .small()
-                            .w_full()
-                            .when(multiline, |input| input.h(px(72.))),
-                    )
+                    this.child(Self::text_editor(input, multiline))
                 })
                 .when_some(binding_button, |this, button| this.child(button)),
         )
@@ -752,12 +773,7 @@ impl PropertyInspector {
                 .items_center()
                 .gap_1()
                 .when(!is_bound, |this| {
-                    this.child(
-                        Input::new(input)
-                            .small()
-                            .w_full()
-                            .when(multiline, |input| input.h(px(72.))),
-                    )
+                    this.child(Self::text_editor(input, multiline))
                 })
                 .when_some(binding_button, |this, button| this.child(button)),
         )
@@ -949,10 +965,7 @@ impl PropertyInspector {
         let animation_button = (common.animatable && !is_bound).then(|| {
             Self::color_animation_toggle(&common.target, animation_enabled, &ctx.inspector)
         });
-        let value = match animation.filter(|_| animation_enabled) {
-            Some((from, to)) => Self::animated_color_pair(&from, &to),
-            None => ColorPicker::new(picker).small().w_full().into_any_element(),
-        };
+        let value = Self::color_editor(picker, animation, animation_enabled);
         let select_inspector = ctx.inspector.clone();
         let select_target = common.target.clone();
         div()
@@ -1008,10 +1021,7 @@ impl PropertyInspector {
         let animation_button = (common.animatable && !is_bound).then(|| {
             Self::color_animation_toggle(&common.target, animation_enabled, &ctx.inspector)
         });
-        let value = match animation.filter(|_| animation_enabled) {
-            Some((from, to)) => Self::animated_color_pair(&from, &to),
-            None => ColorPicker::new(picker).small().w_full().into_any_element(),
-        };
+        let value = Self::color_editor(picker, animation, animation_enabled);
         let select_inspector = ctx.inspector.clone();
         let select_target = common.target.clone();
         let row = div()
@@ -1057,8 +1067,8 @@ impl PropertyInspector {
         match control {
             Control::Number(number) => {
                 let common = &number.common;
-                let input = ctx.store.text(&common.target.key)?;
-                let animation = ctx.store.animation_text(&common.target.key);
+                let input = ctx.store.text(&common.id)?;
+                let animation = ctx.store.animation_text(&common.id);
                 Some(
                     Self::number_full_row(
                         common,
@@ -1074,7 +1084,7 @@ impl PropertyInspector {
             }
             Control::Text(text) => {
                 let common = &text.common;
-                let input = ctx.store.text(&common.target.key)?;
+                let input = ctx.store.text(&common.id)?;
                 Some(
                     Self::text_full_row(
                         common,
@@ -1114,8 +1124,8 @@ impl PropertyInspector {
             }
             Control::Color(color) => {
                 let common = &color.common;
-                let picker = ctx.store.color(&common.target.key)?;
-                let animation = ctx.store.animation_color_pair(&common.target.key);
+                let picker = ctx.store.color(&common.id)?;
+                let animation = ctx.store.animation_color_pair(&common.id);
                 Some(Self::color_full_row(
                     common,
                     &picker,
@@ -1139,8 +1149,8 @@ impl PropertyInspector {
         match control {
             Control::Number(number) => {
                 let common = &number.common;
-                let input = ctx.store.text(&common.target.key)?;
-                let animation = ctx.store.animation_text(&common.target.key);
+                let input = ctx.store.text(&common.id)?;
+                let animation = ctx.store.animation_text(&common.id);
                 Some(Self::number_element_row(
                     common,
                     &number.spec,
@@ -1152,7 +1162,7 @@ impl PropertyInspector {
             }
             Control::Text(text) => {
                 let common = &text.common;
-                let input = ctx.store.text(&common.target.key)?;
+                let input = ctx.store.text(&common.id)?;
                 Some(Self::text_element_row(
                     common,
                     text.multiline,
@@ -1189,8 +1199,8 @@ impl PropertyInspector {
             }
             Control::Color(color) => {
                 let common = &color.common;
-                let picker = ctx.store.color(&common.target.key)?;
-                let animation = ctx.store.animation_color_pair(&common.target.key);
+                let picker = ctx.store.color(&common.id)?;
+                let animation = ctx.store.animation_color_pair(&common.id);
                 Some(Self::color_element_row(
                     common,
                     &picker,
@@ -1206,11 +1216,12 @@ impl PropertyInspector {
 
     /// Grouped tuple rendering: one parameter label with per-element rows.
     /// A lone child renders as a plain full row, matching single scalars.
-    /// The aspect control appears only for item-level size tuples; effect
-    /// and array groups never satisfy the key search below.
+    /// The resolver marks the item-level size tuple with `size_key`; other
+    /// groups cannot accidentally inherit the aspect-ratio constraint.
     pub(super) fn group_box(
         label: String,
         children: &[Control],
+        size_key: Option<PropertyPath>,
         aspect: Option<AspectRatioLockState>,
         ctx: &RenderCtx,
     ) -> gpui::AnyElement {
@@ -1219,14 +1230,6 @@ impl PropertyInspector {
                 return row;
             }
         }
-        let size_key = children.iter().find_map(|child| match child {
-            Control::Number(number)
-                if number.common.target.effect_id.is_none() && number.spec.is_size =>
-            {
-                Some(number.common.target.key.clone())
-            }
-            _ => None,
-        });
         let is_size_group = size_key.is_some();
         let aspect_row = aspect.zip(size_key).map(|(state, key)| {
             div()
@@ -1630,8 +1633,8 @@ impl PropertyInspector {
             Control::Number(number)
                 if number.common.target.value_path.tuple_element().is_some() =>
             {
-                let input = ctx.store.text(&number.common.target.key)?;
-                let animation = ctx.store.animation_text(&number.common.target.key);
+                let input = ctx.store.text(&number.common.id)?;
+                let animation = ctx.store.animation_text(&number.common.id);
                 Some(Self::number_element_row(
                     &number.common,
                     &number.spec,
@@ -1645,8 +1648,8 @@ impl PropertyInspector {
                 Self::array_number_element(number, array, element, owner, ctx)
             }
             Control::Color(color) => {
-                let picker = ctx.store.color(&color.common.target.key)?;
-                let animation = ctx.store.animation_color_pair(&color.common.target.key);
+                let picker = ctx.store.color(&color.common.id)?;
+                let animation = ctx.store.animation_color_pair(&color.common.id);
                 let bound = color
                     .common
                     .binding
@@ -1685,7 +1688,7 @@ impl PropertyInspector {
         let common = &number.common;
         let spec = &number.spec;
         let component = common.target.value_path.tuple_element();
-        let input = ctx.store.text(&common.target.key)?;
+        let input = ctx.store.text(&common.id)?;
         let animation_enabled = common.animation_enabled;
         let binding = common.binding.clone();
         let component_is_bound = binding
@@ -1701,7 +1704,7 @@ impl PropertyInspector {
                 )),
             )
         });
-        let animation = ctx.store.animation_text(&common.target.key);
+        let animation = ctx.store.animation_text(&common.id);
         let value_input = if let Some((from, to)) = animation.as_ref().filter(|_| animation_enabled)
         {
             Self::animated_number_pair(

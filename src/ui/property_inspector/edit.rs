@@ -1,5 +1,5 @@
 use super::*;
-use crate::ui::property_inspector::control::{Control, NumberSpec};
+use crate::ui::property_inspector::control::NumberSpec;
 
 impl PropertyInspector {
     fn write_scalar(
@@ -282,9 +282,9 @@ impl PropertyInspector {
         }
         if self
             .store
-            .fields
+            .states
             .get(&ControlId::property(&target.key))
-            .and_then(|field| field.animation_text.as_ref())
+            .and_then(state::ControlState::animation_text)
             .is_none()
         {
             return;
@@ -380,9 +380,9 @@ impl PropertyInspector {
             self.update_numeric_scalar(&origin.target, value / origin.display_scale, cx);
             if let Some(input) = self
                 .store
-                .fields
+                .states
                 .get(&ControlId::property(&drag.path))
-                .and_then(|field| field.text.as_ref())
+                .and_then(state::ControlState::text)
             {
                 Self::set_input_value(&input.input, Self::format_value(value), window, cx);
             }
@@ -403,21 +403,21 @@ impl PropertyInspector {
         let input = match animation_endpoint {
             Some(AnimationEndpoint::From) => self
                 .store
-                .fields
+                .states
                 .get(&ControlId::property(key))
-                .and_then(|field| field.animation_text.as_ref())
+                .and_then(state::ControlState::animation_text)
                 .map(|(from, _)| from),
             Some(AnimationEndpoint::To) => self
                 .store
-                .fields
+                .states
                 .get(&ControlId::property(key))
-                .and_then(|field| field.animation_text.as_ref())
+                .and_then(state::ControlState::animation_text)
                 .map(|(_, to)| to),
             None => self
                 .store
-                .fields
+                .states
                 .get(&ControlId::property(key))
-                .and_then(|field| field.text.as_ref()),
+                .and_then(state::ControlState::text),
         };
         let start_value = input
             .and_then(|state| state.input.read(cx).value().parse::<f64>().ok())
@@ -619,71 +619,98 @@ impl PropertyInspector {
         cx.notify();
     }
 
+    fn animation_parameter(
+        editor: &TimelineEditor,
+        item: &TimelineItem,
+        target: &AnimationTarget,
+    ) -> Option<ParameterSchema> {
+        if let Some(scene_id) = item.scene_id()
+            && let Some(parameter) = editor
+                .scene(scene_id)?
+                .arguments
+                .iter()
+                .find(|argument| argument.schema.id() == target.parameter_id)
+                .map(|argument| argument.schema.parameter().clone())
+        {
+            return Some(parameter);
+        }
+        if let Some(effect_id) = target.effect_id {
+            return item
+                .effects
+                .iter()
+                .find(|effect| effect.id == effect_id)
+                .and_then(|effect| effect.schema().parameter(&target.parameter_id))
+                .cloned();
+        }
+        item.schema()?.parameter(&target.parameter_id).cloned()
+    }
+
+    fn animation_property_target(target: &AnimationTarget) -> PropertyTarget {
+        PropertyTarget {
+            key: target.property.clone(),
+            parameter_id: target.parameter_id.clone(),
+            effect_id: target.effect_id,
+            value_path: SceneBindingValuePath::from_elements(
+                target.address.array_index,
+                target.address.channel.coordinate(),
+            ),
+        }
+    }
+
+    fn animation_label(parameter: &ParameterSchema, target: &AnimationTarget) -> String {
+        let label = target.address.array_index.map_or_else(
+            || parameter.label().to_owned(),
+            |index| format!("{} {}", parameter.label(), index + 1),
+        );
+        match target.address.channel {
+            AnimationChannel::TupleElement(element) => parameter
+                .scalar_label(Some(element))
+                .map_or(label.clone(), |element_label| {
+                    format!("{label} {element_label}")
+                }),
+            AnimationChannel::Scalar => label,
+        }
+    }
+
     pub(crate) fn animation_presentation(
         editor: &TimelineEditor,
         item: &TimelineItem,
         target: &AnimationTarget,
     ) -> Option<AnimationPresentation> {
-        let mut controls = Self::item_controls(item);
-        for effect in &item.effects {
-            controls.extend(Self::effect_controls(effect));
-        }
-        if let Some(scene_id) = item.scene_id()
-            && let Some(scene) = editor.scene(scene_id)
-        {
-            controls.extend(Self::scene_argument_value_controls(
-                scene_id,
-                &scene.arguments,
-                item,
-            ));
-        }
-        let color = controls.iter().find_map(|control| {
-            let mut found = None;
-            control.visit_leaves(&mut |control| {
-                if let Control::Color(color) = control
-                    && color.common.target.key == target.property
-                {
-                    found = Some(color.clone());
-                }
-            });
-            found
-        });
-        if let Some(color) = color {
-            let expected = color.common.target.animation_target(item.id);
-            if expected != *target || !color.common.target.animation_enabled(item) {
+        let parameter = Self::animation_parameter(editor, item, target)?;
+        let property_target = Self::animation_property_target(target);
+        let tuple_element = target.address.channel.coordinate();
+        let scalar_type = parameter
+            .ty()
+            .element_type()
+            .scalar_at(tuple_element)?
+            .clone();
+        let label = Self::animation_label(&parameter, target);
+        if matches!(scalar_type, ScalarParameterType::Color) {
+            if !property_target.animation_enabled(item) {
                 return None;
             }
             return Some(AnimationPresentation {
-                label: color.common.label.clone(),
+                label,
                 suffix: String::new(),
                 step: 0.01,
                 value_scale: 1.,
             });
         }
-        let number = controls.iter().find_map(|control| {
-            let mut found = None;
-            control.visit_leaves(&mut |control| {
-                if let Control::Number(number) = control
-                    && number.common.target.key == target.property
-                {
-                    found = Some(number.clone());
-                }
-            });
-            found
-        })?;
-        let spec = &number.spec;
+        let is_size = target.effect_id.is_none()
+            && item.scene_id().is_none()
+            && item
+                .schema()
+                .is_some_and(|schema| schema.is_size_parameter(&target.parameter_id));
+        let spec = Self::number_spec(&parameter, tuple_element, is_size)?;
         // Scene-bound values resolve through the same display mapping as the
         // inspector rows; size linkage only applies to size parameters.
-        let display = Self::number_animation(item, &number.common.target, spec)?;
+        let display = Self::number_animation(item, &property_target, &spec)?;
         if display.source_parameter_id != target.parameter_id
             || display.source_address != target.address
         {
             return None;
         }
-        let label = number.common.element_label.as_ref().map_or_else(
-            || number.common.label.clone(),
-            |label| format!("{} {label}", number.common.label),
-        );
         Some(AnimationPresentation {
             label,
             suffix: spec.suffix.clone(),

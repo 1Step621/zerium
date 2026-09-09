@@ -46,36 +46,70 @@ use crate::ui::search_picker::{SearchPicker, SearchPickerEntry};
 use crate::ui::session::{ProjectActivity, ProjectSession, ProjectSessionId, UiNotifications};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(super) struct ControlId(String);
+pub(super) enum ControlId {
+    Property(PropertyPath),
+    Group(PropertyPath),
+    EffectGroup(EffectInstanceId),
+    SceneName(SceneId),
+    SceneArgumentName {
+        scene_id: SceneId,
+        argument_id: String,
+    },
+    SceneArgumentExpression {
+        scene_id: SceneId,
+        argument_id: String,
+    },
+    SceneArgumentDefault {
+        scene_id: SceneId,
+        argument_id: String,
+    },
+    SceneArgumentSetting {
+        scene_id: SceneId,
+        argument_id: String,
+        setting: SceneArgumentSetting,
+    },
+    SceneArgumentColor {
+        scene_id: SceneId,
+        argument_id: String,
+    },
+}
 
 impl ControlId {
     pub(super) fn property(path: &PropertyPath) -> Self {
-        Self(format!("property:{path}"))
+        Self::Property(path.clone())
+    }
+
+    pub(super) fn group(path: &PropertyPath) -> Self {
+        Self::Group(path.clone())
     }
 
     pub(super) fn scene_name(scene_id: SceneId) -> Self {
-        Self(format!("scene:{}/name", scene_id.get()))
+        Self::SceneName(scene_id)
+    }
+
+    pub(super) fn effect_group(effect_id: EffectInstanceId) -> Self {
+        Self::EffectGroup(effect_id)
     }
 
     pub(super) fn scene_argument_name(scene_id: SceneId, argument_id: &str) -> Self {
-        Self(format!(
-            "scene:{}/argument:{argument_id}/name",
-            scene_id.get()
-        ))
+        Self::SceneArgumentName {
+            scene_id,
+            argument_id: argument_id.to_owned(),
+        }
     }
 
     pub(super) fn scene_argument_expression(scene_id: SceneId, argument_id: &str) -> Self {
-        Self(format!(
-            "scene:{}/argument:{argument_id}/expression",
-            scene_id.get()
-        ))
+        Self::SceneArgumentExpression {
+            scene_id,
+            argument_id: argument_id.to_owned(),
+        }
     }
 
     pub(super) fn scene_argument_default(scene_id: SceneId, argument_id: &str) -> Self {
-        Self(format!(
-            "scene:{}/argument:{argument_id}/default",
-            scene_id.get()
-        ))
+        Self::SceneArgumentDefault {
+            scene_id,
+            argument_id: argument_id.to_owned(),
+        }
     }
 
     pub(super) fn scene_argument_setting(
@@ -83,17 +117,18 @@ impl ControlId {
         argument_id: &str,
         setting: SceneArgumentSetting,
     ) -> Self {
-        Self(format!(
-            "scene:{}/argument:{argument_id}/setting:{setting:?}",
-            scene_id.get()
-        ))
+        Self::SceneArgumentSetting {
+            scene_id,
+            argument_id: argument_id.to_owned(),
+            setting,
+        }
     }
 
     pub(super) fn scene_argument_color(scene_id: SceneId, argument_id: &str) -> Self {
-        Self(format!(
-            "scene:{}/argument:{argument_id}/color",
-            scene_id.get()
-        ))
+        Self::SceneArgumentColor {
+            scene_id,
+            argument_id: argument_id.to_owned(),
+        }
     }
 }
 

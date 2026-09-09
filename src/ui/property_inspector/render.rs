@@ -1,4 +1,4 @@
-use super::control::Control;
+use super::control::{Control, ControlTree, EffectGroup, GroupKind};
 use super::rows::RenderCtx;
 use super::*;
 
@@ -7,13 +7,10 @@ pub(super) struct SelectionView {
     pub item_label: String,
     pub selected_count: usize,
     pub aspect_ratio_lock: Option<AspectRatioLockState>,
-    pub controls: Vec<Control>,
-    pub effects: Vec<EffectInstance>,
-    pub effect_controls: Vec<Vec<Control>>,
+    pub tree: ControlTree,
     pub scene_arguments: Vec<SceneArgumentOption>,
     pub file_inputs: Vec<(FileCapability, Option<MediaAsset>)>,
     pub available_effects: Vec<SearchPickerEntry<(String, String)>>,
-    pub hidden_effects: HashSet<EffectInstanceId>,
     pub multiple: bool,
     pub editing_scene: bool,
     pub has_visual: bool,
@@ -83,9 +80,9 @@ impl PropertyInspector {
     ) -> RenderCtx<'a> {
         let active_scene_name_input = self.editor.read(cx).active_scene_id().and_then(|scene_id| {
             self.store
-                .fields
+                .states
                 .get(&ControlId::scene_name(scene_id))
-                .and_then(|field| field.text.as_ref())
+                .and_then(state::ControlState::text)
                 .map(|state| state.input.clone())
         });
         RenderCtx {
@@ -143,30 +140,6 @@ impl PropertyInspector {
         };
         let aspect_ratio_lock =
             Self::aspect_ratio_lock_state(&item, &selected_items, &scene_arguments, editing_scene);
-        let mut controls = Vec::new();
-        let mut effect_controls = Vec::new();
-        let mut tree_effects = Vec::new();
-        for root in &self.store.tree.roots {
-            match root {
-                Control::Group {
-                    children,
-                    data: control::GroupData::Effect(effect),
-                    ..
-                } => {
-                    tree_effects.push(effect.clone());
-                    effect_controls.push(children.clone());
-                }
-                _ => controls.push(root.clone()),
-            }
-        }
-        let hidden_effects = {
-            let editor = self.editor.read(cx);
-            item.effects
-                .iter()
-                .filter(|effect| editor.is_effect_hidden(effect.id))
-                .map(|effect| effect.id)
-                .collect()
-        };
         let available_effects = plugins()
             .effects()
             .map(|(plugin_id, effect)| {
@@ -183,13 +156,10 @@ impl PropertyInspector {
             item_label,
             selected_count: selected_items.len(),
             aspect_ratio_lock,
-            controls,
-            effects: tree_effects,
-            effect_controls,
+            tree: self.store.tree.clone(),
             scene_arguments,
             file_inputs,
             available_effects,
-            hidden_effects,
             multiple,
             editing_scene,
             has_visual,
@@ -249,11 +219,12 @@ impl PropertyInspector {
             .editing_scene
             .then(|| self.scene_settings_element(&view.scene_arguments, &render));
         let controls = view
-            .controls
+            .tree
+            .roots
             .iter()
             .cloned()
             .into_iter()
-            .filter_map(|control| Self::control_element(control, view.aspect_ratio_lock, &render))
+            .filter_map(|control| self.control_root_element(control, &view, &render, cx))
             .collect::<Vec<_>>();
         let files = view
             .file_inputs
@@ -262,8 +233,11 @@ impl PropertyInspector {
             .into_iter()
             .map(|file| self.file_input_element(file, &render))
             .collect::<Vec<_>>();
-        let effects = if view.has_visual {
-            Some(self.effects_element(&view, &render, cx))
+        let effect_picker = if view.has_visual && !view.multiple {
+            Some(Self::add_effect_picker(
+                view.available_effects.clone(),
+                render.inspector.clone(),
+            ))
         } else {
             None
         };
@@ -312,9 +286,35 @@ impl PropertyInspector {
                                 .child(error),
                         )
                     })
-                    .when_some(effects, |this, section| this.child(section)),
+                    .when_some(effect_picker, |this, picker| {
+                        this.child(
+                            div()
+                                .w_full()
+                                .h(px(1.))
+                                .flex_none()
+                                .bg(render.colors.border),
+                        )
+                        .child(picker)
+                    }),
             )
             .into_any_element()
+    }
+
+    fn control_root_element(
+        &self,
+        control: Control,
+        view: &SelectionView,
+        render: &RenderCtx<'_>,
+        cx: &Context<Self>,
+    ) -> Option<gpui::AnyElement> {
+        match control {
+            Control::Group {
+                children,
+                kind: GroupKind::Effect(effect),
+                ..
+            } => Some(self.effect_element(effect, children, view, render, cx)),
+            control => Self::control_element(control, view.aspect_ratio_lock, render),
+        }
     }
 
     fn control_element(
@@ -326,20 +326,21 @@ impl PropertyInspector {
             Control::Group {
                 label,
                 children,
-                data,
+                kind,
                 ..
-            } => match data {
-                control::GroupData::Plain => {
-                    Some(Self::group_box(label, &children, aspect, render))
+            } => match kind {
+                GroupKind::Plain => Some(Self::group_box(label, &children, None, aspect, render)),
+                GroupKind::Tuple { size_key } => {
+                    Some(Self::group_box(label, &children, size_key, aspect, render))
                 }
-                control::GroupData::Array(array) => Some(Self::array_section(
+                GroupKind::Array(array) => Some(Self::array_section(
                     &array,
                     &children,
                     render,
                     render.colors.border,
                     true,
                 )),
-                control::GroupData::Effect(_) => None,
+                GroupKind::Effect(_) => None,
             },
             leaf => Self::scalar_full_row(&leaf, render),
         }
@@ -497,52 +498,16 @@ impl PropertyInspector {
         )
     }
 
-    fn effects_element(
-        &self,
-        view: &SelectionView,
-        render: &RenderCtx<'_>,
-        cx: &mut Context<Self>,
-    ) -> gpui::AnyElement {
-        let cards = view
-            .effects
-            .iter()
-            .cloned()
-            .zip(view.effect_controls.iter().cloned())
-            .map(|(effect, controls)| self.effect_element(effect, controls, view, render, cx))
-            .collect::<Vec<_>>();
-
-        div()
-            .w_full()
-            .flex()
-            .flex_col()
-            .gap_3()
-            .child(
-                div()
-                    .w_full()
-                    .h(px(1.))
-                    .flex_none()
-                    .bg(render.colors.border),
-            )
-            .children(cards)
-            .when(!view.multiple, |this| {
-                this.child(Self::add_effect_picker(
-                    view.available_effects.clone(),
-                    render.inspector.clone(),
-                ))
-            })
-            .into_any_element()
-    }
-
     fn effect_element(
         &self,
-        effect: EffectInstance,
+        effect: EffectGroup,
         controls: Vec<Control>,
         view: &SelectionView,
         render: &RenderCtx<'_>,
         cx: &Context<Self>,
     ) -> gpui::AnyElement {
         let effect_id = effect.id;
-        let hidden = view.hidden_effects.contains(&effect_id);
+        let hidden = effect.hidden;
         let (can_move_up, can_move_down) = {
             let editor = render.editor.read(cx);
             (
@@ -564,7 +529,7 @@ impl PropertyInspector {
             .border_b_1()
             .border_color(render.colors.border)
             .child(Self::effect_header(
-                effect.schema().label().to_owned(),
+                effect.label,
                 effect_id,
                 hidden,
                 can_move_up,

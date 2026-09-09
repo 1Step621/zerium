@@ -74,10 +74,18 @@ pub(super) struct ArrayGroup {
 }
 
 #[derive(Clone)]
-pub(super) enum GroupData {
+pub(super) struct EffectGroup {
+    pub id: EffectInstanceId,
+    pub label: String,
+    pub hidden: bool,
+}
+
+#[derive(Clone)]
+pub(super) enum GroupKind {
     Plain,
+    Tuple { size_key: Option<PropertyPath> },
     Array(ArrayGroup),
-    Effect(EffectInstance),
+    Effect(EffectGroup),
 }
 
 #[derive(Clone)]
@@ -86,7 +94,7 @@ pub(super) enum Control {
         id: ControlId,
         label: String,
         children: Vec<Control>,
-        data: GroupData,
+        kind: GroupKind,
     },
     Number(NumberControl),
     Text(TextControl),
@@ -96,6 +104,17 @@ pub(super) enum Control {
 }
 
 impl Control {
+    pub(super) fn id(&self) -> &ControlId {
+        match self {
+            Self::Group { id, .. } => id,
+            Self::Number(control) => &control.common.id,
+            Self::Text(control) => &control.common.id,
+            Self::Bool(control) => &control.common.id,
+            Self::Choice(control) => &control.common.id,
+            Self::Color(control) => &control.common.id,
+        }
+    }
+
     pub(super) fn common(&self) -> Option<&LeafControl> {
         match self {
             Self::Number(control) => Some(&control.common),
@@ -123,13 +142,10 @@ impl Control {
             .map(|common| common.target.parameter_id.as_str())
             .or_else(|| match self {
                 Self::Group {
-                    data: GroupData::Array(array),
+                    kind: GroupKind::Array(array),
                     ..
                 } => Some(array.target.parameter_id.as_str()),
-                Self::Group { id, children, .. } => {
-                    let _ = id;
-                    children.first().map(Self::parameter_id)
-                }
+                Self::Group { children, .. } => children.first().map(Self::parameter_id),
                 _ => None,
             })
             .unwrap_or("")
@@ -146,22 +162,18 @@ impl Control {
             }
         }
     }
-
-    pub(super) fn visit_leaves(&self, f: &mut impl FnMut(&Control)) {
-        match self {
-            Self::Group { children, .. } => {
-                for child in children {
-                    child.visit_leaves(f);
-                }
-            }
-            _ => f(self),
-        }
-    }
 }
 
 #[derive(Clone, Default)]
 pub(super) struct ControlTree {
     pub roots: Vec<Control>,
+}
+
+pub(super) struct ControlResolution<'a> {
+    pub item: &'a TimelineItem,
+    pub selected_items: &'a [TimelineItem],
+    pub editing_scene: bool,
+    pub arguments: &'a [SceneArgumentOption],
 }
 
 pub(super) enum ParameterOwner<'a> {
@@ -308,7 +320,7 @@ impl PropertyInspector {
         .into()
     }
 
-    fn number_spec(
+    pub(super) fn number_spec(
         parameter: &ParameterSchema,
         tuple_element: Option<usize>,
         is_size: bool,
@@ -386,6 +398,7 @@ impl PropertyInspector {
         effect_id: Option<EffectInstanceId>,
         array: Option<usize>,
         is_size: bool,
+        resolution: &ControlResolution<'_>,
     ) -> Vec<Control> {
         if !parameter.is_visible() {
             return Vec::new();
@@ -425,34 +438,34 @@ impl PropertyInspector {
                     element,
                     label,
                 );
-                match (ty, value) {
+                let mut control = match (ty, value) {
                     (
                         ScalarParameterType::F32
                         | ScalarParameterType::I32
                         | ScalarParameterType::U32,
                         _value,
-                    ) => Some(Control::Number(NumberControl {
+                    ) => Control::Number(NumberControl {
                         common,
                         spec: Self::number_spec(parameter, element, is_size)?,
                         animation: None,
-                    })),
+                    }),
                     (ScalarParameterType::Color, ParameterValue::Color(_)) => {
-                        Some(Control::Color(ColorControl {
+                        Control::Color(ColorControl {
                             common,
                             animation: None,
-                        }))
+                        })
                     }
                     (ScalarParameterType::Bool, ParameterValue::Bool(_)) => {
-                        Some(Control::Bool(BoolControl { common }))
+                        Control::Bool(BoolControl { common })
                     }
                     (ScalarParameterType::String, ParameterValue::String(_)) => {
-                        Some(Control::Text(TextControl {
+                        Control::Text(TextControl {
                             common,
                             multiline: scalar_ui.is_multiline(),
-                        }))
+                        })
                     }
                     (ScalarParameterType::Enum(_), ParameterValue::Enum(_)) => {
-                        Some(Control::Choice(ChoiceControl {
+                        Control::Choice(ChoiceControl {
                             common,
                             ty: ty.clone(),
                             options: scalar_ui
@@ -460,15 +473,22 @@ impl PropertyInspector {
                                 .into_iter()
                                 .map(|(value, label)| (label, value))
                                 .collect(),
-                        }))
+                        })
                     }
-                    _ => None,
-                }
+                    _ => return None,
+                };
+                Self::resolve_leaf(resolution, &mut control);
+                Some(control)
             })
             .collect()
     }
 
-    fn group_controls(id: ControlId, label: String, children: Vec<Control>) -> Vec<Control> {
+    fn group_controls(
+        id: ControlId,
+        label: String,
+        children: Vec<Control>,
+        size_key: Option<PropertyPath>,
+    ) -> Vec<Control> {
         if children.is_empty() {
             return children;
         }
@@ -476,13 +496,17 @@ impl PropertyInspector {
             id,
             label,
             children,
-            data: GroupData::Plain,
+            kind: GroupKind::Tuple { size_key },
         }]
     }
 
-    fn owner_controls(owner: &ParameterOwner<'_>, parameter: &ParameterSchema) -> Vec<Control> {
+    fn owner_controls(
+        owner: &ParameterOwner<'_>,
+        parameter: &ParameterSchema,
+        resolution: &ControlResolution<'_>,
+    ) -> Vec<Control> {
         let key = owner.key(parameter);
-        if let Some(array) = Self::array_group(owner, parameter, key.clone()) {
+        if let Some(array) = Self::array_group(owner, parameter, key.clone(), resolution) {
             return vec![array];
         }
         let Some(value) = owner.value(parameter.id()) else {
@@ -495,12 +519,14 @@ impl PropertyInspector {
             owner.effect_id(),
             None,
             owner.is_size(parameter.id()),
+            resolution,
         );
         if matches!(parameter.ty().element_type(), ParameterValueType::Tuple(_)) {
             Self::group_controls(
-                ControlId::property(&key),
+                ControlId::group(&key),
                 parameter.label().to_owned(),
                 controls,
+                owner.is_size(parameter.id()).then(|| key.clone()),
             )
         } else {
             controls
@@ -511,6 +537,7 @@ impl PropertyInspector {
         owner: &ParameterOwner<'_>,
         parameter: &ParameterSchema,
         key: PropertyPath,
+        resolution: &ControlResolution<'_>,
     ) -> Option<Control> {
         if !parameter.is_visible() {
             return None;
@@ -540,6 +567,14 @@ impl PropertyInspector {
             effect_id: owner.effect_id(),
             value_path: SceneBindingValuePath::Whole,
         };
+        let has_scene_binding = resolution.arguments.iter().any(|argument| {
+            argument.bindings.iter().any(|binding| {
+                binding.item_id() == resolution.item.id
+                    && binding.owner() == SceneBindingOwner::from_effect(target.effect_id)
+                    && binding.parameter_id() == target.parameter_id
+                    && binding.value_path().array_element().is_some()
+            })
+        });
         let children = values
             .iter()
             .enumerate()
@@ -551,32 +586,36 @@ impl PropertyInspector {
                     owner.effect_id(),
                     Some(index),
                     false,
+                    resolution,
                 );
                 Control::Group {
-                    id: ControlId::property(&key.scalar(Some(index), None)),
+                    id: ControlId::group(&key.scalar(Some(index), None)),
                     label: format!("要素 {}", index + 1),
                     children: element_controls,
-                    data: GroupData::Plain,
+                    kind: GroupKind::Plain,
                 }
             })
             .collect();
         Some(Control::Group {
-            id: ControlId::property(&key),
+            id: ControlId::group(&key),
             label: parameter.label().to_owned(),
             children,
-            data: GroupData::Array(ArrayGroup {
+            kind: GroupKind::Array(ArrayGroup {
                 target,
                 parameter: Box::new(parameter.clone()),
                 values: values.clone(),
                 element_kind,
                 min_items: *min_items,
                 max_items: *max_items,
-                has_scene_binding: false,
+                has_scene_binding,
             }),
         })
     }
 
-    pub(super) fn item_controls(item: &TimelineItem) -> Vec<Control> {
+    pub(super) fn item_controls(
+        item: &TimelineItem,
+        resolution: &ControlResolution<'_>,
+    ) -> Vec<Control> {
         let Some(schema) = Self::selected_schema(item) else {
             return Vec::new();
         };
@@ -584,17 +623,20 @@ impl PropertyInspector {
         schema
             .parameters()
             .iter()
-            .flat_map(|parameter| Self::owner_controls(&owner, parameter))
+            .flat_map(|parameter| Self::owner_controls(&owner, parameter, resolution))
             .collect()
     }
 
-    pub(super) fn effect_controls(effect: &EffectInstance) -> Vec<Control> {
+    pub(super) fn effect_controls(
+        effect: &EffectInstance,
+        resolution: &ControlResolution<'_>,
+    ) -> Vec<Control> {
         let owner = ParameterOwner::Effect(effect);
         effect
             .schema()
             .parameters()
             .iter()
-            .flat_map(|parameter| Self::owner_controls(&owner, parameter))
+            .flat_map(|parameter| Self::owner_controls(&owner, parameter, resolution))
             .collect()
     }
 
@@ -602,14 +644,17 @@ impl PropertyInspector {
         scene_id: SceneId,
         parameter: &ParameterSchema,
         value: &ParameterValue,
+        resolution: &ControlResolution<'_>,
     ) -> Vec<Control> {
         let key = PropertyPath::scene_parameter(scene_id.get(), parameter.id());
-        let controls = Self::scalar_controls(key.clone(), parameter, value, None, None, false);
+        let controls =
+            Self::scalar_controls(key.clone(), parameter, value, None, None, false, resolution);
         if matches!(parameter.ty().element_type(), ParameterValueType::Tuple(_)) {
             Self::group_controls(
-                ControlId::property(&key),
+                ControlId::group(&key),
                 parameter.label().to_owned(),
                 controls,
+                None,
             )
         } else {
             controls
@@ -620,6 +665,7 @@ impl PropertyInspector {
         scene_id: SceneId,
         arguments: &[SceneArgument],
         item: &TimelineItem,
+        resolution: &ControlResolution<'_>,
     ) -> Vec<Control> {
         arguments
             .iter()
@@ -627,7 +673,12 @@ impl PropertyInspector {
                 item.parameters
                     .get(argument.schema.id())
                     .map(|value| {
-                        Self::scene_value_controls(scene_id, argument.schema.parameter(), value)
+                        Self::scene_value_controls(
+                            scene_id,
+                            argument.schema.parameter(),
+                            value,
+                            resolution,
+                        )
                     })
                     .unwrap_or_default()
             })
@@ -635,31 +686,28 @@ impl PropertyInspector {
     }
 
     fn resolve_common(
-        item: &TimelineItem,
-        selected_items: &[TimelineItem],
+        resolution: &ControlResolution<'_>,
         common: &mut LeafControl,
         scalar_type: ScalarParameterType,
         animation_visible: bool,
-        editing_scene: bool,
-        arguments: &[SceneArgumentOption],
     ) {
-        common.animation_enabled = common.target.animation_enabled(item);
+        common.animation_enabled = common.target.animation_enabled(resolution.item);
         common.binding = Self::scene_field_binding(
-            editing_scene,
+            resolution.editing_scene,
             animation_visible,
             common.scene_bindable,
             SceneBindingTarget::new(
-                item.id,
+                resolution.item.id,
                 SceneBindingOwner::from_effect(common.target.effect_id),
                 common.target.parameter_id.clone(),
                 common.target.value_path,
             ),
             &ParameterType::Value(ParameterValueType::Scalar(scalar_type)),
-            arguments,
+            resolution.arguments,
         );
         if matches!(common.value, ParameterValue::Bool(_)) && common.target.effect_id.is_none() {
             if let ParameterValue::Bool(value) = common.value {
-                common.mixed = selected_items.iter().skip(1).any(|selected| {
+                common.mixed = resolution.selected_items.iter().skip(1).any(|selected| {
                     selected
                         .parameters
                         .get(&common.target.parameter_id)
@@ -670,93 +718,46 @@ impl PropertyInspector {
         }
     }
 
-    fn resolve_control(
-        item: &TimelineItem,
-        selected_items: &[TimelineItem],
-        mut control: Control,
-        editing_scene: bool,
-        arguments: &[SceneArgumentOption],
-    ) -> Control {
-        match &mut control {
-            Control::Group { children, data, .. } => {
-                if let GroupData::Array(array) = data {
-                    array.has_scene_binding = arguments.iter().any(|argument| {
-                        argument.bindings.iter().any(|binding| {
-                            binding.item_id() == item.id
-                                && binding.owner()
-                                    == SceneBindingOwner::from_effect(array.target.effect_id)
-                                && binding.parameter_id() == array.target.parameter_id
-                                && binding.value_path().array_element().is_some()
-                        })
-                    });
-                }
-                for child in children {
-                    let resolved = Self::resolve_control(
-                        item,
-                        selected_items,
-                        child.clone(),
-                        editing_scene,
-                        arguments,
-                    );
-                    *child = resolved;
-                }
-            }
+    fn resolve_leaf(resolution: &ControlResolution<'_>, control: &mut Control) {
+        match control {
+            Control::Group { .. } => {}
             Control::Number(number) => {
                 number.animation =
-                    Self::number_animation(item, &number.common.target, &number.spec);
+                    Self::number_animation(resolution.item, &number.common.target, &number.spec);
                 Self::resolve_common(
-                    item,
-                    selected_items,
+                    resolution,
                     &mut number.common,
                     number.spec.scalar_type.clone(),
                     number.animation.is_some(),
-                    editing_scene,
-                    arguments,
                 );
                 number.common.animation_enabled = number.animation.is_some();
             }
             Control::Text(text) => Self::resolve_common(
-                item,
-                selected_items,
+                resolution,
                 &mut text.common,
                 ScalarParameterType::String,
                 false,
-                editing_scene,
-                arguments,
             ),
             Control::Bool(boolean) => Self::resolve_common(
-                item,
-                selected_items,
+                resolution,
                 &mut boolean.common,
                 ScalarParameterType::Bool,
                 false,
-                editing_scene,
-                arguments,
             ),
-            Control::Choice(choice) => Self::resolve_common(
-                item,
-                selected_items,
-                &mut choice.common,
-                choice.ty.clone(),
-                false,
-                editing_scene,
-                arguments,
-            ),
+            Control::Choice(choice) => {
+                Self::resolve_common(resolution, &mut choice.common, choice.ty.clone(), false)
+            }
             Control::Color(color) => {
-                color.animation = Self::color_animation(item, &color.common.target);
+                color.animation = Self::color_animation(resolution.item, &color.common.target);
                 Self::resolve_common(
-                    item,
-                    selected_items,
+                    resolution,
                     &mut color.common,
                     ScalarParameterType::Color,
                     color.animation.is_some(),
-                    editing_scene,
-                    arguments,
                 );
                 color.common.animation_enabled = color.animation.is_some();
             }
         }
-        control
     }
 
     fn color_animation(
@@ -776,21 +777,6 @@ impl PropertyInspector {
             from: *from,
             to: *to,
         })
-    }
-
-    pub(super) fn resolve_controls(
-        item: &TimelineItem,
-        selected_items: &[TimelineItem],
-        controls: Vec<Control>,
-        editing_scene: bool,
-        arguments: &[SceneArgumentOption],
-    ) -> Vec<Control> {
-        controls
-            .into_iter()
-            .map(|control| {
-                Self::resolve_control(item, selected_items, control, editing_scene, arguments)
-            })
-            .collect()
     }
 
     pub(super) fn scene_field_binding(

@@ -11,20 +11,72 @@ pub(super) struct ColorState {
     pub _subscriptions: Vec<Subscription>,
 }
 
-#[derive(Default)]
-pub(super) struct ControlState {
-    pub text: Option<TextState>,
-    pub color: Option<ColorState>,
-    pub animation_text: Option<(TextState, TextState)>,
-    pub animation_color: Option<(ColorState, ColorState)>,
+pub(super) enum ControlState {
+    Text(TextState),
+    Number {
+        input: TextState,
+        animation: Option<(TextState, TextState)>,
+    },
+    Color {
+        picker: ColorState,
+        animation: Option<(ColorState, ColorState)>,
+    },
 }
 
 impl ControlState {
-    fn is_empty(&self) -> bool {
-        self.text.is_none()
-            && self.color.is_none()
-            && self.animation_text.is_none()
-            && self.animation_color.is_none()
+    pub(super) fn text(&self) -> Option<&TextState> {
+        match self {
+            Self::Text(state) => Some(state),
+            Self::Number { input, .. } => Some(input),
+            Self::Color { .. } => None,
+        }
+    }
+
+    pub(super) fn color(&self) -> Option<&ColorState> {
+        match self {
+            Self::Color { picker, .. } => Some(picker),
+            Self::Text(_) | Self::Number { .. } => None,
+        }
+    }
+
+    pub(super) fn animation_text(&self) -> Option<&(TextState, TextState)> {
+        match self {
+            Self::Number { animation, .. } => animation.as_ref(),
+            Self::Text(_) | Self::Color { .. } => None,
+        }
+    }
+
+    pub(super) fn animation_color(&self) -> Option<&(ColorState, ColorState)> {
+        match self {
+            Self::Color { animation, .. } => animation.as_ref(),
+            Self::Text(_) | Self::Number { .. } => None,
+        }
+    }
+
+    fn insert_number_animation(&mut self, animation: (TextState, TextState)) {
+        if let Self::Number {
+            animation: current, ..
+        } = self
+        {
+            *current = Some(animation);
+        }
+    }
+
+    fn insert_color_animation(&mut self, animation: (ColorState, ColorState)) {
+        if let Self::Color {
+            animation: current, ..
+        } = self
+        {
+            *current = Some(animation);
+        }
+    }
+
+    fn clear_inactive_animation(&mut self, text_active: bool, color_active: bool) {
+        match self {
+            Self::Number { animation, .. } if !text_active => *animation = None,
+            Self::Color { animation, .. } if !color_active => *animation = None,
+            _ => {}
+        }
     }
 }
 
@@ -36,7 +88,7 @@ pub(super) struct ActiveAnimations {
 
 #[derive(Default)]
 pub(super) struct ControlStore {
-    pub fields: HashMap<ControlId, ControlState>,
+    pub states: HashMap<ControlId, ControlState>,
     pub tree: ControlTree,
     pub input_structure: Option<InspectorInputStructure>,
     pub value_drag_origin: Option<PropertyValueDragOrigin>,
@@ -44,37 +96,37 @@ pub(super) struct ControlStore {
 }
 
 impl ControlStore {
-    pub(super) fn text(&self, key: &PropertyPath) -> Option<Entity<InputState>> {
-        self.fields
-            .get(&ControlId::property(key))
-            .and_then(|field| field.text.as_ref())
+    pub(super) fn text(&self, id: &ControlId) -> Option<Entity<InputState>> {
+        self.states
+            .get(id)
+            .and_then(ControlState::text)
             .map(|state| state.input.clone())
     }
 
-    pub(super) fn color(&self, key: &PropertyPath) -> Option<Entity<ColorPickerState>> {
-        self.fields
-            .get(&ControlId::property(key))
-            .and_then(|field| field.color.as_ref())
+    pub(super) fn color(&self, id: &ControlId) -> Option<Entity<ColorPickerState>> {
+        self.states
+            .get(id)
+            .and_then(ControlState::color)
             .map(|state| state.picker.clone())
     }
 
     pub(super) fn animation_text(
         &self,
-        key: &PropertyPath,
+        id: &ControlId,
     ) -> Option<(Entity<InputState>, Entity<InputState>)> {
-        self.fields
-            .get(&ControlId::property(key))
-            .and_then(|field| field.animation_text.as_ref())
+        self.states
+            .get(id)
+            .and_then(ControlState::animation_text)
             .map(|(from, to)| (from.input.clone(), to.input.clone()))
     }
 
     pub(super) fn animation_color_pair(
         &self,
-        key: &PropertyPath,
+        id: &ControlId,
     ) -> Option<(Entity<ColorPickerState>, Entity<ColorPickerState>)> {
-        self.fields
-            .get(&ControlId::property(key))
-            .and_then(|field| field.animation_color.as_ref())
+        self.states
+            .get(id)
+            .and_then(ControlState::animation_color)
             .map(|(from, to)| (from.picker.clone(), to.picker.clone()))
     }
 }
@@ -149,12 +201,13 @@ impl PropertyInspector {
         }
     }
 
-    /// Get-or-create the text state for a key, syncing its displayed text.
+    /// Get-or-create an input state for a control, syncing its displayed text.
     pub(super) fn ensure_text(
         &mut self,
         key: ControlId,
         initial: String,
         multiline: bool,
+        numeric: bool,
         subscribe: impl FnOnce(
             &Entity<InputState>,
             &mut Window,
@@ -163,12 +216,7 @@ impl PropertyInspector {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<InputState> {
-        if let Some(state) = self
-            .store
-            .fields
-            .get(&key)
-            .and_then(|field| field.text.as_ref())
-        {
+        if let Some(state) = self.store.states.get(&key).and_then(ControlState::text) {
             Self::set_input_value(&state.input, initial, window, cx);
             return state.input.clone();
         }
@@ -183,10 +231,21 @@ impl PropertyInspector {
         });
         let subscriptions = subscribe(&input, window, cx);
         let cloned = input.clone();
-        self.store.fields.entry(key).or_default().text = Some(TextState {
+        let state = TextState {
             input,
             _subscriptions: subscriptions,
-        });
+        };
+        self.store.states.insert(
+            key,
+            if numeric {
+                ControlState::Number {
+                    input: state,
+                    animation: None,
+                }
+            } else {
+                ControlState::Text(state)
+            },
+        );
         cloned
     }
 
@@ -202,12 +261,7 @@ impl PropertyInspector {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<ColorPickerState> {
-        if let Some(state) = self
-            .store
-            .fields
-            .get(&key)
-            .and_then(|field| field.color.as_ref())
-        {
+        if let Some(state) = self.store.states.get(&key).and_then(ControlState::color) {
             if state.picker.read(cx).value() != Some(initial) {
                 state
                     .picker
@@ -218,10 +272,16 @@ impl PropertyInspector {
         let picker = cx.new(|cx| ColorPickerState::new(window, cx).default_value(initial));
         let subscription = subscribe(&picker, window, cx);
         let cloned = picker.clone();
-        self.store.fields.entry(key).or_default().color = Some(ColorState {
-            picker,
-            _subscriptions: vec![subscription],
-        });
+        self.store.states.insert(
+            key,
+            ControlState::Color {
+                picker: ColorState {
+                    picker,
+                    _subscriptions: vec![subscription],
+                },
+                animation: None,
+            },
+        );
         cloned
     }
 
@@ -239,6 +299,7 @@ impl PropertyInspector {
             control.common.id.clone(),
             text,
             false,
+            true,
             |input, window, cx| {
                 let change_target = target.clone();
                 let change_spec = spec.clone();
@@ -294,6 +355,7 @@ impl PropertyInspector {
             control.common.id.clone(),
             text,
             control.multiline,
+            false,
             |input, window, cx| {
                 vec![
                     cx.subscribe_in(input, window, move |this, input, event, window, cx| {
@@ -351,9 +413,9 @@ impl PropertyInspector {
                 let key = number.common.id.clone();
                 if let Some((from, to)) = self
                     .store
-                    .fields
+                    .states
                     .get(&key)
-                    .and_then(|field| field.animation_text.as_ref())
+                    .and_then(ControlState::animation_text)
                 {
                     Self::set_input_value(
                         &from.input,
@@ -401,16 +463,18 @@ impl PropertyInspector {
                         cx,
                     );
                 });
-                self.store.fields.entry(key).or_default().animation_text = Some((
-                    TextState {
-                        input: from,
-                        _subscriptions: vec![from_sub],
-                    },
-                    TextState {
-                        input: to,
-                        _subscriptions: vec![to_sub],
-                    },
-                ));
+                if let Some(state) = self.store.states.get_mut(&key) {
+                    state.insert_number_animation((
+                        TextState {
+                            input: from,
+                            _subscriptions: vec![from_sub],
+                        },
+                        TextState {
+                            input: to,
+                            _subscriptions: vec![to_sub],
+                        },
+                    ));
+                }
             }
             Control::Color(color) => {
                 let Some(display) = color.animation.as_ref() else {
@@ -422,9 +486,9 @@ impl PropertyInspector {
                 let key = color.common.id.clone();
                 if let Some((from_picker, to_picker)) = self
                     .store
-                    .fields
+                    .states
                     .get(&key)
-                    .and_then(|field| field.animation_color.as_ref())
+                    .and_then(ControlState::animation_color)
                     .map(|(from, to)| (from.picker.clone(), to.picker.clone()))
                 {
                     if from_picker.read(cx).value() != Some(from_color) {
@@ -455,25 +519,28 @@ impl PropertyInspector {
                 };
                 let from_state = make_picker(from_color, AnimationEndpoint::From, cx);
                 let to_state = make_picker(to_color, AnimationEndpoint::To, cx);
-                self.store.fields.entry(key).or_default().animation_color =
-                    Some((from_state, to_state));
+                if let Some(state) = self.store.states.get_mut(&key) {
+                    state.insert_color_animation((from_state, to_state));
+                }
             }
             _ => {}
         }
     }
 
-    fn ensure_control_scalars(
+    fn ensure_control_states(
         &mut self,
         item: &TimelineItem,
         control: &Control,
         active: &mut ActiveAnimations,
+        seen: &mut HashSet<ControlId>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        debug_assert!(seen.insert(control.id().clone()), "duplicate control id");
         match control {
             Control::Group { children, .. } => {
                 for child in children {
-                    self.ensure_control_scalars(item, child, active, window, cx);
+                    self.ensure_control_states(item, child, active, seen, window, cx);
                 }
             }
             Control::Number(number) => {
@@ -496,25 +563,21 @@ impl PropertyInspector {
         }
     }
 
-    fn ensure_item_scalars(
+    fn ensure_tree_states(
         &mut self,
         item: &TimelineItem,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         let mut active = ActiveAnimations::default();
+        let mut seen = HashSet::new();
         let roots = self.store.tree.roots.clone();
         for control in &roots {
-            self.ensure_control_scalars(item, control, &mut active, window, cx);
+            self.ensure_control_states(item, control, &mut active, &mut seen, window, cx);
         }
-        self.store.fields.retain(|key, field| {
-            if field.animation_text.is_some() && !active.text.contains(key) {
-                field.animation_text = None;
-            }
-            if field.animation_color.is_some() && !active.color.contains(key) {
-                field.animation_color = None;
-            }
-            !field.is_empty()
+        self.store.states.retain(|key, state| {
+            state.clear_inactive_animation(active.text.contains(key), active.color.contains(key));
+            true
         });
     }
 
@@ -588,26 +651,32 @@ impl PropertyInspector {
             return ControlTree::default();
         };
         let multiple = selected_items.len() > 1;
+        let resolution = control::ControlResolution {
+            item,
+            selected_items,
+            editing_scene,
+            arguments: scene_arguments,
+        };
         let mut item_controls = if let Some(scene_id) = item.scene_id() {
             editor
                 .scene(scene_id)
-                .map(|scene| Self::scene_argument_value_controls(scene_id, &scene.arguments, item))
+                .map(|scene| {
+                    Self::scene_argument_value_controls(
+                        scene_id,
+                        &scene.arguments,
+                        item,
+                        &resolution,
+                    )
+                })
                 .unwrap_or_default()
         } else {
-            Self::item_controls(item)
+            Self::item_controls(item, &resolution)
         };
         if item.scene_id().is_none() {
             item_controls.retain(|control| {
                 Self::parameter_is_common(selected_items, control.parameter_id())
             });
         }
-        let mut item_controls = Self::resolve_controls(
-            item,
-            selected_items,
-            item_controls,
-            editing_scene,
-            scene_arguments,
-        );
         if multiple {
             for control in &mut item_controls {
                 control.disable_animation();
@@ -622,26 +691,21 @@ impl PropertyInspector {
         let effect_groups: Vec<Control> = effects
             .into_iter()
             .map(|effect| {
-                let mut controls = Self::resolve_controls(
-                    item,
-                    selected_items,
-                    Self::effect_controls(&effect),
-                    editing_scene,
-                    scene_arguments,
-                );
+                let mut controls = Self::effect_controls(&effect, &resolution);
                 if multiple {
                     for control in &mut controls {
                         control.disable_animation();
                     }
                 }
                 Control::Group {
-                    id: ControlId::property(&PropertyPath::effect_parameter(
-                        effect.id.get(),
-                        "group",
-                    )),
+                    id: ControlId::effect_group(effect.id),
                     label: effect.schema().label().to_owned(),
                     children: controls,
-                    data: control::GroupData::Effect(effect),
+                    kind: control::GroupKind::Effect(control::EffectGroup {
+                        id: effect.id,
+                        label: effect.schema().label().to_owned(),
+                        hidden: editor.is_effect_hidden(effect.id),
+                    }),
                 }
             })
             .collect();
@@ -654,13 +718,13 @@ impl PropertyInspector {
         self.store = ControlStore::default();
     }
 
-    fn reconcile_item_inputs(
+    fn reconcile_states(
         &mut self,
         item: &TimelineItem,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.ensure_item_scalars(item, window, cx);
+        self.ensure_tree_states(item, window, cx);
         self.ensure_active_scene_argument_names(window, cx);
     }
 
@@ -697,7 +761,7 @@ impl PropertyInspector {
         };
         if selected_item.is_some() {
             let item = selected_item.as_ref().unwrap();
-            self.reconcile_item_inputs(item, window, cx);
+            self.reconcile_states(item, window, cx);
         }
         let animation_target = self.animation_selection.read(cx).target().cloned();
         let invalid_animation_target = animation_target.as_ref().is_some_and(|target| {
