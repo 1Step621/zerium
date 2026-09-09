@@ -37,11 +37,11 @@ fn fragment_main(input: PolygonVertexOutput) -> @location(0) vec4<f32> {
     }
 
     let previous_tuple = zerium_parameter_points_get(params, params.points_len - 1u);
-    var previous = vec2(previous_tuple.v0, previous_tuple.v1);
+    var previous = vec2(previous_tuple.v0, previous_tuple.v1) / 100.0;
     var inside = false;
     for (var index = 0u; index < params.points_len; index += 1u) {
         let current_tuple = zerium_parameter_points_get(params, index);
-        let current = vec2(current_tuple.v0, current_tuple.v1);
+        let current = vec2(current_tuple.v0, current_tuple.v1) / 100.0;
         let crosses = (current.y > input.local.y) != (previous.y > input.local.y);
         if crosses {
             let edge_x = (previous.x - current.x)

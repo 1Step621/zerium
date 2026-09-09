@@ -458,9 +458,13 @@ impl SceneArgumentSchema {
         self.effective.label = label;
     }
 
-    pub(crate) fn set_default(&mut self, value: ParameterValue) {
-        self.declared.default = value.clone();
-        self.effective.default = value;
+    pub(crate) fn with_default(&self, value: &ParameterValue) -> Option<Self> {
+        let declared_default = self.declared.constrained_value(value)?;
+        let effective_default = self.effective.constrained_value(&declared_default)?;
+        let mut next = self.clone();
+        next.declared.default = declared_default;
+        next.effective.default = effective_default;
+        Some(next)
     }
 
     pub(crate) fn with_numeric_settings(

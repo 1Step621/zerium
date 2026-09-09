@@ -4,18 +4,10 @@ use super::*;
 pub(super) fn append_default(field: &ArrayGroup) -> ParameterValue {
     let ui = field.parameter.ui();
     let constraints = field.parameter.constraints();
-    let display_scale = f64::from(ui.display_scale());
-    let step = f64::from(ui.step()) * display_scale;
-    let min = PropertyInspector::scaled_display_value(
-        constraints.min.unwrap_or(f64::from(f32::MIN)),
-        display_scale,
-    );
-    let max = PropertyInspector::scaled_display_value(
-        constraints.max.unwrap_or(f64::from(f32::MAX)),
-        display_scale,
-    );
-    let clamp =
-        |value: f64| snap_to_step(value * display_scale, step).clamp(min, max) / display_scale;
+    let step = f64::from(ui.step());
+    let min = constraints.min.unwrap_or(f64::from(f32::MIN));
+    let max = constraints.max.unwrap_or(f64::from(f32::MAX));
+    let clamp = |value: f64| snap_to_step(value, step).clamp(min, max);
     let value = match field.parameter.ty().element_type() {
         ParameterValueType::Scalar(ScalarParameterType::F32) => {
             ParameterValue::F32(clamp(0.) as f32)

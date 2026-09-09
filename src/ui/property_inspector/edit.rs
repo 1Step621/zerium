@@ -108,12 +108,10 @@ impl PropertyInspector {
             .read(cx)
             .selected_item()
             .and_then(|item| Self::live_numeric_value(&item, target));
-        if current_value.is_some_and(|value| {
-            input_value == Self::format_value(Self::scaled_display_value(value, spec.display_scale))
-        }) {
+        if current_value.is_some_and(|value| input_value == Self::format_value(value)) {
             return;
         }
-        let Some(number) = NumericInput::new(spec.scalar_type.clone(), spec.display_scale) else {
+        let Some(number) = NumericInput::new(spec.scalar_type.clone()) else {
             return;
         };
         let Some(value) = number
@@ -122,7 +120,7 @@ impl PropertyInspector {
         else {
             return;
         };
-        let value = value.clamp(spec.min / spec.display_scale, spec.max / spec.display_scale);
+        let value = value.clamp(spec.min, spec.max);
         self.update_numeric_scalar(target, value, cx);
     }
 
@@ -148,7 +146,7 @@ impl PropertyInspector {
                     ..
                 } => value - spec.step,
             },
-        ) / spec.display_scale;
+        );
         self.update_numeric_scalar(target, value, cx);
     }
 
@@ -303,8 +301,8 @@ impl PropertyInspector {
                 target.effect_id,
                 &display.source_parameter_id,
                 display.source_address,
-                from / display.value_scale,
-                to / display.value_scale,
+                from / display.value_factor,
+                to / display.value_factor,
             )
         });
     }
@@ -361,8 +359,8 @@ impl PropertyInspector {
             else {
                 return;
             };
-            let current_from = current_from * origin.animation_scale;
-            let current_to = current_to * origin.animation_scale;
+            let current_from = current_from * origin.animation_factor;
+            let current_to = current_to * origin.animation_factor;
             let (from, to) = match endpoint {
                 AnimationEndpoint::From => (value, current_to),
                 AnimationEndpoint::To => (current_from, value),
@@ -372,12 +370,12 @@ impl PropertyInspector {
                     origin.target.effect_id,
                     &origin.target.parameter_id,
                     origin.target.animation_address(),
-                    from / origin.animation_scale,
-                    to / origin.animation_scale,
+                    from / origin.animation_factor,
+                    to / origin.animation_factor,
                 )
             });
         } else {
-            self.update_numeric_scalar(&origin.target, value / origin.display_scale, cx);
+            self.update_numeric_scalar(&origin.target, value, cx);
             if let Some(input) = self
                 .store
                 .states
@@ -445,8 +443,7 @@ impl PropertyInspector {
             max: spec.max,
             step: spec.step,
             sensitivity: Self::drag_sensitivity(spec.min, spec.max, spec.step),
-            animation_scale: display.map_or(1., |display| display.value_scale),
-            display_scale: spec.display_scale,
+            animation_factor: display.map_or(1., |display| display.value_factor),
         });
     }
 
@@ -497,9 +494,9 @@ impl PropertyInspector {
             return Some(NumberAnimationDisplay {
                 source_parameter_id: target.parameter_id.clone(),
                 source_address: target.animation_address(),
-                value_scale: spec.display_scale,
-                from: from * spec.display_scale,
-                to: to * spec.display_scale,
+                value_factor: 1.,
+                from,
+                to,
             });
         }
 
@@ -507,7 +504,7 @@ impl PropertyInspector {
             Self::linked_animation_aspect_ratio(item, target, spec)?;
         let source_array_index = None;
         let source = item.animation(None, &source_parameter_id, source_array_index)?;
-        let value_scale = aspect_ratio.recip() * spec.display_scale;
+        let value_factor = aspect_ratio.recip();
         let (from, to) = source.numeric_range(source_channel)?;
         Some(NumberAnimationDisplay {
             source_parameter_id,
@@ -515,9 +512,9 @@ impl PropertyInspector {
                 array_index: source_array_index,
                 channel: source_channel,
             },
-            value_scale,
-            from: from * value_scale,
-            to: to * value_scale,
+            value_factor,
+            from: from * value_factor,
+            to: to * value_factor,
         })
     }
 
@@ -694,7 +691,7 @@ impl PropertyInspector {
                 label,
                 suffix: String::new(),
                 step: 0.01,
-                value_scale: 1.,
+                value_factor: 1.,
             });
         }
         let is_size = target.effect_id.is_none()
@@ -715,7 +712,7 @@ impl PropertyInspector {
             label,
             suffix: spec.suffix.clone(),
             step: spec.step,
-            value_scale: display.value_scale,
+            value_factor: display.value_factor,
         })
     }
 

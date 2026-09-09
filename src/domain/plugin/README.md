@@ -182,10 +182,8 @@ and animated independently, but are not modeled as separate parameter lanes.
 
 `label` and numeric `constraints` belong to the parameter contract. `ui` only
 contains presentation hints: `elements` (including each element’s `label`), `unit`, `step`,
-`display_scale`, `visible`, `enum_variants`, `multiline`, and `editor`. Numeric values remain
-canonical in projects and shaders; `display_scale` is applied only by editor
-controls and animation curves. For example, a stored opacity of `1.0` can be
-displayed as `100%` with `"display_scale": 100`.
+`visible`, `enum_variants`, `multiline`, and `editor`. Numeric values use the same canonical
+unit in projects, shaders, and editor controls.
 Constraints are enforced for defaults, direct edits, array elements, loaded
 projects, and animation endpoints.
 
@@ -253,7 +251,7 @@ tuple elements are published and connected independently.
 
 `ui.elements` and `constraints.elements` specify metadata for each tuple scalar,
 including inside an array. When present, each list must match the tuple length.
-Tuple UI properties (`label`, `unit`, `step`, `display_scale`, `visible`,
+Tuple UI properties (`label`, `unit`, `step`, `visible`,
 `enum_variants`, and `multiline`) belong inside `ui.elements`. Parent UI hints
 are not inherited. Missing labels use the one-based element index, and omitted
 UI metadata uses the scalar defaults. A tuple is visible if any element is visible.

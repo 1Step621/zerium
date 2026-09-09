@@ -14,7 +14,7 @@ pub(crate) struct AnimationPresentation {
     pub label: String,
     pub suffix: String,
     pub step: f64,
-    pub value_scale: f64,
+    pub value_factor: f64,
 }
 
 #[derive(Default)]

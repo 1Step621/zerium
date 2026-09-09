@@ -30,7 +30,7 @@ fn vertex_main(
     output.local = local;
     output.color = zerium_scene_premultiplied_color(params.color);
     output.points = clamp(params.points, 3u, 16u);
-    output.inner_radius = clamp(params.inner_radius, 0.05, 0.95);
+    output.inner_radius = clamp(params.inner_radius / 100.0, 0.05, 0.95);
     output.rotation = params.rotation * PI / 180.0;
     return output;
 }

@@ -346,9 +346,9 @@ impl PropertyInspector {
             },
         );
         let argument_id = argument_id.to_owned();
-        let change_sub = cx.subscribe_in(&input, window, move |this, _, event, _, cx| {
+        let change_sub = cx.subscribe_in(&input, window, move |this, _, event, window, cx| {
             if matches!(event, InputEvent::Change) {
-                this.apply_scene_argument_settings(scene_id, &argument_id, cx);
+                this.apply_scene_argument_settings(scene_id, &argument_id, setting, window, cx);
             }
         });
         self.store.states.insert(
@@ -417,13 +417,15 @@ impl PropertyInspector {
             return;
         };
         Self::set_input_value(input, number.format(value), window, cx);
-        self.apply_scene_argument_settings(scene_id, argument_id, cx);
+        self.apply_scene_argument_settings(scene_id, argument_id, setting, window, cx);
     }
 
     pub(super) fn apply_scene_argument_settings(
         &mut self,
         scene_id: SceneId,
         argument_id: &str,
+        changed: SceneArgumentSetting,
+        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if self.editor.read(cx).active_scene_id() != Some(scene_id) {
@@ -454,19 +456,73 @@ impl PropertyInspector {
                 .and_then(state::ControlState::text)
                 .map(|state| state.input.read(cx).value().to_string())
         };
-        let Some(settings) = (|| {
-            let default = number.parse(&text(SceneArgumentSetting::Default)?)?;
-            let min = number.parse_optional(&text(SceneArgumentSetting::Min)?)?;
-            let max = number.parse_optional(&text(SceneArgumentSetting::Max)?)?;
-            crate::domain::parameter::NumericSettings::from_values(default, min, max)
-        })() else {
+        let Some(default_text) = text(SceneArgumentSetting::Default) else {
             return;
         };
-        self.editor.update(cx, |editor, cx| {
+        let Some(min_text) = text(SceneArgumentSetting::Min) else {
+            return;
+        };
+        let Some(max_text) = text(SceneArgumentSetting::Max) else {
+            return;
+        };
+        let Some(default) = number.parse_number(&default_text) else {
+            return;
+        };
+        let min = if min_text.trim().is_empty() {
+            None
+        } else {
+            let Some(value) = number.parse_number(&min_text) else {
+                return;
+            };
+            Some(value)
+        };
+        let max = if max_text.trim().is_empty() {
+            None
+        } else {
+            let Some(value) = number.parse_number(&max_text) else {
+                return;
+            };
+            Some(value)
+        };
+        let mut values = NumericSettingDraft { default, min, max };
+
+        let Some(settings) = values.normalize(&number, changed) else {
+            return;
+        };
+        values = settings;
+        let Some(settings) = values.to_domain(&number) else {
+            return;
+        };
+        let values = values.formatted(&number);
+        let changed = self.editor.update(cx, |editor, cx| {
             if editor.update_scene_argument_numeric_settings(argument_id, settings) {
                 cx.notify();
+                true
+            } else {
+                false
             }
         });
+        if !changed {
+            return;
+        }
+        for (setting, value) in [
+            (SceneArgumentSetting::Default, values.default),
+            (SceneArgumentSetting::Min, values.min),
+            (SceneArgumentSetting::Max, values.max),
+        ] {
+            if let Some(input) = self
+                .store
+                .states
+                .get(&ControlId::scene_argument_setting(
+                    scene_id,
+                    argument_id,
+                    setting,
+                ))
+                .and_then(state::ControlState::text)
+            {
+                Self::set_input_value(&input.input, value, window, cx);
+            }
+        }
     }
 
     pub(super) fn prepare_scene_argument_value_drag(
@@ -605,7 +661,13 @@ impl PropertyInspector {
             return;
         };
         Self::set_input_value(&input.input, origin.number.format(value), window, cx);
-        self.apply_scene_argument_settings(drag.scene_id, &drag.argument_id, cx);
+        self.apply_scene_argument_settings(
+            drag.scene_id,
+            &drag.argument_id,
+            drag.setting,
+            window,
+            cx,
+        );
     }
 
     pub(super) fn scene_settings_element(
@@ -1123,15 +1185,88 @@ fn numeric_settings(number: &NumericInput, schema: &ParameterSchema) -> Option<[
                     }
                     _ => value,
                 };
-                number.format(value * number.scale)
+                number.format(value)
             })
             .unwrap_or_default()
     };
     Some([
-        number.format(default * number.scale),
+        number.format(default),
         bound(constraints.min, true),
         bound(constraints.max, false),
     ])
+}
+
+#[derive(Clone, Copy)]
+struct NumericSettingDraft {
+    default: f64,
+    min: Option<f64>,
+    max: Option<f64>,
+}
+
+struct NumericSettingText {
+    default: String,
+    min: String,
+    max: String,
+}
+
+impl NumericSettingDraft {
+    fn normalize(mut self, number: &NumericInput, changed: SceneArgumentSetting) -> Option<Self> {
+        let (lower, upper) = number.bounds();
+        if !lower.is_finite()
+            || !upper.is_finite()
+            || lower > upper
+            || !self.default.is_finite()
+            || self.min.is_some_and(|value| !value.is_finite())
+            || self.max.is_some_and(|value| !value.is_finite())
+        {
+            return None;
+        }
+        self.default = self.default.clamp(lower, upper);
+        self.min = self.min.map(|value| value.clamp(lower, upper));
+        self.max = self.max.map(|value| value.clamp(lower, upper));
+
+        let min = self.min.unwrap_or(lower);
+        let max = self.max.unwrap_or(upper);
+        if min > max {
+            match changed {
+                SceneArgumentSetting::Min => self.min = Some(max),
+                SceneArgumentSetting::Max => self.max = Some(min),
+                SceneArgumentSetting::Default => return None,
+            }
+        }
+
+        let min = self.min.unwrap_or(lower);
+        let max = self.max.unwrap_or(upper);
+        self.default = self.default.clamp(min, max);
+        Some(self)
+    }
+
+    fn to_domain(self, number: &NumericInput) -> Option<crate::domain::parameter::NumericSettings> {
+        let default = number.value_from_number(self.default)?;
+        let min = match self.min {
+            Some(value) => Some(number.value_from_number(value)?),
+            None => None,
+        };
+        let max = match self.max {
+            Some(value) => Some(number.value_from_number(value)?),
+            None => None,
+        };
+        crate::domain::parameter::NumericSettings::from_values(default, min, max)
+    }
+
+    fn formatted(self, number: &NumericInput) -> NumericSettingText {
+        NumericSettingText {
+            default: number.format(self.default),
+            min: self
+                .min
+                .map(|value| number.format(value))
+                .unwrap_or_default(),
+            max: self
+                .max
+                .map(|value| number.format(value))
+                .unwrap_or_default(),
+        }
+    }
 }
 
 fn setting_display_value(
@@ -1139,14 +1274,14 @@ fn setting_display_value(
     setting: SceneArgumentSetting,
     text: &str,
 ) -> Option<f64> {
-    if let Some(value) = number.parse_optional(text)? {
-        return value.numeric_scalar().map(|value| value * number.scale);
+    if !text.trim().is_empty() {
+        return number.parse_number(text);
     }
     let (min, max) = number.bounds();
     match setting {
         SceneArgumentSetting::Default => None,
-        SceneArgumentSetting::Min => Some(min * number.scale),
-        SceneArgumentSetting::Max => Some(max * number.scale),
+        SceneArgumentSetting::Min => Some(min),
+        SceneArgumentSetting::Max => Some(max),
     }
 }
 
@@ -1161,10 +1296,50 @@ fn clamp_setting(
         return None;
     }
     let (lower, upper) = number.bounds();
-    let value = value.clamp(lower * number.scale, upper * number.scale);
+    let value = value.clamp(lower, upper);
     Some(match setting {
         SceneArgumentSetting::Default => value.clamp(min, max),
         SceneArgumentSetting::Min => value.min(max),
         SceneArgumentSetting::Max => value.max(min),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn changing_min_or_max_repairs_crossed_bounds() {
+        let number = NumericInput::new(ScalarParameterType::F32).unwrap();
+        let draft = NumericSettingDraft {
+            default: 0.,
+            min: Some(10.),
+            max: Some(5.),
+        };
+
+        let min_changed = draft.normalize(&number, SceneArgumentSetting::Min).unwrap();
+        assert_eq!(min_changed.min, Some(5.));
+        assert_eq!(min_changed.max, Some(5.));
+        assert_eq!(min_changed.default, 5.);
+
+        let max_changed = draft.normalize(&number, SceneArgumentSetting::Max).unwrap();
+        assert_eq!(max_changed.min, Some(10.));
+        assert_eq!(max_changed.max, Some(10.));
+        assert_eq!(max_changed.default, 10.);
+    }
+
+    #[test]
+    fn default_is_clamped_to_the_normalized_bounds() {
+        let number = NumericInput::new(ScalarParameterType::F32).unwrap();
+        let draft = NumericSettingDraft {
+            default: 100.,
+            min: Some(-2.),
+            max: Some(2.),
+        };
+
+        let normalized = draft
+            .normalize(&number, SceneArgumentSetting::Default)
+            .unwrap();
+        assert_eq!(normalized.default, 2.);
+    }
 }

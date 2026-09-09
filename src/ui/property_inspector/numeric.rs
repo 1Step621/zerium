@@ -3,32 +3,26 @@ use super::*;
 #[derive(Clone)]
 pub(super) struct NumericInput {
     pub(super) scalar: ScalarParameterType,
-    pub(super) scale: f64,
 }
 
 impl NumericInput {
-    pub(super) fn new(scalar: ScalarParameterType, scale: f64) -> Option<Self> {
-        (matches!(
+    pub(super) fn new(scalar: ScalarParameterType) -> Option<Self> {
+        matches!(
             scalar,
             ScalarParameterType::F32 | ScalarParameterType::I32 | ScalarParameterType::U32
-        ) && scale.is_finite()
-            && scale > 0.)
-            .then_some(Self { scalar, scale })
+        )
+        .then_some(Self { scalar })
     }
 
     pub(super) fn for_schema(schema: &ParameterSchema) -> Option<Self> {
-        Self::new(
-            schema.ty().scalar_type()?.clone(),
-            f64::from(schema.ui().display_scale()),
-        )
+        Self::new(schema.ty().scalar_type()?.clone())
     }
 
-    /// Floats use the caller's display-unit step; integers advance one stored unit.
-    pub(super) fn step(&self, float_display_step: f64) -> f64 {
+    pub(super) fn step(&self, float_step: f64) -> f64 {
         if self.scalar == ScalarParameterType::F32 {
-            float_display_step
+            float_step
         } else {
-            self.scale
+            1.
         }
     }
 
@@ -40,6 +34,14 @@ impl NumericInput {
         }
     }
 
+    pub(super) fn value_from_number(&self, value: f64) -> Option<ParameterValue> {
+        self.parse(&self.format(value))
+    }
+
+    pub(super) fn parse_number(&self, text: &str) -> Option<f64> {
+        self.parse(text).and_then(|value| value.numeric_scalar())
+    }
+
     pub(super) fn bounds(&self) -> (f64, f64) {
         match self.scalar {
             ScalarParameterType::I32 => (f64::from(i32::MIN), f64::from(i32::MAX)),
@@ -48,27 +50,8 @@ impl NumericInput {
         }
     }
 
-    pub(super) fn parse_optional(&self, text: &str) -> Option<Option<ParameterValue>> {
-        if text.trim().is_empty() {
-            Some(None)
-        } else {
-            self.parse(text).map(Some)
-        }
-    }
-
     pub(super) fn parse(&self, text: &str) -> Option<ParameterValue> {
-        if self.scale == 1. {
-            match self.scalar {
-                ScalarParameterType::I32 => {
-                    return text.trim().parse::<i32>().ok().map(ParameterValue::I32);
-                }
-                ScalarParameterType::U32 => {
-                    return text.trim().parse::<u32>().ok().map(ParameterValue::U32);
-                }
-                _ => {}
-            }
-        }
-        let value = text.trim().parse::<f64>().ok()? / self.scale;
+        let value = text.trim().parse::<f64>().ok()?;
         if !value.is_finite() {
             return None;
         }
@@ -89,5 +72,22 @@ impl NumericInput {
             }
             _ => None,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn numeric_input_uses_canonical_values() {
+        let number = NumericInput::new(ScalarParameterType::F32).unwrap();
+
+        assert_eq!(number.parse_number("25"), Some(25.));
+        assert_eq!(number.format(0.25), "0.25");
+        assert_eq!(
+            number.value_from_number(25.),
+            Some(ParameterValue::F32(25.))
+        );
     }
 }

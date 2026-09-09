@@ -36,8 +36,6 @@ pub(crate) struct ParameterUi {
     unit: String,
     #[serde(skip_serializing_if = "is_one")]
     step: f32,
-    #[serde(skip_serializing_if = "is_one")]
-    display_scale: f32,
     #[serde(skip_serializing_if = "is_true")]
     visible: bool,
     #[serde(
@@ -60,7 +58,6 @@ impl Default for ParameterUi {
             elements: Vec::new(),
             unit: String::new(),
             step: 1.,
-            display_scale: 1.,
             visible: true,
             enum_variants: BTreeMap::new(),
             multiline: false,
@@ -105,10 +102,6 @@ impl ParameterUi {
 
     pub(crate) const fn step(&self) -> f32 {
         self.step
-    }
-
-    pub(crate) const fn display_scale(&self) -> f32 {
-        self.display_scale
     }
 
     pub(crate) fn is_visible(&self) -> bool {
@@ -182,30 +175,12 @@ impl ParameterUi {
         if !self.step.is_finite() || self.step <= 0. {
             return Err(invalid("UI step must be positive"));
         }
-        if !self.display_scale.is_finite() || self.display_scale <= 0. {
-            return Err(invalid("UI display_scale must be positive"));
-        }
-        if !(self.step * self.display_scale).is_finite() {
-            return Err(invalid("scaled UI step is invalid"));
-        }
         if self
             .label
             .as_ref()
             .is_some_and(|label| label.trim().is_empty())
         {
             return Err(invalid("UI element label must not be empty"));
-        }
-        if self.display_scale != 1.
-            && !component_type.scalars().any(|(_, ty)| {
-                matches!(
-                    ty,
-                    ScalarParameterType::F32 | ScalarParameterType::I32 | ScalarParameterType::U32
-                )
-            })
-        {
-            return Err(invalid(
-                "UI display_scale requires a numeric scalar or tuple",
-            ));
         }
         if self.multiline
             && *ty != ParameterType::Value(ParameterValueType::Scalar(ScalarParameterType::String))
@@ -261,9 +236,6 @@ impl ParameterUi {
             .any(|label| !labels.insert(label.to_lowercase()))
         {
             return Err(invalid("UI enum variant labels must be unique"));
-        }
-        if self.display_scale != 1. {
-            return Err(invalid("enum parameters must not use display_scale"));
         }
         Ok(())
     }

@@ -54,8 +54,8 @@ impl AnimationCurveEditor {
         let (from, to) = animation.endpoints(target.address.channel)?;
         let (from, to, axis_suffix) = match from.numeric_scalar().zip(to.numeric_scalar()) {
             Some((from, to)) => (
-                from * presentation.value_scale,
-                to * presentation.value_scale,
+                from * presentation.value_factor,
+                to * presentation.value_factor,
                 presentation.suffix.clone(),
             ),
             None => (0., 100., "%".to_owned()),

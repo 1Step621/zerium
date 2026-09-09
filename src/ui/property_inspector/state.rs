@@ -144,11 +144,7 @@ impl PropertyInspector {
         input.update(cx, |input, cx| input.set_value(value, window, cx));
     }
 
-    fn numeric_text(
-        item: &TimelineItem,
-        target: &PropertyTarget,
-        spec: &control::NumberSpec,
-    ) -> String {
+    fn numeric_text(item: &TimelineItem, target: &PropertyTarget) -> String {
         let value = match target.effect_id {
             Some(effect_id) => item
                 .effects
@@ -172,10 +168,7 @@ impl PropertyInspector {
                 .scalar_at(target.value_path.tuple_element())
                 .and_then(ParameterValue::numeric_scalar),
         };
-        value
-            .map(|value| Self::scaled_display_value(value, spec.display_scale))
-            .map(Self::format_value)
-            .unwrap_or_default()
+        value.map(Self::format_value).unwrap_or_default()
     }
 
     fn color_value(item: &TimelineItem, target: &PropertyTarget) -> Option<[f32; 4]> {
@@ -544,7 +537,7 @@ impl PropertyInspector {
                 }
             }
             Control::Number(number) => {
-                let text = Self::numeric_text(item, &number.common.target, &number.spec);
+                let text = Self::numeric_text(item, &number.common.target);
                 self.ensure_number_text(item.id, number, text, window, cx);
                 self.ensure_animation_state(item, control, active, window, cx);
             }

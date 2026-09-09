@@ -201,7 +201,7 @@ pub(super) enum SceneArgumentSetting {
 pub(super) struct NumberAnimationDisplay {
     pub source_parameter_id: String,
     pub source_address: ParameterAnimationAddress,
-    pub value_scale: f64,
+    pub value_factor: f64,
     pub from: f64,
     pub to: f64,
 }
@@ -255,8 +255,7 @@ pub(super) struct PropertyValueDragOrigin {
     pub max: f64,
     pub step: f64,
     pub sensitivity: f64,
-    pub animation_scale: f64,
-    pub display_scale: f64,
+    pub animation_factor: f64,
 }
 
 #[derive(Clone)]

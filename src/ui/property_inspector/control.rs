@@ -6,7 +6,6 @@ pub(super) struct NumberSpec {
     pub min: f64,
     pub max: f64,
     pub step: f64,
-    pub display_scale: f64,
     pub scalar_type: ScalarParameterType,
     pub is_size: bool,
 }
@@ -279,10 +278,6 @@ impl PropertyInspector {
             .collect()
     }
 
-    pub(super) fn scaled_display_value(value: impl Into<f64>, scale: impl Into<f64>) -> f64 {
-        value.into() * scale.into()
-    }
-
     pub(super) fn format_value(value: impl Into<f64>) -> String {
         let value = value.into();
         if value.fract() == 0. {
@@ -341,7 +336,7 @@ impl PropertyInspector {
         }
         let ui = parameter.scalar_ui(tuple_element);
         let constraints = parameter.scalar_constraints(tuple_element);
-        let (type_min, type_max) = NumericInput::new(scalar_type.clone(), 1.)?.bounds();
+        let (type_min, type_max) = NumericInput::new(scalar_type.clone())?.bounds();
         let min = constraints.min.unwrap_or(type_min).max(type_min);
         let max = constraints.max.unwrap_or(type_max).min(type_max);
         let step = f64::from(ui.step());
@@ -351,13 +346,11 @@ impl PropertyInspector {
             }
             _ => (min, max, step),
         };
-        let scale = f64::from(ui.display_scale());
         Some(NumberSpec {
             suffix: ui.unit().to_owned(),
-            min: min * scale,
-            max: max * scale,
-            step: step * scale,
-            display_scale: scale,
+            min,
+            max,
+            step,
             scalar_type,
             is_size,
         })

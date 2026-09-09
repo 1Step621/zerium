@@ -24,7 +24,7 @@ fn vertex_main(
     );
     output.local = local;
     output.color = zerium_scene_premultiplied_color(params.color);
-    output.apex_position = clamp(params.apex_position, 0.0, 1.0) * 2.0 - 1.0;
+    output.apex_position = clamp(params.apex_position / 100.0, 0.0, 1.0) * 2.0 - 1.0;
     return output;
 }
 

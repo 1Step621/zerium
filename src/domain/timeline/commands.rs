@@ -855,16 +855,13 @@ impl TimelineEditor {
         }) else {
             return false;
         };
-        if !argument.schema.declared_parameter().accepts_value(&value) {
-            return false;
-        }
-        let previous_default = argument.schema.declared_parameter().default_value().clone();
-        if previous_default == value {
-            return false;
-        }
         let bindings = argument.bindings.clone();
-        let mut next_schema = argument.schema.clone();
-        next_schema.set_default(value.clone());
+        let Some(mut next_schema) = argument.schema.with_default(&value) else {
+            return false;
+        };
+        if next_schema == argument.schema {
+            return false;
+        }
         let Some(effective) =
             self.effective_contract_for_bindings(scene_id, &bindings, &next_schema)
         else {

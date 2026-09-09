@@ -783,10 +783,6 @@
           "type": "number",
           "exclusiveMinimum": 0
         },
-        "display_scale": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
         "visible": {
           "type": "boolean"
         },

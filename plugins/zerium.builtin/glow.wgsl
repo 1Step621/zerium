@@ -66,7 +66,7 @@ fn fragment_main(input: ZeriumEffectVertexOutput) -> @location(0) vec4<f32> {
 
     let composition_scale = zerium_render_context().composition_scale;
     let radius = max(params.width, 0.0001);
-    let solid_radius = radius * clamp(params.spread, 0.0, 1.0);
+    let solid_radius = radius * clamp(params.spread / 100.0, 0.0, 1.0);
     let sigma = max((radius - solid_radius) / 3.0, 0.5);
 
     var result = vec4(0.0);
@@ -83,7 +83,7 @@ fn fragment_main(input: ZeriumEffectVertexOutput) -> @location(0) vec4<f32> {
                 -(soft_distance * soft_distance) / (2.0 * sigma * sigma),
             );
             let glow_alpha = clamp(
-                falloff * params.intensity * params.color.a
+                falloff * (params.intensity / 100.0) * params.color.a
                     * (1.0 - source.a),
                 0.0,
                 1.0,

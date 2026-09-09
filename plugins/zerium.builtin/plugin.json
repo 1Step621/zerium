@@ -154,17 +154,16 @@
         {
           "id": "apex_position",
           "type": "f32",
-          "default": 0.5,
+          "default": 50,
           "animatable": true,
           "ui": {
             "unit": "%",
-            "step": 0.01,
-            "display_scale": 100
+            "step": 1
           },
           "label": "頂点位置",
           "constraints": {
             "min": 0,
-            "max": 1
+            "max": 100
           }
         }
       ]
@@ -295,22 +294,22 @@
             }
           },
           "default": [
-            [0.5, 0],
-            [1, 1],
-            [0, 1]
+            [50, 0],
+            [100, 100],
+            [0, 100]
           ],
           "animatable": true,
           "ui": {
             "elements": [
-              { "label": "X", "unit": "%", "step": 0.01, "display_scale": 100 },
-              { "label": "Y", "unit": "%", "step": 0.01, "display_scale": 100 }
+              { "label": "X", "unit": "%", "step": 1 },
+              { "label": "Y", "unit": "%", "step": 1 }
             ]
           },
           "label": "頂点",
           "constraints": {
             "elements": [
-              { "min": 0, "max": 1 },
-              { "min": 0, "max": 1 }
+              { "min": 0, "max": 100 },
+              { "min": 0, "max": 100 }
             ]
           }
         },
@@ -477,17 +476,16 @@
         {
           "id": "inner_radius",
           "type": "f32",
-          "default": 0.45,
+          "default": 45,
           "animatable": true,
           "ui": {
             "unit": "%",
-            "step": 0.01,
-            "display_scale": 100
+            "step": 1
           },
           "label": "内側半径",
           "constraints": {
-            "min": 0.05,
-            "max": 0.95
+            "min": 5,
+            "max": 95
           }
         },
         {
@@ -1140,17 +1138,16 @@
         {
           "id": "opacity",
           "type": "f32",
-          "default": 1,
+          "default": 100,
           "animatable": true,
           "ui": {
             "unit": "%",
-            "step": 0.01,
-            "display_scale": 100
+            "step": 1
           },
           "label": "不透明度",
           "constraints": {
             "min": 0,
-            "max": 1
+            "max": 100
           }
         }
       ]
@@ -1225,33 +1222,31 @@
         {
           "id": "intensity",
           "type": "f32",
-          "default": 1,
+          "default": 100,
           "animatable": true,
           "ui": {
             "unit": "%",
-            "step": 0.01,
-            "display_scale": 100
+            "step": 1
           },
           "label": "強さ",
           "constraints": {
             "min": 0,
-            "max": 5
+            "max": 500
           }
         },
         {
           "id": "spread",
           "type": "f32",
-          "default": 0.2,
+          "default": 20,
           "animatable": true,
           "ui": {
             "unit": "%",
-            "step": 0.01,
-            "display_scale": 100
+            "step": 1
           },
           "label": "広がり",
           "constraints": {
             "min": 0,
-            "max": 1
+            "max": 100
           }
         },
         {
