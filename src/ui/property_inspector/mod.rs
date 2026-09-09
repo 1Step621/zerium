@@ -14,6 +14,7 @@ mod scene;
 use numeric::NumericInput;
 mod scene_view;
 mod string;
+mod tuple;
 mod view;
 
 use std::collections::{HashMap, HashSet};
@@ -163,6 +164,7 @@ struct AnimationInputBinding {
 struct BoolField {
     target: PropertyTarget,
     label: String,
+    element_label: Option<String>,
     value: bool,
     mixed: bool,
     scene_bindable: bool,
@@ -185,6 +187,7 @@ impl AspectRatioLockState {
 struct StringField {
     target: PropertyTarget,
     label: String,
+    element_label: Option<String>,
     multiline: bool,
     value: String,
     scene_bindable: bool,
@@ -197,38 +200,49 @@ enum ArrayElementEditor {
 }
 
 enum PropertyControl {
-    Number(Vec<NumberField>),
+    Number(NumberField),
     Array(ArrayField),
     String(StringField),
     Choice(ChoiceField),
     Bool(BoolField),
     Color(ColorField),
+    Tuple(TupleField),
+}
+
+struct TupleField {
+    label: String,
+    controls: Vec<PropertyControl>,
 }
 
 impl PropertyControl {
     fn parameter_id(&self) -> &str {
         match self {
-            Self::Number(fields) => fields
-                .first()
-                .map(|field| field.target.parameter_id.as_str())
-                .expect("number controls contain at least one field"),
+            Self::Number(field) => &field.target.parameter_id,
             Self::Array(field) => &field.target.parameter_id,
             Self::String(field) => &field.target.parameter_id,
             Self::Choice(field) => &field.target.parameter_id,
             Self::Bool(field) => &field.target.parameter_id,
             Self::Color(field) => &field.target.parameter_id,
+            Self::Tuple(tuple) => tuple
+                .controls
+                .first()
+                .map(PropertyControl::parameter_id)
+                .unwrap_or(""),
         }
     }
 
     fn disable_animation(&mut self) {
         match self {
-            Self::Number(fields) => {
-                for field in fields {
-                    field.animatable = false;
-                }
+            Self::Number(field) => {
+                field.animatable = false;
             }
             Self::Array(field) => field.animation_allowed = false,
             Self::Color(field) => field.animatable = false,
+            Self::Tuple(tuple) => {
+                for control in &mut tuple.controls {
+                    control.disable_animation();
+                }
+            }
             Self::String(_) | Self::Choice(_) | Self::Bool(_) => {}
         }
     }
@@ -239,6 +253,7 @@ struct ChoiceField {
     ty: ParameterType,
     scene_bindable: bool,
     label: String,
+    element_label: Option<String>,
     value: u32,
     options: Vec<(String, u32)>,
 }
@@ -262,6 +277,7 @@ struct ParameterBinding {
 struct ColorField {
     target: PropertyTarget,
     label: String,
+    element_label: Option<String>,
     animatable: bool,
     scene_bindable: bool,
 }

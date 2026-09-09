@@ -24,15 +24,7 @@ impl PropertyInspector {
             }
             for (index, value) in field.values.iter().enumerate() {
                 let controls = Self::array_controls(field, index, value);
-                self.ensure_string_inputs(
-                    item,
-                    controls.into_iter().filter_map(|control| match control {
-                        PropertyControl::String(field) => Some(field),
-                        _ => None,
-                    }),
-                    window,
-                    cx,
-                );
+                self.ensure_string_inputs(item, Self::string_fields(controls), window, cx);
             }
         }
     }
@@ -157,6 +149,21 @@ impl PropertyInspector {
             scene_arguments,
         );
         let mut rows = div().w_full().min_w_0().flex().flex_col().gap_1();
+        let tuple_ctx = tuple::TupleRowContext {
+            item_id,
+            editing_scene,
+            scene_arguments,
+            item,
+            inputs,
+            animation_inputs,
+            color_pickers,
+            animation_color_pickers,
+            editor,
+            inspector,
+            focus_handle,
+            size_locked: false,
+            muted_color: None,
+        };
         for (element, element_value) in field.values.iter().enumerate() {
             let element_animation_enabled = item
                 .animation(
@@ -206,13 +213,21 @@ impl PropertyInspector {
             if field.element_editor != ArrayElementEditor::FontFamily {
                 for control in Self::array_controls(&field, element, element_value) {
                     match control {
-                        PropertyControl::Number(fields) => {
-                            let property = fields.into_iter().next().expect("one scalar input");
+                        PropertyControl::Number(property) => {
+                            if property.target.value_path.tuple_element().is_some() {
+                                let Some((row, bound)) =
+                                    Self::tuple_number_row(property, &tuple_ctx)
+                                else {
+                                    continue;
+                                };
+                                element_has_binding |= bound;
+                                value_rows = value_rows.child(row);
+                                continue;
+                            }
                             let component = property.target.value_path.tuple_element();
                             let Some(input) = inputs.get(&property.target.key) else {
                                 continue;
                             };
-                            let component_label = property.element_label.clone();
                             let animation_enabled =
                                 Self::number_animation(item, &property).is_some();
                             let scene_binding = Self::scene_binding_for_property(
@@ -271,10 +286,6 @@ impl PropertyInspector {
                                     .suffix(div().text_sm().child(property.input.suffix.clone()))
                                     .into_any_element()
                             };
-                            let separate_coordinates = matches!(
-                                field.parameter.ty().element_type(),
-                                ParameterValueType::Tuple(_)
-                            );
                             let animation_button = (property.animatable && !component_is_bound)
                                 .then(|| {
                                     let animation_inspector = inspector.clone();
@@ -290,8 +301,6 @@ impl PropertyInspector {
                                     .selected(animation_enabled)
                                     .tooltip(if animation_enabled {
                                         "この座標のアニメーションを解除"
-                                    } else if separate_coordinates {
-                                        "この座標をアニメーションする"
                                     } else {
                                         "要素全体をアニメーションする"
                                     })
@@ -326,11 +335,6 @@ impl PropertyInspector {
                                     .flex()
                                     .items_center()
                                     .gap_2()
-                                    .when_some(component_label, |this, label| {
-                                        this.child(
-                                            div().w(px(32.)).flex_none().text_sm().child(label),
-                                        )
-                                    })
                                     .when(!component_is_bound, |this| {
                                         this.child(
                                             div()
@@ -469,6 +473,14 @@ impl PropertyInspector {
                             value_rows = value_rows.child(Self::choice_field_element(
                                 field, editor, binding, inspector,
                             ))
+                        }
+                        PropertyControl::Tuple(tuple) => {
+                            for control in tuple.controls {
+                                for (row, bound) in Self::tuple_control_rows(control, &tuple_ctx) {
+                                    element_has_binding |= bound;
+                                    value_rows = value_rows.child(row);
+                                }
+                            }
                         }
                         PropertyControl::Array(_) => unreachable!("array elements are values"),
                     }

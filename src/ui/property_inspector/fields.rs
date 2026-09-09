@@ -176,7 +176,30 @@ impl PropertyInspector {
                 control.disable_animation();
             }
         }
-        controls
+        Self::group_tuple_controls(&field.parameter, controls, false)
+    }
+
+    fn group_tuple_controls(
+        parameter: &ParameterSchema,
+        controls: Vec<PropertyControl>,
+        group_numbers: bool,
+    ) -> Vec<PropertyControl> {
+        if controls.is_empty()
+            || !matches!(parameter.ty().element_type(), ParameterValueType::Tuple(_))
+        {
+            return controls;
+        }
+        if !group_numbers
+            && controls
+                .iter()
+                .all(|control| matches!(control, PropertyControl::Number(_)))
+        {
+            return controls;
+        }
+        vec![PropertyControl::Tuple(TupleField {
+            label: parameter.label().to_owned(),
+            controls,
+        })]
     }
 
     fn array_numbers(field: &ArrayField) -> Vec<NumberField> {
@@ -292,7 +315,8 @@ impl PropertyInspector {
         controls
             .into_iter()
             .flat_map(|control| match control {
-                PropertyControl::Number(fields) => fields,
+                PropertyControl::Number(field) => vec![field],
+                PropertyControl::Tuple(tuple) => Self::number_fields(tuple.controls),
                 _ => Vec::new(),
             })
             .collect()
@@ -318,6 +342,7 @@ impl PropertyInspector {
             .into_iter()
             .flat_map(|control| match control {
                 PropertyControl::Color(field) => vec![field],
+                PropertyControl::Tuple(tuple) => Self::colors(tuple.controls),
                 PropertyControl::Array(field) => field
                     .values
                     .iter()
@@ -329,6 +354,32 @@ impl PropertyInspector {
                 _ => Vec::new(),
             })
             .collect()
+    }
+
+    pub(super) fn string_fields(controls: Vec<PropertyControl>) -> Vec<StringField> {
+        controls
+            .into_iter()
+            .flat_map(|control| match control {
+                PropertyControl::String(field) => vec![field],
+                PropertyControl::Tuple(tuple) => Self::string_fields(tuple.controls),
+                _ => Vec::new(),
+            })
+            .collect()
+    }
+
+    pub(super) fn for_each_bool_mut(
+        controls: &mut [PropertyControl],
+        f: &mut impl FnMut(&mut BoolField),
+    ) {
+        for control in controls {
+            match control {
+                PropertyControl::Bool(field) => f(field),
+                PropertyControl::Tuple(tuple) => {
+                    Self::for_each_bool_mut(&mut tuple.controls, f);
+                }
+                _ => {}
+            }
+        }
     }
 
     pub(super) fn color_fields(item: &TimelineItem) -> Vec<ColorField> {
@@ -357,20 +408,7 @@ impl PropertyInspector {
             None,
             owner.is_size(parameter.id()),
         );
-        // Keep homogeneous numeric tuples grouped for the aspect-ratio and per-element UI.
-        if controls
-            .iter()
-            .all(|control| matches!(control, PropertyControl::Number(_)))
-        {
-            let fields = Self::number_fields(controls);
-            if fields.is_empty() {
-                Vec::new()
-            } else {
-                vec![PropertyControl::Number(fields)]
-            }
-        } else {
-            controls
-        }
+        Self::group_tuple_controls(parameter, controls, true)
     }
 
     pub(super) fn property_controls(item: &TimelineItem) -> Vec<PropertyControl> {
@@ -468,10 +506,12 @@ impl PropertyInspector {
             .iter()
             .flat_map(|argument| {
                 let parameter = argument.schema.parameter();
-                item.parameters
+                let controls = item
+                    .parameters
                     .get(parameter.id())
                     .map(|value| Self::scene_controls(scene_id, parameter, value))
-                    .unwrap_or_default()
+                    .unwrap_or_default();
+                Self::group_tuple_controls(parameter, controls, true)
             })
             .collect()
     }

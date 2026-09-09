@@ -107,88 +107,21 @@ impl PropertyInspector {
             .into_any_element()
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn property_group_row(
-        fields: Vec<NumberField>,
-        inputs: &HashMap<PropertyPath, Entity<InputState>>,
-        animation_inputs: &HashMap<PropertyPath, (Entity<InputState>, Entity<InputState>)>,
-        animation_enabled: bool,
-        animation_scalars: &[bool],
-        aspect_ratio_lock: Option<AspectRatioLockState>,
+    pub(super) fn aspect_ratio_control(
+        key: PropertyPath,
+        state: AspectRatioLockState,
         muted_color: gpui::Hsla,
-        scene_bindings: Vec<Option<SceneFieldBinding>>,
         editor: &Entity<TimelineEditor>,
-        inspector: &Entity<Self>,
-        focus_handle: &FocusHandle,
-    ) -> Option<gpui::AnyElement> {
-        let mut first = fields.first()?.clone();
-        if fields.len() == 1 {
-            if let Some(label) = &first.element_label {
-                first.label = format!("{} {label}", first.label);
-            }
-            let input = inputs.get(&first.target.key)?;
-            let scene_binding = scene_bindings.into_iter().next().flatten();
-            return Some(
-                Self::property_row(
-                    first.clone(),
-                    input,
-                    animation_inputs.get(&first.target.key),
-                    animation_enabled,
-                    scene_binding,
-                    inspector,
-                    focus_handle,
-                )
-                .into_any_element(),
-            );
-        }
-
-        let any_scene_bound = scene_bindings
-            .iter()
-            .flatten()
-            .any(|binding| binding.connected.is_some());
-        let separate_coordinates = first.target.value_path.tuple_element().is_some();
-        let animation_button = (first.animatable && !any_scene_bound && !separate_coordinates)
-            .then(|| {
-                let inspector = inspector.clone();
-                let field = first.clone();
-                Button::new(SharedString::from(format!(
-                    "toggle-animation-{}",
-                    field.target.parameter_id
-                )))
-                .icon(Icon::new(IconName::Keyframe))
-                .small()
-                .compact()
-                .ghost()
-                .selected(animation_enabled)
-                .tooltip(if animation_enabled {
-                    "アニメーションを解除"
-                } else {
-                    "まとめてアニメーションする"
-                })
-                .on_click(move |_, window, cx| {
-                    inspector.update(cx, |inspector, cx| {
-                        inspector.set_number_animation_enabled(
-                            &field,
-                            !animation_enabled,
-                            window,
-                            cx,
-                        );
-                    });
-                })
-            });
-        let aspect_ratio_control = aspect_ratio_lock.map(|state| {
-            let editor = editor.clone();
-            let checked = state.checked();
-            div()
-                .flex()
-                .items_center()
-                .gap_2()
-                .child(div().text_xs().text_color(muted_color).child("比率固定"))
-                .child(
-                    Switch::new(SharedString::from(format!(
-                        "aspect-ratio-lock-{}",
-                        first.target.key
-                    )))
+    ) -> Div {
+        let editor = editor.clone();
+        let checked = state.checked();
+        div()
+            .flex()
+            .items_center()
+            .gap_2()
+            .child(div().text_xs().text_color(muted_color).child("比率固定"))
+            .child(
+                Switch::new(SharedString::from(format!("aspect-ratio-lock-{key}")))
                     .small()
                     .checked(checked)
                     .disabled(state.disabled_by_scene_size_argument)
@@ -210,165 +143,7 @@ impl PropertyInspector {
                             }
                         });
                     }),
-                )
-        });
-        let aspect_ratio_locked = aspect_ratio_lock.is_some_and(AspectRatioLockState::checked);
-        let coordinate_inputs = fields
-            .into_iter()
-            .zip(scene_bindings)
-            .enumerate()
-            .filter_map(|(index, (field, scene_binding))| {
-                let input = inputs.get(&field.target.key)?;
-                let is_scene_bound = scene_binding
-                    .as_ref()
-                    .is_some_and(|binding| binding.connected.is_some());
-                let binding_button = scene_binding.map(|binding| {
-                    Self::scene_binding_button(
-                        binding,
-                        inspector,
-                        SharedString::from(format!("bind-scene-argument-{}", field.target.key)),
-                    )
-                });
-                let coordinate_disabled =
-                    aspect_ratio_locked && field.target.value_path.tuple_element() == Some(1);
-                let select_inspector = inspector.clone();
-                let select_field = field.clone();
-                let coordinate_animation_enabled = if separate_coordinates {
-                    animation_scalars.get(index).copied().unwrap_or(false)
-                } else {
-                    animation_enabled
-                };
-                let coordinate_has_animation = animation_inputs.contains_key(&field.target.key);
-                let coordinate_animation_visible = coordinate_animation_enabled
-                    || (coordinate_disabled && coordinate_has_animation);
-                let coordinate_animation_button =
-                    (separate_coordinates && field.animatable && !is_scene_bound).then(|| {
-                        let inspector = inspector.clone();
-                        let field = field.clone();
-                        Button::new(SharedString::from(format!(
-                            "toggle-animation-{}",
-                            field.target.key
-                        )))
-                        .icon(Icon::new(IconName::Keyframe))
-                        .small()
-                        .compact()
-                        .ghost()
-                        .tab_stop(!coordinate_disabled)
-                        .selected(coordinate_animation_visible)
-                        .tooltip(if coordinate_disabled {
-                            "アスペクト比維持中は幅から自動計算"
-                        } else if coordinate_animation_enabled {
-                            "この座標のアニメーションを解除"
-                        } else {
-                            "この座標をアニメーションする"
-                        })
-                        .when(!coordinate_disabled, |button| {
-                            button.on_click(move |_, window, cx| {
-                                cx.stop_propagation();
-                                inspector.update(cx, |inspector, cx| {
-                                    inspector.set_number_animation_enabled(
-                                        &field,
-                                        !coordinate_animation_enabled,
-                                        window,
-                                        cx,
-                                    );
-                                });
-                            })
-                        })
-                    });
-                let value_input = if let Some((from, to)) = animation_inputs.get(&field.target.key)
-                {
-                    div()
-                        .w_full()
-                        .min_w_0()
-                        .flex()
-                        .flex_1()
-                        .gap_1()
-                        .child(Self::animated_number_input(
-                            &field,
-                            AnimationEndpoint::From,
-                            from,
-                            inspector,
-                            focus_handle,
-                            false,
-                            coordinate_disabled,
-                        ))
-                        .child(Self::animated_number_input(
-                            &field,
-                            AnimationEndpoint::To,
-                            to,
-                            inspector,
-                            focus_handle,
-                            true,
-                            coordinate_disabled,
-                        ))
-                        .into_any_element()
-                } else {
-                    Self::draggable_number_input(
-                        &field,
-                        input,
-                        inspector,
-                        focus_handle,
-                        coordinate_disabled,
-                    )
-                };
-                Some(
-                    div()
-                        .min_w_0()
-                        .w_full()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .when(coordinate_disabled, |this| this.text_color(muted_color))
-                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                            select_inspector.update(cx, |inspector, cx| {
-                                inspector.select_number_animation(&select_field, cx);
-                            });
-                        })
-                        .when_some(field.element_label.clone(), |this, label| {
-                            this.child(div().w(px(32.)).flex_none().text_sm().child(label))
-                        })
-                        .when(!is_scene_bound, |this| {
-                            this.child(div().min_w_0().flex().flex_1().child(value_input))
-                        })
-                        .when_some(coordinate_animation_button, |this, button| {
-                            this.child(button)
-                        })
-                        .when_some(binding_button, |this, button| this.child(button)),
-                )
-            });
-        let group_actions =
-            (aspect_ratio_control.is_some() || animation_button.is_some()).then(|| {
-                div()
-                    .w_full()
-                    .flex()
-                    .items_center()
-                    .justify_end()
-                    .gap_2()
-                    .when_some(aspect_ratio_control, |this, control| this.child(control))
-                    .when_some(animation_button, |this, button| this.child(button))
-            });
-
-        Some(
-            div()
-                .w_full()
-                .flex()
-                .items_start()
-                .gap_3()
-                .child(Self::parameter_label_column(first.label))
-                .child(
-                    div()
-                        .w_0()
-                        .min_w_0()
-                        .flex()
-                        .flex_1()
-                        .flex_col()
-                        .gap_1()
-                        .when_some(group_actions, |this, actions| this.child(actions))
-                        .children(coordinate_inputs),
-                )
-                .into_any_element(),
-        )
+            )
     }
 
     pub(super) fn property_row(

@@ -442,12 +442,8 @@ impl PropertyInspector {
             window,
             cx,
         );
-        let strings = Self::scene_property_controls(scene_id, &arguments, item)
-            .into_iter()
-            .filter_map(|control| match control {
-                PropertyControl::String(field) => Some(field),
-                _ => None,
-            });
+        let strings =
+            Self::string_fields(Self::scene_property_controls(scene_id, &arguments, item));
         self.ensure_string_inputs(item, strings, window, cx);
     }
 

@@ -56,6 +56,7 @@ impl PropertyInspector {
                     effect_id,
                     value_path: SceneBindingValuePath::from_elements(array, element),
                 };
+                let element_label = parameter.scalar_label(element);
                 match (ty, value) {
                     (
                         ScalarParameterType::F32
@@ -68,12 +69,13 @@ impl PropertyInspector {
                             || parameter.label().to_owned(),
                             |index| format!("{} {}", parameter.label(), index + 1),
                         );
-                        Some(PropertyControl::Number(vec![field]))
+                        Some(PropertyControl::Number(field))
                     }
                     (ScalarParameterType::Color, ParameterValue::Color(_)) => {
                         Some(PropertyControl::Color(ColorField {
                             target,
                             label,
+                            element_label: element_label.clone(),
                             animatable: parameter.is_animatable(),
                             scene_bindable,
                         }))
@@ -82,6 +84,7 @@ impl PropertyInspector {
                         Some(PropertyControl::Bool(BoolField {
                             target,
                             label,
+                            element_label: element_label.clone(),
                             value: *value,
                             mixed: false,
                             scene_bindable,
@@ -91,6 +94,7 @@ impl PropertyInspector {
                         Some(PropertyControl::String(StringField {
                             target,
                             label,
+                            element_label: element_label.clone(),
                             value: value.clone(),
                             multiline: scalar_ui.is_multiline(),
                             scene_bindable,
@@ -102,6 +106,7 @@ impl PropertyInspector {
                             ty: ParameterType::Value(ParameterValueType::Scalar(ty.clone())),
                             scene_bindable,
                             label,
+                            element_label,
                             value: *value,
                             options: scalar_ui
                                 .enum_options(ty)?

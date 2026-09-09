@@ -77,6 +77,16 @@
             "min": 0,
             "max": 5000
           }
+        },
+        {
+          "id": "test",
+          "type": { "tuple": ["string", "color", { "enum": [0, 1, 2] }] },
+          "default": ["", [0, 0, 0, 0], 0],
+          "animatable": true,
+          "ui": {
+            "elements": [{ "label": "a" }, { "label": "b" }, { "label": "c" }]
+          },
+          "label": "test"
         }
       ]
     },

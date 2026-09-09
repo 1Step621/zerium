@@ -166,10 +166,7 @@ impl PropertyInspector {
             });
         }
 
-        for field in controls.iter_mut().filter_map(|control| match control {
-            PropertyControl::Bool(field) => Some(field),
-            _ => None,
-        }) {
+        Self::for_each_bool_mut(&mut controls, &mut |field| {
             field.mixed = selected_items.iter().skip(1).any(|selected| {
                 selected
                     .parameters
@@ -177,7 +174,7 @@ impl PropertyInspector {
                     .and_then(|value| value.scalar_at(field.target.value_path.tuple_element()))
                     != Some(&ParameterValue::Bool(field.value))
             });
-        }
+        });
         controls
     }
 
@@ -350,50 +347,46 @@ impl PropertyInspector {
             )
     }
 
+    pub(super) fn number_field_element(
+        mut field: NumberField,
+        view: &InspectorSelectionView,
+        render: &InspectorRenderContext<'_>,
+    ) -> Option<gpui::AnyElement> {
+        if let Some(label) = field.element_label.clone() {
+            field.label = format!("{} {label}", field.label);
+        }
+        let input = render.inputs.get(&field.target.key)?;
+        let animation = render.animation_inputs.get(&field.target.key);
+        let animation_enabled = Self::number_animation(&view.item, &field).is_some();
+        let binding = Self::scene_binding_for_property(
+            view.editing_scene,
+            animation_enabled,
+            view.item.id,
+            &field,
+            &view.scene_arguments,
+        );
+        Some(
+            Self::property_row(
+                field,
+                input,
+                animation,
+                animation_enabled,
+                binding,
+                &render.inspector,
+                render.focus_handle,
+            )
+            .into_any_element(),
+        )
+    }
+
     pub(super) fn property_control_element(
         control: PropertyControl,
         view: &InspectorSelectionView,
         render: &InspectorRenderContext<'_>,
     ) -> Option<gpui::AnyElement> {
         match control {
-            PropertyControl::Number(fields) => {
-                let field = fields.first()?.clone();
-                let animation_enabled = Self::number_animation(&view.item, &field).is_some();
-                let animation_scalars = fields
-                    .iter()
-                    .map(|field| field.target.animation_enabled(&view.item))
-                    .collect::<Vec<_>>();
-                let aspect_ratio_lock = (field.target.effect_id.is_none() && field.is_size)
-                    .then_some(view.aspect_ratio_lock)
-                    .flatten();
-                let scene_bindings = fields
-                    .iter()
-                    .map(|field| {
-                        let coordinate_animation_enabled =
-                            Self::number_animation(&view.item, field).is_some();
-                        Self::scene_binding_for_property(
-                            view.editing_scene,
-                            coordinate_animation_enabled,
-                            view.item.id,
-                            field,
-                            &view.scene_arguments,
-                        )
-                    })
-                    .collect();
-                Self::property_group_row(
-                    fields,
-                    render.inputs,
-                    render.animation_inputs,
-                    animation_enabled,
-                    &animation_scalars,
-                    aspect_ratio_lock,
-                    render.colors.muted_foreground,
-                    scene_bindings,
-                    render.editor,
-                    &render.inspector,
-                    render.focus_handle,
-                )
-            }
+            PropertyControl::Number(field) => Self::number_field_element(field, view, render),
+            PropertyControl::Tuple(tuple) => Some(Self::tuple_field_element(tuple, view, render)),
             PropertyControl::Array(field) => Some(Self::array_field_element(
                 &view.item,
                 field,

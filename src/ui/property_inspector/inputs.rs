@@ -212,13 +212,7 @@ impl PropertyInspector {
         cx: &mut Context<Self>,
     ) {
         self.ensure_numeric_inputs(item, Self::property_fields(item), window, cx);
-        let strings =
-            Self::property_controls(item)
-                .into_iter()
-                .filter_map(|control| match control {
-                    PropertyControl::String(field) => Some(field),
-                    _ => None,
-                });
+        let strings = Self::string_fields(Self::property_controls(item));
         self.ensure_string_inputs(item, strings, window, cx);
         self.ensure_color_inputs(item, Self::color_fields(item), window, cx);
     }
@@ -232,12 +226,7 @@ impl PropertyInspector {
         for effect in &item.effects {
             self.ensure_numeric_inputs(item, Self::effect_property_fields(effect), window, cx);
             self.ensure_color_inputs(item, Self::effect_color_fields(effect), window, cx);
-            let strings = Self::effect_property_controls(effect)
-                .into_iter()
-                .filter_map(|control| match control {
-                    PropertyControl::String(field) => Some(field),
-                    _ => None,
-                });
+            let strings = Self::string_fields(Self::effect_property_controls(effect));
             self.ensure_string_inputs(item, strings, window, cx);
         }
     }
