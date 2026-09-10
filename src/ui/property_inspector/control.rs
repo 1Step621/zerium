@@ -698,16 +698,17 @@ impl PropertyInspector {
             &ParameterType::Value(ParameterValueType::Scalar(scalar_type)),
             resolution.arguments,
         );
-        if matches!(common.value, ParameterValue::Bool(_)) && common.target.effect_id.is_none() {
-            if let ParameterValue::Bool(value) = common.value {
-                common.mixed = resolution.selected_items.iter().skip(1).any(|selected| {
-                    selected
-                        .parameters
-                        .get(&common.target.parameter_id)
-                        .and_then(|value| value.scalar_at(common.target.value_path.tuple_element()))
-                        != Some(&ParameterValue::Bool(value))
-                });
-            }
+        if matches!(common.value, ParameterValue::Bool(_))
+            && common.target.effect_id.is_none()
+            && let ParameterValue::Bool(value) = common.value
+        {
+            common.mixed = resolution.selected_items.iter().skip(1).any(|selected| {
+                selected
+                    .parameters
+                    .get(&common.target.parameter_id)
+                    .and_then(|value| value.scalar_at(common.target.value_path.tuple_element()))
+                    != Some(&ParameterValue::Bool(value))
+            });
         }
     }
 

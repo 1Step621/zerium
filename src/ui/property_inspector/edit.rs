@@ -249,6 +249,7 @@ impl PropertyInspector {
     }
 
     /// Single update channel for animation endpoint text input.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn apply_animation_text(
         &mut self,
         target: &PropertyTarget,

@@ -289,6 +289,7 @@ impl PropertyInspector {
         (switch, mixed)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn animated_number_input(
         target: &PropertyTarget,
         spec: &NumberSpec,
@@ -1225,10 +1226,10 @@ impl PropertyInspector {
         aspect: Option<AspectRatioLockState>,
         ctx: &RenderCtx,
     ) -> gpui::AnyElement {
-        if let [child] = children {
-            if let Some(row) = Self::scalar_full_row(child, ctx) {
-                return row;
-            }
+        if let [child] = children
+            && let Some(row) = Self::scalar_full_row(child, ctx)
+        {
+            return row;
         }
         let is_size_group = size_key.is_some();
         let aspect_row = aspect.zip(size_key).map(|(state, key)| {

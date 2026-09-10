@@ -223,14 +223,12 @@ impl PropertyInspector {
             .roots
             .iter()
             .cloned()
-            .into_iter()
             .filter_map(|control| self.control_root_element(control, &view, &render, cx))
             .collect::<Vec<_>>();
         let files = view
             .file_inputs
             .iter()
             .cloned()
-            .into_iter()
             .map(|file| self.file_input_element(file, &render))
             .collect::<Vec<_>>();
         let effect_picker = if view.has_visual && !view.multiple {

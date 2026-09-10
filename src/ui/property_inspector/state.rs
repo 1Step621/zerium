@@ -195,6 +195,7 @@ impl PropertyInspector {
     }
 
     /// Get-or-create an input state for a control, syncing its displayed text.
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn ensure_text(
         &mut self,
         key: ControlId,
@@ -752,8 +753,7 @@ impl PropertyInspector {
             let editor = editor.read(cx);
             self.resolved_control_tree(editor, &selected_items, &scene_arguments, editing_scene)
         };
-        if selected_item.is_some() {
-            let item = selected_item.as_ref().unwrap();
+        if let Some(item) = selected_item.as_ref() {
             self.reconcile_states(item, window, cx);
         }
         let animation_target = self.animation_selection.read(cx).target().cloned();
