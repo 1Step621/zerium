@@ -392,14 +392,6 @@ fn cleanup_stale_proxy_temporary_files(cache_dir: &Path) -> Result<(), MediaErro
 }
 
 fn enforce_proxy_cache_budget(cache_dir: &Path, protected: &Path) -> Result<(), MediaError> {
-    enforce_proxy_cache_budget_with_limit(cache_dir, protected, PROXY_CACHE_BUDGET_BYTES)
-}
-
-fn enforce_proxy_cache_budget_with_limit(
-    cache_dir: &Path,
-    protected: &Path,
-    budget: u64,
-) -> Result<(), MediaError> {
     let entries = fs::read_dir(cache_dir).map_err(|error| {
         MediaError::external(format!(
             "プロキシキャッシュ'{}'を読み取れません: {error}",
@@ -438,7 +430,7 @@ fn enforce_proxy_cache_budget_with_limit(
         .saturating_add(protected_size);
     files.sort_by_key(|(modified, _, _)| *modified);
     for (_, size, path) in files {
-        if total <= budget {
+        if total <= PROXY_CACHE_BUDGET_BYTES {
             break;
         }
         match fs::remove_file(&path) {

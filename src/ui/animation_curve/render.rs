@@ -126,14 +126,14 @@ impl Render for AnimationCurveEditor {
             .min_h_0()
             .bg(colors.background)
             .overflow_hidden()
-            // Single gesture: mousedown only records the press candidate.
-            // A drag past the threshold becomes a scrub, a quiet release
-            // becomes a click (select / deselect / anchor add). In particular
-            // mousedown must neither select nor scrub, so double-click anchor
-            // insertion no longer moves the playhead.
+            // Single gesture: mousedown seeks at once on empty space (scrub
+            // session only while playing, like the timeline ruler); other
+            // presses stay click candidates. A drag past the threshold
+            // becomes a scrub, a quiet release becomes a click (select /
+            // deselect+seek / anchor add). Mousedown never selects.
             .on_mouse_down(MouseButton::Left, move |event, _, cx| {
-                begin_scrub_editor.update(cx, |editor, _| {
-                    editor.graph_press_started(event.position);
+                begin_scrub_editor.update(cx, |editor, cx| {
+                    editor.graph_press_started(event.position, cx);
                 });
             })
             .on_mouse_move(move |event, _, cx| {

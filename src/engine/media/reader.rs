@@ -291,30 +291,24 @@ impl MediaReaderRegistry {
         })
     }
 
+    fn reader_for(&self, reader_id: &str) -> Result<&Arc<dyn MediaReader>, MediaError> {
+        self.readers.get(reader_id).ok_or_else(|| {
+            MediaError::external(format!("メディアリーダー'{reader_id}'が登録されていません"))
+        })
+    }
+
     pub(crate) fn open_video_decoder(
         &self,
         asset: &MediaAsset,
     ) -> Result<Box<dyn VideoDecoderSession>, MediaError> {
-        let reader = self.readers.get(&asset.reader_id).ok_or_else(|| {
-            MediaError::external(format!(
-                "メディアリーダー'{}'が登録されていません",
-                asset.reader_id
-            ))
-        })?;
-        reader.open_video_decoder(asset)
+        self.reader_for(&asset.reader_id)?.open_video_decoder(asset)
     }
 
     pub(crate) fn open_audio_decoder(
         &self,
         asset: &MediaAsset,
     ) -> Result<Box<dyn AudioDecoderSession>, MediaError> {
-        let reader = self.readers.get(&asset.reader_id).ok_or_else(|| {
-            MediaError::external(format!(
-                "メディアリーダー'{}'が登録されていません",
-                asset.reader_id
-            ))
-        })?;
-        reader.open_audio_decoder(asset)
+        self.reader_for(&asset.reader_id)?.open_audio_decoder(asset)
     }
 
     pub(crate) fn create_video_proxy(
@@ -322,13 +316,8 @@ impl MediaReaderRegistry {
         asset: &MediaAsset,
         request: VideoProxyRequest,
     ) -> Result<VideoProxy, MediaError> {
-        let reader = self.readers.get(&asset.reader_id).ok_or_else(|| {
-            MediaError::external(format!(
-                "メディアリーダー'{}'が登録されていません",
-                asset.reader_id
-            ))
-        })?;
-        reader.create_video_proxy(asset, request)
+        self.reader_for(&asset.reader_id)?
+            .create_video_proxy(asset, request)
     }
 }
 

@@ -55,6 +55,44 @@ where
         V: Clone,
     {
         let position = self.position_for_time(sequence, presentation_time)?;
+        self.get_at(sequence, position)
+    }
+
+    pub(crate) fn get_nearest_at_or_before(
+        &mut self,
+        sequence: &K,
+        presentation_time: Duration,
+    ) -> Option<TimestampCacheHit<V>>
+    where
+        V: Clone,
+    {
+        let requested = timestamp_position(presentation_time);
+        let position = *self
+            .sequences
+            .get(sequence)?
+            .range(..=requested)
+            .next_back()?
+            .0;
+        self.get_at(sequence, position)
+    }
+
+    pub(crate) fn get_nearest_at_or_after(
+        &mut self,
+        sequence: &K,
+        presentation_time: Duration,
+    ) -> Option<TimestampCacheHit<V>>
+    where
+        V: Clone,
+    {
+        let requested = timestamp_position(presentation_time);
+        let position = *self.sequences.get(sequence)?.range(requested..).next()?.0;
+        self.get_at(sequence, position)
+    }
+
+    fn get_at(&mut self, sequence: &K, position: u64) -> Option<TimestampCacheHit<V>>
+    where
+        V: Clone,
+    {
         let access = self.next_access();
         let cached = self.sequences.get_mut(sequence)?.get_mut(&position)?;
         cached.last_access = access;

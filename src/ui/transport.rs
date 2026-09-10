@@ -81,7 +81,7 @@ impl TransportController {
 
     fn play(&mut self, cx: &mut Context<Self>) {
         self.stop_audio(cx);
-        let (start_frame, frame_rate, items, active_items) = {
+        let (start_frame, frame_rate, items) = {
             let editor = self.editor.read(cx);
             let playhead = editor.playhead();
             let start_frame = if playhead >= editor.end_frame_exclusive() {
@@ -89,22 +89,11 @@ impl TransportController {
             } else {
                 playhead
             };
-            (
-                start_frame,
-                editor.frame_rate(),
-                editor.visible_items(),
-                editor
-                    .active_items_at(start_frame)
-                    .into_iter()
-                    .map(|(_, item)| item)
-                    .collect::<Vec<_>>(),
-            )
+            (start_frame, editor.frame_rate(), editor.visible_items())
         };
-        let clock: Result<PlaybackClock, AudioPlaybackError> = self.audio.update(cx, |audio, _| {
-            let clock = audio.play(items, start_frame, frame_rate)?;
-            audio.update_gains(&active_items);
-            Ok(clock)
-        });
+        let clock: Result<PlaybackClock, AudioPlaybackError> = self
+            .audio
+            .update(cx, |audio, _| audio.play(items, start_frame, frame_rate));
         let clock = match clock {
             Ok(clock) => clock,
             Err(error) => {
@@ -261,8 +250,9 @@ impl TransportController {
                 .into_iter()
                 .map(|(_, item)| item)
                 .collect::<Vec<_>>();
-            self.audio
-                .update(cx, |audio, _| audio.update_gains(&active_items));
+            self.audio.update(cx, |audio, _| {
+                audio.update_gains(&active_items, seconds, frame_rate)
+            });
             cx.notify();
         }
     }

@@ -13,14 +13,14 @@ use std::{
 use cpal::traits::{DeviceTrait as _, HostTrait as _, StreamTrait as _};
 
 use crate::{
-    domain::timeline::{Frame, FrameRate, ItemId, TimelineItem},
+    domain::timeline::{Frame, FrameRate, ItemId, TimelineItem, TimelineTime},
     engine::media::{
         AudioFormat, AudioGainEvaluation, AudioTimelineError, AudioTimelineGraph,
         MediaReaderRegistry,
     },
 };
 
-const AUDIO_BUFFER_SECONDS: usize = 2;
+const AUDIO_BUFFER_MILLIS: u64 = 200;
 const MIX_BLOCK_SAMPLE_FRAMES: usize = 2_048;
 const PREBUFFER_MILLIS: u64 = 200;
 
@@ -169,6 +169,11 @@ impl AudioPlaybackEngine {
             sample_rate: supported.sample_rate().0,
             channels: supported.channels(),
         };
+        let seed_time = TimelineTime::from_frames(start_seconds * frame_rate.frames_per_second());
+        let seed_gains = items
+            .iter()
+            .map(|item| (item.id, item.evaluated_at_time(seed_time).audio_gain()))
+            .collect::<Vec<_>>();
         let mut graph = AudioTimelineGraph::new(
             items,
             frame_rate,
@@ -181,12 +186,19 @@ impl AudioPlaybackEngine {
             return Ok(PlaybackClock::Wall);
         }
         let gains = graph.live_gains();
+        for (id, gain) in seed_gains {
+            if let Some(slot) = gains.get(&id) {
+                slot.store(gain.to_bits(), Ordering::Relaxed);
+            }
+        }
 
         let channels = usize::from(format.channels);
-        let capacity = usize::try_from(format.sample_rate)
-            .unwrap_or(48_000)
-            .saturating_mul(channels)
-            .saturating_mul(AUDIO_BUFFER_SECONDS)
+        let capacity = u64::from(format.sample_rate)
+            .saturating_mul(channels as u64)
+            .saturating_mul(AUDIO_BUFFER_MILLIS)
+            .checked_div(1000)
+            .and_then(|samples| usize::try_from(samples).ok())
+            .unwrap_or(channels)
             .max(channels);
         let (mut producer, consumer) = rtrb::RingBuffer::<f32>::new(capacity);
         let start_sample_frame = (start_seconds * f64::from(format.sample_rate)).round() as u64;
@@ -194,7 +206,10 @@ impl AudioPlaybackEngine {
         let mut prebuffered_frames = 0u64;
         let prebuffer_target =
             u64::from(format.sample_rate).saturating_mul(PREBUFFER_MILLIS) / 1000;
-        while prebuffered_frames < prebuffer_target {
+        let capacity_frames = (capacity / channels.max(1)) as u64;
+        while prebuffered_frames < prebuffer_target
+            && prebuffered_frames.saturating_add(MIX_BLOCK_SAMPLE_FRAMES as u64) <= capacity_frames
+        {
             let block = graph
                 .render(render_cursor, MIX_BLOCK_SAMPLE_FRAMES)
                 .map_err(AudioPlaybackError::Timeline)?;
@@ -294,7 +309,12 @@ impl AudioPlaybackEngine {
         Ok(PlaybackClock::Audio)
     }
 
-    pub(crate) fn update_gains(&mut self, items: &[TimelineItem]) {
+    pub(crate) fn update_gains(
+        &mut self,
+        items: &[TimelineItem],
+        time_seconds: f64,
+        frame_rate: FrameRate,
+    ) {
         self.reap_finished_workers();
         if self.worker_finished() {
             self.request_stop();
@@ -303,9 +323,13 @@ impl AudioPlaybackEngine {
         let Some(session) = &self.session else {
             return;
         };
+        let time = TimelineTime::from_frames(time_seconds * frame_rate.frames_per_second());
         for item in items {
             if let Some(gain) = session.gains.get(&item.id) {
-                gain.store(item.audio_gain().to_bits(), Ordering::Relaxed);
+                gain.store(
+                    item.evaluated_at_time(time).audio_gain().to_bits(),
+                    Ordering::Relaxed,
+                );
             }
         }
     }

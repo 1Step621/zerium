@@ -167,17 +167,38 @@ impl AnimationCurveEditor {
         cx.notify();
     }
 
-    /// Records a graph-background press. Intentionally side-effect free:
-    /// selection and scrubbing are decided later by movement (`graph_press_moved`)
-    /// or click resolution (`resolve_graph_click` / `graph_double_click`).
-    pub(super) fn graph_press_started(&mut self, position: gpui::Point<Pixels>) {
+    /// Records a graph-background press. Empty space seeks at once so the
+    /// playhead tracks the press instead of waiting for mouse-up; a scrub
+    /// session opens only while playing, mirroring the timeline ruler.
+    /// Segment presses stay side-effect free click candidates.
+    pub(super) fn graph_press_started(
+        &mut self,
+        position: gpui::Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
         self.press_origin = Some(position);
         self.press_dragged = false;
+        let in_plot = self
+            .graph_screen_position(position)
+            .is_some_and(|screen| (0. ..=1.).contains(&screen[0]));
+        if !in_plot || self.segment_at_position(position, cx).is_some() {
+            return;
+        }
+        if self.transport.read(cx).is_playing() {
+            self.scrubbing_playhead = true;
+            self.transport.update(cx, |transport, cx| {
+                transport.begin_scrub(ScrubSource::AnimationCurve, cx);
+            });
+        }
+        if let Some(frame) = self.frame_at_graph_position(position, cx) {
+            self.transport
+                .update(cx, |transport, cx| transport.set_playhead(frame, cx));
+        }
     }
 
-    /// Promotes the press to a playhead scrub once the pointer travels past
-    /// the drag threshold; smaller movements stay click candidates so plain
-    /// and double clicks never move the playhead.
+    /// Tracks the press: past the drag threshold it counts as a drag (the
+    /// following click is swallowed) and scrubbing is ensured; scrubbing
+    /// presses keep seeking on every move.
     pub(super) fn graph_press_moved(
         &mut self,
         event: &gpui::MouseMoveEvent,
@@ -193,20 +214,20 @@ impl AnimationCurveEditor {
         let Some(origin) = self.press_origin else {
             return;
         };
-        if self.scrubbing_playhead {
-            self.seek_playhead_from_graph(position, cx);
-            return;
-        }
         let delta = [
             f32::from(position.x - origin.x),
             f32::from(position.y - origin.y),
         ];
         if delta[0].hypot(delta[1]) >= Self::PRESS_DRAG_THRESHOLD_PX {
             self.press_dragged = true;
-            self.scrubbing_playhead = true;
-            self.transport.update(cx, |transport, cx| {
-                transport.begin_scrub(ScrubSource::AnimationCurve, cx);
-            });
+            if !self.scrubbing_playhead {
+                self.scrubbing_playhead = true;
+                self.transport.update(cx, |transport, cx| {
+                    transport.begin_scrub(ScrubSource::AnimationCurve, cx);
+                });
+            }
+        }
+        if self.scrubbing_playhead {
             self.seek_playhead_from_graph(position, cx);
         }
     }
@@ -222,8 +243,9 @@ impl AnimationCurveEditor {
 
     /// Single-click resolution with exactly one hit test: a drag-turned-scrub
     /// is swallowed, otherwise the hit segment is selected or the selection
-    /// is cleared. Never runs on mousedown, so the floating panel cannot
-    /// appear under the second click of a double-click.
+    /// is cleared and the playhead seeks to the clicked time. Never runs on
+    /// mousedown, so the floating panel cannot appear under the second click
+    /// of a double-click.
     pub(super) fn resolve_graph_click(
         &mut self,
         position: gpui::Point<Pixels>,
@@ -240,11 +262,17 @@ impl AnimationCurveEditor {
             self.set_selected_segment(segment, window, cx);
         } else {
             self.clear_selection(window, cx);
+            let in_plot = self
+                .graph_screen_position(position)
+                .is_some_and(|screen| (0. ..=1.).contains(&screen[0]));
+            if in_plot && let Some(frame) = self.frame_at_graph_position(position, cx) {
+                self.transport
+                    .update(cx, |transport, cx| transport.seek(frame, cx));
+            }
         }
     }
 
-    /// Double-click resolution: adds an anchor without ever starting a scrub,
-    /// so the playhead stays put.
+    /// Double-click resolution: adds an anchor without starting a scrub.
     pub(super) fn graph_double_click(
         &mut self,
         position: gpui::Point<Pixels>,
@@ -300,21 +328,26 @@ impl AnimationCurveEditor {
         Frame::new(frame.round().clamp(clip_start, clip_end) as u64)
     }
 
+    pub(super) fn frame_at_graph_position(
+        &self,
+        position: gpui::Point<Pixels>,
+        cx: &App,
+    ) -> Option<Frame> {
+        let screen = self.graph_screen_position(position)?;
+        let progress = self.viewport.graph_position(screen)[0].clamp(0., 1.);
+        let selected = self.selected_curve(cx)?;
+        Some(Self::frame_at_progress(&selected, progress))
+    }
+
     pub(super) fn seek_playhead_from_graph(
         &mut self,
         position: gpui::Point<Pixels>,
         cx: &mut Context<Self>,
     ) {
-        let Some(screen) = self.graph_screen_position(position) else {
-            return;
-        };
-        let progress = self.viewport.graph_position(screen)[0].clamp(0., 1.);
-        let Some(selected) = self.selected_curve(cx) else {
-            return;
-        };
-        let frame = Self::frame_at_progress(&selected, progress);
-        self.transport
-            .update(cx, |transport, cx| transport.set_playhead(frame, cx));
+        if let Some(frame) = self.frame_at_graph_position(position, cx) {
+            self.transport
+                .update(cx, |transport, cx| transport.set_playhead(frame, cx));
+        }
     }
 
     pub(super) fn finish_playhead_scrub(&mut self, cx: &mut Context<Self>) {

@@ -12,6 +12,7 @@ pub(crate) use audio_timeline::{
 pub(crate) use ffmpeg_encoder::{
     FfmpegFileEncoder, VideoColorSpec, VideoEncoderSettings, VideoOutputSpec,
 };
+pub(crate) use ffmpeg_next::estimate_max_keyframe_gap;
 pub(crate) use reader::bundled_media_readers;
 pub(crate) use reader::{
     AudioFormat, MediaError, MediaReaderRegistry, VideoDecodeSize, VideoDecoderSession, VideoProxy,

@@ -211,11 +211,12 @@ pub(crate) struct AnimationCurveEditor {
     scrubbing_playhead: bool,
     /// Position of the ongoing graph-background press, if any.
     ///
-    /// The press is only a *candidate* until it resolves: past the drag
-    /// threshold it becomes a playhead scrub, otherwise click resolution
-    /// (segment select / deselect / anchor add) owns it. Recording the
-    /// origin here keeps mousedown / mousemove / click / double-click as a
-    /// single gesture instead of competing side effects.
+    /// The press is only a *candidate* until it resolves: empty space seeks
+    /// on mousedown, past the drag threshold it becomes a playhead scrub,
+    /// otherwise click resolution (segment select / deselect+seek / anchor
+    /// add) owns it. Recording the origin here keeps mousedown / mousemove /
+    /// click / double-click as a single gesture instead of competing side
+    /// effects.
     press_origin: Option<gpui::Point<Pixels>>,
     /// True once the ongoing press turned into a scrub drag. The click event
     /// that follows mouse-up must then be swallowed so a scrub never changes

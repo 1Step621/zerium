@@ -24,7 +24,12 @@ use super::{
     },
 };
 
-const INTERACTIVE_DECODE_THREADS: usize = 2;
+fn interactive_decode_threads() -> usize {
+    std::thread::available_parallelism()
+        .map(|threads| threads.get())
+        .unwrap_or(4)
+        .clamp(2, 8)
+}
 
 struct VideoScaler(ffmpeg::software::scaling::Context);
 
@@ -46,8 +51,150 @@ pub(super) struct FfmpegVideoDecoder {
     still_image: Option<ffmpeg::frame::Video>,
     pending_decoded: Option<ffmpeg::frame::Video>,
     last_frame: Option<DecodedVideoFrame>,
+    trail: VecDeque<TrailFrame>,
+    trail_bytes: usize,
     fallback_time: Duration,
     draining: bool,
+}
+
+struct TrailFrame {
+    decoded: ffmpeg::frame::Video,
+    presentation_time: Duration,
+    duration: Duration,
+    bytes: usize,
+}
+
+const TRAIL_FRAMES: usize = 8;
+const TRAIL_BYTES: usize = 64 * 1024 * 1024;
+
+enum SeekCandidate {
+    Ready(DecodedVideoFrame),
+    Raw {
+        decoded: ffmpeg::frame::Video,
+        presentation_time: Duration,
+        duration: Duration,
+    },
+}
+
+impl FfmpegVideoDecoder {
+    fn cache_candidate(&mut self, candidate: Option<SeekCandidate>, width: u32, height: u32) {
+        self.last_frame = match candidate {
+            Some(SeekCandidate::Ready(frame)) => Some(frame),
+            Some(SeekCandidate::Raw {
+                decoded,
+                presentation_time,
+                duration,
+            }) => self
+                .convert_candidate(&decoded, presentation_time, duration, width, height)
+                .ok(),
+            None => None,
+        };
+    }
+
+    fn convert_candidate(
+        &mut self,
+        decoded: &ffmpeg::frame::Video,
+        presentation_time: Duration,
+        duration: Duration,
+        width: u32,
+        height: u32,
+    ) -> Result<DecodedVideoFrame, MediaError> {
+        Ok(DecodedVideoFrame {
+            presentation_time,
+            duration,
+            frame: self.rgba_frame(decoded, width, height)?,
+        })
+    }
+
+    fn push_trail(
+        &mut self,
+        decoded: ffmpeg::frame::Video,
+        presentation_time: Duration,
+        duration: Duration,
+    ) {
+        let bytes = decoded.width() as usize * decoded.height() as usize * 3 / 2;
+        self.trail_bytes = self.trail_bytes.saturating_add(bytes);
+        self.trail.push_back(TrailFrame {
+            decoded,
+            presentation_time,
+            duration,
+            bytes,
+        });
+        while self.trail.len() > TRAIL_FRAMES || self.trail_bytes > TRAIL_BYTES {
+            let Some(old) = self.trail.pop_front() else {
+                break;
+            };
+            self.trail_bytes = self.trail_bytes.saturating_sub(old.bytes);
+        }
+    }
+
+    fn trail_frame(
+        &mut self,
+        presentation_time: Duration,
+        width: u32,
+        height: u32,
+    ) -> Option<DecodedVideoFrame> {
+        let index = self
+            .trail
+            .iter()
+            .enumerate()
+            .filter(|(_, frame)| {
+                frame.presentation_time <= presentation_time
+                    && presentation_time
+                        < frame
+                            .presentation_time
+                            .checked_add(frame.duration)
+                            .unwrap_or(Duration::MAX)
+            })
+            .max_by_key(|(_, frame)| frame.presentation_time)
+            .map(|(index, _)| index)?;
+        let hit = self.trail.remove(index)?;
+        let frame = self.rgba_frame(&hit.decoded, width, height).ok()?;
+        let frame = DecodedVideoFrame {
+            presentation_time: hit.presentation_time,
+            duration: hit.duration,
+            frame,
+        };
+        self.last_frame = Some(frame.clone());
+        self.trail_bytes = self.trail_bytes.saturating_sub(hit.bytes);
+        Some(frame)
+    }
+}
+
+const KEYFRAME_SCAN_PACKETS: usize = 3000;
+
+pub(crate) fn estimate_max_keyframe_gap(path: &Path) -> Option<u64> {
+    let mut input = open_input(path).ok()?;
+    let video_stream_index = input.streams().best(ffmpeg::media::Type::Video)?.index();
+    let mut since_key = 0u64;
+    let mut max_gap = 0u64;
+    let mut keyframes = 0u64;
+    let mut scanned = 0usize;
+    let mut exhausted = true;
+    for (stream, packet) in input.packets() {
+        if stream.index() != video_stream_index {
+            continue;
+        }
+        if scanned >= KEYFRAME_SCAN_PACKETS {
+            exhausted = false;
+            break;
+        }
+        scanned += 1;
+        if packet.is_key() {
+            keyframes += 1;
+            max_gap = max_gap.max(since_key);
+            since_key = 0;
+        } else {
+            since_key += 1;
+        }
+    }
+    if keyframes == 0 {
+        return None;
+    }
+    if exhausted {
+        max_gap = max_gap.max(since_key);
+    }
+    Some(max_gap)
 }
 
 pub(super) fn probe(path: &Path, media_type: MediaType) -> Result<MediaProbe, MediaError> {
@@ -133,6 +280,30 @@ fn stream_duration(stream: &ffmpeg::Stream<'_>) -> Option<Duration> {
     Duration::try_from_secs_f64(value as f64 * f64::from(stream.time_base())).ok()
 }
 
+fn stream_start_seconds(start_time: i64, time_base: ffmpeg::Rational) -> f64 {
+    if start_time == ffmpeg::ffi::AV_NOPTS_VALUE {
+        0.
+    } else {
+        start_time as f64 * f64::from(time_base)
+    }
+}
+
+fn seek_timestamp(start_time: i64, time_base: ffmpeg::Rational, seconds: f64) -> i64 {
+    ((seconds + stream_start_seconds(start_time, time_base)) * f64::from(ffmpeg::ffi::AV_TIME_BASE))
+        .round()
+        .clamp(0., i64::MAX as f64) as i64
+}
+
+fn stream_seconds(timestamp: i64, start_time: i64, time_base: ffmpeg::Rational) -> f64 {
+    (timestamp.saturating_sub(start_time) as f64 * f64::from(time_base)).max(0.)
+}
+
+fn open_input(path: &Path) -> Result<ffmpeg::format::context::Input, MediaError> {
+    initialize_ffmpeg()?;
+    ffmpeg::format::input(path)
+        .map_err(|error| MediaError::external(format!("'{}'を開けません: {error}", path.display())))
+}
+
 fn media_duration(input: &ffmpeg::format::context::Input) -> Option<f64> {
     let container_duration = input.duration();
     if container_duration > 0 && container_duration != ffmpeg::ffi::AV_NOPTS_VALUE {
@@ -173,10 +344,7 @@ pub(super) struct FfmpegAudioDecoder {
 
 impl FfmpegAudioDecoder {
     pub(super) fn open(asset: MediaAsset) -> Result<Self, MediaError> {
-        initialize_ffmpeg()?;
-        let input = ffmpeg::format::input(&asset.path).map_err(|error| {
-            MediaError::external(format!("'{}'を開けません: {error}", asset.path.display()))
-        })?;
+        let input = open_input(&asset.path)?;
         let stream = input
             .streams()
             .best(ffmpeg::media::Type::Audio)
@@ -210,14 +378,7 @@ impl FfmpegAudioDecoder {
 
     fn seek(&mut self, sample_frame: u64, format: AudioFormat) -> Result<(), MediaError> {
         let seconds = sample_frame as f64 / f64::from(format.sample_rate);
-        let stream_start_seconds = if self.stream_start_time == ffmpeg::ffi::AV_NOPTS_VALUE {
-            0.
-        } else {
-            self.stream_start_time as f64 * f64::from(self.stream_time_base)
-        };
-        let timestamp = ((seconds + stream_start_seconds) * f64::from(ffmpeg::ffi::AV_TIME_BASE))
-            .round()
-            .clamp(0., i64::MAX as f64) as i64;
+        let timestamp = seek_timestamp(self.stream_start_time, self.stream_time_base, seconds);
         self.input.seek(timestamp, ..timestamp).map_err(|error| {
             MediaError::external(format!(
                 "'{}'の音声をシークできません: {error}",
@@ -315,11 +476,10 @@ impl FfmpegAudioDecoder {
                 } else {
                     self.stream_start_time
                 };
-                let seconds =
-                    timestamp.saturating_sub(start_time) as f64 * f64::from(self.stream_time_base);
-                (seconds.max(0.) * f64::from(format.sample_rate))
-                    .round()
-                    .clamp(0., u64::MAX as f64) as u64
+                (stream_seconds(timestamp, start_time, self.stream_time_base)
+                    * f64::from(format.sample_rate))
+                .round()
+                .clamp(0., u64::MAX as f64) as u64
             });
         let sample_frames = converted.samples();
         self.decoded_cursor = frame_start.saturating_add(sample_frames as u64);
@@ -398,10 +558,7 @@ impl AudioDecoderSession for FfmpegAudioDecoder {
 
 impl FfmpegVideoDecoder {
     pub(super) fn open(asset: MediaAsset) -> Result<Self, MediaError> {
-        initialize_ffmpeg()?;
-        let input = ffmpeg::format::input(&asset.path).map_err(|error| {
-            MediaError::external(format!("'{}' を開けません: {error}", asset.path.display()))
-        })?;
+        let input = open_input(&asset.path)?;
         let stream = input
             .streams()
             .best(ffmpeg::media::Type::Video)
@@ -416,7 +573,7 @@ impl FfmpegVideoDecoder {
             })?;
         context.set_threading(ffmpeg::codec::threading::Config {
             kind: ffmpeg::codec::threading::Type::Frame,
-            count: INTERACTIVE_DECODE_THREADS,
+            count: interactive_decode_threads(),
         });
         let decoder = context.decoder().video().map_err(|error| {
             MediaError::external(format!("映像デコーダーを開けません: {error}"))
@@ -435,21 +592,19 @@ impl FfmpegVideoDecoder {
             still_image: None,
             pending_decoded: None,
             last_frame: None,
+            trail: VecDeque::new(),
+            trail_bytes: 0,
             fallback_time: Duration::ZERO,
             draining: false,
         })
     }
 
     fn seek(&mut self, presentation_time: Duration) -> Result<(), MediaError> {
-        let stream_start_seconds = if self.stream_start_time == ffmpeg::ffi::AV_NOPTS_VALUE {
-            0.
-        } else {
-            self.stream_start_time as f64 * f64::from(self.stream_time_base)
-        };
-        let timestamp = ((presentation_time.as_secs_f64() + stream_start_seconds)
-            * f64::from(ffmpeg::ffi::AV_TIME_BASE))
-        .round()
-        .clamp(0., i64::MAX as f64) as i64;
+        let timestamp = seek_timestamp(
+            self.stream_start_time,
+            self.stream_time_base,
+            presentation_time.as_secs_f64(),
+        );
         self.input.seek(timestamp, ..timestamp).map_err(|error| {
             MediaError::external(format!(
                 "'{}' の映像をシークできません: {error}",
@@ -517,9 +672,8 @@ impl FfmpegVideoDecoder {
         } else {
             self.stream_start_time
         };
-        let seconds =
-            timestamp.saturating_sub(start_time) as f64 * f64::from(self.stream_time_base);
-        Duration::try_from_secs_f64(seconds.max(0.)).ok()
+        let seconds = stream_seconds(timestamp, start_time, self.stream_time_base);
+        Duration::try_from_secs_f64(seconds).ok()
     }
 
     fn default_frame_duration(&self) -> Duration {
@@ -666,6 +820,9 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
                 return Ok(frame.clone());
             }
         }
+        if let Some(frame) = self.trail_frame(presentation_time, width, height) {
+            return Ok(frame);
+        }
         if is_image && let Some(decoded) = self.still_image.take() {
             let frame = DecodedVideoFrame {
                 presentation_time: Duration::ZERO,
@@ -691,13 +848,14 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
             self.seek(presentation_time)?;
         }
 
-        let mut candidate = self
+        let mut candidate: Option<SeekCandidate> = self
             .last_frame
             .take()
-            .filter(|frame| frame.presentation_time <= presentation_time);
+            .filter(|frame| frame.presentation_time <= presentation_time)
+            .map(SeekCandidate::Ready);
         loop {
             if cancelled.load(Ordering::Relaxed) {
-                self.last_frame = candidate;
+                self.cache_candidate(candidate, width, height);
                 return Err(MediaError::Cancelled);
             }
             let Some(decoded) = self.next_decoded_frame()? else {
@@ -705,7 +863,7 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
             };
             if cancelled.load(Ordering::Relaxed) {
                 self.pending_decoded = Some(decoded);
-                self.last_frame = candidate;
+                self.cache_candidate(candidate, width, height);
                 return Err(MediaError::Cancelled);
             }
             let frame_time = self
@@ -717,7 +875,21 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
                 .unwrap_or(Duration::MAX);
 
             if frame_time > presentation_time {
-                if let Some(mut frame) = candidate {
+                if let Some(candidate) = candidate {
+                    let mut frame = match candidate {
+                        SeekCandidate::Ready(frame) => frame,
+                        SeekCandidate::Raw {
+                            decoded: raw,
+                            presentation_time,
+                            duration,
+                        } => self.convert_candidate(
+                            &raw,
+                            presentation_time,
+                            duration,
+                            width,
+                            height,
+                        )?,
+                    };
                     frame.duration = frame_time
                         .checked_sub(frame.presentation_time)
                         .filter(|duration| !duration.is_zero())
@@ -737,20 +909,45 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
                 return Ok(frame);
             }
 
-            let frame = DecodedVideoFrame {
+            if is_image {
+                let frame = DecodedVideoFrame {
+                    presentation_time: frame_time,
+                    duration: fallback_duration,
+                    frame: self.rgba_frame(&decoded, width, height)?,
+                };
+                self.still_image = Some(decoded);
+                candidate = Some(SeekCandidate::Ready(frame));
+                continue;
+            }
+            if let Some(SeekCandidate::Raw {
+                decoded: prev,
+                presentation_time: prev_time,
+                duration: prev_duration,
+            }) = candidate.replace(SeekCandidate::Raw {
+                decoded,
                 presentation_time: frame_time,
                 duration: fallback_duration,
-                frame: self.rgba_frame(&decoded, width, height)?,
-            };
-            if is_image {
-                self.still_image = Some(decoded);
+            }) {
+                self.push_trail(prev, prev_time, prev_duration);
             }
-            candidate = Some(frame);
         }
 
-        if let Some(frame) = candidate {
-            self.last_frame = Some(frame.clone());
-            return Ok(frame);
+        match candidate {
+            Some(SeekCandidate::Ready(frame)) => {
+                self.last_frame = Some(frame.clone());
+                return Ok(frame);
+            }
+            Some(SeekCandidate::Raw {
+                decoded,
+                presentation_time,
+                duration,
+            }) => {
+                let frame =
+                    self.convert_candidate(&decoded, presentation_time, duration, width, height)?;
+                self.last_frame = Some(frame.clone());
+                return Ok(frame);
+            }
+            None => {}
         }
         Err(MediaError::external(format!(
             "'{}' の時刻 {:.6} 秒の映像フレームを取得できません",
