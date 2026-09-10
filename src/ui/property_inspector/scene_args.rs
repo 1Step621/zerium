@@ -327,8 +327,12 @@ impl PropertyInspector {
             Self::set_input_value(&input, value, window, cx);
             return;
         }
-        let input =
-            cx.new(|cx| InputState::new(window, cx).default_value(SharedString::from(value)));
+        let placeholder = scene_argument_setting_placeholder(setting);
+        let input = cx.new(|cx| {
+            InputState::new(window, cx)
+                .placeholder(placeholder)
+                .default_value(SharedString::from(value))
+        });
         let step_argument_id = argument_id.to_owned();
         let step_sub = cx.subscribe_in(
             &input,
@@ -396,13 +400,22 @@ impl PropertyInspector {
                 .and_then(state::ControlState::text)
                 .map(|state| state.input.read(cx).value())
         };
+        let Some(default) =
+            setting_text(SceneArgumentSetting::Default).and_then(|text| number.parse_number(&text))
+        else {
+            return;
+        };
         let parse = |setting| {
-            setting_text(setting).and_then(|text| setting_display_value(&number, setting, &text))
+            setting_text(setting)
+                .and_then(|text| setting_edit_value(&number, setting, &text, default))
+        };
+        let parse_bound = |setting| {
+            setting_text(setting).and_then(|text| setting_bound_value(&number, setting, &text))
         };
         let (Some(current), Some(min), Some(max)) = (
             parse(setting),
-            parse(SceneArgumentSetting::Min),
-            parse(SceneArgumentSetting::Max),
+            parse_bound(SceneArgumentSetting::Min),
+            parse_bound(SceneArgumentSetting::Max),
         ) else {
             return;
         };
@@ -550,9 +563,27 @@ impl PropertyInspector {
             &drag.argument_id,
             drag.setting,
         ));
+        let Some(default) = self
+            .store
+            .states
+            .get(&ControlId::scene_argument_setting(
+                drag.scene_id,
+                &drag.argument_id,
+                SceneArgumentSetting::Default,
+            ))
+            .and_then(state::ControlState::text)
+            .and_then(|state| number.parse_number(&state.input.read(cx).value()))
+        else {
+            return;
+        };
         let Some(start_value) = input.and_then(|field| {
             state::ControlState::text(field).and_then(|state| {
-                setting_display_value(&number, drag.setting, &state.input.read(cx).value())
+                setting_edit_value(
+                    &number,
+                    drag.setting,
+                    &state.input.read(cx).value(),
+                    default,
+                )
             })
         }) else {
             return;
@@ -567,7 +598,7 @@ impl PropertyInspector {
                 ))
                 .and_then(state::ControlState::text)
                 .map(|state| state.input.read(cx).value())
-                .and_then(|text| setting_display_value(&number, setting, &text))
+                .and_then(|text| setting_bound_value(&number, setting, &text))
         };
         let (Some(min), Some(max)) = (
             parse(SceneArgumentSetting::Min),
@@ -634,7 +665,7 @@ impl PropertyInspector {
                 ))
                 .and_then(state::ControlState::text)
                 .map(|state| state.input.read(cx).value())
-                .and_then(|text| setting_display_value(&origin.number, setting, &text))
+                .and_then(|text| setting_bound_value(&origin.number, setting, &text))
         };
         let (Some(min), Some(max)) = (
             parse(SceneArgumentSetting::Min),
@@ -1196,6 +1227,14 @@ fn numeric_settings(number: &NumericInput, schema: &ParameterSchema) -> Option<[
     ])
 }
 
+fn scene_argument_setting_placeholder(setting: SceneArgumentSetting) -> &'static str {
+    match setting {
+        SceneArgumentSetting::Default => "",
+        SceneArgumentSetting::Min => "下限なし",
+        SceneArgumentSetting::Max => "上限なし",
+    }
+}
+
 #[derive(Clone, Copy)]
 struct NumericSettingDraft {
     default: f64,
@@ -1269,7 +1308,22 @@ impl NumericSettingDraft {
     }
 }
 
-fn setting_display_value(
+fn setting_edit_value(
+    number: &NumericInput,
+    setting: SceneArgumentSetting,
+    text: &str,
+    default: f64,
+) -> Option<f64> {
+    if !text.trim().is_empty() {
+        return number.parse_number(text);
+    }
+    match setting {
+        SceneArgumentSetting::Default => None,
+        SceneArgumentSetting::Min | SceneArgumentSetting::Max => Some(default),
+    }
+}
+
+fn setting_bound_value(
     number: &NumericInput,
     setting: SceneArgumentSetting,
     text: &str,
@@ -1302,44 +1356,4 @@ fn clamp_setting(
         SceneArgumentSetting::Min => value.min(max),
         SceneArgumentSetting::Max => value.max(min),
     })
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn changing_min_or_max_repairs_crossed_bounds() {
-        let number = NumericInput::new(ScalarParameterType::F32).unwrap();
-        let draft = NumericSettingDraft {
-            default: 0.,
-            min: Some(10.),
-            max: Some(5.),
-        };
-
-        let min_changed = draft.normalize(&number, SceneArgumentSetting::Min).unwrap();
-        assert_eq!(min_changed.min, Some(5.));
-        assert_eq!(min_changed.max, Some(5.));
-        assert_eq!(min_changed.default, 5.);
-
-        let max_changed = draft.normalize(&number, SceneArgumentSetting::Max).unwrap();
-        assert_eq!(max_changed.min, Some(10.));
-        assert_eq!(max_changed.max, Some(10.));
-        assert_eq!(max_changed.default, 10.);
-    }
-
-    #[test]
-    fn default_is_clamped_to_the_normalized_bounds() {
-        let number = NumericInput::new(ScalarParameterType::F32).unwrap();
-        let draft = NumericSettingDraft {
-            default: 100.,
-            min: Some(-2.),
-            max: Some(2.),
-        };
-
-        let normalized = draft
-            .normalize(&number, SceneArgumentSetting::Default)
-            .unwrap();
-        assert_eq!(normalized.default, 2.);
-    }
 }

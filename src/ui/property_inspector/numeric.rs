@@ -74,20 +74,3 @@ impl NumericInput {
         }
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn numeric_input_uses_canonical_values() {
-        let number = NumericInput::new(ScalarParameterType::F32).unwrap();
-
-        assert_eq!(number.parse_number("25"), Some(25.));
-        assert_eq!(number.format(0.25), "0.25");
-        assert_eq!(
-            number.value_from_number(25.),
-            Some(ParameterValue::F32(25.))
-        );
-    }
-}

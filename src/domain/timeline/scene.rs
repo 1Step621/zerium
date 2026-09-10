@@ -213,6 +213,7 @@ pub(crate) fn project_scene_binding_value(
     schema.ui.project_to_value(tuple_element);
 
     schema.animatable &= crate::domain::animation::supports_value(schema.ty.element_type());
+    value = schema.constrained_value(&value)?;
     schema.default = value.clone();
     Some((schema, value))
 }
@@ -396,16 +397,18 @@ impl SceneArgumentPreset {
 
 impl SceneArgumentSchema {
     pub(crate) fn from_parameter(mut parameter: ParameterSchema) -> Option<Self> {
-        matches!(
+        if !matches!(
             parameter.ty,
             ParameterType::Value(ParameterValueType::Scalar(_))
-        )
-        .then(|| {
-            parameter.scene_bindable = true;
-            Self {
-                declared: parameter.clone(),
-                effective: parameter,
-            }
+        ) {
+            return None;
+        }
+        let default = parameter.default_value().clone();
+        parameter.default = parameter.constrained_value(&default)?;
+        parameter.scene_bindable = true;
+        Some(Self {
+            declared: parameter.clone(),
+            effective: parameter,
         })
     }
 
