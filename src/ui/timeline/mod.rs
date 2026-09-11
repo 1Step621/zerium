@@ -9,7 +9,7 @@ use gpui::{
     App, Bounds, ClickEvent, Context, Corner, CursorStyle, DismissEvent, Div, DragMoveEvent, Empty,
     Entity, EntityId, FocusHandle, Focusable as _, Hsla, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, PathBuilder, Pixels, Render, ScrollWheelEvent, SharedString,
-    Stateful, Subscription, Task, UniformListScrollHandle, Window, anchored, canvas, deferred, div,
+    Stateful, Subscription, UniformListScrollHandle, Window, anchored, canvas, deferred, div,
     point, prelude::*, px, relative, size, uniform_list,
 };
 
@@ -233,7 +233,6 @@ pub(crate) struct Timeline {
     context_menu: Option<TimelineContextMenu>,
     scrubbing_playhead: bool,
     focus_handle: FocusHandle,
-    _import_tasks: Vec<Task<()>>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -284,7 +283,6 @@ impl Timeline {
             context_menu: None,
             scrubbing_playhead: false,
             focus_handle: cx.focus_handle(),
-            _import_tasks: Vec::new(),
             _subscriptions: subscriptions,
         }
     }
@@ -309,7 +307,6 @@ impl Timeline {
     }
 
     fn cancel_async_work(&mut self) {
-        self._import_tasks.clear();
         self.file_drop_error = None;
     }
 
@@ -1359,7 +1356,7 @@ impl Timeline {
         let session = self.session.clone();
         let operation =
             session.update(cx, |session, cx| session.begin(ProjectActivity::Import, cx));
-        let task = cx.spawn(async move |timeline, cx| {
+        cx.spawn(async move |timeline, cx| {
             let results = cx
                 .background_spawn(async move {
                     imports
@@ -1449,8 +1446,8 @@ impl Timeline {
             session.update(cx, |session, cx| {
                 session.finish(operation, cx);
             });
-        });
-        self._import_tasks.push(task);
+        })
+        .detach();
     }
 
     fn remove_item(&mut self, item_id: ItemId, cx: &mut Context<Self>) {

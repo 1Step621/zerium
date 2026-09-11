@@ -263,7 +263,6 @@ pub(super) struct VideoPlaybackEngine {
     session_id: ProjectSessionId,
     notifications: Entity<UiNotifications>,
     decode_tasks: HashMap<VideoInputId, Task<()>>,
-    proxy_tasks: Vec<Task<()>>,
     decode_mode: PreviewPlaybackMode,
     revision: u64,
     error: Option<String>,
@@ -319,7 +318,6 @@ impl VideoPlaybackEngine {
             session_id,
             notifications,
             decode_tasks: HashMap::new(),
-            proxy_tasks: Vec::new(),
             decode_mode: PreviewPlaybackMode::Idle,
             revision: 0,
             error: None,
@@ -791,7 +789,7 @@ impl VideoPlaybackEngine {
         let media_readers = self.media_readers.clone();
         let session = self.session.clone();
         let session_id = session.read(cx).id();
-        let task = cx.spawn(async move |playback, cx| {
+        cx.spawn(async move |playback, cx| {
             let result = cx
                 .background_spawn(async move {
                     media_readers.create_video_proxy(&job.source, job.request)
@@ -833,8 +831,8 @@ impl VideoPlaybackEngine {
                     cx.notify();
                 });
             }
-        });
-        self.proxy_tasks.push(task);
+        })
+        .detach();
     }
 
     fn ensure_frames(
@@ -1060,7 +1058,6 @@ impl VideoPlaybackEngine {
     fn reset_for_project_change(&mut self) {
         self.in_flight.cancel_orphans(&HashSet::new());
         self.decode_tasks.clear();
-        self.proxy_tasks.clear();
         self.frame_cache = BudgetedTimestampCache::new(Self::FRAME_CACHE_BUDGET_BYTES);
         self.requested_frames.clear();
         self.last_presented_frames.clear();

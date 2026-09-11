@@ -65,7 +65,7 @@ struct TrailFrame {
 }
 
 const TRAIL_FRAMES: usize = 8;
-const TRAIL_BYTES: usize = 64 * 1024 * 1024;
+const TRAIL_BYTES: usize = 32 * 1024 * 1024;
 
 enum SeekCandidate {
     Ready(DecodedVideoFrame),
