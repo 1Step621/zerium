@@ -10,4 +10,13 @@ Move-Item $ffmpegRoot.FullName target\ffmpeg-sdk
 Remove-Item -Recurse -Force target\ffmpeg-extract
 "FFMPEG_DIR=$env:GITHUB_WORKSPACE\target\ffmpeg-sdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 
+$vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+$vsInstall = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+$vcRuntime = Get-ChildItem (Join-Path $vsInstall 'VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT') -Directory |
+    Sort-Object FullName | Select-Object -Last 1
+if (-not $vcRuntime) {
+    throw 'The x64 Visual C++ runtime was not found on the runner.'
+}
+"VC_RUNTIME_DIR=$($vcRuntime.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
 choco install wixtoolset --no-progress --yes

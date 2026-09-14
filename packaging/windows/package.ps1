@@ -8,6 +8,15 @@ Copy-Item LICENSE $packageDir\LICENSE
 
 $ffmpegBin = 'target\ffmpeg-sdk\bin'
 Get-ChildItem "$ffmpegBin\*.dll" | Copy-Item -Destination $packageDir
+$vcRuntimeDir = $env:VC_RUNTIME_DIR
+if (-not $vcRuntimeDir) {
+    throw 'VC_RUNTIME_DIR is not set; install_dependencies.ps1 must run first.'
+}
+$vcRuntimeFiles = @(Get-ChildItem (Join-Path $vcRuntimeDir '*.dll'))
+if ($vcRuntimeFiles.Count -eq 0) {
+    throw "No Visual C++ runtime DLLs found in $vcRuntimeDir."
+}
+$vcRuntimeFiles | Copy-Item -Destination $packageDir
 
 $version = (Select-String -Path Cargo.toml -Pattern '^version = "([0-9]+\.[0-9]+\.[0-9]+)"' |
     Select-Object -First 1).Matches.Groups[1].Value
