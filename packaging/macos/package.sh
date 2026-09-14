@@ -25,5 +25,3 @@ dylibbundler \
   -s "$(brew --prefix)/lib" \
   -s "$(brew --prefix)/opt/ffmpeg/lib"
 hdiutil create -volname Zerium -srcfolder "$app_dir" -ov -format UDZO "dist/$archive_name"
-release_stem="${archive_name%.dmg}"
-cp LICENSE "dist/${release_stem}-LICENSE"

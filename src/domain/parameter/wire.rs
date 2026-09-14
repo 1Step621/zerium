@@ -60,12 +60,6 @@ enum EditableWireDefinition {
     Tuple(EditableElements),
 }
 
-impl Default for EditableWireDefinition {
-    fn default() -> Self {
-        Self::Scalar(true)
-    }
-}
-
 impl EditableWireDefinition {
     fn into_parameter(self) -> ParameterEditable {
         match self {
@@ -115,7 +109,15 @@ impl<'de> Deserialize<'de> for ParameterSchema {
         let default = ParameterValue::from_json(&definition.default, &definition.ty)
             .ok_or_else(|| D::Error::custom("parameter default does not match its type"))?;
         let scene_bindable = definition.scene_bindable.unwrap_or(true);
-        let editable = definition.editable.unwrap_or_default().into_parameter();
+        let editable = definition
+            .editable
+            .map(EditableWireDefinition::into_parameter)
+            .unwrap_or_else(|| match definition.ty.element_type() {
+                ParameterValueType::Scalar(_) => ParameterEditable::Scalar(true),
+                ParameterValueType::Tuple(tuple) => {
+                    ParameterEditable::Tuple(vec![true; tuple.element_count()])
+                }
+            });
         let animatable = definition.animatable.into_parameter();
 
         Ok(Self {

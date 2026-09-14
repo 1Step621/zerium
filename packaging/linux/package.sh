@@ -14,7 +14,7 @@ strip -s target/release/zerium
 find target/ffmpeg-sdk/lib -type f -name '*.so.*' -exec patchelf --set-rpath '$ORIGIN' {} +
 cp target/release/zerium "$bundle_dir/bin/zerium"
 cp -a target/ffmpeg-sdk/lib/. "$bundle_dir/lib/"
+cp LICENSE "$bundle_dir/LICENSE"
 tar --create --xz --file "dist/$archive_name" --directory "$(dirname "$bundle_dir")" "$(basename "$bundle_dir")"
-cp LICENSE "dist/${archive_name}-LICENSE"
 cargo deb --no-build --output "dist/zerium_${version}-1_amd64.deb"
 cargo generate-rpm -o "dist/zerium-${version}-1.x86_64.rpm"

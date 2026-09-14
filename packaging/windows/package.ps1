@@ -35,6 +35,3 @@ New-Item -ItemType Directory -Force $wixDir | Out-Null
 & "$wixBin\light.exe" `
     "$wixDir\zerium.wixobj" "$wixDir\files.wixobj" `
     -out "dist\$ArchiveName"
-
-$releaseStem = [System.IO.Path]::GetFileNameWithoutExtension($ArchiveName)
-Copy-Item LICENSE (Join-Path 'dist' "$releaseStem-LICENSE")
