@@ -23,8 +23,8 @@ pub(crate) use item::{EffectInstance, TimelineItem, TimelineItemKind};
 pub(crate) use scene::SceneDefinition;
 pub(crate) use scene::{
     SceneArgument, SceneArgumentPreset, SceneArgumentSchema, SceneBindingOwner, SceneBindingTarget,
-    SceneBindingValuePath, display_scene_expression, refresh_scene_argument_contracts,
-    resolve_scene_binding, scene_argument_expressions_valid,
+    SceneBindingValuePath, display_scene_expression, resolve_scene_binding,
+    scene_argument_expressions_valid,
 };
 pub(crate) use settings::ProjectResolution;
 pub(crate) use time::{Frame, FrameDuration, FrameRate, TimelineTime};

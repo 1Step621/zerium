@@ -1,18 +1,5 @@
 //! Scalar interpolation and eligibility, independent of editor presentation.
-use crate::domain::parameter::{
-    ParameterSchema, ParameterType, ParameterValue, ParameterValueType, ScalarParameterType,
-};
-
-pub(super) fn interpolatable_scalar(value: &ParameterValue) -> Option<ParameterValue> {
-    match value {
-        ParameterValue::F32(number) if number.is_finite() => Some(value.clone()),
-        ParameterValue::I32(_) | ParameterValue::U32(_) => Some(value.clone()),
-        ParameterValue::Color(values) if values.iter().all(|value| value.is_finite()) => {
-            Some(value.clone())
-        }
-        _ => None,
-    }
-}
+use crate::domain::parameter::ParameterValue;
 
 pub(crate) fn interpolate_scalar(
     from_value: &ParameterValue,
@@ -22,8 +9,6 @@ pub(crate) fn interpolate_scalar(
     if !progress.is_finite() {
         return None;
     }
-    interpolatable_scalar(from_value)?;
-    interpolatable_scalar(to_value)?;
     let lerp = |from: f32, to: f32| from + (to - from) * progress;
     match (from_value, to_value) {
         (ParameterValue::F32(from), ParameterValue::F32(to)) => {
@@ -51,37 +36,6 @@ pub(crate) fn interpolate_scalar(
             lerp(from[2], to[2]),
             lerp(from[3], to[3]),
         ])),
-        _ => None,
-    }
-}
-
-pub(crate) fn supports_scalar(ty: &ScalarParameterType) -> bool {
-    matches!(
-        ty,
-        ScalarParameterType::F32
-            | ScalarParameterType::I32
-            | ScalarParameterType::U32
-            | ScalarParameterType::Color
-    )
-}
-
-pub(crate) fn supports_value(ty: &ParameterValueType) -> bool {
-    match ty {
-        ParameterValueType::Scalar(ty) => supports_scalar(ty),
-        ParameterValueType::Tuple(tuple) => tuple.elements().iter().any(supports_scalar),
-    }
-}
-
-pub(crate) fn target_type(
-    schema: &ParameterSchema,
-    array_index: Option<usize>,
-) -> Option<&ParameterValueType> {
-    if !schema.is_animatable() {
-        return None;
-    }
-    match (schema.ty(), array_index) {
-        (ParameterType::Value(ty), None) => Some(ty),
-        (ParameterType::Array { element: array, .. }, Some(_)) => Some(array),
         _ => None,
     }
 }

@@ -1,6 +1,12 @@
 //! Segment interpolation modes and their mathematical evaluation.
 use serde::{Deserialize, Serialize};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum BezierHandle {
+    In,
+    Out,
+}
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum EasingFamily {
@@ -46,9 +52,10 @@ impl EasingDirection {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SegmentInterpolation {
+    #[default]
     Linear,
     Hold,
     Ease {
@@ -56,37 +63,98 @@ pub(crate) enum SegmentInterpolation {
         direction: EasingDirection,
     },
     Custom {
-        control_out: [f32; 2],
-        control_in: [f32; 2],
+        handle_out: [f32; 2],
+        handle_in: [f32; 2],
     },
 }
 
 impl SegmentInterpolation {
+    pub(crate) fn evaluate(self, progress: f32) -> f32 {
+        let progress = progress.clamp(0., 1.);
+        if progress == 0. || progress == 1. {
+            return progress;
+        }
+        match self {
+            Self::Linear => progress,
+            Self::Hold => 0.,
+            Self::Ease { family, direction } => direction.apply(family, progress),
+            Self::Custom {
+                handle_out,
+                handle_in,
+            } => cubic_bezier_progress(
+                progress,
+                handle_out[0],
+                handle_out[1],
+                handle_in[0],
+                handle_in[1],
+            ),
+        }
+    }
+
+    pub(crate) fn handle_position(self, handle: BezierHandle) -> Option<[f32; 2]> {
+        match (handle, self) {
+            (BezierHandle::Out, Self::Custom { handle_out, .. }) => Some(handle_out),
+            (BezierHandle::In, Self::Custom { handle_in, .. }) => Some(handle_in),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn is_valid(self) -> bool {
+        let Self::Custom {
+            handle_out,
+            handle_in,
+        } = self
+        else {
+            return true;
+        };
+        [handle_out, handle_in].into_iter().all(|handle| {
+            handle.iter().all(|value| value.is_finite())
+                && (0. ..=1.).contains(&handle[0])
+                && (0. ..=1.).contains(&handle[1])
+        })
+    }
+
+    pub(crate) fn set_handle(&mut self, handle: BezierHandle, position: [f32; 2]) -> bool {
+        if !position.iter().all(|value| value.is_finite()) {
+            return false;
+        }
+        let position = [position[0].clamp(0., 1.), position[1].clamp(0., 1.)];
+        match (handle, self) {
+            (BezierHandle::Out, Self::Custom { handle_out, .. }) => {
+                if *handle_out == position {
+                    return false;
+                }
+                *handle_out = position;
+                true
+            }
+            (BezierHandle::In, Self::Custom { handle_in, .. }) => {
+                if *handle_in == position {
+                    return false;
+                }
+                *handle_in = position;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    pub(crate) fn set_interpolation(&mut self, interpolation: Self) -> bool {
+        if *self == interpolation {
+            return false;
+        }
+        *self = interpolation;
+        true
+    }
+
     pub(crate) fn is_custom(self) -> bool {
         matches!(self, Self::Custom { .. })
     }
 
-    pub(crate) fn custom_default(start: [f32; 2], end: [f32; 2]) -> Self {
-        let delta = [end[0] - start[0], end[1] - start[1]];
+    pub(crate) fn custom_default() -> Self {
         Self::Custom {
-            control_out: [start[0] + delta[0] / 3., start[1] + delta[1] / 3.],
-            control_in: [start[0] + delta[0] * 2. / 3., start[1] + delta[1] * 2. / 3.],
+            handle_out: [1. / 3., 1. / 3.],
+            handle_in: [2. / 3., 2. / 3.],
         }
-    }
-}
-
-pub(super) fn easing(interpolation: SegmentInterpolation, progress: f32) -> f32 {
-    match interpolation {
-        SegmentInterpolation::Linear => progress,
-        SegmentInterpolation::Hold => {
-            if progress < 1. {
-                0.
-            } else {
-                1.
-            }
-        }
-        SegmentInterpolation::Ease { family, direction } => direction.apply(family, progress),
-        SegmentInterpolation::Custom { .. } => progress,
     }
 }
 
@@ -122,10 +190,10 @@ fn bounce_out(progress: f32) -> f32 {
     }
 }
 
-pub(super) fn cubic(start: f32, control_a: f32, control_b: f32, end: f32, t: f32) -> f32 {
+fn cubic(start: f32, point_a: f32, point_b: f32, end: f32, t: f32) -> f32 {
     let inverse = 1. - t;
     inverse.powi(3) * start
-        + 3. * inverse.powi(2) * t * control_a
-        + 3. * inverse * t.powi(2) * control_b
+        + 3. * inverse.powi(2) * t * point_a
+        + 3. * inverse * t.powi(2) * point_b
         + t.powi(3) * end
 }

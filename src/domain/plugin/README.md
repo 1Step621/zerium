@@ -166,7 +166,7 @@ and animated independently, but are not modeled as separate parameter lanes.
   "label": "Position",
   "type": {"tuple": ["f32", "f32"]},
   "default": [0, 0],
-  "animatable": true,
+  "animatable": {"elements": [true, true]},
   "constraints": {"elements": [
     {"min": -1000000, "max": 1000000},
     {"min": -1000000, "max": 1000000}
@@ -244,7 +244,12 @@ Finite choices are types, not UI options:
 }
 ```
 
-`scene_bindable` defaults to true. Scene arguments themselves are scalars, preserving enum membership;
+`editable` defaults to true. Set it to `false` for plugin parameters whose values are produced by the
+plugin and must be displayed without allowing direct edits. Tuple parameters can use
+`{"elements": [true, false, ...]}` to control each scalar independently. This also disables animation
+editing for the parameter or element. `scene_bindable` defaults to true and remains independent, so a
+parameter can still be exposed through a scene binding when the plugin uses that as its input path.
+Scene arguments themselves are scalars, preserving enum membership;
 tuple elements are published and connected independently.
 
 ### Tuple metadata and animation
@@ -259,7 +264,10 @@ Numeric bounds belong inside `constraints.elements`; tuple-level `min`/`max`
 are rejected. Use `{}` for an unconstrained element. Omitting either metadata
 object leaves every element at its defaults. These rules also apply to arrays
 of tuples. The `font_family` editor remains an array-of-strings setting.
-`animatable` and `scene_bindable` remain parameter-level permissions.
+`scene_bindable` remains a parameter-level permission. `animatable` is a scalar
+permission: standalone scalar parameters use a boolean, while tuple parameters
+use `{"elements": [true, false, ...]}`. The same element mask applies to every
+item in an array of tuples.
 
 ```json
 {
@@ -267,7 +275,7 @@ of tuples. The `font_family` editor remains an array-of-strings setting.
   "label": "Entry",
   "type": {"tuple": ["f32", {"enum": [2, 7]}, "string", "color"]},
   "default": [1, 2, "Caption", [1, 1, 1, 1]],
-  "animatable": true,
+  "animatable": {"elements": [true, false, false, true]},
   "constraints": {"elements": [{"min": 0, "max": 10}, {}, {}, {"min": 0, "max": 1}]},
   "ui": {
     "elements": [
@@ -281,9 +289,11 @@ of tuples. The `font_family` editor remains an array-of-strings setting.
 ```
 
 Every animation track addresses one scalar: a standalone scalar, a tuple element,
-or a scalar within an array element. Numeric scalars and colors interpolate;
+or a scalar within an array element. Array elements have editor-side stable IDs,
+but plugins receive only their ordered values. Numeric scalars and colors interpolate;
 bools, strings, and enums remain static. A mixed tuple can animate its eligible
-elements independently. `animatable: true` requires at least one eligible scalar.
+elements independently. An animatable element must be numeric or a color;
+boolean, string, and enum elements remain static.
 Colors share one curve across RGBA. Integer endpoints retain their integer type
 and interpolate with rounding, without conversion of endpoints to `f32`.
 Array structure is not animated. Tracks store a structural target and typed

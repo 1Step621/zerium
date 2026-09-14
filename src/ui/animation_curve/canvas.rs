@@ -1,12 +1,7 @@
 use super::*;
 
-fn curve_sample_count(
-    plot_width: f32,
-    viewport_span: f32,
-    curve_span: f32,
-    minimum: usize,
-) -> usize {
-    let visible_pixels = plot_width * curve_span.abs() / viewport_span.max(f32::EPSILON);
+fn curve_sample_count(plot_width: f32, curve_span: f32, minimum: usize) -> usize {
+    let visible_pixels = plot_width * curve_span.abs();
     ((visible_pixels * 1.5).ceil() as usize)
         .max(minimum)
         .min(4096)
@@ -14,10 +9,8 @@ fn curve_sample_count(
 
 impl AnimationCurveEditor {
     pub(super) fn graph_canvas(
-        curve: AnimationCurve,
-        background_curves: Vec<AnimationCurve>,
-        time: CurveTimeView,
-        viewport: GraphViewport,
+        curve: GraphCurve,
+        playhead_progress: f32,
         grid: CurveGrid,
         colors: CurvePaintColors,
         editor: Entity<Self>,
@@ -33,18 +26,14 @@ impl AnimationCurveEditor {
                 });
                 CurvePaintState {
                     curve: curve.clone(),
-                    background_curves: background_curves.clone(),
-                    playhead_progress: time.playhead_progress,
-                    visible_progress_range: time.visible_progress_range,
+                    playhead_progress,
                     selected_segment,
-                    viewport,
                     grid: grid.clone(),
                     grid_major: colors.grid_major,
                     grid_minor: colors.grid_minor,
                     handle_color: colors.handle,
                     playhead_color: colors.playhead,
                     curve_color: colors.curve,
-                    background_curve_color: colors.background_curve,
                 }
             },
             move |bounds, state, window, _| {
@@ -57,10 +46,9 @@ impl AnimationCurveEditor {
                 let height =
                     bounds.size.height - px(Self::GRAPH_INSET_TOP + Self::GRAPH_INSET_BOTTOM);
                 let to_point = |position: [f32; 2]| {
-                    let screen = state.viewport.screen_position(position);
                     point(
-                        origin.x + width * screen[0],
-                        origin.y + height * (1. - screen[1]),
+                        origin.x + width * position[0],
+                        origin.y + height * (1. - position[1]),
                     )
                 };
 
@@ -79,8 +67,8 @@ impl AnimationCurveEditor {
                     major_grid_path.line_to(to_point([*x, 1.]));
                 }
                 for (_, normalized) in &state.grid.values {
-                    major_grid_path.move_to(to_point([state.viewport.x_min, *normalized]));
-                    major_grid_path.line_to(to_point([state.viewport.x_max, *normalized]));
+                    major_grid_path.move_to(to_point([0., *normalized]));
+                    major_grid_path.line_to(to_point([1., *normalized]));
                 }
                 if let Ok(path) = major_grid_path.build() {
                     window.paint_path(path, state.grid_major);
@@ -93,122 +81,68 @@ impl AnimationCurveEditor {
                     window.paint_path(path, state.playhead_color);
                 }
 
-                let visible_start = state.visible_progress_range[0].clamp(0., 1.);
-                let visible_end = state.visible_progress_range[1].clamp(0., 1.);
-                let draw_start = visible_start.max(state.viewport.x_min);
-                let draw_end = visible_end.min(state.viewport.x_max);
                 let plot_width = f32::from(width).max(1.);
-                if draw_start <= draw_end {
-                    for curve in &state.background_curves {
-                        let mut curve_path = PathBuilder::stroke(px(1.));
-                        let mut started = false;
-                        for anchors in curve.anchors().windows(2) {
-                            let start = anchors[0][0].max(draw_start);
-                            let end = anchors[1][0].min(draw_end);
-                            if start > end {
-                                continue;
-                            }
-                            let start_point = to_point([start, curve.evaluate(start)]);
-                            if started {
-                                curve_path.line_to(start_point);
-                            } else {
-                                curve_path.move_to(start_point);
-                                started = true;
-                            }
-                            let samples = curve_sample_count(
-                                plot_width,
-                                state.viewport.x_span(),
-                                end - start,
-                                16,
-                            );
-                            for step in 1..=samples {
-                                let progress = start + (end - start) * step as f32 / samples as f32;
-                                curve_path.line_to(to_point([progress, curve.evaluate(progress)]));
-                            }
-                        }
-                        if started && let Ok(path) = curve_path.build() {
-                            window.paint_path(path, state.background_curve_color);
-                        }
-                    }
-                }
-
-                let anchors = state.curve.anchors();
+                let stops = state.curve.stops();
                 let mut handle_path = PathBuilder::stroke(px(1.));
-                for (index, anchor) in anchors.iter().enumerate() {
-                    if !(visible_start..=visible_end).contains(&(*anchor)[0]) {
-                        continue;
-                    }
+                for (index, stop) in stops.iter().enumerate() {
                     if index > 0
                         && state.curve.is_custom(index - 1)
-                        && let Some(control) = state
+                        && let Some(handle) = state
                             .curve
-                            .control(index, crate::domain::animation::BezierHandle::In)
+                            .handle_position(index, crate::domain::animation::BezierHandle::In)
                     {
-                        handle_path.move_to(to_point(*anchor));
-                        handle_path.line_to(to_point(control));
+                        handle_path.move_to(to_point(*stop));
+                        handle_path.line_to(to_point(handle));
                     }
-                    if index + 1 < anchors.len()
+                    if index + 1 < stops.len()
                         && state.curve.is_custom(index)
-                        && let Some(control) = state
+                        && let Some(handle) = state
                             .curve
-                            .control(index, crate::domain::animation::BezierHandle::Out)
+                            .handle_position(index, crate::domain::animation::BezierHandle::Out)
                     {
-                        handle_path.move_to(to_point(*anchor));
-                        handle_path.line_to(to_point(control));
+                        handle_path.move_to(to_point(*stop));
+                        handle_path.line_to(to_point(handle));
                     }
                 }
                 if let Ok(path) = handle_path.build() {
                     window.paint_path(path, state.handle_color);
                 }
 
-                if draw_start <= draw_end {
-                    let mut curve_path = PathBuilder::stroke(px(2.));
-                    let mut started = false;
-                    for anchors in state.curve.anchors().windows(2) {
-                        let start = anchors[0][0].max(draw_start);
-                        let end = anchors[1][0].min(draw_end);
-                        if start > end {
-                            continue;
-                        }
-                        let start_point = to_point([start, state.curve.evaluate(start)]);
-                        if started {
-                            curve_path.line_to(start_point);
-                        } else {
-                            curve_path.move_to(start_point);
-                            started = true;
-                        }
-                        let samples = curve_sample_count(
-                            plot_width,
-                            state.viewport.x_span(),
-                            end - start,
-                            16,
-                        );
-                        for step in 1..=samples {
-                            let progress = start + (end - start) * step as f32 / samples as f32;
-                            curve_path
-                                .line_to(to_point([progress, state.curve.evaluate(progress)]));
-                        }
+                let mut curve_path = PathBuilder::stroke(px(2.));
+                let mut started = false;
+                for stops in state.curve.stops().windows(2) {
+                    let start = stops[0][0];
+                    let end = stops[1][0];
+                    if start > end {
+                        continue;
                     }
-                    if started && let Ok(path) = curve_path.build() {
-                        window.paint_path(path, state.curve_color);
+                    let start_point = to_point([start, state.curve.evaluate(start)]);
+                    if started {
+                        curve_path.line_to(start_point);
+                    } else {
+                        curve_path.move_to(start_point);
+                        started = true;
                     }
+                    let samples = curve_sample_count(plot_width, end - start, 16);
+                    for step in 1..=samples {
+                        let progress = start + (end - start) * step as f32 / samples as f32;
+                        curve_path.line_to(to_point([progress, state.curve.evaluate(progress)]));
+                    }
+                }
+                if started && let Ok(path) = curve_path.build() {
+                    window.paint_path(path, state.curve_color);
                 }
 
                 if let Some(segment) = state.selected_segment
                     && let Some(end) = segment.checked_add(1)
-                    && let Some(anchors) = state.curve.anchors().get(segment..=end)
+                    && let Some(stops) = state.curve.stops().get(segment..=end)
                 {
-                    let start = anchors[0][0].max(draw_start);
-                    let end = anchors[1][0].min(draw_end);
+                    let start = stops[0][0];
+                    let end = stops[1][0];
                     if start <= end {
                         let mut selected_path = PathBuilder::stroke(px(4.));
                         selected_path.move_to(to_point([start, state.curve.evaluate(start)]));
-                        let samples = curve_sample_count(
-                            plot_width,
-                            state.viewport.x_span(),
-                            end - start,
-                            32,
-                        );
+                        let samples = curve_sample_count(plot_width, end - start, 32);
                         for step in 1..=samples {
                             let progress = start + (end - start) * step as f32 / samples as f32;
                             selected_path

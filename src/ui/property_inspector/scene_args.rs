@@ -175,9 +175,8 @@ impl PropertyInspector {
                 continue;
             }
 
-            if let Some(number) = NumericInput::for_schema(argument.schema.declared_parameter()) {
-                let Some(values) = numeric_settings(&number, argument.schema.declared_parameter())
-                else {
+            if let Some(number) = NumericInput::for_schema(argument.schema.parameter()) {
+                let Some(values) = numeric_settings(&number, argument.schema.parameter()) else {
                     continue;
                 };
                 for (setting, value) in [
@@ -287,13 +286,10 @@ impl PropertyInspector {
                         });
                     self.store.states.insert(
                         color_key,
-                        state::ControlState::Color {
-                            picker: state::ColorState {
-                                picker,
-                                _subscriptions: vec![subscription],
-                            },
-                            animation: None,
-                        },
+                        state::ControlState::Color(state::ColorState {
+                            picker,
+                            _subscriptions: vec![subscription],
+                        }),
                     );
                 }
             }
@@ -385,7 +381,7 @@ impl PropertyInspector {
                     .iter()
                     .find(|argument| argument.schema.id() == argument_id)
             })
-            .and_then(|argument| NumericInput::for_schema(argument.schema.declared_parameter()))
+            .and_then(|argument| NumericInput::for_schema(argument.schema.parameter()))
         else {
             return;
         };
@@ -454,7 +450,7 @@ impl PropertyInspector {
                     .iter()
                     .find(|argument| argument.schema.id() == argument_id)
             })
-            .and_then(|argument| NumericInput::for_schema(argument.schema.declared_parameter()))
+            .and_then(|argument| NumericInput::for_schema(argument.schema.parameter()))
         else {
             return;
         };
@@ -554,7 +550,7 @@ impl PropertyInspector {
                     .iter()
                     .find(|argument| argument.schema.id() == drag.argument_id)
             })
-            .and_then(|argument| NumericInput::for_schema(argument.schema.declared_parameter()))
+            .and_then(|argument| NumericInput::for_schema(argument.schema.parameter()))
         else {
             return;
         };
@@ -780,7 +776,7 @@ impl PropertyInspector {
                             let editor = create_editor.clone();
                             move |_, _, cx| {
                                 editor.update(cx, |editor, cx| {
-                                    if editor.create_derived_scene_argument().is_some() {
+                                    if editor.create_expression_scene_argument().is_some() {
                                         cx.notify();
                                     }
                                 });
@@ -942,12 +938,12 @@ impl PropertyInspector {
                 .flex_none()
                 .ghost()
                 .icon(IconName::Delete)
-                .tooltip(if argument.referenced_by_derived {
+                .tooltip(if argument.referenced_by_expression {
                     "式から参照されているため削除できません"
                 } else {
                     "引数を削除"
                 })
-                .disabled(argument.referenced_by_derived)
+                .disabled(argument.referenced_by_expression)
                 .on_click(move |_, _, cx| {
                     remove_inspector.update(cx, |inspector, cx| {
                         let result = inspector.editor.update(cx, |editor, cx| {
@@ -972,7 +968,7 @@ impl PropertyInspector {
         argument: &SceneArgumentOption,
         render: &RenderCtx<'_>,
     ) -> gpui::AnyElement {
-        if argument.derived {
+        if argument.expression.is_some() {
             return self
                 .store
                 .states

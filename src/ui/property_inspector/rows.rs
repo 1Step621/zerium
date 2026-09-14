@@ -226,6 +226,7 @@ impl PropertyInspector {
         target: &PropertyTarget,
         current: u32,
         options: &[(String, u32)],
+        read_only: bool,
         inspector: &Entity<Self>,
     ) -> impl IntoElement {
         let selected_label = options
@@ -239,6 +240,7 @@ impl PropertyInspector {
         Button::new(SharedString::from(target.key.to_string()))
             .small()
             .w_full()
+            .disabled(read_only)
             .label(selected_label)
             .dropdown_caret(true)
             .popup_menu(move |menu, _, _| {
@@ -263,6 +265,7 @@ impl PropertyInspector {
         target: &PropertyTarget,
         value: bool,
         mixed: bool,
+        read_only: bool,
         inspector: &Entity<Self>,
     ) -> (Switch, bool) {
         let checked = value && !mixed;
@@ -271,6 +274,7 @@ impl PropertyInspector {
         let switch = Switch::new(SharedString::from(target.key.to_string()))
             .small()
             .checked(checked)
+            .disabled(read_only)
             .tooltip(if mixed {
                 "値が混在しています。クリックですべてオン"
             } else if checked {
@@ -289,99 +293,44 @@ impl PropertyInspector {
         (switch, mixed)
     }
 
-    #[allow(clippy::too_many_arguments)]
-    pub(super) fn animated_number_input(
-        target: &PropertyTarget,
-        spec: &NumberSpec,
-        endpoint: AnimationEndpoint,
-        input: &Entity<InputState>,
-        inspector: &Entity<Self>,
-        focus_handle: &FocusHandle,
-        show_suffix: bool,
-        disabled: bool,
-    ) -> gpui::AnyElement {
-        let drag = PropertyValueDrag {
-            inspector_id: inspector.entity_id(),
-            path: target.key.clone(),
-            animation_endpoint: Some(endpoint),
-        };
-        let drag_inspector = inspector.clone();
-        let drag_target = target.clone();
-        let drag_spec = spec.clone();
-        let drag_input = input.clone();
-        let drag_focus_handle = focus_handle.clone();
-        let number_input = NumberInput::new(input).small().w_full().disabled(disabled);
-        let number_input = if show_suffix {
-            number_input.suffix(div().text_sm().child(spec.suffix.clone()))
-        } else {
-            number_input
-        };
-        div()
-            .id(SharedString::from(format!(
-                "animation-drag-{}/{}",
-                target.key,
-                match endpoint {
-                    AnimationEndpoint::From => "from",
-                    AnimationEndpoint::To => "to",
-                }
-            )))
-            .w_0()
-            .min_w_0()
-            .flex()
-            .flex_1()
-            .when(!disabled, |this| {
-                this.on_mouse_down(MouseButton::Left, move |event, _, cx| {
-                    drag_inspector.update(cx, |inspector, cx| {
-                        inspector.prepare_value_drag(
-                            &drag_target,
-                            &drag_spec,
-                            Some(endpoint),
-                            event,
-                            cx,
-                        );
-                    });
-                })
-            })
-            .when(!disabled, |this| {
-                this.on_drag(drag, move |drag, _, window, cx| {
-                    cx.stop_propagation();
-                    drag_input.update(cx, |input, cx| input.unselect(window, cx));
-                    drag_focus_handle.focus(window, cx);
-                    cx.new(|_| drag.clone())
-                })
-            })
-            .child(number_input)
-            .into_any_element()
-    }
-
-    pub(super) fn draggable_number_input(
+    fn draggable_number_input(
         target: &PropertyTarget,
         spec: &NumberSpec,
         input: &Entity<InputState>,
-        inspector: &Entity<Self>,
-        focus_handle: &FocusHandle,
+        input_id: ControlId,
+        animation_stop: Option<AnimationStopBinding>,
         disabled: bool,
+        ctx: &RenderCtx,
     ) -> gpui::AnyElement {
+        let element_id = SharedString::from(format!("value-drag-{input_id:?}"));
         let drag = PropertyValueDrag {
-            inspector_id: inspector.entity_id(),
-            path: target.key.clone(),
-            animation_endpoint: None,
+            inspector_id: ctx.inspector.entity_id(),
+            input_id: input_id.clone(),
         };
-        let drag_inspector = inspector.clone();
+        let drag_inspector = ctx.inspector.clone();
         let drag_target = target.clone();
         let drag_spec = spec.clone();
+        let drag_input_id = input_id;
+        let drag_animation_stop = animation_stop;
         let drag_input = input.clone();
-        let drag_focus_handle = focus_handle.clone();
+        let drag_focus_handle = ctx.focus_handle.clone();
 
         div()
-            .id(SharedString::from(format!("value-drag-{}", target.key)))
+            .id(element_id)
             .w_full()
             .min_w_0()
             .flex()
             .when(!disabled, |this| {
                 this.on_mouse_down(MouseButton::Left, move |event, _, cx| {
                     drag_inspector.update(cx, |inspector, cx| {
-                        inspector.prepare_value_drag(&drag_target, &drag_spec, None, event, cx);
+                        inspector.prepare_value_drag(
+                            &drag_target,
+                            &drag_spec,
+                            &drag_input_id,
+                            drag_animation_stop.clone(),
+                            event,
+                            cx,
+                        );
                     });
                 })
             })
@@ -442,129 +391,144 @@ impl PropertyInspector {
             )
     }
 
-    fn animated_number_pair(
-        target: &PropertyTarget,
-        spec: &NumberSpec,
-        from: &Entity<InputState>,
-        to: &Entity<InputState>,
-        inspector: &Entity<Self>,
-        focus_handle: &FocusHandle,
-        disabled: bool,
-    ) -> gpui::AnyElement {
-        div()
-            .w_full()
-            .min_w_0()
-            .flex()
-            .flex_1()
-            .gap_1()
-            .child(Self::animated_number_input(
-                target,
-                spec,
-                AnimationEndpoint::From,
-                from,
-                inspector,
-                focus_handle,
-                false,
-                disabled,
-            ))
-            .child(Self::animated_number_input(
-                target,
-                spec,
-                AnimationEndpoint::To,
-                to,
-                inspector,
-                focus_handle,
-                true,
-                disabled,
-            ))
-            .into_any_element()
-    }
-
-    fn animated_color_pair(
-        from: &Entity<ColorPickerState>,
-        to: &Entity<ColorPickerState>,
-    ) -> gpui::AnyElement {
-        div()
-            .min_w_0()
-            .flex()
-            .flex_1()
-            .gap_1()
-            .child(
-                div()
-                    .min_w_0()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(div().text_xs().child("開始"))
-                    .child(ColorPicker::new(from).small().w_full()),
-            )
-            .child(
-                div()
-                    .min_w_0()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(div().text_xs().child("終了"))
-                    .child(ColorPicker::new(to).small().w_full()),
-            )
-            .into_any_element()
-    }
-
     fn number_editor(
-        target: &PropertyTarget,
+        common: &LeafControl,
         spec: &NumberSpec,
         input: &Entity<InputState>,
-        animation: Option<(Entity<InputState>, Entity<InputState>)>,
-        animation_enabled: bool,
         disabled: bool,
         ctx: &RenderCtx,
     ) -> gpui::AnyElement {
-        match animation.filter(|_| animation_enabled) {
-            Some((from, to)) => Self::animated_number_pair(
-                target,
-                spec,
-                &from,
-                &to,
-                &ctx.inspector,
-                ctx.focus_handle,
-                disabled,
-            ),
-            None => Self::draggable_number_input(
-                target,
-                spec,
-                input,
-                &ctx.inspector,
-                ctx.focus_handle,
-                disabled,
-            ),
+        let mut stop_inputs = common
+            .animation_stops
+            .iter()
+            .filter_map(|stop| {
+                let input = ctx.store.text(&stop.id)?;
+                Some(Self::draggable_number_input(
+                    &common.target,
+                    spec,
+                    &input,
+                    stop.id.clone(),
+                    Some(AnimationStopBinding::new(
+                        ctx.item_id,
+                        common.target.effect_id,
+                        stop,
+                    )),
+                    disabled,
+                    ctx,
+                ))
+            })
+            .collect::<Vec<_>>();
+        if stop_inputs.len() == 1 {
+            return stop_inputs.remove(0);
         }
+        if stop_inputs.len() == 2 {
+            let end = stop_inputs.pop().expect("two stop inputs");
+            let start = stop_inputs.pop().expect("two stop inputs");
+            return div()
+                .min_w_0()
+                .flex_1()
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(div().min_w_0().flex_1().child(start))
+                .child(
+                    Icon::new(IconName::ArrowRight)
+                        .xsmall()
+                        .text_color(ctx.colors.muted_foreground),
+                )
+                .child(div().min_w_0().flex_1().child(end))
+                .into_any_element();
+        }
+        Self::draggable_number_input(
+            &common.target,
+            spec,
+            input,
+            common.id.clone(),
+            None,
+            disabled,
+            ctx,
+        )
     }
 
-    fn text_editor(input: &Entity<InputState>, multiline: bool) -> impl IntoElement {
+    fn text_editor(
+        input: &Entity<InputState>,
+        multiline: bool,
+        read_only: bool,
+    ) -> impl IntoElement {
         Input::new(input)
             .small()
             .w_full()
+            .disabled(read_only)
             .when(multiline, |input| input.h(px(72.)))
     }
 
     fn color_editor(
+        common: &LeafControl,
         picker: &Entity<ColorPickerState>,
-        animation: Option<(Entity<ColorPickerState>, Entity<ColorPickerState>)>,
-        animation_enabled: bool,
+        ctx: &RenderCtx,
     ) -> gpui::AnyElement {
-        match animation.filter(|_| animation_enabled) {
-            Some((from, to)) => Self::animated_color_pair(&from, &to),
-            None => ColorPicker::new(picker).small().w_full().into_any_element(),
+        if common.read_only {
+            let color = match common.value {
+                ParameterValue::Color(color) => Self::color_to_hsla(color),
+                _ => ctx.colors.background,
+            };
+            return div()
+                .w_full()
+                .h(px(28.))
+                .flex()
+                .items_center()
+                .child(
+                    div()
+                        .size(px(24.))
+                        .rounded_md()
+                        .border_1()
+                        .border_color(ctx.colors.border)
+                        .bg(color)
+                        .opacity(0.55),
+                )
+                .into_any_element();
         }
+        let stop_inputs = common
+            .animation_stops
+            .iter()
+            .filter_map(|stop| ctx.store.color(&stop.id))
+            .collect::<Vec<_>>();
+        if let [picker] = stop_inputs.as_slice() {
+            return ColorPicker::new(picker).small().w_full().into_any_element();
+        }
+        if let [start, end] = stop_inputs.as_slice() {
+            return div()
+                .min_w_0()
+                .flex_1()
+                .flex()
+                .items_center()
+                .gap_1()
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .child(ColorPicker::new(start).small().w_full()),
+                )
+                .child(
+                    Icon::new(IconName::ArrowRight)
+                        .xsmall()
+                        .text_color(ctx.colors.muted_foreground),
+                )
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .child(ColorPicker::new(end).small().w_full()),
+                )
+                .into_any_element();
+        }
+        ColorPicker::new(picker).small().w_full().into_any_element()
     }
 
     fn number_full_row(
         common: &LeafControl,
         spec: &NumberSpec,
         input: &Entity<InputState>,
-        animation: Option<&(Entity<InputState>, Entity<InputState>)>,
         animation_enabled: bool,
         binding: Option<SceneFieldBinding>,
         ctx: &RenderCtx,
@@ -599,15 +563,7 @@ impl PropertyInspector {
                 SharedString::from(format!("bind-scene-argument-{}", common.target.key)),
             )
         });
-        let value_input = Self::number_editor(
-            &common.target,
-            spec,
-            input,
-            animation.cloned(),
-            animation_enabled,
-            false,
-            ctx,
-        );
+        let value_input = Self::number_editor(common, spec, input, common.read_only, ctx);
         div()
             .w_full()
             .flex()
@@ -628,14 +584,16 @@ impl PropertyInspector {
                                 .min_w_0()
                                 .flex()
                                 .flex_1()
-                                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                                    select_inspector.update(cx, |inspector, cx| {
-                                        inspector.select_number_animation(
-                                            &select_target,
-                                            &select_spec,
-                                            cx,
-                                        );
-                                    });
+                                .when(!common.read_only, |this| {
+                                    this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                        select_inspector.update(cx, |inspector, cx| {
+                                            inspector.select_number_animation(
+                                                &select_target,
+                                                &select_spec,
+                                                cx,
+                                            );
+                                        });
+                                    })
                                 })
                                 .child(value_input),
                         )
@@ -649,7 +607,6 @@ impl PropertyInspector {
         common: &LeafControl,
         spec: &NumberSpec,
         input: &Entity<InputState>,
-        animation: Option<(Entity<InputState>, Entity<InputState>)>,
         size_locked: bool,
         ctx: &RenderCtx,
     ) -> (gpui::AnyElement, bool) {
@@ -665,8 +622,9 @@ impl PropertyInspector {
                 SharedString::from(format!("bind-scene-argument-{}", common.target.key)),
             )
         });
-        let disabled = size_locked && common.target.value_path.tuple_element() == Some(1);
-        let animation_visible = coordinate_animation_enabled || (disabled && animation.is_some());
+        let disabled =
+            common.read_only || size_locked && common.target.value_path.tuple_element() == Some(1);
+        let animation_visible = coordinate_animation_enabled;
         let animation_button = (common.animatable && !is_bound).then(|| {
             Self::coordinate_animation_toggle(
                 &common.target,
@@ -677,15 +635,7 @@ impl PropertyInspector {
                 &ctx.inspector,
             )
         });
-        let value_input = Self::number_editor(
-            &common.target,
-            spec,
-            input,
-            animation,
-            coordinate_animation_enabled,
-            disabled,
-            ctx,
-        );
+        let value_input = Self::number_editor(common, spec, input, disabled, ctx);
         let select_inspector = ctx.inspector.clone();
         let select_target = common.target.clone();
         let select_spec = spec.clone();
@@ -698,10 +648,12 @@ impl PropertyInspector {
             .when(disabled, |this| {
                 this.text_color(ctx.colors.muted_foreground)
             })
-            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                select_inspector.update(cx, |inspector, cx| {
-                    inspector.select_number_animation(&select_target, &select_spec, cx);
-                });
+            .when(!common.read_only, |this| {
+                this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    select_inspector.update(cx, |inspector, cx| {
+                        inspector.select_number_animation(&select_target, &select_spec, cx);
+                    });
+                })
             })
             .when_some(
                 Self::element_label(common.element_label.clone()),
@@ -742,7 +694,7 @@ impl PropertyInspector {
                 .items_center()
                 .gap_1()
                 .when(!is_bound, |this| {
-                    this.child(Self::text_editor(input, multiline))
+                    this.child(Self::text_editor(input, multiline, common.read_only))
                 })
                 .when_some(binding_button, |this, button| this.child(button)),
         )
@@ -774,7 +726,7 @@ impl PropertyInspector {
                 .items_center()
                 .gap_1()
                 .when(!is_bound, |this| {
-                    this.child(Self::text_editor(input, multiline))
+                    this.child(Self::text_editor(input, multiline, common.read_only))
                 })
                 .when_some(binding_button, |this, button| this.child(button)),
         )
@@ -799,7 +751,13 @@ impl PropertyInspector {
                 SharedString::from(format!("bind-scene-argument-{}", common.target.key)),
             )
         });
-        let (switch, mixed) = Self::bool_switch(&common.target, value, mixed, &ctx.inspector);
+        let (switch, mixed) = Self::bool_switch(
+            &common.target,
+            value,
+            mixed,
+            common.read_only,
+            &ctx.inspector,
+        );
         Self::labeled_row(
             common.label.clone(),
             div()
@@ -834,7 +792,13 @@ impl PropertyInspector {
                 SharedString::from(format!("bind-scene-argument-{}", common.target.key)),
             )
         });
-        let (switch, mixed) = Self::bool_switch(&common.target, value, mixed, &ctx.inspector);
+        let (switch, mixed) = Self::bool_switch(
+            &common.target,
+            value,
+            mixed,
+            common.read_only,
+            &ctx.inspector,
+        );
         let row = div()
             .min_w_0()
             .w_full()
@@ -890,6 +854,7 @@ impl PropertyInspector {
                     &common.target,
                     current,
                     options,
+                    common.read_only,
                     &ctx.inspector,
                 ))
             })
@@ -936,6 +901,7 @@ impl PropertyInspector {
                             &common.target,
                             current,
                             options,
+                            common.read_only,
                             &ctx.inspector,
                         ))
                     })
@@ -948,7 +914,6 @@ impl PropertyInspector {
     fn color_full_row(
         common: &LeafControl,
         picker: &Entity<ColorPickerState>,
-        animation: Option<(Entity<ColorPickerState>, Entity<ColorPickerState>)>,
         animation_enabled: bool,
         binding: Option<SceneFieldBinding>,
         ctx: &RenderCtx,
@@ -966,7 +931,7 @@ impl PropertyInspector {
         let animation_button = (common.animatable && !is_bound).then(|| {
             Self::color_animation_toggle(&common.target, animation_enabled, &ctx.inspector)
         });
-        let value = Self::color_editor(picker, animation, animation_enabled);
+        let value = Self::color_editor(common, picker, ctx);
         let select_inspector = ctx.inspector.clone();
         let select_target = common.target.clone();
         div()
@@ -987,10 +952,12 @@ impl PropertyInspector {
                             div()
                                 .min_w_0()
                                 .flex_1()
-                                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                                    select_inspector.update(cx, |inspector, cx| {
-                                        inspector.select_animation(&select_target, cx);
-                                    });
+                                .when(!common.read_only, |this| {
+                                    this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                        select_inspector.update(cx, |inspector, cx| {
+                                            inspector.select_animation(&select_target, cx);
+                                        });
+                                    })
                                 })
                                 .child(value),
                         )
@@ -1004,7 +971,6 @@ impl PropertyInspector {
     fn color_element_row(
         common: &LeafControl,
         picker: &Entity<ColorPickerState>,
-        animation: Option<(Entity<ColorPickerState>, Entity<ColorPickerState>)>,
         animation_enabled: bool,
         binding: Option<SceneFieldBinding>,
         ctx: &RenderCtx,
@@ -1022,7 +988,7 @@ impl PropertyInspector {
         let animation_button = (common.animatable && !is_bound).then(|| {
             Self::color_animation_toggle(&common.target, animation_enabled, &ctx.inspector)
         });
-        let value = Self::color_editor(picker, animation, animation_enabled);
+        let value = Self::color_editor(common, picker, ctx);
         let select_inspector = ctx.inspector.clone();
         let select_target = common.target.clone();
         let row = div()
@@ -1047,10 +1013,12 @@ impl PropertyInspector {
                             div()
                                 .min_w_0()
                                 .flex_1()
-                                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                                    select_inspector.update(cx, |inspector, cx| {
-                                        inspector.select_animation(&select_target, cx);
-                                    });
+                                .when(!common.read_only, |this| {
+                                    this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                        select_inspector.update(cx, |inspector, cx| {
+                                            inspector.select_animation(&select_target, cx);
+                                        });
+                                    })
                                 })
                                 .child(value),
                         )
@@ -1069,13 +1037,11 @@ impl PropertyInspector {
             Control::Number(number) => {
                 let common = &number.common;
                 let input = ctx.store.text(&common.id)?;
-                let animation = ctx.store.animation_text(&common.id);
                 Some(
                     Self::number_full_row(
                         common,
                         &number.spec,
                         &input,
-                        animation.as_ref(),
                         common.animation_enabled,
                         common.binding.clone(),
                         ctx,
@@ -1126,11 +1092,9 @@ impl PropertyInspector {
             Control::Color(color) => {
                 let common = &color.common;
                 let picker = ctx.store.color(&common.id)?;
-                let animation = ctx.store.animation_color_pair(&common.id);
                 Some(Self::color_full_row(
                     common,
                     &picker,
-                    animation,
                     common.animation_enabled,
                     common.binding.clone(),
                     ctx,
@@ -1151,12 +1115,10 @@ impl PropertyInspector {
             Control::Number(number) => {
                 let common = &number.common;
                 let input = ctx.store.text(&common.id)?;
-                let animation = ctx.store.animation_text(&common.id);
                 Some(Self::number_element_row(
                     common,
                     &number.spec,
                     &input,
-                    animation,
                     size_locked,
                     ctx,
                 ))
@@ -1201,11 +1163,9 @@ impl PropertyInspector {
             Control::Color(color) => {
                 let common = &color.common;
                 let picker = ctx.store.color(&common.id)?;
-                let animation = ctx.store.animation_color_pair(&common.id);
                 Some(Self::color_element_row(
                     common,
                     &picker,
-                    animation,
                     common.animation_enabled,
                     common.binding.clone(),
                     ctx,
@@ -1339,7 +1299,7 @@ impl PropertyInspector {
             match array.element_kind {
                 ArrayElementKind::Scalar => {}
                 ArrayElementKind::FontFamily => {
-                    let ParameterValue::String(selected_font) = element_value else {
+                    let ParameterValue::String(selected_font) = element_value.value() else {
                         continue;
                     };
                     let font_choices = ctx
@@ -1348,7 +1308,7 @@ impl PropertyInspector {
                         .filter(|font| {
                             !array.values.iter().enumerate().any(|(index, value)| {
                                 index != element
-                                    && matches!(value, ParameterValue::String(selected) if selected == *font)
+                                    && matches!(value.value(), ParameterValue::String(selected) if selected == *font)
                             })
                         })
                         .map(|font| SearchPickerEntry::new(font.clone(), "", font.clone()))
@@ -1635,12 +1595,10 @@ impl PropertyInspector {
                 if number.common.target.value_path.tuple_element().is_some() =>
             {
                 let input = ctx.store.text(&number.common.id)?;
-                let animation = ctx.store.animation_text(&number.common.id);
                 Some(Self::number_element_row(
                     &number.common,
                     &number.spec,
                     &input,
-                    animation,
                     false,
                     ctx,
                 ))
@@ -1650,7 +1608,6 @@ impl PropertyInspector {
             }
             Control::Color(color) => {
                 let picker = ctx.store.color(&color.common.id)?;
-                let animation = ctx.store.animation_color_pair(&color.common.id);
                 let bound = color
                     .common
                     .binding
@@ -1659,7 +1616,6 @@ impl PropertyInspector {
                 let row = Self::color_full_row(
                     &color.common,
                     &picker,
-                    animation,
                     color.common.animation_enabled,
                     color.common.binding.clone(),
                     ctx,
@@ -1705,25 +1661,7 @@ impl PropertyInspector {
                 )),
             )
         });
-        let animation = ctx.store.animation_text(&common.id);
-        let value_input = if let Some((from, to)) = animation.as_ref().filter(|_| animation_enabled)
-        {
-            Self::animated_number_pair(
-                &common.target,
-                spec,
-                from,
-                to,
-                &ctx.inspector,
-                ctx.focus_handle,
-                false,
-            )
-        } else {
-            NumberInput::new(&input)
-                .small()
-                .w_full()
-                .suffix(div().text_sm().child(spec.suffix.clone()))
-                .into_any_element()
-        };
+        let value_input = Self::number_editor(common, spec, &input, false, ctx);
         let animation_button = (common.animatable && !component_is_bound).then(|| {
             Self::number_animation_toggle(
                 &common.target,
@@ -1737,19 +1675,9 @@ impl PropertyInspector {
                 &ctx.inspector,
             )
         });
-        let drag = PropertyValueDrag {
-            inspector_id: ctx.inspector.entity_id(),
-            path: common.target.key.clone(),
-            animation_endpoint: None,
-        };
         let select_inspector = ctx.inspector.clone();
         let select_target = common.target.clone();
         let select_spec = spec.clone();
-        let drag_inspector = ctx.inspector.clone();
-        let drag_target = common.target.clone();
-        let drag_spec = spec.clone();
-        let drag_input = input.clone();
-        let drag_focus_handle = ctx.focus_handle.clone();
         let row = div()
             .min_w_0()
             .w_full()
@@ -1763,29 +1691,10 @@ impl PropertyInspector {
                         .min_w_0()
                         .flex()
                         .flex_1()
-                        .on_mouse_down(MouseButton::Left, move |event, _, cx| {
+                        .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                             select_inspector.update(cx, |inspector, cx| {
                                 inspector.select_number_animation(&select_target, &select_spec, cx);
                             });
-                            if !animation_enabled {
-                                drag_inspector.update(cx, |inspector, cx| {
-                                    inspector.prepare_value_drag(
-                                        &drag_target,
-                                        &drag_spec,
-                                        None,
-                                        event,
-                                        cx,
-                                    );
-                                });
-                            }
-                        })
-                        .when(!animation_enabled, move |this| {
-                            this.on_drag(drag, move |drag, _, window, cx| {
-                                cx.stop_propagation();
-                                drag_input.update(cx, |input, cx| input.unselect(window, cx));
-                                drag_focus_handle.focus(window, cx);
-                                cx.new(|_| drag.clone())
-                            })
                         })
                         .child(value_input),
                 )

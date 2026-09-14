@@ -66,45 +66,46 @@ impl Render for AnimationCurveEditor {
                 .child("アニメーションするプロパティを選択")
                 .into_any_element();
         };
-        let title = selected.presentation.label.clone();
+        let mut title = format!(
+            "{} · セグメント {} / {}",
+            selected.presentation.label,
+            selected.source_segment + 1,
+            selected.source_stop_count.saturating_sub(1),
+        );
+        if let GraphInteraction::StopDrag { frame, .. } = self.graph_interaction {
+            title.push_str(&format!(
+                " · {}f / {}秒",
+                frame.get(),
+                Self::format_number(selected.frame_rate.frame_to_seconds(frame))
+            ));
+        }
         let curve = selected.animation.curve.clone();
-        let visible_progress_range = selected.visible_progress_range;
-        let progress_is_visible = |progress: f32| {
-            (visible_progress_range[0]..=visible_progress_range[1]).contains(&progress)
-        };
-        let background_curves = selected.background_curves;
-        let background_anchors = background_curves
-            .iter()
-            .flat_map(|curve| curve.anchors().iter().copied())
-            .filter(|position| progress_is_visible(position[0]))
-            .collect::<Vec<_>>();
         let playhead_progress = selected.playhead_progress;
         let curve_editor = cx.entity();
-        let focus_handle = self.focus_handle.clone();
         let graph_editor = curve_editor.clone();
-        let anchors = curve.anchors().to_vec();
-        let anchor_count = anchors.len();
-        let custom_segments = (0..anchor_count.saturating_sub(1))
+        let stops = curve.stops().to_vec();
+        let stop_count = stops.len();
+        let source_segment = selected.source_segment;
+        let source_stop_count = selected.source_stop_count;
+        let overview_playhead_progress = selected.source_playhead_progress;
+        let overview_segments = selected
+            .source_stop_positions
+            .windows(2)
+            .map(|stops| (stops[0], stops[1]))
+            .collect::<Vec<_>>();
+        let overview_stops = selected.source_stop_positions.clone();
+        let custom_segments = (0..stop_count.saturating_sub(1))
             .map(|segment| curve.is_custom(segment))
             .collect::<Vec<_>>();
-        let selected_point = self.selected_point.filter(|point| match point {
-            CurvePoint::Anchor(_) => true,
-            CurvePoint::HandleIn(index) => index
-                .checked_sub(1)
-                .and_then(|segment| custom_segments.get(segment))
-                .copied()
-                .unwrap_or(false),
-            CurvePoint::HandleOut(index) => custom_segments.get(*index).copied().unwrap_or(false),
-        });
+        let active_handle = match self.graph_interaction {
+            GraphInteraction::HandleDrag { point } => Some(point),
+            _ => None,
+        };
         let selected_segment = self
             .selected_segment
-            .filter(|segment| segment.checked_add(1).is_some_and(|end| end < anchor_count));
+            .filter(|segment| segment.checked_add(1).is_some_and(|end| end < stop_count));
         let playhead_position = [playhead_progress, curve.evaluate(playhead_progress)];
-        let playhead_screen = self.viewport.screen_position(playhead_position);
-        let anchor_editor = curve_editor.clone();
-        let scroll_editor = curve_editor.clone();
         let axis_suffix = selected.axis_suffix.clone();
-        let axis_viewport = self.viewport;
         let mut curve_grid = self.time_grid(
             selected.start_seconds,
             selected.duration_seconds,
@@ -113,11 +114,30 @@ impl Render for AnimationCurveEditor {
         curve_grid.values = Self::value_grid(&selected.animation);
         let value_ticks = curve_grid.values.clone();
         let time_ticks = curve_grid.major.clone();
-        let graph_viewport = self.viewport;
         let begin_scrub_editor = curve_editor.clone();
         let update_scrub_editor = curve_editor.clone();
         let finish_scrub_editor = curve_editor.clone();
-        let value_drag_editor = curve_editor.clone();
+        let stop_nodes = stops
+            .iter()
+            .enumerate()
+            .filter_map(|(index, stop)| {
+                let (screen, margin_left, margin_bottom) = Self::point_layout(*stop, 7.);
+                Self::screen_position_is_visible(screen).then(|| {
+                    div()
+                        .id(("animation-stop", index))
+                        .absolute()
+                        .left(relative(screen[0]))
+                        .bottom(relative(screen[1]))
+                        .ml(px(margin_left))
+                        .mb(px(margin_bottom))
+                        .size(px(14.))
+                        .rounded_full()
+                        .border_2()
+                        .border_color(colors.background)
+                        .bg(colors.primary)
+                })
+            })
+            .collect::<Vec<_>>();
         let graph = div()
             .id("animation-curve-graph")
             .relative()
@@ -129,12 +149,13 @@ impl Render for AnimationCurveEditor {
             // Single gesture: mousedown seeks at once on empty space (scrub
             // session only while playing, like the timeline ruler); other
             // presses stay click candidates. A drag past the threshold
-            // becomes a scrub, a quiet release becomes a click (select /
-            // deselect+seek / anchor add). Mousedown never selects.
+            // becomes a scrub, and a quiet release becomes a click that
+            // selects the curve or seeks. Mousedown never selects.
             .on_mouse_down(MouseButton::Left, move |event, _, cx| {
                 begin_scrub_editor.update(cx, |editor, cx| {
                     editor.graph_press_started(event.position, cx);
                 });
+                cx.stop_propagation();
             })
             .on_mouse_move(move |event, _, cx| {
                 update_scrub_editor.update(cx, |editor, cx| {
@@ -146,58 +167,24 @@ impl Render for AnimationCurveEditor {
                     editor.end_graph_press(cx);
                 });
             })
-            .on_scroll_wheel(move |event, window, cx| {
-                scroll_editor.update(cx, |editor, cx| editor.scroll_graph(event, window, cx));
-            })
             .on_click({
                 let curve_editor = curve_editor.clone();
-                move |event, window, cx| {
-                    if event.click_count() >= 2 {
-                        let position = window.mouse_position();
-                        let snap_disabled = window.modifiers().alt;
-                        curve_editor.update(cx, |editor, cx| {
-                            editor.graph_double_click(position, snap_disabled, window, cx)
-                        });
-                    } else {
-                        // Exactly one hit test per click: a scrub drag is swallowed,
-                        // otherwise the segment is selected or the selection cleared.
-                        let position = window.mouse_position();
-                        curve_editor.update(cx, |editor, cx| {
-                            editor.resolve_graph_click(position, window, cx)
-                        });
-                    }
+                move |_, window, cx| {
+                    let position = window.mouse_position();
+                    curve_editor.update(cx, |editor, cx| {
+                        editor.resolve_graph_click(position, window, cx)
+                    });
+                    cx.stop_propagation();
                 }
             })
             .on_drag_move(move |event: &gpui::DragMoveEvent<CurvePointDrag>, _, cx| {
                 let drag = event.drag(cx).clone();
                 let position = event.event.position;
-                graph_editor.update(cx, |editor, cx| {
-                    editor.move_point(drag.point, position, event.event.modifiers.alt, cx)
-                });
+                graph_editor.update(cx, |editor, cx| editor.move_point(drag.point, position, cx));
             })
-            .on_drag_move(
-                move |event: &gpui::DragMoveEvent<CurveValueDrag>, window, cx| {
-                    let drag = event.drag(cx).clone();
-                    cx.set_active_drag_cursor_style(CursorStyle::ResizeLeftRight, window);
-                    value_drag_editor.update(cx, |editor, cx| {
-                        editor.handle_point_value_drag(
-                            &drag,
-                            f32::from(event.event.position.x),
-                            event.event.modifiers.shift,
-                            window,
-                            cx,
-                        );
-                    });
-                },
-            )
             .child(Self::graph_canvas(
                 curve.clone(),
-                background_curves,
-                CurveTimeView {
-                    playhead_progress,
-                    visible_progress_range,
-                },
-                self.viewport,
+                playhead_progress,
                 curve_grid,
                 CurvePaintColors {
                     grid_major: colors.border.opacity(0.45),
@@ -205,7 +192,6 @@ impl Render for AnimationCurveEditor {
                     handle: colors.muted_foreground.opacity(0.65),
                     playhead: colors.warning.opacity(0.75),
                     curve: colors.primary,
-                    background_curve: colors.muted_foreground.opacity(0.32),
                 },
                 curve_editor.clone(),
             ))
@@ -234,7 +220,7 @@ impl Render for AnimationCurveEditor {
                     .child(label)
             }))
             .children(time_ticks.into_iter().map(move |(seconds, x)| {
-                let screen_x = axis_viewport.screen_position([x, 0.])[0];
+                let screen_x = x;
                 let label = time_grid::format_timestamp(seconds);
                 div()
                     .absolute()
@@ -249,55 +235,41 @@ impl Render for AnimationCurveEditor {
                     .text_color(colors.muted_foreground)
                     .child(label)
             }))
-            .when(Self::screen_position_is_visible(playhead_screen), |this| {
-                this.child(
-                    div()
-                        .absolute()
-                        .left(relative(playhead_screen[0]))
-                        .bottom(relative(playhead_screen[1]))
-                        .ml(px(Self::GRAPH_INSET_LEFT * (1. - playhead_screen[0])
-                            - Self::GRAPH_INSET_RIGHT * playhead_screen[0]
-                            - 4.))
-                        .mb(px(Self::GRAPH_INSET_BOTTOM * (1. - playhead_screen[1])
-                            - Self::GRAPH_INSET_TOP * playhead_screen[1]
-                            - 4.))
-                        .size(px(8.))
-                        .rounded_full()
-                        .border_1()
-                        .border_color(colors.background)
-                        .bg(colors.warning),
-                )
-            })
-            .children(background_anchors.into_iter().filter_map(move |position| {
-                let (screen, margin_left, margin_bottom) =
-                    Self::point_layout(graph_viewport, position, 3.);
-                Self::screen_position_is_visible(screen).then(|| {
-                    div()
-                        .absolute()
-                        .left(relative(screen[0]))
-                        .bottom(relative(screen[1]))
-                        .ml(px(margin_left))
-                        .mb(px(margin_bottom))
-                        .size(px(6.))
-                        .rounded_full()
-                        .bg(colors.muted_foreground.opacity(0.38))
-                })
-            }))
-            .children(anchors.iter().enumerate().flat_map({
+            .children(stop_nodes)
+            .when(
+                Self::screen_position_is_visible(playhead_position),
+                |this| {
+                    this.child(
+                        div()
+                            .absolute()
+                            .left(relative(playhead_position[0]))
+                            .bottom(relative(playhead_position[1]))
+                            .ml(px(Self::GRAPH_INSET_LEFT * (1. - playhead_position[0])
+                                - Self::GRAPH_INSET_RIGHT * playhead_position[0]
+                                - 4.))
+                            .mb(px(Self::GRAPH_INSET_BOTTOM * (1. - playhead_position[1])
+                                - Self::GRAPH_INSET_TOP * playhead_position[1]
+                                - 4.))
+                            .size(px(8.))
+                            .rounded_full()
+                            .border_1()
+                            .border_color(colors.background)
+                            .bg(colors.warning),
+                    )
+                },
+            )
+            .children(stops.iter().enumerate().flat_map({
                 let curve_editor = curve_editor.clone();
                 let curve = curve.clone();
                 let custom_segments = custom_segments.clone();
-                move |(index, anchor)| {
+                move |(index, stop)| {
                     let mut handles = Vec::with_capacity(2);
-                    if !(visible_progress_range[0]..=visible_progress_range[1]).contains(&anchor[0])
-                    {
-                        return handles;
-                    }
                     if index > 0 && custom_segments[index - 1] {
                         let point = CurvePoint::HandleIn(index);
                         let (screen, margin_left, margin_bottom) = Self::point_layout(
-                            graph_viewport,
-                            curve.control(index, BezierHandle::In).unwrap_or(*anchor),
+                            curve
+                                .handle_position(index, BezierHandle::In)
+                                .unwrap_or(*stop),
                             5.,
                         );
                         if Self::screen_position_is_visible(screen) {
@@ -314,7 +286,7 @@ impl Render for AnimationCurveEditor {
                                     .size(px(10.))
                                     .rounded_full()
                                     .border_2()
-                                    .border_color(if selected_point == Some(point) {
+                                    .border_color(if active_handle == Some(point) {
                                         colors.primary
                                     } else {
                                         colors.muted_foreground
@@ -324,7 +296,7 @@ impl Render for AnimationCurveEditor {
                                     .on_mouse_down(MouseButton::Left, move |_, window, cx| {
                                         cx.stop_propagation();
                                         select_editor.update(cx, |editor, cx| {
-                                            editor.select_point(point, window, cx);
+                                            editor.begin_handle_drag(point, window, cx);
                                         });
                                     })
                                     .on_click(|_, _, cx| cx.stop_propagation())
@@ -336,11 +308,12 @@ impl Render for AnimationCurveEditor {
                             );
                         }
                     }
-                    if index + 1 < anchor_count && custom_segments[index] {
+                    if index + 1 < stop_count && custom_segments[index] {
                         let point = CurvePoint::HandleOut(index);
                         let (screen, margin_left, margin_bottom) = Self::point_layout(
-                            graph_viewport,
-                            curve.control(index, BezierHandle::Out).unwrap_or(*anchor),
+                            curve
+                                .handle_position(index, BezierHandle::Out)
+                                .unwrap_or(*stop),
                             5.,
                         );
                         if Self::screen_position_is_visible(screen) {
@@ -357,7 +330,7 @@ impl Render for AnimationCurveEditor {
                                     .size(px(10.))
                                     .rounded_full()
                                     .border_2()
-                                    .border_color(if selected_point == Some(point) {
+                                    .border_color(if active_handle == Some(point) {
                                         colors.primary
                                     } else {
                                         colors.muted_foreground
@@ -367,7 +340,7 @@ impl Render for AnimationCurveEditor {
                                     .on_mouse_down(MouseButton::Left, move |_, window, cx| {
                                         cx.stop_propagation();
                                         select_editor.update(cx, |editor, cx| {
-                                            editor.select_point(point, window, cx);
+                                            editor.begin_handle_drag(point, window, cx);
                                         });
                                     })
                                     .on_click(|_, _, cx| cx.stop_propagation())
@@ -381,179 +354,16 @@ impl Render for AnimationCurveEditor {
                     }
                     handles
                 }
-            }))
-            .children(
-                anchors
-                    .into_iter()
-                    .enumerate()
-                    .filter_map(move |(index, anchor)| {
-                        if !(visible_progress_range[0]..=visible_progress_range[1])
-                            .contains(&anchor[0])
-                        {
-                            return None;
-                        }
-                        let point = CurvePoint::Anchor(index);
-                        let (screen, margin_left, margin_bottom) =
-                            Self::point_layout(graph_viewport, anchor, 7.);
-                        if !Self::screen_position_is_visible(screen) {
-                            return None;
-                        }
-                        let drag = CurvePointDrag { point };
-                        let remove_editor = anchor_editor.clone();
-                        let select_editor = anchor_editor.clone();
-                        Some(
-                            div()
-                                .id(("animation-anchor", index))
-                                .absolute()
-                                .left(relative(screen[0]))
-                                .bottom(relative(screen[1]))
-                                .ml(px(margin_left))
-                                .mb(px(margin_bottom))
-                                .size(px(14.))
-                                .rounded_full()
-                                .border_2()
-                                .border_color(if selected_point == Some(point) {
-                                    colors.foreground
-                                } else {
-                                    colors.background
-                                })
-                                .bg(colors.primary)
-                                .cursor_pointer()
-                                .on_mouse_down(MouseButton::Left, move |_, window, cx| {
-                                    cx.stop_propagation();
-                                    select_editor.update(cx, |editor, cx| {
-                                        editor.select_point(point, window, cx);
-                                    });
-                                })
-                                .on_click(|_, _, cx| cx.stop_propagation())
-                                .on_drag(drag, |drag, _, _, cx| {
-                                    cx.stop_propagation();
-                                    cx.new(|_| drag.clone())
-                                })
-                                .context_menu(move |menu, _, _| {
-                                    if index == 0 || index + 1 == anchor_count {
-                                        return menu;
-                                    }
-                                    menu.item(PopupMenuItem::new("アンカーを削除").on_click({
-                                        let remove_editor = remove_editor.clone();
-                                        move |_, window, cx| {
-                                            remove_editor.update(cx, |editor, cx| {
-                                                editor.remove_anchor(index, window, cx);
-                                            });
-                                        }
-                                    }))
-                                }),
-                        )
-                    }),
-            );
+            }));
 
-        let point_editor = selected_point.and_then(|point| {
-            let position = Self::curve_point_position(&curve, point)?;
-            if !(visible_progress_range[0]..=visible_progress_range[1]).contains(&position[0]) {
-                return None;
-            }
-            let screen = self.viewport.screen_position(position);
-            if !Self::screen_position_is_visible(screen) {
-                return None;
-            }
-            let bounds = self.graph_bounds?;
-            let origin = Self::point_editor_origin(
-                [f32::from(bounds.size.width), f32::from(bounds.size.height)],
-                screen,
-            );
-            let label = match point {
-                CurvePoint::Anchor(_) => "アンカー",
-                CurvePoint::HandleIn(_) => "Inハンドル",
-                CurvePoint::HandleOut(_) => "Outハンドル",
-            };
-            let value_disabled =
-                (selected.animation.to - selected.animation.from).abs() <= f64::EPSILON;
-            let time = format!(
-                "{}秒",
-                Self::format_number(
-                    selected.start_seconds + position[0] * selected.duration_seconds
-                )
-            );
-            let value_input = self.point_value_input.clone();
-            let suffix = selected.axis_suffix.clone();
-            let value_drag = CurveValueDrag {
-                editor_id: curve_editor.entity_id(),
-            };
-            let prepare_drag_editor = curve_editor.clone();
-            let drag_input = value_input.clone();
-            let drag_focus_handle = focus_handle.clone();
-            Some(
-                div()
-                    .absolute()
-                    .left(px(origin[0]))
-                    .top(px(origin[1]))
-                    .w(px(Self::POINT_EDITOR_WIDTH))
-                    .h(px(Self::POINT_EDITOR_HEIGHT))
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .p_2()
-                    .rounded_md()
-                    .border_1()
-                    .border_color(colors.border)
-                    .bg(colors.background)
-                    .shadow_md()
-                    .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
-                    .on_click(|_, _, cx| cx.stop_propagation())
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .justify_between()
-                            .text_xs()
-                            .text_color(colors.muted_foreground)
-                            .child(label)
-                            .child(time),
-                    )
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap_2()
-                            .child(div().text_xs().child("値"))
-                            .child(
-                                div()
-                                    .id("animation-curve-value-drag")
-                                    .flex_1()
-                                    .on_mouse_down(MouseButton::Left, move |event, _, cx| {
-                                        prepare_drag_editor.update(cx, |editor, cx| {
-                                            editor.prepare_point_value_drag(event, cx);
-                                        });
-                                    })
-                                    .on_drag(value_drag, move |drag, _, window, cx| {
-                                        cx.stop_propagation();
-                                        drag_input
-                                            .update(cx, |input, cx| input.unselect(window, cx));
-                                        drag_focus_handle.focus(window, cx);
-                                        cx.new(|_| drag.clone())
-                                    })
-                                    .child(
-                                        NumberInput::new(&value_input)
-                                            .small()
-                                            .w_full()
-                                            .disabled(value_disabled)
-                                            .suffix(div().text_xs().child(suffix)),
-                                    ),
-                            ),
-                    )
-                    .into_any_element(),
-            )
-        });
         let segment_editor = selected_segment.and_then(|segment| {
             let interpolation = curve.interpolation(segment)?;
-            // Anchored to the visible part of the segment (see
-            // `segment_panel_position`) so a valid selection always shows
-            // its menu, even when zoomed or overshooting the value range.
-            let position = Self::segment_panel_position(&curve, segment, self.viewport)?;
-            let screen = self.viewport.screen_position(position);
+            // Clamp the menu position because some easing families overshoot
+            // the value range.
+            let screen = Self::segment_panel_position(&curve, segment)?;
             let screen = [screen[0].clamp(0., 1.), screen[1].clamp(0., 1.)];
             let bounds = self.graph_bounds?;
-            let origin = Self::point_editor_origin(
+            let origin = Self::segment_editor_origin(
                 [f32::from(bounds.size.width), f32::from(bounds.size.height)],
                 screen,
             );
@@ -563,8 +373,8 @@ impl Render for AnimationCurveEditor {
                     .absolute()
                     .left(px(origin[0]))
                     .top(px(origin[1]))
-                    .w(px(Self::POINT_EDITOR_WIDTH))
-                    .h(px(Self::POINT_EDITOR_HEIGHT))
+                    .w(px(Self::SEGMENT_EDITOR_WIDTH))
+                    .h(px(Self::SEGMENT_EDITOR_HEIGHT))
                     .flex()
                     .flex_col()
                     .gap_1()
@@ -580,7 +390,7 @@ impl Render for AnimationCurveEditor {
                         div()
                             .text_xs()
                             .text_color(colors.muted_foreground)
-                            .child(format!("セグメント {}", segment + 1)),
+                            .child(format!("セグメント {}", selected.source_segment + 1)),
                     )
                     .child(
                         Button::new("selected-segment-interpolation")
@@ -605,7 +415,6 @@ impl Render for AnimationCurveEditor {
                                             .on_click(move |_, _, cx| {
                                                 linear_editor.update(cx, |editor, cx| {
                                                     editor.set_interpolation(
-                                                        segment,
                                                         SegmentInterpolation::Linear,
                                                         cx,
                                                     );
@@ -618,7 +427,6 @@ impl Render for AnimationCurveEditor {
                                             .on_click(move |_, _, cx| {
                                                 hold_editor.update(cx, |editor, cx| {
                                                     editor.set_interpolation(
-                                                        segment,
                                                         SegmentInterpolation::Hold,
                                                         cx,
                                                     );
@@ -630,7 +438,10 @@ impl Render for AnimationCurveEditor {
                                             .checked(interpolation.is_custom())
                                             .on_click(move |_, _, cx| {
                                                 custom_editor.update(cx, |editor, cx| {
-                                                    editor.set_custom(segment, cx);
+                                                    editor.set_interpolation(
+                                                        SegmentInterpolation::custom_default(),
+                                                        cx,
+                                                    );
                                                 });
                                             }),
                                     )
@@ -644,8 +455,7 @@ impl Render for AnimationCurveEditor {
                                                 .checked(interpolation == option)
                                                 .on_click(move |_, _, cx| {
                                                     editor.update(cx, |editor, cx| {
-                                                        editor
-                                                            .set_interpolation(segment, option, cx);
+                                                        editor.set_interpolation(option, cx);
                                                     });
                                                 }),
                                         )
@@ -655,7 +465,199 @@ impl Render for AnimationCurveEditor {
                     .into_any_element(),
             )
         });
-        let graph = graph.children(point_editor).children(segment_editor);
+        let context_menu_editor = curve_editor.clone();
+        let graph = graph
+            .children(segment_editor)
+            .context_menu(move |menu, window, cx| {
+                let position = window.mouse_position();
+                let Some(index) = context_menu_editor
+                    .read(cx)
+                    .graph_stop_at_position(position, cx)
+                else {
+                    return menu;
+                };
+                let source_stop = source_segment + index;
+                if source_stop == 0 || source_stop + 1 == source_stop_count {
+                    return menu.item(PopupMenuItem::Label("端のstopは削除できません".into()));
+                }
+                let remove_editor = context_menu_editor.clone();
+                menu.item(PopupMenuItem::new("stopを削除").on_click(move |_, _, cx| {
+                    remove_editor.update(cx, |editor, cx| {
+                        editor.remove_source_stop(source_stop, cx);
+                    });
+                }))
+            });
+        let overview_drag_editor = curve_editor.clone();
+        let overview_context_menu_editor = curve_editor.clone();
+        let dragging_stop = match self.graph_interaction {
+            GraphInteraction::StopDrag { stop, .. } => Some(stop),
+            _ => None,
+        };
+        let segment_overview = div()
+            .w_full()
+            .h(px(8.))
+            .flex_none()
+            .pl(px(Self::GRAPH_INSET_LEFT))
+            .pr(px(Self::GRAPH_INSET_RIGHT))
+            .child(
+                div()
+                    .id("animation-segment-overview-bar")
+                    .relative()
+                    .size_full()
+                    .overflow_hidden()
+                    .rounded_sm()
+                    .bg(colors.border.opacity(0.45))
+                    .on_drag_move(
+                        move |event: &gpui::DragMoveEvent<StopPositionDrag>, _, cx| {
+                            let drag = event.drag(cx).clone();
+                            overview_drag_editor.update(cx, |editor, cx| {
+                                editor.move_stop_from_overview(
+                                    &drag,
+                                    f32::from(event.event.position.x),
+                                    cx,
+                                );
+                            });
+                        },
+                    )
+                    .children({
+                        let overview_editor = curve_editor.clone();
+                        overview_segments.into_iter().enumerate().map(
+                            move |(segment, (start, end))| {
+                                let start = start.clamp(0., 1.);
+                                let width = (end - start).clamp(0., 1.);
+                                let segment_editor = overview_editor.clone();
+                                let fill = if segment == source_segment {
+                                    colors.warning
+                                } else {
+                                    colors.secondary
+                                };
+                                div()
+                                    .id(("animation-segment-overview", segment))
+                                    .absolute()
+                                    .left(relative(start))
+                                    .top_0()
+                                    .bottom_0()
+                                    .w(relative(width))
+                                    .border_r_1()
+                                    .border_color(colors.background)
+                                    .bg(fill)
+                                    .hover(move |style| style.bg(fill.lighten(0.12)))
+                                    .active(move |style| style.bg(fill.darken(0.12)))
+                                    .cursor_pointer()
+                                    .on_click(move |_, window, cx| {
+                                        cx.stop_propagation();
+                                        segment_editor.update(cx, |editor, cx| {
+                                            editor.focus_source_segment(segment, window, cx);
+                                        });
+                                    })
+                            },
+                        )
+                    })
+                    .children(overview_stops.into_iter().enumerate().filter_map({
+                        let overview_editor = curve_editor.clone();
+                        move |(stop, position)| {
+                            (stop > 0 && stop + 1 < source_stop_count).then(|| {
+                                let drag = StopPositionDrag { stop };
+                                let start_editor = overview_editor.clone();
+                                div()
+                                    .id(("animation-stop-overview", stop))
+                                    .absolute()
+                                    .left(relative(position.clamp(0., 1.)))
+                                    .top_0()
+                                    .bottom_0()
+                                    .ml(px(-Self::OVERVIEW_STOP_HANDLE_WIDTH * 0.5))
+                                    .w(px(Self::OVERVIEW_STOP_HANDLE_WIDTH))
+                                    .flex()
+                                    .items_center()
+                                    .justify_center()
+                                    .cursor_col_resize()
+                                    .when(dragging_stop == Some(stop), |style| {
+                                        style.bg(colors.foreground.opacity(0.12))
+                                    })
+                                    .hover(move |style| style.bg(colors.foreground.opacity(0.18)))
+                                    .active(move |style| style.bg(colors.foreground.opacity(0.28)))
+                                    .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                        cx.stop_propagation();
+                                        start_editor.update(cx, |editor, cx| {
+                                            editor.begin_stop_drag(stop, cx);
+                                        });
+                                    })
+                                    .on_click(|_, _, cx| cx.stop_propagation())
+                                    .on_drag(drag, |drag, _, _, cx| {
+                                        cx.stop_propagation();
+                                        cx.new(|_| drag.clone())
+                                    })
+                                    .child(
+                                        div()
+                                            .w(px(if dragging_stop == Some(stop) {
+                                                3.
+                                            } else {
+                                                1.
+                                            }))
+                                            .h_full()
+                                            .bg(if dragging_stop == Some(stop) {
+                                                colors.foreground
+                                            } else {
+                                                colors.muted_foreground
+                                            }),
+                                    )
+                            })
+                        }
+                    }))
+                    .child(
+                        div()
+                            .absolute()
+                            .left(relative(overview_playhead_progress.clamp(0., 1.)))
+                            .top_0()
+                            .bottom_0()
+                            .ml(px(-1.))
+                            .w(px(2.))
+                            .bg(colors.foreground),
+                    )
+                    .context_menu(move |menu, window, cx| {
+                        let position = window.mouse_position();
+                        let (source_stop, frame) = {
+                            let editor = overview_context_menu_editor.read(cx);
+                            (
+                                editor.overview_stop_at_position(position, cx),
+                                editor.frame_at_overview_position(position, cx),
+                            )
+                        };
+                        if let Some(source_stop) = source_stop {
+                            if source_stop == 0 || source_stop + 1 == source_stop_count {
+                                return menu
+                                    .item(PopupMenuItem::Label("端のstopは削除できません".into()));
+                            }
+                            let remove_editor = overview_context_menu_editor.clone();
+                            return menu.item(PopupMenuItem::new("stopを削除").on_click(
+                                move |_, _, cx| {
+                                    remove_editor.update(cx, |editor, cx| {
+                                        editor.remove_source_stop(source_stop, cx);
+                                    });
+                                },
+                            ));
+                        }
+                        let Some(frame) = frame else {
+                            return menu;
+                        };
+                        if !overview_context_menu_editor
+                            .read(cx)
+                            .can_add_stop_at_frame(frame, cx)
+                        {
+                            return menu.item(PopupMenuItem::Label(
+                                "このフレームにはstopを追加できません".into(),
+                            ));
+                        }
+                        let add_stop_editor = overview_context_menu_editor.clone();
+                        menu.item(PopupMenuItem::new("この位置にstopを追加").on_click(
+                            move |_, _, cx| {
+                                add_stop_editor.update(cx, |editor, cx| {
+                                    editor.add_stop_at_frame(frame, cx);
+                                });
+                            },
+                        ))
+                    }),
+            );
         let capture_scrub_editor = curve_editor.clone();
 
         div()
@@ -669,6 +671,7 @@ impl Render for AnimationCurveEditor {
                     capture_scrub_editor.update(cx, |editor, cx| {
                         // Capture releases over graph children and the pane header.
                         editor.end_graph_press(cx);
+                        editor.end_pointer_drag();
                         editor.finish_history_drag(cx);
                     });
                 }
@@ -677,6 +680,7 @@ impl Render for AnimationCurveEditor {
                 MouseButton::Left,
                 cx.listener(|editor, _, _, cx| {
                     editor.end_graph_press(cx);
+                    editor.end_pointer_drag();
                     editor.finish_history_drag(cx);
                 }),
             )
@@ -698,6 +702,8 @@ impl Render for AnimationCurveEditor {
                     .flex()
                     .flex_col()
                     .p_3()
+                    .gap_2()
+                    .child(segment_overview)
                     .child(graph),
             )
             .into_any_element()

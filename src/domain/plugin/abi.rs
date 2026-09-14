@@ -80,7 +80,7 @@ impl CompiledParameterAbi {
                 ))
             })?;
             if declaration.static_value.is_some_and(|value| {
-                !value.matches_type(declaration.ty) || type_has_dynamic_data(declaration.ty)
+                !declaration.ty.allows(value) || type_has_dynamic_data(declaration.ty)
             }) {
                 return Err(PluginError::invalid_definition(format!(
                     "{owner_kind} '{owner_id}' pass constant '{}' must be a fixed-size value matching its type",
@@ -165,12 +165,12 @@ impl CompiledParameterAbi {
                         .checked_add(data_size)
                         .ok_or_else(|| parameter_budget_error(owner_kind, owner_id))?;
                     bytes.resize(data_end, 0);
-                    for (index, value) in values.iter().enumerate() {
+                    for (index, array_element) in values.iter().enumerate() {
                         pack_value(
                             &mut bytes,
                             data_offset as usize + index * element_size,
                             element,
-                            value,
+                            array_element.value(),
                         )?;
                     }
                 }
@@ -201,7 +201,7 @@ impl CompiledParameterAbi {
                 continue;
             }
             let value = value_for(&field.id, &field.ty)?;
-            if !value.matches_type(&field.ty) {
+            if !field.ty.allows(value) {
                 return Err(PluginError::invalid_definition(format!(
                     "{owner_kind} '{owner_id}' parameter '{}' value does not match its type",
                     field.id
@@ -299,9 +299,9 @@ fn value_payload_size(value: &ParameterValue) -> usize {
 fn dynamic_value_size(ty: &ParameterType, value: &ParameterValue) -> Result<usize, PluginError> {
     match (ty, value) {
         (ParameterType::Array { element, .. }, ParameterValue::Array(values)) => {
-            values.iter().try_fold(0usize, |total, value| {
+            values.iter().try_fold(0usize, |total, array_element| {
                 total
-                    .checked_add(abi_size(element) + value_payload_size(value))
+                    .checked_add(abi_size(element) + value_payload_size(array_element.value()))
                     .ok_or_else(|| PluginError::invalid_definition("parameter ABI size overflows"))
             })
         }

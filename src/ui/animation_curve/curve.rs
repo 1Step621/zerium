@@ -1,12 +1,125 @@
 use super::*;
 
+impl GraphCurve {
+    pub(super) fn stops(&self) -> &[[f32; 2]] {
+        &self.stops
+    }
+
+    pub(super) fn interpolation(&self, segment: usize) -> Option<SegmentInterpolation> {
+        self.interpolations.get(segment).copied()
+    }
+
+    pub(super) fn is_custom(&self, segment: usize) -> bool {
+        self.interpolations
+            .get(segment)
+            .is_some_and(|interpolation| interpolation.is_custom())
+    }
+
+    fn segment_for_handle(index: usize, handle: BezierHandle) -> Option<usize> {
+        match handle {
+            BezierHandle::In => index.checked_sub(1),
+            BezierHandle::Out => Some(index),
+        }
+    }
+
+    pub(super) fn handle_position(&self, index: usize, handle: BezierHandle) -> Option<[f32; 2]> {
+        let segment = Self::segment_for_handle(index, handle)?;
+        let local = self.interpolations.get(segment)?.handle_position(handle)?;
+        let start = self.stops.get(segment)?;
+        let end = self.stops.get(segment + 1)?;
+        Some([
+            start[0] + (end[0] - start[0]) * local[0],
+            start[1] + (end[1] - start[1]) * local[1],
+        ])
+    }
+
+    pub(super) fn local_handle_position(
+        &self,
+        index: usize,
+        handle: BezierHandle,
+        point: [f32; 2],
+    ) -> Option<(usize, [f32; 2])> {
+        let segment = Self::segment_for_handle(index, handle)?;
+        let start = self.stops.get(segment)?;
+        let end = self.stops.get(segment + 1)?;
+        let dx = end[0] - start[0];
+        if dx <= f32::EPSILON {
+            return None;
+        }
+        let dy = end[1] - start[1];
+        Some((
+            segment,
+            [
+                ((point[0] - start[0]) / dx).clamp(0., 1.),
+                if dy.abs() <= f32::EPSILON {
+                    point[1].clamp(0., 1.)
+                } else {
+                    ((point[1] - start[1]) / dy).clamp(0., 1.)
+                },
+            ],
+        ))
+    }
+
+    pub(super) fn evaluate(&self, progress: f32) -> f32 {
+        let progress = progress.clamp(0., 1.);
+        let right = self
+            .stops
+            .partition_point(|stop| stop[0] < progress)
+            .min(self.stops.len().saturating_sub(1));
+        if right == 0 || self.stops[right][0] == progress {
+            return self.stops.get(right).map_or(0., |stop| stop[1]);
+        }
+        let left = right - 1;
+        let start = self.stops[left];
+        let end = self.stops[right];
+        let span = end[0] - start[0];
+        if span <= 0. {
+            return start[1];
+        }
+        let local = (progress - start[0]) / span;
+        let eased = self
+            .interpolations
+            .get(left)
+            .map_or(local, |interpolation| interpolation.evaluate(local));
+        start[1] + (end[1] - start[1]) * eased
+    }
+}
+
 impl AnimationCurveEditor {
+    fn source_segment_for_progress(
+        stop_positions: &[f32],
+        progress: f32,
+        focused_segment: Option<usize>,
+    ) -> Option<usize> {
+        const BOUNDARY_EPSILON: f32 = 0.000_001;
+
+        if !progress.is_finite() {
+            return None;
+        }
+        let last_segment = stop_positions.len().checked_sub(2)?;
+        if let Some(segment) = focused_segment.filter(|segment| *segment <= last_segment) {
+            let start = *stop_positions.get(segment)?;
+            let end = *stop_positions.get(segment + 1)?;
+            if progress >= start - BOUNDARY_EPSILON && progress <= end + BOUNDARY_EPSILON {
+                return Some(segment);
+            }
+        }
+        Some(
+            stop_positions
+                .partition_point(|position| *position < progress)
+                .saturating_sub(1)
+                .min(last_segment),
+        )
+    }
+
     pub(crate) fn has_selected_curve(&self, cx: &App) -> bool {
         self.selected_curve(cx).is_some()
     }
 
     pub(super) fn selected_curve(&self, cx: &App) -> Option<SelectedCurve> {
-        let target = self.selection.read(cx).target()?.clone();
+        let selection = self.selection.read(cx);
+        let target = selection.target()?.clone();
+        let focused_segment = selection.focused_segment();
         let editor = self.editor.read(cx);
         let item = editor.selected_item()?;
         if item.id != target.item_id {
@@ -16,62 +129,64 @@ impl AnimationCurveEditor {
             crate::ui::property_inspector::PropertyInspector::animation_presentation(
                 editor, &item, &target,
             )?;
-        let background_curves = item
-            .animations
+        let track = item.animation(target.effect_id, &target.address)?;
+        let timeline_item = editor.item(item.id)?;
+        let source_progress =
+            timeline_item.animation_progress_at_time(TimelineTime::from_frame(editor.playhead()));
+        let source_stop_positions = track
+            .stops()
             .iter()
-            .flat_map(|(candidate, animation)| {
-                animation
-                    .curves()
-                    .filter(|(channel, _)| {
-                        target.effect_id.is_some()
-                            || candidate.parameter_id != target.parameter_id
-                            || candidate.array_index != target.address.array_index
-                            || *channel != target.address.channel
-                    })
-                    .map(|(_, curve)| curve.clone())
-            })
-            .chain(item.effects.iter().flat_map(|effect| {
-                effect.animations.iter().flat_map(|(candidate, animation)| {
-                    animation
-                        .curves()
-                        .filter(|(channel, _)| {
-                            target.effect_id != Some(effect.id)
-                                || candidate.parameter_id != target.parameter_id
-                                || candidate.array_index != target.address.array_index
-                                || *channel != target.address.channel
-                        })
-                        .map(|(_, curve)| curve.clone())
-                })
-            }))
-            .collect();
-        let animation = item
-            .animation(
-                target.effect_id,
-                &target.parameter_id,
-                target.address.array_index,
-            )?
-            .clone();
-        let (from, to) = animation.endpoints(target.address.channel)?;
-        let (from, to, axis_suffix) = match from.numeric_scalar().zip(to.numeric_scalar()) {
-            Some((from, to)) => (
-                from * presentation.value_factor,
-                to * presentation.value_factor,
-                presentation.suffix.clone(),
-            ),
-            None => (0., 100., "%".to_owned()),
+            .map(|stop| stop.position())
+            .collect::<Vec<_>>();
+        let source_segment = Self::source_segment_for_progress(
+            &source_stop_positions,
+            source_progress,
+            focused_segment,
+        )?;
+        self.selection.read(cx).focus_segment(source_segment);
+        let source_progress_start = track.stops().get(source_segment)?.position();
+        let source_progress_end = track.stops().get(source_segment + 1)?.position();
+        let source_progress_span = source_progress_end - source_progress_start;
+        let playhead_progress =
+            ((source_progress - source_progress_start) / source_progress_span).clamp(0., 1.);
+        let numeric_stops = track.numeric_stops().map(|stops| {
+            stops[source_segment..=source_segment + 1]
+                .iter()
+                .map(|(_, value)| *value * presentation.value_factor)
+                .collect::<Vec<_>>()
+        });
+        let (value_min, value_max, stops, axis_suffix) = if let Some(values) = numeric_stops {
+            let minimum = values.iter().copied().min_by(f64::total_cmp)?;
+            let maximum = values.iter().copied().max_by(f64::total_cmp)?;
+            let padding = if (maximum - minimum).abs() <= f64::EPSILON {
+                (presentation.step * 10.).max(minimum.abs() * 0.1).max(1.)
+            } else {
+                0.
+            };
+            let from = minimum - padding;
+            let to = maximum + padding;
+            let stops = values
+                .into_iter()
+                .enumerate()
+                .map(|(index, value)| [index as f32, ((value - from) / (to - from)) as f32])
+                .collect();
+            (from, to, stops, presentation.suffix.clone())
+        } else {
+            (0., 100., vec![[0., 0.], [1., 1.]], "%".to_owned())
         };
         let animation = GraphAnimation {
-            from,
-            to,
-            curve: animation.curve(target.address.channel)?.clone(),
+            value_min,
+            value_max,
+            curve: GraphCurve {
+                stops,
+                interpolations: vec![*track.interpolations().get(source_segment)?],
+            },
         };
-        let timeline_item = editor.item(item.id)?;
-        let progress =
-            timeline_item.animation_progress_at_time(TimelineTime::from_frame(editor.playhead()));
         let frame_rate = editor.frame_rate();
         let frames_per_second = frame_rate.frames_per_second();
-        let animation_start_frame = timeline_item.animation_timeline_frame(0.);
-        let animation_span_frames = timeline_item.animation_span_frames();
+        let animation_start_frame = timeline_item.animation_timeline_frame(source_progress_start);
+        let animation_span_frames = timeline_item.animation_span_frames()
+            * f64::from(source_progress_end - source_progress_start);
         let start_seconds = (animation_start_frame / frames_per_second) as f32;
         let duration_seconds = (animation_span_frames / frames_per_second) as f32;
         Some(SelectedCurve {
@@ -79,43 +194,23 @@ impl AnimationCurveEditor {
             presentation,
             animation,
             axis_suffix,
-            background_curves,
-            playhead_progress: progress,
+            source_segment,
+            source_stop_count: track.stops().len(),
+            source_stop_positions,
+            source_playhead_progress: source_progress.clamp(0., 1.),
+            playhead_progress,
             clip_start: timeline_item.start,
             clip_duration: timeline_item.duration,
             animation_start_frame,
             animation_span_frames,
-            visible_progress_range: [0., 1.],
             start_seconds,
             duration_seconds,
             frame_rate,
         })
     }
 
-    pub(super) fn curve_point_position(
-        curve: &AnimationCurve,
-        point: CurvePoint,
-    ) -> Option<[f32; 2]> {
-        let anchor = curve.anchors().get(match point {
-            CurvePoint::Anchor(index)
-            | CurvePoint::HandleIn(index)
-            | CurvePoint::HandleOut(index) => index,
-        })?;
-        let index = match point {
-            CurvePoint::Anchor(index)
-            | CurvePoint::HandleIn(index)
-            | CurvePoint::HandleOut(index) => index,
-        };
-        Some(match point {
-            CurvePoint::Anchor(_) => *anchor,
-            CurvePoint::HandleIn(_) => curve.control(index, BezierHandle::In)?,
-            CurvePoint::HandleOut(_) => curve.control(index, BezierHandle::Out)?,
-        })
-    }
-
     pub(super) fn format_number(value: impl Into<f64>) -> String {
-        let value = value.into();
-        let mut value = format!("{value:.4}");
+        let mut value = format!("{:.4}", value.into());
         while value.contains('.') && value.ends_with('0') {
             value.pop();
         }
@@ -128,259 +223,28 @@ impl AnimationCurveEditor {
         value
     }
 
-    pub(super) fn actual_value(animation: &GraphAnimation, normalized: f32) -> f64 {
-        animation.from + (animation.to - animation.from) * f64::from(normalized)
-    }
-
-    pub(super) fn normalized_value(animation: &GraphAnimation, actual: f64) -> Option<f32> {
-        let range = animation.to - animation.from;
-        (range.abs() > f64::EPSILON).then_some(((actual - animation.from) / range) as f32)
-    }
-
-    pub(super) fn snap_to_step(value: f64, step: f64) -> f64 {
-        (value / step).round() * step
-    }
-
-    pub(super) fn drag_sensitivity(min: f64, max: f64, step: f64) -> f64 {
-        ((max - min).abs() / 200.).clamp(step * 0.1, step * 2.)
-    }
-
-    pub(super) fn set_input_value(
-        input: &Entity<InputState>,
-        value: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if input.read(cx).value().as_ref() != value {
-            input.update(cx, |input, cx| input.set_value(value, window, cx));
-        }
-    }
-
-    pub(super) fn sync_point_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.syncing_point_inputs {
-            return;
-        }
-        let value = self.selected_point.and_then(|point| {
-            let selected = self.selected_curve(cx)?;
-            let position = Self::curve_point_position(&selected.animation.curve, point)?;
-            Some(Self::format_number(Self::actual_value(
-                &selected.animation,
-                position[1],
-            )))
-        });
-        self.syncing_point_inputs = true;
-        Self::set_input_value(
-            &self.point_value_input,
-            value.unwrap_or_default(),
-            window,
-            cx,
-        );
-        self.syncing_point_inputs = false;
-    }
-
-    pub(super) fn select_point(
+    pub(super) fn begin_handle_drag(
         &mut self,
         point: CurvePoint,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.graph_interaction = GraphInteraction::HandleDrag { point };
+        self.finish_playhead_scrub(cx);
         self.editor
             .update(cx, |editor, _| editor.finish_history_group());
-        self.selected_point = Some(point);
         self.selected_segment = None;
-        self.sync_point_inputs(window, cx);
+        self.focus_handle.focus(window, cx);
         cx.notify();
     }
 
-    pub(super) fn clear_selection(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let point_changed = self.selected_point.take().is_some();
-        let segment_changed = self.selected_segment.take().is_some();
-        if point_changed || segment_changed {
-            self.sync_point_inputs(window, cx);
+    pub(super) fn clear_selection(&mut self, cx: &mut Context<Self>) {
+        if self.selected_segment.take().is_some() {
             cx.notify();
         }
     }
 
-    pub(super) fn update_selected_point(
-        &mut self,
-        position: [f32; 2],
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(point) = self.selected_point else {
-            return;
-        };
-        let Some(selected) = self.selected_curve(cx) else {
-            return;
-        };
-        let target = selected.target;
-        self.editor.update(cx, |editor, cx| {
-            let changed = match point {
-                CurvePoint::Anchor(index) => editor.set_selected_animation_anchor(
-                    target.effect_id,
-                    &target.parameter_id,
-                    target.address,
-                    index,
-                    position,
-                ),
-                CurvePoint::HandleIn(index) => editor.set_selected_animation_handle(
-                    target.effect_id,
-                    &target.parameter_id,
-                    target.address,
-                    index,
-                    BezierHandle::In,
-                    position,
-                ),
-                CurvePoint::HandleOut(index) => editor.set_selected_animation_handle(
-                    target.effect_id,
-                    &target.parameter_id,
-                    target.address,
-                    index,
-                    BezierHandle::Out,
-                    position,
-                ),
-            };
-            if changed {
-                cx.notify();
-            }
-        });
-        self.sync_point_inputs(window, cx);
-    }
-
-    pub(super) fn handle_point_input_change(
-        &mut self,
-        input: &Entity<InputState>,
-        event: &InputEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.syncing_point_inputs || !matches!(event, InputEvent::Change) {
-            return;
-        }
-        let Ok(value) = input.read(cx).value().parse::<f64>() else {
-            return;
-        };
-        let Some(point) = self.selected_point else {
-            return;
-        };
-        let Some(selected) = self.selected_curve(cx) else {
-            return;
-        };
-        let value = Self::snap_to_step(value, selected.presentation.step).clamp(
-            selected.animation.from.min(selected.animation.to),
-            selected.animation.from.max(selected.animation.to),
-        );
-        let Some(mut position) = Self::curve_point_position(&selected.animation.curve, point)
-        else {
-            return;
-        };
-        let Some(normalized) = Self::normalized_value(&selected.animation, value) else {
-            return;
-        };
-        position[1] = normalized;
-        self.update_selected_point(position, window, cx);
-    }
-
-    pub(super) fn handle_point_input_step(
-        &mut self,
-        input: &Entity<InputState>,
-        event: &NumberInputEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(selected) = self.selected_curve(cx) else {
-            return;
-        };
-        let current = input.read(cx).value().parse::<f64>().unwrap_or_default();
-        let base_step = selected.presentation.step;
-        let fine = match event {
-            NumberInputEvent::Step { fine, .. } => *fine,
-        };
-        let step = if fine { base_step * 0.1 } else { base_step };
-        let value = match event {
-            NumberInputEvent::Step {
-                action: StepAction::Increment,
-                ..
-            } => current + step,
-            NumberInputEvent::Step {
-                action: StepAction::Decrement,
-                ..
-            } => current - step,
-        };
-        self.syncing_point_inputs = true;
-        input.update(cx, |input, cx| {
-            input.set_value(Self::format_number(value), window, cx)
-        });
-        self.syncing_point_inputs = false;
-        self.handle_point_input_change(input, &InputEvent::Change, window, cx);
-    }
-
-    pub(super) fn prepare_point_value_drag(
-        &mut self,
-        event: &MouseDownEvent,
-        cx: &mut Context<Self>,
-    ) {
-        self.editor
-            .update(cx, |editor, _| editor.finish_history_group());
-        let Some(selected) = self.selected_curve(cx) else {
-            return;
-        };
-        if (selected.animation.to - selected.animation.from).abs() <= f64::EPSILON {
-            return;
-        }
-        let min = selected.animation.from.min(selected.animation.to);
-        let max = selected.animation.from.max(selected.animation.to);
-        let start_value = self
-            .point_value_input
-            .read(cx)
-            .value()
-            .parse::<f64>()
-            .unwrap_or(min);
-        self.value_drag_origin = Some(CurveValueDragOrigin {
-            start_x: f32::from(event.position.x),
-            start_value,
-            min,
-            max,
-            step: selected.presentation.step,
-            sensitivity: Self::drag_sensitivity(min, max, selected.presentation.step),
-        });
-    }
-
-    pub(super) fn handle_point_value_drag(
-        &mut self,
-        drag: &CurveValueDrag,
-        pointer_x: f32,
-        fine_adjustment: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if drag.editor_id != cx.entity_id() {
-            return;
-        }
-        let Some(origin) = self.value_drag_origin else {
-            return;
-        };
-        let sensitivity = origin.sensitivity * if fine_adjustment { 0.1 } else { 1. };
-        let value = Self::snap_to_step(
-            origin.start_value + f64::from(pointer_x - origin.start_x) * sensitivity,
-            origin.step,
-        )
-        .clamp(origin.min, origin.max);
-
-        self.syncing_point_inputs = true;
-        Self::set_input_value(
-            &self.point_value_input,
-            Self::format_number(value),
-            window,
-            cx,
-        );
-        self.syncing_point_inputs = false;
-        let input = self.point_value_input.clone();
-        self.handle_point_input_change(&input, &InputEvent::Change, window, cx);
-    }
-
     pub(super) fn finish_history_drag(&mut self, cx: &mut Context<Self>) {
-        self.value_drag_origin = None;
         self.editor
             .update(cx, |editor, _| editor.finish_history_group());
     }

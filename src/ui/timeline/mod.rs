@@ -1,7 +1,7 @@
 use std::{collections::HashSet, rc::Rc, sync::Arc};
 
 use ::ui::{
-    ActiveTheme as _, Icon, IconName, Sizable as _, ThemeColor,
+    ActiveTheme as _, Colorize as _, Icon, IconName, Sizable as _, ThemeColor,
     button::{Button, ButtonVariants as _},
     menu::{PopupMenu, PopupMenuItem},
 };
@@ -16,7 +16,7 @@ use gpui::{
 use crate::{
     domain::timeline::{
         Frame, FrameDuration, FrameRate, ItemId, LayerId, ResizeEdge, SceneId, TimelineEditError,
-        TimelineEditor, TimelineItem,
+        TimelineEditor, TimelineItem, TimelineTime,
     },
     engine::media::MediaReaderRegistry,
     plugin_catalog::plugins,
@@ -24,6 +24,7 @@ use crate::{
 
 use super::{
     TimelineEditorEntityExt as _,
+    animation_curve::{AnimationSelection, AnimationTarget},
     explorer::ExplorerFileDrag,
     pane::PANE_HEADER_HEIGHT,
     search_picker::{SearchPicker, SearchPickerEntry},
@@ -43,6 +44,8 @@ const LAYER_HEADER_WIDTH: f32 = 200.;
 const MIN_DYNAMIC_LAYER_COUNT: usize = 32;
 const EXTRA_DYNAMIC_LAYERS: usize = 8;
 const ZOOM_STEP: f32 = 1.05;
+const ANIMATION_STOP_SNAP_DISTANCE: f32 = 8.;
+const ANIMATION_STOP_POSITION_EPSILON: f32 = 0.0001;
 
 #[derive(Clone)]
 struct LayerScrollHandle(UniformListScrollHandle);
@@ -90,6 +93,21 @@ impl Render for ResizeTimelineItem {
 struct MoveTimelineItem {
     timeline_id: EntityId,
     item_id: ItemId,
+}
+
+#[derive(Clone)]
+struct MoveAnimationStop {
+    timeline_id: EntityId,
+    target: AnimationTarget,
+    stop: usize,
+    snap_frame: Frame,
+    follow_focus: Option<usize>,
+}
+
+impl Render for MoveAnimationStop {
+    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
+        Empty
+    }
 }
 
 impl Render for MoveTimelineItem {
@@ -197,6 +215,9 @@ struct TimelineGrid {
 #[derive(Clone)]
 struct LayerRenderState {
     editor: Entity<TimelineEditor>,
+    transport: Entity<TransportController>,
+    animation_target: Option<AnimationTarget>,
+    focused_animation_segment: Option<usize>,
     colors: ThemeColor,
     layer_height: f32,
     viewport: TimelineViewport,
@@ -219,6 +240,7 @@ struct TimelineItemRenderData {
 pub(crate) struct Timeline {
     editor: Entity<TimelineEditor>,
     transport: Entity<TransportController>,
+    animation_selection: Entity<AnimationSelection>,
     session: Entity<ProjectSession>,
     session_id: ProjectSessionId,
     notifications: Entity<UiNotifications>,
@@ -240,6 +262,7 @@ impl Timeline {
     pub(crate) fn new(
         editor: Entity<TimelineEditor>,
         transport: Entity<TransportController>,
+        animation_selection: Entity<AnimationSelection>,
         session: Entity<ProjectSession>,
         notifications: Entity<UiNotifications>,
         media_readers: Arc<MediaReaderRegistry>,
@@ -249,6 +272,7 @@ impl Timeline {
         let subscriptions = vec![
             cx.observe(&editor, |_, _, cx| cx.notify()),
             cx.observe(&transport, |_, _, cx| cx.notify()),
+            cx.observe(&animation_selection, |_, _, cx| cx.notify()),
             cx.observe(&session, |this, _, cx| {
                 let session_id = this.session.read(cx).id();
                 if session_id == this.session_id {
@@ -269,6 +293,7 @@ impl Timeline {
         Self {
             editor,
             transport,
+            animation_selection,
             session,
             session_id,
             notifications,
@@ -1001,6 +1026,84 @@ impl Timeline {
             self.viewport.pixels_per_second(),
         );
         frame_rate.seconds_to_frame((start_seconds + offset).max(0.))
+    }
+
+    fn move_animation_stop_from_pointer(
+        &mut self,
+        drag: &MoveAnimationStop,
+        pointer_x: f32,
+        snap_disabled: bool,
+        window: &Window,
+        cx: &mut Context<Self>,
+    ) {
+        if drag.timeline_id != cx.entity_id()
+            || self.animation_selection.read(cx).target() != Some(&drag.target)
+        {
+            return;
+        }
+
+        let mut frame = self.pointer_frame(pointer_x, window, cx);
+        let progress = {
+            let editor = self.editor.read(cx);
+            let Some(item) = editor
+                .selected_item()
+                .filter(|item| item.id == drag.target.item_id)
+            else {
+                return;
+            };
+            let Some(track) = item.animation(drag.target.effect_id, &drag.target.address) else {
+                return;
+            };
+            let Some(previous) = drag
+                .stop
+                .checked_sub(1)
+                .and_then(|index| track.stops().get(index))
+            else {
+                return;
+            };
+            let Some(next) = track.stops().get(drag.stop + 1) else {
+                return;
+            };
+            let frame_at = |position| {
+                Frame::new(item.animation_timeline_frame(position).round().max(0.) as u64)
+            };
+            let minimum = Frame::new(frame_at(previous.position()).get().saturating_add(1));
+            let maximum = Frame::new(frame_at(next.position()).get().saturating_sub(1));
+            if minimum > maximum {
+                return;
+            }
+            frame = frame.clamp(minimum, maximum);
+            if !snap_disabled {
+                let playhead_x = LAYER_HEADER_WIDTH
+                    + self
+                        .viewport
+                        .x_at_seconds(editor.frame_rate().frame_to_seconds(drag.snap_frame));
+                if (minimum..=maximum).contains(&drag.snap_frame)
+                    && (pointer_x - playhead_x).abs() <= ANIMATION_STOP_SNAP_DISTANCE
+                {
+                    frame = drag.snap_frame;
+                }
+            }
+            item.animation_progress_at_time(TimelineTime::from_frame(frame))
+        };
+
+        let changed = self.editor.update(cx, |editor, cx| {
+            let changed = editor.move_selected_animation_stop(
+                drag.target.effect_id,
+                drag.target.address.clone(),
+                drag.stop,
+                progress,
+            );
+            if changed {
+                cx.notify();
+            }
+            changed
+        });
+        if changed && let Some(segment) = drag.follow_focus {
+            self.animation_selection.read(cx).focus_segment(segment);
+            self.transport
+                .update(cx, |transport, cx| transport.set_playhead(frame, cx));
+        }
     }
 
     fn finish_item_move(&mut self, cx: &mut Context<Self>) {
@@ -1762,7 +1865,7 @@ impl Timeline {
             .frame_to_seconds(Frame::new(item.duration.get()))
             * state.viewport.pixels_per_second()) as f32;
         let is_selected = state.selected_item_ids.contains(&item_id);
-        let mut animation_anchors = item
+        let mut animation_stops = item
             .animations
             .iter()
             .chain(
@@ -1770,12 +1873,53 @@ impl Timeline {
                     .iter()
                     .flat_map(|effect| effect.animations.iter()),
             )
-            .flat_map(|(_, animation)| animation.curves())
-            .map(|(_, curve)| curve)
-            .flat_map(|curve| curve.anchors().iter().map(|anchor| (*anchor)[0]))
+            .flat_map(|(_, track)| track.stops().iter().map(|stop| stop.position()))
             .collect::<Vec<_>>();
-        animation_anchors.sort_by(f32::total_cmp);
-        animation_anchors.dedup_by(|left, right| (*left - *right).abs() < 0.0001);
+        animation_stops.sort_by(f32::total_cmp);
+        animation_stops
+            .dedup_by(|left, right| (*left - *right).abs() < ANIMATION_STOP_POSITION_EPSILON);
+        let focused_target = state
+            .animation_target
+            .as_ref()
+            .filter(|target| target.item_id == item_id)
+            .cloned();
+        let has_focused_target = focused_target.is_some();
+        let snap_frame = state.editor.read(cx).playhead();
+        let focused_animation_stops = focused_target
+            .as_ref()
+            .and_then(|target| {
+                let track = item.animation(target.effect_id, &target.address)?;
+                Some((target.clone(), track))
+            })
+            .map(|(target, track)| {
+                let stop_count = track.stops().len();
+                track
+                    .stops()
+                    .iter()
+                    .enumerate()
+                    .map(|(stop, animation_stop)| {
+                        let progress = animation_stop.position();
+                        let frame = Frame::new(
+                            item.animation_timeline_frame(progress).round().max(0.) as u64,
+                        );
+                        let follow_focus = (snap_frame == frame)
+                            .then_some(state.focused_animation_segment)
+                            .flatten()
+                            .filter(|segment| {
+                                *segment == stop || segment.saturating_add(1) == stop
+                            });
+                        (
+                            target.clone(),
+                            stop,
+                            progress,
+                            frame,
+                            follow_focus,
+                            stop > 0 && stop + 1 < stop_count,
+                        )
+                    })
+                    .collect::<Vec<_>>()
+            })
+            .unwrap_or_default();
 
         let move_drag = MoveTimelineItem {
             timeline_id,
@@ -1893,7 +2037,7 @@ impl Timeline {
                             cx.new(|_| drag.clone())
                         }),
                 )
-                .children(animation_anchors.into_iter().map(|progress| {
+                .children(animation_stops.into_iter().map(|progress| {
                     let margin_left = if progress <= f32::EPSILON {
                         0.
                     } else if progress >= 1. - f32::EPSILON {
@@ -1910,10 +2054,71 @@ impl Timeline {
                         .rounded_full()
                         .border_1()
                         .border_color(state.colors.background.opacity(0.7))
-                        .bg(state
-                            .colors
-                            .primary
-                            .opacity(if is_selected { 0.95 } else { 0.65 }))
+                        .bg(state.colors.primary.opacity(if has_focused_target {
+                            0.35
+                        } else if is_selected {
+                            0.95
+                        } else {
+                            0.65
+                        }))
+                }))
+                .children(focused_animation_stops.into_iter().map({
+                    let timeline_editor = state.editor.clone();
+                    let transport = state.transport.clone();
+                    let colors = state.colors;
+                    move |(target, stop, progress, frame, follow_focus, movable)| {
+                        let drag = MoveAnimationStop {
+                            timeline_id,
+                            target,
+                            stop,
+                            snap_frame,
+                            follow_focus,
+                        };
+                        let start_editor = timeline_editor.clone();
+                        let seek_transport = transport.clone();
+                        let margin_left = if progress <= f32::EPSILON {
+                            0.
+                        } else if progress >= 1. - f32::EPSILON {
+                            -8.
+                        } else {
+                            -4.
+                        };
+                        div()
+                            .id(("focused-animation-stop", stop))
+                            .absolute()
+                            .top(px(1.))
+                            .left(relative(progress))
+                            .ml(px(margin_left))
+                            .size(px(8.))
+                            .rounded_full()
+                            .border_2()
+                            .border_color(colors.background)
+                            .bg(colors.warning)
+                            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                cx.stop_propagation();
+                                if movable {
+                                    start_editor.update(cx, |editor, _| {
+                                        editor.finish_history_group();
+                                    });
+                                }
+                            })
+                            .on_click(move |_, _, cx| {
+                                cx.stop_propagation();
+                                seek_transport.update(cx, |transport, cx| {
+                                    transport.set_playhead(frame, cx);
+                                });
+                            })
+                            .when(movable, |marker| {
+                                marker
+                                    .cursor_col_resize()
+                                    .hover(move |style| style.bg(colors.warning.lighten(0.14)))
+                                    .active(move |style| style.bg(colors.warning.darken(0.14)))
+                                    .on_drag(drag, |drag, _, _, cx| {
+                                        cx.stop_propagation();
+                                        cx.new(|_| drag.clone())
+                                    })
+                            })
+                    }
                 })),
         )
     }
@@ -2072,8 +2277,12 @@ impl Render for Timeline {
         let scene_switcher_visible = active_scene_name.is_some();
         let grid = Self::timeline_grid(self.viewport, viewport_width, frame_rate);
         let ruler = self.ruler(colors, viewport_width, grid.clone(), cx);
+        let animation_selection = self.animation_selection.read(cx);
         let row_state = LayerRenderState {
             editor: self.editor.clone(),
+            transport: self.transport.clone(),
+            animation_target: animation_selection.target().cloned(),
+            focused_animation_segment: animation_selection.focused_segment(),
             colors,
             layer_height,
             viewport: self.viewport,
@@ -2127,6 +2336,19 @@ impl Render for Timeline {
                 |this, event: &DragMoveEvent<ResizeTimelineItem>, window, cx| {
                     let drag = event.drag(cx).clone();
                     this.resize_item_from_pointer(
+                        &drag,
+                        f32::from(event.event.position.x),
+                        event.event.modifiers.alt,
+                        window,
+                        cx,
+                    );
+                },
+            ))
+            .on_drag_move(cx.listener(
+                |this, event: &DragMoveEvent<MoveAnimationStop>, window, cx| {
+                    let drag = event.drag(cx).clone();
+                    cx.set_active_drag_cursor_style(CursorStyle::ResizeLeftRight, window);
+                    this.move_animation_stop_from_pointer(
                         &drag,
                         f32::from(event.event.position.x),
                         event.event.modifiers.alt,

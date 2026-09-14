@@ -20,21 +20,22 @@ use ::ui::{
     switch::Switch,
 };
 use gpui::{
-    Context, CursorStyle, Div, DragMoveEvent, Empty, Entity, EntityId, FocusHandle, MouseButton,
-    MouseDownEvent, PathPromptOptions, Render, Rgba, SharedString, Subscription, Task, Window, div,
-    prelude::*, px,
+    App, Context, CursorStyle, Div, DragMoveEvent, Empty, Entity, EntityId, FocusHandle,
+    Focusable as _, MouseButton, MouseDownEvent, PathPromptOptions, Render, Rgba, SharedString,
+    Subscription, Task, Window, div, prelude::*, px,
 };
 
 use crate::domain::animation::{AnimationChannel, ParameterAnimationAddress};
 use crate::domain::media::{MediaAsset, MediaKind};
 use crate::domain::parameter::{
-    ParameterSchema, ParameterType, ParameterValue, ParameterValueType, ScalarParameterType,
+    ArrayElement, ParameterSchema, ParameterType, ParameterValue, ParameterValueType,
+    ScalarParameterType,
 };
 use crate::domain::plugin::{FileCapability, ItemSchema};
 use crate::domain::timeline::{
     EffectInstance, EffectInstanceId, ItemId, SceneArgument, SceneArgumentPreset,
     SceneBindingOwner, SceneBindingTarget, SceneBindingValuePath, SceneId, TimelineEditor,
-    TimelineItem, display_scene_expression,
+    TimelineItem, TimelineTime, display_scene_expression,
 };
 use crate::engine::media::MediaReaderRegistry;
 use crate::plugin_catalog::plugins;
@@ -48,6 +49,10 @@ use crate::ui::session::{ProjectActivity, ProjectSession, ProjectSessionId, UiNo
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum ControlId {
     Property(PropertyPath),
+    AnimationStop {
+        property: PropertyPath,
+        stop: usize,
+    },
     Group(PropertyPath),
     EffectGroup(EffectInstanceId),
     SceneName(SceneId),
@@ -77,6 +82,13 @@ pub(super) enum ControlId {
 impl ControlId {
     pub(super) fn property(path: &PropertyPath) -> Self {
         Self::Property(path.clone())
+    }
+
+    pub(super) fn animation_stop(path: &PropertyPath, stop: usize) -> Self {
+        Self::AnimationStop {
+            property: path.clone(),
+            stop,
+        }
     }
 
     pub(super) fn group(path: &PropertyPath) -> Self {
@@ -142,32 +154,39 @@ pub(super) struct PropertyTarget {
 
 impl PropertyTarget {
     pub(super) fn animation_enabled(&self, item: &TimelineItem) -> bool {
-        item.animation(
-            self.effect_id,
-            &self.parameter_id,
-            self.value_path.array_element(),
-        )
-        .is_some_and(|animation| animation.channel_enabled(self.animation_address().channel))
+        self.animation_address(item)
+            .and_then(|address| item.animation(self.effect_id, &address))
+            .is_some()
     }
 
-    pub(super) fn animation_address(&self) -> ParameterAnimationAddress {
-        ParameterAnimationAddress {
-            array_index: self.value_path.array_element(),
+    pub(super) fn animation_address(
+        &self,
+        item: &TimelineItem,
+    ) -> Option<ParameterAnimationAddress> {
+        let array_element_id = match self.value_path.array_element() {
+            Some(index) => Some(
+                item.parameter_values(self.effect_id)?
+                    .array_element_id(&self.parameter_id, index)?,
+            ),
+            None => None,
+        };
+        Some(ParameterAnimationAddress {
+            parameter_id: self.parameter_id.clone(),
+            array_element_id,
             channel: self
                 .value_path
                 .tuple_element()
                 .map_or(AnimationChannel::Scalar, AnimationChannel::TupleElement),
-        }
+        })
     }
 
-    pub(super) fn animation_target(&self, item_id: ItemId) -> AnimationTarget {
-        AnimationTarget {
-            item_id,
+    pub(super) fn animation_target(&self, item: &TimelineItem) -> Option<AnimationTarget> {
+        Some(AnimationTarget {
+            item_id: item.id,
             effect_id: self.effect_id,
-            parameter_id: self.parameter_id.clone(),
-            address: self.animation_address(),
+            address: self.animation_address(item)?,
             property: self.key.clone(),
-        }
+        })
     }
 }
 
@@ -179,8 +198,8 @@ pub(super) struct SceneArgumentOption {
     pub schema: ParameterSchema,
     pub binding_count: usize,
     pub bindings: Vec<SceneBindingTarget>,
-    pub derived: bool,
-    pub referenced_by_derived: bool,
+    pub expression: Option<String>,
+    pub referenced_by_expression: bool,
 }
 
 #[derive(Clone)]
@@ -198,24 +217,9 @@ pub(super) enum SceneArgumentSetting {
 }
 
 #[derive(Clone)]
-pub(super) struct NumberAnimationDisplay {
-    pub source_parameter_id: String,
+pub(super) struct NumberAnimationSource {
     pub source_address: ParameterAnimationAddress,
     pub value_factor: f64,
-    pub from: f64,
-    pub to: f64,
-}
-
-#[derive(Clone)]
-pub(super) struct ColorAnimationDisplay {
-    pub from: [f32; 4],
-    pub to: [f32; 4],
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) enum AnimationEndpoint {
-    From,
-    To,
 }
 
 #[derive(Clone, Copy)]
@@ -239,23 +243,47 @@ pub(super) struct ParameterBinding {
 }
 
 #[derive(Clone)]
+pub(super) struct AnimationStopBinding {
+    pub item_id: ItemId,
+    pub effect_id: Option<EffectInstanceId>,
+    pub address: ParameterAnimationAddress,
+    pub stop: usize,
+    pub value_factor: f64,
+}
+
+impl AnimationStopBinding {
+    fn new(
+        item_id: ItemId,
+        effect_id: Option<EffectInstanceId>,
+        stop: &control::AnimationStopControl,
+    ) -> Self {
+        Self {
+            item_id,
+            effect_id,
+            address: stop.source_address.clone(),
+            stop: stop.index,
+            value_factor: stop.value_factor,
+        }
+    }
+}
+
+#[derive(Clone)]
 pub(super) struct PropertyValueDrag {
     pub inspector_id: EntityId,
-    pub path: PropertyPath,
-    pub animation_endpoint: Option<AnimationEndpoint>,
+    pub input_id: ControlId,
 }
 
 #[derive(Clone)]
 pub(super) struct PropertyValueDragOrigin {
     pub target: PropertyTarget,
-    pub animation_endpoint: Option<AnimationEndpoint>,
+    pub input_id: ControlId,
+    pub animation_stop: Option<AnimationStopBinding>,
     pub start_x: f32,
     pub start_value: f64,
     pub min: f64,
     pub max: f64,
     pub step: f64,
     pub sensitivity: f64,
-    pub animation_factor: f64,
 }
 
 #[derive(Clone)]

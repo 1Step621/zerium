@@ -457,10 +457,13 @@ pub fn run() {
                             notifications.clone(),
                         )
                     });
+                    let animation_selection =
+                        cx.new(|_| crate::ui::animation_curve::AnimationSelection::default());
                     let timeline = cx.new(|cx| {
                         crate::ui::timeline::Timeline::new(
                             editor.clone(),
                             transport.clone(),
+                            animation_selection.clone(),
                             session.clone(),
                             notifications.clone(),
                             media_readers.clone(),
@@ -488,14 +491,11 @@ pub fn run() {
                             cx,
                         )
                     });
-                    let animation_selection =
-                        cx.new(|_| crate::ui::animation_curve::AnimationSelection::default());
                     let animation_curve = cx.new(|cx| {
                         crate::ui::animation_curve::AnimationCurveEditor::new(
                             editor.clone(),
                             transport.clone(),
                             animation_selection.clone(),
-                            window,
                             cx,
                         )
                     });

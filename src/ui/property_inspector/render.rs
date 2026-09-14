@@ -98,7 +98,15 @@ impl PropertyInspector {
     }
 
     fn selected_view(&self, cx: &mut Context<Self>) -> Option<SelectionView> {
-        let selected_items = self.editor.read(cx).selected_items();
+        let selected_items = {
+            let editor = self.editor.read(cx);
+            let time = crate::domain::timeline::TimelineTime::from_frame(editor.playhead());
+            editor
+                .selected_items()
+                .into_iter()
+                .map(|item| item.evaluated_at_time(time))
+                .collect::<Vec<_>>()
+        };
         let item = selected_items.first()?.clone();
         let item_label = self
             .editor
@@ -190,10 +198,11 @@ impl PropertyInspector {
                 } else {
                     argument.schema.label().to_owned()
                 };
-                let referenced_by_derived = scene.arguments.iter().any(|other| {
+                let referenced_by_expression = scene.arguments.iter().any(|other| {
                     other.schema.id() != argument.schema.id()
-                        && other.derived_expression_references(argument.schema.id())
+                        && other.expression_references(argument.schema.id())
                 });
+                let expression = argument.expression().map(str::to_owned);
                 SceneArgumentOption {
                     scene_id,
                     id: argument.schema.id().to_owned(),
@@ -201,8 +210,8 @@ impl PropertyInspector {
                     schema: argument.schema.parameter().clone(),
                     binding_count: argument.bindings.len(),
                     bindings: argument.bindings.clone(),
-                    derived: argument.is_derived(),
-                    referenced_by_derived,
+                    expression,
+                    referenced_by_expression,
                 }
             })
             .collect()
@@ -336,7 +345,7 @@ impl PropertyInspector {
                     &children,
                     render,
                     render.colors.border,
-                    true,
+                    array.parameter.is_editable(None),
                 )),
                 GroupKind::Effect(_) => None,
             },

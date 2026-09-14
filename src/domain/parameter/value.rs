@@ -10,8 +10,40 @@ use super::{
     schema::ParameterSchema,
     types::{ParameterType, ParameterValueType, ScalarParameterType},
 };
+use crate::domain::animation::ParameterAnimationAddress;
 
 pub(in crate::domain) const MAX_STRING_BYTES: usize = 4_096;
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
+#[serde(transparent)]
+pub(crate) struct ArrayElementId(u64);
+
+impl ArrayElementId {
+    pub(crate) const fn is_valid(self) -> bool {
+        self.0 != 0
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ArrayElement {
+    id: ArrayElementId,
+    value: ParameterValue,
+}
+
+impl ArrayElement {
+    pub(crate) const fn id(&self) -> ArrayElementId {
+        self.id
+    }
+
+    pub(crate) const fn value(&self) -> &ParameterValue {
+        &self.value
+    }
+
+    pub(crate) const fn value_mut(&mut self) -> &mut ParameterValue {
+        &mut self.value
+    }
+}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(tag = "type", content = "value", rename_all = "snake_case")]
@@ -24,7 +56,7 @@ pub(crate) enum ParameterValue {
     Tuple(Vec<ParameterValue>),
     Color([f32; 4]),
     String(String),
-    Array(Vec<ParameterValue>),
+    Array(Vec<ArrayElement>),
 }
 
 impl ParameterValue {
@@ -50,22 +82,6 @@ impl ParameterValue {
         Self::Tuple(values.into_iter().map(Self::F32).collect())
     }
 
-    pub(crate) fn animated_array_element(&self, index: usize) -> Option<Self> {
-        let Self::Array(values) = self else {
-            return None;
-        };
-        Some(values.get(index)?.clone())
-    }
-
-    pub(crate) fn with_animated_array_element(&self, index: usize, value: Self) -> Option<Self> {
-        let Self::Array(values) = self else {
-            return None;
-        };
-        let mut values = values.clone();
-        *values.get_mut(index)? = value;
-        Some(Self::Array(values))
-    }
-
     pub(crate) fn to_json_value(&self) -> Value {
         match self {
             Self::F32(value) => serde_json::json!(value),
@@ -75,56 +91,12 @@ impl ParameterValue {
             Self::Tuple(values) => Value::Array(values.iter().map(Self::to_json_value).collect()),
             Self::Color(value) => serde_json::json!(value),
             Self::String(value) => serde_json::json!(value),
-            Self::Array(values) => Value::Array(values.iter().map(Self::to_json_value).collect()),
-        }
-    }
-
-    pub(crate) fn matches_type(&self, ty: &ParameterType) -> bool {
-        match ty {
-            ParameterType::Array {
-                element,
-                min_items,
-                max_items,
-            } => {
-                let Self::Array(values) = self else {
-                    return false;
-                };
-                values.len() >= *min_items as usize
-                    && values.len() <= *max_items as usize
-                    && values.iter().all(|value| value.matches_value_type(element))
-            }
-            ParameterType::Value(ty) => self.matches_value_type(ty),
-        }
-    }
-
-    fn matches_value_type(&self, ty: &ParameterValueType) -> bool {
-        match ty {
-            ParameterValueType::Scalar(ty) => self.matches_scalar(ty),
-            ParameterValueType::Tuple(tuple) => {
-                let Self::Tuple(values) = self else {
-                    return false;
-                };
-                values.len() == tuple.element_count()
-                    && values
-                        .iter()
-                        .zip(tuple.elements())
-                        .all(|(value, ty)| value.matches_scalar(ty))
-            }
-        }
-    }
-
-    pub(crate) fn matches_scalar(&self, ty: &ScalarParameterType) -> bool {
-        match (self, ty) {
-            (Self::F32(value), ScalarParameterType::F32) => value.is_finite(),
-            (Self::I32(_), ScalarParameterType::I32)
-            | (Self::U32(_), ScalarParameterType::U32)
-            | (Self::Bool(_), ScalarParameterType::Bool) => true,
-            (Self::String(value), ScalarParameterType::String) => value.len() <= MAX_STRING_BYTES,
-            (Self::Color(values), ScalarParameterType::Color) => {
-                values.iter().all(|value| value.is_finite())
-            }
-            (Self::Enum(value), ScalarParameterType::Enum(ty)) => ty.contains(*value),
-            _ => false,
+            Self::Array(values) => Value::Array(
+                values
+                    .iter()
+                    .map(|element| element.value.to_json_value())
+                    .collect(),
+            ),
         }
     }
 
@@ -142,7 +114,13 @@ impl ParameterValue {
                 }
                 values
                     .iter()
-                    .map(|value| Self::value_type_from_json(value, element))
+                    .enumerate()
+                    .map(|(index, value)| {
+                        Some(ArrayElement {
+                            id: ArrayElementId(u64::try_from(index).ok()?.checked_add(1)?),
+                            value: Self::value_type_from_json(value, element)?,
+                        })
+                    })
                     .collect::<Option<Vec<_>>>()
                     .map(Self::Array)
             }
@@ -198,6 +176,26 @@ impl ParameterValue {
                 .map(|value| Self::String(value.to_owned())),
         }
     }
+
+    pub(crate) fn push_array_element(&mut self, value: ParameterValue) -> bool {
+        let Self::Array(elements) = self else {
+            return false;
+        };
+        let Some(id) = elements
+            .iter()
+            .map(|element| element.id.0)
+            .max()
+            .unwrap_or(0)
+            .checked_add(1)
+        else {
+            return false;
+        };
+        elements.push(ArrayElement {
+            id: ArrayElementId(id),
+            value,
+        });
+        true
+    }
 }
 
 fn json_f32(value: &Value) -> Option<f32> {
@@ -220,7 +218,7 @@ impl ParameterContract {
     }
 
     fn accepts(&self, value: &ParameterValue) -> bool {
-        value.matches_type(&self.ty) && self.constraints.allows(value)
+        self.ty.allows(value) && self.constraints.allows(value)
     }
 }
 
@@ -272,6 +270,89 @@ impl ParameterValues {
 
     pub(crate) fn get(&self, id: &str) -> Option<&ParameterValue> {
         self.values.get(id).map(|stored| &stored.value)
+    }
+
+    pub(crate) fn get_at(&self, address: &ParameterAnimationAddress) -> Option<&ParameterValue> {
+        let value = self.get(&address.parameter_id)?;
+        match address.array_element_id {
+            Some(id) => match value {
+                ParameterValue::Array(values) => values
+                    .iter()
+                    .find(|element| element.id == id)
+                    .map(ArrayElement::value),
+                _ => None,
+            },
+            None => Some(value),
+        }
+    }
+
+    pub(crate) fn get_at_mut(
+        &mut self,
+        address: &ParameterAnimationAddress,
+    ) -> Option<&mut ParameterValue> {
+        let value = &mut self.values.get_mut(&address.parameter_id)?.value;
+        match address.array_element_id {
+            Some(id) => match value {
+                ParameterValue::Array(values) => values
+                    .iter_mut()
+                    .find(|element| element.id == id)
+                    .map(ArrayElement::value_mut),
+                _ => None,
+            },
+            None => Some(value),
+        }
+    }
+
+    pub(crate) fn get_scalar_at(
+        &self,
+        address: &ParameterAnimationAddress,
+    ) -> Option<&ParameterValue> {
+        self.get_at(address)?
+            .scalar_at(address.channel.coordinate())
+    }
+
+    pub(crate) fn get_scalar_at_mut(
+        &mut self,
+        address: &ParameterAnimationAddress,
+    ) -> Option<&mut ParameterValue> {
+        self.get_at_mut(address)?
+            .scalar_at_mut(address.channel.coordinate())
+    }
+
+    pub(crate) fn scalar_at<'a>(
+        &self,
+        address: &ParameterAnimationAddress,
+        ty: &'a ParameterType,
+    ) -> Option<(&ParameterValue, &'a ScalarParameterType)> {
+        let value = self.get_scalar_at(address)?;
+        let value_type = match address.array_element_id {
+            Some(_) => ty.array_element_type()?,
+            None => ty.value_type()?,
+        };
+        let scalar_type = value_type.scalar_at(address.channel.coordinate())?;
+        Some((value, scalar_type))
+    }
+
+    pub(crate) fn array_element_id(
+        &self,
+        parameter_id: &str,
+        index: usize,
+    ) -> Option<ArrayElementId> {
+        let ParameterValue::Array(elements) = self.get(parameter_id)? else {
+            return None;
+        };
+        elements.get(index).map(ArrayElement::id)
+    }
+
+    pub(crate) fn array_element_index(
+        &self,
+        parameter_id: &str,
+        id: ArrayElementId,
+    ) -> Option<usize> {
+        let ParameterValue::Array(elements) = self.get(parameter_id)? else {
+            return None;
+        };
+        elements.iter().position(|element| element.id == id)
     }
 
     pub(crate) fn remove(&mut self, id: &str) -> Option<ParameterValue> {

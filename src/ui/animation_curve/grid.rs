@@ -21,11 +21,11 @@ impl AnimationCurveEditor {
     }
 
     pub(super) fn value_grid(animation: &GraphAnimation) -> Vec<(f64, f32)> {
-        let minimum = animation.from.min(animation.to);
-        let maximum = animation.from.max(animation.to);
+        let minimum = animation.value_min;
+        let maximum = animation.value_max;
         let range = maximum - minimum;
         if !range.is_finite() || range <= f64::EPSILON {
-            return vec![(animation.from, 0.5)];
+            return vec![(animation.value_min, 0.5)];
         }
 
         let step = Self::nice_value_step(range);
@@ -34,7 +34,8 @@ impl AnimationCurveEditor {
         (0..count.min(32))
             .map(|index| {
                 let value = first + index as f64 * step;
-                let normalized = (value - animation.from) / (animation.to - animation.from);
+                let normalized =
+                    (value - animation.value_min) / (animation.value_max - animation.value_min);
                 (value, normalized as f32)
             })
             .collect()
@@ -47,8 +48,8 @@ impl AnimationCurveEditor {
         frame_rate: FrameRate,
     ) -> CurveGrid {
         let duration_seconds = duration_seconds.max(f32::EPSILON);
-        let visible_start = start_seconds + self.viewport.x_min * duration_seconds;
-        let visible_end = start_seconds + self.viewport.x_max * duration_seconds;
+        let visible_start = start_seconds;
+        let visible_end = start_seconds + duration_seconds;
         let pixels_per_second = self.graph_pixels_per_second(duration_seconds);
         let major_step = time_grid::ruler_step(pixels_per_second);
         let frame_step = time_grid::frame_grid_step(pixels_per_second, frame_rate);

@@ -192,7 +192,7 @@ impl TextFrameCache {
             };
             values
                 .iter()
-                .map(|value| match value {
+                .map(|element| match element.value() {
                     ParameterValue::String(value) => Some(value.clone()),
                     _ => None,
                 })

@@ -46,6 +46,23 @@ pub(crate) struct TransportController {
 }
 
 impl TransportController {
+    fn update_editor(
+        &self,
+        cx: &mut Context<Self>,
+        update: impl FnOnce(&mut TimelineEditor) -> bool,
+    ) -> bool {
+        // The editor and transport are separate entities. Notify the editor's
+        // observers here; callers notify the transport only when its mode
+        // changes.
+        self.editor.update(cx, |editor, cx| {
+            let changed = update(editor);
+            if changed {
+                cx.notify();
+            }
+            changed
+        })
+    }
+
     pub(crate) fn new(
         editor: Entity<TimelineEditor>,
         audio: Entity<AudioPlaybackEngine>,
@@ -164,31 +181,16 @@ impl TransportController {
             self.play(cx);
             return changed;
         }
-        let changed = self.editor.update(cx, |editor, _| editor.seek(frame));
-        if changed {
-            cx.notify();
-        }
-        changed
+        self.update_editor(cx, |editor| editor.seek(frame))
     }
 
     pub(crate) fn set_playhead(&mut self, frame: Frame, cx: &mut Context<Self>) -> bool {
-        let changed = self
-            .editor
-            .update(cx, |editor, _| editor.set_playhead(frame));
-        if changed {
-            cx.notify();
-        }
-        changed
+        self.update_editor(cx, |editor| editor.set_playhead(frame))
     }
 
     pub(crate) fn step(&mut self, delta: i64, cx: &mut Context<Self>) {
         self.stop(cx);
-        let changed = self
-            .editor
-            .update(cx, |editor, _| editor.step_playhead(delta));
-        if changed {
-            cx.notify();
-        }
+        self.update_editor(cx, |editor| editor.step_playhead(delta));
     }
 
     pub(crate) fn advance(&mut self, cx: &mut Context<Self>) {
@@ -239,9 +241,7 @@ impl TransportController {
             self.set_playhead(end, cx);
             return;
         }
-        let changed = self
-            .editor
-            .update(cx, |editor, _| editor.set_playback_position(seconds, frame));
+        let changed = self.update_editor(cx, |editor| editor.set_playback_position(seconds, frame));
         if changed {
             let active_items = self
                 .editor
@@ -253,7 +253,6 @@ impl TransportController {
             self.audio.update(cx, |audio, _| {
                 audio.update_gains(&active_items, seconds, frame_rate)
             });
-            cx.notify();
         }
     }
 

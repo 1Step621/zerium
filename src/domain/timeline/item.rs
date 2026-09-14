@@ -1,6 +1,6 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::domain::animation::{ParameterAnimation, ParameterAnimations};
+use crate::domain::animation::{ParameterAnimationAddress, ParameterAnimations, ScalarTrack};
 use crate::domain::media::MediaAsset;
 use crate::domain::parameter::{ParameterValue, ParameterValues};
 use crate::domain::plugin::{EffectSchema, ItemSchema};
@@ -330,17 +330,30 @@ impl TimelineItem {
     pub(crate) fn animation(
         &self,
         effect_id: Option<EffectInstanceId>,
-        parameter_id: &str,
-        array_index: Option<usize>,
-    ) -> Option<&ParameterAnimation> {
+        address: &ParameterAnimationAddress,
+    ) -> Option<&ScalarTrack> {
         match effect_id {
             Some(effect_id) => self
                 .effects
                 .iter()
                 .find(|effect| effect.id == effect_id)?
                 .animations
-                .get(parameter_id, array_index),
-            None => self.animations.get(parameter_id, array_index),
+                .get(address),
+            None => self.animations.get(address),
+        }
+    }
+
+    pub(crate) fn parameter_values(
+        &self,
+        effect_id: Option<EffectInstanceId>,
+    ) -> Option<&ParameterValues> {
+        match effect_id {
+            Some(effect_id) => self
+                .effects
+                .iter()
+                .find(|effect| effect.id == effect_id)
+                .map(|effect| &effect.parameters),
+            None => Some(&self.parameters),
         }
     }
 

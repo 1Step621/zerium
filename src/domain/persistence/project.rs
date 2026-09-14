@@ -8,7 +8,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::animation::{ParameterAnimation, ParameterAnimationTarget, ParameterAnimations};
+use crate::domain::animation::{ParameterAnimationAddress, ParameterAnimations, ScalarTrack};
 use crate::domain::media::{MediaAsset, MediaKind, VideoFrameRate};
 use crate::domain::parameter::materialized_parameter_values;
 use crate::domain::parameter::{ParameterSchema, ParameterValue, ParameterValues};
@@ -17,12 +17,12 @@ use crate::domain::timeline::{
     EffectInstance, EffectInstanceId, Frame, FrameDuration, FrameRate, ItemId, LayerId, ProjectId,
     ProjectResolution, SceneArgument, SceneArgumentSchema, SceneBindingOwner, SceneBindingTarget,
     SceneBindingValuePath, SceneDefinition, SceneId, TimelineDocument, TimelineEditor,
-    TimelineItem, TimelineItemKind, TimelineSnapshot, TimelineView,
-    refresh_scene_argument_contracts, resolve_scene_binding, scene_argument_expressions_valid,
+    TimelineItem, TimelineItemKind, TimelineSnapshot, TimelineView, resolve_scene_binding,
+    scene_argument_expressions_valid,
 };
 
 pub(crate) const PROJECT_EXTENSION: &str = "zero";
-const FORMAT_VERSION: u32 = 6;
+const FORMAT_VERSION: u32 = 9;
 
 pub(crate) struct LoadedProject {
     project_id: ProjectId,
@@ -199,7 +199,7 @@ impl ProjectFile {
                 scene
                     .arguments
                     .iter()
-                    .filter(|argument| argument.derived_expression.is_none())
+                    .filter(|argument| argument.expression.is_none())
                     .map(|argument| argument.schema.clone())
                     .collect::<Vec<_>>(),
             );
@@ -239,11 +239,6 @@ impl ProjectFile {
                     TimelineDocument::from_items(frame_rate, scene_items),
                 ),
             );
-        }
-        if !refresh_scene_argument_contracts(&mut scenes) {
-            return Err(ProjectError::invalid_data(
-                "シーン引数の接続から有効な契約を構築できません",
-            ));
         }
         validate_scenes(&items, &scenes)?;
         Ok(LoadedProject {
@@ -342,19 +337,19 @@ struct ProjectSceneArgument {
     schema: ParameterSchema,
     bindings: Vec<ProjectSceneBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    derived_expression: Option<String>,
+    expression: Option<String>,
 }
 
 impl ProjectSceneArgument {
     fn capture(argument: &SceneArgument) -> Self {
         Self {
-            schema: argument.schema.declared_parameter().clone(),
+            schema: argument.schema.parameter().clone(),
             bindings: argument
                 .bindings
                 .iter()
                 .map(ProjectSceneBinding::capture)
                 .collect(),
-            derived_expression: argument.expression().map(str::to_owned),
+            expression: argument.expression().map(str::to_owned),
         }
     }
 
@@ -367,10 +362,10 @@ impl ProjectSceneArgument {
             .into_iter()
             .map(ProjectSceneBinding::into_domain)
             .collect();
-        match self.derived_expression {
+        match self.expression {
             Some(expression) => {
-                SceneArgument::derived(schema, bindings, expression).ok_or_else(|| {
-                    ProjectError::invalid_data("導出シーン引数は数値型である必要があります")
+                SceneArgument::computed(schema, bindings, expression).ok_or_else(|| {
+                    ProjectError::invalid_data("式シーン引数は数値型である必要があります")
                 })
             }
             None => Ok(SceneArgument::input(schema, bindings)),
@@ -659,19 +654,16 @@ impl ProjectEffect {
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectAnimation {
-    parameter_id: String,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    array_index: Option<usize>,
-    animation: ParameterAnimation,
+    address: ParameterAnimationAddress,
+    track: ScalarTrack,
 }
 
 fn capture_animations(animations: &ParameterAnimations) -> Vec<ProjectAnimation> {
     animations
-        .ordered_iter()
-        .map(|(target, animation)| ProjectAnimation {
-            parameter_id: target.parameter_id.clone(),
-            array_index: target.array_index,
-            animation: animation.clone(),
+        .iter()
+        .map(|(address, track)| ProjectAnimation {
+            address: address.clone(),
+            track: track.clone(),
         })
         .collect()
 }
@@ -683,54 +675,38 @@ fn load_animations(
 ) -> Result<ParameterAnimations, ProjectError> {
     let mut entries = Vec::with_capacity(animations.len());
     for animation in animations {
+        let address = &animation.address;
         let parameter = schema
             .iter()
-            .find(|parameter| parameter.id == animation.parameter_id)
+            .find(|parameter| parameter.id == address.parameter_id)
             .ok_or_else(|| {
                 ProjectError::invalid_data(format!(
                     "アニメーション対象 '{}' が見つかりません",
-                    animation.parameter_id
+                    address.parameter_id
                 ))
             })?;
-        let target_value =
-            parameters
-                .get(&animation.parameter_id)
-                .and_then(|value| match animation.array_index {
-                    Some(index) => value.animated_array_element(index),
-                    None => Some(value.clone()),
-                });
         let animation_valid =
-            crate::domain::animation::target_type(parameter, animation.array_index)
-                .zip(target_value)
-                .is_some_and(|(ty, target)| {
-                    animation.animation.is_valid_for(&target, ty)
-                        && animation.animation.curves().all(|(channel, _)| {
-                            let Some((from, to)) = animation.animation.endpoints(channel) else {
-                                return false;
-                            };
-                            let constraints = channel
-                                .coordinate()
-                                .map_or(parameter.constraints(), |index| {
-                                    parameter.constraints().for_element(index)
-                                });
-                            constraints.allows(from) && constraints.allows(to)
+            parameters
+                .scalar_at(address, parameter.ty())
+                .is_some_and(|(scalar, scalar_ty)| {
+                    parameter.is_animatable(address.channel.coordinate())
+                        && animation.track.is_valid_for(scalar_ty)
+                        && scalar_ty.allows(scalar)
+                        && animation.track.stops().iter().all(|stop| {
+                            parameter
+                                .scalar_constraints(address.channel.coordinate())
+                                .allows(stop.value())
                         })
                 });
-        if !parameter.animatable || !animation_valid {
+        if !animation_valid {
             return Err(ProjectError::invalid_data(format!(
                 "'{}' のアニメーション対象が不正です",
-                animation.parameter_id
+                address.parameter_id
             )));
         }
-        entries.push((
-            ParameterAnimationTarget {
-                parameter_id: animation.parameter_id,
-                array_index: animation.array_index,
-            },
-            animation.animation,
-        ));
+        entries.push((animation.address, animation.track));
     }
-    ParameterAnimations::from_ordered_entries(entries)
+    ParameterAnimations::from_entries(entries)
         .ok_or_else(|| ProjectError::invalid_data("アニメーション対象が重複しています"))
 }
 
@@ -970,6 +946,21 @@ fn validate_scenes(
                     )));
                 }
                 let parameter_id = binding.parameter_id();
+                let item = scene
+                    .items()
+                    .find(|item| item.id == binding.item_id())
+                    .ok_or_else(|| {
+                        ProjectError::invalid_data(format!(
+                            "シーン '{}' の引数接続先 '{}' がありません",
+                            scene.name, parameter_id
+                        ))
+                    })?;
+                if binding.conflicts_with_aspect_ratio_lock(item, item.aspect_ratio_locked) {
+                    return Err(ProjectError::invalid_data(format!(
+                        "シーン '{}' の接続先 '{}' は縦横比固定と競合しています",
+                        scene.name, parameter_id
+                    )));
+                }
                 let resolved = resolve_scene_binding(scenes, scene, binding).ok_or_else(|| {
                     ProjectError::invalid_data(format!(
                         "シーン '{}' の引数接続先 '{}' がありません",
@@ -982,13 +973,7 @@ fn validate_scenes(
                         scene.name, parameter_id
                     )));
                 }
-                if !resolved
-                    .schema
-                    .accepts_values_from(argument.schema.parameter())
-                    || !resolved
-                        .schema
-                        .accepts_value(argument.schema.default_value())
-                {
+                if resolved.schema.ty() != argument.schema.ty() {
                     return Err(ProjectError::invalid_data(format!(
                         "シーン '{}' の引数 '{}' と接続先の型が一致しません",
                         scene.name,

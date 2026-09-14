@@ -36,58 +36,6 @@ impl ParameterConstraints {
         };
         self.elements.get(element).unwrap_or(&DEFAULT)
     }
-    pub(super) fn intersection(&self, other: &Self) -> Option<Self> {
-        if !self.elements.is_empty() || !other.elements.is_empty() {
-            let count = self.elements.len().max(other.elements.len());
-            if (!self.elements.is_empty() && self.elements.len() != count)
-                || (!other.elements.is_empty() && other.elements.len() != count)
-            {
-                return None;
-            }
-            let elements = (0..count)
-                .map(|index| {
-                    self.for_element(index)
-                        .intersection(other.for_element(index))
-                })
-                .collect::<Option<_>>()?;
-            return Some(Self {
-                elements,
-                ..Self::default()
-            });
-        }
-        let min = match (self.min, other.min) {
-            (Some(left), Some(right)) => Some(left.max(right)),
-            (left, right) => left.or(right),
-        };
-        let max = match (self.max, other.max) {
-            (Some(left), Some(right)) => Some(left.min(right)),
-            (left, right) => left.or(right),
-        };
-        (!matches!((min, max), (Some(min), Some(max)) if min > max))
-            .then(|| Self::from_bounds(min, max))
-    }
-
-    pub(super) fn contains(&self, other: &Self) -> bool {
-        if !self.elements.is_empty() || !other.elements.is_empty() {
-            let count = self.elements.len().max(other.elements.len());
-            if (!self.elements.is_empty() && self.elements.len() != count)
-                || (!other.elements.is_empty() && other.elements.len() != count)
-            {
-                return false;
-            }
-            return (0..count)
-                .all(|index| self.for_element(index).contains(other.for_element(index)));
-        }
-        self.min.is_none_or(|minimum| {
-            other
-                .min
-                .is_some_and(|other_minimum| other_minimum >= minimum)
-        }) && self.max.is_none_or(|maximum| {
-            other
-                .max
-                .is_some_and(|other_maximum| other_maximum <= maximum)
-        })
-    }
 
     pub(in crate::domain) fn allows(&self, value: &ParameterValue) -> bool {
         match value {
@@ -98,7 +46,9 @@ impl ParameterConstraints {
                 .iter()
                 .enumerate()
                 .all(|(index, value)| self.for_element(index).allows(value)),
-            ParameterValue::Array(values) => values.iter().all(|value| self.allows(value)),
+            ParameterValue::Array(values) => {
+                values.iter().all(|element| self.allows(element.value()))
+            }
             ParameterValue::Color(values) => values
                 .iter()
                 .all(|value| self.allows_number(f64::from(*value))),
@@ -131,7 +81,11 @@ impl ParameterConstraints {
                 .map(ParameterValue::Tuple),
             ParameterValue::Array(values) => values
                 .iter()
-                .map(|value| self.clamp_value(value))
+                .map(|element| {
+                    let mut constrained = element.clone();
+                    *constrained.value_mut() = self.clamp_value(element.value())?;
+                    Some(constrained)
+                })
                 .collect::<Option<Vec<_>>>()
                 .map(ParameterValue::Array),
             ParameterValue::Color(values) => {
@@ -214,7 +168,7 @@ impl ParameterConstraints {
         if !self.bounds_valid() || !self.valid_for_type(ty) {
             return Err(invalid());
         }
-        if default.matches_type(ty) && !self.allows(default) {
+        if ty.allows(default) && !self.allows(default) {
             return Err(ParameterError::invalid_definition(format!(
                 "{owner_kind} '{owner_id}' parameter '{parameter_id}' default violates its constraints"
             )));

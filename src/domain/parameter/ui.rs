@@ -124,11 +124,11 @@ impl ParameterUi {
         self.enum_variants.get(&value).map(String::as_str)
     }
 
-    pub(in crate::domain) fn project_to_value(&mut self, source_element: Option<usize>) {
-        if let Some(index) = source_element {
-            *self = self.for_element(index).clone();
-        }
-        self.elements.clear();
+    pub(in crate::domain) fn to_scalar(&self, source_element: Option<usize>) -> Self {
+        let mut projected =
+            source_element.map_or_else(|| self.clone(), |index| self.for_element(index).clone());
+        projected.elements.clear();
+        projected
     }
 
     pub(super) fn validate(

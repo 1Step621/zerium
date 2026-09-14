@@ -308,8 +308,53 @@
           "$ref": "#/$defs/parameterType"
         },
         "default": true,
+        "editable": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "elements"
+              ],
+              "properties": {
+                "elements": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 64,
+                  "items": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          ]
+        },
         "animatable": {
-          "type": "boolean"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "elements"
+              ],
+              "properties": {
+                "elements": {
+                  "type": "array",
+                  "minItems": 2,
+                  "maxItems": 64,
+                  "items": {
+                    "type": "boolean"
+                  }
+                }
+              }
+            }
+          ]
         },
         "scene_bindable": {
           "type": "boolean"
@@ -322,6 +367,73 @@
         }
       },
       "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "required": [
+                      "tuple"
+                    ]
+                  },
+                  {
+                    "type": "object",
+                    "required": [
+                      "array"
+                    ],
+                    "properties": {
+                      "array": {
+                        "type": "object",
+                        "required": [
+                          "type"
+                        ],
+                        "properties": {
+                          "type": {
+                            "type": "object",
+                            "required": [
+                              "tuple"
+                            ]
+                          }
+                        }
+                      }
+                    }
+                  }
+                ]
+              }
+            },
+            "required": [
+              "type"
+            ]
+          },
+          "then": {
+            "properties": {
+              "animatable": {
+                "type": "object",
+                "required": [
+                  "elements"
+                ]
+              },
+              "editable": {
+                "type": "object",
+                "required": [
+                  "elements"
+                ]
+              }
+            }
+          },
+          "else": {
+            "properties": {
+              "animatable": {
+                "type": "boolean"
+              },
+              "editable": {
+                "type": "boolean"
+              }
+            }
+          }
+        },
         {
           "if": {
             "properties": {

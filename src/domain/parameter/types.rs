@@ -1,8 +1,13 @@
 //! Structural parameter contracts. Storage and editor projections live in their adapters.
 
+use std::collections::HashSet;
+
 use serde::{Deserialize, Serialize};
 
-use super::wire::TypeDefinition;
+use super::{
+    value::{MAX_STRING_BYTES, ParameterValue},
+    wire::TypeDefinition,
+};
 
 pub(super) const MAX_TUPLE_ELEMENTS: usize = 64;
 
@@ -30,6 +35,7 @@ impl EnumParameterType {
     pub(crate) fn values(&self) -> &[u32] {
         &self.values
     }
+
     pub(super) fn contains(&self, value: u32) -> bool {
         self.values.contains(&value)
     }
@@ -45,6 +51,27 @@ pub(crate) enum ScalarParameterType {
     Color,
     String,
     Enum(EnumParameterType),
+}
+
+impl ScalarParameterType {
+    pub(crate) const fn is_interpolatable(&self) -> bool {
+        matches!(self, Self::F32 | Self::I32 | Self::U32 | Self::Color)
+    }
+
+    pub(crate) fn allows(&self, value: &ParameterValue) -> bool {
+        match (self, value) {
+            (Self::F32, ParameterValue::F32(value)) => value.is_finite(),
+            (Self::I32, ParameterValue::I32(_))
+            | (Self::U32, ParameterValue::U32(_))
+            | (Self::Bool, ParameterValue::Bool(_)) => true,
+            (Self::String, ParameterValue::String(value)) => value.len() <= MAX_STRING_BYTES,
+            (Self::Color, ParameterValue::Color(values)) => {
+                values.iter().all(|value| value.is_finite())
+            }
+            (Self::Enum(ty), ParameterValue::Enum(value)) => ty.contains(*value),
+            _ => false,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -85,6 +112,22 @@ pub(crate) enum ParameterValueType {
 }
 
 impl ParameterValueType {
+    pub(crate) fn allows(&self, value: &ParameterValue) -> bool {
+        match self {
+            Self::Scalar(ty) => ty.allows(value),
+            Self::Tuple(tuple) => {
+                let ParameterValue::Tuple(values) = value else {
+                    return false;
+                };
+                values.len() == tuple.element_count()
+                    && values
+                        .iter()
+                        .zip(tuple.elements())
+                        .all(|(value, ty)| ty.allows(value))
+            }
+        }
+    }
+
     /// Scalars with their structural tuple index; a standalone scalar has no index.
     pub(crate) fn scalars(&self) -> impl Iterator<Item = (Option<usize>, &ScalarParameterType)> {
         let (elements, tuple) = match self {
@@ -124,7 +167,31 @@ pub(crate) enum ParameterType {
         max_items: u32,
     },
 }
+
 impl ParameterType {
+    pub(crate) fn allows(&self, value: &ParameterValue) -> bool {
+        match self {
+            Self::Value(ty) => ty.allows(value),
+            Self::Array {
+                element,
+                min_items,
+                max_items,
+            } => {
+                let ParameterValue::Array(values) = value else {
+                    return false;
+                };
+                let mut ids = HashSet::with_capacity(values.len());
+                values.len() >= *min_items as usize
+                    && values.len() <= *max_items as usize
+                    && values.iter().all(|array_element| {
+                        array_element.id().is_valid()
+                            && ids.insert(array_element.id())
+                            && element.allows(array_element.value())
+                    })
+            }
+        }
+    }
+
     pub(crate) fn value_type(&self) -> Option<&ParameterValueType> {
         match self {
             Self::Value(ty) => Some(ty),
@@ -138,14 +205,14 @@ impl ParameterType {
 
     pub(crate) fn array_element_type(&self) -> Option<&ParameterValueType> {
         match self {
-            Self::Array { element: array, .. } => Some(array),
+            Self::Array { element, .. } => Some(element),
             _ => None,
         }
     }
 
     pub(crate) fn element_type(&self) -> &ParameterValueType {
         match self {
-            Self::Value(ty) | Self::Array { element: ty, .. } => ty,
+            Self::Value(element) | Self::Array { element, .. } => element,
         }
     }
 }

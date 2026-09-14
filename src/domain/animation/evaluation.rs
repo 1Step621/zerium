@@ -10,27 +10,25 @@ impl ParameterAnimations {
         progress: f32,
     ) -> ParameterValues {
         let mut values = materialized_parameter_values(base, schema);
-        for (target, animation) in self.iter() {
+        for (address, track) in self.iter() {
+            let Some(animated) = track.evaluate(progress) else {
+                continue;
+            };
+            let Some(scalar) = values.get_scalar_at_mut(address) else {
+                continue;
+            };
+            *scalar = animated;
+
             let Some(parameter) = schema
                 .iter()
-                .find(|parameter| parameter.id == target.parameter_id)
+                .find(|parameter| parameter.id == address.parameter_id)
             else {
                 continue;
             };
-            let Some(value) =
-                values
-                    .get(&target.parameter_id)
-                    .and_then(|value| match target.array_index {
-                        Some(index) => value.with_animated_array_element(
-                            index,
-                            animation.evaluate(&value.animated_array_element(index)?, progress)?,
-                        ),
-                        None => animation.evaluate(value, progress),
-                    })
+            let Some(value) = values
+                .get(&address.parameter_id)
+                .and_then(|value| parameter.constrained_value(value))
             else {
-                continue;
-            };
-            let Some(value) = parameter.constrained_value(&value) else {
                 continue;
             };
             values

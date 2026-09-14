@@ -55,8 +55,9 @@ pub(super) fn append_default(field: &ArrayGroup) -> ParameterValue {
 
 fn interpolated_or_last(field: &ArrayGroup) -> Option<ParameterValue> {
     match field.values.as_slice() {
-        [first, .., last] => array_element_midpoint(first, last).or_else(|| Some(last.clone())),
-        [.., last] => Some(last.clone()),
+        [first, .., last] => array_element_midpoint(first.value(), last.value())
+            .or_else(|| Some(last.value().clone())),
+        [.., last] => Some(last.value().clone()),
         [] => None,
     }
 }

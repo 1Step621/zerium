@@ -18,17 +18,27 @@ pub(super) struct LeafControl {
     pub element_label: Option<String>,
     pub animatable: bool,
     pub scene_bindable: bool,
+    pub read_only: bool,
     pub mixed: bool,
     pub value: ParameterValue,
     pub animation_enabled: bool,
+    pub animation_stops: Vec<AnimationStopControl>,
     pub binding: Option<SceneFieldBinding>,
+}
+
+#[derive(Clone)]
+pub(super) struct AnimationStopControl {
+    pub id: ControlId,
+    pub index: usize,
+    pub source_address: ParameterAnimationAddress,
+    pub value: ParameterValue,
+    pub value_factor: f64,
 }
 
 #[derive(Clone)]
 pub(super) struct NumberControl {
     pub common: LeafControl,
     pub spec: NumberSpec,
-    pub animation: Option<NumberAnimationDisplay>,
 }
 
 #[derive(Clone)]
@@ -52,7 +62,6 @@ pub(super) struct ChoiceControl {
 #[derive(Clone)]
 pub(super) struct ColorControl {
     pub common: LeafControl,
-    pub animation: Option<ColorAnimationDisplay>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,7 +74,7 @@ pub(super) enum ArrayElementKind {
 pub(super) struct ArrayGroup {
     pub target: PropertyTarget,
     pub parameter: Box<ParameterSchema>,
-    pub values: Vec<ParameterValue>,
+    pub values: Vec<ArrayElement>,
     pub element_kind: ArrayElementKind,
     pub min_items: u32,
     pub max_items: u32,
@@ -154,6 +163,7 @@ impl Control {
         if let Some(common) = self.common_mut() {
             common.animatable = false;
             common.animation_enabled = false;
+            common.animation_stops.clear();
         }
         if let Self::Group { children, .. } = self {
             for child in children {
@@ -171,6 +181,7 @@ pub(super) struct ControlTree {
 pub(super) struct ControlResolution<'a> {
     pub item: &'a TimelineItem,
     pub selected_items: &'a [TimelineItem],
+    pub playhead: TimelineTime,
     pub editing_scene: bool,
     pub arguments: &'a [SceneArgumentOption],
 }
@@ -375,11 +386,13 @@ impl PropertyInspector {
             },
             label,
             element_label: parameter.scalar_label(element),
-            animatable: parameter.is_animatable(),
+            animatable: parameter.is_animatable(element),
             scene_bindable: parameter.is_scene_bindable(),
+            read_only: !parameter.is_editable(element),
             mixed: false,
             value,
             animation_enabled: false,
+            animation_stops: Vec::new(),
             binding: None,
         }
     }
@@ -440,13 +453,9 @@ impl PropertyInspector {
                     ) => Control::Number(NumberControl {
                         common,
                         spec: Self::number_spec(parameter, element, is_size)?,
-                        animation: None,
                     }),
                     (ScalarParameterType::Color, ParameterValue::Color(_)) => {
-                        Control::Color(ColorControl {
-                            common,
-                            animation: None,
-                        })
+                        Control::Color(ColorControl { common })
                     }
                     (ScalarParameterType::Bool, ParameterValue::Bool(_)) => {
                         Control::Bool(BoolControl { common })
@@ -571,11 +580,11 @@ impl PropertyInspector {
         let children = values
             .iter()
             .enumerate()
-            .map(|(index, value)| {
+            .map(|(index, element)| {
                 let element_controls = Self::scalar_controls(
                     key.clone(),
                     parameter,
-                    value,
+                    element.value(),
                     owner.effect_id(),
                     Some(index),
                     false,
@@ -657,21 +666,22 @@ impl PropertyInspector {
     pub(super) fn scene_argument_value_controls(
         scene_id: SceneId,
         arguments: &[SceneArgument],
-        item: &TimelineItem,
+        values: &HashMap<String, ParameterValue>,
         resolution: &ControlResolution<'_>,
     ) -> Vec<Control> {
         arguments
             .iter()
             .flat_map(|argument| {
-                item.parameters
+                values
                     .get(argument.schema.id())
                     .map(|value| {
-                        Self::scene_value_controls(
+                        let controls = Self::scene_value_controls(
                             scene_id,
                             argument.schema.parameter(),
                             value,
                             resolution,
-                        )
+                        );
+                        controls
                     })
                     .unwrap_or_default()
             })
@@ -712,19 +722,71 @@ impl PropertyInspector {
         }
     }
 
+    fn animation_stop_controls(
+        item: &TimelineItem,
+        effect_id: Option<EffectInstanceId>,
+        source_address: &ParameterAnimationAddress,
+        property: &PropertyPath,
+        value_factor: f64,
+        time: TimelineTime,
+    ) -> Vec<AnimationStopControl> {
+        let progress = item.animation_progress_at_time(time);
+        let Some(track) = item.animation(effect_id, source_address) else {
+            return Vec::new();
+        };
+        track
+            .stop_indices_for_segment(progress)
+            .into_iter()
+            .filter_map(|index| {
+                let stop = track.stops().get(index)?;
+                let value = if value_factor == 1. {
+                    stop.value().clone()
+                } else {
+                    let value = stop.value().numeric_scalar()? * value_factor;
+                    if !value.is_finite() {
+                        return None;
+                    }
+                    stop.value().with_numeric_scalar(value)?
+                };
+                Some(AnimationStopControl {
+                    id: ControlId::animation_stop(property, index),
+                    index,
+                    source_address: source_address.clone(),
+                    value,
+                    value_factor,
+                })
+            })
+            .collect()
+    }
+
     fn resolve_leaf(resolution: &ControlResolution<'_>, control: &mut Control) {
         match control {
             Control::Group { .. } => {}
             Control::Number(number) => {
-                number.animation =
-                    Self::number_animation(resolution.item, &number.common.target, &number.spec);
+                let animation_source = Self::number_animation_source(
+                    resolution.item,
+                    &number.common.target,
+                    &number.spec,
+                );
+                let animation_enabled = animation_source.is_some();
                 Self::resolve_common(
                     resolution,
                     &mut number.common,
                     number.spec.scalar_type.clone(),
-                    number.animation.is_some(),
+                    animation_enabled,
                 );
-                number.common.animation_enabled = number.animation.is_some();
+                number.common.animation_enabled = animation_enabled;
+                number.common.animation_stops =
+                    animation_source.as_ref().map_or_else(Vec::new, |source| {
+                        Self::animation_stop_controls(
+                            resolution.item,
+                            number.common.target.effect_id,
+                            &source.source_address,
+                            &number.common.target.key,
+                            source.value_factor,
+                            resolution.playhead,
+                        )
+                    });
             }
             Control::Text(text) => Self::resolve_common(
                 resolution,
@@ -742,35 +804,28 @@ impl PropertyInspector {
                 Self::resolve_common(resolution, &mut choice.common, choice.ty.clone(), false)
             }
             Control::Color(color) => {
-                color.animation = Self::color_animation(resolution.item, &color.common.target);
+                let animation_enabled = color.common.target.animation_enabled(resolution.item);
                 Self::resolve_common(
                     resolution,
                     &mut color.common,
                     ScalarParameterType::Color,
-                    color.animation.is_some(),
+                    animation_enabled,
                 );
-                color.common.animation_enabled = color.animation.is_some();
+                color.common.animation_enabled = animation_enabled;
+                if animation_enabled
+                    && let Some(address) = color.common.target.animation_address(resolution.item)
+                {
+                    color.common.animation_stops = Self::animation_stop_controls(
+                        resolution.item,
+                        color.common.target.effect_id,
+                        &address,
+                        &color.common.target.key,
+                        1.,
+                        resolution.playhead,
+                    );
+                }
             }
         }
-    }
-
-    fn color_animation(
-        item: &TimelineItem,
-        target: &PropertyTarget,
-    ) -> Option<ColorAnimationDisplay> {
-        let animation = item.animation(
-            target.effect_id,
-            &target.parameter_id,
-            target.value_path.array_element(),
-        )?;
-        let (from, to) = animation.endpoints(target.animation_address().channel)?;
-        let (ParameterValue::Color(from), ParameterValue::Color(to)) = (from, to) else {
-            return None;
-        };
-        Some(ColorAnimationDisplay {
-            from: *from,
-            to: *to,
-        })
     }
 
     pub(super) fn scene_field_binding(
@@ -812,11 +867,17 @@ impl PropertyInspector {
             return None;
         }
         let size = item.schema()?.size_parameter()?;
+        if !size.is_editable(None) {
+            return None;
+        }
         if !Self::parameter_is_common(selected_items, size.id())
             || selected_items.iter().any(|selected| {
-                selected
-                    .schema()
-                    .is_none_or(|schema| !schema.supports_aspect_ratio_lock())
+                selected.schema().is_none_or(|schema| {
+                    !schema.supports_aspect_ratio_lock()
+                        || schema
+                            .size_parameter()
+                            .is_none_or(|parameter| !parameter.is_editable(None))
+                })
             })
         {
             return None;

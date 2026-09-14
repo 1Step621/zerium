@@ -9,12 +9,16 @@ use std::{
 
 use crate::domain::{
     animation::{BezierHandle, ParameterAnimationAddress},
+    parameter::ParameterValue,
     plugin::PluginRegistry,
 };
 
 use super::{
     document::{ResizeEdge, TimelineDocument},
-    evaluation::{evaluated_visible_document_items_at_time, visibility_filtered_document_items},
+    evaluation::{
+        evaluated_scene_argument_values, evaluated_visible_document_items_at_time,
+        visibility_filtered_document_items,
+    },
     history::EditHistory,
     ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId},
     item::TimelineItem,
@@ -49,19 +53,24 @@ pub(super) enum HistoryKey {
     ItemsParameter(Vec<ItemId>, String),
     EffectParameter(ItemId, EffectInstanceId, String),
     EffectsParameter(Vec<(ItemId, EffectInstanceId)>, String),
-    AnimationRange(
+    AnimationStopValue(
         ItemId,
         Option<EffectInstanceId>,
-        String,
         ParameterAnimationAddress,
+        Frame,
     ),
-    AnimationPoint(
+    AnimationHandle(
         ItemId,
         Option<EffectInstanceId>,
-        String,
         ParameterAnimationAddress,
         usize,
-        HistoryAnimationPoint,
+        BezierHandle,
+    ),
+    AnimationStopPosition(
+        ItemId,
+        Option<EffectInstanceId>,
+        ParameterAnimationAddress,
+        usize,
     ),
     ItemResize(ItemId, ResizeEdge),
     ItemMove(ItemId),
@@ -70,12 +79,6 @@ pub(super) enum HistoryKey {
     SceneArgumentLabel(SceneId, String),
     SceneArgumentSettings(SceneId, String),
     SceneArgumentExpression(SceneId, String),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum HistoryAnimationPoint {
-    Anchor,
-    Handle(BezierHandle),
 }
 
 #[derive(Clone)]
@@ -583,6 +586,15 @@ impl TimelineEditor {
 
     pub(crate) fn scene(&self, id: SceneId) -> Option<&SceneDefinition> {
         self.project().scenes.get(&id)
+    }
+
+    pub(crate) fn evaluated_scene_argument_values_at(
+        &self,
+        item: &TimelineItem,
+        time: TimelineTime,
+    ) -> Option<HashMap<String, ParameterValue>> {
+        let scene = self.scene(item.scene_id()?)?;
+        Some(evaluated_scene_argument_values(scene, item, time))
     }
 
     pub(crate) fn playhead(&self) -> Frame {

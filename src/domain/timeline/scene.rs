@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use crate::domain::animation::{AnimationChannel, ParameterAnimations};
 use crate::domain::parameter::materialized_parameter_values;
 use crate::domain::parameter::{
-    ParameterSchema, ParameterType, ParameterValue, ParameterValueType, ParameterValues,
-    ScalarParameterType,
+    ArrayElement, ParameterAnimatable, ParameterEditable, ParameterSchema, ParameterType,
+    ParameterValue, ParameterValueType, ParameterValues, ScalarParameterType,
 };
 
 use super::{
@@ -157,9 +157,10 @@ impl SceneBindingTarget {
 
     pub(crate) fn conflicts_with_animation(
         &self,
-        address: crate::domain::animation::ParameterAnimationAddress,
+        address: &crate::domain::animation::ParameterAnimationAddress,
+        array_index: Option<usize>,
     ) -> bool {
-        if self.address.value_path.array_element() != address.array_index {
+        if self.address.value_path.array_element() != array_index {
             return false;
         }
         match (self.address.value_path.tuple_element(), address.channel) {
@@ -186,7 +187,7 @@ pub(crate) fn project_scene_binding_value(
         let ParameterValue::Array(values) = value else {
             return None;
         };
-        value = values.get(index)?.clone();
+        value = values.get(index)?.value().clone();
         schema.ty = ParameterType::Value(element);
     } else if matches!(schema.ty, ParameterType::Array { .. }) {
         return None;
@@ -210,9 +211,12 @@ pub(crate) fn project_scene_binding_value(
         }
     }
 
-    schema.ui.project_to_value(tuple_element);
+    schema.ui = schema.ui.to_scalar(tuple_element);
 
-    schema.animatable &= crate::domain::animation::supports_value(schema.ty.element_type());
+    if let Some(element) = tuple_element {
+        schema.animatable = schema.animatable.to_scalar(element);
+        schema.editable = schema.editable.to_scalar(element);
+    }
     value = schema.constrained_value(&value)?;
     schema.default = value.clone();
     Some((schema, value))
@@ -245,24 +249,38 @@ pub(crate) fn apply_scene_binding_value(
     };
     let mut values = values.clone();
     let target = values.get_mut(element)?;
-    *target = replace_tuple_element(target)?;
+    *target.value_mut() = replace_tuple_element(target.value())?;
     Some(ParameterValue::Array(values))
 }
 
 pub(crate) fn scene_binding_is_animated(
     animations: &ParameterAnimations,
     parameter_id: &str,
+    value: &ParameterValue,
     value_path: SceneBindingValuePath,
 ) -> bool {
-    let array_element = value_path.array_element();
+    let array_element_id = match value_path.array_element() {
+        Some(index) => match value {
+            ParameterValue::Array(elements) => elements.get(index).map(ArrayElement::id),
+            _ => return false,
+        },
+        None => None,
+    };
     let tuple_element = value_path.tuple_element();
-    animations
-        .get(parameter_id, array_element)
-        .is_some_and(|animation| {
-            tuple_element.is_none_or(|element| {
-                animation.channel_enabled(AnimationChannel::TupleElement(element))
-            })
-        })
+    match tuple_element {
+        Some(element) => {
+            animations.contains(&crate::domain::animation::ParameterAnimationAddress::new(
+                parameter_id,
+                array_element_id,
+                AnimationChannel::TupleElement(element),
+            ))
+        }
+        None => animations.contains(&crate::domain::animation::ParameterAnimationAddress::new(
+            parameter_id,
+            array_element_id,
+            AnimationChannel::Scalar,
+        )),
+    }
 }
 
 /// A binding target resolved against one concrete scene item.
@@ -293,9 +311,7 @@ pub(crate) fn resolve_parameter_schema<'a>(
             .or_else(|| {
                 scenes
                     .get(&item.scene_id()?)?
-                    .arguments
-                    .iter()
-                    .find(|argument| !argument.is_derived() && argument.schema.id() == parameter_id)
+                    .input_argument(parameter_id)
                     .map(|argument| argument.schema.parameter())
             }),
     }
@@ -318,15 +334,13 @@ pub(crate) fn resolve_scene_binding(
             let value = item.parameters.get(parameter_id).or_else(|| {
                 let nested = scenes.get(&item.scene_id()?)?;
                 nested
-                    .arguments
-                    .iter()
-                    .find(|argument| !argument.is_derived() && argument.schema.id() == parameter_id)
+                    .input_argument(parameter_id)
                     .map(|argument| argument.schema.default_value())
             })?;
             (value, &item.animations)
         }
     };
-    let animated = scene_binding_is_animated(animations, parameter_id, target.value_path());
+    let animated = scene_binding_is_animated(animations, parameter_id, value, target.value_path());
     let (schema, _) = project_scene_binding_value(schema, value, target.value_path())?;
     Some(ResolvedSceneBinding { schema, animated })
 }
@@ -334,9 +348,10 @@ pub(crate) fn resolve_scene_binding(
 pub(crate) fn apply_scene_binding_to_item(
     item: &mut TimelineItem,
     target: &SceneBindingTarget,
-    fallback_schema: &ParameterSchema,
+    binding_schema: &ParameterSchema,
     value: ParameterValue,
 ) -> Option<bool> {
+    let value = binding_schema.constrained_value(&value)?;
     let parameter_id = target.parameter_id();
     match target.owner() {
         SceneBindingOwner::Effect(effect_id) => item
@@ -355,7 +370,7 @@ pub(crate) fn apply_scene_binding_to_item(
             let target_schema = item_schema
                 .as_deref()
                 .and_then(|schema| schema.parameter(parameter_id))
-                .unwrap_or(fallback_schema);
+                .unwrap_or(binding_schema);
             let current = item.parameters.get(parameter_id)?;
             let value = apply_scene_binding_value(current, target.value_path(), value)?;
             item.parameters.set(target_schema, value).ok()
@@ -365,11 +380,7 @@ pub(crate) fn apply_scene_binding_to_item(
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SceneArgumentSchema {
-    // `declared` is persisted and edited by the user. `effective` is derived from
-    // the declared contract and the current binding set, so disconnecting a target
-    // can widen the contract again without relying on edit history.
-    declared: ParameterSchema,
-    effective: ParameterSchema,
+    parameter: ParameterSchema,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -405,68 +416,46 @@ impl SceneArgumentSchema {
         }
         let default = parameter.default_value().clone();
         parameter.default = parameter.constrained_value(&default)?;
+        // A scene argument is its own editable input contract. The source
+        // parameter's editability only controls direct edits on the bound
+        // plugin parameter.
+        parameter.editable = ParameterEditable::Scalar(true);
         parameter.scene_bindable = true;
-        Some(Self {
-            declared: parameter.clone(),
-            effective: parameter,
-        })
+        Some(Self { parameter })
     }
 
     pub(crate) fn parameter(&self) -> &ParameterSchema {
-        &self.effective
-    }
-
-    pub(crate) fn declared_parameter(&self) -> &ParameterSchema {
-        &self.declared
+        &self.parameter
     }
 
     pub(crate) fn id(&self) -> &str {
-        self.effective.id()
+        self.parameter.id()
     }
 
     pub(crate) fn label(&self) -> &str {
-        self.effective.label()
+        self.parameter.label()
     }
 
     pub(crate) fn ty(&self) -> &ParameterType {
-        self.effective.ty()
+        self.parameter.ty()
     }
 
     pub(crate) fn default_value(&self) -> &ParameterValue {
-        self.effective.default_value()
+        self.parameter.default_value()
     }
 
     pub(crate) fn constrained_value(&self, value: &ParameterValue) -> Option<ParameterValue> {
-        self.effective.constrained_value(value)
-    }
-
-    pub(crate) fn effective_for_targets<'a>(
-        &self,
-        targets: impl IntoIterator<Item = &'a ParameterSchema>,
-    ) -> Option<ParameterSchema> {
-        let mut effective = self.declared.clone();
-        for target in targets {
-            effective = effective.narrowed_for_target(target)?;
-        }
-        Some(effective)
-    }
-
-    pub(super) fn set_effective(&mut self, effective: ParameterSchema) {
-        debug_assert_eq!(self.declared.id, effective.id);
-        self.effective = effective;
+        self.parameter.constrained_value(value)
     }
 
     pub(crate) fn rename(&mut self, label: String) {
-        self.declared.label = label.clone();
-        self.effective.label = label;
+        self.parameter.label = label;
     }
 
     pub(crate) fn with_default(&self, value: &ParameterValue) -> Option<Self> {
-        let declared_default = self.declared.constrained_value(value)?;
-        let effective_default = self.effective.constrained_value(&declared_default)?;
+        let default = self.parameter.constrained_value(value)?;
         let mut next = self.clone();
-        next.declared.default = declared_default;
-        next.effective.default = effective_default;
+        next.parameter.default = default;
         Some(next)
     }
 
@@ -475,47 +464,38 @@ impl SceneArgumentSchema {
         settings: crate::domain::parameter::NumericSettings,
     ) -> Option<Self> {
         let (default, constraints) = settings.into_parts();
-        if !default.matches_type(self.declared.ty()) {
+        if !self.parameter.ty().allows(&default) {
             return None;
         }
         let mut next = self.clone();
-        for parameter in [&mut next.declared, &mut next.effective] {
-            parameter.default = default.clone();
-            parameter.constraints = constraints.clone();
-        }
+        next.parameter.default = default;
+        next.parameter.constraints = constraints;
         Some(next)
     }
 
     pub(crate) fn with_identity(mut self, id: String, label: String) -> Self {
-        for parameter in [&mut self.declared, &mut self.effective] {
-            parameter.id = id.clone();
-            parameter.label = label.clone();
-        }
+        self.parameter.id = id;
+        self.parameter.label = label;
         self
     }
 
-    fn into_derived(mut self) -> Option<Self> {
+    fn into_expression(mut self) -> Option<Self> {
         if self.ty() != &ParameterType::Value(ParameterValueType::Scalar(ScalarParameterType::F32))
         {
             return None;
         }
-        self.declared.animatable = false;
-        self.effective.animatable = false;
+        self.parameter.editable = ParameterEditable::Scalar(false);
+        self.parameter.animatable = ParameterAnimatable::Scalar(false);
+        self.parameter.scene_bindable = false;
         Some(self)
     }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-enum SceneArgumentSource {
-    Input,
-    Derived(expression::CompiledExpression),
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SceneArgument {
     pub(crate) schema: SceneArgumentSchema,
     pub(crate) bindings: Vec<SceneBindingTarget>,
-    source: SceneArgumentSource,
+    expression: Option<expression::CompiledExpression>,
 }
 
 impl SceneArgument {
@@ -523,37 +503,30 @@ impl SceneArgument {
         Self {
             schema,
             bindings,
-            source: SceneArgumentSource::Input,
+            expression: None,
         }
     }
 
-    pub(crate) fn derived(
+    pub(crate) fn computed(
         schema: SceneArgumentSchema,
         bindings: Vec<SceneBindingTarget>,
         expression: String,
     ) -> Option<Self> {
         Some(Self {
-            schema: schema.into_derived()?,
+            schema: schema.into_expression()?,
             bindings,
-            source: SceneArgumentSource::Derived(expression::CompiledExpression::compile(
-                expression,
-            )?),
+            expression: Some(expression::CompiledExpression::compile(expression)?),
         })
     }
 
-    pub(crate) fn is_derived(&self) -> bool {
-        matches!(self.source, SceneArgumentSource::Derived(_))
-    }
-
     pub(crate) fn expression(&self) -> Option<&str> {
-        match &self.source {
-            SceneArgumentSource::Input => None,
-            SceneArgumentSource::Derived(expression) => Some(expression.source()),
-        }
+        self.expression
+            .as_ref()
+            .map(expression::CompiledExpression::source)
     }
 
     pub(crate) fn set_expression(&mut self, expression: String) -> bool {
-        let SceneArgumentSource::Derived(current) = &mut self.source else {
+        let Some(current) = &mut self.expression else {
             return false;
         };
         let Some(expression) = expression::CompiledExpression::compile(expression) else {
@@ -563,26 +536,20 @@ impl SceneArgument {
         true
     }
 
-    pub(crate) fn derived_expression_references(&self, argument_id: &str) -> bool {
-        matches!(
-            &self.source,
-            SceneArgumentSource::Derived(expression)
-                if expression.dependencies().contains(argument_id)
-        )
+    pub(crate) fn expression_references(&self, argument_id: &str) -> bool {
+        self.expression
+            .as_ref()
+            .is_some_and(|expression| expression.dependencies().contains(argument_id))
     }
 
     pub(super) fn evaluate_expression(&self, values: &HashMap<String, f32>) -> Option<f32> {
-        match &self.source {
-            SceneArgumentSource::Input => None,
-            SceneArgumentSource::Derived(expression) => expression.evaluate(values),
-        }
+        self.expression.as_ref()?.evaluate(values)
     }
 
     fn expression_dependencies(&self) -> Option<&HashSet<String>> {
-        match &self.source {
-            SceneArgumentSource::Input => None,
-            SceneArgumentSource::Derived(expression) => Some(expression.dependencies()),
-        }
+        self.expression
+            .as_ref()
+            .map(expression::CompiledExpression::dependencies)
     }
 }
 
@@ -630,7 +597,7 @@ pub(super) fn unique_scene_argument_name(
 
 pub(crate) fn scene_argument_expressions_valid(arguments: &[SceneArgument]) -> bool {
     if arguments.iter().any(|argument| {
-        argument.is_derived()
+        argument.expression().is_some()
             && argument.schema.ty()
                 != &ParameterType::Value(ParameterValueType::Scalar(ScalarParameterType::F32))
     }) {
@@ -657,7 +624,7 @@ pub(crate) fn scene_argument_expressions_valid(arguments: &[SceneArgument]) -> b
     if dependencies.len()
         != arguments
             .iter()
-            .filter(|argument| argument.is_derived())
+            .filter(|argument| argument.expression().is_some())
             .count()
     {
         return false;
@@ -735,6 +702,41 @@ impl SceneDefinition {
 
     pub(crate) fn items(&self) -> impl Iterator<Item = &TimelineItem> {
         self.document.items()
+    }
+
+    pub(crate) fn input_arguments(&self) -> impl Iterator<Item = &SceneArgument> {
+        self.arguments
+            .iter()
+            .filter(|argument| argument.expression().is_none())
+    }
+
+    pub(crate) fn computed_arguments(&self) -> impl Iterator<Item = &SceneArgument> {
+        self.arguments
+            .iter()
+            .filter(|argument| argument.expression().is_some())
+    }
+
+    pub(crate) fn input_argument(&self, id: &str) -> Option<&SceneArgument> {
+        self.input_arguments()
+            .find(|argument| argument.schema.id() == id)
+    }
+
+    pub(crate) fn argument(&self, id: &str) -> Option<&SceneArgument> {
+        self.arguments
+            .iter()
+            .find(|argument| argument.schema.id() == id)
+    }
+
+    pub(crate) fn input_argument_mut(&mut self, id: &str) -> Option<&mut SceneArgument> {
+        self.arguments
+            .iter_mut()
+            .find(|argument| argument.expression().is_none() && argument.schema.id() == id)
+    }
+
+    pub(crate) fn argument_mut(&mut self, id: &str) -> Option<&mut SceneArgument> {
+        self.arguments
+            .iter_mut()
+            .find(|argument| argument.schema.id() == id)
     }
 
     pub(crate) fn is_empty(&self) -> bool {
@@ -837,12 +839,13 @@ pub(crate) fn set_scene_instance_override(
     }
     let previous = item.parameters.remove(&schema.id);
     if &value == schema.default_value() {
-        return previous.is_some();
+        previous.is_some()
+    } else {
+        item.parameters
+            .set(schema, value.clone())
+            .expect("validated scene override must satisfy its contract");
+        previous.as_ref() != Some(&value)
     }
-    item.parameters
-        .set(schema, value.clone())
-        .expect("validated scene override must satisfy its effective contract");
-    previous.as_ref() != Some(&value)
 }
 
 pub(crate) fn materialize_scene_instance_parameters(
@@ -851,64 +854,10 @@ pub(crate) fn materialize_scene_instance_parameters(
 ) -> Option<ParameterValues> {
     let scene = scenes.get(&item.scene_id()?)?;
     let schemas = scene
-        .arguments
-        .iter()
-        .filter(|argument| !argument.is_derived())
+        .input_arguments()
         .map(|argument| argument.schema.parameter().clone())
         .collect::<Vec<_>>();
     Some(materialized_parameter_values(&item.parameters, &schemas))
-}
-
-pub(crate) fn refresh_scene_argument_contracts(
-    scenes: &mut HashMap<SceneId, SceneDefinition>,
-) -> bool {
-    for _ in 0..=scenes.len() {
-        let updates = {
-            let mut updates = Vec::new();
-            for (scene_id, scene) in scenes.iter() {
-                for (index, argument) in scene.arguments.iter().enumerate() {
-                    let mut targets = Vec::with_capacity(argument.bindings.len());
-                    for binding in &argument.bindings {
-                        let Some(item) = scene.document().item(binding.item_id()) else {
-                            return false;
-                        };
-                        if binding.conflicts_with_aspect_ratio_lock(item, item.aspect_ratio_locked)
-                        {
-                            return false;
-                        }
-                        let Some(resolved) = resolve_scene_binding(scenes, scene, binding) else {
-                            return false;
-                        };
-                        if resolved.animated || !resolved.schema.scene_bindable {
-                            return false;
-                        }
-                        targets.push(resolved.schema);
-                    }
-                    let Some(effective) = argument.schema.effective_for_targets(targets.iter())
-                    else {
-                        return false;
-                    };
-                    if &effective != argument.schema.parameter() {
-                        updates.push((*scene_id, index, effective));
-                    }
-                }
-            }
-            updates
-        };
-        if updates.is_empty() {
-            return true;
-        }
-        for (scene_id, index, effective) in updates {
-            let Some(argument) = scenes
-                .get_mut(&scene_id)
-                .and_then(|scene| scene.arguments.get_mut(index))
-            else {
-                return false;
-            };
-            argument.schema.set_effective(effective);
-        }
-    }
-    false
 }
 
 pub(crate) fn display_scene_expression(arguments: &[SceneArgument], source: &str) -> String {
