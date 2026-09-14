@@ -33,7 +33,7 @@ opt-level = 3
 
 [package.metadata.deb]
 maintainer = "onestep621"
-depends = "$auto"
+depends = "libasound2 | libasound2t64, libdbus-1-3, libfontconfig1, libfreetype6, libvulkan1, libwayland-client0, libx11-6, libx11-xcb1, libxcb1, libxkbcommon0, libxkbcommon-x11-0, libc6, libgcc-s1"
 section = "graphics"
 priority = "optional"
 assets = [

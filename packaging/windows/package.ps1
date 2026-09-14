@@ -34,4 +34,5 @@ New-Item -ItemType Directory -Force $wixDir | Out-Null
     -out "$wixDir\"
 & "$wixBin\light.exe" `
     "$wixDir\zerium.wixobj" "$wixDir\files.wixobj" `
+    -pdbout "$wixDir\zerium.wixpdb" `
     -out "dist\$ArchiveName"

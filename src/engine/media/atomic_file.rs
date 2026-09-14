@@ -1,5 +1,5 @@
 use std::{
-    fs::{self, File, OpenOptions},
+    fs::{self, OpenOptions},
     io::{self, Write},
     path::{Path, PathBuf},
     sync::atomic::{AtomicU64, Ordering},
@@ -115,6 +115,8 @@ fn atomic_replace(source: &Path, destination: &Path) -> io::Result<()> {
 
 #[cfg(not(windows))]
 fn sync_parent(path: &Path) -> io::Result<()> {
+    use std::fs::File;
+
     let parent = path
         .parent()
         .filter(|path| !path.as_os_str().is_empty())
