@@ -1,10 +1,10 @@
 # Zerium
 
-<img align="right" src="assets/zerium.svg" width="180" alt="Zerium icon">
-
 A video editor with zero limits.
 
 ## Concept
+
+<img align="right" src="assets/zerium.svg" width="180" alt="Zerium icon">
 
 - Beginner-friendly features and extensible plugins, like [AviUtl](https://spring-fragrance.mints.ne.jp/aviutl/)
 - Rich effects and an intuitive interface for advanced editing
