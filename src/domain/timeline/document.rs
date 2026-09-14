@@ -3,12 +3,11 @@ use std::{
     sync::Arc,
 };
 
-use crate::domain::animation::{
-    AnimationChannel, BezierHandle, ParameterAnimationAddress, ParameterAnimations,
-    SegmentInterpolation,
-};
+use crate::domain::animation::{BezierHandle, ParameterAnimations, SegmentInterpolation};
 use crate::domain::media::ImportedMedia;
-use crate::domain::parameter::{ParameterSchema, ParameterValue};
+use crate::domain::parameter::{
+    ParameterAddress, ParameterSchema, ParameterValue, ParameterValuePath,
+};
 use crate::domain::plugin::{EffectSchema, ItemSchema};
 
 use super::{
@@ -30,7 +29,7 @@ pub(crate) enum ResizeEdge {
 pub(super) struct ParameterAnimationLocation<'a> {
     pub(super) item_id: ItemId,
     pub(super) effect_id: Option<EffectInstanceId>,
-    pub(super) address: &'a ParameterAnimationAddress,
+    pub(super) address: &'a ParameterAddress,
 }
 
 #[derive(Clone)]
@@ -645,10 +644,9 @@ impl TimelineDocument {
         let aspect_ratio = item.current_aspect_ratio(&schema);
         item.aspect_ratio_locked = locked;
         if locked && let Some(size) = schema.size_parameter() {
-            item.animations.disable(&ParameterAnimationAddress::new(
+            item.animations.disable(&ParameterAddress::new(
                 &size.id,
-                None,
-                AnimationChannel::TupleElement(1),
+                ParameterValuePath::new(None, Some(1)),
             ));
         }
         if locked && let Some(aspect_ratio) = aspect_ratio {
@@ -741,14 +739,14 @@ impl TimelineDocument {
         &mut self,
         item_id: ItemId,
         effect_id: Option<EffectInstanceId>,
-        address: &ParameterAnimationAddress,
+        address: &ParameterAddress,
         enabled: bool,
     ) -> bool {
         let Some(parameter) = self.parameter_schema(item_id, effect_id, &address.parameter_id)
         else {
             return false;
         };
-        if !parameter.is_editable(address.channel.coordinate()) {
+        if !parameter.is_editable(address.value_path.tuple_element()) {
             return false;
         }
         if !enabled {
@@ -773,7 +771,7 @@ impl TimelineDocument {
                     .parameter(&address.parameter_id)
                     .map(|parameter| {
                         (
-                            parameter.is_animatable(address.channel.coordinate()),
+                            parameter.is_animatable(address.value_path.tuple_element()),
                             parameter.ty().clone(),
                         )
                     })
@@ -794,7 +792,7 @@ impl TimelineDocument {
                 let Some((animatable, animation_type, is_size)) =
                     schema.parameter(&address.parameter_id).map(|parameter| {
                         (
-                            parameter.is_animatable(address.channel.coordinate()),
+                            parameter.is_animatable(address.value_path.tuple_element()),
                             parameter.ty().clone(),
                             schema.is_size_parameter(&address.parameter_id),
                         )
@@ -808,7 +806,7 @@ impl TimelineDocument {
                 }
                 if is_size
                     && preserves_aspect_ratio
-                    && address.channel == AnimationChannel::TupleElement(1)
+                    && address.value_path.tuple_element() == Some(1)
                 {
                     return false;
                 }
@@ -832,11 +830,11 @@ impl TimelineDocument {
         ) else {
             return false;
         };
-        if !parameter.is_editable(location.address.channel.coordinate()) {
+        if !parameter.is_editable(location.address.value_path.tuple_element()) {
             return false;
         }
         if !parameter
-            .scalar_constraints(location.address.channel.coordinate())
+            .scalar_constraints(location.address.value_path.tuple_element())
             .allows(&value)
         {
             return false;
@@ -861,11 +859,11 @@ impl TimelineDocument {
             location.effect_id,
             &location.address.parameter_id,
         )?;
-        if !parameter.is_editable(location.address.channel.coordinate()) {
+        if !parameter.is_editable(location.address.value_path.tuple_element()) {
             return None;
         }
         if !parameter
-            .scalar_constraints(location.address.channel.coordinate())
+            .scalar_constraints(location.address.value_path.tuple_element())
             .allows(&value)
         {
             return None;
@@ -907,7 +905,7 @@ impl TimelineDocument {
         ) else {
             return false;
         };
-        if !parameter.is_editable(location.address.channel.coordinate()) {
+        if !parameter.is_editable(location.address.value_path.tuple_element()) {
             return false;
         }
         self.animations_mut(location.item_id, location.effect_id)
@@ -928,7 +926,7 @@ impl TimelineDocument {
         ) else {
             return false;
         };
-        if !parameter.is_editable(location.address.channel.coordinate()) {
+        if !parameter.is_editable(location.address.value_path.tuple_element()) {
             return false;
         }
         let Some(animation) = self
@@ -952,7 +950,7 @@ impl TimelineDocument {
         ) else {
             return false;
         };
-        if !parameter.is_editable(location.address.channel.coordinate()) {
+        if !parameter.is_editable(location.address.value_path.tuple_element()) {
             return false;
         }
         self.animations_mut(location.item_id, location.effect_id)
@@ -973,7 +971,7 @@ impl TimelineDocument {
         ) else {
             return false;
         };
-        if !parameter.is_editable(location.address.channel.coordinate()) {
+        if !parameter.is_editable(location.address.value_path.tuple_element()) {
             return false;
         }
         self.animations_mut(location.item_id, location.effect_id)

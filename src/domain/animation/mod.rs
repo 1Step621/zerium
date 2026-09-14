@@ -6,6 +6,4 @@ mod track;
 
 pub(crate) use easing::{BezierHandle, EasingDirection, EasingFamily, SegmentInterpolation};
 pub(crate) use interpolation::interpolate_scalar;
-pub(crate) use track::{
-    AnimationChannel, ParameterAnimationAddress, ParameterAnimations, ScalarTrack,
-};
+pub(crate) use track::{ParameterAnimations, ScalarTrack};

@@ -10,11 +10,11 @@ use std::{
     fmt,
 };
 
-use crate::domain::animation::{BezierHandle, ParameterAnimationAddress, SegmentInterpolation};
+use crate::domain::animation::{BezierHandle, SegmentInterpolation};
 use crate::domain::media::ImportedMedia;
 use crate::domain::parameter::{
-    ParameterAnimatable, ParameterEditable, ParameterSchema, ParameterType, ParameterUi,
-    ParameterValue, ScalarParameterType,
+    ParameterAddress, ParameterAnimatable, ParameterEditable, ParameterSchema, ParameterType,
+    ParameterUi, ParameterValue, ParameterValuePath, ScalarParameterType,
 };
 
 use super::{
@@ -180,15 +180,16 @@ impl TimelineEditor {
         parameter_id: &str,
         value: &ParameterValue,
     ) -> bool {
-        let array_len = match value {
-            ParameterValue::Array(values) => Some(values.len()),
-            _ => None,
-        };
         !self.active_scene_has_binding(item_id, effect_id, parameter_id, |binding| {
             binding
                 .value_path()
-                .array_element()
-                .is_some_and(|index| array_len.is_none_or(|len| index >= len))
+                .array_element_id()
+                .is_some_and(|id| match value {
+                    ParameterValue::Array(values) => {
+                        !values.iter().any(|element| element.id() == id)
+                    }
+                    _ => true,
+                })
         })
     }
 
@@ -1362,7 +1363,7 @@ impl TimelineEditor {
         &mut self,
         effect: Option<EffectInstanceId>,
         parameter_id: &str,
-        path: super::scene::ParameterValuePath,
+        path: ParameterValuePath,
         value: ParameterValue,
     ) -> bool {
         let targets: Vec<_> = match effect {
@@ -1648,27 +1649,15 @@ impl TimelineEditor {
     pub(crate) fn set_selected_parameter_animation_enabled(
         &mut self,
         effect_id: Option<EffectInstanceId>,
-        address: ParameterAnimationAddress,
+        address: ParameterAddress,
         enabled: bool,
     ) -> bool {
         let Some(item_id) = self.selection.primary else {
             return false;
         };
-        let array_index = match address.array_element_id {
-            Some(id) => {
-                let Some(index) = self.selected_item().and_then(|item| {
-                    item.parameter_values(effect_id)
-                        .and_then(|values| values.array_element_index(&address.parameter_id, id))
-                }) else {
-                    return false;
-                };
-                Some(index)
-            }
-            None => None,
-        };
         if enabled
             && self.active_scene_has_binding(item_id, effect_id, &address.parameter_id, |binding| {
-                binding.conflicts_with_animation(&address, array_index)
+                binding.conflicts_with_animation(&address)
             })
         {
             return false;
@@ -1685,11 +1674,11 @@ impl TimelineEditor {
             let Some(item) = self.active_document_mut().item_mut(item_id) else {
                 return false;
             };
-            if !schema.is_editable(address.channel.coordinate()) {
+            if !schema.is_editable(address.value_path.tuple_element()) {
                 false
             } else if !enabled {
                 item.animations.disable(&address)
-            } else if !schema.is_animatable(address.channel.coordinate()) {
+            } else if !schema.is_animatable(address.value_path.tuple_element()) {
                 false
             } else if let Some(values) = values.as_ref() {
                 item.animations.enable(address, values, schema.ty())
@@ -1706,7 +1695,7 @@ impl TimelineEditor {
     pub(crate) fn set_selected_parameter_animation_stop(
         &mut self,
         effect_id: Option<EffectInstanceId>,
-        address: ParameterAnimationAddress,
+        address: ParameterAddress,
         index: usize,
         value: ParameterValue,
         focused_segment: Option<usize>,
@@ -1733,9 +1722,9 @@ impl TimelineEditor {
             .then(|| self.scene_instance_parameter_schema(item_id, &address.parameter_id))
             .flatten();
         let changed = if let Some(schema) = scene_schema {
-            if !schema.is_editable(address.channel.coordinate())
+            if !schema.is_editable(address.value_path.tuple_element())
                 || !schema
-                    .scalar_constraints(address.channel.coordinate())
+                    .scalar_constraints(address.value_path.tuple_element())
                     .allows(&value)
             {
                 false
@@ -1764,7 +1753,7 @@ impl TimelineEditor {
     pub(crate) fn insert_selected_parameter_animation_stop(
         &mut self,
         effect_id: Option<EffectInstanceId>,
-        address: ParameterAnimationAddress,
+        address: ParameterAddress,
         position: f32,
         value: ParameterValue,
     ) -> Option<usize> {
@@ -1781,9 +1770,9 @@ impl TimelineEditor {
             .then(|| self.scene_instance_parameter_schema(item_id, &address.parameter_id))
             .flatten();
         let inserted = if let Some(schema) = scene_schema {
-            if !schema.is_editable(address.channel.coordinate())
+            if !schema.is_editable(address.value_path.tuple_element())
                 || !schema
-                    .scalar_constraints(address.channel.coordinate())
+                    .scalar_constraints(address.value_path.tuple_element())
                     .allows(&value)
             {
                 None
@@ -1813,7 +1802,7 @@ impl TimelineEditor {
     pub(crate) fn set_selected_animation_handle(
         &mut self,
         effect_id: Option<EffectInstanceId>,
-        address: ParameterAnimationAddress,
+        address: ParameterAddress,
         segment: usize,
         handle: BezierHandle,
         position: [f32; 2],
@@ -1839,7 +1828,7 @@ impl TimelineEditor {
     pub(crate) fn set_selected_animation_interpolation(
         &mut self,
         effect_id: Option<EffectInstanceId>,
-        address: ParameterAnimationAddress,
+        address: ParameterAddress,
         segment: usize,
         interpolation: SegmentInterpolation,
     ) -> bool {
@@ -1864,7 +1853,7 @@ impl TimelineEditor {
     pub(crate) fn remove_selected_animation_stop(
         &mut self,
         effect_id: Option<EffectInstanceId>,
-        address: ParameterAnimationAddress,
+        address: ParameterAddress,
         stop: usize,
     ) -> bool {
         let Some(item_id) = self.selection.primary else {
@@ -1885,7 +1874,7 @@ impl TimelineEditor {
     pub(crate) fn move_selected_animation_stop(
         &mut self,
         effect_id: Option<EffectInstanceId>,
-        address: ParameterAnimationAddress,
+        address: ParameterAddress,
         stop: usize,
         position: f32,
     ) -> bool {

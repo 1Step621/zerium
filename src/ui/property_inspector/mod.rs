@@ -25,17 +25,16 @@ use gpui::{
     Subscription, Task, Window, div, prelude::*, px,
 };
 
-use crate::domain::animation::{AnimationChannel, ParameterAnimationAddress};
 use crate::domain::media::{MediaAsset, MediaKind};
 use crate::domain::parameter::{
-    ArrayElement, ParameterSchema, ParameterType, ParameterValue, ParameterValueType,
-    ScalarParameterType,
+    ArrayElement, ArrayElementId, ParameterAddress, ParameterSchema, ParameterType, ParameterValue,
+    ParameterValuePath, ParameterValueType, ScalarParameterType,
 };
 use crate::domain::plugin::{FileCapability, ItemSchema};
 use crate::domain::timeline::{
     EffectInstance, EffectInstanceId, ItemId, SceneArgument, SceneArgumentPreset,
-    SceneBindingOwner, SceneBindingTarget, SceneBindingValuePath, SceneId, TimelineEditor,
-    TimelineItem, TimelineTime, display_scene_expression,
+    SceneBindingOwner, SceneBindingTarget, SceneId, TimelineEditor, TimelineItem, TimelineTime,
+    display_scene_expression,
 };
 use crate::engine::media::MediaReaderRegistry;
 use crate::plugin_catalog::plugins;
@@ -149,44 +148,26 @@ pub(super) struct PropertyTarget {
     pub key: PropertyPath,
     pub parameter_id: String,
     pub effect_id: Option<EffectInstanceId>,
-    pub value_path: SceneBindingValuePath,
+    pub value_path: ParameterValuePath,
 }
 
 impl PropertyTarget {
     pub(super) fn animation_enabled(&self, item: &TimelineItem) -> bool {
-        self.animation_address(item)
-            .and_then(|address| item.animation(self.effect_id, &address))
+        item.animation(self.effect_id, &self.animation_address())
             .is_some()
     }
 
-    pub(super) fn animation_address(
-        &self,
-        item: &TimelineItem,
-    ) -> Option<ParameterAnimationAddress> {
-        let array_element_id = match self.value_path.array_element() {
-            Some(index) => Some(
-                item.parameter_values(self.effect_id)?
-                    .array_element_id(&self.parameter_id, index)?,
-            ),
-            None => None,
-        };
-        Some(ParameterAnimationAddress {
-            parameter_id: self.parameter_id.clone(),
-            array_element_id,
-            channel: self
-                .value_path
-                .tuple_element()
-                .map_or(AnimationChannel::Scalar, AnimationChannel::TupleElement),
-        })
+    pub(super) fn animation_address(&self) -> ParameterAddress {
+        ParameterAddress::new(&self.parameter_id, self.value_path)
     }
 
-    pub(super) fn animation_target(&self, item: &TimelineItem) -> Option<AnimationTarget> {
-        Some(AnimationTarget {
+    pub(super) fn animation_target(&self, item: &TimelineItem) -> AnimationTarget {
+        AnimationTarget {
             item_id: item.id,
             effect_id: self.effect_id,
-            address: self.animation_address(item)?,
+            address: self.animation_address(),
             property: self.key.clone(),
-        })
+        }
     }
 }
 
@@ -218,7 +199,7 @@ pub(super) enum SceneArgumentSetting {
 
 #[derive(Clone)]
 pub(super) struct NumberAnimationSource {
-    pub source_address: ParameterAnimationAddress,
+    pub source_address: ParameterAddress,
     pub value_factor: f64,
 }
 
@@ -246,7 +227,7 @@ pub(super) struct ParameterBinding {
 pub(super) struct AnimationStopBinding {
     pub item_id: ItemId,
     pub effect_id: Option<EffectInstanceId>,
-    pub address: ParameterAnimationAddress,
+    pub address: ParameterAddress,
     pub stop: usize,
     pub value_factor: f64,
 }

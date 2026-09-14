@@ -8,8 +8,8 @@ use std::{
 };
 
 use crate::domain::{
-    animation::{BezierHandle, ParameterAnimationAddress},
-    parameter::ParameterValue,
+    animation::BezierHandle,
+    parameter::{ParameterAddress, ParameterValue},
     plugin::PluginRegistry,
 };
 
@@ -53,25 +53,15 @@ pub(super) enum HistoryKey {
     ItemsParameter(Vec<ItemId>, String),
     EffectParameter(ItemId, EffectInstanceId, String),
     EffectsParameter(Vec<(ItemId, EffectInstanceId)>, String),
-    AnimationStopValue(
-        ItemId,
-        Option<EffectInstanceId>,
-        ParameterAnimationAddress,
-        Frame,
-    ),
+    AnimationStopValue(ItemId, Option<EffectInstanceId>, ParameterAddress, Frame),
     AnimationHandle(
         ItemId,
         Option<EffectInstanceId>,
-        ParameterAnimationAddress,
+        ParameterAddress,
         usize,
         BezierHandle,
     ),
-    AnimationStopPosition(
-        ItemId,
-        Option<EffectInstanceId>,
-        ParameterAnimationAddress,
-        usize,
-    ),
+    AnimationStopPosition(ItemId, Option<EffectInstanceId>, ParameterAddress, usize),
     ItemResize(ItemId, ResizeEdge),
     ItemMove(ItemId),
     ItemsMove(Vec<ItemId>),

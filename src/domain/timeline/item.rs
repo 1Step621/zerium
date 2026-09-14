@@ -1,7 +1,8 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::domain::animation::{ParameterAnimationAddress, ParameterAnimations, ScalarTrack};
+use crate::domain::animation::{ParameterAnimations, ScalarTrack};
 use crate::domain::media::MediaAsset;
+use crate::domain::parameter::ParameterAddress;
 use crate::domain::parameter::{ParameterValue, ParameterValues};
 use crate::domain::plugin::{EffectSchema, ItemSchema};
 
@@ -330,7 +331,7 @@ impl TimelineItem {
     pub(crate) fn animation(
         &self,
         effect_id: Option<EffectInstanceId>,
-        address: &ParameterAnimationAddress,
+        address: &ParameterAddress,
     ) -> Option<&ScalarTrack> {
         match effect_id {
             Some(effect_id) => self

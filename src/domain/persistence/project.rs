@@ -8,21 +8,22 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::animation::{ParameterAnimationAddress, ParameterAnimations, ScalarTrack};
+use crate::domain::animation::{ParameterAnimations, ScalarTrack};
 use crate::domain::media::{MediaAsset, MediaKind, VideoFrameRate};
 use crate::domain::parameter::materialized_parameter_values;
-use crate::domain::parameter::{ParameterSchema, ParameterValue, ParameterValues};
+use crate::domain::parameter::{
+    ParameterAddress, ParameterSchema, ParameterValue, ParameterValuePath, ParameterValues,
+};
 use crate::domain::plugin::PluginRegistry;
 use crate::domain::timeline::{
     EffectInstance, EffectInstanceId, Frame, FrameDuration, FrameRate, ItemId, LayerId, ProjectId,
     ProjectResolution, SceneArgument, SceneArgumentSchema, SceneBindingOwner, SceneBindingTarget,
-    SceneBindingValuePath, SceneDefinition, SceneId, TimelineDocument, TimelineEditor,
-    TimelineItem, TimelineItemKind, TimelineSnapshot, TimelineView, resolve_scene_binding,
-    scene_argument_expressions_valid,
+    SceneDefinition, SceneId, TimelineDocument, TimelineEditor, TimelineItem, TimelineItemKind,
+    TimelineSnapshot, TimelineView, resolve_scene_binding, scene_argument_expressions_valid,
 };
 
 pub(crate) const PROJECT_EXTENSION: &str = "zero";
-const FORMAT_VERSION: u32 = 9;
+const FORMAT_VERSION: u32 = 1;
 
 pub(crate) struct LoadedProject {
     project_id: ProjectId,
@@ -380,10 +381,7 @@ pub(super) enum ProjectSceneBinding {
         item_id: u64,
         effect_id: Option<u64>,
         parameter_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        array_element: Option<usize>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        tuple_element: Option<usize>,
+        value_path: ParameterValuePath,
     },
 }
 
@@ -394,8 +392,7 @@ impl ProjectSceneBinding {
             item_id: binding.item_id().get(),
             effect_id,
             parameter_id: binding.parameter_id().to_owned(),
-            array_element: binding.value_path().array_element(),
-            tuple_element: binding.value_path().tuple_element(),
+            value_path: binding.value_path(),
         }
     }
 
@@ -405,13 +402,12 @@ impl ProjectSceneBinding {
                 item_id,
                 effect_id,
                 parameter_id,
-                array_element,
-                tuple_element,
+                value_path,
             } => SceneBindingTarget::new(
                 ItemId(item_id),
                 SceneBindingOwner::from_effect(effect_id.map(EffectInstanceId::new)),
                 parameter_id,
-                SceneBindingValuePath::from_elements(array_element, tuple_element),
+                value_path,
             ),
         }
     }
@@ -654,7 +650,7 @@ impl ProjectEffect {
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectAnimation {
-    address: ParameterAnimationAddress,
+    address: ParameterAddress,
     track: ScalarTrack,
 }
 
@@ -689,12 +685,12 @@ fn load_animations(
             parameters
                 .scalar_at(address, parameter.ty())
                 .is_some_and(|(scalar, scalar_ty)| {
-                    parameter.is_animatable(address.channel.coordinate())
+                    parameter.is_animatable(address.value_path.tuple_element())
                         && animation.track.is_valid_for(scalar_ty)
                         && scalar_ty.allows(scalar)
                         && animation.track.stops().iter().all(|stop| {
                             parameter
-                                .scalar_constraints(address.channel.coordinate())
+                                .scalar_constraints(address.value_path.tuple_element())
                                 .allows(stop.value())
                         })
                 });

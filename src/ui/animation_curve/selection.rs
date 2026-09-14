@@ -4,7 +4,7 @@ use super::*;
 pub(crate) struct AnimationTarget {
     pub item_id: ItemId,
     pub effect_id: Option<EffectInstanceId>,
-    pub address: ParameterAnimationAddress,
+    pub address: ParameterAddress,
     pub property: PropertyPath,
 }
 

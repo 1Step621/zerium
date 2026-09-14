@@ -16,7 +16,10 @@ pub(crate) use types::{ParameterType, ParameterValueType, ScalarParameterType};
 pub(crate) use ui::ParameterUi;
 pub(in crate::domain) use value::MAX_STRING_BYTES;
 pub(crate) use value::materialized_parameter_values;
-pub(crate) use value::{ArrayElement, ArrayElementId, ParameterValue, ParameterValues};
+pub(crate) use value::{
+    ArrayElement, ArrayElementId, ParameterAddress, ParameterValue, ParameterValuePath,
+    ParameterValues,
+};
 
 /// A value or schema violates its parameter contract.
 #[derive(Debug)]

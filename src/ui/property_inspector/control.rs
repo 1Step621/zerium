@@ -30,7 +30,7 @@ pub(super) struct LeafControl {
 pub(super) struct AnimationStopControl {
     pub id: ControlId,
     pub index: usize,
-    pub source_address: ParameterAnimationAddress,
+    pub source_address: ParameterAddress,
     pub value: ParameterValue,
     pub value_factor: f64,
 }
@@ -372,7 +372,7 @@ impl PropertyInspector {
         parameter: &ParameterSchema,
         value: ParameterValue,
         effect_id: Option<EffectInstanceId>,
-        array: Option<usize>,
+        array_element_id: Option<ArrayElementId>,
         element: Option<usize>,
         label: String,
     ) -> LeafControl {
@@ -382,7 +382,7 @@ impl PropertyInspector {
                 key: key.clone(),
                 parameter_id: parameter.id().to_owned(),
                 effect_id,
-                value_path: SceneBindingValuePath::from_elements(array, element),
+                value_path: ParameterValuePath::new(array_element_id, element),
             },
             label,
             element_label: parameter.scalar_label(element),
@@ -402,7 +402,7 @@ impl PropertyInspector {
         parameter: &ParameterSchema,
         value: &ParameterValue,
         effect_id: Option<EffectInstanceId>,
-        array: Option<usize>,
+        array: Option<(usize, ArrayElementId)>,
         is_size: bool,
         resolution: &ControlResolution<'_>,
     ) -> Vec<Control> {
@@ -411,7 +411,7 @@ impl PropertyInspector {
         }
         let label = array.map_or_else(
             || parameter.label().to_owned(),
-            |index| format!("{} {}", parameter.label(), index + 1),
+            |(index, _)| format!("{} {}", parameter.label(), index + 1),
         );
         let ty = parameter.ty().element_type();
         let ui = parameter.ui();
@@ -434,13 +434,13 @@ impl PropertyInspector {
                         )
                     },
                 );
-                let scalar_key = key.scalar(array, element);
+                let scalar_key = key.scalar(array.map(|(index, _)| index), element);
                 let common = Self::scalar_common(
                     &scalar_key,
                     parameter,
                     value.clone(),
                     effect_id,
-                    array,
+                    array.map(|(_, id)| id),
                     element,
                     label,
                 );
@@ -567,14 +567,14 @@ impl PropertyInspector {
             key: key.clone(),
             parameter_id: parameter.id().to_owned(),
             effect_id: owner.effect_id(),
-            value_path: SceneBindingValuePath::Whole,
+            value_path: ParameterValuePath::WHOLE,
         };
         let has_scene_binding = resolution.arguments.iter().any(|argument| {
             argument.bindings.iter().any(|binding| {
                 binding.item_id() == resolution.item.id
                     && binding.owner() == SceneBindingOwner::from_effect(target.effect_id)
                     && binding.parameter_id() == target.parameter_id
-                    && binding.value_path().array_element().is_some()
+                    && binding.value_path().array_element_id().is_some()
             })
         });
         let children = values
@@ -586,7 +586,7 @@ impl PropertyInspector {
                     parameter,
                     element.value(),
                     owner.effect_id(),
-                    Some(index),
+                    Some((index, element.id())),
                     false,
                     resolution,
                 );
@@ -725,7 +725,7 @@ impl PropertyInspector {
     fn animation_stop_controls(
         item: &TimelineItem,
         effect_id: Option<EffectInstanceId>,
-        source_address: &ParameterAnimationAddress,
+        source_address: &ParameterAddress,
         property: &PropertyPath,
         value_factor: f64,
         time: TimelineTime,
@@ -812,9 +812,8 @@ impl PropertyInspector {
                     animation_enabled,
                 );
                 color.common.animation_enabled = animation_enabled;
-                if animation_enabled
-                    && let Some(address) = color.common.target.animation_address(resolution.item)
-                {
+                if animation_enabled {
+                    let address = color.common.target.animation_address();
                     color.common.animation_stops = Self::animation_stop_controls(
                         resolution.item,
                         color.common.target.effect_id,
@@ -887,7 +886,7 @@ impl PropertyInspector {
                 binding.item_id() == item.id
                     && binding.owner() == SceneBindingOwner::Item
                     && binding.parameter_id() == size.id()
-                    && binding.value_path() == SceneBindingValuePath::Whole
+                    && binding.value_path() == ParameterValuePath::WHOLE
             })
         });
         Some(AspectRatioLockState {

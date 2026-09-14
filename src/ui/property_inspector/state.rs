@@ -81,9 +81,11 @@ impl PropertyInspector {
                 .and_then(|effect| effect.parameters.get(&target.parameter_id)),
             None => item.parameters.get(&target.parameter_id),
         };
-        let value = match target.value_path.array_element() {
-            Some(index) => match value? {
-                ParameterValue::Array(values) => values.get(index)?.value(),
+        let value = match target.value_path.array_element_id() {
+            Some(id) => match value? {
+                ParameterValue::Array(values) => {
+                    values.iter().find(|element| element.id() == id)?.value()
+                }
                 _ => return None,
             },
             None => value?,

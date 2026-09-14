@@ -15,7 +15,7 @@ impl PropertyInspector {
         editor: &mut TimelineEditor,
         effect_id: Option<EffectInstanceId>,
         parameter_id: &str,
-        path: SceneBindingValuePath,
+        path: ParameterValuePath,
         value: ParameterValue,
     ) -> bool {
         editor.update_selected_scalar(effect_id, parameter_id, path, value)
@@ -52,10 +52,11 @@ impl PropertyInspector {
                 .get(&target.parameter_id)?,
             None => item.parameters.get(&target.parameter_id)?,
         };
-        match target.value_path.array_element() {
-            Some(index) => match value {
+        match target.value_path.array_element_id() {
+            Some(id) => match value {
                 ParameterValue::Array(values) => values
-                    .get(index)?
+                    .iter()
+                    .find(|element| element.id() == id)?
                     .value()
                     .scalar_at(target.value_path.tuple_element())?
                     .numeric_scalar(),
@@ -83,9 +84,11 @@ impl PropertyInspector {
                     .get(&target.parameter_id)?,
                 None => item.parameters.get(&target.parameter_id)?,
             };
-            let current = match target.value_path.array_element() {
-                Some(index) => match current {
-                    ParameterValue::Array(values) => values.get(index)?.value(),
+            let current = match target.value_path.array_element_id() {
+                Some(id) => match current {
+                    ParameterValue::Array(values) => {
+                        values.iter().find(|element| element.id() == id)?.value()
+                    }
                     _ => return None,
                 },
                 None => current,
@@ -450,7 +453,7 @@ impl PropertyInspector {
         item: &TimelineItem,
         target: &PropertyTarget,
         spec: &NumberSpec,
-    ) -> Option<(f64, String, AnimationChannel)> {
+    ) -> Option<(f64, String, ParameterValuePath)> {
         if target.effect_id.is_some()
             || !spec.is_size
             || target.value_path.tuple_element() != Some(1)
@@ -468,7 +471,7 @@ impl PropertyInspector {
         (width.is_finite() && height.is_finite() && width > 0. && height > 0.).then_some((
             width / height,
             size.id().to_owned(),
-            AnimationChannel::TupleElement(0),
+            ParameterValuePath::new(None, Some(0)),
         ))
     }
 
@@ -477,7 +480,7 @@ impl PropertyInspector {
         target: &PropertyTarget,
         spec: &NumberSpec,
     ) -> Option<NumberAnimationSource> {
-        let target_address = target.animation_address(item)?;
+        let target_address = target.animation_address();
         if item.animation(target.effect_id, &target_address).is_some() {
             return Some(NumberAnimationSource {
                 source_address: target_address,
@@ -485,10 +488,9 @@ impl PropertyInspector {
             });
         }
 
-        let (aspect_ratio, source_parameter_id, source_channel) =
+        let (aspect_ratio, source_parameter_id, source_path) =
             Self::linked_animation_aspect_ratio(item, target, spec)?;
-        let source_address =
-            ParameterAnimationAddress::new(source_parameter_id, None, source_channel);
+        let source_address = ParameterAddress::new(source_parameter_id, source_path);
         item.animation(None, &source_address)?;
         let value_factor = aspect_ratio.recip();
         Some(NumberAnimationSource {
@@ -539,21 +541,7 @@ impl PropertyInspector {
                 return;
             };
             resolved.parameter_id = display.source_address.parameter_id.clone();
-            let array_index = match display.source_address.array_element_id {
-                Some(id) => {
-                    let Some(index) = item.parameter_values(target.effect_id).and_then(|values| {
-                        values.array_element_index(&display.source_address.parameter_id, id)
-                    }) else {
-                        return;
-                    };
-                    Some(index)
-                }
-                None => None,
-            };
-            resolved.value_path = SceneBindingValuePath::from_elements(
-                array_index,
-                display.source_address.channel.coordinate(),
-            );
+            resolved.value_path = display.source_address.value_path;
         }
         self.set_animation_enabled(&resolved, enabled, _window, cx);
     }
@@ -561,7 +549,7 @@ impl PropertyInspector {
     pub(super) fn select_animation(&mut self, property: &PropertyTarget, cx: &mut Context<Self>) {
         let items = self.editor.read(cx).selected_items();
         let target = match items.as_slice() {
-            [item] if property.animation_enabled(item) => property.animation_target(item),
+            [item] if property.animation_enabled(item) => Some(property.animation_target(item)),
             _ => None,
         };
         self.animation_selection
@@ -581,9 +569,7 @@ impl PropertyInspector {
         let Some(item) = self.editor.read(cx).selected_item() else {
             return;
         };
-        let Some(target) = property.animation_target(&item) else {
-            return;
-        };
+        let target = property.animation_target(&item);
         let address = target.address.clone();
         let changed = self.editor.update(cx, |editor, cx| {
             let changed = editor.set_selected_parameter_animation_enabled(
@@ -641,21 +627,15 @@ impl PropertyInspector {
         item: &TimelineItem,
         target: &AnimationTarget,
     ) -> Option<PropertyTarget> {
-        let array_index = match target.address.array_element_id {
-            Some(id) => Some(
-                item.parameter_values(target.effect_id)?
-                    .array_element_index(&target.address.parameter_id, id)?,
-            ),
-            None => None,
-        };
+        if let Some(id) = target.address.value_path.array_element_id() {
+            item.parameter_values(target.effect_id)?
+                .array_element_index(&target.address.parameter_id, id)?;
+        }
         Some(PropertyTarget {
             key: target.property.clone(),
             parameter_id: target.address.parameter_id.clone(),
             effect_id: target.effect_id,
-            value_path: SceneBindingValuePath::from_elements(
-                array_index,
-                target.address.channel.coordinate(),
-            ),
+            value_path: target.address.value_path,
         })
     }
 
@@ -668,13 +648,13 @@ impl PropertyInspector {
             || parameter.label().to_owned(),
             |index| format!("{} {}", parameter.label(), index + 1),
         );
-        match target.address.channel {
-            AnimationChannel::TupleElement(element) => parameter
+        match target.address.value_path.tuple_element() {
+            Some(element) => parameter
                 .scalar_label(Some(element))
                 .map_or(label.clone(), |element_label| {
                     format!("{label} {element_label}")
                 }),
-            AnimationChannel::Scalar => label,
+            None => label,
         }
     }
 
@@ -685,7 +665,7 @@ impl PropertyInspector {
     ) -> Option<AnimationPresentation> {
         let parameter = Self::animation_parameter(editor, item, target)?;
         let property_target = Self::animation_property_target(item, target)?;
-        let tuple_element = target.address.channel.coordinate();
+        let tuple_element = target.address.value_path.tuple_element();
         let scalar_type = parameter
             .ty()
             .element_type()
@@ -694,7 +674,13 @@ impl PropertyInspector {
         let label = Self::animation_label(
             &parameter,
             target,
-            property_target.value_path.array_element(),
+            property_target
+                .value_path
+                .array_element_id()
+                .and_then(|id| {
+                    item.parameter_values(target.effect_id)?
+                        .array_element_index(&target.address.parameter_id, id)
+                }),
         );
         if matches!(scalar_type, ScalarParameterType::Color) {
             if !property_target.animation_enabled(item) {

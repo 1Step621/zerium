@@ -10,8 +10,6 @@ use super::{
     schema::ParameterSchema,
     types::{ParameterType, ParameterValueType, ScalarParameterType},
 };
-use crate::domain::animation::ParameterAnimationAddress;
-
 pub(in crate::domain) const MAX_STRING_BYTES: usize = 4_096;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -21,6 +19,55 @@ pub(crate) struct ArrayElementId(u64);
 impl ArrayElementId {
     pub(crate) const fn is_valid(self) -> bool {
         self.0 != 0
+    }
+}
+
+#[derive(
+    Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize,
+)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ParameterValuePath {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    array_element_id: Option<ArrayElementId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tuple_element: Option<usize>,
+}
+
+impl ParameterValuePath {
+    pub(crate) const WHOLE: Self = Self::new(None, None);
+
+    pub(crate) const fn new(
+        array_element_id: Option<ArrayElementId>,
+        tuple_element: Option<usize>,
+    ) -> Self {
+        Self {
+            array_element_id,
+            tuple_element,
+        }
+    }
+
+    pub(crate) const fn array_element_id(self) -> Option<ArrayElementId> {
+        self.array_element_id
+    }
+
+    pub(crate) const fn tuple_element(self) -> Option<usize> {
+        self.tuple_element
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ParameterAddress {
+    pub parameter_id: String,
+    pub value_path: ParameterValuePath,
+}
+
+impl ParameterAddress {
+    pub(crate) fn new(parameter_id: impl Into<String>, value_path: ParameterValuePath) -> Self {
+        Self {
+            parameter_id: parameter_id.into(),
+            value_path,
+        }
     }
 }
 
@@ -272,9 +319,9 @@ impl ParameterValues {
         self.values.get(id).map(|stored| &stored.value)
     }
 
-    pub(crate) fn get_at(&self, address: &ParameterAnimationAddress) -> Option<&ParameterValue> {
+    pub(crate) fn get_at(&self, address: &ParameterAddress) -> Option<&ParameterValue> {
         let value = self.get(&address.parameter_id)?;
-        match address.array_element_id {
+        match address.value_path.array_element_id() {
             Some(id) => match value {
                 ParameterValue::Array(values) => values
                     .iter()
@@ -286,12 +333,9 @@ impl ParameterValues {
         }
     }
 
-    pub(crate) fn get_at_mut(
-        &mut self,
-        address: &ParameterAnimationAddress,
-    ) -> Option<&mut ParameterValue> {
+    pub(crate) fn get_at_mut(&mut self, address: &ParameterAddress) -> Option<&mut ParameterValue> {
         let value = &mut self.values.get_mut(&address.parameter_id)?.value;
-        match address.array_element_id {
+        match address.value_path.array_element_id() {
             Some(id) => match value {
                 ParameterValue::Array(values) => values
                     .iter_mut()
@@ -303,45 +347,31 @@ impl ParameterValues {
         }
     }
 
-    pub(crate) fn get_scalar_at(
-        &self,
-        address: &ParameterAnimationAddress,
-    ) -> Option<&ParameterValue> {
+    pub(crate) fn get_scalar_at(&self, address: &ParameterAddress) -> Option<&ParameterValue> {
         self.get_at(address)?
-            .scalar_at(address.channel.coordinate())
+            .scalar_at(address.value_path.tuple_element())
     }
 
     pub(crate) fn get_scalar_at_mut(
         &mut self,
-        address: &ParameterAnimationAddress,
+        address: &ParameterAddress,
     ) -> Option<&mut ParameterValue> {
         self.get_at_mut(address)?
-            .scalar_at_mut(address.channel.coordinate())
+            .scalar_at_mut(address.value_path.tuple_element())
     }
 
     pub(crate) fn scalar_at<'a>(
         &self,
-        address: &ParameterAnimationAddress,
+        address: &ParameterAddress,
         ty: &'a ParameterType,
     ) -> Option<(&ParameterValue, &'a ScalarParameterType)> {
         let value = self.get_scalar_at(address)?;
-        let value_type = match address.array_element_id {
+        let value_type = match address.value_path.array_element_id() {
             Some(_) => ty.array_element_type()?,
             None => ty.value_type()?,
         };
-        let scalar_type = value_type.scalar_at(address.channel.coordinate())?;
+        let scalar_type = value_type.scalar_at(address.value_path.tuple_element())?;
         Some((value, scalar_type))
-    }
-
-    pub(crate) fn array_element_id(
-        &self,
-        parameter_id: &str,
-        index: usize,
-    ) -> Option<ArrayElementId> {
-        let ParameterValue::Array(elements) = self.get(parameter_id)? else {
-            return None;
-        };
-        elements.get(index).map(ArrayElement::id)
     }
 
     pub(crate) fn array_element_index(

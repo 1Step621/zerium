@@ -1315,7 +1315,8 @@ impl PropertyInspector {
                         .collect::<Vec<_>>();
                     let picker_inspector = ctx.inspector.clone();
                     let mut picker_target = array.target.clone();
-                    picker_target.value_path = SceneBindingValuePath::ArrayElement(element);
+                    picker_target.value_path =
+                        ParameterValuePath::new(Some(element_value.id()), None);
                     let label = if selected_font.is_empty() {
                         "フォントを選択".to_owned()
                     } else {

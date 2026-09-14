@@ -28,7 +28,7 @@ use super::{
 };
 
 pub(super) const READER_ID: &str = "zerium.ffmpeg";
-const VIDEO_PROXY_FORMAT_VERSION: u8 = 5;
+const VIDEO_PROXY_FORMAT_VERSION: u8 = 1;
 const PROXY_CACHE_BUDGET_BYTES: u64 = 2 * 1024 * 1024 * 1024;
 const PROXY_LOCK_STALE_AFTER: Duration = Duration::from_secs(10 * 60);
 const PROXY_LOCK_RETRY_DELAY: Duration = Duration::from_millis(50);

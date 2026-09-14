@@ -1,10 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::domain::animation::{AnimationChannel, ParameterAnimations};
+use crate::domain::animation::ParameterAnimations;
 use crate::domain::parameter::materialized_parameter_values;
 use crate::domain::parameter::{
-    ArrayElement, ParameterAnimatable, ParameterEditable, ParameterSchema, ParameterType,
-    ParameterValue, ParameterValueType, ParameterValues, ScalarParameterType,
+    ParameterAddress, ParameterAnimatable, ParameterEditable, ParameterSchema, ParameterType,
+    ParameterValue, ParameterValuePath, ParameterValueType, ParameterValues, ScalarParameterType,
 };
 
 use super::{
@@ -34,72 +34,12 @@ impl ParameterOwner {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum ParameterValuePath {
-    Whole,
-    ArrayElement(usize),
-    TupleElement(usize),
-    ArrayTupleElement { array: usize, tuple: usize },
-}
-
-impl ParameterValuePath {
-    pub(crate) fn from_elements(
-        array_element: Option<usize>,
-        tuple_element: Option<usize>,
-    ) -> Self {
-        match (array_element, tuple_element) {
-            (None, None) => Self::Whole,
-            (Some(element), None) => Self::ArrayElement(element),
-            (None, Some(element)) => Self::TupleElement(element),
-            (Some(array), Some(tuple)) => Self::ArrayTupleElement { array, tuple },
-        }
-    }
-
-    pub(crate) const fn array_element(self) -> Option<usize> {
-        match self {
-            Self::Whole | Self::TupleElement(_) => None,
-            Self::ArrayElement(element) => Some(element),
-            Self::ArrayTupleElement { array, .. } => Some(array),
-        }
-    }
-
-    pub(crate) const fn tuple_element(self) -> Option<usize> {
-        match self {
-            Self::Whole | Self::ArrayElement(_) => None,
-            Self::TupleElement(element) => Some(element),
-            Self::ArrayTupleElement { tuple, .. } => Some(tuple),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct ParameterAddress {
-    owner: ParameterOwner,
-    parameter_id: String,
-    value_path: ParameterValuePath,
-}
-
-impl ParameterAddress {
-    fn new(
-        owner: ParameterOwner,
-        parameter_id: impl Into<String>,
-        value_path: ParameterValuePath,
-    ) -> Self {
-        Self {
-            owner,
-            parameter_id: parameter_id.into(),
-            value_path,
-        }
-    }
-}
-
 pub(crate) type SceneBindingOwner = ParameterOwner;
-pub(crate) type SceneBindingValuePath = ParameterValuePath;
-
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct SceneBindingTarget {
     item_id: ItemId,
-    address: ParameterAddress,
+    owner: ParameterOwner,
+    parameter: ParameterAddress,
 }
 
 impl SceneBindingTarget {
@@ -107,11 +47,12 @@ impl SceneBindingTarget {
         item_id: ItemId,
         owner: SceneBindingOwner,
         parameter_id: impl Into<String>,
-        value_path: SceneBindingValuePath,
+        value_path: ParameterValuePath,
     ) -> Self {
         Self {
             item_id,
-            address: ParameterAddress::new(owner, parameter_id, value_path),
+            owner,
+            parameter: ParameterAddress::new(parameter_id, value_path),
         }
     }
 
@@ -120,15 +61,15 @@ impl SceneBindingTarget {
     }
 
     pub(crate) const fn owner(&self) -> SceneBindingOwner {
-        self.address.owner
+        self.owner
     }
 
     pub(crate) fn parameter_id(&self) -> &str {
-        &self.address.parameter_id
+        &self.parameter.parameter_id
     }
 
-    pub(crate) const fn value_path(&self) -> SceneBindingValuePath {
-        self.address.value_path
+    pub(crate) const fn value_path(&self) -> ParameterValuePath {
+        self.parameter.value_path
     }
 
     pub(crate) fn addresses(
@@ -138,8 +79,8 @@ impl SceneBindingTarget {
         parameter_id: &str,
     ) -> bool {
         self.item_id == item_id
-            && self.address.owner.effect_id() == effect_id
-            && self.address.parameter_id == parameter_id
+            && self.owner.effect_id() == effect_id
+            && self.parameter.parameter_id == parameter_id
     }
 
     pub(crate) fn conflicts_with_aspect_ratio_lock(
@@ -155,17 +96,16 @@ impl SceneBindingTarget {
                 .is_some_and(|schema| schema.is_size_parameter(self.parameter_id()))
     }
 
-    pub(crate) fn conflicts_with_animation(
-        &self,
-        address: &crate::domain::animation::ParameterAnimationAddress,
-        array_index: Option<usize>,
-    ) -> bool {
-        if self.address.value_path.array_element() != array_index {
+    pub(crate) fn conflicts_with_animation(&self, address: &ParameterAddress) -> bool {
+        if self.parameter.value_path.array_element_id() != address.value_path.array_element_id() {
             return false;
         }
-        match (self.address.value_path.tuple_element(), address.channel) {
-            (None, _) | (_, AnimationChannel::Scalar) => true,
-            (Some(bound), AnimationChannel::TupleElement(animated)) => bound == animated,
+        match (
+            self.parameter.value_path.tuple_element(),
+            address.value_path.tuple_element(),
+        ) {
+            (None, _) | (_, None) => true,
+            (Some(bound), Some(animated)) => bound == animated,
         }
     }
 }
@@ -173,21 +113,25 @@ impl SceneBindingTarget {
 pub(crate) fn project_scene_binding_value(
     schema: &ParameterSchema,
     value: &ParameterValue,
-    value_path: SceneBindingValuePath,
+    value_path: ParameterValuePath,
 ) -> Option<(ParameterSchema, ParameterValue)> {
-    let array_element = value_path.array_element();
+    let array_element_id = value_path.array_element_id();
     let tuple_element = value_path.tuple_element();
     let mut schema = schema.clone();
     let mut value = value.clone();
 
-    if let Some(index) = array_element {
+    if let Some(id) = array_element_id {
         let ParameterType::Array { element, .. } = schema.ty else {
             return None;
         };
         let ParameterValue::Array(values) = value else {
             return None;
         };
-        value = values.get(index)?.value().clone();
+        value = values
+            .iter()
+            .find(|element| element.id() == id)?
+            .value()
+            .clone();
         schema.ty = ParameterType::Value(element);
     } else if matches!(schema.ty, ParameterType::Array { .. }) {
         return None;
@@ -224,10 +168,10 @@ pub(crate) fn project_scene_binding_value(
 
 pub(crate) fn apply_scene_binding_value(
     current: &ParameterValue,
-    value_path: SceneBindingValuePath,
+    value_path: ParameterValuePath,
     value: ParameterValue,
 ) -> Option<ParameterValue> {
-    let array_element = value_path.array_element();
+    let array_element_id = value_path.array_element_id();
     let tuple_element = value_path.tuple_element();
     let replace_tuple_element = |current: &ParameterValue| {
         let Some(element) = tuple_element else {
@@ -241,14 +185,14 @@ pub(crate) fn apply_scene_binding_value(
         Some(ParameterValue::Tuple(values))
     };
 
-    let Some(element) = array_element else {
+    let Some(id) = array_element_id else {
         return replace_tuple_element(current);
     };
     let ParameterValue::Array(values) = current else {
         return None;
     };
     let mut values = values.clone();
-    let target = values.get_mut(element)?;
+    let target = values.iter_mut().find(|element| element.id() == id)?;
     *target.value_mut() = replace_tuple_element(target.value())?;
     Some(ParameterValue::Array(values))
 }
@@ -256,31 +200,9 @@ pub(crate) fn apply_scene_binding_value(
 pub(crate) fn scene_binding_is_animated(
     animations: &ParameterAnimations,
     parameter_id: &str,
-    value: &ParameterValue,
-    value_path: SceneBindingValuePath,
+    value_path: ParameterValuePath,
 ) -> bool {
-    let array_element_id = match value_path.array_element() {
-        Some(index) => match value {
-            ParameterValue::Array(elements) => elements.get(index).map(ArrayElement::id),
-            _ => return false,
-        },
-        None => None,
-    };
-    let tuple_element = value_path.tuple_element();
-    match tuple_element {
-        Some(element) => {
-            animations.contains(&crate::domain::animation::ParameterAnimationAddress::new(
-                parameter_id,
-                array_element_id,
-                AnimationChannel::TupleElement(element),
-            ))
-        }
-        None => animations.contains(&crate::domain::animation::ParameterAnimationAddress::new(
-            parameter_id,
-            array_element_id,
-            AnimationChannel::Scalar,
-        )),
-    }
+    animations.contains(&ParameterAddress::new(parameter_id, value_path))
 }
 
 /// A binding target resolved against one concrete scene item.
@@ -340,7 +262,7 @@ pub(crate) fn resolve_scene_binding(
             (value, &item.animations)
         }
     };
-    let animated = scene_binding_is_animated(animations, parameter_id, value, target.value_path());
+    let animated = scene_binding_is_animated(animations, parameter_id, target.value_path());
     let (schema, _) = project_scene_binding_value(schema, value, target.value_path())?;
     Some(ResolvedSceneBinding { schema, animated })
 }

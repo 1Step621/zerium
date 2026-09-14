@@ -1,7 +1,7 @@
 //! Typed scalar animation tracks made of value stops and interval interpolations.
 use super::{BezierHandle, SegmentInterpolation, interpolate_scalar};
 use crate::domain::parameter::{
-    ArrayElementId, ParameterType, ParameterValue, ParameterValues, ScalarParameterType,
+    ParameterAddress, ParameterType, ParameterValue, ParameterValues, ScalarParameterType,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -337,57 +337,18 @@ impl ScalarTrack {
     }
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[serde(rename_all = "snake_case")]
-pub(crate) enum AnimationChannel {
-    Scalar,
-    TupleElement(usize),
-}
-
-impl AnimationChannel {
-    pub(crate) const fn coordinate(self) -> Option<usize> {
-        match self {
-            Self::Scalar => None,
-            Self::TupleElement(index) => Some(index),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ParameterAnimationAddress {
-    pub parameter_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub array_element_id: Option<ArrayElementId>,
-    pub channel: AnimationChannel,
-}
-
-impl ParameterAnimationAddress {
-    pub(crate) fn new(
-        parameter_id: impl Into<String>,
-        array_element_id: Option<ArrayElementId>,
-        channel: AnimationChannel,
-    ) -> Self {
-        Self {
-            parameter_id: parameter_id.into(),
-            array_element_id,
-            channel,
-        }
-    }
-}
-
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct ParameterAnimations {
-    tracks: BTreeMap<ParameterAnimationAddress, ScalarTrack>,
+    tracks: BTreeMap<ParameterAddress, ScalarTrack>,
 }
 
 impl ParameterAnimations {
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (&ParameterAnimationAddress, &ScalarTrack)> {
+    pub(crate) fn iter(&self) -> impl Iterator<Item = (&ParameterAddress, &ScalarTrack)> {
         self.tracks.iter()
     }
 
     pub(in crate::domain) fn from_entries(
-        entries: Vec<(ParameterAnimationAddress, ScalarTrack)>,
+        entries: Vec<(ParameterAddress, ScalarTrack)>,
     ) -> Option<Self> {
         let mut tracks = BTreeMap::new();
         for (address, track) in entries {
@@ -398,24 +359,24 @@ impl ParameterAnimations {
         Some(Self { tracks })
     }
 
-    pub(crate) fn get(&self, address: &ParameterAnimationAddress) -> Option<&ScalarTrack> {
+    pub(crate) fn get(&self, address: &ParameterAddress) -> Option<&ScalarTrack> {
         self.tracks.get(address)
     }
 
     pub(in crate::domain) fn get_mut(
         &mut self,
-        address: &ParameterAnimationAddress,
+        address: &ParameterAddress,
     ) -> Option<&mut ScalarTrack> {
         self.tracks.get_mut(address)
     }
 
-    pub(crate) fn contains(&self, address: &ParameterAnimationAddress) -> bool {
+    pub(crate) fn contains(&self, address: &ParameterAddress) -> bool {
         self.tracks.contains_key(address)
     }
 
     pub(crate) fn enable(
         &mut self,
-        address: ParameterAnimationAddress,
+        address: ParameterAddress,
         values: &ParameterValues,
         ty: &ParameterType,
     ) -> bool {
@@ -432,7 +393,7 @@ impl ParameterAnimations {
         true
     }
 
-    pub(crate) fn disable(&mut self, address: &ParameterAnimationAddress) -> bool {
+    pub(crate) fn disable(&mut self, address: &ParameterAddress) -> bool {
         self.tracks.remove(address).is_some()
     }
 

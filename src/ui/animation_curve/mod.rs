@@ -22,10 +22,8 @@ use gpui::{
 };
 
 use crate::domain::{
-    animation::{
-        BezierHandle, EasingDirection, EasingFamily, ParameterAnimationAddress,
-        SegmentInterpolation,
-    },
+    animation::{BezierHandle, EasingDirection, EasingFamily, SegmentInterpolation},
+    parameter::ParameterAddress,
     timeline::{
         EffectInstanceId, Frame, FrameDuration, FrameRate, ItemId, TimelineEditor, TimelineTime,
     },

@@ -11,7 +11,7 @@ use std::{
 };
 
 const TIMELINE_CLIPBOARD_FORMAT: &str = "zerium/timeline-items";
-const TIMELINE_CLIPBOARD_FORMAT_VERSION: u32 = 9;
+const TIMELINE_CLIPBOARD_FORMAT_VERSION: u32 = 1;
 
 #[derive(Debug)]
 pub(crate) struct DecodedTimelineClipboard {
