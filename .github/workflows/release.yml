@@ -1,0 +1,98 @@
+name: Release
+
+on:
+  push:
+    branches:
+      - release
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    name: Build ${{ matrix.artifact }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            artifact: zerium-linux-x86_64
+          - os: macos-15
+            artifact: zerium-macos-aarch64
+          - os: windows-latest
+            artifact: zerium-windows-x86_64
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install Linux dependencies
+        if: runner.os == 'Linux'
+        run: bash packaging/linux/install_dependencies.sh
+
+      - name: Install macOS dependencies
+        if: runner.os == 'macOS'
+        run: bash packaging/macos/install_dependencies.sh
+
+      - name: Install Windows dependencies
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: pwsh -File packaging/windows/install_dependencies.ps1
+
+      - name: Build release binary
+        run: cargo build --locked --release
+
+      - name: Package Linux release
+        if: runner.os == 'Linux'
+        shell: bash
+        run: bash packaging/linux/package.sh
+
+      - name: Package macOS app
+        if: runner.os == 'macOS'
+        shell: bash
+        run: bash packaging/macos/package.sh
+
+      - name: Package Windows release
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: pwsh -File packaging/windows/package.ps1
+
+      - name: Upload packaged release
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/*
+          if-no-files-found: error
+
+  release:
+    name: Create GitHub Release
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Download packaged releases
+        uses: actions/download-artifact@v4
+        with:
+          pattern: zerium-*
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: bash packaging/create_release.sh

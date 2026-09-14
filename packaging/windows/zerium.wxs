@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product
+    Id="*"
+    Name="Zerium"
+    Language="1033"
+    Version="$(var.ProductVersion)"
+    Manufacturer="Zerium"
+    UpgradeCode="{4C2A0B2F-2A6F-4A62-A4DD-8A54D9D8B7B1}">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Zerium is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+
+    <Icon Id="zerium.exe" SourceFile="$(var.PackageDir)\zerium.exe" />
+
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFilesFolder">
+        <Directory Id="INSTALLFOLDER" Name="Zerium" />
+      </Directory>
+      <Directory Id="ProgramMenuFolder">
+        <Directory Id="ApplicationProgramsFolder" Name="Zerium" />
+      </Directory>
+    </Directory>
+
+    <DirectoryRef Id="ApplicationProgramsFolder">
+      <Component Id="ApplicationShortcut" Guid="{C6D9AE60-8D03-4E48-BD52-6D2D6B7C7E3D}">
+        <Shortcut
+          Id="ApplicationStartMenuShortcut"
+          Name="Zerium"
+          WorkingDirectory="INSTALLFOLDER"
+          Target="[INSTALLFOLDER]zerium.exe"
+          Icon="zerium.exe" />
+        <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
+        <RegistryValue
+          Root="HKCU"
+          Key="Software\Zerium"
+          Name="installed"
+          Type="integer"
+          Value="1"
+          KeyPath="yes" />
+      </Component>
+    </DirectoryRef>
+
+    <Feature Id="ProductFeature" Title="Zerium" Level="1">
+      <ComponentGroupRef Id="ApplicationFiles" />
+      <ComponentRef Id="ApplicationShortcut" />
+    </Feature>
+  </Product>
+</Wix>

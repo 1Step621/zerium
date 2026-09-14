@@ -2,6 +2,8 @@
 name = "zerium"
 version = "0.1.0"
 edition = "2024"
+description = "A video editor with zero limits."
+license = "GPL-3.0-or-later"
 
 [dependencies]
 bytemuck = { version = "1.25", features = ["derive"] }
@@ -28,3 +30,23 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+[package.metadata.deb]
+maintainer = "onestep621"
+depends = "$auto"
+section = "graphics"
+priority = "optional"
+assets = [
+    ["target/release/zerium", "usr/bin/zerium", "755"],
+    ["target/ffmpeg-sdk/lib/*.so*", "usr/lib/zerium/", "755"],
+    ["LICENSE", "usr/share/doc/zerium/copyright", "644"],
+]
+
+[package.metadata.generate-rpm]
+license = "GPL-3.0-or-later"
+summary = "A video editor with zero limits."
+assets = [
+    { source = "target/release/zerium", dest = "/usr/bin/zerium", mode = "0755" },
+    { source = "target/ffmpeg-sdk/lib/*.so*", dest = "/usr/lib/zerium/", mode = "0755" },
+    { source = "LICENSE", dest = "/usr/share/doc/zerium/LICENSE", mode = "0644" },
+]
