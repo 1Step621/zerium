@@ -45,8 +45,24 @@ assets = [
 [package.metadata.generate-rpm]
 license = "GPL-3.0-or-later"
 summary = "A video editor with zero limits."
+auto-req = "no"
 assets = [
     { source = "target/release/zerium", dest = "/usr/bin/zerium", mode = "0755" },
     { source = "target/ffmpeg-sdk/lib/*.so*", dest = "/usr/lib/zerium/", mode = "0755" },
     { source = "LICENSE", dest = "/usr/share/doc/zerium/LICENSE", mode = "0644" },
 ]
+
+[package.metadata.generate-rpm.requires]
+alsa-lib = "*"
+dbus-libs = "*"
+fontconfig = "*"
+freetype = "*"
+vulkan-loader = "*"
+libwayland-client = "*"
+libX11 = "*"
+libX11-xcb = "*"
+libxcb = "*"
+libxkbcommon = "*"
+libxkbcommon-x11 = "*"
+glibc = "*"
+libgcc = "*"
