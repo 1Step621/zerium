@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+HERE="$(CDPATH= cd -- "$(dirname -- "$(readlink -f -- "$0")")" && pwd)"
+exec "$HERE/usr/bin/zerium" "$@"

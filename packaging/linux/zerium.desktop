@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Zerium
+Comment=A video editor with zero limits.
+Exec=zerium
+Icon=zerium
+Categories=AudioVideo;Video;Graphics;
+Terminal=false

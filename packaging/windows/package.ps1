@@ -38,6 +38,7 @@ New-Item -ItemType Directory -Force $wixDir | Out-Null
     -out "$wixDir\files.wxs"
 & "$wixBin\candle.exe" `
     "-dPackageDir=$packageDir" `
+    "-dIconPath=$((Resolve-Path assets\zerium.ico).Path)" `
     "-dProductVersion=$msiVersion" `
     packaging\windows\zerium.wxs "$wixDir\files.wxs" `
     -out "$wixDir\"

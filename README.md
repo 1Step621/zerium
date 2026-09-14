@@ -1,5 +1,7 @@
 # Zerium
 
+<img align="right" src="assets/zerium.svg" width="180" alt="Zerium icon">
+
 A video editor with zero limits.
 
 ## Concept

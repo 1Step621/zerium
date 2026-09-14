@@ -28,3 +28,9 @@ printf '%s\n' 'RUSTFLAGS=-C link-arg=-Wl,-rpath,$ORIGIN/../lib/zerium:$ORIGIN/..
 
 cargo install cargo-deb --version 3.8.0 --locked
 cargo install cargo-generate-rpm --version 0.21.0 --locked
+
+appimagetool="${RUNNER_TEMP:-/tmp}/appimagetool"
+curl --fail --location --retry 3 \
+  --output "$appimagetool" \
+  "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage"
+chmod +x "$appimagetool"

@@ -6,6 +6,8 @@
   <string>Zerium</string>
   <key>CFBundleExecutable</key>
   <string>zerium</string>
+  <key>CFBundleIconFile</key>
+  <string>zerium.icns</string>
   <key>CFBundleIdentifier</key>
   <string>dev.zerium.Zerium</string>
   <key>CFBundleInfoDictionaryVersion</key>

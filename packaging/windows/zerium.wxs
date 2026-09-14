@@ -11,7 +11,7 @@
     <MajorUpgrade DowngradeErrorMessage="A newer version of Zerium is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
-    <Icon Id="zerium.exe" SourceFile="$(var.PackageDir)\zerium.exe" />
+    <Icon Id="ZeriumIcon" SourceFile="$(var.IconPath)" />
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFilesFolder">
@@ -29,7 +29,7 @@
           Name="Zerium"
           WorkingDirectory="INSTALLFOLDER"
           Target="[INSTALLFOLDER]zerium.exe"
-          Icon="zerium.exe" />
+          Icon="ZeriumIcon" />
         <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
         <RegistryValue
           Root="HKCU"
