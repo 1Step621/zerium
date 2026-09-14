@@ -43,6 +43,8 @@ New-Item -ItemType Directory -Force $wixDir | Out-Null
     packaging\windows\zerium.wxs "$wixDir\files.wxs" `
     -out "$wixDir\"
 & "$wixBin\light.exe" `
+    -ext (Join-Path $wixBin 'WixUIExtension.dll') `
+    -cultures:en-us `
     "$wixDir\zerium.wixobj" "$wixDir\files.wixobj" `
     -pdbout "$wixDir\zerium.wixpdb" `
     -out "dist\$ArchiveName"

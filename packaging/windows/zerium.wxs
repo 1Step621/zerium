@@ -16,6 +16,7 @@
     <MediaTemplate EmbedCab="yes" />
 
     <Icon Id="ZeriumIcon" SourceFile="$(var.IconPath)" />
+    <UIRef Id="WixUI_Minimal" />
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFilesFolder">
