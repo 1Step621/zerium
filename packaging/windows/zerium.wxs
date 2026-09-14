@@ -7,7 +7,11 @@
     Version="$(var.ProductVersion)"
     Manufacturer="Zerium"
     UpgradeCode="{4C2A0B2F-2A6F-4A62-A4DD-8A54D9D8B7B1}">
-    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" />
+    <Package
+      InstallerVersion="500"
+      Compressed="yes"
+      InstallPrivileges="elevated"
+      InstallScope="perMachine" />
     <MajorUpgrade DowngradeErrorMessage="A newer version of Zerium is already installed." />
     <MediaTemplate EmbedCab="yes" />
 
@@ -32,7 +36,7 @@
           Icon="ZeriumIcon" />
         <RemoveFolder Id="ApplicationProgramsFolder" On="uninstall" />
         <RegistryValue
-          Root="HKCU"
+          Root="HKLM"
           Key="Software\Zerium"
           Name="installed"
           Type="integer"
