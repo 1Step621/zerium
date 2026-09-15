@@ -1,8 +1,8 @@
 //! Numeric value conversion and validated editor settings.
 
-use super::{ParameterConstraints, ParameterValue};
+use super::{PropertyConstraints, PropertyValue};
 
-impl ParameterValue {
+impl PropertyValue {
     pub(crate) fn numeric_scalar(&self) -> Option<f64> {
         match self {
             Self::F32(value) => Some(f64::from(*value)),
@@ -33,7 +33,7 @@ fn normalize_numeric_settings<T: Copy + PartialOrd + Into<f64>>(
     default: T,
     min: Option<T>,
     max: Option<T>,
-) -> Option<(T, ParameterConstraints)> {
+) -> Option<(T, PropertyConstraints)> {
     if !default.into().is_finite()
         || min.is_some_and(|value| !value.into().is_finite())
         || max.is_some_and(|value| !value.into().is_finite())
@@ -43,51 +43,51 @@ fn normalize_numeric_settings<T: Copy + PartialOrd + Into<f64>>(
     }
     let default = min.filter(|min| default < *min).unwrap_or(default);
     let default = max.filter(|max| default > *max).unwrap_or(default);
-    let constraints = ParameterConstraints::from_bounds(min.map(Into::into), max.map(Into::into));
+    let constraints = PropertyConstraints::from_bounds(min.map(Into::into), max.map(Into::into));
     Some((default, constraints))
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct NumericSettings {
-    default: ParameterValue,
-    constraints: ParameterConstraints,
+    default: PropertyValue,
+    constraints: PropertyConstraints,
 }
 
 impl NumericSettings {
     /// Validate dynamically typed input once, before it enters an editing command.
     pub(crate) fn from_values(
-        default: ParameterValue,
-        min: Option<ParameterValue>,
-        max: Option<ParameterValue>,
+        default: PropertyValue,
+        min: Option<PropertyValue>,
+        max: Option<PropertyValue>,
     ) -> Option<Self> {
         macro_rules! settings {
             ($variant:ident, $default:expr) => {{
                 let min = match min {
-                    Some(ParameterValue::$variant(value)) => Some(value),
+                    Some(PropertyValue::$variant(value)) => Some(value),
                     None => None,
                     _ => return None,
                 };
                 let max = match max {
-                    Some(ParameterValue::$variant(value)) => Some(value),
+                    Some(PropertyValue::$variant(value)) => Some(value),
                     None => None,
                     _ => return None,
                 };
                 let (default, constraints) = normalize_numeric_settings($default, min, max)?;
                 Some(Self {
-                    default: ParameterValue::$variant(default),
+                    default: PropertyValue::$variant(default),
                     constraints,
                 })
             }};
         }
         match default {
-            ParameterValue::F32(value) => settings!(F32, value),
-            ParameterValue::I32(value) => settings!(I32, value),
-            ParameterValue::U32(value) => settings!(U32, value),
+            PropertyValue::F32(value) => settings!(F32, value),
+            PropertyValue::I32(value) => settings!(I32, value),
+            PropertyValue::U32(value) => settings!(U32, value),
             _ => None,
         }
     }
 
-    pub(in crate::domain) fn into_parts(self) -> (ParameterValue, ParameterConstraints) {
+    pub(in crate::domain) fn into_parts(self) -> (PropertyValue, PropertyConstraints) {
         (self.default, self.constraints)
     }
 }

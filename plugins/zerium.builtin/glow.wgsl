@@ -53,20 +53,20 @@ fn distance_at(
 
 @fragment
 fn fragment_main(input: ZeriumEffectVertexOutput) -> @location(0) vec4<f32> {
-    let params = zerium_load_parameters();
+    let properties = zerium_load_properties();
     let dimensions = vec2<i32>(textureDimensions(zerium_effect_input));
     let position = clamp(
         vec2<i32>(input.uv * vec2<f32>(dimensions)),
         vec2(0),
         dimensions - vec2(1),
     );
-    if params.width <= 0.0 || params.intensity <= 0.0 {
+    if properties.width <= 0.0 || properties.intensity <= 0.0 {
         return textureLoad(zerium_effect_source, position, 0);
     }
 
     let composition_scale = zerium_render_context().composition_scale;
-    let radius = max(params.width, 0.0001);
-    let solid_radius = radius * clamp(params.spread / 100.0, 0.0, 1.0);
+    let radius = max(properties.width, 0.0001);
+    let solid_radius = radius * clamp(properties.spread / 100.0, 0.0, 1.0);
     let sigma = max((radius - solid_radius) / 3.0, 0.5);
 
     var result = vec4(0.0);
@@ -83,13 +83,13 @@ fn fragment_main(input: ZeriumEffectVertexOutput) -> @location(0) vec4<f32> {
                 -(soft_distance * soft_distance) / (2.0 * sigma * sigma),
             );
             let glow_alpha = clamp(
-                falloff * (params.intensity / 100.0) * params.color.a
+                falloff * (properties.intensity / 100.0) * properties.color.a
                     * (1.0 - source.a),
                 0.0,
                 1.0,
             );
             let glow = vec4(
-                zerium_srgb_to_scene(params.color.rgb) * glow_alpha,
+                zerium_srgb_to_scene(properties.color.rgb) * glow_alpha,
                 glow_alpha,
             );
             result += zerium_composite_over(source, glow);

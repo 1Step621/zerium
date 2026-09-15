@@ -1,6 +1,4 @@
-use super::control::{
-    ArrayElementKind, ArrayGroup, Control, LeafControl, NumberControl, NumberSpec,
-};
+use super::control::{Control, ElementGroup, ElementKind, LeafControl, NumberControl, NumberSpec};
 use super::state::ControlStore;
 use super::*;
 
@@ -15,7 +13,7 @@ pub(super) struct RenderCtx<'a> {
 }
 
 impl PropertyInspector {
-    fn element_label(label: Option<String>) -> Option<Div> {
+    fn scalar_label(label: Option<String>) -> Option<Div> {
         label.map(|label| div().w(px(32.)).flex_none().text_sm().child(label))
     }
 
@@ -27,18 +25,18 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_3()
-            .child(Self::parameter_label_column(label))
+            .child(Self::property_label_column(label))
             .child(content)
     }
 
-    fn element_row(label: Option<String>, content: Div) -> Div {
+    fn compact_row(label: Option<String>, content: Div) -> Div {
         div()
             .min_w_0()
             .w_full()
             .flex()
             .items_center()
             .gap_2()
-            .when_some(Self::element_label(label), |this, label| this.child(label))
+            .when_some(Self::scalar_label(label), |this, label| this.child(label))
             .child(content)
     }
 
@@ -250,7 +248,7 @@ impl PropertyInspector {
                     menu.item(PopupMenuItem::new(label.clone()).on_click(move |_, _, cx| {
                         inspector.update(cx, |inspector, cx| {
                             let changed =
-                                inspector.set_scalar(&target, ParameterValue::Enum(value), cx);
+                                inspector.set_scalar(&target, PropertyValue::Enum(value), cx);
                             if changed {
                                 cx.notify();
                             }
@@ -283,7 +281,7 @@ impl PropertyInspector {
             })
             .on_click(move |checked, _, cx| {
                 inspector.update(cx, |inspector, cx| {
-                    let changed = inspector.set_scalar(&target, ParameterValue::Bool(*checked), cx);
+                    let changed = inspector.set_scalar(&target, PropertyValue::Bool(*checked), cx);
                     if changed {
                         cx.notify();
                     }
@@ -350,7 +348,7 @@ impl PropertyInspector {
     }
 
     pub(super) fn aspect_ratio_control(
-        key: PropertyPath,
+        key: InspectorPath,
         state: AspectRatioLockState,
         muted_color: gpui::Hsla,
         editor: &Entity<TimelineEditor>,
@@ -466,7 +464,7 @@ impl PropertyInspector {
     ) -> gpui::AnyElement {
         if common.read_only {
             let color = match common.value {
-                ParameterValue::Color(color) => Self::color_to_hsla(color),
+                PropertyValue::Color(color) => Self::color_to_hsla(color),
                 _ => ctx.colors.background,
             };
             return div()
@@ -531,8 +529,8 @@ impl PropertyInspector {
         ctx: &RenderCtx,
     ) -> Div {
         let mut label = common.label.clone();
-        if let Some(element_label) = common.element_label.clone() {
-            label = format!("{label} {element_label}");
+        if let Some(scalar_label) = common.scalar_label.clone() {
+            label = format!("{label} {scalar_label}");
         }
         let is_bound = binding
             .as_ref()
@@ -566,7 +564,7 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_3()
-            .child(Self::parameter_label_column(label))
+            .child(Self::property_label_column(label))
             .child(
                 div()
                     .min_w_0()
@@ -600,7 +598,7 @@ impl PropertyInspector {
             )
     }
 
-    fn number_element_row(
+    fn number_compact_row(
         common: &LeafControl,
         spec: &NumberSpec,
         input: &Entity<InputState>,
@@ -620,7 +618,7 @@ impl PropertyInspector {
             )
         });
         let disabled =
-            common.read_only || size_locked && common.target.value_path.tuple_element() == Some(1);
+            common.read_only || size_locked && common.target.path.scalar_index() == Some(1);
         let animation_visible = coordinate_animation_enabled;
         let animation_button = (common.animatable && !is_bound).then(|| {
             Self::coordinate_animation_toggle(
@@ -653,7 +651,7 @@ impl PropertyInspector {
                 })
             })
             .when_some(
-                Self::element_label(common.element_label.clone()),
+                Self::scalar_label(common.scalar_label.clone()),
                 |this, label| this.child(label),
             )
             .when(!is_bound, |this| {
@@ -697,7 +695,7 @@ impl PropertyInspector {
         )
     }
 
-    fn text_element_row(
+    fn text_compact_row(
         common: &LeafControl,
         multiline: bool,
         input: &Entity<InputState>,
@@ -714,8 +712,8 @@ impl PropertyInspector {
                 SharedString::from(format!("bind-scene-argument-{}", common.target.key)),
             )
         });
-        let row = Self::element_row(
-            common.element_label.clone(),
+        let row = Self::compact_row(
+            common.scalar_label.clone(),
             div()
                 .min_w_0()
                 .flex_1()
@@ -772,7 +770,7 @@ impl PropertyInspector {
         .into_any_element()
     }
 
-    fn toggle_element_row(
+    fn toggle_compact_row(
         common: &LeafControl,
         value: bool,
         mixed: bool,
@@ -803,7 +801,7 @@ impl PropertyInspector {
             .items_center()
             .gap_2()
             .when_some(
-                Self::element_label(common.element_label.clone()),
+                Self::scalar_label(common.scalar_label.clone()),
                 |this, label| this.child(label),
             )
             .child(
@@ -845,7 +843,7 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_3()
-            .child(Self::parameter_label_column(common.label.clone()))
+            .child(Self::property_label_column(common.label.clone()))
             .when(!bound, |row| {
                 row.child(Self::choice_dropdown(
                     &common.target,
@@ -859,7 +857,7 @@ impl PropertyInspector {
             .into_any_element()
     }
 
-    fn dropdown_element_row(
+    fn dropdown_compact_row(
         common: &LeafControl,
         current: u32,
         options: &[(String, u32)],
@@ -883,7 +881,7 @@ impl PropertyInspector {
             .items_center()
             .gap_2()
             .when_some(
-                Self::element_label(common.element_label.clone()),
+                Self::scalar_label(common.scalar_label.clone()),
                 |this, label| this.child(label),
             )
             .child(
@@ -936,7 +934,7 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_3()
-            .child(Self::parameter_label_column(common.label.clone()))
+            .child(Self::property_label_column(common.label.clone()))
             .child(
                 div()
                     .min_w_0()
@@ -965,7 +963,7 @@ impl PropertyInspector {
             .into_any_element()
     }
 
-    fn color_element_row(
+    fn color_compact_row(
         common: &LeafControl,
         picker: &Entity<ColorPickerState>,
         animation_enabled: bool,
@@ -995,7 +993,7 @@ impl PropertyInspector {
             .items_center()
             .gap_2()
             .when_some(
-                Self::element_label(common.element_label.clone()),
+                Self::scalar_label(common.scalar_label.clone()),
                 |this, label| this.child(label),
             )
             .child(
@@ -1027,8 +1025,8 @@ impl PropertyInspector {
         (row, is_bound)
     }
 
-    /// Full labeled row for a top-level scalar: item/effect parameters,
-    /// scalar array elements, and scene argument values.
+    /// Full labeled row for a top-level scalar: item/effect properties,
+    /// scalar rows, and scene argument values.
     pub(super) fn scalar_full_row(control: &Control, ctx: &RenderCtx) -> Option<gpui::AnyElement> {
         match control {
             Control::Number(number) => {
@@ -1062,7 +1060,7 @@ impl PropertyInspector {
             }
             Control::Bool(boolean) => {
                 let common = &boolean.common;
-                let ParameterValue::Bool(value) = common.value else {
+                let PropertyValue::Bool(value) = common.value else {
                     return None;
                 };
                 Some(Self::toggle_full_row(
@@ -1075,7 +1073,7 @@ impl PropertyInspector {
             }
             Control::Choice(choice) => {
                 let common = &choice.common;
-                let ParameterValue::Enum(current) = common.value else {
+                let PropertyValue::Enum(current) = common.value else {
                     return None;
                 };
                 Some(Self::dropdown_full_row(
@@ -1101,9 +1099,9 @@ impl PropertyInspector {
         }
     }
 
-    /// Compact element row for tuple children and array components.
+    /// Compact scalar row for tuple children and array elements.
     /// Returns each row with whether its scene argument is connected.
-    pub(super) fn scalar_element_row(
+    pub(super) fn scalar_compact_row(
         control: &Control,
         ctx: &RenderCtx,
         size_locked: bool,
@@ -1112,7 +1110,7 @@ impl PropertyInspector {
             Control::Number(number) => {
                 let common = &number.common;
                 let input = ctx.store.text(&common.id)?;
-                Some(Self::number_element_row(
+                Some(Self::number_compact_row(
                     common,
                     &number.spec,
                     &input,
@@ -1123,7 +1121,7 @@ impl PropertyInspector {
             Control::Text(text) => {
                 let common = &text.common;
                 let input = ctx.store.text(&common.id)?;
-                Some(Self::text_element_row(
+                Some(Self::text_compact_row(
                     common,
                     text.multiline,
                     &input,
@@ -1133,10 +1131,10 @@ impl PropertyInspector {
             }
             Control::Bool(boolean) => {
                 let common = &boolean.common;
-                let ParameterValue::Bool(value) = common.value else {
+                let PropertyValue::Bool(value) = common.value else {
                     return None;
                 };
-                Some(Self::toggle_element_row(
+                Some(Self::toggle_compact_row(
                     common,
                     value,
                     common.mixed,
@@ -1146,10 +1144,10 @@ impl PropertyInspector {
             }
             Control::Choice(choice) => {
                 let common = &choice.common;
-                let ParameterValue::Enum(current) = common.value else {
+                let PropertyValue::Enum(current) = common.value else {
                     return None;
                 };
-                Some(Self::dropdown_element_row(
+                Some(Self::dropdown_compact_row(
                     common,
                     current,
                     &choice.options,
@@ -1160,7 +1158,7 @@ impl PropertyInspector {
             Control::Color(color) => {
                 let common = &color.common;
                 let picker = ctx.store.color(&common.id)?;
-                Some(Self::color_element_row(
+                Some(Self::color_compact_row(
                     common,
                     &picker,
                     common.animation_enabled,
@@ -1172,14 +1170,14 @@ impl PropertyInspector {
         }
     }
 
-    /// Grouped tuple rendering: one parameter label with per-element rows.
+    /// Grouped tuple rendering: one property label with per-scalar rows.
     /// A lone child renders as a plain full row, matching single scalars.
     /// The resolver marks the item-level size tuple with `size_key`; other
     /// groups cannot accidentally inherit the aspect-ratio constraint.
     pub(super) fn group_box(
         label: String,
         children: &[Control],
-        size_key: Option<PropertyPath>,
+        size_key: Option<InspectorPath>,
         aspect: Option<AspectRatioLockState>,
         ctx: &RenderCtx,
     ) -> gpui::AnyElement {
@@ -1207,7 +1205,7 @@ impl PropertyInspector {
         let rows = children
             .iter()
             .filter_map(|child| {
-                Self::scalar_element_row(child, ctx, size_locked).map(|(row, _)| row)
+                Self::scalar_compact_row(child, ctx, size_locked).map(|(row, _)| row)
             })
             .collect::<Vec<_>>();
         div()
@@ -1215,7 +1213,7 @@ impl PropertyInspector {
             .flex()
             .items_start()
             .gap_3()
-            .child(Self::parameter_label_column(label))
+            .child(Self::property_label_column(label))
             .child(
                 div()
                     .w_0()
@@ -1230,30 +1228,33 @@ impl PropertyInspector {
             .into_any_element()
     }
 
-    pub(super) fn array_section(
-        array: &ArrayGroup,
+    pub(super) fn elements_section(
+        group: &ElementGroup,
         children: &[Control],
         ctx: &RenderCtx,
         separator_color: gpui::Hsla,
         allow_structure_edit: bool,
     ) -> gpui::AnyElement {
         let item_id = ctx.item_id;
-        let owner = SceneBindingOwner::from_effect(array.target.effect_id);
-        let parameter_label = array.parameter.label().to_owned();
-        let elements_are_tuples = matches!(
-            array.parameter.ty().element_type(),
-            ParameterValueType::Tuple(_)
+        let owner = SceneBindingOwner::from_effect(group.target.effect_id);
+        let property_label = group.property.label().to_owned();
+        let rows_are_tuples = matches!(
+            group.property.ty(),
+            PropertyType::Array {
+                element_type: PropertyValueType::Tuple(_),
+                ..
+            }
         );
-        let array_has_scene_binding = array.has_scene_binding;
+        let rows_have_scene_binding = group.has_scene_binding;
         let mut rows = div().w_full().min_w_0().flex().flex_col().gap_1();
-        for (element, element_value) in array.values.iter().enumerate() {
-            let element_controls = match children.get(element) {
+        for (element_index, row) in group.elements.iter().enumerate() {
+            let row_controls = match children.get(element_index) {
                 Some(Control::Group { children, .. }) => children.as_slice(),
                 _ => &[],
             };
-            let scene_binding = (array.element_kind == ArrayElementKind::FontFamily)
+            let scene_binding = (group.element_kind == ElementKind::FontFamily)
                 .then(|| {
-                    element_controls.iter().find_map(|control| {
+                    row_controls.iter().find_map(|control| {
                         control.common().and_then(|common| common.binding.clone())
                     })
                 })
@@ -1266,62 +1267,61 @@ impl PropertyInspector {
                     binding,
                     &ctx.inspector,
                     SharedString::from(format!(
-                        "bind-scene-array-{}-{element}",
-                        array.target.parameter_id
+                        "bind-scene-array-{}-{element_index}",
+                        group.target.property_id
                     )),
                 )
             });
-            let mut element_has_binding = is_scene_bound;
+            let mut row_has_binding = is_scene_bound;
             let mut value_rows = div()
                 .min_w_0()
                 .flex()
                 .flex_col()
                 .gap_1()
-                .when(elements_are_tuples, |this| this.w_full())
-                .when(!elements_are_tuples, |this| this.flex_1());
-            if array.element_kind != ArrayElementKind::FontFamily {
-                for control in element_controls {
-                    let row = if elements_are_tuples {
-                        Self::scalar_element_row(control, ctx, false)
+                .when(rows_are_tuples, |this| this.w_full())
+                .when(!rows_are_tuples, |this| this.flex_1());
+            if group.element_kind != ElementKind::FontFamily {
+                for control in row_controls {
+                    let row = if rows_are_tuples {
+                        Self::scalar_compact_row(control, ctx, false)
                     } else {
-                        Self::array_scalar_element(control, array, element, owner, ctx)
+                        Self::element_scalar(control, group, element_index, owner, ctx)
                     };
                     if let Some((row, bound)) = row {
-                        element_has_binding |= bound;
+                        row_has_binding |= bound;
                         value_rows = value_rows.child(row);
                     }
                 }
             }
 
-            match array.element_kind {
-                ArrayElementKind::Scalar => {}
-                ArrayElementKind::FontFamily => {
-                    let ParameterValue::String(selected_font) = element_value.value() else {
+            match group.element_kind {
+                ElementKind::Scalar => {}
+                ElementKind::FontFamily => {
+                    let PropertyValue::String(selected_font) = row.value() else {
                         continue;
                     };
                     let font_choices = ctx
                         .font_names
                         .iter()
                         .filter(|font| {
-                            !array.values.iter().enumerate().any(|(index, value)| {
-                                index != element
-                                    && matches!(value.value(), ParameterValue::String(selected) if selected == *font)
+                            !group.elements.iter().enumerate().any(|(index, value)| {
+                                index != element_index
+                                    && matches!(value.value(), PropertyValue::String(selected) if selected == *font)
                             })
                         })
                         .map(|font| SearchPickerEntry::new(font.clone(), "", font.clone()))
                         .collect::<Vec<_>>();
                     let picker_inspector = ctx.inspector.clone();
-                    let mut picker_target = array.target.clone();
-                    picker_target.value_path =
-                        ParameterValuePath::new(Some(element_value.id()), None);
+                    let mut picker_target = group.target.clone();
+                    picker_target.path = InspectorPath::new(Some(row.element_id()), None);
                     let label = if selected_font.is_empty() {
                         "フォントを選択".to_owned()
                     } else {
                         selected_font.clone()
                     };
                     let mut trigger = Button::new(SharedString::from(format!(
-                        "{}-array-{element}-font",
-                        array.target.key
+                        "{}-array-{element_index}-font",
+                        group.target.key
                     )))
                     .small()
                     .w_full()
@@ -1330,8 +1330,8 @@ impl PropertyInspector {
                     let trigger_style = trigger.style().clone();
                     value_rows = value_rows.child(
                         Popover::new(SharedString::from(format!(
-                            "{}-array-{element}-font-picker",
-                            array.target.key
+                            "{}-array-{element_index}-font-picker",
+                            group.target.key
                         )))
                         .trigger_style(trigger_style)
                         .trigger(trigger)
@@ -1352,7 +1352,7 @@ impl PropertyInspector {
                                                 .is_some_and(|item| item.id == item_id)
                                                 && inspector.set_scalar(
                                                     &target,
-                                                    ParameterValue::String(font),
+                                                    PropertyValue::String(font),
                                                     cx,
                                                 )
                                             {
@@ -1370,33 +1370,33 @@ impl PropertyInspector {
             }
 
             let move_up_editor = ctx.editor.clone();
-            let move_up_parameter_id = array.target.parameter_id.clone();
-            let move_up_effect_id = array.target.effect_id;
-            let mut moved_up = array.values.clone();
-            if element > 0 {
-                moved_up.swap(element, element - 1);
+            let move_up_property_id = group.target.property_id.clone();
+            let move_up_effect_id = group.target.effect_id;
+            let mut moved_up = group.elements.clone();
+            if element_index > 0 {
+                moved_up.swap(element_index, element_index - 1);
             }
             let move_up_button = Button::new(SharedString::from(format!(
-                "array-{}-{}-{element}-up",
+                "array-{}-{}-{element_index}-up",
                 item_id.get(),
-                array.target.parameter_id
+                group.target.property_id
             )))
             .small()
             .compact()
             .ghost()
             .icon(IconName::ChevronUp)
             .tooltip("上へ移動")
-            .disabled(element == 0 || array_has_scene_binding)
+            .disabled(element_index == 0 || rows_have_scene_binding)
             .on_click(move |_, _, cx| {
                 move_up_editor.update(cx, |editor, cx| {
                     if editor
                         .selected_item()
                         .is_some_and(|item| item.id == item_id)
-                        && Self::update_array_parameter(
+                        && Self::update_elements(
                             editor,
                             move_up_effect_id,
-                            &move_up_parameter_id,
-                            ParameterValue::Array(moved_up.clone()),
+                            &move_up_property_id,
+                            PropertyValue::Array(moved_up.clone()),
                         )
                     {
                         cx.notify();
@@ -1405,33 +1405,33 @@ impl PropertyInspector {
             });
 
             let move_down_editor = ctx.editor.clone();
-            let move_down_parameter_id = array.target.parameter_id.clone();
-            let move_down_effect_id = array.target.effect_id;
-            let mut moved_down = array.values.clone();
-            if element + 1 < moved_down.len() {
-                moved_down.swap(element, element + 1);
+            let move_down_property_id = group.target.property_id.clone();
+            let move_down_effect_id = group.target.effect_id;
+            let mut moved_down = group.elements.clone();
+            if element_index + 1 < moved_down.len() {
+                moved_down.swap(element_index, element_index + 1);
             }
             let move_down_button = Button::new(SharedString::from(format!(
-                "array-{}-{}-{element}-down",
+                "array-{}-{}-{element_index}-down",
                 item_id.get(),
-                array.target.parameter_id
+                group.target.property_id
             )))
             .small()
             .compact()
             .ghost()
             .icon(IconName::ChevronDown)
             .tooltip("下へ移動")
-            .disabled(element + 1 == array.values.len() || array_has_scene_binding)
+            .disabled(element_index + 1 == group.elements.len() || rows_have_scene_binding)
             .on_click(move |_, _, cx| {
                 move_down_editor.update(cx, |editor, cx| {
                     if editor
                         .selected_item()
                         .is_some_and(|item| item.id == item_id)
-                        && Self::update_array_parameter(
+                        && Self::update_elements(
                             editor,
                             move_down_effect_id,
-                            &move_down_parameter_id,
-                            ParameterValue::Array(moved_down.clone()),
+                            &move_down_property_id,
+                            PropertyValue::Array(moved_down.clone()),
                         )
                     {
                         cx.notify();
@@ -1440,14 +1440,14 @@ impl PropertyInspector {
             });
 
             let remove_editor = ctx.editor.clone();
-            let remove_parameter_id = array.target.parameter_id.clone();
-            let remove_effect_id = array.target.effect_id;
-            let mut remaining = array.values.clone();
-            remaining.remove(element);
+            let remove_property_id = group.target.property_id.clone();
+            let remove_effect_id = group.target.effect_id;
+            let mut remaining = group.elements.clone();
+            remaining.remove(element_index);
             let remove_button = Button::new(SharedString::from(format!(
-                "array-{}-{}-{element}-remove",
+                "array-{}-{}-{element_index}-remove",
                 item_id.get(),
-                array.target.parameter_id
+                group.target.property_id
             )))
             .small()
             .compact()
@@ -1455,20 +1455,20 @@ impl PropertyInspector {
             .icon(IconName::Delete)
             .tooltip("削除")
             .disabled(
-                array.values.len() <= array.min_items as usize
-                    || element_has_binding
-                    || array_has_scene_binding,
+                group.elements.len() <= group.min_items as usize
+                    || row_has_binding
+                    || rows_have_scene_binding,
             )
             .on_click(move |_, _, cx| {
                 remove_editor.update(cx, |editor, cx| {
                     if editor
                         .selected_item()
                         .is_some_and(|item| item.id == item_id)
-                        && Self::update_array_parameter(
+                        && Self::update_elements(
                             editor,
                             remove_effect_id,
-                            &remove_parameter_id,
-                            ParameterValue::Array(remaining.clone()),
+                            &remove_property_id,
+                            PropertyValue::Array(remaining.clone()),
                         )
                     {
                         cx.notify();
@@ -1483,7 +1483,7 @@ impl PropertyInspector {
                 .child(move_up_button)
                 .child(move_down_button)
                 .child(remove_button);
-            let row = if elements_are_tuples {
+            let row = if rows_are_tuples {
                 div()
                     .w_full()
                     .min_w_0()
@@ -1491,7 +1491,7 @@ impl PropertyInspector {
                     .flex_col()
                     .gap_1()
                     .pb_2()
-                    .when(element > 0, |this| {
+                    .when(element_index > 0, |this| {
                         this.pt_2().border_t_1().border_color(separator_color)
                     })
                     .child(
@@ -1504,7 +1504,7 @@ impl PropertyInspector {
                                 div()
                                     .flex_1()
                                     .text_sm()
-                                    .child(format!("要素 {}", element + 1)),
+                                    .child(format!("要素 {}", element_index + 1)),
                             )
                             .when(allow_structure_edit, |this| this.child(structure_buttons))
                             .when_some(binding_button, |this, button| this.child(button)),
@@ -1525,29 +1525,29 @@ impl PropertyInspector {
         }
 
         let add_disabled =
-            array.values.len() >= array.max_items as usize || array_has_scene_binding;
+            group.elements.len() >= group.max_items as usize || rows_have_scene_binding;
         let add_editor = ctx.editor.clone();
-        let add_parameter_id = array.target.parameter_id.clone();
-        let add_effect_id = array.target.effect_id;
-        let next_value = model::append_default(array);
+        let add_property_id = group.target.property_id.clone();
+        let add_effect_id = group.target.effect_id;
+        let next_value = model::append_default(group);
         let add_control = Button::new(SharedString::from(format!(
             "array-{}-{}-add",
             item_id.get(),
-            array.target.parameter_id
+            group.target.property_id
         )))
         .small()
         .w_full()
-        .label(format!("{}を追加", array.parameter.label()))
+        .label(format!("{}を追加", group.property.label()))
         .disabled(add_disabled)
         .on_click(move |_, _, cx| {
             add_editor.update(cx, |editor, cx| {
                 if editor
                     .selected_item()
                     .is_some_and(|item| item.id == item_id)
-                    && Self::push_array_element(
+                    && Self::push_element(
                         editor,
                         add_effect_id,
-                        &add_parameter_id,
+                        &add_property_id,
                         next_value.clone(),
                     )
                 {
@@ -1561,7 +1561,7 @@ impl PropertyInspector {
             .flex()
             .items_start()
             .gap_3()
-            .child(Self::parameter_label_column(parameter_label))
+            .child(Self::property_label_column(property_label))
             .child(
                 div()
                     .w_0()
@@ -1578,22 +1578,20 @@ impl PropertyInspector {
             .into_any_element()
     }
 
-    /// Array scalar element rendering. Tuple components go through the
-    /// shared compact rows; plain scalars keep the array row layout.
+    /// Array element scalar rendering. Tuple components go through the
+    /// shared compact rows; plain scalars keep the array element layout.
     /// Returns each row with whether its scene argument is connected.
-    fn array_scalar_element(
+    fn element_scalar(
         control: &Control,
-        array: &ArrayGroup,
-        element: usize,
+        group: &ElementGroup,
+        element_index: usize,
         owner: SceneBindingOwner,
         ctx: &RenderCtx,
     ) -> Option<(gpui::AnyElement, bool)> {
         match control {
-            Control::Number(number)
-                if number.common.target.value_path.tuple_element().is_some() =>
-            {
+            Control::Number(number) if number.common.target.path.scalar_index().is_some() => {
                 let input = ctx.store.text(&number.common.id)?;
-                Some(Self::number_element_row(
+                Some(Self::number_compact_row(
                     &number.common,
                     &number.spec,
                     &input,
@@ -1602,7 +1600,7 @@ impl PropertyInspector {
                 ))
             }
             Control::Number(number) => {
-                Self::array_number_element(number, array, element, owner, ctx)
+                Self::element_number(number, group, element_index, owner, ctx)
             }
             Control::Color(color) => {
                 let picker = ctx.store.color(&color.common.id)?;
@@ -1632,17 +1630,17 @@ impl PropertyInspector {
         }
     }
 
-    fn array_number_element(
+    fn element_number(
         number: &NumberControl,
-        array: &ArrayGroup,
-        element: usize,
+        group: &ElementGroup,
+        element_index: usize,
         owner: SceneBindingOwner,
         ctx: &RenderCtx,
     ) -> Option<(gpui::AnyElement, bool)> {
         let _ = owner;
         let common = &number.common;
         let spec = &number.spec;
-        let component = common.target.value_path.tuple_element();
+        let component = common.target.path.scalar_index();
         let input = ctx.store.text(&common.id)?;
         let animation_enabled = common.animation_enabled;
         let binding = common.binding.clone();
@@ -1654,8 +1652,8 @@ impl PropertyInspector {
                 binding,
                 &ctx.inspector,
                 SharedString::from(format!(
-                    "bind-scene-array-{}-{element}-{component:?}",
-                    array.target.parameter_id
+                    "bind-scene-array-{}-{element_index}-{component:?}",
+                    group.target.property_id
                 )),
             )
         });

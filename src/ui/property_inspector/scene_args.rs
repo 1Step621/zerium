@@ -175,8 +175,8 @@ impl PropertyInspector {
                 continue;
             }
 
-            if let Some(number) = NumericInput::for_schema(argument.schema.parameter()) {
-                let Some(values) = numeric_settings(&number, argument.schema.parameter()) else {
+            if let Some(number) = NumericInput::for_schema(argument.schema.property()) {
+                let Some(values) = numeric_settings(&number, argument.schema.property()) else {
                     continue;
                 };
                 for (setting, value) in [
@@ -197,10 +197,10 @@ impl PropertyInspector {
                     );
                 }
             } else if *argument.schema.ty()
-                == ParameterType::Value(ParameterValueType::Scalar(ScalarParameterType::String))
+                == PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::String))
             {
                 let value = match argument.schema.default_value() {
-                    ParameterValue::String(value) => value.clone(),
+                    PropertyValue::String(value) => value.clone(),
                     _ => String::new(),
                 };
                 let default_key = ControlId::scene_argument_default(scene_id, &argument_id);
@@ -224,7 +224,7 @@ impl PropertyInspector {
                             this.editor.update(cx, |editor, cx| {
                                 if editor.update_scene_argument_default(
                                     &edited_id,
-                                    ParameterValue::String(value),
+                                    PropertyValue::String(value),
                                 ) {
                                     cx.notify();
                                 }
@@ -248,11 +248,11 @@ impl PropertyInspector {
                     Self::set_input_value(&input, value, window, cx);
                 }
             } else if matches!(
-                argument.schema.ty().scalar_type(),
-                Some(ScalarParameterType::Color)
+                argument.schema.ty(),
+                PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Color))
             ) {
                 let value = match argument.schema.default_value() {
-                    ParameterValue::Color(value) => *value,
+                    PropertyValue::Color(value) => *value,
                     _ => [0., 0., 0., 1.],
                 };
                 let color = Self::color_to_hsla(value);
@@ -277,7 +277,7 @@ impl PropertyInspector {
                                 return;
                             };
                             let color = Rgba::from(*color);
-                            let value = ParameterValue::Color([color.r, color.g, color.b, color.a]);
+                            let value = PropertyValue::Color([color.r, color.g, color.b, color.a]);
                             this.editor.update(cx, |editor, cx| {
                                 if editor.update_scene_argument_default(&edited_id, value) {
                                     cx.notify();
@@ -381,7 +381,7 @@ impl PropertyInspector {
                     .iter()
                     .find(|argument| argument.schema.id() == argument_id)
             })
-            .and_then(|argument| NumericInput::for_schema(argument.schema.parameter()))
+            .and_then(|argument| NumericInput::for_schema(argument.schema.property()))
         else {
             return;
         };
@@ -450,7 +450,7 @@ impl PropertyInspector {
                     .iter()
                     .find(|argument| argument.schema.id() == argument_id)
             })
-            .and_then(|argument| NumericInput::for_schema(argument.schema.parameter()))
+            .and_then(|argument| NumericInput::for_schema(argument.schema.property()))
         else {
             return;
         };
@@ -550,7 +550,7 @@ impl PropertyInspector {
                     .iter()
                     .find(|argument| argument.schema.id() == drag.argument_id)
             })
-            .and_then(|argument| NumericInput::for_schema(argument.schema.parameter()))
+            .and_then(|argument| NumericInput::for_schema(argument.schema.property()))
         else {
             return;
         };
@@ -1011,7 +1011,7 @@ impl PropertyInspector {
         {
             details = details.child(Self::scene_color_row(picker.picker.clone()));
         }
-        if let ParameterValue::Bool(checked) = argument.schema.default_value() {
+        if let PropertyValue::Bool(checked) = argument.schema.default_value() {
             details = details.child(Self::scene_bool_row(
                 argument.id.clone(),
                 *checked,
@@ -1097,7 +1097,7 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_3()
-            .child(Self::parameter_label_column(label))
+            .child(Self::property_label_column(label))
             .child(
                 div()
                     .id(SharedString::from(format!(
@@ -1129,7 +1129,7 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_3()
-            .child(Self::parameter_label_column(label))
+            .child(Self::property_label_column(label))
             .child(
                 div()
                     .w_0()
@@ -1145,7 +1145,7 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_3()
-            .child(Self::parameter_label_column("デフォルト"))
+            .child(Self::property_label_column("デフォルト"))
             .child(
                 div()
                     .w_0()
@@ -1163,7 +1163,7 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_3()
-            .child(Self::parameter_label_column("デフォルト"))
+            .child(Self::property_label_column("デフォルト"))
             .child(
                 Switch::new(SharedString::from(format!(
                     "scene-argument-default-{switch_id}"
@@ -1174,7 +1174,7 @@ impl PropertyInspector {
                     editor.update(cx, |editor, cx| {
                         if editor.update_scene_argument_default(
                             &argument_id,
-                            ParameterValue::Bool(*checked),
+                            PropertyValue::Bool(*checked),
                         ) {
                             cx.notify();
                         }
@@ -1184,11 +1184,11 @@ impl PropertyInspector {
     }
 }
 
-fn numeric_settings(number: &NumericInput, schema: &ParameterSchema) -> Option<[String; 3]> {
+fn numeric_settings(number: &NumericInput, schema: &PropertySchema) -> Option<[String; 3]> {
     let default = match schema.default_value() {
-        ParameterValue::F32(value) => f64::from(*value),
-        ParameterValue::I32(value) => f64::from(*value),
-        ParameterValue::U32(value) => f64::from(*value),
+        PropertyValue::F32(value) => f64::from(*value),
+        PropertyValue::I32(value) => f64::from(*value),
+        PropertyValue::U32(value) => f64::from(*value),
         _ => return None,
     };
     let constraints = schema.constraints();
@@ -1197,7 +1197,7 @@ fn numeric_settings(number: &NumericInput, schema: &ParameterSchema) -> Option<[
         value
             .map(|value| {
                 let value = match number.scalar {
-                    ScalarParameterType::I32 | ScalarParameterType::U32 => {
+                    ScalarPropertyType::I32 | ScalarPropertyType::U32 => {
                         if lower {
                             value.ceil().max(type_min)
                         } else {
@@ -1270,7 +1270,7 @@ impl NumericSettingDraft {
         Some(self)
     }
 
-    fn to_domain(self, number: &NumericInput) -> Option<crate::domain::parameter::NumericSettings> {
+    fn to_domain(self, number: &NumericInput) -> Option<crate::domain::property::NumericSettings> {
         let default = number.value_from_number(self.default)?;
         let min = match self.min {
             Some(value) => Some(number.value_from_number(value)?),
@@ -1280,7 +1280,7 @@ impl NumericSettingDraft {
             Some(value) => Some(number.value_from_number(value)?),
             None => None,
         };
-        crate::domain::parameter::NumericSettings::from_values(default, min, max)
+        crate::domain::property::NumericSettings::from_values(default, min, max)
     }
 
     fn formatted(self, number: &NumericInput) -> NumericSettingText {

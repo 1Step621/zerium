@@ -41,7 +41,7 @@ const OUTPUT_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
 /// Decoder and text bytes are display-encoded sRGB. Sampling this format performs
 /// the input transfer-function decode into scene-linear shader values.
 const VIDEO_FRAME_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
-const PARAM_WORD_SIZE: usize = size_of::<u32>();
+const PROPERTY_WORD_SIZE: usize = size_of::<u32>();
 const ITEM_INTERFACE: &str = concat!(
     include_str!("interfaces/item.wgsl"),
     include_str!("interfaces/common.wgsl")
@@ -62,7 +62,7 @@ const COMPOSITE: &str = include_str!("composite.wgsl");
 
 pub(crate) use readback::ExportFramePipeline;
 pub(crate) use scene::{
-    ItemParams, RenderEffect, RenderEffectPass, RenderItem, RenderNode, RenderNodeContent,
+    ItemProperties, RenderEffect, RenderEffectPass, RenderItem, RenderNode, RenderNodeContent,
     RenderNodeMetadata, RenderScene, RenderTemporalSample,
 };
 pub(crate) use scene::{RenderError, RenderSize};
@@ -159,9 +159,9 @@ struct TexturePipeline {
 
 struct TextureResource {
     _uploaded_frames: Vec<Arc<UploadedVideoFrame>>,
-    _input_parameters: wgpu::Buffer,
+    _input_properties: wgpu::Buffer,
     _item: wgpu::Buffer,
-    _item_params: wgpu::Buffer,
+    _item_properties: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
 }
 
@@ -184,15 +184,15 @@ struct RenderResources {
     output_size: RenderSize,
     composition_size: RenderSize,
     item_capacity: usize,
-    params_capacity: usize,
+    property_capacity: usize,
     item_buffer: wgpu::Buffer,
-    params_buffer: wgpu::Buffer,
+    property_buffer: wgpu::Buffer,
     bind_group: wgpu::BindGroup,
     effect_instance_stride: u64,
     effect_instance_capacity: usize,
-    effect_params_capacity: usize,
+    effect_property_capacity: usize,
     effect_instance_buffer: wgpu::Buffer,
-    effect_params_buffer: wgpu::Buffer,
+    effect_property_buffer: wgpu::Buffer,
     compute_info_stride: u64,
     compute_info_buffer: wgpu::Buffer,
     compute_inputs: [wgpu::BindGroup; 2],
@@ -228,9 +228,9 @@ struct TemporalRenderResource {
 #[derive(Clone, Copy)]
 struct RenderResourceRequirements {
     item_count: usize,
-    params_size: usize,
+    property_size: usize,
     effect_pass_count: usize,
-    effect_params_size: usize,
+    effect_property_size: usize,
     composition_depth: usize,
     temporal_depth: usize,
 }

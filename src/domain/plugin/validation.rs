@@ -59,21 +59,21 @@ pub(super) fn validate_search_tags(
     Ok(())
 }
 
-use super::abi::validate_parameter_names;
-use crate::domain::parameter::ParameterSchema;
-pub(super) fn validate_parameter_schemas(
+use super::abi::validate_property_names;
+use crate::domain::property::PropertySchema;
+pub(super) fn validate_property_schemas(
     owner_kind: &str,
     owner_id: &str,
-    parameters: &[ParameterSchema],
+    properties: &[PropertySchema],
 ) -> Result<(), PluginError> {
-    for parameter in parameters {
-        parameter.validate(owner_kind, owner_id)?;
+    for property in properties {
+        property.validate(owner_kind, owner_id)?;
     }
-    validate_parameter_names(
+    validate_property_names(
         owner_kind,
         owner_id,
-        parameters
+        properties
             .iter()
-            .map(|parameter| (parameter.id(), parameter.ty())),
+            .map(|property| (property.id(), property.ty())),
     )
 }

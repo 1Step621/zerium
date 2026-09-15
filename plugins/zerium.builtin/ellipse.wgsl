@@ -9,9 +9,9 @@ fn vertex_main(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> EllipseVertexOutput {
-    let params = zerium_load_parameters(instance_index);
-    let position = vec2(params.position.v0, params.position.v1);
-    let radius = vec2(params.radius.v0, params.radius.v1);
+    let properties = zerium_load_properties(instance_index);
+    let position = vec2(properties.position.v0, properties.position.v1);
+    let radius = vec2(properties.radius.v0, properties.radius.v1);
     let local = zerium_item_quad_corner(vertex_index);
 
     var output: EllipseVertexOutput;
@@ -22,7 +22,7 @@ fn vertex_main(
         radius * 2.0,
     );
     output.local = local;
-    output.color = zerium_scene_premultiplied_color(params.color);
+    output.color = zerium_scene_premultiplied_color(properties.color);
     return output;
 }
 

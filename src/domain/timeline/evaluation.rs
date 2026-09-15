@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::domain::parameter::ParameterValue;
+use crate::domain::property::PropertyValue;
 
 use super::{
     document::TimelineDocument,
@@ -34,7 +34,7 @@ fn unique_runtime_id(seed: u64, item_id: ItemId, used: &mut HashSet<ItemId>) -> 
 pub(super) fn evaluate_expression_arguments(
     scene: &SceneDefinition,
     numeric_values: &mut HashMap<String, f32>,
-    argument_values: &mut HashMap<String, ParameterValue>,
+    argument_values: &mut HashMap<String, PropertyValue>,
 ) {
     let mut pending = scene.computed_arguments().collect::<Vec<_>>();
     while !pending.is_empty() {
@@ -44,7 +44,7 @@ pub(super) fn evaluate_expression_arguments(
                 return true;
             };
             numeric_values.insert(argument.schema.id().to_owned(), value);
-            argument_values.insert(argument.schema.id().to_owned(), ParameterValue::F32(value));
+            argument_values.insert(argument.schema.id().to_owned(), PropertyValue::F32(value));
             false
         });
         if pending.len() == previous_len {
@@ -57,25 +57,25 @@ pub(super) fn evaluated_scene_argument_values(
     scene: &SceneDefinition,
     instance: &TimelineItem,
     time: TimelineTime,
-) -> HashMap<String, ParameterValue> {
+) -> HashMap<String, PropertyValue> {
     let schemas = scene
         .input_arguments()
-        .map(|argument| argument.schema.parameter().clone())
+        .map(|argument| argument.schema.property().clone())
         .collect::<Vec<_>>();
     let values = instance.animations.evaluated_values(
-        &instance.parameters,
+        &instance.properties,
         &schemas,
         instance.animation_progress_at_time(time),
     );
     let mut argument_values = HashMap::new();
     let mut numeric_values = HashMap::new();
     for argument in scene.input_arguments() {
-        let Some(value) = values.get(argument.schema.id()).cloned() else {
+        let Some(value) = values.property(argument.schema.id()).cloned() else {
             continue;
         };
-        if let ParameterValue::F32(value) = value {
+        if let PropertyValue::F32(value) = value {
             numeric_values.insert(argument.schema.id().to_owned(), value);
-            argument_values.insert(argument.schema.id().to_owned(), ParameterValue::F32(value));
+            argument_values.insert(argument.schema.id().to_owned(), PropertyValue::F32(value));
         } else {
             argument_values.insert(argument.schema.id().to_owned(), value);
         }

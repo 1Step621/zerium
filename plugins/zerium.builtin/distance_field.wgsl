@@ -54,10 +54,10 @@ fn distance_squared(position: vec2<i32>, site: vec2<i32>, size: vec2<i32>) -> f3
     return dot(delta, delta) + edge_offset * edge_offset;
 }
 
-fn search_radius(params: ZeriumParameters) -> i32 {
+fn search_radius(properties: ZeriumProperties) -> i32 {
     // Include the one-pixel coverage ramp outside the nominal stroke width.
     return max(
-        i32(ceil(max(params.width, 0.0) * zerium_render_context().composition_scale + 1.0)),
+        i32(ceil(max(properties.width, 0.0) * zerium_render_context().composition_scale + 1.0)),
         1,
     );
 }
@@ -71,9 +71,9 @@ fn compute_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     let position = vec2<i32>(global_id.xy);
     let size = vec2<i32>(output_size);
-    let params = zerium_load_parameters();
+    let properties = zerium_load_properties();
 
-    if params.phase == 0u {
+    if properties.phase == 0u {
         if is_boundary(position, size) {
             zerium_store_output(global_id.xy, encode_site(global_id.xy));
         } else {
@@ -82,13 +82,13 @@ fn compute_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
-    let radius = search_radius(params);
+    let radius = search_radius(properties);
     var best_site = vec2(-1);
     var best_distance = 1.0e30;
 
     // Two bounded separable EDT passes. The requested effect radius bounds each
     // 1D envelope search without changing any distance inside the visible band.
-    if params.phase == 1u {
+    if properties.phase == 1u {
         let first = max(position.y - radius, 0);
         let last = min(position.y + radius, size.y - 1);
         for (var candidate_y = first; candidate_y <= last; candidate_y += 1) {

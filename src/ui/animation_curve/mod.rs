@@ -23,15 +23,15 @@ use gpui::{
 
 use crate::domain::{
     animation::{BezierHandle, EasingDirection, EasingFamily, SegmentInterpolation},
-    parameter::ParameterAddress,
+    property::PropertyElementId,
     timeline::{
         EffectInstanceId, Frame, FrameDuration, FrameRate, ItemId, TimelineEditor, TimelineTime,
     },
 };
 
 use super::{
+    inspector_path::InspectorPath,
     pane::pane_header,
-    property::PropertyPath,
     time_grid,
     transport::{ScrubSource, TransportController},
 };

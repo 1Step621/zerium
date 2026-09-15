@@ -8,8 +8,8 @@ use cosmic_text::{
     Weight, Wrap, fontdb,
 };
 
-use crate::domain::parameter::ParameterValue;
 use crate::domain::plugin::{ItemSchema, VisualCapability};
+use crate::domain::property::PropertyValue;
 use crate::domain::timeline::{ItemId, TimelineItem};
 use crate::engine::frame::RgbaFrame;
 
@@ -142,13 +142,13 @@ impl TextFrameCache {
         Ok(frame)
     }
 
-    fn named_parameter<'a>(
+    fn named_property<'a>(
         item: &'a TimelineItem,
         schema: &ItemSchema,
         id: &str,
-    ) -> Option<&'a ParameterValue> {
-        schema.parameter(id)?;
-        item.parameters.get(id)
+    ) -> Option<&'a PropertyValue> {
+        schema.property(id)?;
+        item.properties.property(id)
     }
 
     fn signature(
@@ -162,7 +162,7 @@ impl TextFrameCache {
                 .intrinsic_label()
                 .unwrap_or_else(|| schema.label().to_owned());
             RenderError::backend(format!(
-                "text item '{item_label}' has no text parameter binding"
+                "text item '{item_label}' has no text property binding"
             ))
         };
         let Some(VisualCapability::Text {
@@ -182,37 +182,37 @@ impl TextFrameCache {
         else {
             return Err(missing_binding());
         };
-        let string = |id: &str| match Self::named_parameter(item, schema, id) {
-            Some(ParameterValue::String(value)) => Some(value.clone()),
+        let string = |id: &str| match Self::named_property(item, schema, id) {
+            Some(PropertyValue::String(value)) => Some(value.clone()),
             _ => None,
         };
         let string_array = |id: &str| {
-            let ParameterValue::Array(values) = Self::named_parameter(item, schema, id)? else {
+            let PropertyValue::Array(values) = Self::named_property(item, schema, id)? else {
                 return None;
             };
             values
                 .iter()
                 .map(|element| match element.value() {
-                    ParameterValue::String(value) => Some(value.clone()),
+                    PropertyValue::String(value) => Some(value.clone()),
                     _ => None,
                 })
                 .collect::<Option<Vec<_>>>()
         };
-        let f32_value = |id: &str| match Self::named_parameter(item, schema, id) {
-            Some(ParameterValue::F32(value)) => Some(*value),
+        let f32_value = |id: &str| match Self::named_property(item, schema, id) {
+            Some(PropertyValue::F32(value)) => Some(*value),
             _ => None,
         };
-        let bool_value = |id: &str| match Self::named_parameter(item, schema, id) {
-            Some(ParameterValue::Bool(value)) => Some(*value),
+        let bool_value = |id: &str| match Self::named_property(item, schema, id) {
+            Some(PropertyValue::Bool(value)) => Some(*value),
             _ => None,
         };
 
-        let vec4 = |id: &str| match Self::named_parameter(item, schema, id) {
-            Some(ParameterValue::Color(value)) => Some(*value),
+        let vec4 = |id: &str| match Self::named_property(item, schema, id) {
+            Some(PropertyValue::Color(value)) => Some(*value),
             _ => None,
         };
         let pair = |id: &str| {
-            let value = Self::named_parameter(item, schema, id)?;
+            let value = Self::named_property(item, schema, id)?;
             Some([
                 value.scalar_at(Some(0))?.numeric_scalar()? as f32,
                 value.scalar_at(Some(1))?.numeric_scalar()? as f32,
@@ -222,7 +222,7 @@ impl TextFrameCache {
             let item_label = item
                 .intrinsic_label()
                 .unwrap_or_else(|| schema.label().to_owned());
-            RenderError::backend(format!("text item '{item_label}' has invalid parameters"))
+            RenderError::backend(format!("text item '{item_label}' has invalid properties"))
         };
         Ok(TextSignature {
             content: string(text).ok_or_else(missing)?,
@@ -233,12 +233,12 @@ impl TextFrameCache {
             outline_color: vec4(outline_color).ok_or_else(missing)?,
             bold: bool_value(bold).ok_or_else(missing)?,
             italic: bool_value(italic).ok_or_else(missing)?,
-            horizontal_alignment: match Self::named_parameter(item, schema, horizontal_alignment) {
-                Some(ParameterValue::Enum(value)) => *value,
+            horizontal_alignment: match Self::named_property(item, schema, horizontal_alignment) {
+                Some(PropertyValue::Enum(value)) => *value,
                 _ => return Err(missing()),
             },
-            vertical_alignment: match Self::named_parameter(item, schema, vertical_alignment) {
-                Some(ParameterValue::Enum(value)) => *value,
+            vertical_alignment: match Self::named_property(item, schema, vertical_alignment) {
+                Some(PropertyValue::Enum(value)) => *value,
                 _ => return Err(missing()),
             },
             box_size: pair(size).ok_or_else(missing)?,

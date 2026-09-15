@@ -1045,7 +1045,11 @@ impl Timeline {
             else {
                 return;
             };
-            let Some(track) = item.animation(drag.target.effect_id, &drag.target.address) else {
+            let Some(track) = item
+                .property_animation(drag.target.effect_id, &drag.target.property_id)
+                .and_then(|property| property.element(drag.target.element_id))
+                .and_then(|element| element.scalar(drag.target.scalar_index))
+            else {
                 return;
             };
             let Some(previous) = drag
@@ -1084,7 +1088,9 @@ impl Timeline {
         let changed = self.editor.update(cx, |editor, cx| {
             let changed = editor.move_selected_animation_stop(
                 drag.target.effect_id,
-                drag.target.address.clone(),
+                drag.target.property_id.clone(),
+                drag.target.element_id,
+                drag.target.scalar_index,
                 drag.stop,
                 progress,
             );
@@ -1846,16 +1852,33 @@ impl Timeline {
             .frame_to_seconds(Frame::new(item.duration.get()))
             * state.viewport.pixels_per_second()) as f32;
         let is_selected = state.selected_item_ids.contains(&item_id);
-        let mut animation_stops = item
-            .animations
-            .iter()
-            .chain(
-                item.effects
-                    .iter()
-                    .flat_map(|effect| effect.animations.iter()),
-            )
-            .flat_map(|(_, track)| track.stops().iter().map(|stop| stop.position()))
-            .collect::<Vec<_>>();
+        let mut animation_stops = Vec::new();
+        for (_, animation) in item.animations.properties() {
+            if let Some(element) = animation.element(None) {
+                for (_, track) in element.tracks() {
+                    animation_stops.extend(track.stops().iter().map(|stop| stop.position()));
+                }
+            }
+            for (_, element) in animation.elements() {
+                for (_, track) in element.tracks() {
+                    animation_stops.extend(track.stops().iter().map(|stop| stop.position()));
+                }
+            }
+        }
+        for effect in &item.effects {
+            for (_, animation) in effect.animations.properties() {
+                if let Some(element) = animation.element(None) {
+                    for (_, track) in element.tracks() {
+                        animation_stops.extend(track.stops().iter().map(|stop| stop.position()));
+                    }
+                }
+                for (_, element) in animation.elements() {
+                    for (_, track) in element.tracks() {
+                        animation_stops.extend(track.stops().iter().map(|stop| stop.position()));
+                    }
+                }
+            }
+        }
         animation_stops.sort_by(f32::total_cmp);
         animation_stops
             .dedup_by(|left, right| (*left - *right).abs() < ANIMATION_STOP_POSITION_EPSILON);
@@ -1869,7 +1892,10 @@ impl Timeline {
         let focused_animation_stops = focused_target
             .as_ref()
             .and_then(|target| {
-                let track = item.animation(target.effect_id, &target.address)?;
+                let track = item
+                    .property_animation(target.effect_id, &target.property_id)?
+                    .element(target.element_id)?
+                    .scalar(target.scalar_index)?;
                 Some((target.clone(), track))
             })
             .map(|(target, track)| {

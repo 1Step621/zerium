@@ -14,11 +14,17 @@ impl PropertyInspector {
     fn write_scalar(
         editor: &mut TimelineEditor,
         effect_id: Option<EffectInstanceId>,
-        parameter_id: &str,
-        path: ParameterValuePath,
-        value: ParameterValue,
+        property_id: &str,
+        path: InspectorPath,
+        value: PropertyValue,
     ) -> bool {
-        editor.update_selected_scalar(effect_id, parameter_id, path, value)
+        editor.update_selected_scalar(
+            effect_id,
+            property_id,
+            path.element_id(),
+            path.scalar_index(),
+            value,
+        )
     }
 
     /// The single domain write channel for every resolved scalar control.
@@ -28,15 +34,15 @@ impl PropertyInspector {
     pub(super) fn set_scalar(
         &mut self,
         target: &PropertyTarget,
-        value: ParameterValue,
+        value: PropertyValue,
         cx: &mut Context<Self>,
     ) -> bool {
         self.editor.update_if_changed(cx, |editor| {
             Self::write_scalar(
                 editor,
                 target.effect_id,
-                &target.parameter_id,
-                target.value_path,
+                &target.property_id,
+                target.path.clone(),
                 value,
             )
         })
@@ -48,22 +54,22 @@ impl PropertyInspector {
                 .effects
                 .iter()
                 .find(|effect| effect.id == effect_id)?
-                .parameters
-                .get(&target.parameter_id)?,
-            None => item.parameters.get(&target.parameter_id)?,
+                .properties
+                .property(&target.property_id)?,
+            None => item.properties.property(&target.property_id)?,
         };
-        match target.value_path.array_element_id() {
+        match target.path.element_id() {
             Some(id) => match value {
-                ParameterValue::Array(values) => values
+                PropertyValue::Array(values) => values
                     .iter()
-                    .find(|element| element.id() == id)?
+                    .find(|element| element.element_id() == id)?
                     .value()
-                    .scalar_at(target.value_path.tuple_element())?
+                    .scalar_at(target.path.scalar_index())?
                     .numeric_scalar(),
                 _ => None,
             },
             None => value
-                .scalar_at(target.value_path.tuple_element())?
+                .scalar_at(target.path.scalar_index())?
                 .numeric_scalar(),
         }
     }
@@ -80,21 +86,22 @@ impl PropertyInspector {
                     .effects
                     .iter()
                     .find(|effect| effect.id == effect_id)?
-                    .parameters
-                    .get(&target.parameter_id)?,
-                None => item.parameters.get(&target.parameter_id)?,
+                    .properties
+                    .property(&target.property_id)?,
+                None => item.properties.property(&target.property_id)?,
             };
-            let current = match target.value_path.array_element_id() {
+            let current = match target.path.element_id() {
                 Some(id) => match current {
-                    ParameterValue::Array(values) => {
-                        values.iter().find(|element| element.id() == id)?.value()
-                    }
+                    PropertyValue::Array(values) => values
+                        .iter()
+                        .find(|element| element.element_id() == id)?
+                        .value(),
                     _ => return None,
                 },
                 None => current,
             };
             current
-                .scalar_at(target.value_path.tuple_element())?
+                .scalar_at(target.path.scalar_index())?
                 .with_numeric_scalar(value)
         }) else {
             return false;
@@ -167,11 +174,13 @@ impl PropertyInspector {
     fn animation_stop_value(
         editor: &TimelineEditor,
         binding: &AnimationStopBinding,
-    ) -> Option<ParameterValue> {
+    ) -> Option<PropertyValue> {
         let item = editor.selected_item()?;
         (item.id == binding.item_id).then_some(())?;
         let stop = item
-            .animation(binding.effect_id, &binding.address)?
+            .property_animation(binding.effect_id, &binding.property_id)?
+            .element(binding.element_id)?
+            .scalar(binding.scalar_index)?
             .stops()
             .get(binding.stop)?;
         Some(stop.value().clone())
@@ -180,7 +189,7 @@ impl PropertyInspector {
     fn set_animation_stop_value(
         &mut self,
         binding: &AnimationStopBinding,
-        value: ParameterValue,
+        value: PropertyValue,
         cx: &mut Context<Self>,
     ) -> bool {
         let focused_segment = {
@@ -190,7 +199,9 @@ impl PropertyInspector {
                 .filter(|target| {
                     target.item_id == binding.item_id
                         && target.effect_id == binding.effect_id
-                        && target.address == binding.address
+                        && target.property_id == binding.property_id
+                        && target.element_id == binding.element_id
+                        && target.scalar_index == binding.scalar_index
                 })
                 .and_then(|_| selection.focused_segment())
         };
@@ -201,9 +212,11 @@ impl PropertyInspector {
             if current == value {
                 return false;
             }
-            editor.set_selected_parameter_animation_stop(
+            editor.set_selected_property_animation_stop(
                 binding.effect_id,
-                binding.address.clone(),
+                binding.property_id.clone(),
+                binding.element_id,
+                binding.scalar_index,
                 binding.stop,
                 value,
                 focused_segment,
@@ -298,7 +311,7 @@ impl PropertyInspector {
         let color = Rgba::from(*color);
         self.set_animation_stop_value(
             binding,
-            ParameterValue::Color([color.r, color.g, color.b, color.a]),
+            PropertyValue::Color([color.r, color.g, color.b, color.a]),
             cx,
         );
     }
@@ -306,7 +319,7 @@ impl PropertyInspector {
     /// Single update channel for string text input.
     pub(super) fn apply_string_text(
         &mut self,
-        binding: &ParameterBinding,
+        binding: &PropertyBinding,
         input: &Entity<InputState>,
         event: &InputEvent,
         _: &mut Window,
@@ -324,13 +337,13 @@ impl PropertyInspector {
         {
             return;
         }
-        self.set_scalar(&binding.target, ParameterValue::String(value), cx);
+        self.set_scalar(&binding.target, PropertyValue::String(value), cx);
     }
 
     /// Single update channel for color pickers.
     pub(super) fn apply_color(
         &mut self,
-        binding: &ParameterBinding,
+        binding: &PropertyBinding,
         event: &ColorPickerEvent,
         cx: &mut Context<Self>,
     ) {
@@ -344,15 +357,18 @@ impl PropertyInspector {
                         .effects
                         .iter()
                         .find(|effect| effect.id == effect_id)
-                        .and_then(|effect| effect.parameters.get(&binding.target.parameter_id))
+                        .and_then(|effect| effect.properties.property(&binding.target.property_id))
                         .is_some(),
-                    None => item.parameters.get(&binding.target.parameter_id).is_some(),
+                    None => item
+                        .properties
+                        .property(&binding.target.property_id)
+                        .is_some(),
                 }
         }) {
             return;
         }
         let color = Rgba::from(*color);
-        let value = ParameterValue::Color([color.r, color.g, color.b, color.a]);
+        let value = PropertyValue::Color([color.r, color.g, color.b, color.a]);
         if self
             .selected_item_at_playhead(cx)
             .and_then(|item| Self::color_value(&item, &binding.target))
@@ -453,25 +469,22 @@ impl PropertyInspector {
         item: &TimelineItem,
         target: &PropertyTarget,
         spec: &NumberSpec,
-    ) -> Option<(f64, String, ParameterValuePath)> {
-        if target.effect_id.is_some()
-            || !spec.is_size
-            || target.value_path.tuple_element() != Some(1)
-        {
+    ) -> Option<(f64, String, InspectorPath)> {
+        if target.effect_id.is_some() || !spec.is_size || target.path.scalar_index() != Some(1) {
             return None;
         }
         let schema = item.schema()?;
         if !item.aspect_ratio_locked {
             return None;
         }
-        let size = schema.size_parameter()?;
-        let value = item.parameters.get(size.id())?;
+        let size = schema.size_property()?;
+        let value = item.properties.property(size.id())?;
         let width = value.scalar_at(Some(0))?.numeric_scalar()?;
         let height = value.scalar_at(Some(1))?.numeric_scalar()?;
         (width.is_finite() && height.is_finite() && width > 0. && height > 0.).then_some((
             width / height,
             size.id().to_owned(),
-            ParameterValuePath::new(None, Some(0)),
+            InspectorPath::new(None, Some(0)),
         ))
     }
 
@@ -480,21 +493,34 @@ impl PropertyInspector {
         target: &PropertyTarget,
         spec: &NumberSpec,
     ) -> Option<NumberAnimationSource> {
-        let target_address = target.animation_address();
-        if item.animation(target.effect_id, &target_address).is_some() {
+        let target_element_id = target.path.element_id();
+        let target_scalar_index = target.path.scalar_index();
+        if item
+            .property_animation(target.effect_id, &target.property_id)
+            .and_then(|property| property.element(target_element_id))
+            .and_then(|element| element.scalar(target_scalar_index))
+            .is_some()
+        {
             return Some(NumberAnimationSource {
-                source_address: target_address,
+                property_id: target.property_id.clone(),
+                element_id: target_element_id,
+                scalar_index: target_scalar_index,
                 value_factor: 1.,
             });
         }
 
-        let (aspect_ratio, source_parameter_id, source_path) =
+        let (aspect_ratio, source_property_id, source_path) =
             Self::linked_animation_aspect_ratio(item, target, spec)?;
-        let source_address = ParameterAddress::new(source_parameter_id, source_path);
-        item.animation(None, &source_address)?;
+        let source_element_id = source_path.element_id();
+        let source_scalar_index = source_path.scalar_index();
+        item.property_animation(None, &source_property_id)?
+            .element(source_element_id)?
+            .scalar(source_scalar_index)?;
         let value_factor = aspect_ratio.recip();
         Some(NumberAnimationSource {
-            source_address,
+            property_id: source_property_id,
+            element_id: source_element_id,
+            scalar_index: source_scalar_index,
             value_factor,
         })
     }
@@ -511,7 +537,9 @@ impl PropertyInspector {
                 Self::number_animation_source(item, target, spec).map(|display| AnimationTarget {
                     item_id: item.id,
                     effect_id: target.effect_id,
-                    address: display.source_address,
+                    property_id: display.property_id,
+                    element_id: display.element_id,
+                    scalar_index: display.scalar_index,
                     property: target.key.clone(),
                 })
             }
@@ -540,8 +568,8 @@ impl PropertyInspector {
             let Some(display) = Self::number_animation_source(&item, target, spec) else {
                 return;
             };
-            resolved.parameter_id = display.source_address.parameter_id.clone();
-            resolved.value_path = display.source_address.value_path;
+            resolved.property_id = display.property_id;
+            resolved.path = InspectorPath::new(display.element_id, display.scalar_index);
         }
         self.set_animation_enabled(&resolved, enabled, _window, cx);
     }
@@ -570,11 +598,12 @@ impl PropertyInspector {
             return;
         };
         let target = property.animation_target(&item);
-        let address = target.address.clone();
         let changed = self.editor.update(cx, |editor, cx| {
-            let changed = editor.set_selected_parameter_animation_enabled(
+            let changed = editor.set_selected_property_animation_enabled(
                 property.effect_id,
-                address,
+                target.property_id.clone(),
+                target.element_id,
+                target.scalar_index,
                 enabled,
             );
             if changed {
@@ -595,64 +624,63 @@ impl PropertyInspector {
         cx.notify();
     }
 
-    fn animation_parameter(
+    fn animation_property(
         editor: &TimelineEditor,
         item: &TimelineItem,
         target: &AnimationTarget,
-    ) -> Option<ParameterSchema> {
+    ) -> Option<PropertySchema> {
         if let Some(scene_id) = item.scene_id()
-            && let Some(parameter) = editor
+            && let Some(property) = editor
                 .scene(scene_id)?
                 .arguments
                 .iter()
-                .find(|argument| argument.schema.id() == target.address.parameter_id)
-                .map(|argument| argument.schema.parameter().clone())
+                .find(|argument| argument.schema.id() == target.property_id)
+                .map(|argument| argument.schema.property().clone())
         {
-            return Some(parameter);
+            return Some(property);
         }
         if let Some(effect_id) = target.effect_id {
             return item
                 .effects
                 .iter()
                 .find(|effect| effect.id == effect_id)
-                .and_then(|effect| effect.schema().parameter(&target.address.parameter_id))
+                .and_then(|effect| effect.schema().property(&target.property_id))
                 .cloned();
         }
-        item.schema()?
-            .parameter(&target.address.parameter_id)
-            .cloned()
+        item.schema()?.property(&target.property_id).cloned()
     }
 
     fn animation_property_target(
         item: &TimelineItem,
         target: &AnimationTarget,
     ) -> Option<PropertyTarget> {
-        if let Some(id) = target.address.value_path.array_element_id() {
-            item.parameter_values(target.effect_id)?
-                .array_element_index(&target.address.parameter_id, id)?;
+        if let Some(id) = target.element_id {
+            item.property_values(target.effect_id)?
+                .property(&target.property_id)?
+                .element_index(id)?;
         }
         Some(PropertyTarget {
             key: target.property.clone(),
-            parameter_id: target.address.parameter_id.clone(),
+            property_id: target.property_id.clone(),
             effect_id: target.effect_id,
-            value_path: target.address.value_path,
+            path: InspectorPath::new(target.element_id, target.scalar_index),
         })
     }
 
     fn animation_label(
-        parameter: &ParameterSchema,
+        property: &PropertySchema,
         target: &AnimationTarget,
-        array_index: Option<usize>,
+        element_index: Option<usize>,
     ) -> String {
-        let label = array_index.map_or_else(
-            || parameter.label().to_owned(),
-            |index| format!("{} {}", parameter.label(), index + 1),
+        let label = element_index.map_or_else(
+            || property.label().to_owned(),
+            |index| format!("{} {}", property.label(), index + 1),
         );
-        match target.address.value_path.tuple_element() {
-            Some(element) => parameter
-                .scalar_label(Some(element))
-                .map_or(label.clone(), |element_label| {
-                    format!("{label} {element_label}")
+        match target.scalar_index {
+            Some(scalar_index) => property
+                .scalar_label(Some(scalar_index))
+                .map_or(label.clone(), |scalar_label| {
+                    format!("{label} {scalar_label}")
                 }),
             None => label,
         }
@@ -663,26 +691,27 @@ impl PropertyInspector {
         item: &TimelineItem,
         target: &AnimationTarget,
     ) -> Option<AnimationPresentation> {
-        let parameter = Self::animation_parameter(editor, item, target)?;
+        let property = Self::animation_property(editor, item, target)?;
         let property_target = Self::animation_property_target(item, target)?;
-        let tuple_element = target.address.value_path.tuple_element();
-        let scalar_type = parameter
-            .ty()
-            .element_type()
-            .scalar_at(tuple_element)?
-            .clone();
+        let scalar_index = target.scalar_index;
+        let value_type = match property.ty() {
+            PropertyType::Value(value_type)
+            | PropertyType::Array {
+                element_type: value_type,
+                ..
+            } => value_type,
+        };
+        let scalar_type = value_type.scalar_at(scalar_index)?.clone();
         let label = Self::animation_label(
-            &parameter,
+            &property,
             target,
-            property_target
-                .value_path
-                .array_element_id()
-                .and_then(|id| {
-                    item.parameter_values(target.effect_id)?
-                        .array_element_index(&target.address.parameter_id, id)
-                }),
+            property_target.path.element_id().and_then(|id| {
+                item.property_values(target.effect_id)?
+                    .property(&target.property_id)?
+                    .element_index(id)
+            }),
         );
-        if matches!(scalar_type, ScalarParameterType::Color) {
+        if matches!(scalar_type, ScalarPropertyType::Color) {
             if !property_target.animation_enabled(item) {
                 return None;
             }
@@ -697,12 +726,15 @@ impl PropertyInspector {
             && item.scene_id().is_none()
             && item
                 .schema()
-                .is_some_and(|schema| schema.is_size_parameter(&target.address.parameter_id));
-        let spec = Self::number_spec(&parameter, tuple_element, is_size)?;
+                .is_some_and(|schema| schema.is_size_property(&target.property_id));
+        let spec = Self::number_spec(&property, scalar_index, is_size)?;
         // Scene-bound values resolve through the same display mapping as the
-        // inspector rows; size linkage only applies to size parameters.
+        // inspector elements; size linkage only applies to size properties.
         let display = Self::number_animation_source(item, &property_target, &spec)?;
-        if display.source_address != target.address {
+        if display.property_id != target.property_id
+            || display.element_id != target.element_id
+            || display.scalar_index != target.scalar_index
+        {
             return None;
         }
         Some(AnimationPresentation {
@@ -713,25 +745,25 @@ impl PropertyInspector {
         })
     }
 
-    pub(super) fn update_array_parameter(
+    pub(super) fn update_elements(
         editor: &mut TimelineEditor,
         effect_id: Option<EffectInstanceId>,
-        parameter_id: &str,
-        value: ParameterValue,
+        property_id: &str,
+        value: PropertyValue,
     ) -> bool {
         match effect_id {
             Some(effect_id) => {
-                editor.update_selected_effect_parameter(effect_id, parameter_id, value)
+                editor.update_selected_effect_property(effect_id, property_id, value)
             }
-            None => editor.update_selected_parameter(parameter_id, value),
+            None => editor.update_selected_property(property_id, value),
         }
     }
 
-    pub(super) fn push_array_element(
+    pub(super) fn push_element(
         editor: &mut TimelineEditor,
         effect_id: Option<EffectInstanceId>,
-        parameter_id: &str,
-        value: ParameterValue,
+        property_id: &str,
+        value: PropertyValue,
     ) -> bool {
         let Some(item) = editor.selected_item() else {
             return false;
@@ -741,17 +773,17 @@ impl PropertyInspector {
                 .effects
                 .iter()
                 .find(|effect| effect.id == effect_id)
-                .and_then(|effect| effect.parameters.get(parameter_id)),
-            None => item.parameters.get(parameter_id),
+                .and_then(|effect| effect.properties.property(property_id)),
+            None => item.properties.property(property_id),
         };
         let Some(current) = current.cloned() else {
             return false;
         };
         let mut updated = current;
-        if !updated.push_array_element(value) {
+        if !updated.push_element(value) {
             return false;
         }
-        Self::update_array_parameter(editor, effect_id, parameter_id, updated)
+        Self::update_elements(editor, effect_id, property_id, updated)
     }
 
     pub(super) fn choose_file(

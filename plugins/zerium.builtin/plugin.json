@@ -18,7 +18,7 @@
         },
         "editor": { "size": "size" }
       },
-      "parameters": [
+      "properties": [
         {
           "id": "position",
           "type": { "tuple": ["f32", "f32"] },
@@ -95,7 +95,7 @@
         },
         "editor": { "size": "size" }
       },
-      "parameters": [
+      "properties": [
         {
           "id": "position",
           "type": { "tuple": ["f32", "f32"] },
@@ -172,7 +172,7 @@
           }
         }
       },
-      "parameters": [
+      "properties": [
         {
           "id": "position",
           "type": { "tuple": ["f32", "f32"] },
@@ -235,7 +235,7 @@
         },
         "editor": { "size": "size" }
       },
-      "parameters": [
+      "properties": [
         {
           "id": "position",
           "type": { "tuple": ["f32", "f32"] },
@@ -327,7 +327,7 @@
         },
         "editor": { "size": "size" }
       },
-      "parameters": [
+      "properties": [
         {
           "id": "position",
           "type": { "tuple": ["f32", "f32"] },
@@ -411,7 +411,7 @@
         },
         "editor": { "size": "size" }
       },
-      "parameters": [
+      "properties": [
         {
           "id": "position",
           "type": { "tuple": ["f32", "f32"] },
@@ -528,7 +528,7 @@
         },
         "editor": { "size": "size", "label": "text" }
       },
-      "parameters": [
+      "properties": [
         {
           "id": "position",
           "type": { "tuple": ["f32", "f32"] },
@@ -687,7 +687,7 @@
         },
         "editor": { "size": "size" }
       },
-      "parameters": [
+      "properties": [
         {
           "id": "position",
           "type": { "tuple": ["f32", "f32"] },
@@ -766,7 +766,7 @@
         },
         "editor": { "size": "size" }
       },
-      "parameters": [
+      "properties": [
         {
           "id": "position",
           "type": { "tuple": ["f32", "f32"] },
@@ -828,7 +828,7 @@
           "volume": "volume"
         }
       },
-      "parameters": [
+      "properties": [
         {
           "id": "volume",
           "type": "f32",
@@ -860,7 +860,7 @@
           }
         }
       ],
-      "parameters": [
+      "properties": [
         {
           "id": "offset",
           "type": {
@@ -897,7 +897,7 @@
           }
         }
       ],
-      "parameters": [
+      "properties": [
         {
           "id": "angle",
           "type": "f32",
@@ -949,7 +949,7 @@
           }
         }
       ],
-      "parameters": [
+      "properties": [
         {
           "id": "rotation",
           "type": {
@@ -1024,7 +1024,7 @@
           }
         }
       ],
-      "parameters": [
+      "properties": [
         {
           "id": "brightness",
           "type": "f32",
@@ -1124,7 +1124,7 @@
           }
         }
       ],
-      "parameters": [
+      "properties": [
         {
           "id": "opacity",
           "type": "f32",
@@ -1155,7 +1155,7 @@
           }
         }
       ],
-      "parameters": [
+      "properties": [
         {
           "id": "start_color",
           "type": "color",
@@ -1193,7 +1193,7 @@
       "category": "スタイル",
       "tags": ["発光", "ネオン", "bloom", "neon"],
       "render_scale": 2,
-      "parameters": [
+      "properties": [
         {
           "id": "width",
           "type": "f32",
@@ -1301,7 +1301,7 @@
       "category": "スタイル",
       "tags": ["縁取り", "ストローク", "border", "stroke"],
       "render_scale": 2,
-      "parameters": [
+      "properties": [
         {
           "id": "width",
           "type": "f32",
@@ -1395,7 +1395,7 @@
           }
         }
       ],
-      "parameters": [
+      "properties": [
         {
           "id": "amount",
           "type": "f32",
@@ -1453,7 +1453,7 @@
           }
         }
       ],
-      "parameters": [
+      "properties": [
         {
           "id": "block_size",
           "type": "f32",
@@ -1484,7 +1484,7 @@
           }
         }
       ],
-      "parameters": [
+      "properties": [
         {
           "id": "amount",
           "type": "f32",
@@ -1522,7 +1522,7 @@
       "label": "ガウスぼかし",
       "category": "フィルター",
       "tags": ["ぼかし", "ブラー", "soft focus", "blur"],
-      "parameters": [
+      "properties": [
         {
           "id": "radius",
           "type": "f32",
@@ -1577,7 +1577,7 @@
       "label": "モーションブラー",
       "category": "フィルター",
       "tags": ["残像", "動き", "速度", "motion blur", "temporal"],
-      "parameters": [
+      "properties": [
         {
           "id": "samples",
           "type": "u32",
@@ -1641,7 +1641,7 @@
       "label": "ピクセルソート",
       "category": "フィルター",
       "tags": ["グリッチ", "並べ替え", "glitch", "sort"],
-      "parameters": [
+      "properties": [
         {
           "id": "block_size",
           "type": "u32",

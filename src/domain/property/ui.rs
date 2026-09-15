@@ -1,11 +1,11 @@
-//! Presentation metadata for parameter controls.
+//! Presentation metadata for property controls.
 
 use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use super::ParameterError;
-use crate::domain::parameter::{ParameterType, ParameterValueType, ScalarParameterType};
+use super::PropertyError;
+use crate::domain::property::{PropertyType, PropertyValueType, ScalarPropertyType};
 
 fn is_one(value: &f32) -> bool {
     *value == 1.
@@ -21,15 +21,15 @@ fn is_false(value: &bool) -> bool {
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
-enum ParameterEditor {
+enum PropertyEditor {
     FontFamily,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
-pub(crate) struct ParameterUi {
-    #[serde(skip_serializing_if = "Vec::is_empty")]
-    elements: Vec<ParameterUi>,
+pub(crate) struct PropertyUi {
+    #[serde(rename = "elements", skip_serializing_if = "Vec::is_empty")]
+    scalars: Vec<PropertyUi>,
     #[serde(skip_serializing_if = "Option::is_none")]
     label: Option<String>,
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -48,14 +48,14 @@ pub(crate) struct ParameterUi {
     #[serde(default, skip_serializing_if = "is_false")]
     multiline: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    editor: Option<ParameterEditor>,
+    editor: Option<PropertyEditor>,
 }
 
-impl Default for ParameterUi {
+impl Default for PropertyUi {
     fn default() -> Self {
         Self {
             label: None,
-            elements: Vec::new(),
+            scalars: Vec::new(),
             unit: String::new(),
             step: 1.,
             visible: true,
@@ -66,15 +66,15 @@ impl Default for ParameterUi {
     }
 }
 
-impl ParameterUi {
-    pub(crate) fn for_element(&self, element: usize) -> &Self {
-        static DEFAULT: std::sync::LazyLock<ParameterUi> =
-            std::sync::LazyLock::new(ParameterUi::default);
-        self.elements.get(element).unwrap_or(&DEFAULT)
+impl PropertyUi {
+    pub(crate) fn for_scalar(&self, scalar_index: usize) -> &Self {
+        static DEFAULT: std::sync::LazyLock<PropertyUi> =
+            std::sync::LazyLock::new(PropertyUi::default);
+        self.scalars.get(scalar_index).unwrap_or(&DEFAULT)
     }
 
-    pub(crate) fn enum_options(&self, ty: &ScalarParameterType) -> Option<Vec<(u32, String)>> {
-        let ScalarParameterType::Enum(ty) = ty else {
+    pub(crate) fn enum_options(&self, ty: &ScalarPropertyType) -> Option<Vec<(u32, String)>> {
+        let ScalarPropertyType::Enum(ty) = ty else {
             return None;
         };
         Some(
@@ -105,10 +105,10 @@ impl ParameterUi {
     }
 
     pub(crate) fn is_visible(&self) -> bool {
-        if self.elements.is_empty() {
+        if self.scalars.is_empty() {
             self.visible
         } else {
-            self.elements.iter().any(Self::is_visible)
+            self.scalars.iter().any(Self::is_visible)
         }
     }
 
@@ -117,17 +117,17 @@ impl ParameterUi {
     }
 
     pub(crate) const fn uses_font_family_editor(&self) -> bool {
-        matches!(self.editor, Some(ParameterEditor::FontFamily))
+        matches!(self.editor, Some(PropertyEditor::FontFamily))
     }
 
     pub(super) fn enum_label(&self, value: u32) -> Option<&str> {
         self.enum_variants.get(&value).map(String::as_str)
     }
 
-    pub(in crate::domain) fn to_scalar(&self, source_element: Option<usize>) -> Self {
+    pub(in crate::domain) fn to_scalar(&self, source_scalar: Option<usize>) -> Self {
         let mut projected =
-            source_element.map_or_else(|| self.clone(), |index| self.for_element(index).clone());
-        projected.elements.clear();
+            source_scalar.map_or_else(|| self.clone(), |index| self.for_scalar(index).clone());
+        projected.scalars.clear();
         projected
     }
 
@@ -135,39 +135,39 @@ impl ParameterUi {
         &self,
         owner_kind: &str,
         owner_id: &str,
-        parameter_id: &str,
-        ty: &ParameterType,
-        component_type: &ParameterValueType,
-    ) -> Result<(), ParameterError> {
+        property_id: &str,
+        ty: &PropertyType,
+        component_type: &PropertyValueType,
+    ) -> Result<(), PropertyError> {
         let invalid = |message: &str| {
-            ParameterError::invalid_definition(format!(
-                "{owner_kind} '{owner_id}' parameter '{parameter_id}' {message}"
+            PropertyError::invalid_definition(format!(
+                "{owner_kind} '{owner_id}' property '{property_id}' {message}"
             ))
         };
 
-        if matches!(component_type, ParameterValueType::Tuple(_)) {
+        if matches!(component_type, PropertyValueType::Tuple(_)) {
             let mut parent = self.clone();
-            parent.elements.clear();
+            parent.scalars.clear();
             if parent != Self::default() {
                 return Err(invalid(
                     "tuple UI properties must be specified in ui.elements",
                 ));
             }
         }
-        if !self.elements.is_empty() {
-            let ParameterValueType::Tuple(tuple) = component_type else {
+        if !self.scalars.is_empty() {
+            let PropertyValueType::Tuple(tuple) = component_type else {
                 return Err(invalid("ui.elements requires a tuple"));
             };
-            if self.elements.len() != tuple.element_count() {
+            if self.scalars.len() != tuple.scalar_count() {
                 return Err(invalid("ui.elements must match the tuple length"));
             }
-            for (ui, scalar) in self.elements.iter().zip(tuple.elements()) {
-                let value_type = ParameterValueType::Scalar(scalar.clone());
+            for (ui, scalar) in self.scalars.iter().zip(tuple.scalars()) {
+                let value_type = PropertyValueType::Scalar(scalar.clone());
                 ui.validate(
                     owner_kind,
                     owner_id,
-                    parameter_id,
-                    &ParameterType::Value(value_type.clone()),
+                    property_id,
+                    &PropertyType::Value(value_type.clone()),
                     &value_type,
                 )?;
             }
@@ -180,17 +180,20 @@ impl ParameterUi {
             .as_ref()
             .is_some_and(|label| label.trim().is_empty())
         {
-            return Err(invalid("UI element label must not be empty"));
+            return Err(invalid("UI scalar label must not be empty"));
         }
         if self.multiline
-            && *ty != ParameterType::Value(ParameterValueType::Scalar(ScalarParameterType::String))
+            && *ty != PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::String))
         {
             return Err(invalid("ui.multiline requires a string type"));
         }
         if self.uses_font_family_editor()
             && !matches!(
-                ty.array_element_type(),
-                Some(ParameterValueType::Scalar(ScalarParameterType::String))
+                ty,
+                PropertyType::Array {
+                    element_type: PropertyValueType::Scalar(ScalarPropertyType::String),
+                    ..
+                }
             )
         {
             return Err(invalid(
@@ -203,11 +206,17 @@ impl ParameterUi {
 
     fn validate_enum_variants(
         &self,
-        ty: &ParameterType,
-        invalid: impl Fn(&str) -> ParameterError,
-    ) -> Result<(), ParameterError> {
-        let ParameterValueType::Scalar(ScalarParameterType::Enum(enumeration)) = ty.element_type()
-        else {
+        ty: &PropertyType,
+        invalid: impl Fn(&str) -> PropertyError,
+    ) -> Result<(), PropertyError> {
+        let value_type = match ty {
+            PropertyType::Value(value_type)
+            | PropertyType::Array {
+                element_type: value_type,
+                ..
+            } => value_type,
+        };
+        let PropertyValueType::Scalar(ScalarPropertyType::Enum(enumeration)) = value_type else {
             return self
                 .enum_variants
                 .is_empty()

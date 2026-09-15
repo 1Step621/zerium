@@ -673,10 +673,11 @@ impl FrameRenderer {
             let rebuild = resources.get(scale).is_none_or(|resources| {
                 resources.size != effect_size
                     || resources.item_capacity < encoded.items.len().max(1)
-                    || resources.params_capacity < encoded.params.len().max(PARAM_WORD_SIZE)
+                    || resources.property_capacity
+                        < encoded.properties.len().max(PROPERTY_WORD_SIZE)
                     || resources.effect_instance_capacity < effect_pass_count.max(1)
-                    || resources.effect_params_capacity
-                        < encoded.effect_params.len().max(PARAM_WORD_SIZE)
+                    || resources.effect_property_capacity
+                        < encoded.effect_properties.len().max(PROPERTY_WORD_SIZE)
                     || resources.compositions.len() < composition_depth
                     || resources.temporal.len() < temporal_depth
             });
@@ -689,9 +690,9 @@ impl FrameRenderer {
                         scene.composition_size,
                         RenderResourceRequirements {
                             item_count: encoded.items.len(),
-                            params_size: encoded.params.len(),
+                            property_size: encoded.properties.len(),
                             effect_pass_count,
-                            effect_params_size: encoded.effect_params.len(),
+                            effect_property_size: encoded.effect_properties.len(),
                             composition_depth,
                             temporal_depth,
                         },
@@ -717,9 +718,9 @@ impl FrameRenderer {
                     bytemuck::cast_slice(&encoded.items),
                 );
             }
-            if !encoded.params.is_empty() {
+            if !encoded.properties.is_empty() {
                 self.queue
-                    .write_buffer(&resources.params_buffer, 0, &encoded.params);
+                    .write_buffer(&resources.property_buffer, 0, &encoded.properties);
             }
             if let Some(instances) = &instances {
                 self.queue
@@ -734,11 +735,11 @@ impl FrameRenderer {
                 );
                 self.queue
                     .write_buffer(&resources.compute_info_buffer, 0, &compute_instances);
-                if !encoded.effect_params.is_empty() {
+                if !encoded.effect_properties.is_empty() {
                     self.queue.write_buffer(
-                        &resources.effect_params_buffer,
+                        &resources.effect_property_buffer,
                         0,
-                        &encoded.effect_params,
+                        &encoded.effect_properties,
                     );
                 }
             }

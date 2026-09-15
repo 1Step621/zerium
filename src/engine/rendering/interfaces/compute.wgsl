@@ -1,6 +1,6 @@
 struct ZeriumComputeInfo {
-    params_offset: u32,
-    params_size: u32,
+    property_offset: u32,
+    property_size: u32,
     width: u32,
     height: u32,
     composition_size: vec2<f32>,
@@ -17,7 +17,7 @@ var zerium_effect_sampler: sampler;
 var<uniform> zerium_compute_info: ZeriumComputeInfo;
 
 @group(0) @binding(3)
-var<storage, read> zerium_parameter_words: array<u32>;
+var<storage, read> zerium_property_words: array<u32>;
 
 // Compute effects write scene-linear values directly into the pooled ping-pong
 // texture. This avoids an RGBA8 quantization, a full-frame buffer, and a copy.
@@ -28,10 +28,10 @@ var zerium_effect_output: texture_storage_2d<rgba16float, write>;
 @group(0) @binding(5)
 var zerium_effect_source: texture_2d<f32>;
 
-fn zerium_raw_params_for_effect() -> ZeriumRawParams {
-    return ZeriumRawParams(
-        zerium_compute_info.params_offset,
-        zerium_compute_info.params_size,
+fn zerium_raw_properties_for_effect() -> ZeriumRawProperties {
+    return ZeriumRawProperties(
+        zerium_compute_info.property_offset,
+        zerium_compute_info.property_size,
     );
 }
 

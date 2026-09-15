@@ -177,19 +177,19 @@ impl ExportFramePipeline {
             .slice(..)
             .get_mapped_range()
             .map_err(|error| RenderError::backend(format!("GPU frame access failed: {error}")))?;
-        let row_size = usize::try_from(self.row_bytes)
+        let element_size = usize::try_from(self.row_bytes)
             .map_err(|_| RenderError::backend("export row size is too large"))?;
-        let padded_row_size = usize::try_from(self.padded_row_bytes)
+        let padded_element_size = usize::try_from(self.padded_row_bytes)
             .map_err(|_| RenderError::backend("padded export row size is too large"))?;
-        let capacity = row_size
+        let capacity = element_size
             .checked_mul(
                 usize::try_from(self.size.height)
                     .map_err(|_| RenderError::backend("export height is too large"))?,
             )
             .ok_or_else(|| RenderError::backend("export frame is too large"))?;
         let mut rgba = Vec::with_capacity(capacity);
-        for row in mapped.chunks_exact(padded_row_size) {
-            rgba.extend_from_slice(&row[..row_size]);
+        for row in mapped.chunks_exact(padded_element_size) {
+            rgba.extend_from_slice(&row[..element_size]);
         }
         drop(mapped);
         pending.slot.staging.unmap();

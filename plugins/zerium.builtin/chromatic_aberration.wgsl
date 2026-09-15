@@ -5,9 +5,9 @@ fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumEffectVertexOu
 
 @fragment
 fn fragment_main(input: ZeriumEffectVertexOutput) -> @location(0) vec4<f32> {
-    let params = zerium_load_parameters();
-    let angle = params.angle * ZERIUM_DEGREES_TO_RADIANS;
-    let offset = vec2(cos(angle), sin(angle)) * params.amount
+    let properties = zerium_load_properties();
+    let angle = properties.angle * ZERIUM_DEGREES_TO_RADIANS;
+    let offset = vec2(cos(angle), sin(angle)) * properties.amount
         / zerium_render_context().composition_size;
     let red_sample = textureSample(zerium_effect_input, zerium_effect_sampler, input.uv + offset);
     let center_sample = textureSample(zerium_effect_input, zerium_effect_sampler, input.uv);

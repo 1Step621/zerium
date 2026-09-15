@@ -4,8 +4,10 @@ use super::*;
 pub(crate) struct AnimationTarget {
     pub item_id: ItemId,
     pub effect_id: Option<EffectInstanceId>,
-    pub address: ParameterAddress,
-    pub property: PropertyPath,
+    pub property_id: String,
+    pub element_id: Option<PropertyElementId>,
+    pub scalar_index: Option<usize>,
+    pub property: InspectorPath,
 }
 
 #[derive(Clone, Debug)]

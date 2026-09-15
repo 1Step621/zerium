@@ -25,7 +25,7 @@ impl RendererBuilder {
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
-                            min_binding_size: NonZeroU64::new(PARAM_WORD_SIZE as u64),
+                            min_binding_size: NonZeroU64::new(PROPERTY_WORD_SIZE as u64),
                         },
                         count: None,
                     },
@@ -72,7 +72,7 @@ impl RendererBuilder {
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
-                            min_binding_size: NonZeroU64::new(PARAM_WORD_SIZE as u64),
+                            min_binding_size: NonZeroU64::new(PROPERTY_WORD_SIZE as u64),
                         },
                         count: None,
                     },
@@ -134,7 +134,7 @@ impl RendererBuilder {
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
-                            min_binding_size: NonZeroU64::new(PARAM_WORD_SIZE as u64),
+                            min_binding_size: NonZeroU64::new(PROPERTY_WORD_SIZE as u64),
                         },
                         count: None,
                     },
@@ -176,7 +176,7 @@ impl RendererBuilder {
                         ty: wgpu::BindingType::Buffer {
                             ty: wgpu::BufferBindingType::Storage { read_only: true },
                             has_dynamic_offset: false,
-                            min_binding_size: NonZeroU64::new(PARAM_WORD_SIZE as u64),
+                            min_binding_size: NonZeroU64::new(PROPERTY_WORD_SIZE as u64),
                         },
                         count: None,
                     },
@@ -434,10 +434,10 @@ impl RendererDevice {
                 id
             )));
         }
-        let parameter_interface = schema
-            .wgsl_parameter_interface(pass)
+        let property_interface = schema
+            .wgsl_property_interface(pass)
             .map_err(|error| RenderError::backend(error.to_string()))?;
-        let source = format!("{COMPUTE_INTERFACE}\n{parameter_interface}\n{wgsl}");
+        let source = format!("{COMPUTE_INTERFACE}\n{property_interface}\n{wgsl}");
         let workgroup_size = validate_compute_shader(&id, &source, shader.entry())?;
         let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let module = self
@@ -493,10 +493,10 @@ impl RendererDevice {
                 id
             )));
         }
-        let parameter_interface = schema
-            .wgsl_parameter_interface(pass)
+        let property_interface = schema
+            .wgsl_property_interface(pass)
             .map_err(|error| RenderError::backend(error.to_string()))?;
-        let source = format!("{TEMPORAL_INTERFACE}\n{parameter_interface}\n{wgsl}");
+        let source = format!("{TEMPORAL_INTERFACE}\n{property_interface}\n{wgsl}");
         validate_render_shader(&id, &source, shader.vertex_entry(), shader.fragment_entry())?;
         let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let module = self
@@ -623,13 +623,12 @@ impl RendererDevice {
                 id
             )));
         }
-        let parameter_interface = schema
-            .wgsl_parameter_interface()
+        let property_interface = schema
+            .wgsl_property_interface()
             .map_err(|error| RenderError::backend(error.to_string()))?;
         let input_ids = texture_input_ids(schema);
         let media_interface = texture_media_interface(&input_ids);
-        let source =
-            format!("{ITEM_INTERFACE}\n{parameter_interface}\n{media_interface}\n{source}");
+        let source = format!("{ITEM_INTERFACE}\n{property_interface}\n{media_interface}\n{source}");
         validate_render_shader(&id, &source, shader.vertex_entry(), shader.fragment_entry())?;
         let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let sampler_binding = u32::try_from(2 + input_ids.len())
@@ -652,7 +651,7 @@ impl RendererDevice {
                 ty: wgpu::BindingType::Buffer {
                     ty: wgpu::BufferBindingType::Storage { read_only: true },
                     has_dynamic_offset: false,
-                    min_binding_size: NonZeroU64::new(PARAM_WORD_SIZE as u64),
+                    min_binding_size: NonZeroU64::new(PROPERTY_WORD_SIZE as u64),
                 },
                 count: None,
             },
@@ -769,7 +768,7 @@ impl RendererDevice {
 
         let source = format!(
             "{ITEM_INTERFACE}\n{}\n{}",
-            descriptor.parameter_interface, descriptor.wgsl
+            descriptor.property_interface, descriptor.wgsl
         );
         validate_render_shader(
             &descriptor.id,
@@ -843,7 +842,7 @@ impl RendererDevice {
 
         let source = format!(
             "{EFFECT_INTERFACE}\n{}\n{}",
-            descriptor.parameter_interface, descriptor.wgsl
+            descriptor.property_interface, descriptor.wgsl
         );
         validate_render_shader(
             &descriptor.id,

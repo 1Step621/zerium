@@ -5,11 +5,11 @@ fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumEffectVertexOu
 
 @fragment
 fn fragment_main(input: ZeriumEffectVertexOutput) -> @location(0) vec4<f32> {
-    let params = zerium_load_parameters();
-    let center = vec2(params.center.v0, params.center.v1);
+    let properties = zerium_load_properties();
+    let center = vec2(properties.center.v0, properties.center.v1);
     let output_position = zerium_effect_uv_to_composition_position(input.uv) - center;
 
-    let radians = vec3(params.rotation.v0, params.rotation.v1, params.rotation.v2)
+    let radians = vec3(properties.rotation.v0, properties.rotation.v1, properties.rotation.v2)
         * ZERIUM_DEGREES_TO_RADIANS;
     let sine = sin(radians);
     let cosine = cos(radians);
@@ -22,7 +22,7 @@ fn fragment_main(input: ZeriumEffectVertexOutput) -> @location(0) vec4<f32> {
     let r11 = sine.z * sine.y * sine.x + cosine.z * cosine.x;
     let r21 = cosine.y * sine.x;
 
-    let focal_length = max(params.perspective, 1.0);
+    let focal_length = max(properties.perspective, 1.0);
     let a = output_position.x * r20 - focal_length * r00;
     let b = output_position.x * r21 - focal_length * r01;
     let c = output_position.y * r20 - focal_length * r10;

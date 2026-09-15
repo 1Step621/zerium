@@ -10,9 +10,9 @@ fn vertex_main(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> PolygonVertexOutput {
-    let params = zerium_load_parameters(instance_index);
-    let position = vec2(params.position.v0, params.position.v1);
-    let size = vec2(params.size.v0, params.size.v1);
+    let properties = zerium_load_properties(instance_index);
+    let position = vec2(properties.position.v0, properties.position.v1);
+    let size = vec2(properties.size.v0, properties.size.v1);
     let corner = zerium_item_quad_corner(vertex_index);
     let local = zerium_item_quad_uv(corner);
 
@@ -24,23 +24,23 @@ fn vertex_main(
         size,
     );
     output.local = local;
-    output.color = zerium_scene_premultiplied_color(params.color);
+    output.color = zerium_scene_premultiplied_color(properties.color);
     output.instance_index = instance_index;
     return output;
 }
 
 @fragment
 fn fragment_main(input: PolygonVertexOutput) -> @location(0) vec4<f32> {
-    let params = zerium_load_parameters(input.instance_index);
-    if params.points_len < 3u {
+    let properties = zerium_load_properties(input.instance_index);
+    if properties.points_len < 3u {
         discard;
     }
 
-    let previous_tuple = zerium_parameter_points_get(params, params.points_len - 1u);
+    let previous_tuple = zerium_property_points_get(properties, properties.points_len - 1u);
     var previous = vec2(previous_tuple.v0, previous_tuple.v1) / 100.0;
     var inside = false;
-    for (var index = 0u; index < params.points_len; index += 1u) {
-        let current_tuple = zerium_parameter_points_get(params, index);
+    for (var index = 0u; index < properties.points_len; index += 1u) {
+        let current_tuple = zerium_property_points_get(properties, index);
         let current = vec2(current_tuple.v0, current_tuple.v1) / 100.0;
         let crosses = (current.y > input.local.y) != (previous.y > input.local.y);
         if crosses {

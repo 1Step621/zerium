@@ -9,8 +9,8 @@ use std::{
 
 use crate::domain::{
     animation::BezierHandle,
-    parameter::{ParameterAddress, ParameterValue},
     plugin::PluginRegistry,
+    property::{PropertyElementId, PropertyValue},
 };
 
 use super::{
@@ -22,7 +22,7 @@ use super::{
     history::EditHistory,
     ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId},
     item::TimelineItem,
-    scene::{SceneDefinition, materialize_scene_instance_parameters},
+    scene::{SceneDefinition, materialize_scene_instance_properties},
     selection::SelectionState,
     settings::{ProjectResolution, ProjectSettingsError},
     time::{Frame, FrameDuration, FrameRate, TimelineTime},
@@ -49,19 +49,35 @@ fn new_project_id() -> ProjectId {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum HistoryKey {
     ItemCreation(ItemId),
-    ItemParameter(ItemId, String),
-    ItemsParameter(Vec<ItemId>, String),
-    EffectParameter(ItemId, EffectInstanceId, String),
-    EffectsParameter(Vec<(ItemId, EffectInstanceId)>, String),
-    AnimationStopValue(ItemId, Option<EffectInstanceId>, ParameterAddress, Frame),
+    ItemProperty(ItemId, String),
+    ItemsProperty(Vec<ItemId>, String),
+    EffectProperty(ItemId, EffectInstanceId, String),
+    EffectsProperty(Vec<(ItemId, EffectInstanceId)>, String),
+    AnimationStopValue(
+        ItemId,
+        Option<EffectInstanceId>,
+        String,
+        Option<PropertyElementId>,
+        Option<usize>,
+        Frame,
+    ),
     AnimationHandle(
         ItemId,
         Option<EffectInstanceId>,
-        ParameterAddress,
+        String,
+        Option<PropertyElementId>,
+        Option<usize>,
         usize,
         BezierHandle,
     ),
-    AnimationStopPosition(ItemId, Option<EffectInstanceId>, ParameterAddress, usize),
+    AnimationStopPosition(
+        ItemId,
+        Option<EffectInstanceId>,
+        String,
+        Option<PropertyElementId>,
+        Option<usize>,
+        usize,
+    ),
     ItemResize(ItemId, ResizeEdge),
     ItemMove(ItemId),
     ItemsMove(Vec<ItemId>),
@@ -582,7 +598,7 @@ impl TimelineEditor {
         &self,
         item: &TimelineItem,
         time: TimelineTime,
-    ) -> Option<HashMap<String, ParameterValue>> {
+    ) -> Option<HashMap<String, PropertyValue>> {
         let scene = self.scene(item.scene_id()?)?;
         Some(evaluated_scene_argument_values(scene, item, time))
     }
@@ -627,10 +643,10 @@ impl TimelineEditor {
 
     pub(super) fn materialized_item(&self, item: &TimelineItem) -> TimelineItem {
         let mut item = item.clone();
-        if let Some(parameters) =
-            materialize_scene_instance_parameters(&item, &self.project().scenes)
+        if let Some(properties) =
+            materialize_scene_instance_properties(&item, &self.project().scenes)
         {
-            item.parameters = parameters;
+            item.properties = properties;
         }
         item
     }

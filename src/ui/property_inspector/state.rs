@@ -78,21 +78,21 @@ impl PropertyInspector {
                 .effects
                 .iter()
                 .find(|effect| effect.id == effect_id)
-                .and_then(|effect| effect.parameters.get(&target.parameter_id)),
-            None => item.parameters.get(&target.parameter_id),
+                .and_then(|effect| effect.properties.property(&target.property_id)),
+            None => item.properties.property(&target.property_id),
         };
-        let value = match target.value_path.array_element_id() {
+        let value = match target.path.element_id() {
             Some(id) => match value? {
-                ParameterValue::Array(values) => {
-                    values.iter().find(|element| element.id() == id)?.value()
+                PropertyValue::Array(values) => {
+                    values.iter().find(|row| row.element_id() == id)?.value()
                 }
                 _ => return None,
             },
             None => value?,
         }
-        .scalar_at(target.value_path.tuple_element())?;
+        .scalar_at(target.path.scalar_index())?;
         match value {
-            ParameterValue::Color(color) => Some(*color),
+            PropertyValue::Color(color) => Some(*color),
             _ => None,
         }
     }
@@ -296,7 +296,7 @@ impl PropertyInspector {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let binding = ParameterBinding {
+        let binding = PropertyBinding {
             item_id,
             target: control.common.target.clone(),
         };
@@ -325,10 +325,10 @@ impl PropertyInspector {
         cx: &mut Context<Self>,
     ) {
         let color = match control.common.value {
-            ParameterValue::Color(color) => Self::color_to_hsla(color),
+            PropertyValue::Color(color) => Self::color_to_hsla(color),
             _ => gpui::Hsla::default(),
         };
-        let binding = ParameterBinding {
+        let binding = PropertyBinding {
             item_id,
             target: control.common.target.clone(),
         };
@@ -344,7 +344,7 @@ impl PropertyInspector {
             cx,
         );
         for stop in &control.common.animation_stops {
-            let ParameterValue::Color(color) = stop.value else {
+            let PropertyValue::Color(color) = stop.value else {
                 continue;
             };
             let binding = AnimationStopBinding::new(item_id, control.common.target.effect_id, stop);
@@ -388,7 +388,7 @@ impl PropertyInspector {
             }
             Control::Text(text_control) => {
                 let text = match &text_control.common.value {
-                    ParameterValue::String(value) => value.clone(),
+                    PropertyValue::String(value) => value.clone(),
                     _ => String::new(),
                 };
                 self.ensure_text_control(item.id, text_control, text, window, cx);
@@ -419,19 +419,19 @@ impl PropertyInspector {
     ) -> InspectorInputStructure {
         let mut array_lengths = Vec::new();
         if let Some(item) = item {
-            array_lengths.extend(item.parameters.iter().filter_map(|(parameter_id, value)| {
-                let ParameterValue::Array(values) = value else {
+            array_lengths.extend(item.properties.iter().filter_map(|(property_id, value)| {
+                let PropertyValue::Array(values) = value else {
                     return None;
                 };
-                Some((None, parameter_id.to_owned(), values.len()))
+                Some((None, property_id.to_owned(), values.len()))
             }));
             for effect in &item.effects {
-                array_lengths.extend(effect.parameters.iter().filter_map(
-                    |(parameter_id, value)| {
-                        let ParameterValue::Array(values) = value else {
+                array_lengths.extend(effect.properties.iter().filter_map(
+                    |(property_id, value)| {
+                        let PropertyValue::Array(values) = value else {
                             return None;
                         };
-                        Some((Some(effect.id.get()), parameter_id.to_owned(), values.len()))
+                        Some((Some(effect.id.get()), property_id.to_owned(), values.len()))
                     },
                 ));
             }
@@ -509,9 +509,8 @@ impl PropertyInspector {
             Self::item_controls(item, &resolution)
         };
         if item.scene_id().is_none() {
-            item_controls.retain(|control| {
-                Self::parameter_is_common(selected_items, control.parameter_id())
-            });
+            item_controls
+                .retain(|control| Self::property_is_common(selected_items, control.property_id()));
         }
         if multiple {
             for control in &mut item_controls {
@@ -611,7 +610,11 @@ impl PropertyInspector {
             let editor = editor.read(cx);
             let target_exists = editor
                 .item(target.item_id)
-                .and_then(|item| item.animation(target.effect_id, &target.address))
+                .and_then(|item| {
+                    item.property_animation(target.effect_id, &target.property_id)
+                        .and_then(|property| property.element(target.element_id))
+                        .and_then(|element| element.scalar(target.scalar_index))
+                })
                 .is_some();
             let selected_another_item = selected_items.len() != 1
                 || selected_item

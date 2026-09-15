@@ -42,35 +42,35 @@ checks the API version and collection-wide uniqueness before returning a
 `PluginManifest`. Runtime code therefore never observes a partly validated
 manifest or a deserialized top-level schema. Unknown JSON fields are rejected.
 
-The checked-in [schema](../../../plugins/plugin.schema.json)
+The checked-in [schema](../plugins/plugin.schema.json)
 provides editor completion. Rust validation remains authoritative for rules
 that JSON Schema cannot express, such as unique IDs, text-item requirements,
-parameter/default compatibility, and cross-references.
+property/default compatibility, and cross-references.
 
 ## Rust interface boundary
 
 Manifest-backed structs expose behavior and immutable views rather than public
 storage fields. Callers use `ItemSchema::files`, `file`, `visual`, `audio`,
-`parameters`, and the visual-kind helpers instead of walking the serialized
-`capabilities` shape. Effects similarly expose `parameters`, `passes`, and
+`properties`, and the visual-kind helpers instead of walking the serialized
+`capabilities` shape. Effects similarly expose `properties`, `passes`, and
 `render_scale`. Shader source and entry-point fields are read through accessors.
 This keeps JSON layout changes inside the plugin domain.
 
-`ParameterSchema` is read-only outside `domain`: UI and rendering code use its
+`PropertySchema` is read-only outside `domain`: UI and rendering code use its
 accessors, while timeline code retains the narrower internal access needed to
-project plugin parameters into editable scene arguments. Item and effect
+project plugin properties into editable scene arguments. Item and effect
 schemas implement `PluginCatalogEntry`, giving catalog UIs one shared metadata
 interface and one consistent search-term policy.
 
-Shared parameter contracts live in [`../parameter/`](../parameter/), independently
+Shared property contracts live in [`../src/domain/property/`](../src/domain/property/), independently
 of plugin loading: `types` owns the scalar/tuple/array algebra, `value` owns
 checked values and collections, `schema` exposes the read-only model,
-`compatibility` and `constraints` enforce contracts, and `ui`/`numeric`
-provide editor views. JSON conversion lives in `parameter/wire/`.
+`schema` and `constraints` enforce contracts, and `ui`/`numeric` provide editor
+views. JSON conversion lives in `src/domain/property/wire.rs`.
 The plugin layer retains WGSL identifier and generated-name validation and the
-ABI compiler. Parameter errors are converted to plugin errors at this boundary.
+ABI compiler. Property errors are converted to plugin errors at this boundary.
 Animation eligibility and interpolation are explicit operations in
-[`../animation/`](../animation/), rather than methods added to parameter types
+[`../src/domain/animation/`](../src/domain/animation/), rather than methods added to property types
 from another module.
 
 Public visibility is reserved for plugin loading and immutable schema
@@ -109,7 +109,7 @@ what supplies pixels:
     },
     "audio": { "inputs": ["source"], "volume": "volume" }
   },
-  "parameters": [{
+  "properties": [{
     "id": "volume",
     "label": "Volume",
     "type": "f32",
@@ -121,13 +121,13 @@ what supplies pixels:
 
 Audio explicitly names the file inputs consumed by the host mixer. Each ID must
 refer to a video or audio input. Like a temporal pass `sampling` block, the
-audio capability also names the `f32` item parameter read as linear gain in
+audio capability also names the `f32` item property read as linear gain in
 `volume`. A media visual likewise requires at least one
 video/image input. Every item whose `capabilities.editor.size` references a
-parameter gets the host's aspect-ratio lock control. The lock is editor state, starts
-disabled for new items, and is not part of the shader parameter ABI.
+property gets the host's aspect-ratio lock control. The lock is editor state, starts
+disabled for new items, and is not part of the shader property ABI.
 
-A text visual names every item parameter consumed by the host rasterizer:
+A text visual names every item property consumed by the host rasterizer:
 
 ```json
 "visual": {
@@ -147,18 +147,18 @@ A text visual names every item parameter consumed by the host rasterizer:
 }
 ```
 
-The rasterizer resolves values through these references, so text parameters can
-use any IDs as long as each referenced parameter has the expected storage
+The rasterizer resolves values through these references, so text properties can
+use any IDs as long as each referenced property has the expected storage
 type. Alignment references must be enums containing exactly `0`, `1`, and `2`.
 
 For each visual file input `<id>`, media WGSL receives
 `zerium_media_<id>`, `zerium_media_<id>_size()`, and the shared
 `zerium_media_sampler`. Text receives `zerium_media_text`.
 
-## Parameters
+## Properties
 
-Every parameter has one identity and one value. Tuple coordinates can be edited
-and animated independently, but are not modeled as separate parameter lanes.
+Every property has one identity and one value. Tuple coordinates can be edited
+and animated independently, but are not modeled as separate property lanes.
 
 ```json
 {
@@ -180,18 +180,18 @@ and animated independently, but are not modeled as separate parameter lanes.
 }
 ```
 
-`label` and numeric `constraints` belong to the parameter contract. `ui` only
-contains presentation hints: `elements` (including each element’s `label`), `unit`, `step`,
+`label` and numeric `constraints` belong to the property contract. `ui` only
+contains presentation hints: `elements` (one entry per tuple scalar, including its `label`), `unit`, `step`,
 `visible`, `enum_variants`, `multiline`, and `editor`. Numeric values use the same canonical
 unit in projects, shaders, and editor controls.
 Constraints are enforced for defaults, direct edits, array elements, loaded
 projects, and animation endpoints.
 
 Scalar types are `f32`, `i32`, `u32`, `bool`, `color`, `string`, and finite `enum` contracts. Color is one scalar, edited with a color picker even inside tuples and arrays. Numeric inputs address numeric scalars by their tuple index; RGBA components are not flattened into numeric input indices.
-Item-generic editor behaviors reference parameters from the item
+Item-generic editor behaviors reference properties from the item
 capability, for example `"editor": { "size": "size", "label": "text" }`.
 The size reference requires a two-`f32` tuple and the label reference requires a
-string. This follows the same parameter-ID wiring used by text rasterization,
+string. This follows the same property-ID wiring used by text rasterization,
 audio gain, and temporal sampling. Effects may still use presentation hints such
 as `multiline`.
 
@@ -244,30 +244,30 @@ Finite choices are types, not UI options:
 }
 ```
 
-`editable` defaults to true. Set it to `false` for plugin parameters whose values are produced by the
-plugin and must be displayed without allowing direct edits. Tuple parameters can use
+`editable` defaults to true. Set it to `false` for plugin properties whose values are produced by the
+plugin and must be displayed without allowing direct edits. Tuple properties can use
 `{"elements": [true, false, ...]}` to control each scalar independently. This also disables animation
-editing for the parameter or element. `scene_bindable` defaults to true and remains independent, so a
-parameter can still be exposed through a scene binding when the plugin uses that as its input path.
+editing for the property or scalar. `scene_bindable` defaults to true and remains independent, so a
+property can still be exposed through a scene binding when the plugin uses that as its input path.
 Scene arguments themselves are scalars, preserving enum membership;
-tuple elements are published and connected independently.
+tuple scalars are published and connected independently.
 
 ### Tuple metadata and animation
 
 `ui.elements` and `constraints.elements` specify metadata for each tuple scalar,
-including inside an array. When present, each list must match the tuple length.
+including inside an array element. When present, each list must match the tuple length.
 Tuple UI properties (`label`, `unit`, `step`, `visible`,
 `enum_variants`, and `multiline`) belong inside `ui.elements`. Parent UI hints
-are not inherited. Missing labels use the one-based element index, and omitted
-UI metadata uses the scalar defaults. A tuple is visible if any element is visible.
+are not inherited. Missing labels use the one-based scalar index, and omitted
+UI metadata uses the scalar defaults. A tuple is visible if any scalar is visible.
 Numeric bounds belong inside `constraints.elements`; tuple-level `min`/`max`
-are rejected. Use `{}` for an unconstrained element. Omitting either metadata
-object leaves every element at its defaults. These rules also apply to arrays
+are rejected. Use `{}` for an unconstrained scalar. Omitting either metadata
+object leaves every scalar at its defaults. These rules also apply to arrays
 of tuples. The `font_family` editor remains an array-of-strings setting.
-`scene_bindable` remains a parameter-level permission. `animatable` is a scalar
-permission: standalone scalar parameters use a boolean, while tuple parameters
-use `{"elements": [true, false, ...]}`. The same element mask applies to every
-item in an array of tuples.
+`scene_bindable` remains a property-level permission. `animatable` is a scalar
+permission: standalone scalar properties use a boolean, while tuple properties
+use `{"elements": [true, false, ...]}`. The same scalar mask applies to every
+element in an array of tuples.
 
 ```json
 {
@@ -288,12 +288,12 @@ item in an array of tuples.
 }
 ```
 
-Every animation track addresses one scalar: a standalone scalar, a tuple element,
+Every animation track addresses one scalar: a standalone scalar, a tuple scalar,
 or a scalar within an array element. Array elements have editor-side stable IDs,
 but plugins receive only their ordered values. Numeric scalars and colors interpolate;
 bools, strings, and enums remain static. A mixed tuple can animate its eligible
-elements independently. An animatable element must be numeric or a color;
-boolean, string, and enum elements remain static.
+scalars independently. An animatable scalar must be numeric or a color;
+boolean, string, and enum scalars remain static.
 Colors share one curve across RGBA. Integer endpoints retain their integer type
 and interpolate with rounding, without conversion of endpoints to `f32`.
 Array structure is not animated. Tracks store a structural target and typed
@@ -305,18 +305,18 @@ when provided it must label every member exactly once.
 
 ## Generated WGSL API
 
-Zerium prepends a typed parameter struct to every pass. All shader kinds use
+Zerium prepends a typed property struct to every pass. All shader kinds use
 the same public loader name:
 
 ```wgsl
-let params = zerium_load_parameters(instance_index); // item shader
-let params = zerium_load_parameters();               // effect pass
+let properties = zerium_load_properties(instance_index); // item shader
+let properties = zerium_load_properties();               // effect pass
 ```
 
 Tuple fields are generated structs with fields `v0`, `v1`, and so on. Arrays use
-`params.<id>_len` plus `zerium_parameter_<id>_get(params, index)`, including
+`properties.<id>_len` plus `zerium_property_<id>_get(properties, index)`, including
 arrays of strings. A string is represented by `ZeriumString`; its byte length is
-`value.byte_len`, and `zerium_string_byte(params._raw, value, index)` reads one
+`value.byte_len`, and `zerium_string_byte(properties._raw, value, index)` reads one
 UTF-8 byte. The descriptor layout and backing-buffer offsets remain host-private.
 
 All host declarations use the `zerium_`/`Zerium` namespace. Plugin WGSL must
@@ -343,7 +343,7 @@ top-level shader and no implicit render pass.
   "id": "blur",
   "label": "Blur",
   "category": "Blur",
-  "parameters": [{
+  "properties": [{
     "id": "radius",
     "label": "Radius",
     "type": "f32",
@@ -364,7 +364,7 @@ top-level shader and no implicit render pass.
 ```
 
 Pass constants use fixed-size scalar or tuple value types. Strings, including strings inside tuples, are rejected for pass constants. They join the generated
-parameter struct for that pass but never become inspector state. Compute
+property struct for that pass but never become inspector state. Compute
 workgroup size is read from WGSL's `@workgroup_size`; the manifest only controls
 dispatch dimensions.
 
@@ -375,7 +375,7 @@ regular pass chain; and
 `zerium_store_output(position, color)`.
 
 A temporal pass must be first and may occur at most once. Its `sampling`
-declaration maps public parameters to host-controlled subframe sampling, while
+declaration maps public properties to host-controlled subframe sampling, while
 its reducer owns the weighting algorithm:
 
 ```json
@@ -391,7 +391,7 @@ its reducer owns the weighting algorithm:
 }
 ```
 
-The sample-count parameter must have explicit constraints within `1..=32`, the
+The sample-count property must have explicit constraints within `1..=32`, the
 angle must have a non-negative minimum, and phase (when present) must be bounded
 within `-1..=1`.
 

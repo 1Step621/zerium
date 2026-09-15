@@ -1,6 +1,6 @@
 //! Host capabilities declared by item schemas.
 
-use crate::domain::parameter::ParameterValueType;
+use crate::domain::property::PropertyValueType;
 use std::collections::HashSet;
 
 use serde::Deserialize;
@@ -9,7 +9,7 @@ use super::PluginError;
 use super::identifier::{validate_logical_id, validate_wgsl_identifier_suffix};
 use super::item::ItemSchema;
 use super::shader::ShaderSchema;
-use crate::domain::parameter::{ParameterType, ScalarParameterType};
+use crate::domain::property::{PropertyType, ScalarPropertyType};
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -96,7 +96,7 @@ impl FileCapability {
     }
 }
 
-/// Text deliberately carries its parameter references inline so manifests
+/// Text deliberately carries its property references inline so manifests
 /// stay flat; capabilities are shared by `Arc`, not moved per frame.
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -112,8 +112,8 @@ pub(crate) enum VisualCapability {
         #[serde(default = "default_item_vertex_count")]
         vertex_count: u32,
     },
-    /// Host rasterizer inputs, each naming an item parameter by ID like
-    /// [`TemporalSamplingSchema`](super::TemporalSamplingSchema) references its sampling parameters.
+    /// Host rasterizer inputs, each naming an item property by ID like
+    /// [`TemporalSamplingSchema`](super::TemporalSamplingSchema) references its sampling properties.
     Text {
         shader: ShaderSchema,
         #[serde(default = "default_item_vertex_count")]
@@ -133,7 +133,7 @@ pub(crate) enum VisualCapability {
 }
 
 impl VisualCapability {
-    pub(super) fn validate_text_parameters(&self, item: &ItemSchema) -> Result<(), PluginError> {
+    pub(super) fn validate_text_properties(&self, item: &ItemSchema) -> Result<(), PluginError> {
         let Self::Text {
             size,
             text,
@@ -151,71 +151,78 @@ impl VisualCapability {
         else {
             return Ok(());
         };
-        let mistyped = |parameter_id: &str, expected: &str| {
+        let mistyped = |property_id: &str, expected: &str| {
             PluginError::invalid_definition(format!(
-                "text item '{}' text parameter '{}' has the wrong type; expected {expected}",
+                "text item '{}' text property '{}' has the wrong type; expected {expected}",
                 item.id(),
-                parameter_id
+                property_id
             ))
         };
-        let parameter = |parameter_id: &str| {
-            item.parameter(parameter_id).ok_or_else(|| {
+        let property = |property_id: &str| {
+            item.property(property_id).ok_or_else(|| {
                 PluginError::invalid_definition(format!(
-                    "text item '{}' is missing text parameter '{}'",
+                    "text item '{}' is missing text property '{}'",
                     item.id(),
-                    parameter_id
+                    property_id
                 ))
             })
         };
-        let tuple_f32_pair = |parameter_id: &str| {
-            let parameter = parameter(parameter_id)?;
-            match &parameter.ty {
-                ParameterType::Value(ParameterValueType::Tuple(tuple))
-                    if tuple.element_count() == 2
-                        && tuple.elements().iter().all(|element| {
-                            *element == crate::domain::parameter::ScalarParameterType::F32
+        let tuple_f32_pair = |property_id: &str| {
+            let property = property(property_id)?;
+            match &property.ty {
+                PropertyType::Value(PropertyValueType::Tuple(tuple))
+                    if tuple.scalar_count() == 2
+                        && tuple.scalars().iter().all(|scalar_type| {
+                            *scalar_type == crate::domain::property::ScalarPropertyType::F32
                         }) =>
                 {
                     Ok(())
                 }
-                _ => Err(mistyped(parameter_id, "a tuple of two f32 values")),
+                _ => Err(mistyped(property_id, "a tuple of two f32 values")),
             }
         };
-        let scalar = |parameter_id: &str, ty: ScalarParameterType| {
-            let parameter = parameter(parameter_id)?;
-            if parameter.ty != ParameterType::Value(ParameterValueType::Scalar(ty.clone())) {
-                return Err(mistyped(parameter_id, &format!("a {ty:?} type")));
+        let scalar = |property_id: &str, ty: ScalarPropertyType| {
+            let property = property(property_id)?;
+            if property.ty != PropertyType::Value(PropertyValueType::Scalar(ty.clone())) {
+                return Err(mistyped(property_id, &format!("a {ty:?} type")));
             }
             Ok(())
         };
         tuple_f32_pair(size)?;
-        scalar(text, ScalarParameterType::String)?;
-        let font_parameter = parameter(font_family)?;
+        scalar(text, ScalarPropertyType::String)?;
+        let font_property = property(font_family)?;
         if !matches!(
-            font_parameter.ty().array_element_type(),
-            Some(crate::domain::parameter::ParameterValueType::Scalar(
-                ScalarParameterType::String
-            ))
+            font_property.ty(),
+            PropertyType::Array {
+                element_type: crate::domain::property::PropertyValueType::Scalar(
+                    ScalarPropertyType::String,
+                ),
+                ..
+            }
         ) {
             return Err(mistyped(font_family, "an array of strings"));
         }
-        scalar(font_size, ScalarParameterType::F32)?;
-        scalar(color, ScalarParameterType::Color)?;
-        scalar(outline_width, ScalarParameterType::F32)?;
-        scalar(outline_color, ScalarParameterType::Color)?;
-        scalar(bold, ScalarParameterType::Bool)?;
-        scalar(italic, ScalarParameterType::Bool)?;
-        for parameter_id in [horizontal_alignment, vertical_alignment] {
-            let parameter = parameter(parameter_id)?;
-            let Some(ScalarParameterType::Enum(enumeration)) = parameter.ty().scalar_type() else {
-                return Err(mistyped(parameter_id, "an enum type"));
+        scalar(font_size, ScalarPropertyType::F32)?;
+        scalar(color, ScalarPropertyType::Color)?;
+        scalar(outline_width, ScalarPropertyType::F32)?;
+        scalar(outline_color, ScalarPropertyType::Color)?;
+        scalar(bold, ScalarPropertyType::Bool)?;
+        scalar(italic, ScalarPropertyType::Bool)?;
+        for property_id in [horizontal_alignment, vertical_alignment] {
+            let property = property(property_id)?;
+            let scalar_type = match property.ty() {
+                PropertyType::Value(value_type) => value_type.scalar_at(None),
+                PropertyType::Array { .. } => None,
+            };
+            let Some(ScalarPropertyType::Enum(enumeration)) = scalar_type else {
+                return Err(mistyped(property_id, "an enum type"));
             };
             let values = enumeration.values();
             if values.len() != 3
                 || !(values.contains(&0) && values.contains(&1) && values.contains(&2))
             {
                 return Err(mistyped(
-                    parameter_id,
+                    property_id,
                     "an enum containing exactly 0, 1, and 2",
                 ));
             }
@@ -260,9 +267,9 @@ impl VisualCapability {
 #[serde(deny_unknown_fields)]
 pub(crate) struct AudioCapability {
     inputs: Vec<String>,
-    /// Item parameter read by the host mixer as linear audio gain,
+    /// Item property read by the host mixer as linear audio gain,
     /// referenced by ID like [`TemporalSamplingSchema`](super::TemporalSamplingSchema) references its
-    /// sampling parameters.
+    /// sampling properties.
     volume: String,
 }
 
@@ -271,7 +278,7 @@ impl AudioCapability {
         &self.inputs
     }
 
-    pub(crate) fn volume_parameter(&self) -> &str {
+    pub(crate) fn volume_property(&self) -> &str {
         &self.volume
     }
 
@@ -288,50 +295,50 @@ pub(super) struct EditorCapability {
 }
 
 impl EditorCapability {
-    pub(super) fn size_parameter(&self) -> Option<&str> {
+    pub(super) fn size_property(&self) -> Option<&str> {
         self.size.as_deref()
     }
 
-    pub(super) fn label_parameter(&self) -> Option<&str> {
+    pub(super) fn label_property(&self) -> Option<&str> {
         self.label.as_deref()
     }
 
     pub(super) fn validate(&self, item: &ItemSchema) -> Result<(), PluginError> {
         if self.size.is_none() && self.label.is_none() {
             return Err(PluginError::invalid_definition(format!(
-                "item '{}' editor capability must reference at least one parameter",
+                "item '{}' editor capability must reference at least one property",
                 item.id()
             )));
         }
-        if let Some(parameter_id) = self.size_parameter() {
-            let valid = item.parameter(parameter_id).is_some_and(|parameter| {
+        if let Some(property_id) = self.size_property() {
+            let valid = item.property(property_id).is_some_and(|property| {
                 matches!(
-                    parameter.ty(),
-                    ParameterType::Value(ParameterValueType::Tuple(tuple))
-                        if tuple.element_count() == 2
-                            && tuple.elements().iter().all(|element| {
-                                *element == crate::domain::parameter::ScalarParameterType::F32
+                    property.ty(),
+                    PropertyType::Value(PropertyValueType::Tuple(tuple))
+                        if tuple.scalar_count() == 2
+                            && tuple.scalars().iter().all(|scalar_type| {
+                                *scalar_type == crate::domain::property::ScalarPropertyType::F32
                             })
                 )
             });
             if !valid {
                 return Err(PluginError::invalid_definition(format!(
-                    "item '{}' editor size parameter '{}' must be a tuple of two f32 values",
+                    "item '{}' editor size property '{}' must be a tuple of two f32 values",
                     item.id(),
-                    parameter_id
+                    property_id
                 )));
             }
         }
-        if let Some(parameter_id) = self.label_parameter()
-            && item.parameter(parameter_id).map(|parameter| parameter.ty())
-                != Some(&ParameterType::Value(ParameterValueType::Scalar(
-                    ScalarParameterType::String,
+        if let Some(property_id) = self.label_property()
+            && item.property(property_id).map(|property| property.ty())
+                != Some(&PropertyType::Value(PropertyValueType::Scalar(
+                    ScalarPropertyType::String,
                 )))
         {
             return Err(PluginError::invalid_definition(format!(
-                "item '{}' editor label parameter '{}' must be a string",
+                "item '{}' editor label property '{}' must be a string",
                 item.id(),
-                parameter_id
+                property_id
             )));
         }
         Ok(())

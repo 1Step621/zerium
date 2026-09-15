@@ -1,6 +1,6 @@
 struct ZeriumTemporalInfo {
-    params_offset: u32,
-    params_size: u32,
+    property_offset: u32,
+    property_size: u32,
     sample_index: u32,
     sample_count: u32,
     frame_offset: f32,
@@ -21,12 +21,12 @@ var zerium_temporal_sampler: sampler;
 var<uniform> zerium_temporal_state: ZeriumTemporalInfo;
 
 @group(0) @binding(4)
-var<storage, read> zerium_parameter_words: array<u32>;
+var<storage, read> zerium_property_words: array<u32>;
 
-fn zerium_raw_params_for_effect() -> ZeriumRawParams {
-    return ZeriumRawParams(
-        zerium_temporal_state.params_offset,
-        zerium_temporal_state.params_size,
+fn zerium_raw_properties_for_effect() -> ZeriumRawProperties {
+    return ZeriumRawProperties(
+        zerium_temporal_state.property_offset,
+        zerium_temporal_state.property_size,
     );
 }
 

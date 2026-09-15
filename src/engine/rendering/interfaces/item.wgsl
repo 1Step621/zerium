@@ -1,6 +1,6 @@
 struct ZeriumItemInstance {
-    params_offset: u32,
-    params_size: u32,
+    property_offset: u32,
+    property_size: u32,
     output_size: vec2<f32>,
     composition_size: vec2<f32>,
 };
@@ -8,13 +8,13 @@ struct ZeriumItemInstance {
 @group(0) @binding(0)
 var<storage, read> zerium_items: array<ZeriumItemInstance>;
 
-// Parameters are words internally so each item can use a different typed layout.
+// Properties are words internally so each item can use a different typed layout.
 @group(0) @binding(1)
-var<storage, read> zerium_parameter_words: array<u32>;
+var<storage, read> zerium_property_words: array<u32>;
 
-fn zerium_raw_params_for_instance(instance_index: u32) -> ZeriumRawParams {
+fn zerium_raw_properties_for_instance(instance_index: u32) -> ZeriumRawProperties {
     let item = zerium_items[instance_index];
-    return ZeriumRawParams(item.params_offset, item.params_size);
+    return ZeriumRawProperties(item.property_offset, item.property_size);
 }
 
 // Composition coordinates use the frame center as (0, 0), +X to the right,

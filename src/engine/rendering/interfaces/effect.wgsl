@@ -1,6 +1,6 @@
 struct ZeriumEffectInstance {
-    params_offset: u32,
-    params_size: u32,
+    property_offset: u32,
+    property_size: u32,
     sample_index: u32,
     sample_count: u32,
     frame_offset: f32,
@@ -18,17 +18,17 @@ var zerium_effect_sampler: sampler;
 var<uniform> zerium_effect_instance: ZeriumEffectInstance;
 
 @group(0) @binding(3)
-var<storage, read> zerium_parameter_words: array<u32>;
+var<storage, read> zerium_property_words: array<u32>;
 
 // The input captured at the beginning of the current regular pass chain. A
 // temporal pass ends the preceding chain, so passes after it capture its result.
 @group(0) @binding(4)
 var zerium_effect_source: texture_2d<f32>;
 
-fn zerium_raw_params_for_effect() -> ZeriumRawParams {
-    return ZeriumRawParams(
-        zerium_effect_instance.params_offset,
-        zerium_effect_instance.params_size,
+fn zerium_raw_properties_for_effect() -> ZeriumRawProperties {
+    return ZeriumRawProperties(
+        zerium_effect_instance.property_offset,
+        zerium_effect_instance.property_size,
     );
 }
 

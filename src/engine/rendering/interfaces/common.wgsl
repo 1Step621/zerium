@@ -1,32 +1,32 @@
-struct ZeriumRawParams {
+struct ZeriumRawProperties {
     offset: u32,
     size: u32,
 };
 
-fn zerium_raw_word(params: ZeriumRawParams, word_index: u32) -> u32 {
-    if word_index * 4u >= params.size {
+fn zerium_raw_word(properties: ZeriumRawProperties, word_index: u32) -> u32 {
+    if word_index * 4u >= properties.size {
         return 0u;
     }
-    return zerium_parameter_words[params.offset + word_index];
+    return zerium_property_words[properties.offset + word_index];
 }
 
-fn zerium_raw_u32(params: ZeriumRawParams, byte_offset: u32) -> u32 {
-    if byte_offset + 4u > params.size {
+fn zerium_raw_u32(properties: ZeriumRawProperties, byte_offset: u32) -> u32 {
+    if byte_offset + 4u > properties.size {
         return 0u;
     }
-    return zerium_raw_word(params, byte_offset / 4u);
+    return zerium_raw_word(properties, byte_offset / 4u);
 }
 
-fn zerium_raw_i32(params: ZeriumRawParams, byte_offset: u32) -> i32 {
-    return bitcast<i32>(zerium_raw_u32(params, byte_offset));
+fn zerium_raw_i32(properties: ZeriumRawProperties, byte_offset: u32) -> i32 {
+    return bitcast<i32>(zerium_raw_u32(properties, byte_offset));
 }
 
-fn zerium_raw_f32(params: ZeriumRawParams, byte_offset: u32) -> f32 {
-    return bitcast<f32>(zerium_raw_u32(params, byte_offset));
+fn zerium_raw_f32(properties: ZeriumRawProperties, byte_offset: u32) -> f32 {
+    return bitcast<f32>(zerium_raw_u32(properties, byte_offset));
 }
 
-fn zerium_raw_bool(params: ZeriumRawParams, byte_offset: u32) -> bool {
-    return zerium_raw_u32(params, byte_offset) != 0u;
+fn zerium_raw_bool(properties: ZeriumRawProperties, byte_offset: u32) -> bool {
+    return zerium_raw_u32(properties, byte_offset) != 0u;
 }
 
 struct ZeriumRenderContext {

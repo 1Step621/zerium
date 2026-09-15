@@ -3,12 +3,14 @@ use std::{
     sync::Arc,
 };
 
-use crate::domain::animation::{BezierHandle, ParameterAnimations, SegmentInterpolation};
-use crate::domain::media::ImportedMedia;
-use crate::domain::parameter::{
-    ParameterAddress, ParameterSchema, ParameterValue, ParameterValuePath,
+use crate::domain::animation::{
+    BezierHandle, PropertyAnimations, ScalarTrack, SegmentInterpolation,
 };
+use crate::domain::media::ImportedMedia;
 use crate::domain::plugin::{EffectSchema, ItemSchema};
+use crate::domain::property::{
+    PropertyElementId, PropertySchema, PropertyType, PropertyValue, PropertyValues,
+};
 
 use super::{
     ids::{EffectInstanceId, ItemId, LayerId},
@@ -26,10 +28,12 @@ pub(crate) enum ResizeEdge {
 }
 
 #[derive(Clone, Copy)]
-pub(super) struct ParameterAnimationLocation<'a> {
+pub(super) struct PropertyAnimationLocation<'a> {
     pub(super) item_id: ItemId,
     pub(super) effect_id: Option<EffectInstanceId>,
-    pub(super) address: &'a ParameterAddress,
+    pub(super) property_id: &'a str,
+    pub(super) element_id: Option<PropertyElementId>,
+    pub(super) scalar_index: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -344,7 +348,7 @@ impl TimelineDocument {
         item_id: &str,
         schema: Arc<ItemSchema>,
     ) -> Option<ItemId> {
-        let parameters = schema.default_parameter_values();
+        let properties = schema.default_property_values();
         let duration =
             FrameDuration::new_saturating(self.frame_rate.seconds_to_frame(DEFAULT_ITEM_SECONDS).0);
         let plugin_id = plugin_id.to_owned();
@@ -360,8 +364,8 @@ impl TimelineDocument {
                     schema,
                 },
                 assets: HashMap::new(),
-                parameters,
-                animations: ParameterAnimations::default(),
+                properties,
+                animations: PropertyAnimations::default(),
                 aspect_ratio_locked: false,
                 effects: Vec::new(),
             })
@@ -542,11 +546,11 @@ impl TimelineDocument {
                 .map(|[width, height]| [width as f32, height as f32]);
             if let Some(source_size) = dimensions
                 && let Some(schema) = item.schema_arc().cloned()
-                && let Some(bounds) = size_values(&item.parameters, &schema)
+                && let Some(bounds) = size_values(&item.properties, &schema)
             {
                 let scale = (bounds[0] / source_size[0]).min(bounds[1] / source_size[1]);
                 set_size_values(
-                    &mut item.parameters,
+                    &mut item.properties,
                     &schema,
                     [source_size[0] * scale, source_size[1] * scale],
                 );
@@ -577,11 +581,11 @@ impl TimelineDocument {
         removed
     }
 
-    pub(crate) fn update_item_parameter(
+    pub(crate) fn update_item_property(
         &mut self,
         id: ItemId,
-        parameter_id: &str,
-        value: ParameterValue,
+        property_id: &str,
+        value: PropertyValue,
     ) -> bool {
         let Some(item) = self.items.get_mut(&id).map(Arc::make_mut) else {
             return false;
@@ -589,38 +593,38 @@ impl TimelineDocument {
         let Some(schema) = item.schema_arc().cloned() else {
             return false;
         };
-        let Some(parameter) = schema.parameter(parameter_id) else {
+        let Some(property) = schema.property(property_id) else {
             return false;
         };
-        if !parameter.is_editable(None) {
+        if !property.is_editable(None) {
             return false;
         }
         // Resolve a locked size as one value. Writing width first can leave the old
         // height behind if the derived height is outside its contract.
         let value = if item.preserves_aspect_ratio()
-            && schema.is_size_parameter(parameter_id)
-            && parameter.ty().allows(&value)
+            && schema.is_size_property(property_id)
+            && property.ty().allows(&value)
             && let Some(ratio) = item.current_aspect_ratio(&schema)
         {
             let requested = [
                 value
                     .scalar_at(Some(0))
-                    .and_then(ParameterValue::numeric_scalar)
+                    .and_then(PropertyValue::numeric_scalar)
                     .unwrap() as f32,
                 value
                     .scalar_at(Some(1))
-                    .and_then(ParameterValue::numeric_scalar)
+                    .and_then(PropertyValue::numeric_scalar)
                     .unwrap() as f32,
             ];
-            ParameterValue::f32_tuple(super::item::size_with_derived_height(
+            PropertyValue::f32_tuple(super::item::size_with_derived_height(
                 requested, ratio, &schema,
             ))
         } else {
             value
         };
-        let mut changed = item.parameters.set(parameter, value).unwrap_or(false);
+        let mut changed = item.properties.set(property, value).unwrap_or(false);
         if changed {
-            changed |= item.animations.retain_valid_addresses(&item.parameters);
+            changed |= item.animations.retain_valid(&item.properties);
         }
 
         changed
@@ -635,19 +639,20 @@ impl TimelineDocument {
         };
         if !schema.supports_aspect_ratio_lock()
             || schema
-                .size_parameter()
-                .is_none_or(|parameter| !parameter.is_editable(None))
+                .size_property()
+                .is_none_or(|property| !property.is_editable(None))
             || item.aspect_ratio_locked == locked
         {
             return false;
         }
         let aspect_ratio = item.current_aspect_ratio(&schema);
         item.aspect_ratio_locked = locked;
-        if locked && let Some(size) = schema.size_parameter() {
-            item.animations.disable(&ParameterAddress::new(
-                &size.id,
-                ParameterValuePath::new(None, Some(1)),
-            ));
+        if locked && let Some(size) = schema.size_property() {
+            if let Some(property) = item.animations.property_mut(&size.id)
+                && let Some(element) = property.element_mut(None)
+            {
+                element.remove(Some(1));
+            }
         }
         if locked && let Some(aspect_ratio) = aspect_ratio {
             item.constrain_size_to_aspect_ratio(aspect_ratio);
@@ -663,7 +668,7 @@ impl TimelineDocument {
         effect_id: &str,
         schema: Arc<EffectSchema>,
     ) -> bool {
-        let parameters = schema.default_parameter_values();
+        let properties = schema.default_property_values();
         let Some(item) = self.items.get_mut(&id).map(Arc::make_mut) else {
             return false;
         };
@@ -679,19 +684,19 @@ impl TimelineDocument {
             id: instance_id,
             plugin_id: plugin_id.to_owned(),
             effect_id: effect_id.to_owned(),
-            parameters,
-            animations: ParameterAnimations::default(),
+            properties,
+            animations: PropertyAnimations::default(),
             schema,
         });
         true
     }
 
-    pub(crate) fn update_item_effect_parameter(
+    pub(crate) fn update_item_effect_property(
         &mut self,
         item_id: ItemId,
         effect_id: EffectInstanceId,
-        parameter_id: &str,
-        value: ParameterValue,
+        property_id: &str,
+        value: PropertyValue,
     ) -> bool {
         let Some(effect) = self
             .items
@@ -706,15 +711,15 @@ impl TimelineDocument {
             return false;
         };
         let schema = effect.schema.clone();
-        let Some(parameter) = schema.parameter(parameter_id) else {
+        let Some(property) = schema.property(property_id) else {
             return false;
         };
-        if !parameter.is_editable(None) {
+        if !property.is_editable(None) {
             return false;
         }
-        let mut changed = effect.parameters.set(parameter, value).unwrap_or(false);
+        let mut changed = effect.properties.set(property, value).unwrap_or(false);
         if changed {
-            changed |= effect.animations.retain_valid_addresses(&effect.parameters);
+            changed |= effect.animations.retain_valid(&effect.properties);
         }
         changed
     }
@@ -723,7 +728,7 @@ impl TimelineDocument {
         &mut self,
         item_id: ItemId,
         effect_id: Option<EffectInstanceId>,
-    ) -> Option<&mut ParameterAnimations> {
+    ) -> Option<&mut PropertyAnimations> {
         let item = self.items.get_mut(&item_id).map(Arc::make_mut)?;
         match effect_id {
             Some(effect_id) => item
@@ -735,24 +740,88 @@ impl TimelineDocument {
         }
     }
 
-    pub(crate) fn set_parameter_animation_enabled(
-        &mut self,
-        item_id: ItemId,
-        effect_id: Option<EffectInstanceId>,
-        address: &ParameterAddress,
-        enabled: bool,
+    fn animation_mut<'a>(
+        animations: &'a mut PropertyAnimations,
+        property_id: &str,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
+    ) -> Option<&'a mut ScalarTrack> {
+        animations
+            .property_mut(property_id)?
+            .element_mut(element_id)?
+            .scalar_mut(scalar_index)
+    }
+
+    fn enable_animation(
+        animations: &mut PropertyAnimations,
+        property_id: &str,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
+        values: &PropertyValues,
+        ty: &PropertyType,
     ) -> bool {
-        let Some(parameter) = self.parameter_schema(item_id, effect_id, &address.parameter_id)
+        if animations
+            .property(property_id)
+            .and_then(|property| property.element(element_id))
+            .and_then(|element| element.scalar(scalar_index))
+            .is_some()
+        {
+            return false;
+        }
+        let Some(value) = values
+            .property(property_id)
+            .and_then(|value| value.element(element_id))
+            .and_then(|value| value.scalar_at(scalar_index))
         else {
             return false;
         };
-        if !parameter.is_editable(address.value_path.tuple_element()) {
+        let Some(scalar_type) = (match (element_id, ty) {
+            (Some(_), PropertyType::Array { element_type, .. })
+            | (None, PropertyType::Value(element_type)) => element_type.scalar_at(scalar_index),
+            _ => None,
+        }) else {
+            return false;
+        };
+        let Some(track) = ScalarTrack::from_value(value.clone(), scalar_type) else {
+            return false;
+        };
+        animations
+            .property_or_insert(property_id)
+            .element_or_insert(element_id)
+            .insert(scalar_index, track)
+    }
+
+    pub(crate) fn set_property_animation_enabled(
+        &mut self,
+        item_id: ItemId,
+        effect_id: Option<EffectInstanceId>,
+        property_id: &str,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
+        enabled: bool,
+    ) -> bool {
+        let Some(property) = self.property_schema(item_id, effect_id, property_id) else {
+            return false;
+        };
+        if !property.is_editable(scalar_index) {
             return false;
         }
         if !enabled {
             return self
                 .animations_mut(item_id, effect_id)
-                .is_some_and(|animations| animations.disable(address));
+                .is_some_and(|animations| {
+                    let Some(property) = animations.property_mut(property_id) else {
+                        return false;
+                    };
+                    let Some(element) = property.element_mut(element_id) else {
+                        return false;
+                    };
+                    let changed = element.remove(scalar_index);
+                    if property.is_empty() {
+                        animations.remove_property_if_empty(property_id);
+                    }
+                    changed
+                });
         }
         let Some(item) = self.items.get_mut(&item_id).map(Arc::make_mut) else {
             return false;
@@ -768,33 +837,33 @@ impl TimelineDocument {
                 };
                 let Some((animatable, animation_type)) = effect
                     .schema()
-                    .parameter(&address.parameter_id)
-                    .map(|parameter| {
-                        (
-                            parameter.is_animatable(address.value_path.tuple_element()),
-                            parameter.ty().clone(),
-                        )
-                    })
+                    .property(property_id)
+                    .map(|property| (property.is_animatable(scalar_index), property.ty().clone()))
                 else {
                     return false;
                 };
                 if !animatable {
                     return false;
                 }
-                effect
-                    .animations
-                    .enable(address.clone(), &effect.parameters, &animation_type)
+                Self::enable_animation(
+                    &mut effect.animations,
+                    property_id,
+                    element_id,
+                    scalar_index,
+                    &effect.properties,
+                    &animation_type,
+                )
             }
             None => {
                 let Some(schema) = item.schema() else {
                     return false;
                 };
                 let Some((animatable, animation_type, is_size)) =
-                    schema.parameter(&address.parameter_id).map(|parameter| {
+                    schema.property(property_id).map(|property| {
                         (
-                            parameter.is_animatable(address.value_path.tuple_element()),
-                            parameter.ty().clone(),
-                            schema.is_size_parameter(&address.parameter_id),
+                            property.is_animatable(scalar_index),
+                            property.ty().clone(),
+                            schema.is_size_property(property_id),
                         )
                     })
                 else {
@@ -804,81 +873,93 @@ impl TimelineDocument {
                 if !animatable {
                     return false;
                 }
-                if is_size
-                    && preserves_aspect_ratio
-                    && address.value_path.tuple_element() == Some(1)
-                {
+                if is_size && preserves_aspect_ratio && scalar_index == Some(1) {
                     return false;
                 }
-                item.animations
-                    .enable(address.clone(), &item.parameters, &animation_type)
+                Self::enable_animation(
+                    &mut item.animations,
+                    property_id,
+                    element_id,
+                    scalar_index,
+                    &item.properties,
+                    &animation_type,
+                )
             }
         }
     }
 
-    pub(super) fn set_parameter_animation_stop(
+    pub(super) fn set_property_animation_stop(
         &mut self,
-        location: ParameterAnimationLocation<'_>,
+        location: PropertyAnimationLocation<'_>,
         index: usize,
-        value: ParameterValue,
+        value: PropertyValue,
         focused_segment: Option<usize>,
     ) -> bool {
-        let Some(parameter) = self.parameter_schema(
-            location.item_id,
-            location.effect_id,
-            &location.address.parameter_id,
-        ) else {
+        let Some(property) =
+            self.property_schema(location.item_id, location.effect_id, location.property_id)
+        else {
             return false;
         };
-        if !parameter.is_editable(location.address.value_path.tuple_element()) {
+        if !property.is_editable(location.scalar_index) {
             return false;
         }
-        if !parameter
-            .scalar_constraints(location.address.value_path.tuple_element())
+        if !property
+            .scalar_constraints(location.scalar_index)
             .allows(&value)
         {
             return false;
         }
         let Some(animation) = self
             .animations_mut(location.item_id, location.effect_id)
-            .and_then(|animations| animations.get_mut(location.address))
+            .and_then(|animations| {
+                Self::animation_mut(
+                    animations,
+                    location.property_id,
+                    location.element_id,
+                    location.scalar_index,
+                )
+            })
         else {
             return false;
         };
         animation.set_stop(index, value, focused_segment)
     }
 
-    pub(super) fn insert_parameter_animation_stop(
+    pub(super) fn insert_property_animation_stop(
         &mut self,
-        location: ParameterAnimationLocation<'_>,
+        location: PropertyAnimationLocation<'_>,
         position: f32,
-        value: ParameterValue,
+        value: PropertyValue,
     ) -> Option<usize> {
-        let parameter = self.parameter_schema(
-            location.item_id,
-            location.effect_id,
-            &location.address.parameter_id,
-        )?;
-        if !parameter.is_editable(location.address.value_path.tuple_element()) {
+        let property =
+            self.property_schema(location.item_id, location.effect_id, location.property_id)?;
+        if !property.is_editable(location.scalar_index) {
             return None;
         }
-        if !parameter
-            .scalar_constraints(location.address.value_path.tuple_element())
+        if !property
+            .scalar_constraints(location.scalar_index)
             .allows(&value)
         {
             return None;
         }
         self.animations_mut(location.item_id, location.effect_id)
-            .and_then(|animations| animations.get_mut(location.address))?
+            .and_then(|animations| {
+                Self::animation_mut(
+                    animations,
+                    location.property_id,
+                    location.element_id,
+                    location.scalar_index,
+                )
+            })?
             .insert_stop(position, value)
     }
 
-    fn parameter_schema(
+    fn property_schema(
         &self,
         item_id: ItemId,
         effect_id: Option<EffectInstanceId>,
-        parameter_id: &str,
-    ) -> Option<&ParameterSchema> {
+        property_id: &str,
+    ) -> Option<&PropertySchema> {
         let item = self.items.get(&item_id)?;
         match effect_id {
             Some(effect_id) => item
@@ -886,96 +967,116 @@ impl TimelineDocument {
                 .iter()
                 .find(|effect| effect.id == effect_id)?
                 .schema()
-                .parameter(parameter_id),
-            None => item.schema()?.parameter(parameter_id),
+                .property(property_id),
+            None => item.schema()?.property(property_id),
         }
     }
 
-    pub(super) fn set_parameter_animation_handle(
+    pub(super) fn set_property_animation_handle(
         &mut self,
-        location: ParameterAnimationLocation<'_>,
+        location: PropertyAnimationLocation<'_>,
         segment: usize,
         handle: BezierHandle,
         position: [f32; 2],
     ) -> bool {
-        let Some(parameter) = self.parameter_schema(
-            location.item_id,
-            location.effect_id,
-            &location.address.parameter_id,
-        ) else {
+        let Some(property) =
+            self.property_schema(location.item_id, location.effect_id, location.property_id)
+        else {
             return false;
         };
-        if !parameter.is_editable(location.address.value_path.tuple_element()) {
+        if !property.is_editable(location.scalar_index) {
             return false;
         }
         self.animations_mut(location.item_id, location.effect_id)
-            .and_then(|animations| animations.get_mut(location.address))
+            .and_then(|animations| {
+                Self::animation_mut(
+                    animations,
+                    location.property_id,
+                    location.element_id,
+                    location.scalar_index,
+                )
+            })
             .is_some_and(|animation| animation.set_segment_handle(segment, handle, position))
     }
 
-    pub(super) fn set_parameter_animation_interpolation(
+    pub(super) fn set_property_animation_interpolation(
         &mut self,
-        location: ParameterAnimationLocation<'_>,
+        location: PropertyAnimationLocation<'_>,
         segment: usize,
         interpolation: SegmentInterpolation,
     ) -> bool {
-        let Some(parameter) = self.parameter_schema(
-            location.item_id,
-            location.effect_id,
-            &location.address.parameter_id,
-        ) else {
+        let Some(property) =
+            self.property_schema(location.item_id, location.effect_id, location.property_id)
+        else {
             return false;
         };
-        if !parameter.is_editable(location.address.value_path.tuple_element()) {
+        if !property.is_editable(location.scalar_index) {
             return false;
         }
         let Some(animation) = self
             .animations_mut(location.item_id, location.effect_id)
-            .and_then(|animations| animations.get_mut(location.address))
+            .and_then(|animations| {
+                Self::animation_mut(
+                    animations,
+                    location.property_id,
+                    location.element_id,
+                    location.scalar_index,
+                )
+            })
         else {
             return false;
         };
         animation.set_segment_interpolation(segment, interpolation)
     }
 
-    pub(super) fn remove_parameter_animation_stop(
+    pub(super) fn remove_property_animation_stop(
         &mut self,
-        location: ParameterAnimationLocation<'_>,
+        location: PropertyAnimationLocation<'_>,
         stop: usize,
     ) -> bool {
-        let Some(parameter) = self.parameter_schema(
-            location.item_id,
-            location.effect_id,
-            &location.address.parameter_id,
-        ) else {
+        let Some(property) =
+            self.property_schema(location.item_id, location.effect_id, location.property_id)
+        else {
             return false;
         };
-        if !parameter.is_editable(location.address.value_path.tuple_element()) {
+        if !property.is_editable(location.scalar_index) {
             return false;
         }
         self.animations_mut(location.item_id, location.effect_id)
-            .and_then(|animations| animations.get_mut(location.address))
+            .and_then(|animations| {
+                Self::animation_mut(
+                    animations,
+                    location.property_id,
+                    location.element_id,
+                    location.scalar_index,
+                )
+            })
             .is_some_and(|animation| animation.remove_stop(stop))
     }
 
-    pub(super) fn move_parameter_animation_stop(
+    pub(super) fn move_property_animation_stop(
         &mut self,
-        location: ParameterAnimationLocation<'_>,
+        location: PropertyAnimationLocation<'_>,
         stop: usize,
         position: f32,
     ) -> bool {
-        let Some(parameter) = self.parameter_schema(
-            location.item_id,
-            location.effect_id,
-            &location.address.parameter_id,
-        ) else {
+        let Some(property) =
+            self.property_schema(location.item_id, location.effect_id, location.property_id)
+        else {
             return false;
         };
-        if !parameter.is_editable(location.address.value_path.tuple_element()) {
+        if !property.is_editable(location.scalar_index) {
             return false;
         }
         self.animations_mut(location.item_id, location.effect_id)
-            .and_then(|animations| animations.get_mut(location.address))
+            .and_then(|animations| {
+                Self::animation_mut(
+                    animations,
+                    location.property_id,
+                    location.element_id,
+                    location.scalar_index,
+                )
+            })
             .is_some_and(|animation| animation.move_stop(stop, position))
     }
 

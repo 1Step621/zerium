@@ -212,7 +212,7 @@ impl PropertyInspector {
                     scene_id,
                     id: argument.schema.id().to_owned(),
                     label,
-                    schema: argument.schema.parameter().clone(),
+                    schema: argument.schema.property().clone(),
                     binding_count: argument.bindings.len(),
                     bindings: argument.bindings.clone(),
                     expression,
@@ -345,12 +345,12 @@ impl PropertyInspector {
                 GroupKind::Tuple { size_key } => {
                     Some(Self::group_box(label, &children, size_key, aspect, render))
                 }
-                GroupKind::Array(array) => Some(Self::array_section(
-                    &array,
+                GroupKind::Elements(group) => Some(Self::elements_section(
+                    &group,
                     &children,
                     render,
                     render.colors.border,
-                    array.parameter.is_editable(None),
+                    group.property.is_editable(None),
                 )),
                 GroupKind::Effect(_) => None,
             },
@@ -409,7 +409,7 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_3()
-            .child(Self::parameter_label_column("種類"))
+            .child(Self::property_label_column("種類"))
             .child(
                 div()
                     .text_sm()
@@ -440,7 +440,7 @@ impl PropertyInspector {
             .flex()
             .items_start()
             .gap_3()
-            .child(Self::parameter_label_column(input.label().to_owned()))
+            .child(Self::property_label_column(input.label().to_owned()))
             .child(
                 div()
                     .min_w_0()

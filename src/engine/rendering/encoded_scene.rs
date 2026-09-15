@@ -1,11 +1,11 @@
-use super::scene::EffectParams;
+use super::scene::EffectProperties;
 use super::*;
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub(super) struct GpuItem {
-    pub(super) params_offset: u32,
-    pub(super) params_size: u32,
+    pub(super) property_offset: u32,
+    pub(super) property_size: u32,
     pub(super) output_size: [f32; 2],
     pub(super) composition_size: [f32; 2],
 }
@@ -13,8 +13,8 @@ pub(super) struct GpuItem {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub(super) struct GpuEffect {
-    pub(super) params_offset: u32,
-    pub(super) params_size: u32,
+    pub(super) property_offset: u32,
+    pub(super) property_size: u32,
     pub(super) sample_index: u32,
     pub(super) sample_count: u32,
     pub(super) frame_offset: f32,
@@ -31,8 +31,8 @@ pub(super) struct GpuTextureInput {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub(super) struct GpuCompute {
-    pub(super) params_offset: u32,
-    pub(super) params_size: u32,
+    pub(super) property_offset: u32,
+    pub(super) property_size: u32,
     pub(super) width: u32,
     pub(super) height: u32,
     pub(super) composition_size: [f32; 2],
@@ -144,8 +144,8 @@ pub(super) struct EffectPassCommand {
     pub(super) instance: u32,
     pub(super) kind: EffectPassCommandKind,
     pub(super) captures_source: bool,
-    pub(super) params_offset: u32,
-    pub(super) params_size: u32,
+    pub(super) property_offset: u32,
+    pub(super) property_size: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -164,9 +164,9 @@ pub(super) struct TemporalReduceCommand {
 
 pub(super) struct EncodedScene {
     pub(super) items: Vec<GpuItem>,
-    pub(super) params: Vec<u8>,
+    pub(super) properties: Vec<u8>,
     pub(super) effects: Vec<GpuEffect>,
-    pub(super) effect_params: Vec<u8>,
+    pub(super) effect_properties: Vec<u8>,
     pub(super) textures: Vec<EncodedTexture>,
     pub(super) commands: Vec<RenderCommand>,
 }
@@ -174,31 +174,34 @@ pub(super) struct EncodedScene {
 pub(super) struct EncodedTexture {
     pub(super) shader: TextureShaderId,
     pub(super) frames: Vec<Arc<RgbaFrame>>,
-    pub(super) params: ItemParams,
+    pub(super) properties: ItemProperties,
     pub(super) target_size: RenderSize,
     pub(super) composition_size: RenderSize,
 }
 
 fn encode_effect_pass(
     shader: &EffectShaderId,
-    params: &EffectParams,
+    properties: &EffectProperties,
     kind: EffectPassCommandKind,
     captures_source: bool,
     effects: &mut Vec<GpuEffect>,
-    effect_params: &mut Vec<u8>,
+    effect_properties: &mut Vec<u8>,
     composition_size: RenderSize,
 ) -> Result<EffectPassCommand, RenderError> {
     let effect_instance = u32::try_from(effects.len())
         .map_err(|_| RenderError::backend("too many effect passes in one frame"))?;
-    let params_offset = u32::try_from(effect_params.len() / PARAM_WORD_SIZE)
-        .map_err(|_| RenderError::backend("effect parameter offset exceeds u32"))?;
-    let params_size = u32::try_from(params.len())
-        .map_err(|_| RenderError::backend("effect parameter size exceeds u32"))?;
-    effect_params.extend_from_slice(params.as_bytes());
-    effect_params.resize(effect_params.len().next_multiple_of(PARAM_WORD_SIZE), 0);
+    let property_offset = u32::try_from(effect_properties.len() / PROPERTY_WORD_SIZE)
+        .map_err(|_| RenderError::backend("effect property offset exceeds u32"))?;
+    let property_size = u32::try_from(properties.len())
+        .map_err(|_| RenderError::backend("effect property size exceeds u32"))?;
+    effect_properties.extend_from_slice(properties.as_bytes());
+    effect_properties.resize(
+        effect_properties.len().next_multiple_of(PROPERTY_WORD_SIZE),
+        0,
+    );
     effects.push(GpuEffect {
-        params_offset,
-        params_size,
+        property_offset,
+        property_size,
         sample_index: 0,
         sample_count: 0,
         frame_offset: 0.,
@@ -213,16 +216,16 @@ fn encode_effect_pass(
         instance: effect_instance,
         kind,
         captures_source,
-        params_offset,
-        params_size,
+        property_offset,
+        property_size,
     })
 }
 
 struct EncodeContext<'a> {
     items: &'a mut Vec<GpuItem>,
-    params: &'a mut Vec<u8>,
+    properties: &'a mut Vec<u8>,
     effects: &'a mut Vec<GpuEffect>,
-    effect_params: &'a mut Vec<u8>,
+    effect_properties: &'a mut Vec<u8>,
     textures: &'a mut Vec<EncodedTexture>,
     composition_size: RenderSize,
 }
@@ -233,16 +236,19 @@ impl EncodeContext<'_> {
             RenderItem::Shader(item) => {
                 let instance = u32::try_from(self.items.len())
                     .map_err(|_| RenderError::backend("too many visible items in one frame"))?;
-                let params_offset = u32::try_from(self.params.len() / PARAM_WORD_SIZE)
-                    .map_err(|_| RenderError::backend("item parameter offset exceeds u32"))?;
-                let params_size = u32::try_from(item.params.len())
-                    .map_err(|_| RenderError::backend("item parameter size exceeds u32"))?;
-                self.params.extend_from_slice(item.params.as_bytes());
-                self.params
-                    .resize(self.params.len().next_multiple_of(PARAM_WORD_SIZE), 0);
+                let property_offset = u32::try_from(self.properties.len() / PROPERTY_WORD_SIZE)
+                    .map_err(|_| RenderError::backend("item property offset exceeds u32"))?;
+                let property_size = u32::try_from(item.properties.len())
+                    .map_err(|_| RenderError::backend("item property size exceeds u32"))?;
+                self.properties
+                    .extend_from_slice(item.properties.as_bytes());
+                self.properties.resize(
+                    self.properties.len().next_multiple_of(PROPERTY_WORD_SIZE),
+                    0,
+                );
                 self.items.push(GpuItem {
-                    params_offset,
-                    params_size,
+                    property_offset,
+                    property_size,
                     output_size: [
                         item.target_size.width as f32,
                         item.target_size.height as f32,
@@ -262,7 +268,7 @@ impl EncodeContext<'_> {
                 self.textures.push(EncodedTexture {
                     shader: item.shader.clone(),
                     frames: item.frames.clone(),
-                    params: item.params.clone(),
+                    properties: item.properties.clone(),
                     target_size: item.target_size,
                     composition_size: self.composition_size,
                 });
@@ -277,29 +283,32 @@ impl EncodeContext<'_> {
     fn temporal_reduce_command(
         &mut self,
         reducer: &EffectShaderId,
-        params: &EffectParams,
+        properties: &EffectProperties,
         sample_count: usize,
         sample_index: usize,
         sample: &RenderTemporalSample,
     ) -> Result<TemporalReduceCommand, RenderError> {
         let instance = u32::try_from(self.effects.len())
             .map_err(|_| RenderError::backend("too many effect passes in one frame"))?;
-        let params_offset = u32::try_from(self.effect_params.len() / PARAM_WORD_SIZE)
-            .map_err(|_| RenderError::backend("effect parameter offset exceeds u32"))?;
-        self.effect_params.extend_from_slice(params.as_bytes());
-        self.effect_params.resize(
-            self.effect_params.len().next_multiple_of(PARAM_WORD_SIZE),
+        let property_offset = u32::try_from(self.effect_properties.len() / PROPERTY_WORD_SIZE)
+            .map_err(|_| RenderError::backend("effect property offset exceeds u32"))?;
+        self.effect_properties
+            .extend_from_slice(properties.as_bytes());
+        self.effect_properties.resize(
+            self.effect_properties
+                .len()
+                .next_multiple_of(PROPERTY_WORD_SIZE),
             0,
         );
-        let params_size = u32::try_from(params.len())
-            .map_err(|_| RenderError::backend("effect parameter size exceeds u32"))?;
+        let property_size = u32::try_from(properties.len())
+            .map_err(|_| RenderError::backend("effect property size exceeds u32"))?;
         let sample_index = u32::try_from(sample_index)
             .map_err(|_| RenderError::backend("temporal sample index exceeds u32"))?;
         let sample_count = u32::try_from(sample_count)
             .map_err(|_| RenderError::backend("temporal sample count exceeds u32"))?;
         self.effects.push(GpuEffect {
-            params_offset,
-            params_size,
+            property_offset,
+            property_size,
             sample_index,
             sample_count,
             frame_offset: sample.frame_offset,
@@ -326,7 +335,7 @@ impl EncodeContext<'_> {
                 match pass {
                     RenderEffectPass::Temporal {
                         reducer,
-                        params,
+                        properties,
                         samples,
                     } => {
                         debug_assert!(regular_passes.is_empty());
@@ -348,7 +357,7 @@ impl EncodeContext<'_> {
                                     node,
                                     self.temporal_reduce_command(
                                         reducer,
-                                        params,
+                                        properties,
                                         sample_count,
                                         sample_index,
                                         sample,
@@ -361,33 +370,33 @@ impl EncodeContext<'_> {
                             kind: RenderNodeCommandKind::TemporalEffect { samples },
                         };
                     }
-                    RenderEffectPass::Render { shader, params } => {
+                    RenderEffectPass::Render { shader, properties } => {
                         let starts_regular_chain = regular_passes.is_empty();
                         regular_passes.push(encode_effect_pass(
                             shader,
-                            params,
+                            properties,
                             EffectPassCommandKind::Render,
                             starts_regular_chain,
                             self.effects,
-                            self.effect_params,
+                            self.effect_properties,
                             self.composition_size,
                         )?);
                     }
                     RenderEffectPass::Compute {
                         shader,
-                        params,
+                        properties,
                         dispatch,
                     } => {
                         let starts_regular_chain = regular_passes.is_empty();
                         regular_passes.push(encode_effect_pass(
                             shader,
-                            params,
+                            properties,
                             EffectPassCommandKind::Compute {
                                 dispatch: *dispatch,
                             },
                             starts_regular_chain,
                             self.effects,
-                            self.effect_params,
+                            self.effect_properties,
                             self.composition_size,
                         )?);
                     }
@@ -438,9 +447,9 @@ impl EncodeContext<'_> {
 
 pub(super) fn encode_items(scene: &RenderScene) -> Result<EncodedScene, RenderError> {
     let mut items = Vec::new();
-    let mut params = Vec::new();
+    let mut properties = Vec::new();
     let mut effects = Vec::new();
-    let mut effect_params = Vec::new();
+    let mut effect_properties = Vec::new();
     let mut textures = Vec::new();
     let mut commands: Vec<RenderCommand> = Vec::new();
 
@@ -458,9 +467,9 @@ pub(super) fn encode_items(scene: &RenderScene) -> Result<EncodedScene, RenderEr
         };
         let mut context = EncodeContext {
             items: &mut items,
-            params: &mut params,
+            properties: &mut properties,
             effects: &mut effects,
-            effect_params: &mut effect_params,
+            effect_properties: &mut effect_properties,
             textures: &mut textures,
             composition_size: scene.composition_size,
         };
@@ -491,9 +500,9 @@ pub(super) fn encode_items(scene: &RenderScene) -> Result<EncodedScene, RenderEr
 
     Ok(EncodedScene {
         items,
-        params,
+        properties,
         effects,
-        effect_params,
+        effect_properties,
         textures,
         commands,
     })

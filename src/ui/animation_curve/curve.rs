@@ -129,7 +129,10 @@ impl AnimationCurveEditor {
             crate::ui::property_inspector::PropertyInspector::animation_presentation(
                 editor, &item, &target,
             )?;
-        let track = item.animation(target.effect_id, &target.address)?;
+        let track = item
+            .property_animation(target.effect_id, &target.property_id)?
+            .element(target.element_id)?
+            .scalar(target.scalar_index)?;
         let timeline_item = editor.item(item.id)?;
         let source_progress =
             timeline_item.animation_progress_at_time(TimelineTime::from_frame(editor.playhead()));

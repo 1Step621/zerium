@@ -6,7 +6,10 @@ impl AnimationCurveEditor {
         let editor = self.editor.read(cx);
         let item = editor.item(selected.target.item_id)?;
         let progress = item.animation_progress_at_time(TimelineTime::from_frame(frame));
-        let track = item.animation(selected.target.effect_id, &selected.target.address)?;
+        let track = item
+            .property_animation(selected.target.effect_id, &selected.target.property_id)?
+            .element(selected.target.element_id)?
+            .scalar(selected.target.scalar_index)?;
         (progress > 0. && progress < 1. && track.stop_index_at(progress).is_none())
             .then_some((selected, progress))
     }
@@ -22,7 +25,10 @@ impl AnimationCurveEditor {
         let Some(value) = (|| {
             let editor = self.editor.read(cx);
             let item = editor.item(selected.target.item_id)?;
-            let track = item.animation(selected.target.effect_id, &selected.target.address)?;
+            let track = item
+                .property_animation(selected.target.effect_id, &selected.target.property_id)?
+                .element(selected.target.element_id)?
+                .scalar(selected.target.scalar_index)?;
             let index = track.stop_index_nearest(progress)?;
             track.stops().get(index).map(|stop| stop.value()).cloned()
         })() else {
@@ -31,9 +37,11 @@ impl AnimationCurveEditor {
         let target = selected.target;
         let changed = self.editor.update(cx, |editor, cx| {
             let changed = editor
-                .insert_selected_parameter_animation_stop(
+                .insert_selected_property_animation_stop(
                     target.effect_id,
-                    target.address,
+                    target.property_id,
+                    target.element_id,
+                    target.scalar_index,
                     progress,
                     value,
                 )
@@ -159,7 +167,9 @@ impl AnimationCurveEditor {
         let changed = self.editor.update(cx, |editor, cx| {
             let changed = editor.move_selected_animation_stop(
                 target.effect_id,
-                target.address,
+                target.property_id,
+                target.element_id,
+                target.scalar_index,
                 drag.stop,
                 progress,
             );
@@ -226,7 +236,9 @@ impl AnimationCurveEditor {
         self.editor.update(cx, |editor, cx| {
             if editor.set_selected_animation_handle(
                 target.effect_id,
-                target.address,
+                target.property_id,
+                target.element_id,
+                target.scalar_index,
                 selected.source_segment,
                 handle,
                 position,
@@ -242,8 +254,13 @@ impl AnimationCurveEditor {
         };
         let target = selected.target;
         self.editor.update(cx, |editor, cx| {
-            if editor.remove_selected_animation_stop(target.effect_id, target.address, source_stop)
-            {
+            if editor.remove_selected_animation_stop(
+                target.effect_id,
+                target.property_id,
+                target.element_id,
+                target.scalar_index,
+                source_stop,
+            ) {
                 cx.notify();
             }
         });
@@ -262,7 +279,9 @@ impl AnimationCurveEditor {
         self.editor.update(cx, |editor, cx| {
             if editor.set_selected_animation_interpolation(
                 target.effect_id,
-                target.address,
+                target.property_id,
+                target.element_id,
+                target.scalar_index,
                 selected.source_segment,
                 interpolation,
             ) {

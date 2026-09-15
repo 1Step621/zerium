@@ -1,21 +1,18 @@
-//! Item schemas and their runtime parameter ABI.
+//! Item schemas and their runtime property ABI.
 
-use crate::domain::parameter::ParameterValueType;
+use crate::domain::property::PropertyValueType;
 use std::collections::HashSet;
 
 use serde::{Deserialize, Deserializer, de::Error as _};
 
 use super::PluginError;
-use super::abi::{CompiledParameterAbi, ParameterAbiField, ParameterInterfaceNames};
+use super::abi::{CompiledPropertyAbi, PropertyAbiField, PropertyInterfaceNames};
 use super::capability::{
     AudioCapability, FileCapability, ItemCapabilities, MediaType, VisualCapability,
 };
 use super::shader::ShaderSchema;
-use super::validation::validate_catalog_entry;
-use crate::domain::parameter::{
-    ParameterSchema, ParameterType, ParameterValues, ScalarParameterType,
-};
-use crate::domain::plugin::validation::validate_parameter_schemas;
+use super::validation::{validate_catalog_entry, validate_property_schemas};
+use crate::domain::property::{PropertySchema, PropertyType, PropertyValues, ScalarPropertyType};
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ItemSchema {
@@ -25,8 +22,8 @@ pub(crate) struct ItemSchema {
     tags: Vec<String>,
     symbol: String,
     capabilities: ItemCapabilities,
-    parameters: Vec<ParameterSchema>,
-    parameter_abi: CompiledParameterAbi,
+    properties: Vec<PropertySchema>,
+    property_abi: CompiledPropertyAbi,
 }
 
 #[derive(Deserialize)]
@@ -41,7 +38,7 @@ struct ItemSchemaDefinition {
     #[serde(default)]
     capabilities: ItemCapabilities,
     #[serde(default)]
-    parameters: Vec<ParameterSchema>,
+    properties: Vec<PropertySchema>,
 }
 
 impl<'de> Deserialize<'de> for ItemSchema {
@@ -50,22 +47,22 @@ impl<'de> Deserialize<'de> for ItemSchema {
         D: Deserializer<'de>,
     {
         let definition = ItemSchemaDefinition::deserialize(deserializer)?;
-        let parameter_abi = CompiledParameterAbi::compile(
+        let property_abi = CompiledPropertyAbi::compile(
             "item",
             &definition.id,
             definition
-                .parameters
+                .properties
                 .iter()
-                .map(|parameter| ParameterAbiField {
-                    id: parameter.id(),
-                    ty: parameter.ty(),
+                .map(|property| PropertyAbiField {
+                    id: property.id(),
+                    ty: property.ty(),
                     static_value: None,
                 }),
-            ParameterInterfaceNames {
-                struct_name: "ZeriumParameters",
-                load_function: "zerium_load_parameters",
-                raw_load_function: "zerium_raw_params_for_instance",
-                accessor_prefix: "zerium_parameter",
+            PropertyInterfaceNames {
+                struct_name: "ZeriumProperties",
+                load_function: "zerium_load_properties",
+                raw_load_function: "zerium_raw_properties_for_instance",
+                accessor_prefix: "zerium_property",
                 takes_instance_index: true,
             },
         )
@@ -77,8 +74,8 @@ impl<'de> Deserialize<'de> for ItemSchema {
             tags: definition.tags,
             symbol: definition.symbol,
             capabilities: definition.capabilities,
-            parameters: definition.parameters,
-            parameter_abi,
+            properties: definition.properties,
+            property_abi,
         };
         schema.validate().map_err(D::Error::custom)?;
         Ok(schema)
@@ -106,8 +103,8 @@ impl ItemSchema {
         &self.symbol
     }
 
-    pub(crate) fn parameters(&self) -> &[ParameterSchema] {
-        &self.parameters
+    pub(crate) fn properties(&self) -> &[PropertySchema] {
+        &self.properties
     }
 
     pub(crate) fn files(&self) -> &[FileCapability] {
@@ -224,16 +221,16 @@ impl ItemSchema {
                 }
             }
             if self
-                .parameter(audio.volume_parameter())
-                .map(|parameter| &parameter.ty)
-                != Some(&ParameterType::Value(ParameterValueType::Scalar(
-                    ScalarParameterType::F32,
+                .property(audio.volume_property())
+                .map(|property| &property.ty)
+                != Some(&PropertyType::Value(PropertyValueType::Scalar(
+                    ScalarPropertyType::F32,
                 )))
             {
                 return Err(PluginError::invalid_definition(format!(
-                    "audio item '{}' volume parameter '{}' has the wrong type; expected an f32",
+                    "audio item '{}' volume property '{}' has the wrong type; expected an f32",
                     self.id,
-                    audio.volume_parameter()
+                    audio.volume_property()
                 )));
             }
         }
@@ -283,63 +280,63 @@ impl ItemSchema {
             }
         }
 
-        validate_parameter_schemas("item", &self.id, &self.parameters)?;
+        validate_property_schemas("item", &self.id, &self.properties)?;
         if let Some(editor) = self.capabilities.editor() {
             editor.validate(self)?;
         }
         if let Some(visual) = self.visual() {
-            visual.validate_text_parameters(self)?;
+            visual.validate_text_properties(self)?;
         }
         Ok(())
     }
 
-    pub(crate) fn parameter(&self, id: &str) -> Option<&ParameterSchema> {
-        self.parameters.iter().find(|parameter| parameter.id == id)
+    pub(crate) fn property(&self, id: &str) -> Option<&PropertySchema> {
+        self.properties.iter().find(|property| property.id == id)
     }
 
-    pub(crate) fn size_parameter(&self) -> Option<&ParameterSchema> {
+    pub(crate) fn size_property(&self) -> Option<&PropertySchema> {
         self.capabilities
             .editor()?
-            .size_parameter()
-            .and_then(|id| self.parameter(id))
+            .size_property()
+            .and_then(|id| self.property(id))
     }
 
-    pub(crate) fn label_parameter(&self) -> Option<&ParameterSchema> {
+    pub(crate) fn label_property(&self) -> Option<&PropertySchema> {
         self.capabilities
             .editor()?
-            .label_parameter()
-            .and_then(|id| self.parameter(id))
+            .label_property()
+            .and_then(|id| self.property(id))
     }
 
     pub(crate) fn supports_aspect_ratio_lock(&self) -> bool {
-        self.size_parameter().is_some()
+        self.size_property().is_some()
     }
 
-    pub(crate) fn is_size_parameter(&self, parameter_id: &str) -> bool {
+    pub(crate) fn is_size_property(&self, property_id: &str) -> bool {
         self.capabilities
             .editor()
-            .and_then(|editor| editor.size_parameter())
-            == Some(parameter_id)
+            .and_then(|editor| editor.size_property())
+            == Some(property_id)
     }
 
-    pub(crate) fn default_parameter_values(&self) -> ParameterValues {
-        ParameterValues::for_owner("item", &self.id, &self.parameters)
+    pub(crate) fn default_property_values(&self) -> PropertyValues {
+        PropertyValues::for_owner("item", &self.id, &self.properties)
     }
 
     /// Returns the typed WGSL API compiled once with this schema.
-    pub(crate) fn wgsl_parameter_interface(&self) -> Result<String, PluginError> {
-        Ok(self.parameter_abi.interface().to_owned())
+    pub(crate) fn wgsl_property_interface(&self) -> Result<String, PluginError> {
+        Ok(self.property_abi.interface().to_owned())
     }
 
-    pub(crate) fn pack_parameter_values(
+    pub(crate) fn pack_property_values(
         &self,
-        values: &ParameterValues,
+        values: &PropertyValues,
     ) -> Result<Vec<u8>, PluginError> {
-        values.validate_for("item", &self.id, &self.parameters)?;
-        self.parameter_abi.pack("item", &self.id, |id, _| {
-            values.get(id).ok_or_else(|| {
+        values.validate_for("item", &self.id, &self.properties)?;
+        self.property_abi.pack("item", &self.id, |id, _| {
+            values.property(id).ok_or_else(|| {
                 PluginError::invalid_definition(format!(
-                    "item '{}' is missing parameter '{id}'",
+                    "item '{}' is missing property '{id}'",
                     self.id
                 ))
             })

@@ -3,22 +3,22 @@
 //! This sibling module keeps the read-oriented editor API compact. The editor
 //! internals it needs are visible only inside `timeline`.
 
-use crate::domain::parameter::ParameterValueType;
+use crate::domain::property::PropertyValueType;
 use std::{
     collections::{HashMap, HashSet},
     error::Error,
     fmt,
 };
 
-use crate::domain::animation::{BezierHandle, SegmentInterpolation};
+use crate::domain::animation::{BezierHandle, ScalarTrack, SegmentInterpolation};
 use crate::domain::media::ImportedMedia;
-use crate::domain::parameter::{
-    ParameterAddress, ParameterAnimatable, ParameterEditable, ParameterSchema, ParameterType,
-    ParameterUi, ParameterValue, ParameterValuePath, ScalarParameterType,
+use crate::domain::property::{
+    PropertyAnimatable, PropertyEditable, PropertyElementId, PropertySchema, PropertyType,
+    PropertyUi, PropertyValue, ScalarPropertyType,
 };
 
 use super::{
-    document::{ParameterAnimationLocation, ResizeEdge, TimelineDocument},
+    document::{PropertyAnimationLocation, ResizeEdge, TimelineDocument},
     editor::{HistoryKey, TimelineEditor},
     evaluation::evaluate_expression_arguments,
     expression,
@@ -27,7 +27,7 @@ use super::{
     scene::{
         SceneArgument, SceneArgumentPreset, SceneArgumentSchema, SceneBindingOwner,
         SceneBindingTarget, SceneDefinition, apply_scene_binding_to_item,
-        materialize_scene_instance_parameters, resolve_parameter_schema, resolve_scene_binding,
+        materialize_scene_instance_properties, resolve_property_schema, resolve_scene_binding,
         scene_argument_expressions_valid, set_scene_instance_override, unique_scene_argument_name,
     },
     settings::ProjectResolution,
@@ -66,7 +66,7 @@ fn remove_bindings_for_nested_argument(
             argument.bindings.retain(|binding| {
                 !(item_ids.contains(&binding.item_id())
                     && binding.owner() == SceneBindingOwner::Item
-                    && binding.parameter_id() == argument_id)
+                    && binding.property_id() == argument_id)
             });
         }
     }
@@ -157,7 +157,7 @@ impl TimelineEditor {
         &self,
         item_id: ItemId,
         effect_id: Option<EffectInstanceId>,
-        parameter_id: &str,
+        property_id: &str,
         predicate: impl Fn(&SceneBindingTarget) -> bool,
     ) -> bool {
         self.active_scene_id()
@@ -168,7 +168,7 @@ impl TimelineEditor {
                     .iter()
                     .flat_map(|argument| &argument.bindings)
                     .any(|binding| {
-                        binding.addresses(item_id, effect_id, parameter_id) && predicate(binding)
+                        binding.matches(item_id, effect_id, property_id) && predicate(binding)
                     })
             })
     }
@@ -177,34 +177,31 @@ impl TimelineEditor {
         &self,
         item_id: ItemId,
         effect_id: Option<EffectInstanceId>,
-        parameter_id: &str,
-        value: &ParameterValue,
+        property_id: &str,
+        value: &PropertyValue,
     ) -> bool {
-        !self.active_scene_has_binding(item_id, effect_id, parameter_id, |binding| {
-            binding
-                .value_path()
-                .array_element_id()
-                .is_some_and(|id| match value {
-                    ParameterValue::Array(values) => {
-                        !values.iter().any(|element| element.id() == id)
-                    }
-                    _ => true,
-                })
+        !self.active_scene_has_binding(item_id, effect_id, property_id, |binding| {
+            binding.element_id().is_some_and(|id| match value {
+                PropertyValue::Array(values) => {
+                    !values.iter().any(|element| element.element_id() == id)
+                }
+                _ => true,
+            })
         })
     }
 
-    fn scene_instance_parameter_schema(
+    fn scene_instance_property_schema(
         &self,
         item_id: ItemId,
-        parameter_id: &str,
-    ) -> Option<ParameterSchema> {
+        property_id: &str,
+    ) -> Option<PropertySchema> {
         let item = self.active_document().item(item_id)?;
         item.scene_id()?;
-        resolve_parameter_schema(
+        resolve_property_schema(
             &self.project().scenes,
             item,
             SceneBindingOwner::Item,
-            parameter_id,
+            property_id,
         )
         .cloned()
     }
@@ -421,7 +418,7 @@ impl TimelineEditor {
         &mut self,
         scene_id: SceneId,
         target: &SceneBindingTarget,
-        value: ParameterValue,
+        value: PropertyValue,
     ) -> Option<bool> {
         let schema = {
             let scene = self.project().scenes.get(&scene_id)?;
@@ -445,12 +442,10 @@ impl TimelineEditor {
                 .input_arguments()
                 .filter(|argument| {
                     argument.schema.ty()
-                        == &ParameterType::Value(ParameterValueType::Scalar(
-                            ScalarParameterType::F32,
-                        ))
+                        == &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::F32))
                 })
                 .filter_map(|argument| match argument.schema.default_value() {
-                    ParameterValue::F32(value) => Some((argument.schema.id().to_owned(), *value)),
+                    PropertyValue::F32(value) => Some((argument.schema.id().to_owned(), *value)),
                     _ => None,
                 })
                 .collect::<HashMap<_, _>>();
@@ -522,7 +517,7 @@ impl TimelineEditor {
         let (argument_id, _) = scene.allocate_argument_id();
         let label =
             unique_scene_argument_name(&scene.arguments, resolved.schema.label(), &argument_id);
-        let schema = SceneArgumentSchema::from_parameter(resolved.schema)
+        let schema = SceneArgumentSchema::from_property(resolved.schema)
             .ok_or(SceneArgumentEditError::IncompatibleContract)?
             .with_identity(argument_id.clone(), label);
         scene
@@ -540,25 +535,25 @@ impl TimelineEditor {
         let label =
             unique_scene_argument_name(&scene.arguments, &format!("引数{ordinal}"), &argument_id);
         let default = match preset {
-            SceneArgumentPreset::Number => ParameterValue::F32(0.),
-            SceneArgumentPreset::SignedInteger => ParameterValue::I32(0),
-            SceneArgumentPreset::UnsignedInteger => ParameterValue::U32(0),
-            SceneArgumentPreset::Boolean => ParameterValue::Bool(false),
-            SceneArgumentPreset::Color => ParameterValue::Color([0., 0., 0., 1.]),
-            SceneArgumentPreset::Text => ParameterValue::String(String::new()),
+            SceneArgumentPreset::Number => PropertyValue::F32(0.),
+            SceneArgumentPreset::SignedInteger => PropertyValue::I32(0),
+            SceneArgumentPreset::UnsignedInteger => PropertyValue::U32(0),
+            SceneArgumentPreset::Boolean => PropertyValue::Bool(false),
+            SceneArgumentPreset::Color => PropertyValue::Color([0., 0., 0., 1.]),
+            SceneArgumentPreset::Text => PropertyValue::String(String::new()),
         };
-        let schema = ParameterSchema {
+        let schema = PropertySchema {
             id: argument_id.clone(),
             label,
-            ty: ParameterType::Value(ParameterValueType::Scalar(preset.scalar())),
+            ty: PropertyType::Value(PropertyValueType::Scalar(preset.scalar())),
             default,
-            editable: ParameterEditable::Scalar(true),
-            animatable: ParameterAnimatable::Scalar(preset.scalar().is_interpolatable()),
+            editable: PropertyEditable::Scalar(true),
+            animatable: PropertyAnimatable::Scalar(preset.scalar().is_interpolatable()),
             scene_bindable: true,
             constraints: Default::default(),
-            ui: ParameterUi::default(),
+            ui: PropertyUi::default(),
         };
-        let schema = SceneArgumentSchema::from_parameter(schema)
+        let schema = SceneArgumentSchema::from_property(schema)
             .expect("supported scene argument types must produce a scalar schema");
         scene
             .arguments
@@ -578,22 +573,22 @@ impl TimelineEditor {
             .input_arguments()
             .find(|argument| {
                 argument.schema.ty()
-                    == &ParameterType::Value(ParameterValueType::Scalar(ScalarParameterType::F32))
+                    == &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::F32))
             })
             .map(|argument| argument.schema.id().to_owned())
             .unwrap_or_else(|| "0".to_owned());
-        let schema = ParameterSchema {
+        let schema = PropertySchema {
             id: argument_id.clone(),
             label,
-            ty: ParameterType::Value(ParameterValueType::Scalar(ScalarParameterType::F32)),
-            default: ParameterValue::F32(0.),
-            editable: ParameterEditable::Scalar(true),
-            animatable: ParameterAnimatable::Scalar(false),
+            ty: PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::F32)),
+            default: PropertyValue::F32(0.),
+            editable: PropertyEditable::Scalar(true),
+            animatable: PropertyAnimatable::Scalar(false),
             scene_bindable: true,
             constraints: Default::default(),
-            ui: ParameterUi::default(),
+            ui: PropertyUi::default(),
         };
-        let schema = SceneArgumentSchema::from_parameter(schema)
+        let schema = SceneArgumentSchema::from_property(schema)
             .expect("expression scene arguments have a supported scalar schema");
         scene.arguments.push(
             SceneArgument::computed(schema, Vec::new(), expression)
@@ -742,7 +737,7 @@ impl TimelineEditor {
     pub(crate) fn update_scene_argument_numeric_settings(
         &mut self,
         argument_id: &str,
-        settings: crate::domain::parameter::NumericSettings,
+        settings: crate::domain::property::NumericSettings,
     ) -> bool {
         let Some(scene_id) = self.active_scene_id() else {
             return false;
@@ -787,7 +782,7 @@ impl TimelineEditor {
     pub(crate) fn update_scene_argument_default(
         &mut self,
         argument_id: &str,
-        value: ParameterValue,
+        value: PropertyValue,
     ) -> bool {
         let Some(scene_id) = self.active_scene_id() else {
             return false;
@@ -945,8 +940,8 @@ impl TimelineEditor {
             return Err(SceneArgumentEditError::ArgumentNotFound);
         }
         self.for_each_scene_instance_mut(scene_id, |item| {
-            item.parameters.remove(argument_id);
-            item.animations.retain_valid_addresses(&item.parameters);
+            item.properties.remove(argument_id);
+            item.animations.retain_valid(&item.properties);
         });
         remove_bindings_for_nested_argument(&mut self.project_mut().scenes, scene_id, argument_id);
         self.finish_project_edit(Some(before), None);
@@ -1324,8 +1319,9 @@ impl TimelineEditor {
                 let remapped = SceneBindingTarget::new(
                     item_id,
                     SceneBindingOwner::from_effect(effect_id),
-                    binding.parameter_id(),
-                    binding.value_path(),
+                    binding.property_id(),
+                    binding.element_id(),
+                    binding.scalar_index(),
                 );
                 let argument = scene
                     .arguments
@@ -1362,9 +1358,10 @@ impl TimelineEditor {
     pub(crate) fn update_selected_scalar(
         &mut self,
         effect: Option<EffectInstanceId>,
-        parameter_id: &str,
-        path: ParameterValuePath,
-        value: ParameterValue,
+        property_id: &str,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
+        value: PropertyValue,
     ) -> bool {
         let targets: Vec<_> = match effect {
             Some(effect) => match self.selected_effect_instances(effect) {
@@ -1390,23 +1387,28 @@ impl TimelineEditor {
                 let item = self.active_document().item(*id)?;
                 let owner = effect.map_or(SceneBindingOwner::Item, SceneBindingOwner::Effect);
                 let schema =
-                    resolve_parameter_schema(&self.project().scenes, item, owner, parameter_id)?;
+                    resolve_property_schema(&self.project().scenes, item, owner, property_id)?;
                 let current = match effect {
                     Some(effect) => item
                         .effects
                         .iter()
                         .find(|entry| entry.id == *effect)?
-                        .parameters
-                        .get(parameter_id)?,
+                        .properties
+                        .property(property_id)?,
                     None => item
-                        .parameters
-                        .get(parameter_id)
+                        .properties
+                        .property(property_id)
                         .unwrap_or(schema.default_value()),
                 };
-                let next = super::scene::apply_scene_binding_value(current, path, value.clone())?;
-                (schema.is_editable(path.tuple_element())
+                let next = super::scene::apply_scene_binding_value(
+                    current,
+                    element_id,
+                    scalar_index,
+                    value.clone(),
+                )?;
+                (schema.is_editable(scalar_index)
                     && schema.ty().allows(&next)
-                    && self.value_preserves_active_bindings(*id, *effect, parameter_id, &next))
+                    && self.value_preserves_active_bindings(*id, *effect, property_id, &next))
                 .then_some((*id, *effect, next))
             })
             .collect();
@@ -1414,36 +1416,36 @@ impl TimelineEditor {
             return false;
         };
         let key = match effect {
-            Some(_) => HistoryKey::EffectsParameter(
+            Some(_) => HistoryKey::EffectsProperty(
                 targets
                     .iter()
                     .map(|(id, effect)| (*id, effect.unwrap()))
                     .collect(),
-                parameter_id.to_owned(),
+                property_id.to_owned(),
             ),
-            None => HistoryKey::ItemsParameter(
+            None => HistoryKey::ItemsProperty(
                 targets.iter().map(|(id, _)| *id).collect(),
-                parameter_id.to_owned(),
+                property_id.to_owned(),
             ),
         };
         let before = self.history_snapshot_for_edit(Some(&key));
         let mut changed = false;
         for (id, effect, value) in updates {
             changed |= match effect {
-                Some(effect) => self.active_document_mut().update_item_effect_parameter(
+                Some(effect) => self.active_document_mut().update_item_effect_property(
                     id,
                     effect,
-                    parameter_id,
+                    property_id,
                     value,
                 ),
                 None => {
-                    if let Some(schema) = self.scene_instance_parameter_schema(id, parameter_id) {
+                    if let Some(schema) = self.scene_instance_property_schema(id, property_id) {
                         self.active_document_mut()
                             .item_mut(id)
                             .is_some_and(|item| set_scene_instance_override(item, &schema, value))
                     } else {
                         self.active_document_mut()
-                            .update_item_parameter(id, parameter_id, value)
+                            .update_item_property(id, property_id, value)
                     }
                 }
             };
@@ -1451,49 +1453,49 @@ impl TimelineEditor {
         self.finish_project_edit_if_changed(changed, before, Some(key))
     }
 
-    pub(crate) fn update_selected_parameter(
+    pub(crate) fn update_selected_property(
         &mut self,
-        parameter_id: &str,
-        value: ParameterValue,
+        property_id: &str,
+        value: PropertyValue,
     ) -> bool {
         let ids = self.selection.sorted_current();
         if ids.is_empty()
             || ids
                 .iter()
-                .any(|id| !self.value_preserves_active_bindings(*id, None, parameter_id, &value))
+                .any(|id| !self.value_preserves_active_bindings(*id, None, property_id, &value))
             || ids.iter().any(|id| {
                 let Some(item) = self.active_document().item(*id) else {
                     return true;
                 };
-                let parameter = resolve_parameter_schema(
+                let property = resolve_property_schema(
                     &self.project().scenes,
                     item,
                     SceneBindingOwner::Item,
-                    parameter_id,
+                    property_id,
                 );
-                parameter.is_none_or(|parameter| {
-                    !parameter.is_editable(None) || !parameter.ty.allows(&value)
+                property.is_none_or(|property| {
+                    !property.is_editable(None) || !property.ty.allows(&value)
                 })
             })
         {
             return false;
         }
         let key = if ids.len() == 1 {
-            HistoryKey::ItemParameter(ids[0], parameter_id.to_owned())
+            HistoryKey::ItemProperty(ids[0], property_id.to_owned())
         } else {
-            HistoryKey::ItemsParameter(ids.clone(), parameter_id.to_owned())
+            HistoryKey::ItemsProperty(ids.clone(), property_id.to_owned())
         };
         let before = self.history_snapshot_for_edit(Some(&key));
         let mut changed = false;
         for id in ids {
-            let scene_schema = self.scene_instance_parameter_schema(id, parameter_id);
+            let scene_schema = self.scene_instance_property_schema(id, property_id);
             changed |= if let Some(schema) = scene_schema {
                 self.active_document_mut()
                     .item_mut(id)
                     .is_some_and(|item| set_scene_instance_override(item, &schema, value.clone()))
             } else {
                 self.active_document_mut()
-                    .update_item_parameter(id, parameter_id, value.clone())
+                    .update_item_property(id, property_id, value.clone())
             };
         }
         self.finish_project_edit_if_changed(changed, before, Some(key))
@@ -1509,8 +1511,8 @@ impl TimelineEditor {
                     .is_none_or(|schema| {
                         !schema.supports_aspect_ratio_lock()
                             || schema
-                                .size_parameter()
-                                .is_none_or(|parameter| !parameter.is_editable(None))
+                                .size_property()
+                                .is_none_or(|property| !property.is_editable(None))
                     })
             })
             || (locked
@@ -1531,7 +1533,7 @@ impl TimelineEditor {
         {
             return false;
         }
-        let key = HistoryKey::ItemsParameter(ids.clone(), "aspect_ratio_locked".to_owned());
+        let key = HistoryKey::ItemsProperty(ids.clone(), "aspect_ratio_locked".to_owned());
         let before = self.history_snapshot_for_edit(Some(&key));
         let mut changed = false;
         for id in ids {
@@ -1576,17 +1578,17 @@ impl TimelineEditor {
         Ok(instance_id)
     }
 
-    pub(crate) fn update_selected_effect_parameter(
+    pub(crate) fn update_selected_effect_property(
         &mut self,
         effect_id: EffectInstanceId,
-        parameter_id: &str,
-        value: ParameterValue,
+        property_id: &str,
+        value: PropertyValue,
     ) -> bool {
         let Some(effects) = self.selected_effect_instances(effect_id) else {
             return false;
         };
         if effects.iter().any(|(item_id, effect_id)| {
-            !self.value_preserves_active_bindings(*item_id, Some(*effect_id), parameter_id, &value)
+            !self.value_preserves_active_bindings(*item_id, Some(*effect_id), property_id, &value)
         }) {
             return false;
         }
@@ -1594,25 +1596,23 @@ impl TimelineEditor {
             self.active_document()
                 .item(*item_id)
                 .and_then(|item| item.effects.iter().find(|effect| effect.id == *effect_id))
-                .and_then(|effect| effect.schema().parameter(parameter_id))
-                .is_none_or(|parameter| {
-                    !parameter.is_editable(None) || !parameter.ty.allows(&value)
-                })
+                .and_then(|effect| effect.schema().property(property_id))
+                .is_none_or(|property| !property.is_editable(None) || !property.ty.allows(&value))
         }) {
             return false;
         }
         let key = if effects.len() == 1 {
-            HistoryKey::EffectParameter(effects[0].0, effects[0].1, parameter_id.to_owned())
+            HistoryKey::EffectProperty(effects[0].0, effects[0].1, property_id.to_owned())
         } else {
-            HistoryKey::EffectsParameter(effects.clone(), parameter_id.to_owned())
+            HistoryKey::EffectsProperty(effects.clone(), property_id.to_owned())
         };
         let before = self.history_snapshot_for_edit(Some(&key));
         let mut changed = false;
         for (item_id, effect_id) in effects {
-            changed |= self.active_document_mut().update_item_effect_parameter(
+            changed |= self.active_document_mut().update_item_effect_property(
                 item_id,
                 effect_id,
-                parameter_id,
+                property_id,
                 value.clone(),
             );
         }
@@ -1646,18 +1646,20 @@ impl TimelineEditor {
             .collect()
     }
 
-    pub(crate) fn set_selected_parameter_animation_enabled(
+    pub(crate) fn set_selected_property_animation_enabled(
         &mut self,
         effect_id: Option<EffectInstanceId>,
-        address: ParameterAddress,
+        property_id: String,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
         enabled: bool,
     ) -> bool {
         let Some(item_id) = self.selection.primary else {
             return false;
         };
         if enabled
-            && self.active_scene_has_binding(item_id, effect_id, &address.parameter_id, |binding| {
-                binding.conflicts_with_animation(&address)
+            && self.active_scene_has_binding(item_id, effect_id, &property_id, |binding| {
+                binding.conflicts_with_animation(&property_id, element_id, scalar_index)
             })
         {
             return false;
@@ -1665,47 +1667,99 @@ impl TimelineEditor {
         let before = self.history_snapshot();
         let scene_schema = effect_id
             .is_none()
-            .then(|| self.scene_instance_parameter_schema(item_id, &address.parameter_id))
+            .then(|| self.scene_instance_property_schema(item_id, &property_id))
             .flatten();
         let changed = if let Some(schema) = scene_schema {
             let values = self.active_document().item(item_id).and_then(|item| {
-                materialize_scene_instance_parameters(item, &self.project().scenes)
+                materialize_scene_instance_properties(item, &self.project().scenes)
             });
             let Some(item) = self.active_document_mut().item_mut(item_id) else {
                 return false;
             };
-            if !schema.is_editable(address.value_path.tuple_element()) {
+            if !schema.is_editable(scalar_index) {
                 false
             } else if !enabled {
-                item.animations.disable(&address)
-            } else if !schema.is_animatable(address.value_path.tuple_element()) {
+                let Some(property) = item.animations.property_mut(&property_id) else {
+                    return false;
+                };
+                let Some(element) = property.element_mut(element_id) else {
+                    return false;
+                };
+                let changed = element.remove(scalar_index);
+                if property.is_empty() {
+                    item.animations.remove_property_if_empty(&property_id);
+                }
+                changed
+            } else if !schema.is_animatable(scalar_index) {
                 false
             } else if let Some(values) = values.as_ref() {
-                item.animations.enable(address, values, schema.ty())
+                let Some(value) = values
+                    .property(&property_id)
+                    .and_then(|value| value.element(element_id))
+                    .and_then(|value| value.scalar_at(scalar_index))
+                else {
+                    return false;
+                };
+                let Some(value_type) = (match (element_id, schema.ty()) {
+                    (Some(_), PropertyType::Array { element_type, .. })
+                    | (None, PropertyType::Value(element_type)) => {
+                        element_type.scalar_at(scalar_index)
+                    }
+                    _ => None,
+                }) else {
+                    return false;
+                };
+                let Some(track) = ScalarTrack::from_value(value.clone(), value_type) else {
+                    return false;
+                };
+                item.animations
+                    .property_or_insert(&property_id)
+                    .element_or_insert(element_id)
+                    .insert(scalar_index, track)
             } else {
                 false
             }
         } else {
-            self.active_document_mut()
-                .set_parameter_animation_enabled(item_id, effect_id, &address, enabled)
+            self.active_document_mut().set_property_animation_enabled(
+                item_id,
+                effect_id,
+                &property_id,
+                element_id,
+                scalar_index,
+                enabled,
+            )
         };
         self.finish_project_edit_if_changed(changed, Some(before), None)
     }
 
-    pub(crate) fn set_selected_parameter_animation_stop(
+    pub(crate) fn set_selected_property_animation_stop(
         &mut self,
         effect_id: Option<EffectInstanceId>,
-        address: ParameterAddress,
+        property_id: String,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
         index: usize,
-        value: ParameterValue,
+        value: PropertyValue,
         focused_segment: Option<usize>,
     ) -> bool {
         let Some(item_id) = self.selection.primary else {
             return false;
         };
         let Some(stop_frame) = self.active_document().item(item_id).and_then(|item| {
-            let position = item
-                .animation(effect_id, &address)?
+            let animations = match effect_id {
+                Some(effect_id) => {
+                    &item
+                        .effects
+                        .iter()
+                        .find(|effect| effect.id == effect_id)?
+                        .animations
+                }
+                None => &item.animations,
+            };
+            let position = animations
+                .property(&property_id)?
+                .element(element_id)?
+                .scalar(scalar_index)?
                 .stops()
                 .get(index)?
                 .position();
@@ -1715,32 +1769,43 @@ impl TimelineEditor {
         }) else {
             return false;
         };
-        let key = HistoryKey::AnimationStopValue(item_id, effect_id, address.clone(), stop_frame);
+        let key = HistoryKey::AnimationStopValue(
+            item_id,
+            effect_id,
+            property_id.clone(),
+            element_id,
+            scalar_index,
+            stop_frame,
+        );
         let before = self.history_snapshot_for_edit(Some(&key));
         let scene_schema = effect_id
             .is_none()
-            .then(|| self.scene_instance_parameter_schema(item_id, &address.parameter_id))
+            .then(|| self.scene_instance_property_schema(item_id, &property_id))
             .flatten();
         let changed = if let Some(schema) = scene_schema {
-            if !schema.is_editable(address.value_path.tuple_element())
-                || !schema
-                    .scalar_constraints(address.value_path.tuple_element())
-                    .allows(&value)
+            if !schema.is_editable(scalar_index)
+                || !schema.scalar_constraints(scalar_index).allows(&value)
             {
                 false
             } else if let Some(item) = self.active_document_mut().item_mut(item_id) {
-                item.animations.get_mut(&address).is_some_and(|animation| {
-                    animation.set_stop(index, value.clone(), focused_segment)
-                })
+                item.animations
+                    .property_mut(&property_id)
+                    .and_then(|property| property.element_mut(element_id))
+                    .and_then(|element| element.scalar_mut(scalar_index))
+                    .is_some_and(|animation| {
+                        animation.set_stop(index, value.clone(), focused_segment)
+                    })
             } else {
                 false
             }
         } else {
-            self.active_document_mut().set_parameter_animation_stop(
-                ParameterAnimationLocation {
+            self.active_document_mut().set_property_animation_stop(
+                PropertyAnimationLocation {
                     item_id,
                     effect_id,
-                    address: &address,
+                    property_id: &property_id,
+                    element_id,
+                    scalar_index,
                 },
                 index,
                 value,
@@ -1750,12 +1815,14 @@ impl TimelineEditor {
         self.finish_project_edit_if_changed(changed, before, Some(key))
     }
 
-    pub(crate) fn insert_selected_parameter_animation_stop(
+    pub(crate) fn insert_selected_property_animation_stop(
         &mut self,
         effect_id: Option<EffectInstanceId>,
-        address: ParameterAddress,
+        property_id: String,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
         position: f32,
-        value: ParameterValue,
+        value: PropertyValue,
     ) -> Option<usize> {
         let item_id = self.selection.primary?;
         let stop_frame = self
@@ -1763,31 +1830,43 @@ impl TimelineEditor {
             .item(item_id)
             .map(|item| Frame::new(item.animation_timeline_frame(position).round().max(0.) as u64))
             .unwrap_or(self.playhead);
-        let key = HistoryKey::AnimationStopValue(item_id, effect_id, address.clone(), stop_frame);
+        let key = HistoryKey::AnimationStopValue(
+            item_id,
+            effect_id,
+            property_id.clone(),
+            element_id,
+            scalar_index,
+            stop_frame,
+        );
         let before = self.history_snapshot_for_edit(Some(&key));
         let scene_schema = effect_id
             .is_none()
-            .then(|| self.scene_instance_parameter_schema(item_id, &address.parameter_id))
+            .then(|| self.scene_instance_property_schema(item_id, &property_id))
             .flatten();
         let inserted = if let Some(schema) = scene_schema {
-            if !schema.is_editable(address.value_path.tuple_element())
-                || !schema
-                    .scalar_constraints(address.value_path.tuple_element())
-                    .allows(&value)
+            if !schema.is_editable(scalar_index)
+                || !schema.scalar_constraints(scalar_index).allows(&value)
             {
                 None
             } else {
                 self.active_document_mut()
                     .item_mut(item_id)
-                    .and_then(|item| item.animations.get_mut(&address))
+                    .and_then(|item| {
+                        item.animations
+                            .property_mut(&property_id)
+                            .and_then(|property| property.element_mut(element_id))
+                            .and_then(|element| element.scalar_mut(scalar_index))
+                    })
                     .and_then(|animation| animation.insert_stop(position, value.clone()))
             }
         } else {
-            self.active_document_mut().insert_parameter_animation_stop(
-                ParameterAnimationLocation {
+            self.active_document_mut().insert_property_animation_stop(
+                PropertyAnimationLocation {
                     item_id,
                     effect_id,
-                    address: &address,
+                    property_id: &property_id,
+                    element_id,
+                    scalar_index,
                 },
                 position,
                 value,
@@ -1802,7 +1881,9 @@ impl TimelineEditor {
     pub(crate) fn set_selected_animation_handle(
         &mut self,
         effect_id: Option<EffectInstanceId>,
-        address: ParameterAddress,
+        property_id: String,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
         segment: usize,
         handle: BezierHandle,
         position: [f32; 2],
@@ -1810,13 +1891,23 @@ impl TimelineEditor {
         let Some(item_id) = self.selection.primary else {
             return false;
         };
-        let key = HistoryKey::AnimationHandle(item_id, effect_id, address.clone(), segment, handle);
+        let key = HistoryKey::AnimationHandle(
+            item_id,
+            effect_id,
+            property_id.clone(),
+            element_id,
+            scalar_index,
+            segment,
+            handle,
+        );
         let before = self.history_snapshot_for_edit(Some(&key));
-        let changed = self.active_document_mut().set_parameter_animation_handle(
-            ParameterAnimationLocation {
+        let changed = self.active_document_mut().set_property_animation_handle(
+            PropertyAnimationLocation {
                 item_id,
                 effect_id,
-                address: &address,
+                property_id: &property_id,
+                element_id,
+                scalar_index,
             },
             segment,
             handle,
@@ -1828,7 +1919,9 @@ impl TimelineEditor {
     pub(crate) fn set_selected_animation_interpolation(
         &mut self,
         effect_id: Option<EffectInstanceId>,
-        address: ParameterAddress,
+        property_id: String,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
         segment: usize,
         interpolation: SegmentInterpolation,
     ) -> bool {
@@ -1838,11 +1931,13 @@ impl TimelineEditor {
         let before = self.history_snapshot();
         let changed = self
             .active_document_mut()
-            .set_parameter_animation_interpolation(
-                ParameterAnimationLocation {
+            .set_property_animation_interpolation(
+                PropertyAnimationLocation {
                     item_id,
                     effect_id,
-                    address: &address,
+                    property_id: &property_id,
+                    element_id,
+                    scalar_index,
                 },
                 segment,
                 interpolation,
@@ -1853,18 +1948,22 @@ impl TimelineEditor {
     pub(crate) fn remove_selected_animation_stop(
         &mut self,
         effect_id: Option<EffectInstanceId>,
-        address: ParameterAddress,
+        property_id: String,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
         stop: usize,
     ) -> bool {
         let Some(item_id) = self.selection.primary else {
             return false;
         };
         let before = self.history_snapshot();
-        let changed = self.active_document_mut().remove_parameter_animation_stop(
-            ParameterAnimationLocation {
+        let changed = self.active_document_mut().remove_property_animation_stop(
+            PropertyAnimationLocation {
                 item_id,
                 effect_id,
-                address: &address,
+                property_id: &property_id,
+                element_id,
+                scalar_index,
             },
             stop,
         );
@@ -1874,20 +1973,31 @@ impl TimelineEditor {
     pub(crate) fn move_selected_animation_stop(
         &mut self,
         effect_id: Option<EffectInstanceId>,
-        address: ParameterAddress,
+        property_id: String,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
         stop: usize,
         position: f32,
     ) -> bool {
         let Some(item_id) = self.selection.primary else {
             return false;
         };
-        let key = HistoryKey::AnimationStopPosition(item_id, effect_id, address.clone(), stop);
+        let key = HistoryKey::AnimationStopPosition(
+            item_id,
+            effect_id,
+            property_id.clone(),
+            element_id,
+            scalar_index,
+            stop,
+        );
         let before = self.history_snapshot_for_edit(Some(&key));
-        let changed = self.active_document_mut().move_parameter_animation_stop(
-            ParameterAnimationLocation {
+        let changed = self.active_document_mut().move_property_animation_stop(
+            PropertyAnimationLocation {
                 item_id,
                 effect_id,
-                address: &address,
+                property_id: &property_id,
+                element_id,
+                scalar_index,
             },
             stop,
             position,

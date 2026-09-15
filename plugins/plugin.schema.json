@@ -3,7 +3,7 @@
   "$id": "https://raw.githubusercontent.com/1Step621/zerium/refs/heads/main/plugins/plugin.schema.json",
   "title": "Zerium plugin API",
   "$comment": "Structural tooling schema. Cross-reference, WGSL namespace, typed numeric, and total ABI budget invariants are enforced by the Rust wire/domain source of truth.",
-  "x-zerium-parameter-abi-byte-budget": 8388608,
+  "x-zerium-property-abi-byte-budget": 8388608,
   "x-zerium-max-string-bytes": 4096,
   "type": "object",
   "additionalProperties": false,
@@ -277,7 +277,7 @@
         }
       }
     },
-    "parameterType": {
+    "propertyType": {
       "oneOf": [
         {
           "$ref": "#/$defs/arrayValueType"
@@ -287,7 +287,7 @@
         }
       ]
     },
-    "parameter": {
+    "property": {
       "type": "object",
       "additionalProperties": false,
       "required": [
@@ -305,7 +305,7 @@
           "minLength": 1
         },
         "type": {
-          "$ref": "#/$defs/parameterType"
+          "$ref": "#/$defs/propertyType"
         },
         "default": true,
         "editable": {
@@ -360,10 +360,10 @@
           "type": "boolean"
         },
         "constraints": {
-          "$ref": "#/$defs/parameterConstraints"
+          "$ref": "#/$defs/propertyConstraints"
         },
         "ui": {
-          "$ref": "#/$defs/parameterUi"
+          "$ref": "#/$defs/propertyUi"
         }
       },
       "allOf": [
@@ -728,7 +728,7 @@
         "tags": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "symbol": { "type": "string", "minLength": 1 },
         "capabilities": { "$ref": "#/$defs/capabilities" },
-        "parameters": { "type": "array", "items": { "$ref": "#/$defs/parameter" } }
+        "properties": { "type": "array", "items": { "$ref": "#/$defs/property" } }
       }
     },
     "passConstant": {
@@ -831,14 +831,14 @@
     "effect": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "label", "category", "parameters", "passes"],
+      "required": ["id", "label", "category", "properties", "passes"],
       "properties": {
         "id": { "$ref": "#/$defs/logicalId" },
         "label": { "type": "string", "minLength": 1 },
         "category": { "type": "string", "minLength": 1 },
         "tags": { "type": "array", "items": { "type": "string", "minLength": 1 } },
         "render_scale": { "type": "integer", "minimum": 1, "maximum": 4 },
-        "parameters": { "type": "array", "items": { "$ref": "#/$defs/parameter" } },
+        "properties": { "type": "array", "items": { "$ref": "#/$defs/property" } },
         "passes": {
           "type": "array",
           "minItems": 1,
@@ -919,7 +919,7 @@
         }
       }
     },
-    "parameterConstraints": {
+    "propertyConstraints": {
       "anyOf": [
         {
           "$ref": "#/$defs/numericConstraints"
@@ -929,7 +929,7 @@
         }
       ]
     },
-    "parameterUi": {
+    "propertyUi": {
       "anyOf": [
         {
           "$ref": "#/$defs/scalarUi"

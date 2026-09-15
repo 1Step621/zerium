@@ -11,12 +11,12 @@ fn vertex_main(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> LineVertexOutput {
-    let params = zerium_load_parameters(instance_index);
-    let position = vec2(params.position.v0, params.position.v1);
-    let size = vec2(params.size.v0, params.size.v1);
+    let properties = zerium_load_properties(instance_index);
+    let position = vec2(properties.position.v0, properties.position.v1);
+    let size = vec2(properties.size.v0, properties.size.v1);
     let local = zerium_item_quad_corner(vertex_index);
     let half_size = size * 0.5;
-    let angle = params.angle * ZERIUM_DEGREES_TO_RADIANS;
+    let angle = properties.angle * ZERIUM_DEGREES_TO_RADIANS;
     let rotated = zerium_rotate_2d(local * half_size, angle);
 
     var output: LineVertexOutput;
@@ -26,9 +26,9 @@ fn vertex_main(
         1.0,
     );
     output.local = local;
-    output.color = zerium_scene_premultiplied_color(params.color);
+    output.color = zerium_scene_premultiplied_color(properties.color);
     output.half_size = half_size;
-    output.round_ends = select(0u, 1u, params.round_ends);
+    output.round_ends = select(0u, 1u, properties.round_ends);
     return output;
 }
 

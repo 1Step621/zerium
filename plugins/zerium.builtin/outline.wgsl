@@ -53,19 +53,19 @@ fn distance_at(
 
 @fragment
 fn fragment_main(input: ZeriumEffectVertexOutput) -> @location(0) vec4<f32> {
-    let params = zerium_load_parameters();
+    let properties = zerium_load_properties();
     let dimensions = vec2<i32>(textureDimensions(zerium_effect_input));
     let position = clamp(
         vec2<i32>(input.uv * vec2<f32>(dimensions)),
         vec2(0),
         dimensions - vec2(1),
     );
-    if params.width <= 0.0 {
+    if properties.width <= 0.0 {
         return textureLoad(zerium_effect_source, position, 0);
     }
 
     let composition_scale = zerium_render_context().composition_scale;
-    let logical_radius = select(params.width, params.width * 0.5, params.position == 1u);
+    let logical_radius = select(properties.width, properties.width * 0.5, properties.position == 1u);
     let radius = logical_radius * composition_scale;
 
     // Evaluate both the source mask and the exact distance field on a 4x4
@@ -83,23 +83,23 @@ fn fragment_main(input: ZeriumEffectVertexOutput) -> @location(0) vec4<f32> {
             let outside = coverage * (1.0 - source.a);
             let inside = coverage * source.a;
 
-            if params.position == 0u {
+            if properties.position == 0u {
                 result += zerium_composite_over(
                     source,
-                    zerium_premultiplied_color(params.color, outside),
+                    zerium_premultiplied_color(properties.color, outside),
                 );
-            } else if params.position == 2u {
+            } else if properties.position == 2u {
                 result += zerium_composite_over(
-                    zerium_premultiplied_color(params.color, inside),
+                    zerium_premultiplied_color(properties.color, inside),
                     source,
                 );
             } else {
                 let outside_result = zerium_composite_over(
                     source,
-                    zerium_premultiplied_color(params.color, outside),
+                    zerium_premultiplied_color(properties.color, outside),
                 );
                 result += zerium_composite_over(
-                    zerium_premultiplied_color(params.color, inside),
+                    zerium_premultiplied_color(properties.color, inside),
                     outside_result,
                 );
             }

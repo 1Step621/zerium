@@ -8,9 +8,9 @@ fn vertex_main(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> TextVertexOutput {
-    let params = zerium_load_parameters(instance_index);
-    let position = vec2(params.position.v0, params.position.v1);
-    let size = vec2(params.size.v0, params.size.v1);
+    let properties = zerium_load_properties(instance_index);
+    let position = vec2(properties.position.v0, properties.position.v1);
+    let size = vec2(properties.size.v0, properties.size.v1);
     let corner = zerium_item_quad_corner(vertex_index);
     var output: TextVertexOutput;
     output.position = zerium_item_quad_clip_position(

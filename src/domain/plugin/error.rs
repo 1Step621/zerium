@@ -47,8 +47,8 @@ impl Error for PluginError {
     }
 }
 
-impl From<crate::domain::parameter::ParameterError> for PluginError {
-    fn from(error: crate::domain::parameter::ParameterError) -> Self {
+impl From<crate::domain::property::PropertyError> for PluginError {
+    fn from(error: crate::domain::property::PropertyError) -> Self {
         Self::invalid_definition(error.to_string())
     }
 }

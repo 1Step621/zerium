@@ -18,7 +18,7 @@ devices. Engine code may read domain models, but must not depend on UI entities.
 
 `TimelineEditor` is the only owner of live editing state. It coordinates:
 
-- `TimelineDocument`: persistent items, layers, parameters, effects, scenes,
+- `TimelineDocument`: persistent items, layers, properties, effects, scenes,
   and IDs;
 - selection, preview visibility, and edit history: session-only state.
 
@@ -27,29 +27,31 @@ revision and history bookkeeping consistent. Background work receives an
 immutable `TimelineSnapshot`/`TimelineView`, never a live editor or UI entity.
 
 `TimelineDocument` owns indexes and document invariants. `TimelineItem` owns its
-plugin or scene identity, parameters, effects, and geometry. Scene resolution
+plugin or scene identity, properties, effects, and geometry. Scene resolution
 and argument binding live in `timeline::scene`; runtime evaluation produces a
 detached hierarchical scene graph.
 
 Timeline positions use `Frame`, positive spans use `FrameDuration`, and frame
 rates use `FrameRate`. Items, layers, and effect instances use distinct ID
-types. Array values use stable `ArrayElementId`s so animations and bindings do
+types. Array values use stable `PropertyElementId`s so animations and bindings do
 not follow a neighboring element after deletion or reordering.
 
-## Parameters and animation
+## Properties and animation
 
-`domain::parameter` owns parameter types, checked values, constraints, schema
+`domain::property` owns property types, checked values, constraints, schema
 metadata, and plugin JSON adapters. Plugin manifests describe these contracts;
-they do not own runtime parameter mutation.
+they do not own runtime property mutation.
 
-`ParameterValuePath` identifies a value inside one parameter using an optional
-stable array element ID and an optional tuple element. Scene bindings and
-animation addresses share this path. `ParameterAddress` adds the parameter ID
-to the path and identifies one scalar animation track.
+Scene bindings and animation lookups address a property with an optional stable
+array element ID and an optional tuple scalar index. Animation tracks are stored
+hierarchically under property ID, array element ID, and tuple scalar index, so
+each layer resolves only the identifier belonging to that layer. Scope values and
+animation collections resolve property IDs; property values resolve array
+elements; element values and animation groups resolve tuple scalar indices.
 
 `domain::animation` owns scalar tracks, ordered value stops, interpolation,
 and animation evaluation. A track contains one interpolation per adjacent stop
-pair. Parameter validation determines whether a scalar can be animated; the
+pair. Property validation determines whether a scalar can be animated; the
 animation module owns interpolation and track rules.
 
 ## Plugins and persistence

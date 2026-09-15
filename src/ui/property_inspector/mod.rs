@@ -26,11 +26,11 @@ use gpui::{
 };
 
 use crate::domain::media::{MediaAsset, MediaKind};
-use crate::domain::parameter::{
-    ArrayElement, ArrayElementId, ParameterAddress, ParameterSchema, ParameterType, ParameterValue,
-    ParameterValuePath, ParameterValueType, ScalarParameterType,
-};
 use crate::domain::plugin::{FileCapability, ItemSchema};
+use crate::domain::property::{
+    PropertyElement, PropertyElementId, PropertySchema, PropertyType, PropertyValue,
+    PropertyValueType, ScalarPropertyType,
+};
 use crate::domain::timeline::{
     EffectInstance, EffectInstanceId, ItemId, SceneArgument, SceneArgumentPreset,
     SceneBindingOwner, SceneBindingTarget, SceneId, TimelineEditor, TimelineItem, TimelineTime,
@@ -40,19 +40,19 @@ use crate::engine::media::MediaReaderRegistry;
 use crate::plugin_catalog::plugins;
 use crate::ui::TimelineEditorEntityExt as _;
 use crate::ui::animation_curve::{AnimationPresentation, AnimationSelection, AnimationTarget};
+use crate::ui::inspector_path::InspectorPath;
 use crate::ui::pane::pane_header;
-use crate::ui::property::PropertyPath;
 use crate::ui::search_picker::{SearchPicker, SearchPickerEntry};
 use crate::ui::session::{ProjectActivity, ProjectSession, ProjectSessionId, UiNotifications};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum ControlId {
-    Property(PropertyPath),
+    Property(InspectorPath),
     AnimationStop {
-        property: PropertyPath,
+        property: InspectorPath,
         stop: usize,
     },
-    Group(PropertyPath),
+    Group(InspectorPath),
     EffectGroup(EffectInstanceId),
     SceneName(SceneId),
     SceneArgumentName {
@@ -79,18 +79,18 @@ pub(super) enum ControlId {
 }
 
 impl ControlId {
-    pub(super) fn property(path: &PropertyPath) -> Self {
+    pub(super) fn property(path: &InspectorPath) -> Self {
         Self::Property(path.clone())
     }
 
-    pub(super) fn animation_stop(path: &PropertyPath, stop: usize) -> Self {
+    pub(super) fn animation_stop(path: &InspectorPath, stop: usize) -> Self {
         Self::AnimationStop {
             property: path.clone(),
             stop,
         }
     }
 
-    pub(super) fn group(path: &PropertyPath) -> Self {
+    pub(super) fn group(path: &InspectorPath) -> Self {
         Self::Group(path.clone())
     }
 
@@ -145,27 +145,27 @@ impl ControlId {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct PropertyTarget {
-    pub key: PropertyPath,
-    pub parameter_id: String,
+    pub key: InspectorPath,
+    pub property_id: String,
     pub effect_id: Option<EffectInstanceId>,
-    pub value_path: ParameterValuePath,
+    pub path: InspectorPath,
 }
 
 impl PropertyTarget {
     pub(super) fn animation_enabled(&self, item: &TimelineItem) -> bool {
-        item.animation(self.effect_id, &self.animation_address())
+        item.property_animation(self.effect_id, &self.property_id)
+            .and_then(|property| property.element(self.path.element_id()))
+            .and_then(|element| element.scalar(self.path.scalar_index()))
             .is_some()
-    }
-
-    pub(super) fn animation_address(&self) -> ParameterAddress {
-        ParameterAddress::new(&self.parameter_id, self.value_path)
     }
 
     pub(super) fn animation_target(&self, item: &TimelineItem) -> AnimationTarget {
         AnimationTarget {
             item_id: item.id,
             effect_id: self.effect_id,
-            address: self.animation_address(),
+            property_id: self.property_id.clone(),
+            element_id: self.path.element_id(),
+            scalar_index: self.path.scalar_index(),
             property: self.key.clone(),
         }
     }
@@ -176,7 +176,7 @@ pub(super) struct SceneArgumentOption {
     pub scene_id: SceneId,
     pub id: String,
     pub label: String,
-    pub schema: ParameterSchema,
+    pub schema: PropertySchema,
     pub binding_count: usize,
     pub bindings: Vec<SceneBindingTarget>,
     pub expression: Option<String>,
@@ -199,7 +199,9 @@ pub(super) enum SceneArgumentSetting {
 
 #[derive(Clone)]
 pub(super) struct NumberAnimationSource {
-    pub source_address: ParameterAddress,
+    pub property_id: String,
+    pub element_id: Option<PropertyElementId>,
+    pub scalar_index: Option<usize>,
     pub value_factor: f64,
 }
 
@@ -218,7 +220,7 @@ impl AspectRatioLockState {
 }
 
 #[derive(Clone)]
-pub(super) struct ParameterBinding {
+pub(super) struct PropertyBinding {
     pub item_id: ItemId,
     pub target: PropertyTarget,
 }
@@ -227,7 +229,9 @@ pub(super) struct ParameterBinding {
 pub(super) struct AnimationStopBinding {
     pub item_id: ItemId,
     pub effect_id: Option<EffectInstanceId>,
-    pub address: ParameterAddress,
+    pub property_id: String,
+    pub element_id: Option<PropertyElementId>,
+    pub scalar_index: Option<usize>,
     pub stop: usize,
     pub value_factor: f64,
 }
@@ -241,7 +245,9 @@ impl AnimationStopBinding {
         Self {
             item_id,
             effect_id,
-            address: stop.source_address.clone(),
+            property_id: stop.property_id.clone(),
+            element_id: stop.element_id,
+            scalar_index: stop.scalar_index,
             stop: stop.index,
             value_factor: stop.value_factor,
         }
@@ -326,14 +332,14 @@ pub(crate) struct PropertyInspector {
 }
 
 impl PropertyInspector {
-    pub(super) const PARAMETER_LABEL_WIDTH: f32 = 64.;
+    pub(super) const PROPERTY_LABEL_WIDTH: f32 = 64.;
     pub(super) const DRAG_RANGE_PIXELS: f64 = 200.;
     pub(super) const MIN_STEP_MULTIPLIER: f64 = 0.1;
     pub(super) const MAX_STEP_MULTIPLIER: f64 = 2.;
 
-    pub(super) fn parameter_label_column(label: impl Into<SharedString>) -> Div {
+    pub(super) fn property_label_column(label: impl Into<SharedString>) -> Div {
         div()
-            .w(px(Self::PARAMETER_LABEL_WIDTH))
+            .w(px(Self::PROPERTY_LABEL_WIDTH))
             .h(px(24.))
             .flex_none()
             .flex()

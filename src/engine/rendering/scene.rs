@@ -35,16 +35,16 @@ impl From<ProjectResolution> for RenderSize {
     }
 }
 
-/// Opaque, variable-sized parameters supplied to one item instance.
+/// Opaque, variable-sized properties supplied to one item instance.
 ///
 /// The schema packer is the only production constructor, keeping layout and
 /// byte offsets private to the host-generated WGSL interface.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ItemParams {
+pub(crate) struct ItemProperties {
     bytes: Vec<u8>,
 }
 
-impl ItemParams {
+impl ItemProperties {
     pub(crate) fn from_bytes(bytes: impl Into<Vec<u8>>) -> Self {
         Self {
             bytes: bytes.into(),
@@ -63,7 +63,7 @@ impl ItemParams {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RenderShaderItem {
     pub shader: ItemShaderId,
-    pub params: ItemParams,
+    pub properties: ItemProperties,
     pub effects: Vec<RenderEffect>,
     pub target_size: RenderSize,
     pub render_scale: u32,
@@ -75,7 +75,7 @@ pub(crate) struct RenderTextureItem {
     /// Texture inputs are positional in completed WGSL. The plugin schema ID is
     /// retained only in `MediaFrameRequest` diagnostics and never becomes a WGSL symbol.
     pub frames: Vec<Arc<RgbaFrame>>,
-    pub params: ItemParams,
+    pub properties: ItemProperties,
     pub effects: Vec<RenderEffect>,
     pub target_size: RenderSize,
     pub render_scale: u32,
@@ -104,26 +104,26 @@ pub(crate) struct RenderTemporalSample {
 pub(crate) enum RenderEffectPass {
     Render {
         shader: EffectShaderId,
-        params: EffectParams,
+        properties: EffectProperties,
     },
     Compute {
         shader: EffectShaderId,
-        params: EffectParams,
+        properties: EffectProperties,
         dispatch: [ComputeDispatchDimension; 3],
     },
     Temporal {
         reducer: EffectShaderId,
-        params: EffectParams,
+        properties: EffectProperties,
         samples: Vec<RenderTemporalSample>,
     },
 }
 
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct EffectParams {
+pub(crate) struct EffectProperties {
     bytes: Vec<u8>,
 }
 
-impl EffectParams {
+impl EffectProperties {
     pub(super) fn from_bytes(bytes: impl Into<Vec<u8>>) -> Self {
         Self {
             bytes: bytes.into(),
@@ -443,7 +443,7 @@ impl RenderScene {
                         .map(|pass| {
                             let Some(offsets) = effect
                                 .schema()
-                                .temporal_sample_offsets(pass, &effect.parameters)
+                                .temporal_sample_offsets(pass, &effect.properties)
                             else {
                                 return Ok(None);
                             };
@@ -620,7 +620,7 @@ impl RenderScene {
                         Ok(
                             match effect
                                 .schema()
-                                .temporal_sample_offsets(pass, &effect.parameters)
+                                .temporal_sample_offsets(pass, &effect.properties)
                             {
                                 Some(offsets) => Some(
                                     offsets
@@ -695,7 +695,7 @@ impl RenderScene {
                 Ok(Self::render_effect(effect, temporal_samples))
             })
             .collect::<Result<Vec<_>, E>>()?;
-        let params = Self::pack_item_params(item, schema);
+        let properties = Self::pack_item_properties(item, schema);
         let render_item = match visual {
             VisualCapability::Procedural { .. } => RenderItem::Shader(RenderShaderItem {
                 shader: ItemShaderId::new(format!(
@@ -703,7 +703,7 @@ impl RenderScene {
                     item.plugin_id().unwrap_or_default(),
                     item.item_id().unwrap_or_default()
                 )),
-                params,
+                properties,
                 effects,
                 target_size,
                 render_scale,
@@ -740,7 +740,7 @@ impl RenderScene {
                         item.item_id().unwrap_or_default()
                     )),
                     frames,
-                    params,
+                    properties,
                     effects,
                     target_size,
                     render_scale,
@@ -753,7 +753,7 @@ impl RenderScene {
                     item.item_id().unwrap_or_default()
                 )),
                 frames: vec![text_frame(item, schema, target_size)?],
-                params,
+                properties,
                 effects,
                 target_size,
                 render_scale,
@@ -769,8 +769,8 @@ impl RenderScene {
     ) -> RenderEffect {
         let schema = effect.schema();
         let passes = schema
-            .pack_pass_parameters(&effect.parameters)
-            .expect("timeline effect parameters come from the validated schema")
+            .pack_pass_properties(&effect.properties)
+            .expect("timeline effect properties come from the validated schema")
             .into_iter()
             .zip(schema.passes())
             .zip(temporal_samples)
@@ -780,20 +780,20 @@ impl RenderScene {
                     "{}::effect::{}::pass::{pass_index}",
                     effect.plugin_id, effect.effect_id
                 ));
-                let params = EffectParams::from_bytes(bytes);
+                let properties = EffectProperties::from_bytes(bytes);
                 match pass {
                     EffectPassSchema::Render { .. } => RenderEffectPass::Render {
                         shader: pass_shader,
-                        params,
+                        properties,
                     },
                     EffectPassSchema::Compute { dispatch, .. } => RenderEffectPass::Compute {
                         shader: pass_shader,
-                        params,
+                        properties,
                         dispatch: *dispatch,
                     },
                     EffectPassSchema::Temporal { .. } => RenderEffectPass::Temporal {
                         reducer: pass_shader,
-                        params,
+                        properties,
                         samples: temporal_samples.expect("temporal passes have rendered samples"),
                     },
                 }
@@ -802,11 +802,11 @@ impl RenderScene {
         RenderEffect { passes }
     }
 
-    pub(super) fn pack_item_params(item: &TimelineItem, schema: &ItemSchema) -> ItemParams {
+    pub(super) fn pack_item_properties(item: &TimelineItem, schema: &ItemSchema) -> ItemProperties {
         let bytes = schema
-            .pack_parameter_values(&item.parameters)
-            .expect("validated plugin parameters must match their schema");
-        ItemParams::from_bytes(bytes)
+            .pack_property_values(&item.properties)
+            .expect("validated plugin properties must match their schema");
+        ItemProperties::from_bytes(bytes)
     }
 }
 

@@ -10,9 +10,9 @@ fn vertex_main(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> TriangleVertexOutput {
-    let params = zerium_load_parameters(instance_index);
-    let position = vec2(params.position.v0, params.position.v1);
-    let size = vec2(params.size.v0, params.size.v1);
+    let properties = zerium_load_properties(instance_index);
+    let position = vec2(properties.position.v0, properties.position.v1);
+    let size = vec2(properties.size.v0, properties.size.v1);
     let local = zerium_item_quad_corner(vertex_index);
 
     var output: TriangleVertexOutput;
@@ -23,8 +23,8 @@ fn vertex_main(
         size,
     );
     output.local = local;
-    output.color = zerium_scene_premultiplied_color(params.color);
-    output.apex_position = clamp(params.apex_position / 100.0, 0.0, 1.0) * 2.0 - 1.0;
+    output.color = zerium_scene_premultiplied_color(properties.color);
+    output.apex_position = clamp(properties.apex_position / 100.0, 0.0, 1.0) * 2.0 - 1.0;
     return output;
 }
 

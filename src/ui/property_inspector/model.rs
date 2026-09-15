@@ -1,62 +1,68 @@
-use super::control::ArrayGroup;
+use super::control::ElementGroup;
 use super::*;
 
-pub(super) fn append_default(field: &ArrayGroup) -> ParameterValue {
-    let ui = field.parameter.ui();
-    let constraints = field.parameter.constraints();
+pub(super) fn append_default(group: &ElementGroup) -> PropertyValue {
+    let ui = group.property.ui();
+    let constraints = group.property.constraints();
     let step = f64::from(ui.step());
     let min = constraints.min.unwrap_or(f64::from(f32::MIN));
     let max = constraints.max.unwrap_or(f64::from(f32::MAX));
     let clamp = |value: f64| snap_to_step(value, step).clamp(min, max);
-    let value = match field.parameter.ty().element_type() {
-        ParameterValueType::Scalar(ScalarParameterType::F32) => {
-            ParameterValue::F32(clamp(0.) as f32)
+    let value_type = match group.property.ty() {
+        PropertyType::Value(value_type)
+        | PropertyType::Array {
+            element_type: value_type,
+            ..
+        } => value_type,
+    };
+    let value = match value_type {
+        PropertyValueType::Scalar(ScalarPropertyType::F32) => PropertyValue::F32(clamp(0.) as f32),
+        PropertyValueType::Scalar(ScalarPropertyType::I32) => {
+            PropertyValue::I32(clamp(0.).round() as i32)
         }
-        ParameterValueType::Scalar(ScalarParameterType::I32) => {
-            ParameterValue::I32(clamp(0.).round() as i32)
+        PropertyValueType::Scalar(ScalarPropertyType::U32) => {
+            PropertyValue::U32(clamp(0.).round().max(0.) as u32)
         }
-        ParameterValueType::Scalar(ScalarParameterType::U32) => {
-            ParameterValue::U32(clamp(0.).round().max(0.) as u32)
+        PropertyValueType::Scalar(ScalarPropertyType::Color) => {
+            interpolated_or_last(group).unwrap_or(PropertyValue::Color([0., 0., 0., 1.]))
         }
-        ParameterValueType::Scalar(ScalarParameterType::Color) => {
-            interpolated_or_last(field).unwrap_or(ParameterValue::Color([0., 0., 0., 1.]))
-        }
-        ParameterValueType::Tuple(tuple) => interpolated_or_last(field).unwrap_or_else(|| {
-            ParameterValue::Tuple(
+        PropertyValueType::Tuple(tuple) => interpolated_or_last(group).unwrap_or_else(|| {
+            PropertyValue::Tuple(
                 tuple
-                    .elements()
+                    .scalars()
                     .iter()
-                    .map(|element| match element {
-                        ScalarParameterType::F32 => ParameterValue::F32(0.),
-                        ScalarParameterType::I32 => ParameterValue::I32(0),
-                        ScalarParameterType::U32 => ParameterValue::U32(0),
-                        ScalarParameterType::Bool => ParameterValue::Bool(false),
-                        ScalarParameterType::Color => ParameterValue::Color([0., 0., 0., 1.]),
-                        ScalarParameterType::String => ParameterValue::String(String::new()),
-                        ScalarParameterType::Enum(ty) => ParameterValue::Enum(ty.values()[0]),
+                    .map(|scalar_type| match scalar_type {
+                        ScalarPropertyType::F32 => PropertyValue::F32(0.),
+                        ScalarPropertyType::I32 => PropertyValue::I32(0),
+                        ScalarPropertyType::U32 => PropertyValue::U32(0),
+                        ScalarPropertyType::Bool => PropertyValue::Bool(false),
+                        ScalarPropertyType::Color => PropertyValue::Color([0., 0., 0., 1.]),
+                        ScalarPropertyType::String => PropertyValue::String(String::new()),
+                        ScalarPropertyType::Enum(ty) => PropertyValue::Enum(ty.values()[0]),
                     })
                     .collect(),
             )
         }),
-        ParameterValueType::Scalar(ScalarParameterType::Enum(ty)) => {
-            ParameterValue::Enum(ty.values()[0])
+        PropertyValueType::Scalar(ScalarPropertyType::Enum(ty)) => {
+            PropertyValue::Enum(ty.values()[0])
         }
-        ParameterValueType::Scalar(ScalarParameterType::Bool) => ParameterValue::Bool(false),
-        ParameterValueType::Scalar(ScalarParameterType::String) => {
-            ParameterValue::String(String::new())
+        PropertyValueType::Scalar(ScalarPropertyType::Bool) => PropertyValue::Bool(false),
+        PropertyValueType::Scalar(ScalarPropertyType::String) => {
+            PropertyValue::String(String::new())
         }
     };
-    field
-        .parameter
+    group
+        .property
         .constraints()
         .clamp_value(&value)
         .unwrap_or(value)
 }
 
-fn interpolated_or_last(field: &ArrayGroup) -> Option<ParameterValue> {
-    match field.values.as_slice() {
-        [first, .., last] => array_element_midpoint(first.value(), last.value())
-            .or_else(|| Some(last.value().clone())),
+fn interpolated_or_last(group: &ElementGroup) -> Option<PropertyValue> {
+    match group.elements.as_slice() {
+        [first, .., last] => {
+            element_midpoint(first.value(), last.value()).or_else(|| Some(last.value().clone()))
+        }
         [.., last] => Some(last.value().clone()),
         [] => None,
     }
@@ -64,10 +70,10 @@ fn interpolated_or_last(field: &ArrayGroup) -> Option<ParameterValue> {
 
 // Array insertion chooses a midpoint for numeric tuples and colors. This
 // container policy is independent of the scalar-only animation tracks.
-fn array_element_midpoint(first: &ParameterValue, last: &ParameterValue) -> Option<ParameterValue> {
+fn element_midpoint(first: &PropertyValue, last: &PropertyValue) -> Option<PropertyValue> {
     use crate::domain::animation::interpolate_scalar;
     match (first, last) {
-        (ParameterValue::Tuple(first), ParameterValue::Tuple(last))
+        (PropertyValue::Tuple(first), PropertyValue::Tuple(last))
             if first.len() == last.len()
                 && first
                     .iter()
@@ -79,11 +85,9 @@ fn array_element_midpoint(first: &ParameterValue, last: &ParameterValue) -> Opti
                 .zip(last)
                 .map(|(first, last)| interpolate_scalar(first, last, 0.5))
                 .collect::<Option<Vec<_>>>()
-                .map(ParameterValue::Tuple)
+                .map(PropertyValue::Tuple)
         }
-        (ParameterValue::Color(_), ParameterValue::Color(_)) => {
-            interpolate_scalar(first, last, 0.5)
-        }
+        (PropertyValue::Color(_), PropertyValue::Color(_)) => interpolate_scalar(first, last, 0.5),
         _ => None,
     }
 }

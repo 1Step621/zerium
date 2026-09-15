@@ -10,9 +10,9 @@ impl FrameRenderer {
     ) -> Result<RenderResources, RenderError> {
         let RenderResourceRequirements {
             item_count,
-            params_size,
+            property_size,
             effect_pass_count,
-            effect_params_size,
+            effect_property_size,
             composition_depth,
             temporal_depth,
         } = requirements;
@@ -20,14 +20,14 @@ impl FrameRenderer {
             .max(1)
             .checked_next_power_of_two()
             .ok_or_else(|| RenderError::backend("item buffer capacity overflow"))?;
-        let params_capacity = params_size
-            .max(PARAM_WORD_SIZE)
+        let property_capacity = property_size
+            .max(PROPERTY_WORD_SIZE)
             .checked_next_power_of_two()
-            .ok_or_else(|| RenderError::backend("parameter buffer capacity overflow"))?;
+            .ok_or_else(|| RenderError::backend("property buffer capacity overflow"))?;
         let item_buffer_size = (item_capacity as u64)
             .checked_mul(size_of::<GpuItem>() as u64)
             .ok_or_else(|| RenderError::backend("item buffer size overflow"))?;
-        let params_buffer_size = params_capacity as u64;
+        let property_buffer_size = property_capacity as u64;
         let limits = self.device.limits();
         let effect_instance_stride = u64::from(limits.min_uniform_buffer_offset_alignment)
             .max(size_of::<GpuEffect>() as u64)
@@ -39,11 +39,11 @@ impl FrameRenderer {
         let effect_instance_buffer_size = effect_instance_stride
             .checked_mul(effect_instance_capacity as u64)
             .ok_or_else(|| RenderError::backend("effect instance buffer size overflow"))?;
-        let effect_params_capacity = effect_params_size
-            .max(PARAM_WORD_SIZE)
+        let effect_property_capacity = effect_property_size
+            .max(PROPERTY_WORD_SIZE)
             .checked_next_power_of_two()
-            .ok_or_else(|| RenderError::backend("effect parameter buffer capacity overflow"))?;
-        let effect_params_buffer_size = effect_params_capacity as u64;
+            .ok_or_else(|| RenderError::backend("effect property buffer capacity overflow"))?;
+        let effect_property_buffer_size = effect_property_capacity as u64;
         let compute_info_stride = u64::from(limits.min_uniform_buffer_offset_alignment)
             .max(size_of::<GpuCompute>() as u64)
             .next_multiple_of(u64::from(limits.min_uniform_buffer_offset_alignment).max(1));
@@ -52,8 +52,8 @@ impl FrameRenderer {
             .ok_or_else(|| RenderError::backend("compute info buffer size overflow"))?;
         for (name, size) in [
             ("item", item_buffer_size),
-            ("parameter", params_buffer_size),
-            ("effect parameter", effect_params_buffer_size),
+            ("property", property_buffer_size),
+            ("effect property", effect_property_buffer_size),
         ] {
             if size > limits.max_buffer_size || size > limits.max_storage_buffer_binding_size {
                 return Err(RenderError::backend(format!(
@@ -68,9 +68,9 @@ impl FrameRenderer {
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let params_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("zerium-item-params-buffer"),
-            size: params_buffer_size,
+        let property_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("zerium-item-properties-buffer"),
+            size: property_buffer_size,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -84,7 +84,7 @@ impl FrameRenderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: params_buffer.as_entire_binding(),
+                    resource: property_buffer.as_entire_binding(),
                 },
             ],
         });
@@ -95,9 +95,9 @@ impl FrameRenderer {
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let effect_params_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("zerium-effect-params-buffer"),
-            size: effect_params_buffer_size,
+        let effect_property_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("zerium-effect-properties-buffer"),
+            size: effect_property_buffer_size,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
@@ -192,7 +192,7 @@ impl FrameRenderer {
                     },
                     wgpu::BindGroupEntry {
                         binding: 3,
-                        resource: effect_params_buffer.as_entire_binding(),
+                        resource: effect_property_buffer.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 4,
@@ -227,7 +227,7 @@ impl FrameRenderer {
                         },
                         wgpu::BindGroupEntry {
                             binding: 3,
-                            resource: effect_params_buffer.as_entire_binding(),
+                            resource: effect_property_buffer.as_entire_binding(),
                         },
                         wgpu::BindGroupEntry {
                             binding: 4,
@@ -331,7 +331,7 @@ impl FrameRenderer {
                                 },
                                 wgpu::BindGroupEntry {
                                     binding: 4,
-                                    resource: effect_params_buffer.as_entire_binding(),
+                                    resource: effect_property_buffer.as_entire_binding(),
                                 },
                             ],
                         }));
@@ -352,15 +352,15 @@ impl FrameRenderer {
             output_size,
             composition_size,
             item_capacity,
-            params_capacity,
+            property_capacity,
             item_buffer,
-            params_buffer,
+            property_buffer,
             bind_group,
             effect_instance_stride,
             effect_instance_capacity,
-            effect_params_capacity,
+            effect_property_capacity,
             effect_instance_buffer,
-            effect_params_buffer,
+            effect_property_buffer,
             compute_info_stride,
             compute_info_buffer,
             compute_inputs,
@@ -496,8 +496,8 @@ impl FrameRenderer {
         let mut bytes = vec![0; stride.saturating_mul(effects.len())];
         for (index, effect) in effects.iter().enumerate() {
             let info = GpuCompute {
-                params_offset: effect.params_offset,
-                params_size: effect.params_size,
+                property_offset: effect.property_offset,
+                property_size: effect.property_size,
                 width: size.width,
                 height: size.height,
                 composition_size: [
@@ -592,24 +592,24 @@ impl FrameRenderer {
                     0.,
                 ],
             });
-            let input_parameters = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("zerium-texture-input-parameters"),
+            let input_properties = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("zerium-texture-input-properties"),
                 size: (input_metadata.len() * size_of::<GpuTextureInput>()) as u64,
                 usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
             self.queue
-                .write_buffer(&input_parameters, 0, bytemuck::cast_slice(&input_metadata));
-            let item_params_size = encoded.params.len().max(PARAM_WORD_SIZE);
-            let item_params = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("zerium-texture-item-params"),
-                size: item_params_size as u64,
+                .write_buffer(&input_properties, 0, bytemuck::cast_slice(&input_metadata));
+            let item_property_size = encoded.properties.len().max(PROPERTY_WORD_SIZE);
+            let item_properties = self.device.create_buffer(&wgpu::BufferDescriptor {
+                label: Some("zerium-texture-item-properties"),
+                size: item_property_size as u64,
                 usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                 mapped_at_creation: false,
             });
-            if !encoded.params.as_bytes().is_empty() {
+            if !encoded.properties.as_bytes().is_empty() {
                 self.queue
-                    .write_buffer(&item_params, 0, encoded.params.as_bytes());
+                    .write_buffer(&item_properties, 0, encoded.properties.as_bytes());
             }
             let item = self.device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("zerium-texture-item"),
@@ -621,9 +621,9 @@ impl FrameRenderer {
                 &item,
                 0,
                 bytemuck::bytes_of(&GpuItem {
-                    params_offset: 0,
-                    params_size: u32::try_from(encoded.params.len()).map_err(|_| {
-                        RenderError::backend("texture item parameter size exceeds u32")
+                    property_offset: 0,
+                    property_size: u32::try_from(encoded.properties.len()).map_err(|_| {
+                        RenderError::backend("texture item property size exceeds u32")
                     })?,
                     output_size: [
                         encoded.target_size.width as f32,
@@ -642,7 +642,7 @@ impl FrameRenderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 1,
-                    resource: item_params.as_entire_binding(),
+                    resource: item_properties.as_entire_binding(),
                 },
             ];
             bind_entries.extend(uploaded_frames.iter().enumerate().map(|(index, uploaded)| {
@@ -659,7 +659,7 @@ impl FrameRenderer {
             });
             bind_entries.push(wgpu::BindGroupEntry {
                 binding: sampler_binding + 1,
-                resource: input_parameters.as_entire_binding(),
+                resource: input_properties.as_entire_binding(),
             });
             let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("zerium-texture-item-bind-group"),
@@ -668,9 +668,9 @@ impl FrameRenderer {
             });
             resources.push(TextureResource {
                 _uploaded_frames: uploaded_frames,
-                _input_parameters: input_parameters,
+                _input_properties: input_properties,
                 _item: item,
-                _item_params: item_params,
+                _item_properties: item_properties,
                 bind_group,
             });
         }

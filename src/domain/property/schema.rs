@@ -1,45 +1,45 @@
-//! Parameter schemas, animation permissions, and semantic validation.
+//! Property schemas, animation permissions, and semantic validation.
 
-use super::{ParameterError, constraints::ParameterConstraints, ui::ParameterUi};
-use crate::domain::parameter::{ParameterType, ParameterValue, ParameterValueType};
+use super::{PropertyError, constraints::PropertyConstraints, ui::PropertyUi};
+use crate::domain::property::{PropertyType, PropertyValue, PropertyValueType};
 
 const MAX_ARRAY_ITEMS: u32 = 1_000_000;
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum ParameterAnimatable {
+pub(crate) enum PropertyAnimatable {
     Scalar(bool),
     Tuple(Vec<bool>),
 }
 
-impl Default for ParameterAnimatable {
+impl Default for PropertyAnimatable {
     fn default() -> Self {
         Self::Scalar(false)
     }
 }
 
-impl ParameterAnimatable {
-    pub(crate) fn is_enabled(&self, element: Option<usize>) -> bool {
-        match (self, element) {
+impl PropertyAnimatable {
+    pub(crate) fn is_enabled(&self, scalar_index: Option<usize>) -> bool {
+        match (self, scalar_index) {
             (Self::Scalar(enabled), None) => *enabled,
-            (Self::Tuple(elements), Some(index)) => elements.get(index).copied().unwrap_or(false),
+            (Self::Tuple(scalars), Some(index)) => scalars.get(index).copied().unwrap_or(false),
             _ => false,
         }
     }
 
-    pub(crate) fn to_scalar(&self, element: usize) -> Self {
-        Self::Scalar(self.is_enabled(Some(element)))
+    pub(crate) fn to_scalar(&self, scalar_index: usize) -> Self {
+        Self::Scalar(self.is_enabled(Some(scalar_index)))
     }
 
-    fn valid_for(&self, ty: &ParameterValueType) -> bool {
+    fn valid_for(&self, ty: &PropertyValueType) -> bool {
         match (self, ty) {
-            (Self::Scalar(enabled), ParameterValueType::Scalar(ty)) => {
+            (Self::Scalar(enabled), PropertyValueType::Scalar(ty)) => {
                 !enabled || ty.is_interpolatable()
             }
-            (Self::Tuple(elements), ParameterValueType::Tuple(tuple)) => {
-                elements.len() == tuple.element_count()
-                    && elements
+            (Self::Tuple(scalars), PropertyValueType::Tuple(tuple)) => {
+                scalars.len() == tuple.scalar_count()
+                    && scalars
                         .iter()
-                        .zip(tuple.elements())
+                        .zip(tuple.scalars())
                         .all(|(enabled, ty)| !enabled || ty.is_interpolatable())
             }
             _ => false,
@@ -48,36 +48,36 @@ impl ParameterAnimatable {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum ParameterEditable {
+pub(crate) enum PropertyEditable {
     Scalar(bool),
     Tuple(Vec<bool>),
 }
 
-impl Default for ParameterEditable {
+impl Default for PropertyEditable {
     fn default() -> Self {
         Self::Scalar(true)
     }
 }
 
-impl ParameterEditable {
-    pub(crate) fn is_enabled(&self, element: Option<usize>) -> bool {
-        match (self, element) {
+impl PropertyEditable {
+    pub(crate) fn is_enabled(&self, scalar_index: Option<usize>) -> bool {
+        match (self, scalar_index) {
             (Self::Scalar(enabled), None) => *enabled,
-            (Self::Tuple(elements), Some(index)) => elements.get(index).copied().unwrap_or(false),
-            (Self::Tuple(elements), None) => elements.iter().all(|enabled| *enabled),
+            (Self::Tuple(scalars), Some(index)) => scalars.get(index).copied().unwrap_or(false),
+            (Self::Tuple(scalars), None) => scalars.iter().all(|enabled| *enabled),
             _ => false,
         }
     }
 
-    pub(crate) fn to_scalar(&self, element: usize) -> Self {
-        Self::Scalar(self.is_enabled(Some(element)))
+    pub(crate) fn to_scalar(&self, scalar_index: usize) -> Self {
+        Self::Scalar(self.is_enabled(Some(scalar_index)))
     }
 
-    fn valid_for(&self, ty: &ParameterValueType) -> bool {
+    fn valid_for(&self, ty: &PropertyValueType) -> bool {
         match (self, ty) {
-            (Self::Scalar(_), ParameterValueType::Scalar(_)) => true,
-            (Self::Tuple(elements), ParameterValueType::Tuple(tuple)) => {
-                elements.len() == tuple.element_count()
+            (Self::Scalar(_), PropertyValueType::Scalar(_)) => true,
+            (Self::Tuple(scalars), PropertyValueType::Tuple(tuple)) => {
+                scalars.len() == tuple.scalar_count()
             }
             _ => false,
         }
@@ -85,33 +85,33 @@ impl ParameterEditable {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct ParameterSchema {
+pub(crate) struct PropertySchema {
     pub(in crate::domain) id: String,
     pub(in crate::domain) label: String,
-    pub(in crate::domain) ty: ParameterType,
-    pub(in crate::domain) default: ParameterValue,
-    pub(in crate::domain) editable: ParameterEditable,
-    pub(in crate::domain) animatable: ParameterAnimatable,
+    pub(in crate::domain) ty: PropertyType,
+    pub(in crate::domain) default: PropertyValue,
+    pub(in crate::domain) editable: PropertyEditable,
+    pub(in crate::domain) animatable: PropertyAnimatable,
     pub(in crate::domain) scene_bindable: bool,
-    pub(in crate::domain) constraints: ParameterConstraints,
-    pub(in crate::domain) ui: ParameterUi,
+    pub(in crate::domain) constraints: PropertyConstraints,
+    pub(in crate::domain) ui: PropertyUi,
 }
 
-impl ParameterSchema {
-    pub(crate) fn scalar_ui(&self, element: Option<usize>) -> &ParameterUi {
-        element.map_or(&self.ui, |index| self.ui.for_element(index))
+impl PropertySchema {
+    pub(crate) fn scalar_ui(&self, scalar_index: Option<usize>) -> &PropertyUi {
+        scalar_index.map_or(&self.ui, |index| self.ui.for_scalar(index))
     }
 
-    pub(crate) fn scalar_constraints(&self, element: Option<usize>) -> &ParameterConstraints {
-        element.map_or(&self.constraints, |index| {
-            self.constraints.for_element(index)
+    pub(crate) fn scalar_constraints(&self, scalar_index: Option<usize>) -> &PropertyConstraints {
+        scalar_index.map_or(&self.constraints, |index| {
+            self.constraints.for_scalar(index)
         })
     }
 
-    pub(crate) fn scalar_label(&self, element: Option<usize>) -> Option<String> {
-        element.map(|index| {
+    pub(crate) fn scalar_label(&self, scalar_index: Option<usize>) -> Option<String> {
+        scalar_index.map(|index| {
             self.ui
-                .for_element(index)
+                .for_scalar(index)
                 .label()
                 .map(str::to_owned)
                 .unwrap_or_else(|| (index + 1).to_string())
@@ -126,31 +126,31 @@ impl ParameterSchema {
         &self.label
     }
 
-    pub(crate) fn ty(&self) -> &ParameterType {
+    pub(crate) fn ty(&self) -> &PropertyType {
         &self.ty
     }
 
-    pub(crate) fn default_value(&self) -> &ParameterValue {
+    pub(crate) fn default_value(&self) -> &PropertyValue {
         &self.default
     }
 
-    pub(crate) fn is_editable(&self, element: Option<usize>) -> bool {
-        self.editable.is_enabled(element)
+    pub(crate) fn is_editable(&self, scalar_index: Option<usize>) -> bool {
+        self.editable.is_enabled(scalar_index)
     }
 
-    pub(crate) fn is_animatable(&self, element: Option<usize>) -> bool {
-        self.is_editable(element) && self.animatable.is_enabled(element)
+    pub(crate) fn is_animatable(&self, scalar_index: Option<usize>) -> bool {
+        self.is_editable(scalar_index) && self.animatable.is_enabled(scalar_index)
     }
 
     pub(crate) const fn is_scene_bindable(&self) -> bool {
         self.scene_bindable
     }
 
-    pub(crate) const fn constraints(&self) -> &ParameterConstraints {
+    pub(crate) const fn constraints(&self) -> &PropertyConstraints {
         &self.constraints
     }
 
-    pub(crate) const fn ui(&self) -> &ParameterUi {
+    pub(crate) const fn ui(&self) -> &PropertyUi {
         &self.ui
     }
 
@@ -158,11 +158,11 @@ impl ParameterSchema {
         self.ui.is_visible()
     }
 
-    pub(crate) fn accepts_value(&self, value: &ParameterValue) -> bool {
+    pub(crate) fn accepts_value(&self, value: &PropertyValue) -> bool {
         self.ty.allows(value) && self.constraints.allows(value)
     }
 
-    pub(crate) fn constrained_value(&self, value: &ParameterValue) -> Option<ParameterValue> {
+    pub(crate) fn constrained_value(&self, value: &PropertyValue) -> Option<PropertyValue> {
         if !self.ty.allows(value) {
             return None;
         }
@@ -174,12 +174,12 @@ impl ParameterSchema {
         &self,
         owner_kind: &str,
         owner_id: &str,
-    ) -> Result<(), ParameterError> {
+    ) -> Result<(), PropertyError> {
         if self.id.trim().is_empty() {
             return Err(self.validation_error(owner_kind, owner_id, "id must not be empty"));
         }
 
-        if let ParameterType::Array {
+        if let PropertyType::Array {
             min_items,
             max_items,
             ..
@@ -201,7 +201,13 @@ impl ParameterSchema {
             }
         }
 
-        let component_type = self.ty.element_type();
+        let component_type = match &self.ty {
+            PropertyType::Value(value_type)
+            | PropertyType::Array {
+                element_type: value_type,
+                ..
+            } => value_type,
+        };
         if !self.editable.valid_for(component_type) {
             return Err(self.validation_error(
                 owner_kind,
@@ -233,9 +239,9 @@ impl ParameterSchema {
             .validate(owner_kind, owner_id, &self.id, &self.ty, component_type)
     }
 
-    fn validation_error(&self, owner_kind: &str, owner_id: &str, message: &str) -> ParameterError {
-        ParameterError::invalid_definition(format!(
-            "{owner_kind} '{owner_id}' parameter '{}': {message}",
+    fn validation_error(&self, owner_kind: &str, owner_id: &str, message: &str) -> PropertyError {
+        PropertyError::invalid_definition(format!(
+            "{owner_kind} '{owner_id}' property '{}': {message}",
             self.id
         ))
     }

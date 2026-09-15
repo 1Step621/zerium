@@ -11,9 +11,9 @@ fn vertex_main(
     @builtin(vertex_index) vertex_index: u32,
     @builtin(instance_index) instance_index: u32,
 ) -> RectangleVertexOutput {
-    let params = zerium_load_parameters(instance_index);
-    let position = vec2(params.position.v0, params.position.v1);
-    let size = vec2(params.size.v0, params.size.v1);
+    let properties = zerium_load_properties(instance_index);
+    let position = vec2(properties.position.v0, properties.position.v1);
+    let size = vec2(properties.size.v0, properties.size.v1);
     let half_size = size * 0.5;
     let local = zerium_item_quad_corner(vertex_index);
 
@@ -25,9 +25,9 @@ fn vertex_main(
         size,
     );
     output.local = local;
-    output.color = zerium_scene_premultiplied_color(params.color);
+    output.color = zerium_scene_premultiplied_color(properties.color);
     output.half_size = half_size;
-    output.corner_radius = max(params.corner_radius, 0.0);
+    output.corner_radius = max(properties.corner_radius, 0.0);
     return output;
 }
 

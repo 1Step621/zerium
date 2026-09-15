@@ -1,7 +1,7 @@
 //! Typed scalar animation tracks made of value stops and interval interpolations.
 use super::{BezierHandle, SegmentInterpolation, interpolate_scalar};
-use crate::domain::parameter::{
-    ParameterAddress, ParameterType, ParameterValue, ParameterValues, ScalarParameterType,
+use crate::domain::property::{
+    PropertyElementId, PropertyValue, PropertyValues, ScalarPropertyType,
 };
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -13,7 +13,7 @@ const COLOR_LINK_EPSILON: f32 = 0.000_01;
 #[serde(deny_unknown_fields)]
 pub(crate) struct AnimationStop {
     position: f32,
-    value: ParameterValue,
+    value: PropertyValue,
 }
 
 impl AnimationStop {
@@ -21,7 +21,7 @@ impl AnimationStop {
         self.position
     }
 
-    pub(crate) const fn value(&self) -> &ParameterValue {
+    pub(crate) const fn value(&self) -> &PropertyValue {
         &self.value
     }
 }
@@ -34,7 +34,10 @@ pub(crate) struct ScalarTrack {
 }
 
 impl ScalarTrack {
-    fn new(value: ParameterValue, ty: &ScalarParameterType) -> Option<Self> {
+    pub(in crate::domain) fn from_value(
+        value: PropertyValue,
+        ty: &ScalarPropertyType,
+    ) -> Option<Self> {
         (ty.is_interpolatable() && ty.allows(&value)).then(|| Self {
             stops: vec![
                 AnimationStop {
@@ -50,9 +53,9 @@ impl ScalarTrack {
         })
     }
 
-    fn values_are_linked(left: &ParameterValue, right: &ParameterValue) -> bool {
+    fn values_are_linked(left: &PropertyValue, right: &PropertyValue) -> bool {
         match (left, right) {
-            (ParameterValue::Color(left), ParameterValue::Color(right)) => left
+            (PropertyValue::Color(left), PropertyValue::Color(right)) => left
                 .iter()
                 .zip(right)
                 .all(|(left, right)| (left - right).abs() <= COLOR_LINK_EPSILON),
@@ -113,7 +116,7 @@ impl ScalarTrack {
         }
     }
 
-    pub(crate) fn evaluate(&self, progress: f32) -> Option<ParameterValue> {
+    pub(crate) fn evaluate(&self, progress: f32) -> Option<PropertyValue> {
         if !progress.is_finite() {
             return None;
         }
@@ -154,7 +157,7 @@ impl ScalarTrack {
     pub(crate) fn set_stop(
         &mut self,
         index: usize,
-        value: ParameterValue,
+        value: PropertyValue,
         focused_segment: Option<usize>,
     ) -> bool {
         let Some(current) = self.stops.get(index).map(|stop| stop.value.clone()) else {
@@ -185,7 +188,7 @@ impl ScalarTrack {
         true
     }
 
-    pub(crate) fn insert_stop(&mut self, position: f32, value: ParameterValue) -> Option<usize> {
+    pub(crate) fn insert_stop(&mut self, position: f32, value: PropertyValue) -> Option<usize> {
         if !position.is_finite()
             || !(0. ..=1.).contains(&position)
             || interpolate_scalar(self.stops.first()?.value(), &value, 0.).is_none()
@@ -238,7 +241,7 @@ impl ScalarTrack {
         true
     }
 
-    pub(in crate::domain) fn is_valid_for(&self, ty: &ScalarParameterType) -> bool {
+    pub(in crate::domain) fn is_valid_for(&self, ty: &ScalarPropertyType) -> bool {
         self.stops.len() >= 2
             && self.interpolations.len() + 1 == self.stops.len()
             && self.stops.first().map(AnimationStop::position) == Some(0.)
@@ -338,75 +341,195 @@ impl ScalarTrack {
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub(crate) struct ParameterAnimations {
-    tracks: BTreeMap<ParameterAddress, ScalarTrack>,
+pub(crate) struct PropertyAnimations {
+    properties: BTreeMap<String, PropertyAnimation>,
 }
 
-impl ParameterAnimations {
-    pub(crate) fn iter(&self) -> impl Iterator<Item = (&ParameterAddress, &ScalarTrack)> {
-        self.tracks.iter()
-    }
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct PropertyAnimation {
+    value: ElementAnimations,
+    elements: BTreeMap<PropertyElementId, ElementAnimations>,
+}
 
-    pub(in crate::domain) fn from_entries(
-        entries: Vec<(ParameterAddress, ScalarTrack)>,
-    ) -> Option<Self> {
-        let mut tracks = BTreeMap::new();
-        for (address, track) in entries {
-            if tracks.insert(address, track).is_some() {
-                return None;
-            }
+#[derive(Clone, Debug, Default, PartialEq)]
+pub(crate) struct ElementAnimations {
+    whole: Option<ScalarTrack>,
+    scalars: BTreeMap<usize, ScalarTrack>,
+}
+
+impl ElementAnimations {
+    pub(crate) fn scalar(&self, scalar_index: Option<usize>) -> Option<&ScalarTrack> {
+        match scalar_index {
+            Some(index) => self.scalars.get(&index),
+            None => self.whole.as_ref(),
         }
-        Some(Self { tracks })
     }
 
-    pub(crate) fn get(&self, address: &ParameterAddress) -> Option<&ScalarTrack> {
-        self.tracks.get(address)
-    }
-
-    pub(in crate::domain) fn get_mut(
-        &mut self,
-        address: &ParameterAddress,
-    ) -> Option<&mut ScalarTrack> {
-        self.tracks.get_mut(address)
-    }
-
-    pub(crate) fn contains(&self, address: &ParameterAddress) -> bool {
-        self.tracks.contains_key(address)
-    }
-
-    pub(crate) fn enable(
-        &mut self,
-        address: ParameterAddress,
-        values: &ParameterValues,
-        ty: &ParameterType,
-    ) -> bool {
-        if self.tracks.contains_key(&address) {
-            return false;
+    pub(crate) fn scalar_mut(&mut self, scalar_index: Option<usize>) -> Option<&mut ScalarTrack> {
+        match scalar_index {
+            Some(index) => self.scalars.get_mut(&index),
+            None => self.whole.as_mut(),
         }
-        let Some((value, scalar_ty)) = values.scalar_at(&address, ty) else {
-            return false;
-        };
-        let Some(track) = ScalarTrack::new(value.clone(), scalar_ty) else {
-            return false;
-        };
-        self.tracks.insert(address, track);
-        true
     }
 
-    pub(crate) fn disable(&mut self, address: &ParameterAddress) -> bool {
-        self.tracks.remove(address).is_some()
+    pub(crate) fn insert(&mut self, scalar_index: Option<usize>, track: ScalarTrack) -> bool {
+        match scalar_index {
+            Some(index) => self.scalars.insert(index, track).is_none(),
+            None => self.whole.replace(track).is_none(),
+        }
     }
 
-    pub(crate) fn retain_valid_addresses(&mut self, values: &ParameterValues) -> bool {
-        let previous_len = self.tracks.len();
-        self.tracks
-            .retain(|address, _| values.get_scalar_at(address).is_some());
-        self.tracks.len() != previous_len
+    pub(crate) fn remove(&mut self, scalar_index: Option<usize>) -> bool {
+        match scalar_index {
+            Some(index) => self.scalars.remove(&index).is_some(),
+            None => self.whole.take().is_some(),
+        }
+    }
+
+    pub(crate) fn tracks(&self) -> impl Iterator<Item = (Option<usize>, &ScalarTrack)> {
+        self.whole.iter().map(|track| (None, track)).chain(
+            self.scalars
+                .iter()
+                .map(|(index, track)| (Some(*index), track)),
+        )
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.whole.is_none() && self.scalars.is_empty()
+    }
+
+    fn remap_time_range(&mut self, start: f64, end: f64) {
+        if let Some(track) = self.whole.as_mut() {
+            track.remap_time_range(start, end);
+        }
+        for track in self.scalars.values_mut() {
+            track.remap_time_range(start, end);
+        }
+    }
+
+    fn retain_valid(&mut self, value: &PropertyValue) -> bool {
+        let previous = self.whole.is_some() as usize + self.scalars.len();
+        if self.whole.is_some() && value.scalar_at(None).is_none() {
+            self.whole = None;
+        }
+        self.scalars
+            .retain(|scalar_index, _| value.scalar_at(Some(*scalar_index)).is_some());
+        previous != self.whole.is_some() as usize + self.scalars.len()
+    }
+}
+
+impl PropertyAnimation {
+    pub(crate) fn element(
+        &self,
+        element_id: Option<PropertyElementId>,
+    ) -> Option<&ElementAnimations> {
+        match element_id {
+            Some(element_id) => self.elements.get(&element_id),
+            None => Some(&self.value),
+        }
+    }
+
+    pub(crate) fn element_mut(
+        &mut self,
+        element_id: Option<PropertyElementId>,
+    ) -> Option<&mut ElementAnimations> {
+        match element_id {
+            Some(element_id) => self.elements.get_mut(&element_id),
+            None => Some(&mut self.value),
+        }
+    }
+
+    pub(crate) fn element_or_insert(
+        &mut self,
+        element_id: Option<PropertyElementId>,
+    ) -> &mut ElementAnimations {
+        match element_id {
+            Some(element_id) => self.elements.entry(element_id).or_default(),
+            None => &mut self.value,
+        }
+    }
+
+    pub(crate) fn elements(&self) -> impl Iterator<Item = (PropertyElementId, &ElementAnimations)> {
+        self.elements
+            .iter()
+            .map(|(id, animations)| (*id, animations))
+    }
+
+    pub(crate) fn is_empty(&self) -> bool {
+        self.value.is_empty() && self.elements.values().all(ElementAnimations::is_empty)
+    }
+
+    fn remap_time_range(&mut self, start: f64, end: f64) {
+        self.value.remap_time_range(start, end);
+        for element in self.elements.values_mut() {
+            element.remap_time_range(start, end);
+        }
+    }
+
+    fn retain_valid(&mut self, value: &PropertyValue) -> bool {
+        let mut changed = self.value.retain_valid(value);
+        let PropertyValue::Array(elements) = value else {
+            changed |= !self.elements.is_empty();
+            self.elements.clear();
+            return changed;
+        };
+        let previous = self.elements.len();
+        self.elements.retain(|element_id, animations| {
+            let Some(element) = elements
+                .iter()
+                .find(|element| element.element_id() == *element_id)
+            else {
+                return false;
+            };
+            changed |= animations.retain_valid(element.value());
+            !animations.is_empty()
+        });
+        changed || previous != self.elements.len()
+    }
+}
+
+impl PropertyAnimations {
+    pub(crate) fn property(&self, property_id: &str) -> Option<&PropertyAnimation> {
+        self.properties.get(property_id)
+    }
+
+    pub(crate) fn property_mut(&mut self, property_id: &str) -> Option<&mut PropertyAnimation> {
+        self.properties.get_mut(property_id)
+    }
+
+    pub(crate) fn property_or_insert(&mut self, property_id: &str) -> &mut PropertyAnimation {
+        self.properties.entry(property_id.to_owned()).or_default()
+    }
+
+    pub(crate) fn properties(&self) -> impl Iterator<Item = (&str, &PropertyAnimation)> {
+        self.properties
+            .iter()
+            .map(|(property_id, animation)| (property_id.as_str(), animation))
+    }
+
+    pub(crate) fn remove_property_if_empty(&mut self, property_id: &str) -> bool {
+        self.properties
+            .get(property_id)
+            .is_some_and(PropertyAnimation::is_empty)
+            && self.properties.remove(property_id).is_some()
+    }
+
+    pub(crate) fn retain_valid(&mut self, values: &PropertyValues) -> bool {
+        let mut changed = false;
+        self.properties.retain(|property_id, animations| {
+            let Some(value) = values.property(property_id) else {
+                changed = true;
+                return false;
+            };
+            changed |= animations.retain_valid(value);
+            !animations.is_empty()
+        });
+        changed
     }
 
     pub(crate) fn remap_time_range(&mut self, start: f64, end: f64) {
-        for track in self.tracks.values_mut() {
-            track.remap_time_range(start, end);
+        for property in self.properties.values_mut() {
+            property.remap_time_range(start, end);
         }
     }
 }

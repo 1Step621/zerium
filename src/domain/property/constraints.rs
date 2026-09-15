@@ -1,58 +1,56 @@
-//! Type-aware numeric constraint algebra for parameter defaults and bindings.
+//! Type-aware numeric constraint algebra for property defaults and bindings.
 
 use serde::{Deserialize, Serialize};
 
-use super::ParameterError;
-use crate::domain::parameter::{
-    ParameterType, ParameterValue, ParameterValueType, ScalarParameterType,
-};
+use super::PropertyError;
+use crate::domain::property::{PropertyType, PropertyValue, PropertyValueType, ScalarPropertyType};
 
 /// Wire bounds use f64 so every i32/u32 endpoint is represented exactly.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(crate) struct ParameterConstraints {
+pub(crate) struct PropertyConstraints {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max: Option<f64>,
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    elements: Vec<ParameterConstraints>,
+    #[serde(rename = "elements", default, skip_serializing_if = "Vec::is_empty")]
+    scalars: Vec<PropertyConstraints>,
 }
 
-impl ParameterConstraints {
+impl PropertyConstraints {
     pub(crate) fn from_bounds(min: Option<f64>, max: Option<f64>) -> Self {
         Self {
             min,
             max,
-            elements: Vec::new(),
+            scalars: Vec::new(),
         }
     }
 
-    pub(crate) fn for_element(&self, element: usize) -> &Self {
-        static DEFAULT: ParameterConstraints = ParameterConstraints {
+    pub(crate) fn for_scalar(&self, scalar_index: usize) -> &Self {
+        static DEFAULT: PropertyConstraints = PropertyConstraints {
             min: None,
             max: None,
-            elements: Vec::new(),
+            scalars: Vec::new(),
         };
-        self.elements.get(element).unwrap_or(&DEFAULT)
+        self.scalars.get(scalar_index).unwrap_or(&DEFAULT)
     }
 
-    pub(in crate::domain) fn allows(&self, value: &ParameterValue) -> bool {
+    pub(in crate::domain) fn allows(&self, value: &PropertyValue) -> bool {
         match value {
-            ParameterValue::F32(value) => self.allows_number(f64::from(*value)),
-            ParameterValue::I32(value) => self.allows_number(f64::from(*value)),
-            ParameterValue::U32(value) => self.allows_number(f64::from(*value)),
-            ParameterValue::Tuple(values) => values
+            PropertyValue::F32(value) => self.allows_number(f64::from(*value)),
+            PropertyValue::I32(value) => self.allows_number(f64::from(*value)),
+            PropertyValue::U32(value) => self.allows_number(f64::from(*value)),
+            PropertyValue::Tuple(values) => values
                 .iter()
                 .enumerate()
-                .all(|(index, value)| self.for_element(index).allows(value)),
-            ParameterValue::Array(values) => {
+                .all(|(index, value)| self.for_scalar(index).allows(value)),
+            PropertyValue::Array(values) => {
                 values.iter().all(|element| self.allows(element.value()))
             }
-            ParameterValue::Color(values) => values
+            PropertyValue::Color(values) => values
                 .iter()
                 .all(|value| self.allows_number(f64::from(*value))),
-            ParameterValue::Bool(_) | ParameterValue::String(_) | ParameterValue::Enum(_) => {
+            PropertyValue::Bool(_) | PropertyValue::String(_) | PropertyValue::Enum(_) => {
                 self.min.is_none() && self.max.is_none()
             }
         }
@@ -64,22 +62,22 @@ impl ParameterConstraints {
             && !self.max.is_some_and(|max| value > max)
     }
 
-    pub(crate) fn clamp_value(&self, value: &ParameterValue) -> Option<ParameterValue> {
+    pub(crate) fn clamp_value(&self, value: &PropertyValue) -> Option<PropertyValue> {
         match value {
-            ParameterValue::F32(value) => {
+            PropertyValue::F32(value) => {
                 let value = self.clamp_f64(f64::from(*value));
                 let value = value as f32;
-                value.is_finite().then_some(ParameterValue::F32(value))
+                value.is_finite().then_some(PropertyValue::F32(value))
             }
-            ParameterValue::I32(value) => Some(ParameterValue::I32(self.clamp_i32(*value)?)),
-            ParameterValue::U32(value) => Some(ParameterValue::U32(self.clamp_u32(*value)?)),
-            ParameterValue::Tuple(values) => values
+            PropertyValue::I32(value) => Some(PropertyValue::I32(self.clamp_i32(*value)?)),
+            PropertyValue::U32(value) => Some(PropertyValue::U32(self.clamp_u32(*value)?)),
+            PropertyValue::Tuple(values) => values
                 .iter()
                 .enumerate()
-                .map(|(index, value)| self.for_element(index).clamp_value(value))
+                .map(|(index, value)| self.for_scalar(index).clamp_value(value))
                 .collect::<Option<Vec<_>>>()
-                .map(ParameterValue::Tuple),
-            ParameterValue::Array(values) => values
+                .map(PropertyValue::Tuple),
+            PropertyValue::Array(values) => values
                 .iter()
                 .map(|element| {
                     let mut constrained = element.clone();
@@ -87,8 +85,8 @@ impl ParameterConstraints {
                     Some(constrained)
                 })
                 .collect::<Option<Vec<_>>>()
-                .map(ParameterValue::Array),
-            ParameterValue::Color(values) => {
+                .map(PropertyValue::Array),
+            PropertyValue::Color(values) => {
                 let mut constrained = *values;
                 for value in &mut constrained {
                     *value = self.clamp_f64(f64::from(*value)) as f32;
@@ -96,18 +94,18 @@ impl ParameterConstraints {
                         return None;
                     }
                 }
-                Some(ParameterValue::Color(constrained))
+                Some(PropertyValue::Color(constrained))
             }
-            ParameterValue::Enum(value) if self.min.is_none() && self.max.is_none() => {
-                Some(ParameterValue::Enum(*value))
+            PropertyValue::Enum(value) if self.min.is_none() && self.max.is_none() => {
+                Some(PropertyValue::Enum(*value))
             }
-            ParameterValue::Bool(value) if self.min.is_none() && self.max.is_none() => {
-                Some(ParameterValue::Bool(*value))
+            PropertyValue::Bool(value) if self.min.is_none() && self.max.is_none() => {
+                Some(PropertyValue::Bool(*value))
             }
-            ParameterValue::String(value) if self.min.is_none() && self.max.is_none() => {
-                Some(ParameterValue::String(value.clone()))
+            PropertyValue::String(value) if self.min.is_none() && self.max.is_none() => {
+                Some(PropertyValue::String(value.clone()))
             }
-            ParameterValue::Bool(_) | ParameterValue::String(_) | ParameterValue::Enum(_) => None,
+            PropertyValue::Bool(_) | PropertyValue::String(_) | PropertyValue::Enum(_) => None,
         }
     }
 
@@ -156,21 +154,21 @@ impl ParameterConstraints {
         &self,
         owner_kind: &str,
         owner_id: &str,
-        parameter_id: &str,
-        ty: &ParameterType,
-        default: &ParameterValue,
-    ) -> Result<(), ParameterError> {
+        property_id: &str,
+        ty: &PropertyType,
+        default: &PropertyValue,
+    ) -> Result<(), PropertyError> {
         let invalid = || {
-            ParameterError::invalid_definition(format!(
-                "{owner_kind} '{owner_id}' parameter '{parameter_id}' has invalid constraints"
+            PropertyError::invalid_definition(format!(
+                "{owner_kind} '{owner_id}' property '{property_id}' has invalid constraints"
             ))
         };
         if !self.bounds_valid() || !self.valid_for_type(ty) {
             return Err(invalid());
         }
         if ty.allows(default) && !self.allows(default) {
-            return Err(ParameterError::invalid_definition(format!(
-                "{owner_kind} '{owner_id}' parameter '{parameter_id}' default violates its constraints"
+            return Err(PropertyError::invalid_definition(format!(
+                "{owner_kind} '{owner_id}' property '{property_id}' default violates its constraints"
             )));
         }
         Ok(())
@@ -184,20 +182,27 @@ impl ParameterConstraints {
             && !matches!((min, max), (Some(min), Some(max)) if min > max)
     }
 
-    fn valid_for_type(&self, ty: &ParameterType) -> bool {
-        if !self.elements.is_empty() {
-            let ParameterValueType::Tuple(tuple) = ty.element_type() else {
+    fn valid_for_type(&self, ty: &PropertyType) -> bool {
+        let value_type = match ty {
+            PropertyType::Value(value_type)
+            | PropertyType::Array {
+                element_type: value_type,
+                ..
+            } => value_type,
+        };
+        if !self.scalars.is_empty() {
+            let PropertyValueType::Tuple(tuple) = value_type else {
                 return false;
             };
             return self.min.is_none()
                 && self.max.is_none()
-                && self.elements.len() == tuple.element_count()
+                && self.scalars.len() == tuple.scalar_count()
                 && self
-                    .elements
+                    .scalars
                     .iter()
-                    .zip(tuple.elements())
+                    .zip(tuple.scalars())
                     .all(|(constraints, ty)| {
-                        constraints.elements.is_empty()
+                        constraints.scalars.is_empty()
                             && constraints.bounds_valid()
                             && ((constraints.min.is_none() && constraints.max.is_none())
                                 || constraints.valid_for_scalar(ty))
@@ -207,25 +212,25 @@ impl ParameterConstraints {
         if !constrained {
             return true;
         }
-        match ty.element_type() {
-            ParameterValueType::Scalar(ty) => self.valid_for_scalar(ty),
-            ParameterValueType::Tuple(_) => false,
+        match value_type {
+            PropertyValueType::Scalar(ty) => self.valid_for_scalar(ty),
+            PropertyValueType::Tuple(_) => false,
         }
     }
 
-    fn valid_for_scalar(&self, ty: &ScalarParameterType) -> bool {
+    fn valid_for_scalar(&self, ty: &ScalarPropertyType) -> bool {
         match ty {
-            ScalarParameterType::F32 | ScalarParameterType::Color => self
+            ScalarPropertyType::F32 | ScalarPropertyType::Color => self
                 .min
                 .into_iter()
                 .chain(self.max)
                 .all(|value| (value as f32).is_finite()),
-            ScalarParameterType::I32 => {
+            ScalarPropertyType::I32 => {
                 let lower = self.min.unwrap_or(f64::from(i32::MIN)).ceil();
                 let upper = self.max.unwrap_or(f64::from(i32::MAX)).floor();
                 lower <= upper && upper >= f64::from(i32::MIN) && lower <= f64::from(i32::MAX)
             }
-            ScalarParameterType::U32 => {
+            ScalarPropertyType::U32 => {
                 let lower = self.min.unwrap_or(0.0).max(0.0).ceil();
                 let upper = self
                     .max
@@ -234,9 +239,9 @@ impl ParameterConstraints {
                     .floor();
                 lower <= upper
             }
-            ScalarParameterType::Bool
-            | ScalarParameterType::String
-            | ScalarParameterType::Enum(_) => false,
+            ScalarPropertyType::Bool | ScalarPropertyType::String | ScalarPropertyType::Enum(_) => {
+                false
+            }
         }
     }
 }

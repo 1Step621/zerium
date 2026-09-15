@@ -1,10 +1,9 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::domain::animation::{ParameterAnimations, ScalarTrack};
+use crate::domain::animation::{PropertyAnimation, PropertyAnimations};
 use crate::domain::media::MediaAsset;
-use crate::domain::parameter::ParameterAddress;
-use crate::domain::parameter::{ParameterValue, ParameterValues};
 use crate::domain::plugin::{EffectSchema, ItemSchema};
+use crate::domain::property::{PropertyValue, PropertyValues};
 
 use super::{
     ids::{EffectInstanceId, ItemId, SceneId},
@@ -40,9 +39,9 @@ fn asset_label(asset: &MediaAsset) -> Option<String> {
         .or_else(|| concise_label(&asset.name))
 }
 
-pub(super) fn size_values(values: &ParameterValues, schema: &ItemSchema) -> Option<[f32; 2]> {
-    let parameter = schema.size_parameter()?;
-    let value = values.get(&parameter.id)?;
+pub(super) fn size_values(values: &PropertyValues, schema: &ItemSchema) -> Option<[f32; 2]> {
+    let property = schema.size_property()?;
+    let value = values.property(&property.id)?;
     Some([
         value.scalar_at(Some(0))?.numeric_scalar()? as f32,
         value.scalar_at(Some(1))?.numeric_scalar()? as f32,
@@ -50,15 +49,15 @@ pub(super) fn size_values(values: &ParameterValues, schema: &ItemSchema) -> Opti
 }
 
 pub(super) fn set_size_values(
-    values: &mut ParameterValues,
+    values: &mut PropertyValues,
     schema: &ItemSchema,
     size: [f32; 2],
 ) -> bool {
-    let Some(parameter) = schema.size_parameter() else {
+    let Some(property) = schema.size_property() else {
         return false;
     };
     values
-        .set(parameter, ParameterValue::f32_tuple(size))
+        .set(property, PropertyValue::f32_tuple(size))
         .unwrap_or(false)
 }
 
@@ -70,11 +69,11 @@ pub(super) fn size_with_derived_height(
     if !aspect_ratio.is_finite() || aspect_ratio <= 0. {
         return requested;
     }
-    let Some(parameter) = schema.size_parameter() else {
+    let Some(property) = schema.size_property() else {
         return requested;
     };
-    let width = parameter.scalar_constraints(Some(0));
-    let height = parameter.scalar_constraints(Some(1));
+    let width = property.scalar_constraints(Some(0));
+    let height = property.scalar_constraints(Some(1));
     let ratio = f64::from(aspect_ratio);
     // Intersect both axes in width units before writing either component.
     // Keep a positive size so a locked ratio survives even schemas allowing zero.
@@ -107,8 +106,8 @@ pub(crate) struct EffectInstance {
     pub id: EffectInstanceId,
     pub plugin_id: String,
     pub effect_id: String,
-    pub parameters: ParameterValues,
-    pub animations: ParameterAnimations,
+    pub properties: PropertyValues,
+    pub animations: PropertyAnimations,
     pub(crate) schema: Arc<EffectSchema>,
 }
 
@@ -137,8 +136,8 @@ pub(crate) struct TimelineItem {
     pub duration: FrameDuration,
     pub(crate) kind: TimelineItemKind,
     pub assets: HashMap<String, MediaAsset>,
-    pub parameters: ParameterValues,
-    pub animations: ParameterAnimations,
+    pub properties: PropertyValues,
+    pub animations: PropertyAnimations,
     pub aspect_ratio_locked: bool,
     pub effects: Vec<EffectInstance>,
 }
@@ -185,10 +184,10 @@ impl TimelineItem {
     pub(crate) fn intrinsic_label(&self) -> Option<String> {
         let schema = self.schema()?;
         if let Some(label) = schema
-            .label_parameter()
-            .and_then(|parameter| self.parameters.get(&parameter.id))
+            .label_property()
+            .and_then(|property| self.properties.property(&property.id))
             .and_then(|value| match value {
-                ParameterValue::String(value) => concise_label(value),
+                PropertyValue::String(value) => concise_label(value),
                 _ => None,
             })
         {
@@ -224,14 +223,14 @@ impl TimelineItem {
         let Some(audio) = self.schema().and_then(ItemSchema::audio) else {
             return 1.;
         };
-        match self.parameters.get(audio.volume_parameter()) {
-            Some(ParameterValue::F32(value)) => value.max(0.),
+        match self.properties.property(audio.volume_property()) {
+            Some(PropertyValue::F32(value)) => value.max(0.),
             _ => 1.,
         }
     }
 
     pub(super) fn current_aspect_ratio(&self, schema: &ItemSchema) -> Option<f32> {
-        let current_size = size_values(&self.parameters, schema);
+        let current_size = size_values(&self.properties, schema);
         let source_size = schema.files().iter().find_map(|file| {
             self.assets
                 .get(file.id())?
@@ -252,11 +251,11 @@ impl TimelineItem {
         let Some(schema) = self.schema().cloned() else {
             return false;
         };
-        let Some(requested) = size_values(&self.parameters, &schema) else {
+        let Some(requested) = size_values(&self.properties, &schema) else {
             return false;
         };
         let adjusted = size_with_derived_height(requested, aspect_ratio, &schema);
-        set_size_values(&mut self.parameters, &schema, adjusted)
+        set_size_values(&mut self.properties, &schema, adjusted)
     }
 
     pub(crate) fn animation_span_frames(&self) -> f64 {
@@ -299,62 +298,62 @@ impl TimelineItem {
         let mut item = self.clone();
         let Some(schema) = self.schema() else {
             for effect in &mut item.effects {
-                effect.parameters = effect.animations.evaluated_values(
-                    &effect.parameters,
-                    effect.schema.parameters(),
+                effect.properties = effect.animations.evaluated_values(
+                    &effect.properties,
+                    effect.schema.properties(),
                     progress,
                 );
             }
             return item;
         };
-        let mut parameters =
+        let mut properties =
             self.animations
-                .evaluated_values(&self.parameters, schema.parameters(), progress);
+                .evaluated_values(&self.properties, schema.properties(), progress);
         if self.aspect_ratio_locked
             && let Some(aspect_ratio) = self.current_aspect_ratio(schema)
-            && let Some(requested) = size_values(&parameters, schema)
+            && let Some(requested) = size_values(&properties, schema)
         {
             let adjusted = size_with_derived_height(requested, aspect_ratio, schema);
-            set_size_values(&mut parameters, schema, adjusted);
+            set_size_values(&mut properties, schema, adjusted);
         }
-        item.parameters = parameters;
+        item.properties = properties;
         for effect in &mut item.effects {
-            effect.parameters = effect.animations.evaluated_values(
-                &effect.parameters,
-                effect.schema.parameters(),
+            effect.properties = effect.animations.evaluated_values(
+                &effect.properties,
+                effect.schema.properties(),
                 progress,
             );
         }
         item
     }
 
-    pub(crate) fn animation(
+    pub(crate) fn property_animation(
         &self,
         effect_id: Option<EffectInstanceId>,
-        address: &ParameterAddress,
-    ) -> Option<&ScalarTrack> {
+        property_id: &str,
+    ) -> Option<&PropertyAnimation> {
         match effect_id {
             Some(effect_id) => self
                 .effects
                 .iter()
                 .find(|effect| effect.id == effect_id)?
                 .animations
-                .get(address),
-            None => self.animations.get(address),
+                .property(property_id),
+            None => self.animations.property(property_id),
         }
     }
 
-    pub(crate) fn parameter_values(
+    pub(crate) fn property_values(
         &self,
         effect_id: Option<EffectInstanceId>,
-    ) -> Option<&ParameterValues> {
+    ) -> Option<&PropertyValues> {
         match effect_id {
             Some(effect_id) => self
                 .effects
                 .iter()
                 .find(|effect| effect.id == effect_id)
-                .map(|effect| &effect.parameters),
-            None => Some(&self.parameters),
+                .map(|effect| &effect.properties),
+            None => Some(&self.properties),
         }
     }
 

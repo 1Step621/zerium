@@ -4,15 +4,14 @@ use serde::{Deserialize, Deserializer, de::Error as _};
 use serde_json::Value;
 
 use super::PluginError;
-use super::abi::{CompiledParameterAbi, ParameterAbiField, ParameterInterfaceNames};
+use super::abi::{CompiledPropertyAbi, PropertyAbiField, PropertyInterfaceNames};
 use super::identifier::validate_wgsl_identifier;
 use super::shader::{ShaderSchema, validate_shader_source};
-use super::validation::validate_catalog_entry;
-use crate::domain::parameter::{
-    ParameterSchema, ParameterType, ParameterValue, ParameterValueType, ParameterValues,
-    ScalarParameterType,
+use super::validation::{validate_catalog_entry, validate_property_schemas};
+use crate::domain::property::{
+    PropertySchema, PropertyType, PropertyValue, PropertyValueType, PropertyValues,
+    ScalarPropertyType,
 };
-use crate::domain::plugin::validation::validate_parameter_schemas;
 
 const MAX_TEMPORAL_SAMPLES: u32 = 32;
 
@@ -23,9 +22,9 @@ pub(crate) struct EffectSchema {
     category: String,
     tags: Vec<String>,
     render_scale: u32,
-    parameters: Vec<ParameterSchema>,
+    properties: Vec<PropertySchema>,
     passes: Vec<EffectPassSchema>,
-    pass_abis: Vec<CompiledParameterAbi>,
+    pass_abis: Vec<CompiledPropertyAbi>,
 }
 
 #[derive(Deserialize)]
@@ -38,7 +37,7 @@ struct EffectSchemaDefinition {
     tags: Vec<String>,
     #[serde(default = "default_effect_render_scale")]
     render_scale: u32,
-    parameters: Vec<ParameterSchema>,
+    properties: Vec<PropertySchema>,
     passes: Vec<EffectPassSchema>,
 }
 
@@ -54,7 +53,7 @@ impl<'de> Deserialize<'de> for EffectSchema {
             category: definition.category,
             tags: definition.tags,
             render_scale: definition.render_scale,
-            parameters: definition.parameters,
+            properties: definition.properties,
             passes: definition.passes,
             pass_abis: Vec::new(),
         };
@@ -108,8 +107,8 @@ impl EffectPassSchema {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct PassConstantSchema {
     id: String,
-    parameter_type: ParameterType,
-    value: ParameterValue,
+    property_type: PropertyType,
+    value: PropertyValue,
 }
 
 #[derive(Deserialize)]
@@ -117,7 +116,7 @@ pub(crate) struct PassConstantSchema {
 struct PassConstantSchemaDefinition {
     id: String,
     #[serde(rename = "type")]
-    ty: ParameterValueType,
+    ty: PropertyValueType,
     value: Value,
 }
 
@@ -129,18 +128,18 @@ impl<'de> Deserialize<'de> for PassConstantSchema {
         use serde::de::Error as _;
 
         let definition = PassConstantSchemaDefinition::deserialize(deserializer)?;
-        if definition.ty.scalar_type() == Some(&ScalarParameterType::String) {
+        if definition.ty.scalar_at(None) == Some(&ScalarPropertyType::String) {
             return Err(D::Error::custom(
                 "effect pass constants must have a fixed-size ABI type",
             ));
         }
-        let ty = ParameterType::Value(definition.ty.clone());
-        let value = ParameterValue::from_json(&definition.value, &ty).ok_or_else(|| {
+        let ty = PropertyType::Value(definition.ty.clone());
+        let value = PropertyValue::from_json(&definition.value, &ty).ok_or_else(|| {
             D::Error::custom("effect pass constant value does not match its type")
         })?;
         Ok(Self {
             id: definition.id,
-            parameter_type: ty,
+            property_type: ty,
             value,
         })
     }
@@ -217,8 +216,8 @@ impl EffectSchema {
         self.render_scale
     }
 
-    pub(crate) fn parameters(&self) -> &[ParameterSchema] {
-        &self.parameters
+    pub(crate) fn properties(&self) -> &[PropertySchema] {
+        &self.properties
     }
 
     pub(crate) fn passes(&self) -> &[EffectPassSchema] {
@@ -233,7 +232,7 @@ impl EffectSchema {
                 self.id
             )));
         }
-        validate_parameter_schemas("effect", &self.id, &self.parameters)?;
+        validate_property_schemas("effect", &self.id, &self.properties)?;
         if self.passes.is_empty() {
             return Err(PluginError::invalid_definition(format!(
                 "effect '{}' must define at least one pass",
@@ -278,18 +277,18 @@ impl EffectSchema {
         Ok(())
     }
 
-    pub(crate) fn parameter(&self, id: &str) -> Option<&ParameterSchema> {
-        self.parameters.iter().find(|parameter| parameter.id == id)
+    pub(crate) fn property(&self, id: &str) -> Option<&PropertySchema> {
+        self.properties.iter().find(|property| property.id == id)
     }
 
-    pub(crate) fn default_parameter_values(&self) -> ParameterValues {
-        ParameterValues::for_owner("effect", &self.id, &self.parameters)
+    pub(crate) fn default_property_values(&self) -> PropertyValues {
+        PropertyValues::for_owner("effect", &self.id, &self.properties)
     }
 
     pub(crate) fn temporal_sample_offsets(
         &self,
         pass: &EffectPassSchema,
-        values: &ParameterValues,
+        values: &PropertyValues,
     ) -> Option<Vec<f64>> {
         let EffectPassSchema::Temporal { sampling, .. } = pass else {
             return None;
@@ -297,7 +296,7 @@ impl EffectSchema {
         sampling.sample_offsets(values)
     }
 
-    pub(crate) fn wgsl_parameter_interface(
+    pub(crate) fn wgsl_property_interface(
         &self,
         pass: &EffectPassSchema,
     ) -> Result<String, PluginError> {
@@ -312,18 +311,18 @@ impl EffectSchema {
         Ok(self.pass_abis[index].interface().to_owned())
     }
 
-    pub(crate) fn pack_pass_parameters(
+    pub(crate) fn pack_pass_properties(
         &self,
-        values: &ParameterValues,
+        values: &PropertyValues,
     ) -> Result<Vec<Vec<u8>>, PluginError> {
-        values.validate_for("effect", &self.id, &self.parameters)?;
+        values.validate_for("effect", &self.id, &self.properties)?;
         self.pass_abis
             .iter()
             .map(|abi| {
                 abi.pack("effect", &self.id, |id, _| {
-                    values.get(id).ok_or_else(|| {
+                    values.property(id).ok_or_else(|| {
                         PluginError::invalid_definition(format!(
-                            "effect '{}' is missing parameter '{id}'",
+                            "effect '{}' is missing property '{id}'",
                             self.id
                         ))
                     })
@@ -332,30 +331,30 @@ impl EffectSchema {
             .collect()
     }
 
-    fn compile_pass_abis(&self) -> Result<Vec<CompiledParameterAbi>, PluginError> {
+    fn compile_pass_abis(&self) -> Result<Vec<CompiledPropertyAbi>, PluginError> {
         self.passes
             .iter()
             .enumerate()
             .map(|(pass_index, pass)| {
-                let runtime = self.parameters.iter().map(|parameter| ParameterAbiField {
-                    id: parameter.id(),
-                    ty: parameter.ty(),
+                let runtime = self.properties.iter().map(|property| PropertyAbiField {
+                    id: property.id(),
+                    ty: property.ty(),
                     static_value: None,
                 });
-                let constants = pass.constants().iter().map(|constant| ParameterAbiField {
+                let constants = pass.constants().iter().map(|constant| PropertyAbiField {
                     id: &constant.id,
-                    ty: &constant.parameter_type,
+                    ty: &constant.property_type,
                     static_value: Some(&constant.value),
                 });
-                CompiledParameterAbi::compile(
+                CompiledPropertyAbi::compile(
                     "effect pass",
                     &format!("{}:{pass_index}", self.id),
                     runtime.chain(constants),
-                    ParameterInterfaceNames {
-                        struct_name: "ZeriumParameters",
-                        load_function: "zerium_load_parameters",
-                        raw_load_function: "zerium_raw_params_for_effect",
-                        accessor_prefix: "zerium_parameter",
+                    PropertyInterfaceNames {
+                        struct_name: "ZeriumProperties",
+                        load_function: "zerium_load_properties",
+                        raw_load_function: "zerium_raw_properties_for_effect",
+                        accessor_prefix: "zerium_property",
                         takes_instance_index: false,
                     },
                 )
@@ -389,30 +388,28 @@ impl TemporalSamplingSchema {
             angle,
             phase,
         } = self;
-        for (parameter_id, expected_type, role) in [
+        for (property_id, expected_type, role) in [
             (
                 sample_count.as_str(),
-                ScalarParameterType::U32,
+                ScalarPropertyType::U32,
                 "sample count",
             ),
-            (angle.as_str(), ScalarParameterType::F32, "shutter angle"),
+            (angle.as_str(), ScalarPropertyType::F32, "shutter angle"),
         ] {
-            if effect
-                .parameter(parameter_id)
-                .map(|parameter| &parameter.ty)
-                != Some(&ParameterType::Value(ParameterValueType::Scalar(
+            if effect.property(property_id).map(|property| &property.ty)
+                != Some(&PropertyType::Value(PropertyValueType::Scalar(
                     expected_type,
                 )))
             {
                 return Err(PluginError::invalid_definition(format!(
-                    "effect '{}' temporal {role} parameter '{}' has the wrong type",
-                    effect.id, parameter_id
+                    "effect '{}' temporal {role} property '{}' has the wrong type",
+                    effect.id, property_id
                 )));
             }
         }
         let samples = effect
-            .parameter(sample_count)
-            .expect("sample-count parameter type was checked");
+            .property(sample_count)
+            .expect("sample-count property type was checked");
         if !samples.constraints.min.is_some_and(|minimum| minimum >= 1.)
             || !samples
                 .constraints
@@ -425,31 +422,29 @@ impl TemporalSamplingSchema {
             )));
         }
         let angle = effect
-            .parameter(angle)
-            .expect("shutter-angle parameter type was checked");
+            .property(angle)
+            .expect("shutter-angle property type was checked");
         if !angle.constraints.min.is_some_and(|minimum| minimum >= 0.) {
             return Err(PluginError::invalid_definition(format!(
                 "effect '{}' temporal shutter angle must have a non-negative minimum",
                 effect.id
             )));
         }
-        if let Some(parameter_id) = phase
-            && effect
-                .parameter(parameter_id)
-                .map(|parameter| &parameter.ty)
-                != Some(&ParameterType::Value(ParameterValueType::Scalar(
-                    ScalarParameterType::F32,
+        if let Some(property_id) = phase
+            && effect.property(property_id).map(|property| &property.ty)
+                != Some(&PropertyType::Value(PropertyValueType::Scalar(
+                    ScalarPropertyType::F32,
                 )))
         {
             return Err(PluginError::invalid_definition(format!(
-                "effect '{}' temporal shutter phase parameter '{}' has the wrong type",
-                effect.id, parameter_id
+                "effect '{}' temporal shutter phase property '{}' has the wrong type",
+                effect.id, property_id
             )));
         }
-        if let Some(parameter_id) = phase {
+        if let Some(property_id) = phase {
             let phase = effect
-                .parameter(parameter_id)
-                .expect("shutter-phase parameter type was checked");
+                .property(property_id)
+                .expect("shutter-phase property type was checked");
             if !phase.constraints.min.is_some_and(|minimum| minimum >= -1.)
                 || !phase.constraints.max.is_some_and(|maximum| maximum <= 1.)
             {
@@ -462,18 +457,18 @@ impl TemporalSamplingSchema {
         Ok(())
     }
 
-    fn sample_offsets(&self, values: &ParameterValues) -> Option<Vec<f64>> {
+    fn sample_offsets(&self, values: &PropertyValues) -> Option<Vec<f64>> {
         let Self::Shutter {
             sample_count,
             angle,
             phase,
         } = self;
-        let sample_count = match values.get(sample_count)? {
-            ParameterValue::U32(value) => (*value).clamp(1, MAX_TEMPORAL_SAMPLES),
+        let sample_count = match values.property(sample_count)? {
+            PropertyValue::U32(value) => (*value).clamp(1, MAX_TEMPORAL_SAMPLES),
             _ => return None,
         };
-        let shutter_angle = match values.get(angle)? {
-            ParameterValue::F32(value) if value.is_finite() => f64::from(value.abs()),
+        let shutter_angle = match values.property(angle)? {
+            PropertyValue::F32(value) if value.is_finite() => f64::from(value.abs()),
             _ => return None,
         };
         if sample_count == 1 || shutter_angle <= f64::EPSILON {
@@ -481,9 +476,9 @@ impl TemporalSamplingSchema {
         }
         let phase = phase
             .as_deref()
-            .and_then(|id| values.get(id))
+            .and_then(|id| values.property(id))
             .and_then(|value| match value {
-                ParameterValue::F32(value) if value.is_finite() => Some(f64::from(*value)),
+                PropertyValue::F32(value) if value.is_finite() => Some(f64::from(*value)),
                 _ => None,
             })
             .unwrap_or(0.)

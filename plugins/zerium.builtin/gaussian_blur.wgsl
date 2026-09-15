@@ -13,10 +13,10 @@ fn compute_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
-    let params = zerium_load_parameters();
+    let properties = zerium_load_properties();
     let dimensions = vec2<f32>(output_size);
     let uv = (vec2<f32>(global_id.xy) + vec2(0.5)) / dimensions;
-    let radius = clamp(params.radius * zerium_render_context().composition_scale, 0.0, 256.0);
+    let radius = clamp(properties.radius * zerium_render_context().composition_scale, 0.0, 256.0);
     if radius < 0.5 {
         zerium_store_output(
             global_id.xy,
@@ -25,7 +25,7 @@ fn compute_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
         return;
     }
 
-    let direction = vec2(params.direction.v0, params.direction.v1);
+    let direction = vec2(properties.direction.v0, properties.direction.v1);
     var color = vec4(0.0);
     for (var tap = 0u; tap < 9u; tap += 1u) {
         let sample_uv = uv + direction * BLUR_OFFSETS[tap] * radius / dimensions;

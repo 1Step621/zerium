@@ -6,7 +6,7 @@ pub(super) struct NumberSpec {
     pub min: f64,
     pub max: f64,
     pub step: f64,
-    pub scalar_type: ScalarParameterType,
+    pub scalar_type: ScalarPropertyType,
     pub is_size: bool,
 }
 
@@ -15,12 +15,12 @@ pub(super) struct LeafControl {
     pub id: ControlId,
     pub target: PropertyTarget,
     pub label: String,
-    pub element_label: Option<String>,
+    pub scalar_label: Option<String>,
     pub animatable: bool,
     pub scene_bindable: bool,
     pub read_only: bool,
     pub mixed: bool,
-    pub value: ParameterValue,
+    pub value: PropertyValue,
     pub animation_enabled: bool,
     pub animation_stops: Vec<AnimationStopControl>,
     pub binding: Option<SceneFieldBinding>,
@@ -30,8 +30,10 @@ pub(super) struct LeafControl {
 pub(super) struct AnimationStopControl {
     pub id: ControlId,
     pub index: usize,
-    pub source_address: ParameterAddress,
-    pub value: ParameterValue,
+    pub property_id: String,
+    pub element_id: Option<PropertyElementId>,
+    pub scalar_index: Option<usize>,
+    pub value: PropertyValue,
     pub value_factor: f64,
 }
 
@@ -55,7 +57,7 @@ pub(super) struct BoolControl {
 #[derive(Clone)]
 pub(super) struct ChoiceControl {
     pub common: LeafControl,
-    pub ty: ScalarParameterType,
+    pub ty: ScalarPropertyType,
     pub options: Vec<(String, u32)>,
 }
 
@@ -65,17 +67,17 @@ pub(super) struct ColorControl {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ArrayElementKind {
+pub(super) enum ElementKind {
     Scalar,
     FontFamily,
 }
 
 #[derive(Clone)]
-pub(super) struct ArrayGroup {
+pub(super) struct ElementGroup {
     pub target: PropertyTarget,
-    pub parameter: Box<ParameterSchema>,
-    pub values: Vec<ArrayElement>,
-    pub element_kind: ArrayElementKind,
+    pub property: Box<PropertySchema>,
+    pub elements: Vec<PropertyElement>,
+    pub element_kind: ElementKind,
     pub min_items: u32,
     pub max_items: u32,
     pub has_scene_binding: bool,
@@ -91,8 +93,8 @@ pub(super) struct EffectGroup {
 #[derive(Clone)]
 pub(super) enum GroupKind {
     Plain,
-    Tuple { size_key: Option<PropertyPath> },
-    Array(ArrayGroup),
+    Tuple { size_key: Option<InspectorPath> },
+    Elements(ElementGroup),
     Effect(EffectGroup),
 }
 
@@ -145,15 +147,15 @@ impl Control {
         }
     }
 
-    pub(super) fn parameter_id(&self) -> &str {
+    pub(super) fn property_id(&self) -> &str {
         self.common()
-            .map(|common| common.target.parameter_id.as_str())
+            .map(|common| common.target.property_id.as_str())
             .or_else(|| match self {
                 Self::Group {
-                    kind: GroupKind::Array(array),
+                    kind: GroupKind::Elements(group),
                     ..
-                } => Some(array.target.parameter_id.as_str()),
-                Self::Group { children, .. } => children.first().map(Self::parameter_id),
+                } => Some(group.target.property_id.as_str()),
+                Self::Group { children, .. } => children.first().map(Self::property_id),
                 _ => None,
             })
             .unwrap_or("")
@@ -186,7 +188,7 @@ pub(super) struct ControlResolution<'a> {
     pub arguments: &'a [SceneArgumentOption],
 }
 
-pub(super) enum ParameterOwner<'a> {
+pub(super) enum PropertyOwner<'a> {
     Item {
         item: &'a TimelineItem,
         schema: &'a ItemSchema,
@@ -194,22 +196,22 @@ pub(super) enum ParameterOwner<'a> {
     Effect(&'a EffectInstance),
 }
 
-impl ParameterOwner<'_> {
-    fn key(&self, parameter: &ParameterSchema) -> PropertyPath {
+impl PropertyOwner<'_> {
+    fn key(&self, property: &PropertySchema) -> InspectorPath {
         match self {
-            Self::Item { item, schema } => PropertyInspector::parameter_key(
+            Self::Item { item, schema } => PropertyInspector::property_key(
                 item.plugin_id().unwrap_or_default(),
                 schema,
-                parameter,
+                property,
             ),
-            Self::Effect(effect) => PropertyInspector::effect_parameter_key(effect, parameter),
+            Self::Effect(effect) => PropertyInspector::effect_property_key(effect, property),
         }
     }
 
-    fn value(&self, parameter_id: &str) -> Option<&ParameterValue> {
+    fn value(&self, property_id: &str) -> Option<&PropertyValue> {
         match self {
-            Self::Item { item, .. } => item.parameters.get(parameter_id),
-            Self::Effect(effect) => effect.parameters.get(parameter_id),
+            Self::Item { item, .. } => item.properties.property(property_id),
+            Self::Effect(effect) => effect.properties.property(property_id),
         }
     }
 
@@ -220,52 +222,52 @@ impl ParameterOwner<'_> {
         }
     }
 
-    fn is_size(&self, parameter_id: &str) -> bool {
+    fn is_size(&self, property_id: &str) -> bool {
         match self {
-            Self::Item { schema, .. } => schema.is_size_parameter(parameter_id),
+            Self::Item { schema, .. } => schema.is_size_property(property_id),
             Self::Effect(_) => false,
         }
     }
 }
 
 impl PropertyInspector {
-    pub(super) fn parameter_key(
+    pub(super) fn property_key(
         plugin_id: &str,
         item_schema: &ItemSchema,
-        parameter: &ParameterSchema,
-    ) -> PropertyPath {
-        PropertyPath::item_parameter(plugin_id, item_schema.id(), parameter.id())
+        property: &PropertySchema,
+    ) -> InspectorPath {
+        InspectorPath::item_property(plugin_id, item_schema.id(), property.id())
     }
 
-    pub(super) fn effect_parameter_key(
+    pub(super) fn effect_property_key(
         effect: &EffectInstance,
-        parameter: &ParameterSchema,
-    ) -> PropertyPath {
-        PropertyPath::effect_parameter(effect.id.get(), parameter.id())
+        property: &PropertySchema,
+    ) -> InspectorPath {
+        InspectorPath::effect_property(effect.id.get(), property.id())
     }
 
     pub(super) fn selected_schema(item: &TimelineItem) -> Option<&ItemSchema> {
         item.schema()
     }
 
-    pub(super) fn parameter_is_common(items: &[TimelineItem], parameter_id: &str) -> bool {
+    pub(super) fn property_is_common(items: &[TimelineItem], property_id: &str) -> bool {
         let Some(primary) = items.first() else {
             return false;
         };
-        let Some(primary_parameter) = primary
+        let Some(primary_property) = primary
             .schema()
-            .and_then(|schema| schema.parameter(parameter_id))
+            .and_then(|schema| schema.property(property_id))
         else {
             return false;
         };
         items.iter().skip(1).all(|item| {
-            let Some(parameter) = item
+            let Some(property) = item
                 .schema()
-                .and_then(|schema| schema.parameter(parameter_id))
+                .and_then(|schema| schema.property(property_id))
             else {
                 return false;
             };
-            parameter.is_visible() && parameter.ty() == primary_parameter.ty()
+            property.is_visible() && property.ty() == primary_property.ty()
         })
     }
 
@@ -327,32 +329,35 @@ impl PropertyInspector {
     }
 
     pub(super) fn number_spec(
-        parameter: &ParameterSchema,
-        tuple_element: Option<usize>,
+        property: &PropertySchema,
+        scalar_index: Option<usize>,
         is_size: bool,
     ) -> Option<NumberSpec> {
-        if !parameter.is_visible() || !parameter.scalar_ui(tuple_element).is_visible() {
+        if !property.is_visible() || !property.scalar_ui(scalar_index).is_visible() {
             return None;
         }
-        let scalar_type = parameter
-            .ty()
-            .element_type()
-            .scalar_at(tuple_element)?
-            .clone();
+        let value_type = match property.ty() {
+            PropertyType::Value(value_type)
+            | PropertyType::Array {
+                element_type: value_type,
+                ..
+            } => value_type,
+        };
+        let scalar_type = value_type.scalar_at(scalar_index)?.clone();
         if !matches!(
             scalar_type,
-            ScalarParameterType::F32 | ScalarParameterType::I32 | ScalarParameterType::U32
+            ScalarPropertyType::F32 | ScalarPropertyType::I32 | ScalarPropertyType::U32
         ) {
             return None;
         }
-        let ui = parameter.scalar_ui(tuple_element);
-        let constraints = parameter.scalar_constraints(tuple_element);
+        let ui = property.scalar_ui(scalar_index);
+        let constraints = property.scalar_constraints(scalar_index);
         let (type_min, type_max) = NumericInput::new(scalar_type.clone())?.bounds();
         let min = constraints.min.unwrap_or(type_min).max(type_min);
         let max = constraints.max.unwrap_or(type_max).min(type_max);
         let step = f64::from(ui.step());
         let (min, max, step) = match scalar_type {
-            ScalarParameterType::I32 | ScalarParameterType::U32 => {
+            ScalarPropertyType::I32 | ScalarPropertyType::U32 => {
                 (min.ceil(), max.floor(), step.max(1.))
             }
             _ => (min, max, step),
@@ -368,27 +373,27 @@ impl PropertyInspector {
     }
 
     fn scalar_common(
-        key: &PropertyPath,
-        parameter: &ParameterSchema,
-        value: ParameterValue,
+        key: &InspectorPath,
+        property: &PropertySchema,
+        value: PropertyValue,
         effect_id: Option<EffectInstanceId>,
-        array_element_id: Option<ArrayElementId>,
-        element: Option<usize>,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
         label: String,
     ) -> LeafControl {
         LeafControl {
             id: ControlId::property(key),
             target: PropertyTarget {
                 key: key.clone(),
-                parameter_id: parameter.id().to_owned(),
+                property_id: property.id().to_owned(),
                 effect_id,
-                value_path: ParameterValuePath::new(array_element_id, element),
+                path: InspectorPath::new(element_id, scalar_index),
             },
             label,
-            element_label: parameter.scalar_label(element),
-            animatable: parameter.is_animatable(element),
-            scene_bindable: parameter.is_scene_bindable(),
-            read_only: !parameter.is_editable(element),
+            scalar_label: property.scalar_label(scalar_index),
+            animatable: property.is_animatable(scalar_index),
+            scene_bindable: property.is_scene_bindable(),
+            read_only: !property.is_editable(scalar_index),
             mixed: false,
             value,
             animation_enabled: false,
@@ -398,31 +403,37 @@ impl PropertyInspector {
     }
 
     fn scalar_controls(
-        key: PropertyPath,
-        parameter: &ParameterSchema,
-        value: &ParameterValue,
+        key: InspectorPath,
+        property: &PropertySchema,
+        value: &PropertyValue,
         effect_id: Option<EffectInstanceId>,
-        array: Option<(usize, ArrayElementId)>,
+        element: Option<(usize, PropertyElementId)>,
         is_size: bool,
         resolution: &ControlResolution<'_>,
     ) -> Vec<Control> {
-        if !parameter.is_visible() {
+        if !property.is_visible() {
             return Vec::new();
         }
-        let label = array.map_or_else(
-            || parameter.label().to_owned(),
-            |(index, _)| format!("{} {}", parameter.label(), index + 1),
+        let label = element.map_or_else(
+            || property.label().to_owned(),
+            |(index, _)| format!("{} {}", property.label(), index + 1),
         );
-        let ty = parameter.ty().element_type();
-        let ui = parameter.ui();
+        let ty = match property.ty() {
+            PropertyType::Value(value_type)
+            | PropertyType::Array {
+                element_type: value_type,
+                ..
+            } => value_type,
+        };
+        let ui = property.ui();
         ty.scalars()
-            .filter_map(|(element, ty)| {
-                let value = value.scalar_at(element)?.clone();
-                let scalar_ui = element.map_or(ui, |index| ui.for_element(index));
+            .filter_map(|(scalar_index, scalar_type)| {
+                let value = value.scalar_at(scalar_index)?.clone();
+                let scalar_ui = scalar_index.map_or(ui, |index| ui.for_scalar(index));
                 if !scalar_ui.is_visible() {
                     return None;
                 }
-                let label = element.map_or_else(
+                let label = scalar_index.map_or_else(
                     || label.clone(),
                     |index| {
                         format!(
@@ -434,44 +445,42 @@ impl PropertyInspector {
                         )
                     },
                 );
-                let scalar_key = key.scalar(array.map(|(index, _)| index), element);
+                let scalar_key = key.scalar(element.map(|(index, _)| index), scalar_index);
                 let common = Self::scalar_common(
                     &scalar_key,
-                    parameter,
+                    property,
                     value.clone(),
                     effect_id,
-                    array.map(|(_, id)| id),
-                    element,
+                    element.map(|(_, id)| id),
+                    scalar_index,
                     label,
                 );
-                let mut control = match (ty, value) {
+                let mut control = match (scalar_type, value) {
                     (
-                        ScalarParameterType::F32
-                        | ScalarParameterType::I32
-                        | ScalarParameterType::U32,
+                        ScalarPropertyType::F32 | ScalarPropertyType::I32 | ScalarPropertyType::U32,
                         _value,
                     ) => Control::Number(NumberControl {
                         common,
-                        spec: Self::number_spec(parameter, element, is_size)?,
+                        spec: Self::number_spec(property, scalar_index, is_size)?,
                     }),
-                    (ScalarParameterType::Color, ParameterValue::Color(_)) => {
+                    (ScalarPropertyType::Color, PropertyValue::Color(_)) => {
                         Control::Color(ColorControl { common })
                     }
-                    (ScalarParameterType::Bool, ParameterValue::Bool(_)) => {
+                    (ScalarPropertyType::Bool, PropertyValue::Bool(_)) => {
                         Control::Bool(BoolControl { common })
                     }
-                    (ScalarParameterType::String, ParameterValue::String(_)) => {
+                    (ScalarPropertyType::String, PropertyValue::String(_)) => {
                         Control::Text(TextControl {
                             common,
                             multiline: scalar_ui.is_multiline(),
                         })
                     }
-                    (ScalarParameterType::Enum(_), ParameterValue::Enum(_)) => {
+                    (ScalarPropertyType::Enum(_), PropertyValue::Enum(_)) => {
                         Control::Choice(ChoiceControl {
                             common,
-                            ty: ty.clone(),
+                            ty: scalar_type.clone(),
                             options: scalar_ui
-                                .enum_options(ty)?
+                                .enum_options(scalar_type)?
                                 .into_iter()
                                 .map(|(value, label)| (label, value))
                                 .collect(),
@@ -489,7 +498,7 @@ impl PropertyInspector {
         id: ControlId,
         label: String,
         children: Vec<Control>,
-        size_key: Option<PropertyPath>,
+        size_key: Option<InspectorPath>,
     ) -> Vec<Control> {
         if children.is_empty() {
             return children;
@@ -503,109 +512,116 @@ impl PropertyInspector {
     }
 
     fn owner_controls(
-        owner: &ParameterOwner<'_>,
-        parameter: &ParameterSchema,
+        owner: &PropertyOwner<'_>,
+        property: &PropertySchema,
         resolution: &ControlResolution<'_>,
     ) -> Vec<Control> {
-        let key = owner.key(parameter);
-        if let Some(array) = Self::array_group(owner, parameter, key.clone(), resolution) {
-            return vec![array];
+        let key = owner.key(property);
+        if let Some(group) = Self::elements_group(owner, property, key.clone(), resolution) {
+            return vec![group];
         }
-        let Some(value) = owner.value(parameter.id()) else {
+        let Some(value) = owner.value(property.id()) else {
             return Vec::new();
         };
         let controls = Self::scalar_controls(
             key.clone(),
-            parameter,
+            property,
             value,
             owner.effect_id(),
             None,
-            owner.is_size(parameter.id()),
+            owner.is_size(property.id()),
             resolution,
         );
-        if matches!(parameter.ty().element_type(), ParameterValueType::Tuple(_)) {
+        if matches!(
+            property.ty(),
+            PropertyType::Value(PropertyValueType::Tuple(_))
+                | PropertyType::Array {
+                    element_type: PropertyValueType::Tuple(_),
+                    ..
+                }
+        ) {
             Self::group_controls(
                 ControlId::group(&key),
-                parameter.label().to_owned(),
+                property.label().to_owned(),
                 controls,
-                owner.is_size(parameter.id()).then(|| key.clone()),
+                owner.is_size(property.id()).then(|| key.clone()),
             )
         } else {
             controls
         }
     }
 
-    fn array_group(
-        owner: &ParameterOwner<'_>,
-        parameter: &ParameterSchema,
-        key: PropertyPath,
+    fn elements_group(
+        owner: &PropertyOwner<'_>,
+        property: &PropertySchema,
+        key: InspectorPath,
         resolution: &ControlResolution<'_>,
     ) -> Option<Control> {
-        if !parameter.is_visible() {
+        if !property.is_visible() {
             return None;
         }
-        let ParameterType::Array {
-            element,
+        let PropertyType::Array {
+            element_type,
             min_items,
             max_items,
-        } = parameter.ty()
+        } = property.ty()
         else {
             return None;
         };
-        let ParameterValue::Array(values) = owner.value(parameter.id())? else {
+        let PropertyValue::Array(values) = owner.value(property.id())? else {
             return None;
         };
-        let element_kind = match element {
-            ParameterValueType::Scalar(ScalarParameterType::String)
-                if parameter.ui().uses_font_family_editor() =>
+        let element_kind = match element_type {
+            PropertyValueType::Scalar(ScalarPropertyType::String)
+                if property.ui().uses_font_family_editor() =>
             {
-                ArrayElementKind::FontFamily
+                ElementKind::FontFamily
             }
-            _ => ArrayElementKind::Scalar,
+            _ => ElementKind::Scalar,
         };
         let target = PropertyTarget {
             key: key.clone(),
-            parameter_id: parameter.id().to_owned(),
+            property_id: property.id().to_owned(),
             effect_id: owner.effect_id(),
-            value_path: ParameterValuePath::WHOLE,
+            path: key.clone(),
         };
         let has_scene_binding = resolution.arguments.iter().any(|argument| {
             argument.bindings.iter().any(|binding| {
                 binding.item_id() == resolution.item.id
                     && binding.owner() == SceneBindingOwner::from_effect(target.effect_id)
-                    && binding.parameter_id() == target.parameter_id
-                    && binding.value_path().array_element_id().is_some()
+                    && binding.property_id() == target.property_id
+                    && binding.element_id().is_some()
             })
         });
         let children = values
             .iter()
             .enumerate()
-            .map(|(index, element)| {
-                let element_controls = Self::scalar_controls(
+            .map(|(element_index, element)| {
+                let row_controls = Self::scalar_controls(
                     key.clone(),
-                    parameter,
+                    property,
                     element.value(),
                     owner.effect_id(),
-                    Some((index, element.id())),
+                    Some((element_index, element.element_id())),
                     false,
                     resolution,
                 );
                 Control::Group {
-                    id: ControlId::group(&key.scalar(Some(index), None)),
-                    label: format!("要素 {}", index + 1),
-                    children: element_controls,
+                    id: ControlId::group(&key.scalar(Some(element_index), None)),
+                    label: format!("要素 {}", element_index + 1),
+                    children: row_controls,
                     kind: GroupKind::Plain,
                 }
             })
             .collect();
         Some(Control::Group {
             id: ControlId::group(&key),
-            label: parameter.label().to_owned(),
+            label: property.label().to_owned(),
             children,
-            kind: GroupKind::Array(ArrayGroup {
+            kind: GroupKind::Elements(ElementGroup {
                 target,
-                parameter: Box::new(parameter.clone()),
-                values: values.clone(),
+                property: Box::new(property.clone()),
+                elements: values.clone(),
                 element_kind,
                 min_items: *min_items,
                 max_items: *max_items,
@@ -621,11 +637,11 @@ impl PropertyInspector {
         let Some(schema) = Self::selected_schema(item) else {
             return Vec::new();
         };
-        let owner = ParameterOwner::Item { item, schema };
+        let owner = PropertyOwner::Item { item, schema };
         schema
-            .parameters()
+            .properties()
             .iter()
-            .flat_map(|parameter| Self::owner_controls(&owner, parameter, resolution))
+            .flat_map(|property| Self::owner_controls(&owner, property, resolution))
             .collect()
     }
 
@@ -633,28 +649,35 @@ impl PropertyInspector {
         effect: &EffectInstance,
         resolution: &ControlResolution<'_>,
     ) -> Vec<Control> {
-        let owner = ParameterOwner::Effect(effect);
+        let owner = PropertyOwner::Effect(effect);
         effect
             .schema()
-            .parameters()
+            .properties()
             .iter()
-            .flat_map(|parameter| Self::owner_controls(&owner, parameter, resolution))
+            .flat_map(|property| Self::owner_controls(&owner, property, resolution))
             .collect()
     }
 
     fn scene_value_controls(
         scene_id: SceneId,
-        parameter: &ParameterSchema,
-        value: &ParameterValue,
+        property: &PropertySchema,
+        value: &PropertyValue,
         resolution: &ControlResolution<'_>,
     ) -> Vec<Control> {
-        let key = PropertyPath::scene_parameter(scene_id.get(), parameter.id());
+        let key = InspectorPath::scene_property(scene_id.get(), property.id());
         let controls =
-            Self::scalar_controls(key.clone(), parameter, value, None, None, false, resolution);
-        if matches!(parameter.ty().element_type(), ParameterValueType::Tuple(_)) {
+            Self::scalar_controls(key.clone(), property, value, None, None, false, resolution);
+        if matches!(
+            property.ty(),
+            PropertyType::Value(PropertyValueType::Tuple(_))
+                | PropertyType::Array {
+                    element_type: PropertyValueType::Tuple(_),
+                    ..
+                }
+        ) {
             Self::group_controls(
                 ControlId::group(&key),
-                parameter.label().to_owned(),
+                property.label().to_owned(),
                 controls,
                 None,
             )
@@ -666,7 +689,7 @@ impl PropertyInspector {
     pub(super) fn scene_argument_value_controls(
         scene_id: SceneId,
         arguments: &[SceneArgument],
-        values: &HashMap<String, ParameterValue>,
+        values: &HashMap<String, PropertyValue>,
         resolution: &ControlResolution<'_>,
     ) -> Vec<Control> {
         arguments
@@ -677,7 +700,7 @@ impl PropertyInspector {
                     .map(|value| {
                         let controls = Self::scene_value_controls(
                             scene_id,
-                            argument.schema.parameter(),
+                            argument.schema.property(),
                             value,
                             resolution,
                         );
@@ -691,7 +714,7 @@ impl PropertyInspector {
     fn resolve_common(
         resolution: &ControlResolution<'_>,
         common: &mut LeafControl,
-        scalar_type: ScalarParameterType,
+        scalar_type: ScalarPropertyType,
         animation_visible: bool,
     ) {
         common.animation_enabled = common.target.animation_enabled(resolution.item);
@@ -702,22 +725,23 @@ impl PropertyInspector {
             SceneBindingTarget::new(
                 resolution.item.id,
                 SceneBindingOwner::from_effect(common.target.effect_id),
-                common.target.parameter_id.clone(),
-                common.target.value_path,
+                common.target.property_id.clone(),
+                common.target.path.element_id(),
+                common.target.path.scalar_index(),
             ),
-            &ParameterType::Value(ParameterValueType::Scalar(scalar_type)),
+            &PropertyType::Value(PropertyValueType::Scalar(scalar_type)),
             resolution.arguments,
         );
-        if matches!(common.value, ParameterValue::Bool(_))
+        if matches!(common.value, PropertyValue::Bool(_))
             && common.target.effect_id.is_none()
-            && let ParameterValue::Bool(value) = common.value
+            && let PropertyValue::Bool(value) = common.value
         {
             common.mixed = resolution.selected_items.iter().skip(1).any(|selected| {
                 selected
-                    .parameters
-                    .get(&common.target.parameter_id)
-                    .and_then(|value| value.scalar_at(common.target.value_path.tuple_element()))
-                    != Some(&ParameterValue::Bool(value))
+                    .properties
+                    .property(&common.target.property_id)
+                    .and_then(|value| value.scalar_at(common.target.path.scalar_index()))
+                    != Some(&PropertyValue::Bool(value))
             });
         }
     }
@@ -725,13 +749,19 @@ impl PropertyInspector {
     fn animation_stop_controls(
         item: &TimelineItem,
         effect_id: Option<EffectInstanceId>,
-        source_address: &ParameterAddress,
-        property: &PropertyPath,
+        property_id: &str,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
+        property: &InspectorPath,
         value_factor: f64,
         time: TimelineTime,
     ) -> Vec<AnimationStopControl> {
         let progress = item.animation_progress_at_time(time);
-        let Some(track) = item.animation(effect_id, source_address) else {
+        let Some(track) = item
+            .property_animation(effect_id, property_id)
+            .and_then(|property| property.element(element_id))
+            .and_then(|element| element.scalar(scalar_index))
+        else {
             return Vec::new();
         };
         track
@@ -751,7 +781,9 @@ impl PropertyInspector {
                 Some(AnimationStopControl {
                     id: ControlId::animation_stop(property, index),
                     index,
-                    source_address: source_address.clone(),
+                    property_id: property_id.to_owned(),
+                    element_id,
+                    scalar_index,
                     value,
                     value_factor,
                 })
@@ -781,7 +813,9 @@ impl PropertyInspector {
                         Self::animation_stop_controls(
                             resolution.item,
                             number.common.target.effect_id,
-                            &source.source_address,
+                            &source.property_id,
+                            source.element_id,
+                            source.scalar_index,
                             &number.common.target.key,
                             source.value_factor,
                             resolution.playhead,
@@ -791,13 +825,13 @@ impl PropertyInspector {
             Control::Text(text) => Self::resolve_common(
                 resolution,
                 &mut text.common,
-                ScalarParameterType::String,
+                ScalarPropertyType::String,
                 false,
             ),
             Control::Bool(boolean) => Self::resolve_common(
                 resolution,
                 &mut boolean.common,
-                ScalarParameterType::Bool,
+                ScalarPropertyType::Bool,
                 false,
             ),
             Control::Choice(choice) => {
@@ -808,16 +842,17 @@ impl PropertyInspector {
                 Self::resolve_common(
                     resolution,
                     &mut color.common,
-                    ScalarParameterType::Color,
+                    ScalarPropertyType::Color,
                     animation_enabled,
                 );
                 color.common.animation_enabled = animation_enabled;
                 if animation_enabled {
-                    let address = color.common.target.animation_address();
                     color.common.animation_stops = Self::animation_stop_controls(
                         resolution.item,
                         color.common.target.effect_id,
-                        &address,
+                        &color.common.target.property_id,
+                        color.common.target.path.element_id(),
+                        color.common.target.path.scalar_index(),
                         &color.common.target.key,
                         1.,
                         resolution.playhead,
@@ -832,7 +867,7 @@ impl PropertyInspector {
         animation_enabled: bool,
         scene_bindable: bool,
         target: SceneBindingTarget,
-        ty: &ParameterType,
+        ty: &PropertyType,
         arguments: &[SceneArgumentOption],
     ) -> Option<SceneFieldBinding> {
         if !editing_scene || animation_enabled || !scene_bindable {
@@ -865,17 +900,17 @@ impl PropertyInspector {
         if item.scene_id().is_some() {
             return None;
         }
-        let size = item.schema()?.size_parameter()?;
+        let size = item.schema()?.size_property()?;
         if !size.is_editable(None) {
             return None;
         }
-        if !Self::parameter_is_common(selected_items, size.id())
+        if !Self::property_is_common(selected_items, size.id())
             || selected_items.iter().any(|selected| {
                 selected.schema().is_none_or(|schema| {
                     !schema.supports_aspect_ratio_lock()
                         || schema
-                            .size_parameter()
-                            .is_none_or(|parameter| !parameter.is_editable(None))
+                            .size_property()
+                            .is_none_or(|property| !property.is_editable(None))
                 })
             })
         {
@@ -885,8 +920,9 @@ impl PropertyInspector {
             argument.bindings.iter().any(|binding| {
                 binding.item_id() == item.id
                     && binding.owner() == SceneBindingOwner::Item
-                    && binding.parameter_id() == size.id()
-                    && binding.value_path() == ParameterValuePath::WHOLE
+                    && binding.property_id() == size.id()
+                    && binding.element_id().is_none()
+                    && binding.scalar_index().is_none()
             })
         });
         Some(AspectRatioLockState {

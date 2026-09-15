@@ -8,13 +8,13 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::animation::{ParameterAnimations, ScalarTrack};
+use crate::domain::animation::{PropertyAnimations, ScalarTrack};
 use crate::domain::media::{MediaAsset, MediaKind, VideoFrameRate};
-use crate::domain::parameter::materialized_parameter_values;
-use crate::domain::parameter::{
-    ParameterAddress, ParameterSchema, ParameterValue, ParameterValuePath, ParameterValues,
-};
 use crate::domain::plugin::PluginRegistry;
+use crate::domain::property::materialized_property_values;
+use crate::domain::property::{
+    PropertyElementId, PropertySchema, PropertyType, PropertyValue, PropertyValues,
+};
 use crate::domain::timeline::{
     EffectInstance, EffectInstanceId, Frame, FrameDuration, FrameRate, ItemId, LayerId, ProjectId,
     ProjectResolution, SceneArgument, SceneArgumentSchema, SceneBindingOwner, SceneBindingTarget,
@@ -182,7 +182,7 @@ impl ProjectFile {
                             scene.name, argument.schema.id
                         ))
                     })?;
-                if SceneArgumentSchema::from_parameter(argument.schema.clone()).is_none() {
+                if SceneArgumentSchema::from_property(argument.schema.clone()).is_none() {
                     return Err(ProjectError::invalid_data(format!(
                         "シーン '{}' の引数 '{}' は対応するスカラー型ではありません",
                         scene.name, argument.schema.id
@@ -275,7 +275,7 @@ fn capture_items<'a>(
 pub(super) fn load_items(
     items: Vec<ProjectItem>,
     project_path: &Path,
-    scene_schemas: &HashMap<SceneId, Vec<ParameterSchema>>,
+    scene_schemas: &HashMap<SceneId, Vec<PropertySchema>>,
     effect_ids: &mut HashSet<u64>,
     plugins: &PluginRegistry,
 ) -> Result<Vec<(LayerId, TimelineItem)>, ProjectError> {
@@ -335,7 +335,7 @@ impl ProjectScene {
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectSceneArgument {
-    schema: ParameterSchema,
+    schema: PropertySchema,
     bindings: Vec<ProjectSceneBinding>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     expression: Option<String>,
@@ -344,7 +344,7 @@ struct ProjectSceneArgument {
 impl ProjectSceneArgument {
     fn capture(argument: &SceneArgument) -> Self {
         Self {
-            schema: argument.schema.parameter().clone(),
+            schema: argument.schema.property().clone(),
             bindings: argument
                 .bindings
                 .iter()
@@ -355,7 +355,7 @@ impl ProjectSceneArgument {
     }
 
     fn into_domain(self) -> Result<SceneArgument, ProjectError> {
-        let schema = SceneArgumentSchema::from_parameter(self.schema).ok_or_else(|| {
+        let schema = SceneArgumentSchema::from_property(self.schema).ok_or_else(|| {
             ProjectError::invalid_data("シーン引数は対応するスカラー型ではありません")
         })?;
         let bindings = self
@@ -377,37 +377,43 @@ impl ProjectSceneArgument {
 #[derive(Deserialize, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub(super) enum ProjectSceneBinding {
-    Parameter {
+    Property {
         item_id: u64,
         effect_id: Option<u64>,
-        parameter_id: String,
-        value_path: ParameterValuePath,
+        property_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        element_id: Option<PropertyElementId>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        scalar_index: Option<usize>,
     },
 }
 
 impl ProjectSceneBinding {
     pub(super) fn capture(binding: &SceneBindingTarget) -> Self {
         let effect_id = binding.owner().effect_id().map(EffectInstanceId::get);
-        Self::Parameter {
+        Self::Property {
             item_id: binding.item_id().get(),
             effect_id,
-            parameter_id: binding.parameter_id().to_owned(),
-            value_path: binding.value_path(),
+            property_id: binding.property_id().to_owned(),
+            element_id: binding.element_id(),
+            scalar_index: binding.scalar_index(),
         }
     }
 
     pub(super) fn into_domain(self) -> SceneBindingTarget {
         match self {
-            Self::Parameter {
+            Self::Property {
                 item_id,
                 effect_id,
-                parameter_id,
-                value_path,
+                property_id,
+                element_id,
+                scalar_index,
             } => SceneBindingTarget::new(
                 ItemId(item_id),
                 SceneBindingOwner::from_effect(effect_id.map(EffectInstanceId::new)),
-                parameter_id,
-                value_path,
+                property_id,
+                element_id,
+                scalar_index,
             ),
         }
     }
@@ -422,8 +428,8 @@ pub(super) struct ProjectItem {
     duration: u64,
     kind: ProjectItemKind,
     assets: BTreeMap<String, ProjectMediaAsset>,
-    parameters: BTreeMap<String, ParameterValue>,
-    animations: Vec<ProjectAnimation>,
+    properties: BTreeMap<String, PropertyValue>,
+    animations: ProjectAnimations,
     aspect_ratio_locked: bool,
     effects: Vec<ProjectEffect>,
 }
@@ -465,8 +471,8 @@ impl ProjectItem {
                 .iter()
                 .map(|(id, asset)| (id.clone(), ProjectMediaAsset::capture(asset, project_path)))
                 .collect(),
-            parameters: item
-                .parameters
+            properties: item
+                .properties
                 .iter()
                 .map(|(id, value)| (id.to_owned(), value.clone()))
                 .collect(),
@@ -480,7 +486,7 @@ impl ProjectItem {
         self,
         project_path: &Path,
         effect_ids: &mut HashSet<u64>,
-        scene_schemas: &HashMap<SceneId, Vec<ParameterSchema>>,
+        scene_schemas: &HashMap<SceneId, Vec<PropertySchema>>,
         plugins: &PluginRegistry,
     ) -> Result<(LayerId, TimelineItem), ProjectError> {
         let duration = FrameDuration::new(self.duration)
@@ -499,7 +505,7 @@ impl ProjectItem {
                 })?)
             }
         };
-        let parameter_schema = match &self.kind {
+        let property_schema = match &self.kind {
             ProjectItemKind::Scene {
                 project_high,
                 project_low,
@@ -517,16 +523,16 @@ impl ProjectItem {
             ProjectItemKind::Plugin { .. } => plugin_schema
                 .as_deref()
                 .expect("plugin item has a schema")
-                .parameters(),
+                .properties(),
         };
         let scene_instance = matches!(&self.kind, ProjectItemKind::Scene { .. });
-        let parameters = if scene_instance {
-            load_parameter_overrides(parameter_schema, self.parameters, "シーンインスタンス")?
+        let properties = if scene_instance {
+            load_property_overrides(property_schema, self.properties, "シーンインスタンス")?
         } else {
-            load_parameters(parameter_schema, self.parameters, "アイテム")?
+            load_properties(property_schema, self.properties, "アイテム")?
         };
-        let animation_base = materialized_parameter_values(&parameters, parameter_schema);
-        let animations = load_animations(parameter_schema, &animation_base, self.animations)?;
+        let animation_base = materialized_property_values(&properties, property_schema);
+        let animations = load_animations(property_schema, &animation_base, self.animations)?;
 
         let mut assets = std::collections::HashMap::with_capacity(self.assets.len());
         for (input_id, asset) in self.assets {
@@ -591,7 +597,7 @@ impl ProjectItem {
                     },
                 },
                 assets,
-                parameters,
+                properties,
                 animations,
                 aspect_ratio_locked: self.aspect_ratio_locked,
                 effects,
@@ -606,8 +612,8 @@ struct ProjectEffect {
     id: u64,
     plugin_id: String,
     effect_id: String,
-    parameters: BTreeMap<String, ParameterValue>,
-    animations: Vec<ProjectAnimation>,
+    properties: BTreeMap<String, PropertyValue>,
+    animations: ProjectAnimations,
 }
 
 impl ProjectEffect {
@@ -616,8 +622,8 @@ impl ProjectEffect {
             id: effect.id.get(),
             plugin_id: effect.plugin_id.clone(),
             effect_id: effect.effect_id.clone(),
-            parameters: effect
-                .parameters
+            properties: effect
+                .properties
                 .iter()
                 .map(|(id, value)| (id.to_owned(), value.clone()))
                 .collect(),
@@ -634,98 +640,233 @@ impl ProjectEffect {
                     self.plugin_id, self.effect_id
                 ))
             })?;
-        let parameters = load_parameters(schema.parameters(), self.parameters, "エフェクト")?;
-        let animations = load_animations(schema.parameters(), &parameters, self.animations)?;
+        let properties = load_properties(schema.properties(), self.properties, "エフェクト")?;
+        let animations = load_animations(schema.properties(), &properties, self.animations)?;
         Ok(EffectInstance {
             id: EffectInstanceId::new(self.id),
             plugin_id: self.plugin_id,
             effect_id: self.effect_id,
-            parameters,
+            properties,
             animations,
             schema,
         })
     }
 }
 
-#[derive(Deserialize, Serialize)]
+#[derive(Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct ProjectAnimation {
-    address: ParameterAddress,
-    track: ScalarTrack,
+struct ProjectAnimations {
+    properties: BTreeMap<String, ProjectPropertyAnimation>,
 }
 
-fn capture_animations(animations: &ParameterAnimations) -> Vec<ProjectAnimation> {
-    animations
-        .iter()
-        .map(|(address, track)| ProjectAnimation {
-            address: address.clone(),
-            track: track.clone(),
-        })
-        .collect()
+#[derive(Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectPropertyAnimation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    track: Option<ScalarTrack>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    scalars: BTreeMap<usize, ScalarTrack>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    elements: BTreeMap<PropertyElementId, ProjectElementAnimation>,
+}
+
+#[derive(Default, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ProjectElementAnimation {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    track: Option<ScalarTrack>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    scalars: BTreeMap<usize, ScalarTrack>,
+}
+
+fn capture_animations(animations: &PropertyAnimations) -> ProjectAnimations {
+    let mut captured = ProjectAnimations::default();
+    for (property_id, animation) in animations.properties() {
+        let property = captured
+            .properties
+            .entry(property_id.to_owned())
+            .or_default();
+        for (scalar_index, track) in animation
+            .element(None)
+            .into_iter()
+            .flat_map(|element| element.tracks())
+        {
+            match scalar_index {
+                Some(scalar_index) => {
+                    property.scalars.insert(scalar_index, track.clone());
+                }
+                None => {
+                    property.track = Some(track.clone());
+                }
+            }
+        }
+        for (element_id, element_animation) in animation.elements() {
+            let element = property.elements.entry(element_id).or_default();
+            for (scalar_index, track) in element_animation.tracks() {
+                match scalar_index {
+                    Some(scalar_index) => {
+                        element.scalars.insert(scalar_index, track.clone());
+                    }
+                    None => {
+                        element.track = Some(track.clone());
+                    }
+                }
+            }
+        }
+    }
+    captured
 }
 
 fn load_animations(
-    schema: &[ParameterSchema],
-    parameters: &ParameterValues,
-    animations: Vec<ProjectAnimation>,
-) -> Result<ParameterAnimations, ProjectError> {
-    let mut entries = Vec::with_capacity(animations.len());
-    for animation in animations {
-        let address = &animation.address;
-        let parameter = schema
+    schema: &[PropertySchema],
+    properties: &PropertyValues,
+    animations: ProjectAnimations,
+) -> Result<PropertyAnimations, ProjectError> {
+    let mut loaded = PropertyAnimations::default();
+    for (property_id, animation) in animations.properties {
+        let property = schema
             .iter()
-            .find(|parameter| parameter.id == address.parameter_id)
+            .find(|property| property.id == property_id)
             .ok_or_else(|| {
                 ProjectError::invalid_data(format!(
                     "アニメーション対象 '{}' が見つかりません",
-                    address.parameter_id
+                    property_id
                 ))
             })?;
-        let animation_valid =
-            parameters
-                .scalar_at(address, parameter.ty())
-                .is_some_and(|(scalar, scalar_ty)| {
-                    parameter.is_animatable(address.value_path.tuple_element())
-                        && animation.track.is_valid_for(scalar_ty)
-                        && scalar_ty.allows(scalar)
-                        && animation.track.stops().iter().all(|stop| {
-                            parameter
-                                .scalar_constraints(address.value_path.tuple_element())
-                                .allows(stop.value())
-                        })
-                });
-        if !animation_valid {
-            return Err(ProjectError::invalid_data(format!(
-                "'{}' のアニメーション対象が不正です",
-                address.parameter_id
-            )));
-        }
-        entries.push((animation.address, animation.track));
+        validate_project_value_animation(
+            &mut loaded,
+            properties,
+            property,
+            &property_id,
+            None,
+            animation.track,
+            animation.scalars,
+            animation.elements,
+        )?;
     }
-    ParameterAnimations::from_entries(entries)
-        .ok_or_else(|| ProjectError::invalid_data("アニメーション対象が重複しています"))
+    Ok(loaded)
 }
 
-fn load_parameter_overrides(
-    schema: &[ParameterSchema],
-    values: BTreeMap<String, ParameterValue>,
+fn validate_project_value_animation(
+    loaded: &mut PropertyAnimations,
+    properties: &PropertyValues,
+    property: &PropertySchema,
+    property_id: &str,
+    element_id: Option<PropertyElementId>,
+    track: Option<ScalarTrack>,
+    scalars: BTreeMap<usize, ScalarTrack>,
+    elements: BTreeMap<PropertyElementId, ProjectElementAnimation>,
+) -> Result<(), ProjectError> {
+    validate_project_track(
+        loaded,
+        properties,
+        property,
+        property_id,
+        element_id,
+        None,
+        track,
+    )?;
+    for (scalar_index, track) in scalars {
+        validate_project_track(
+            loaded,
+            properties,
+            property,
+            property_id,
+            element_id,
+            Some(scalar_index),
+            Some(track),
+        )?;
+    }
+    for (element_id, element) in elements {
+        validate_project_value_animation(
+            loaded,
+            properties,
+            property,
+            property_id,
+            Some(element_id),
+            element.track,
+            element.scalars,
+            BTreeMap::new(),
+        )?;
+    }
+    Ok(())
+}
+
+fn validate_project_track(
+    loaded: &mut PropertyAnimations,
+    properties: &PropertyValues,
+    property: &PropertySchema,
+    property_id: &str,
+    element_id: Option<PropertyElementId>,
+    scalar_index: Option<usize>,
+    track: Option<ScalarTrack>,
+) -> Result<(), ProjectError> {
+    let Some(track) = track else {
+        return Ok(());
+    };
+    let Some(scalar) = properties
+        .property(property_id)
+        .and_then(|value| value.element(element_id))
+        .and_then(|value| value.scalar_at(scalar_index))
+    else {
+        return Err(ProjectError::invalid_data(format!(
+            "'{property_id}' のアニメーション対象が不正です"
+        )));
+    };
+    let value_type = match (element_id, property.ty()) {
+        (Some(_), PropertyType::Array { element_type, .. })
+        | (None, PropertyType::Value(element_type)) => Some(element_type),
+        _ => None,
+    };
+    let valid = value_type
+        .and_then(|value_type| {
+            value_type
+                .scalar_at(scalar_index)
+                .map(|scalar_ty| (scalar, scalar_ty))
+        })
+        .is_some_and(|(scalar, scalar_ty)| {
+            property.is_animatable(scalar_index)
+                && track.is_valid_for(scalar_ty)
+                && scalar_ty.allows(scalar)
+                && track.stops().iter().all(|stop| {
+                    property
+                        .scalar_constraints(scalar_index)
+                        .allows(stop.value())
+                })
+        });
+    if !valid
+        || !loaded
+            .property_or_insert(property_id)
+            .element_or_insert(element_id)
+            .insert(scalar_index, track)
+    {
+        return Err(ProjectError::invalid_data(format!(
+            "'{property_id}' のアニメーション対象が不正です"
+        )));
+    }
+    Ok(())
+}
+
+fn load_property_overrides(
+    schema: &[PropertySchema],
+    values: BTreeMap<String, PropertyValue>,
     owner: &str,
-) -> Result<ParameterValues, ProjectError> {
-    let mut loaded = ParameterValues::default();
+) -> Result<PropertyValues, ProjectError> {
+    let mut loaded = PropertyValues::default();
     for (id, value) in values {
-        let parameter = schema
+        let property = schema
             .iter()
-            .find(|parameter| parameter.id == id)
+            .find(|property| property.id == id)
             .ok_or_else(|| {
                 ProjectError::invalid_data(format!("{owner}に不明なパラメータ '{id}' があります"))
             })?;
-        if !parameter.accepts_value(&value) {
+        if !property.accepts_value(&value) {
             return Err(ProjectError::invalid_data(format!(
                 "{owner}パラメータ '{id}' が不正です"
             )));
         }
-        if &value != parameter.default_value() {
-            loaded.set(parameter, value).map_err(|error| {
+        if &value != property.default_value() {
+            loaded.set(property, value).map_err(|error| {
                 ProjectError::invalid_data(format!("{owner}パラメータ '{id}' が不正です: {error}"))
             })?;
         }
@@ -733,25 +874,25 @@ fn load_parameter_overrides(
     Ok(loaded)
 }
 
-fn load_parameters(
-    schema: &[ParameterSchema],
-    values: BTreeMap<String, ParameterValue>,
+fn load_properties(
+    schema: &[PropertySchema],
+    values: BTreeMap<String, PropertyValue>,
     owner: &str,
-) -> Result<ParameterValues, ProjectError> {
+) -> Result<PropertyValues, ProjectError> {
     if values.len() != schema.len() {
         return Err(ProjectError::invalid_data(format!(
             "{owner}のパラメータ数がプラグイン定義と一致しません"
         )));
     }
-    let mut loaded = ParameterValues::default();
-    for parameter in schema {
-        let value = values.get(&parameter.id).cloned().ok_or_else(|| {
-            ProjectError::invalid_data(format!("{owner}パラメータ '{}' がありません", parameter.id))
+    let mut loaded = PropertyValues::default();
+    for property in schema {
+        let value = values.get(&property.id).cloned().ok_or_else(|| {
+            ProjectError::invalid_data(format!("{owner}パラメータ '{}' がありません", property.id))
         })?;
-        loaded.set(parameter, value).map_err(|error| {
+        loaded.set(property, value).map_err(|error| {
             ProjectError::invalid_data(format!(
                 "{owner}パラメータ '{}' が不正です: {error}",
-                parameter.id
+                property.id
             ))
         })?;
     }
@@ -941,32 +1082,32 @@ fn validate_scenes(
                         scene.name
                     )));
                 }
-                let parameter_id = binding.parameter_id();
+                let property_id = binding.property_id();
                 let item = scene
                     .items()
                     .find(|item| item.id == binding.item_id())
                     .ok_or_else(|| {
                         ProjectError::invalid_data(format!(
                             "シーン '{}' の引数接続先 '{}' がありません",
-                            scene.name, parameter_id
+                            scene.name, property_id
                         ))
                     })?;
                 if binding.conflicts_with_aspect_ratio_lock(item, item.aspect_ratio_locked) {
                     return Err(ProjectError::invalid_data(format!(
                         "シーン '{}' の接続先 '{}' は縦横比固定と競合しています",
-                        scene.name, parameter_id
+                        scene.name, property_id
                     )));
                 }
                 let resolved = resolve_scene_binding(scenes, scene, binding).ok_or_else(|| {
                     ProjectError::invalid_data(format!(
                         "シーン '{}' の引数接続先 '{}' がありません",
-                        scene.name, parameter_id
+                        scene.name, property_id
                     ))
                 })?;
                 if !resolved.schema.scene_bindable {
                     return Err(ProjectError::invalid_data(format!(
                         "シーン '{}' の接続先 '{}' はシーン引数へ公開できません",
-                        scene.name, parameter_id
+                        scene.name, property_id
                     )));
                 }
                 if resolved.schema.ty() != argument.schema.ty() {
@@ -979,7 +1120,7 @@ fn validate_scenes(
                 if resolved.animated {
                     return Err(ProjectError::invalid_data(format!(
                         "アニメーション済みの '{}' にはシーン引数を接続できません",
-                        parameter_id
+                        property_id
                     )));
                 }
             }

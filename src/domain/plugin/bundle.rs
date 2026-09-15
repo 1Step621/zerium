@@ -2,7 +2,7 @@
 //!
 //! `Plugin` guarantees structural/semantic manifest validity and complete UTF-8 asset resolution.
 //! Executable WGSL validity is deliberately a later responsibility because it requires composing
-//! renderer-owned interfaces with the schema-owned parameter ABI.
+//! renderer-owned interfaces with the schema-owned property ABI.
 
 use std::collections::BTreeMap;
 
