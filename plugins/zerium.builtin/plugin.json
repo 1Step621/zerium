@@ -1897,6 +1897,11 @@
                 "tuple": ["f32", "f32"]
               },
               "value": [1, 0]
+            },
+            {
+              "id": "radius_scale",
+              "type": "f32",
+              "value": 0.70710678
             }
           ]
         },
@@ -1912,6 +1917,51 @@
                 "tuple": ["f32", "f32"]
               },
               "value": [0, 1]
+            },
+            {
+              "id": "radius_scale",
+              "type": "f32",
+              "value": 0.70710678
+            }
+          ]
+        },
+        {
+          "type": "compute",
+          "shader": {
+            "source": "gaussian_blur.wgsl"
+          },
+          "constants": [
+            {
+              "id": "direction",
+              "type": {
+                "tuple": ["f32", "f32"]
+              },
+              "value": [1, 0]
+            },
+            {
+              "id": "radius_scale",
+              "type": "f32",
+              "value": 0.70710678
+            }
+          ]
+        },
+        {
+          "type": "compute",
+          "shader": {
+            "source": "gaussian_blur.wgsl"
+          },
+          "constants": [
+            {
+              "id": "direction",
+              "type": {
+                "tuple": ["f32", "f32"]
+              },
+              "value": [0, 1]
+            },
+            {
+              "id": "radius_scale",
+              "type": "f32",
+              "value": 0.70710678
             }
           ]
         }
