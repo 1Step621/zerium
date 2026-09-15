@@ -1,6 +1,6 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::domain::animation::PropertyAnimations;
+use crate::domain::animation::{ScalarAnimationAddress, ScalarAnimations};
 use crate::domain::property::materialized_property_values;
 use crate::domain::property::{
     PropertyAnimatable, PropertyEditable, PropertyElementId, PropertySchema, PropertyType,
@@ -212,15 +212,17 @@ pub(crate) fn apply_scene_binding_value(
 }
 
 pub(crate) fn scene_binding_is_animated(
-    animations: &PropertyAnimations,
+    animations: &ScalarAnimations,
     property_id: &str,
     element_id: Option<PropertyElementId>,
     scalar_index: Option<usize>,
 ) -> bool {
     animations
-        .property(property_id)
-        .and_then(|property| property.element(element_id))
-        .and_then(|element| element.scalar(scalar_index))
+        .track(&ScalarAnimationAddress::new(
+            property_id,
+            element_id,
+            scalar_index,
+        ))
         .is_some()
 }
 
@@ -756,7 +758,7 @@ impl SceneDefinition {
             kind: TimelineItemKind::Scene { scene_id: self.id },
             assets: HashMap::new(),
             properties,
-            animations: PropertyAnimations::default(),
+            animations: ScalarAnimations::default(),
             aspect_ratio_locked: false,
             effects: Vec::new(),
         })

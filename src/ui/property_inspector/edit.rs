@@ -178,9 +178,12 @@ impl PropertyInspector {
         let item = editor.selected_item()?;
         (item.id == binding.item_id).then_some(())?;
         let stop = item
-            .property_animation(binding.effect_id, &binding.property_id)?
-            .element(binding.element_id)?
-            .scalar(binding.scalar_index)?
+            .animation_track(
+                binding.effect_id,
+                &binding.property_id,
+                binding.element_id,
+                binding.scalar_index,
+            )?
             .stops()
             .get(binding.stop)?;
         Some(stop.value().clone())
@@ -496,9 +499,12 @@ impl PropertyInspector {
         let target_element_id = target.path.element_id();
         let target_scalar_index = target.path.scalar_index();
         if item
-            .property_animation(target.effect_id, &target.property_id)
-            .and_then(|property| property.element(target_element_id))
-            .and_then(|element| element.scalar(target_scalar_index))
+            .animation_track(
+                target.effect_id,
+                &target.property_id,
+                target_element_id,
+                target_scalar_index,
+            )
             .is_some()
         {
             return Some(NumberAnimationSource {
@@ -513,9 +519,12 @@ impl PropertyInspector {
             Self::linked_animation_aspect_ratio(item, target, spec)?;
         let source_element_id = source_path.element_id();
         let source_scalar_index = source_path.scalar_index();
-        item.property_animation(None, &source_property_id)?
-            .element(source_element_id)?
-            .scalar(source_scalar_index)?;
+        item.animation_track(
+            None,
+            &source_property_id,
+            source_element_id,
+            source_scalar_index,
+        )?;
         let value_factor = aspect_ratio.recip();
         Some(NumberAnimationSource {
             property_id: source_property_id,

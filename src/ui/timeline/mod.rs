@@ -1045,11 +1045,12 @@ impl Timeline {
             else {
                 return;
             };
-            let Some(track) = item
-                .property_animation(drag.target.effect_id, &drag.target.property_id)
-                .and_then(|property| property.element(drag.target.element_id))
-                .and_then(|element| element.scalar(drag.target.scalar_index))
-            else {
+            let Some(track) = item.animation_track(
+                drag.target.effect_id,
+                &drag.target.property_id,
+                drag.target.element_id,
+                drag.target.scalar_index,
+            ) else {
                 return;
             };
             let Some(previous) = drag
@@ -1853,30 +1854,12 @@ impl Timeline {
             * state.viewport.pixels_per_second()) as f32;
         let is_selected = state.selected_item_ids.contains(&item_id);
         let mut animation_stops = Vec::new();
-        for (_, animation) in item.animations.properties() {
-            if let Some(element) = animation.element(None) {
-                for (_, track) in element.tracks() {
-                    animation_stops.extend(track.stops().iter().map(|stop| stop.position()));
-                }
-            }
-            for (_, element) in animation.elements() {
-                for (_, track) in element.tracks() {
-                    animation_stops.extend(track.stops().iter().map(|stop| stop.position()));
-                }
-            }
+        for (_, track) in item.animations.tracks() {
+            animation_stops.extend(track.stops().iter().map(|stop| stop.position()));
         }
         for effect in &item.effects {
-            for (_, animation) in effect.animations.properties() {
-                if let Some(element) = animation.element(None) {
-                    for (_, track) in element.tracks() {
-                        animation_stops.extend(track.stops().iter().map(|stop| stop.position()));
-                    }
-                }
-                for (_, element) in animation.elements() {
-                    for (_, track) in element.tracks() {
-                        animation_stops.extend(track.stops().iter().map(|stop| stop.position()));
-                    }
-                }
+            for (_, track) in effect.animations.tracks() {
+                animation_stops.extend(track.stops().iter().map(|stop| stop.position()));
             }
         }
         animation_stops.sort_by(f32::total_cmp);
@@ -1892,10 +1875,12 @@ impl Timeline {
         let focused_animation_stops = focused_target
             .as_ref()
             .and_then(|target| {
-                let track = item
-                    .property_animation(target.effect_id, &target.property_id)?
-                    .element(target.element_id)?
-                    .scalar(target.scalar_index)?;
+                let track = item.animation_track(
+                    target.effect_id,
+                    &target.property_id,
+                    target.element_id,
+                    target.scalar_index,
+                )?;
                 Some((target.clone(), track))
             })
             .map(|(target, track)| {

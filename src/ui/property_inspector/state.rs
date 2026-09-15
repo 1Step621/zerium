@@ -611,9 +611,12 @@ impl PropertyInspector {
             let target_exists = editor
                 .item(target.item_id)
                 .and_then(|item| {
-                    item.property_animation(target.effect_id, &target.property_id)
-                        .and_then(|property| property.element(target.element_id))
-                        .and_then(|element| element.scalar(target.scalar_index))
+                    item.animation_track(
+                        target.effect_id,
+                        &target.property_id,
+                        target.element_id,
+                        target.scalar_index,
+                    )
                 })
                 .is_some();
             let selected_another_item = selected_items.len() != 1

@@ -153,10 +153,13 @@ pub(super) struct PropertyTarget {
 
 impl PropertyTarget {
     pub(super) fn animation_enabled(&self, item: &TimelineItem) -> bool {
-        item.property_animation(self.effect_id, &self.property_id)
-            .and_then(|property| property.element(self.path.element_id()))
-            .and_then(|element| element.scalar(self.path.scalar_index()))
-            .is_some()
+        item.animation_track(
+            self.effect_id,
+            &self.property_id,
+            self.path.element_id(),
+            self.path.scalar_index(),
+        )
+        .is_some()
     }
 
     pub(super) fn animation_target(&self, item: &TimelineItem) -> AnimationTarget {

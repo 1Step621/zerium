@@ -1,9 +1,9 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::domain::animation::{PropertyAnimation, PropertyAnimations};
+use crate::domain::animation::{ScalarAnimationAddress, ScalarAnimations, ScalarTrack};
 use crate::domain::media::MediaAsset;
 use crate::domain::plugin::{EffectSchema, ItemSchema};
-use crate::domain::property::{PropertyValue, PropertyValues};
+use crate::domain::property::{PropertyElementId, PropertyValue, PropertyValues};
 
 use super::{
     ids::{EffectInstanceId, ItemId, SceneId},
@@ -107,7 +107,7 @@ pub(crate) struct EffectInstance {
     pub plugin_id: String,
     pub effect_id: String,
     pub properties: PropertyValues,
-    pub animations: PropertyAnimations,
+    pub animations: ScalarAnimations,
     pub(crate) schema: Arc<EffectSchema>,
 }
 
@@ -137,7 +137,7 @@ pub(crate) struct TimelineItem {
     pub(crate) kind: TimelineItemKind,
     pub assets: HashMap<String, MediaAsset>,
     pub properties: PropertyValues,
-    pub animations: PropertyAnimations,
+    pub animations: ScalarAnimations,
     pub aspect_ratio_locked: bool,
     pub effects: Vec<EffectInstance>,
 }
@@ -327,19 +327,22 @@ impl TimelineItem {
         item
     }
 
-    pub(crate) fn property_animation(
+    pub(crate) fn animation_track(
         &self,
         effect_id: Option<EffectInstanceId>,
         property_id: &str,
-    ) -> Option<&PropertyAnimation> {
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
+    ) -> Option<&ScalarTrack> {
+        let address = ScalarAnimationAddress::new(property_id, element_id, scalar_index);
         match effect_id {
             Some(effect_id) => self
                 .effects
                 .iter()
                 .find(|effect| effect.id == effect_id)?
                 .animations
-                .property(property_id),
-            None => self.animations.property(property_id),
+                .track(&address),
+            None => self.animations.track(&address),
         }
     }
 

@@ -8,7 +8,7 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::animation::{PropertyAnimations, ScalarTrack};
+use crate::domain::animation::{ScalarAnimationAddress, ScalarAnimations, ScalarTrack};
 use crate::domain::media::{MediaAsset, MediaKind, VideoFrameRate};
 use crate::domain::plugin::PluginRegistry;
 use crate::domain::property::materialized_property_values;
@@ -654,156 +654,72 @@ impl ProjectEffect {
 }
 
 #[derive(Default, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct ProjectAnimations {
-    properties: BTreeMap<String, ProjectPropertyAnimation>,
-}
+#[serde(transparent)]
+struct ProjectAnimations(Vec<ProjectScalarAnimation>);
 
-#[derive(Default, Deserialize, Serialize)]
+#[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct ProjectPropertyAnimation {
+struct ProjectScalarAnimation {
+    property: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    track: Option<ScalarTrack>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    scalars: BTreeMap<usize, ScalarTrack>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    elements: BTreeMap<PropertyElementId, ProjectElementAnimation>,
-}
-
-#[derive(Default, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct ProjectElementAnimation {
+    element: Option<PropertyElementId>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    track: Option<ScalarTrack>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    scalars: BTreeMap<usize, ScalarTrack>,
+    scalar: Option<usize>,
+    track: ScalarTrack,
 }
 
-fn capture_animations(animations: &PropertyAnimations) -> ProjectAnimations {
-    let mut captured = ProjectAnimations::default();
-    for (property_id, animation) in animations.properties() {
-        let property = captured
-            .properties
-            .entry(property_id.to_owned())
-            .or_default();
-        for (scalar_index, track) in animation
-            .element(None)
-            .into_iter()
-            .flat_map(|element| element.tracks())
-        {
-            match scalar_index {
-                Some(scalar_index) => {
-                    property.scalars.insert(scalar_index, track.clone());
-                }
-                None => {
-                    property.track = Some(track.clone());
-                }
-            }
-        }
-        for (element_id, element_animation) in animation.elements() {
-            let element = property.elements.entry(element_id).or_default();
-            for (scalar_index, track) in element_animation.tracks() {
-                match scalar_index {
-                    Some(scalar_index) => {
-                        element.scalars.insert(scalar_index, track.clone());
-                    }
-                    None => {
-                        element.track = Some(track.clone());
-                    }
-                }
-            }
-        }
-    }
-    captured
+fn capture_animations(animations: &ScalarAnimations) -> ProjectAnimations {
+    ProjectAnimations(
+        animations
+            .tracks()
+            .map(|(address, track)| ProjectScalarAnimation {
+                property: address.property_id().to_owned(),
+                element: address.element_id(),
+                scalar: address.scalar_index(),
+                track: track.clone(),
+            })
+            .collect(),
+    )
 }
 
 fn load_animations(
     schema: &[PropertySchema],
     properties: &PropertyValues,
     animations: ProjectAnimations,
-) -> Result<PropertyAnimations, ProjectError> {
-    let mut loaded = PropertyAnimations::default();
-    for (property_id, animation) in animations.properties {
+) -> Result<ScalarAnimations, ProjectError> {
+    let mut loaded = ScalarAnimations::default();
+    for animation in animations.0 {
         let property = schema
             .iter()
-            .find(|property| property.id == property_id)
+            .find(|property| property.id == animation.property)
             .ok_or_else(|| {
                 ProjectError::invalid_data(format!(
                     "アニメーション対象 '{}' が見つかりません",
-                    property_id
+                    animation.property
                 ))
             })?;
-        validate_project_value_animation(
+        validate_project_track(
             &mut loaded,
             properties,
             property,
-            &property_id,
-            None,
+            &animation.property,
+            animation.element,
+            animation.scalar,
             animation.track,
-            animation.scalars,
-            animation.elements,
         )?;
     }
     Ok(loaded)
 }
 
-fn validate_project_value_animation(
-    loaded: &mut PropertyAnimations,
-    properties: &PropertyValues,
-    property: &PropertySchema,
-    property_id: &str,
-    element_id: Option<PropertyElementId>,
-    track: Option<ScalarTrack>,
-    scalars: BTreeMap<usize, ScalarTrack>,
-    elements: BTreeMap<PropertyElementId, ProjectElementAnimation>,
-) -> Result<(), ProjectError> {
-    validate_project_track(
-        loaded,
-        properties,
-        property,
-        property_id,
-        element_id,
-        None,
-        track,
-    )?;
-    for (scalar_index, track) in scalars {
-        validate_project_track(
-            loaded,
-            properties,
-            property,
-            property_id,
-            element_id,
-            Some(scalar_index),
-            Some(track),
-        )?;
-    }
-    for (element_id, element) in elements {
-        validate_project_value_animation(
-            loaded,
-            properties,
-            property,
-            property_id,
-            Some(element_id),
-            element.track,
-            element.scalars,
-            BTreeMap::new(),
-        )?;
-    }
-    Ok(())
-}
-
 fn validate_project_track(
-    loaded: &mut PropertyAnimations,
+    loaded: &mut ScalarAnimations,
     properties: &PropertyValues,
     property: &PropertySchema,
     property_id: &str,
     element_id: Option<PropertyElementId>,
     scalar_index: Option<usize>,
-    track: Option<ScalarTrack>,
+    track: ScalarTrack,
 ) -> Result<(), ProjectError> {
-    let Some(track) = track else {
-        return Ok(());
-    };
     let Some(scalar) = properties
         .property(property_id)
         .and_then(|value| value.element(element_id))
@@ -834,12 +750,8 @@ fn validate_project_track(
                         .allows(stop.value())
                 })
         });
-    if !valid
-        || !loaded
-            .property_or_insert(property_id)
-            .element_or_insert(element_id)
-            .insert(scalar_index, track)
-    {
+    let address = ScalarAnimationAddress::new(property_id, element_id, scalar_index);
+    if !valid || !loaded.insert(address, track) {
         return Err(ProjectError::invalid_data(format!(
             "'{property_id}' のアニメーション対象が不正です"
         )));

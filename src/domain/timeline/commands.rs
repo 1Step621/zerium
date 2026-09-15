@@ -10,7 +10,9 @@ use std::{
     fmt,
 };
 
-use crate::domain::animation::{BezierHandle, ScalarTrack, SegmentInterpolation};
+use crate::domain::animation::{
+    BezierHandle, ScalarAnimationAddress, ScalarAnimations, ScalarTrack, SegmentInterpolation,
+};
 use crate::domain::media::ImportedMedia;
 use crate::domain::property::{
     PropertyAnimatable, PropertyEditable, PropertyElementId, PropertySchema, PropertyType,
@@ -18,7 +20,7 @@ use crate::domain::property::{
 };
 
 use super::{
-    document::{PropertyAnimationLocation, ResizeEdge, TimelineDocument},
+    document::{ResizeEdge, TimelineDocument},
     editor::{HistoryKey, TimelineEditor},
     evaluation::evaluate_expression_arguments,
     expression,
@@ -204,6 +206,57 @@ impl TimelineEditor {
             property_id,
         )
         .cloned()
+    }
+
+    fn animation_schema(
+        &self,
+        item_id: ItemId,
+        effect_id: Option<EffectInstanceId>,
+        property_id: &str,
+    ) -> Option<PropertySchema> {
+        let item = self.active_document().item(item_id)?;
+        let owner = effect_id.map_or(SceneBindingOwner::Item, SceneBindingOwner::Effect);
+        resolve_property_schema(&self.project().scenes, item, owner, property_id).cloned()
+    }
+
+    fn animation_store_mut(
+        &mut self,
+        item_id: ItemId,
+        effect_id: Option<EffectInstanceId>,
+    ) -> Option<&mut ScalarAnimations> {
+        let item = self.active_document_mut().item_mut(item_id)?;
+        match effect_id {
+            Some(effect_id) => item
+                .effects
+                .iter_mut()
+                .find(|effect| effect.id == effect_id)
+                .map(|effect| &mut effect.animations),
+            None => Some(&mut item.animations),
+        }
+    }
+
+    fn animation_track(
+        &self,
+        item_id: ItemId,
+        effect_id: Option<EffectInstanceId>,
+        address: &ScalarAnimationAddress,
+    ) -> Option<&ScalarTrack> {
+        self.active_document().item(item_id)?.animation_track(
+            effect_id,
+            address.property_id(),
+            address.element_id(),
+            address.scalar_index(),
+        )
+    }
+
+    fn animation_track_mut(
+        &mut self,
+        item_id: ItemId,
+        effect_id: Option<EffectInstanceId>,
+        address: &ScalarAnimationAddress,
+    ) -> Option<&mut ScalarTrack> {
+        self.animation_store_mut(item_id, effect_id)?
+            .track_mut(address)
     }
 
     fn scene_reaches(
@@ -1665,69 +1718,67 @@ impl TimelineEditor {
             return false;
         }
         let before = self.history_snapshot();
-        let scene_schema = effect_id
-            .is_none()
-            .then(|| self.scene_instance_property_schema(item_id, &property_id))
-            .flatten();
-        let changed = if let Some(schema) = scene_schema {
-            let values = self.active_document().item(item_id).and_then(|item| {
-                materialize_scene_instance_properties(item, &self.project().scenes)
-            });
-            let Some(item) = self.active_document_mut().item_mut(item_id) else {
+        let Some(schema) = self.animation_schema(item_id, effect_id, &property_id) else {
+            return false;
+        };
+        if !schema.is_editable(scalar_index) {
+            return false;
+        }
+        if effect_id.is_none()
+            && scalar_index == Some(1)
+            && self.active_document().item(item_id).is_some_and(|item| {
+                item.preserves_aspect_ratio()
+                    && item
+                        .schema()
+                        .is_some_and(|schema| schema.is_size_property(&property_id))
+            })
+        {
+            return false;
+        }
+        let address = ScalarAnimationAddress::new(property_id.clone(), element_id, scalar_index);
+        let changed = if !enabled {
+            self.animation_store_mut(item_id, effect_id)
+                .is_some_and(|animations| animations.remove(&address))
+        } else {
+            if !schema.is_animatable(scalar_index) {
+                return false;
+            }
+            let Some(item) = self.active_document().item(item_id) else {
                 return false;
             };
-            if !schema.is_editable(scalar_index) {
-                false
-            } else if !enabled {
-                let Some(property) = item.animations.property_mut(&property_id) else {
-                    return false;
-                };
-                let Some(element) = property.element_mut(element_id) else {
-                    return false;
-                };
-                let changed = element.remove(scalar_index);
-                if property.is_empty() {
-                    item.animations.remove_property_if_empty(&property_id);
+            let values = match effect_id {
+                Some(effect_id) => item
+                    .effects
+                    .iter()
+                    .find(|effect| effect.id == effect_id)
+                    .map(|effect| effect.properties.clone()),
+                None if item.scene_id().is_some() => {
+                    materialize_scene_instance_properties(item, &self.project().scenes)
                 }
-                changed
-            } else if !schema.is_animatable(scalar_index) {
-                false
-            } else if let Some(values) = values.as_ref() {
-                let Some(value) = values
-                    .property(&property_id)
-                    .and_then(|value| value.element(element_id))
-                    .and_then(|value| value.scalar_at(scalar_index))
-                else {
-                    return false;
-                };
-                let Some(value_type) = (match (element_id, schema.ty()) {
-                    (Some(_), PropertyType::Array { element_type, .. })
-                    | (None, PropertyType::Value(element_type)) => {
-                        element_type.scalar_at(scalar_index)
-                    }
-                    _ => None,
-                }) else {
-                    return false;
-                };
-                let Some(track) = ScalarTrack::from_value(value.clone(), value_type) else {
-                    return false;
-                };
-                item.animations
-                    .property_or_insert(&property_id)
-                    .element_or_insert(element_id)
-                    .insert(scalar_index, track)
-            } else {
-                false
-            }
-        } else {
-            self.active_document_mut().set_property_animation_enabled(
-                item_id,
-                effect_id,
-                &property_id,
-                element_id,
-                scalar_index,
-                enabled,
-            )
+                None => Some(item.properties.clone()),
+            };
+            let Some(values) = values else {
+                return false;
+            };
+            let Some(value) = values
+                .property(&property_id)
+                .and_then(|value| value.element(element_id))
+                .and_then(|value| value.scalar_at(scalar_index))
+            else {
+                return false;
+            };
+            let Some(value_type) = (match (element_id, schema.ty()) {
+                (Some(_), PropertyType::Array { element_type, .. })
+                | (None, PropertyType::Value(element_type)) => element_type.scalar_at(scalar_index),
+                _ => None,
+            }) else {
+                return false;
+            };
+            let Some(track) = ScalarTrack::from_value(value.clone(), value_type) else {
+                return false;
+            };
+            self.animation_store_mut(item_id, effect_id)
+                .is_some_and(|animations| animations.insert(address, track))
         };
         self.finish_project_edit_if_changed(changed, Some(before), None)
     }
@@ -1745,30 +1796,18 @@ impl TimelineEditor {
         let Some(item_id) = self.selection.primary else {
             return false;
         };
-        let Some(stop_frame) = self.active_document().item(item_id).and_then(|item| {
-            let animations = match effect_id {
-                Some(effect_id) => {
-                    &item
-                        .effects
-                        .iter()
-                        .find(|effect| effect.id == effect_id)?
-                        .animations
-                }
-                None => &item.animations,
-            };
-            let position = animations
-                .property(&property_id)?
-                .element(element_id)?
-                .scalar(scalar_index)?
-                .stops()
-                .get(index)?
-                .position();
-            Some(Frame::new(
-                item.animation_timeline_frame(position).round().max(0.) as u64,
-            ))
-        }) else {
+        let Some(item) = self.active_document().item(item_id) else {
             return false;
         };
+        let address = ScalarAnimationAddress::new(property_id.clone(), element_id, scalar_index);
+        let Some(position) = self
+            .animation_track(item_id, effect_id, &address)
+            .and_then(|track| track.stops().get(index))
+            .map(|stop| stop.position())
+        else {
+            return false;
+        };
+        let stop_frame = Frame::new(item.animation_timeline_frame(position).round().max(0.) as u64);
         let key = HistoryKey::AnimationStopValue(
             item_id,
             effect_id,
@@ -1778,40 +1817,18 @@ impl TimelineEditor {
             stop_frame,
         );
         let before = self.history_snapshot_for_edit(Some(&key));
-        let scene_schema = effect_id
-            .is_none()
-            .then(|| self.scene_instance_property_schema(item_id, &property_id))
-            .flatten();
-        let changed = if let Some(schema) = scene_schema {
-            if !schema.is_editable(scalar_index)
-                || !schema.scalar_constraints(scalar_index).allows(&value)
-            {
-                false
-            } else if let Some(item) = self.active_document_mut().item_mut(item_id) {
-                item.animations
-                    .property_mut(&property_id)
-                    .and_then(|property| property.element_mut(element_id))
-                    .and_then(|element| element.scalar_mut(scalar_index))
-                    .is_some_and(|animation| {
-                        animation.set_stop(index, value.clone(), focused_segment)
-                    })
-            } else {
-                false
-            }
-        } else {
-            self.active_document_mut().set_property_animation_stop(
-                PropertyAnimationLocation {
+        let Some(schema) = self.animation_schema(item_id, effect_id, &property_id) else {
+            return false;
+        };
+        let changed = schema.is_editable(scalar_index)
+            && schema.scalar_constraints(scalar_index).allows(&value)
+            && self
+                .animation_track_mut(
                     item_id,
                     effect_id,
-                    property_id: &property_id,
-                    element_id,
-                    scalar_index,
-                },
-                index,
-                value,
-                focused_segment,
-            )
-        };
+                    &ScalarAnimationAddress::new(property_id, element_id, scalar_index),
+                )
+                .is_some_and(|animation| animation.set_stop(index, value, focused_segment));
         self.finish_project_edit_if_changed(changed, before, Some(key))
     }
 
@@ -1839,39 +1856,20 @@ impl TimelineEditor {
             stop_frame,
         );
         let before = self.history_snapshot_for_edit(Some(&key));
-        let scene_schema = effect_id
-            .is_none()
-            .then(|| self.scene_instance_property_schema(item_id, &property_id))
-            .flatten();
-        let inserted = if let Some(schema) = scene_schema {
-            if !schema.is_editable(scalar_index)
-                || !schema.scalar_constraints(scalar_index).allows(&value)
-            {
-                None
-            } else {
-                self.active_document_mut()
-                    .item_mut(item_id)
-                    .and_then(|item| {
-                        item.animations
-                            .property_mut(&property_id)
-                            .and_then(|property| property.element_mut(element_id))
-                            .and_then(|element| element.scalar_mut(scalar_index))
-                    })
-                    .and_then(|animation| animation.insert_stop(position, value.clone()))
-            }
-        } else {
-            self.active_document_mut().insert_property_animation_stop(
-                PropertyAnimationLocation {
+        let inserted = self
+            .animation_schema(item_id, effect_id, &property_id)
+            .filter(|schema| {
+                schema.is_editable(scalar_index)
+                    && schema.scalar_constraints(scalar_index).allows(&value)
+            })
+            .and_then(|_| {
+                self.animation_track_mut(
                     item_id,
                     effect_id,
-                    property_id: &property_id,
-                    element_id,
-                    scalar_index,
-                },
-                position,
-                value,
-            )
-        };
+                    &ScalarAnimationAddress::new(property_id, element_id, scalar_index),
+                )
+            })
+            .and_then(|animation| animation.insert_stop(position, value));
         if inserted.is_some() {
             self.finish_project_edit(before, Some(key));
         }
@@ -1901,37 +1899,20 @@ impl TimelineEditor {
             handle,
         );
         let before = self.history_snapshot_for_edit(Some(&key));
-        let scene_schema = effect_id
-            .is_none()
-            .then(|| self.scene_instance_property_schema(item_id, &property_id))
-            .flatten();
-        let changed = if let Some(schema) = scene_schema {
-            if !schema.is_editable(scalar_index) {
-                false
-            } else {
-                self.active_document_mut()
-                    .item_mut(item_id)
-                    .and_then(|item| item.animations.property_mut(&property_id))
-                    .and_then(|property| property.element_mut(element_id))
-                    .and_then(|element| element.scalar_mut(scalar_index))
-                    .is_some_and(|animation| {
-                        animation.set_segment_handle(segment, handle, position)
-                    })
-            }
-        } else {
-            self.active_document_mut().set_property_animation_handle(
-                PropertyAnimationLocation {
-                    item_id,
-                    effect_id,
-                    property_id: &property_id,
-                    element_id,
-                    scalar_index,
-                },
-                segment,
-                handle,
-                position,
-            )
-        };
+        let changed = self
+            .animation_schema(item_id, effect_id, &property_id)
+            .is_some_and(|schema| {
+                schema.is_editable(scalar_index)
+                    && self
+                        .animation_track_mut(
+                            item_id,
+                            effect_id,
+                            &ScalarAnimationAddress::new(property_id, element_id, scalar_index),
+                        )
+                        .is_some_and(|animation| {
+                            animation.set_segment_handle(segment, handle, position)
+                        })
+            });
         self.finish_project_edit_if_changed(changed, before, Some(key))
     }
 
@@ -1948,37 +1929,20 @@ impl TimelineEditor {
             return false;
         };
         let before = self.history_snapshot();
-        let scene_schema = effect_id
-            .is_none()
-            .then(|| self.scene_instance_property_schema(item_id, &property_id))
-            .flatten();
-        let changed = if let Some(schema) = scene_schema {
-            if !schema.is_editable(scalar_index) {
-                false
-            } else {
-                self.active_document_mut()
-                    .item_mut(item_id)
-                    .and_then(|item| item.animations.property_mut(&property_id))
-                    .and_then(|property| property.element_mut(element_id))
-                    .and_then(|element| element.scalar_mut(scalar_index))
-                    .is_some_and(|animation| {
-                        animation.set_segment_interpolation(segment, interpolation)
-                    })
-            }
-        } else {
-            self.active_document_mut()
-                .set_property_animation_interpolation(
-                    PropertyAnimationLocation {
-                        item_id,
-                        effect_id,
-                        property_id: &property_id,
-                        element_id,
-                        scalar_index,
-                    },
-                    segment,
-                    interpolation,
-                )
-        };
+        let changed = self
+            .animation_schema(item_id, effect_id, &property_id)
+            .is_some_and(|schema| {
+                schema.is_editable(scalar_index)
+                    && self
+                        .animation_track_mut(
+                            item_id,
+                            effect_id,
+                            &ScalarAnimationAddress::new(property_id, element_id, scalar_index),
+                        )
+                        .is_some_and(|animation| {
+                            animation.set_segment_interpolation(segment, interpolation)
+                        })
+            });
         self.finish_project_edit_if_changed(changed, Some(before), None)
     }
 
@@ -1994,33 +1958,18 @@ impl TimelineEditor {
             return false;
         };
         let before = self.history_snapshot();
-        let scene_schema = effect_id
-            .is_none()
-            .then(|| self.scene_instance_property_schema(item_id, &property_id))
-            .flatten();
-        let changed = if let Some(schema) = scene_schema {
-            if !schema.is_editable(scalar_index) {
-                false
-            } else {
-                self.active_document_mut()
-                    .item_mut(item_id)
-                    .and_then(|item| item.animations.property_mut(&property_id))
-                    .and_then(|property| property.element_mut(element_id))
-                    .and_then(|element| element.scalar_mut(scalar_index))
-                    .is_some_and(|animation| animation.remove_stop(stop))
-            }
-        } else {
-            self.active_document_mut().remove_property_animation_stop(
-                PropertyAnimationLocation {
-                    item_id,
-                    effect_id,
-                    property_id: &property_id,
-                    element_id,
-                    scalar_index,
-                },
-                stop,
-            )
-        };
+        let changed = self
+            .animation_schema(item_id, effect_id, &property_id)
+            .is_some_and(|schema| {
+                schema.is_editable(scalar_index)
+                    && self
+                        .animation_track_mut(
+                            item_id,
+                            effect_id,
+                            &ScalarAnimationAddress::new(property_id, element_id, scalar_index),
+                        )
+                        .is_some_and(|animation| animation.remove_stop(stop))
+            });
         self.finish_project_edit_if_changed(changed, Some(before), None)
     }
 
@@ -2045,34 +1994,18 @@ impl TimelineEditor {
             stop,
         );
         let before = self.history_snapshot_for_edit(Some(&key));
-        let scene_schema = effect_id
-            .is_none()
-            .then(|| self.scene_instance_property_schema(item_id, &property_id))
-            .flatten();
-        let changed = if let Some(schema) = scene_schema {
-            if !schema.is_editable(scalar_index) {
-                false
-            } else {
-                self.active_document_mut()
-                    .item_mut(item_id)
-                    .and_then(|item| item.animations.property_mut(&property_id))
-                    .and_then(|property| property.element_mut(element_id))
-                    .and_then(|element| element.scalar_mut(scalar_index))
-                    .is_some_and(|animation| animation.move_stop(stop, position))
-            }
-        } else {
-            self.active_document_mut().move_property_animation_stop(
-                PropertyAnimationLocation {
-                    item_id,
-                    effect_id,
-                    property_id: &property_id,
-                    element_id,
-                    scalar_index,
-                },
-                stop,
-                position,
-            )
-        };
+        let changed = self
+            .animation_schema(item_id, effect_id, &property_id)
+            .is_some_and(|schema| {
+                schema.is_editable(scalar_index)
+                    && self
+                        .animation_track_mut(
+                            item_id,
+                            effect_id,
+                            &ScalarAnimationAddress::new(property_id, element_id, scalar_index),
+                        )
+                        .is_some_and(|animation| animation.move_stop(stop, position))
+            });
         self.finish_project_edit_if_changed(changed, before, Some(key))
     }
 

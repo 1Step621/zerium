@@ -6,10 +6,12 @@ impl AnimationCurveEditor {
         let editor = self.editor.read(cx);
         let item = editor.item(selected.target.item_id)?;
         let progress = item.animation_progress_at_time(TimelineTime::from_frame(frame));
-        let track = item
-            .property_animation(selected.target.effect_id, &selected.target.property_id)?
-            .element(selected.target.element_id)?
-            .scalar(selected.target.scalar_index)?;
+        let track = item.animation_track(
+            selected.target.effect_id,
+            &selected.target.property_id,
+            selected.target.element_id,
+            selected.target.scalar_index,
+        )?;
         (progress > 0. && progress < 1. && track.stop_index_at(progress).is_none())
             .then_some((selected, progress))
     }
@@ -25,10 +27,12 @@ impl AnimationCurveEditor {
         let Some(value) = (|| {
             let editor = self.editor.read(cx);
             let item = editor.item(selected.target.item_id)?;
-            let track = item
-                .property_animation(selected.target.effect_id, &selected.target.property_id)?
-                .element(selected.target.element_id)?
-                .scalar(selected.target.scalar_index)?;
+            let track = item.animation_track(
+                selected.target.effect_id,
+                &selected.target.property_id,
+                selected.target.element_id,
+                selected.target.scalar_index,
+            )?;
             let index = track.stop_index_nearest(progress)?;
             track.stops().get(index).map(|stop| stop.value()).cloned()
         })() else {

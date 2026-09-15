@@ -3,14 +3,10 @@ use std::{
     sync::Arc,
 };
 
-use crate::domain::animation::{
-    BezierHandle, PropertyAnimations, ScalarTrack, SegmentInterpolation,
-};
+use crate::domain::animation::{ScalarAnimationAddress, ScalarAnimations};
 use crate::domain::media::ImportedMedia;
 use crate::domain::plugin::{EffectSchema, ItemSchema};
-use crate::domain::property::{
-    PropertyElementId, PropertySchema, PropertyType, PropertyValue, PropertyValues,
-};
+use crate::domain::property::PropertyValue;
 
 use super::{
     ids::{EffectInstanceId, ItemId, LayerId},
@@ -25,15 +21,6 @@ const DEFAULT_ITEM_SECONDS: f64 = 5.;
 pub(crate) enum ResizeEdge {
     Left,
     Right,
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct PropertyAnimationLocation<'a> {
-    pub(super) item_id: ItemId,
-    pub(super) effect_id: Option<EffectInstanceId>,
-    pub(super) property_id: &'a str,
-    pub(super) element_id: Option<PropertyElementId>,
-    pub(super) scalar_index: Option<usize>,
 }
 
 #[derive(Clone)]
@@ -365,7 +352,7 @@ impl TimelineDocument {
                 },
                 assets: HashMap::new(),
                 properties,
-                animations: PropertyAnimations::default(),
+                animations: ScalarAnimations::default(),
                 aspect_ratio_locked: false,
                 effects: Vec::new(),
             })
@@ -648,11 +635,8 @@ impl TimelineDocument {
         let aspect_ratio = item.current_aspect_ratio(&schema);
         item.aspect_ratio_locked = locked;
         if locked && let Some(size) = schema.size_property() {
-            if let Some(property) = item.animations.property_mut(&size.id)
-                && let Some(element) = property.element_mut(None)
-            {
-                element.remove(Some(1));
-            }
+            item.animations
+                .remove(&ScalarAnimationAddress::new(size.id.clone(), None, Some(1)));
         }
         if locked && let Some(aspect_ratio) = aspect_ratio {
             item.constrain_size_to_aspect_ratio(aspect_ratio);
@@ -685,7 +669,7 @@ impl TimelineDocument {
             plugin_id: plugin_id.to_owned(),
             effect_id: effect_id.to_owned(),
             properties,
-            animations: PropertyAnimations::default(),
+            animations: ScalarAnimations::default(),
             schema,
         });
         true
@@ -722,362 +706,6 @@ impl TimelineDocument {
             changed |= effect.animations.retain_valid(&effect.properties);
         }
         changed
-    }
-
-    fn animations_mut(
-        &mut self,
-        item_id: ItemId,
-        effect_id: Option<EffectInstanceId>,
-    ) -> Option<&mut PropertyAnimations> {
-        let item = self.items.get_mut(&item_id).map(Arc::make_mut)?;
-        match effect_id {
-            Some(effect_id) => item
-                .effects
-                .iter_mut()
-                .find(|effect| effect.id == effect_id)
-                .map(|effect| &mut effect.animations),
-            None => Some(&mut item.animations),
-        }
-    }
-
-    fn animation_mut<'a>(
-        animations: &'a mut PropertyAnimations,
-        property_id: &str,
-        element_id: Option<PropertyElementId>,
-        scalar_index: Option<usize>,
-    ) -> Option<&'a mut ScalarTrack> {
-        animations
-            .property_mut(property_id)?
-            .element_mut(element_id)?
-            .scalar_mut(scalar_index)
-    }
-
-    fn enable_animation(
-        animations: &mut PropertyAnimations,
-        property_id: &str,
-        element_id: Option<PropertyElementId>,
-        scalar_index: Option<usize>,
-        values: &PropertyValues,
-        ty: &PropertyType,
-    ) -> bool {
-        if animations
-            .property(property_id)
-            .and_then(|property| property.element(element_id))
-            .and_then(|element| element.scalar(scalar_index))
-            .is_some()
-        {
-            return false;
-        }
-        let Some(value) = values
-            .property(property_id)
-            .and_then(|value| value.element(element_id))
-            .and_then(|value| value.scalar_at(scalar_index))
-        else {
-            return false;
-        };
-        let Some(scalar_type) = (match (element_id, ty) {
-            (Some(_), PropertyType::Array { element_type, .. })
-            | (None, PropertyType::Value(element_type)) => element_type.scalar_at(scalar_index),
-            _ => None,
-        }) else {
-            return false;
-        };
-        let Some(track) = ScalarTrack::from_value(value.clone(), scalar_type) else {
-            return false;
-        };
-        animations
-            .property_or_insert(property_id)
-            .element_or_insert(element_id)
-            .insert(scalar_index, track)
-    }
-
-    pub(crate) fn set_property_animation_enabled(
-        &mut self,
-        item_id: ItemId,
-        effect_id: Option<EffectInstanceId>,
-        property_id: &str,
-        element_id: Option<PropertyElementId>,
-        scalar_index: Option<usize>,
-        enabled: bool,
-    ) -> bool {
-        let Some(property) = self.property_schema(item_id, effect_id, property_id) else {
-            return false;
-        };
-        if !property.is_editable(scalar_index) {
-            return false;
-        }
-        if !enabled {
-            return self
-                .animations_mut(item_id, effect_id)
-                .is_some_and(|animations| {
-                    let Some(property) = animations.property_mut(property_id) else {
-                        return false;
-                    };
-                    let Some(element) = property.element_mut(element_id) else {
-                        return false;
-                    };
-                    let changed = element.remove(scalar_index);
-                    if property.is_empty() {
-                        animations.remove_property_if_empty(property_id);
-                    }
-                    changed
-                });
-        }
-        let Some(item) = self.items.get_mut(&item_id).map(Arc::make_mut) else {
-            return false;
-        };
-        match effect_id {
-            Some(effect_id) => {
-                let Some(effect) = item
-                    .effects
-                    .iter_mut()
-                    .find(|effect| effect.id == effect_id)
-                else {
-                    return false;
-                };
-                let Some((animatable, animation_type)) = effect
-                    .schema()
-                    .property(property_id)
-                    .map(|property| (property.is_animatable(scalar_index), property.ty().clone()))
-                else {
-                    return false;
-                };
-                if !animatable {
-                    return false;
-                }
-                Self::enable_animation(
-                    &mut effect.animations,
-                    property_id,
-                    element_id,
-                    scalar_index,
-                    &effect.properties,
-                    &animation_type,
-                )
-            }
-            None => {
-                let Some(schema) = item.schema() else {
-                    return false;
-                };
-                let Some((animatable, animation_type, is_size)) =
-                    schema.property(property_id).map(|property| {
-                        (
-                            property.is_animatable(scalar_index),
-                            property.ty().clone(),
-                            schema.is_size_property(property_id),
-                        )
-                    })
-                else {
-                    return false;
-                };
-                let preserves_aspect_ratio = item.preserves_aspect_ratio();
-                if !animatable {
-                    return false;
-                }
-                if is_size && preserves_aspect_ratio && scalar_index == Some(1) {
-                    return false;
-                }
-                Self::enable_animation(
-                    &mut item.animations,
-                    property_id,
-                    element_id,
-                    scalar_index,
-                    &item.properties,
-                    &animation_type,
-                )
-            }
-        }
-    }
-
-    pub(super) fn set_property_animation_stop(
-        &mut self,
-        location: PropertyAnimationLocation<'_>,
-        index: usize,
-        value: PropertyValue,
-        focused_segment: Option<usize>,
-    ) -> bool {
-        let Some(property) =
-            self.property_schema(location.item_id, location.effect_id, location.property_id)
-        else {
-            return false;
-        };
-        if !property.is_editable(location.scalar_index) {
-            return false;
-        }
-        if !property
-            .scalar_constraints(location.scalar_index)
-            .allows(&value)
-        {
-            return false;
-        }
-        let Some(animation) = self
-            .animations_mut(location.item_id, location.effect_id)
-            .and_then(|animations| {
-                Self::animation_mut(
-                    animations,
-                    location.property_id,
-                    location.element_id,
-                    location.scalar_index,
-                )
-            })
-        else {
-            return false;
-        };
-        animation.set_stop(index, value, focused_segment)
-    }
-
-    pub(super) fn insert_property_animation_stop(
-        &mut self,
-        location: PropertyAnimationLocation<'_>,
-        position: f32,
-        value: PropertyValue,
-    ) -> Option<usize> {
-        let property =
-            self.property_schema(location.item_id, location.effect_id, location.property_id)?;
-        if !property.is_editable(location.scalar_index) {
-            return None;
-        }
-        if !property
-            .scalar_constraints(location.scalar_index)
-            .allows(&value)
-        {
-            return None;
-        }
-        self.animations_mut(location.item_id, location.effect_id)
-            .and_then(|animations| {
-                Self::animation_mut(
-                    animations,
-                    location.property_id,
-                    location.element_id,
-                    location.scalar_index,
-                )
-            })?
-            .insert_stop(position, value)
-    }
-
-    fn property_schema(
-        &self,
-        item_id: ItemId,
-        effect_id: Option<EffectInstanceId>,
-        property_id: &str,
-    ) -> Option<&PropertySchema> {
-        let item = self.items.get(&item_id)?;
-        match effect_id {
-            Some(effect_id) => item
-                .effects
-                .iter()
-                .find(|effect| effect.id == effect_id)?
-                .schema()
-                .property(property_id),
-            None => item.schema()?.property(property_id),
-        }
-    }
-
-    pub(super) fn set_property_animation_handle(
-        &mut self,
-        location: PropertyAnimationLocation<'_>,
-        segment: usize,
-        handle: BezierHandle,
-        position: [f32; 2],
-    ) -> bool {
-        let Some(property) =
-            self.property_schema(location.item_id, location.effect_id, location.property_id)
-        else {
-            return false;
-        };
-        if !property.is_editable(location.scalar_index) {
-            return false;
-        }
-        self.animations_mut(location.item_id, location.effect_id)
-            .and_then(|animations| {
-                Self::animation_mut(
-                    animations,
-                    location.property_id,
-                    location.element_id,
-                    location.scalar_index,
-                )
-            })
-            .is_some_and(|animation| animation.set_segment_handle(segment, handle, position))
-    }
-
-    pub(super) fn set_property_animation_interpolation(
-        &mut self,
-        location: PropertyAnimationLocation<'_>,
-        segment: usize,
-        interpolation: SegmentInterpolation,
-    ) -> bool {
-        let Some(property) =
-            self.property_schema(location.item_id, location.effect_id, location.property_id)
-        else {
-            return false;
-        };
-        if !property.is_editable(location.scalar_index) {
-            return false;
-        }
-        let Some(animation) = self
-            .animations_mut(location.item_id, location.effect_id)
-            .and_then(|animations| {
-                Self::animation_mut(
-                    animations,
-                    location.property_id,
-                    location.element_id,
-                    location.scalar_index,
-                )
-            })
-        else {
-            return false;
-        };
-        animation.set_segment_interpolation(segment, interpolation)
-    }
-
-    pub(super) fn remove_property_animation_stop(
-        &mut self,
-        location: PropertyAnimationLocation<'_>,
-        stop: usize,
-    ) -> bool {
-        let Some(property) =
-            self.property_schema(location.item_id, location.effect_id, location.property_id)
-        else {
-            return false;
-        };
-        if !property.is_editable(location.scalar_index) {
-            return false;
-        }
-        self.animations_mut(location.item_id, location.effect_id)
-            .and_then(|animations| {
-                Self::animation_mut(
-                    animations,
-                    location.property_id,
-                    location.element_id,
-                    location.scalar_index,
-                )
-            })
-            .is_some_and(|animation| animation.remove_stop(stop))
-    }
-
-    pub(super) fn move_property_animation_stop(
-        &mut self,
-        location: PropertyAnimationLocation<'_>,
-        stop: usize,
-        position: f32,
-    ) -> bool {
-        let Some(property) =
-            self.property_schema(location.item_id, location.effect_id, location.property_id)
-        else {
-            return false;
-        };
-        if !property.is_editable(location.scalar_index) {
-            return false;
-        }
-        self.animations_mut(location.item_id, location.effect_id)
-            .and_then(|animations| {
-                Self::animation_mut(
-                    animations,
-                    location.property_id,
-                    location.element_id,
-                    location.scalar_index,
-                )
-            })
-            .is_some_and(|animation| animation.move_stop(stop, position))
     }
 
     pub(crate) fn remove_item_effect(

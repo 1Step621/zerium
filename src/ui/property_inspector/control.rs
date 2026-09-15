@@ -757,10 +757,7 @@ impl PropertyInspector {
         time: TimelineTime,
     ) -> Vec<AnimationStopControl> {
         let progress = item.animation_progress_at_time(time);
-        let Some(track) = item
-            .property_animation(effect_id, property_id)
-            .and_then(|property| property.element(element_id))
-            .and_then(|element| element.scalar(scalar_index))
+        let Some(track) = item.animation_track(effect_id, property_id, element_id, scalar_index)
         else {
             return Vec::new();
         };
