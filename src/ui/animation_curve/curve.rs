@@ -223,18 +223,12 @@ impl AnimationCurveEditor {
         value
     }
 
-    pub(super) fn begin_handle_drag(
-        &mut self,
-        point: CurvePoint,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn begin_handle_drag(&mut self, point: CurvePoint, cx: &mut Context<Self>) {
         self.graph_interaction = GraphInteraction::HandleDrag { point };
         self.finish_playhead_scrub(cx);
         self.editor
             .update(cx, |editor, _| editor.finish_history_group());
         self.selected_segment = None;
-        self.focus_handle.focus(window, cx);
         cx.notify();
     }
 

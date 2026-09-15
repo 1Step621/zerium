@@ -597,7 +597,6 @@ impl Timeline {
         &mut self,
         layer_index: usize,
         event: &MouseDownEvent,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.context_menu = None;
@@ -616,7 +615,6 @@ impl Timeline {
             baseline,
             active: false,
         });
-        window.focus(&self.focus_handle, cx);
         cx.notify();
         cx.stop_propagation();
     }
@@ -629,7 +627,7 @@ impl Timeline {
         cx: &mut Context<Self>,
     ) {
         if is_marquee_pointer_down(event) {
-            self.begin_marquee_selection(layer_index, event, window, cx);
+            self.begin_marquee_selection(layer_index, event, cx);
         } else {
             self.begin_playhead_scrub(event, window, cx);
         }
@@ -795,7 +793,6 @@ impl Timeline {
         &mut self,
         item_id: ItemId,
         event: &MouseDownEvent,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.editor
@@ -832,7 +829,6 @@ impl Timeline {
             pointer_x: f32::from(event.position.x),
             pointer_y: f32::from(event.position.y),
         });
-        window.focus(&self.focus_handle, cx);
         cx.stop_propagation();
     }
 
@@ -840,7 +836,6 @@ impl Timeline {
         &mut self,
         item_id: ItemId,
         event: &MouseDownEvent,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if event.modifiers.shift {
@@ -851,11 +846,10 @@ impl Timeline {
                     cx.notify();
                 }
             });
-            window.focus(&self.focus_handle, cx);
             cx.stop_propagation();
             return;
         }
-        self.prepare_item_move(item_id, event, window, cx);
+        self.prepare_item_move(item_id, event, cx);
     }
 
     fn select_item(&mut self, item_id: ItemId, event: &MouseDownEvent, cx: &mut Context<Self>) {
@@ -1143,7 +1137,6 @@ impl Timeline {
             self.editor
                 .update_if_changed(cx, |editor| editor.select(item_id));
         }
-        window.focus(&self.focus_handle, cx);
     }
 
     fn open_context_menu(
@@ -1163,58 +1156,46 @@ impl Timeline {
             .map(|target| (target.layer, target.start));
         let timeline = cx.entity();
         let content = if let Some(item_id) = target_item {
-            let menu = PopupMenu::build(window, cx, move |menu, _, _| {
+            let menu = PopupMenu::build(window, cx, move |menu, _, cx| {
+                let action_context = timeline.read(cx).focus_handle.clone();
                 let copy_timeline = timeline.clone();
                 let cut_timeline = timeline.clone();
                 let paste_timeline = timeline.clone();
-                menu.item(PopupMenuItem::new("コピー").on_click(move |_, window, cx| {
-                    let focus_handle = copy_timeline.read(cx).focus_handle.clone();
+                menu.item(PopupMenuItem::new("コピー").on_click(move |_, _, cx| {
                     copy_timeline.update(cx, |timeline, cx| {
                         timeline.copy_selected_items(cx);
                     });
-                    window.focus(&focus_handle, cx);
                 }))
-                .item(
-                    PopupMenuItem::new("切り取り").on_click(move |_, window, cx| {
-                        let focus_handle = cut_timeline.read(cx).focus_handle.clone();
-                        cut_timeline.update(cx, |timeline, cx| {
-                            timeline.cut_selected_items(cx);
-                        });
-                        window.focus(&focus_handle, cx);
-                    }),
-                )
+                .item(PopupMenuItem::new("切り取り").on_click(move |_, _, cx| {
+                    cut_timeline.update(cx, |timeline, cx| {
+                        timeline.cut_selected_items(cx);
+                    });
+                }))
                 .when(can_paste, |menu| {
-                    menu.item(
-                        PopupMenuItem::new("貼り付け").on_click(move |_, window, cx| {
-                            let focus_handle = paste_timeline.read(cx).focus_handle.clone();
-                            paste_timeline.update(cx, |timeline, cx| {
-                                timeline.paste_items_at(paste_target, cx);
-                            });
-                            window.focus(&focus_handle, cx);
-                        }),
-                    )
+                    menu.item(PopupMenuItem::new("貼り付け").on_click(move |_, _, cx| {
+                        paste_timeline.update(cx, |timeline, cx| {
+                            timeline.paste_items_at(paste_target, cx);
+                        });
+                    }))
                 })
                 .separator()
                 .when(can_group, |menu| {
                     let group_timeline = timeline.clone();
-                    menu.item(PopupMenuItem::new("シーンにまとめる").on_click(
-                        move |_, window, cx| {
-                            let focus_handle = group_timeline.read(cx).focus_handle.clone();
+                    menu.item(
+                        PopupMenuItem::new("シーンにまとめる").on_click(move |_, _, cx| {
                             group_timeline.update(cx, |timeline, cx| {
                                 timeline.group_selected_as_scene(cx);
                             });
-                            window.focus(&focus_handle, cx);
-                        },
-                    ))
+                        }),
+                    )
                     .separator()
                 })
-                .item(PopupMenuItem::new("削除").on_click(move |_, window, cx| {
-                    let focus_handle = timeline.read(cx).focus_handle.clone();
+                .item(PopupMenuItem::new("削除").on_click(move |_, _, cx| {
                     timeline.update(cx, |timeline, cx| {
                         timeline.remove_item(item_id, cx);
                     });
-                    window.focus(&focus_handle, cx);
                 }))
+                .action_context(action_context)
             });
             cx.subscribe(&menu, |this, _, _: &DismissEvent, cx| {
                 this.context_menu = None;
@@ -1972,8 +1953,8 @@ impl Timeline {
                 })
                 .on_mouse_down(
                     MouseButton::Left,
-                    cx.listener(move |this, event, window, cx| {
-                        this.begin_item_interaction(item_id, event, window, cx);
+                    cx.listener(move |this, event, _, cx| {
+                        this.begin_item_interaction(item_id, event, cx);
                     }),
                 )
                 .on_click(cx.listener(move |this, event, _, cx| {
@@ -2174,8 +2155,8 @@ impl Timeline {
                     )
                     .on_mouse_down(
                         MouseButton::Right,
-                        cx.listener(move |this, event, window, cx| {
-                            this.begin_marquee_selection(layer_index, event, window, cx);
+                        cx.listener(move |this, event, _, cx| {
+                            this.begin_marquee_selection(layer_index, event, cx);
                         }),
                     )
                     .on_scroll_wheel(cx.listener(Self::on_track_scroll))
@@ -2297,10 +2278,14 @@ impl Render for Timeline {
         };
         let timeline = cx.entity();
         let file_drop_error = self.file_drop_error.clone();
+        let focus_handle = self.focus_handle.clone();
 
         div()
             .relative()
             .track_focus(&self.focus_handle)
+            .capture_any_mouse_down(move |_, window, cx| {
+                focus_handle.focus(window, cx);
+            })
             .size_full()
             .flex()
             .flex_col()

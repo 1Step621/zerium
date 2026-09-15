@@ -82,6 +82,7 @@ impl Render for AnimationCurveEditor {
         let curve = selected.animation.curve.clone();
         let playhead_progress = selected.playhead_progress;
         let curve_editor = cx.entity();
+        let focus_handle = self.focus_handle.clone();
         let graph_editor = curve_editor.clone();
         let stops = curve.stops().to_vec();
         let stop_count = stops.len();
@@ -171,9 +172,7 @@ impl Render for AnimationCurveEditor {
                 let curve_editor = curve_editor.clone();
                 move |_, window, cx| {
                     let position = window.mouse_position();
-                    curve_editor.update(cx, |editor, cx| {
-                        editor.resolve_graph_click(position, window, cx)
-                    });
+                    curve_editor.update(cx, |editor, cx| editor.resolve_graph_click(position, cx));
                     cx.stop_propagation();
                 }
             })
@@ -293,10 +292,10 @@ impl Render for AnimationCurveEditor {
                                     })
                                     .bg(colors.background)
                                     .cursor_pointer()
-                                    .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                                    .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                                         cx.stop_propagation();
                                         select_editor.update(cx, |editor, cx| {
-                                            editor.begin_handle_drag(point, window, cx);
+                                            editor.begin_handle_drag(point, cx);
                                         });
                                     })
                                     .on_click(|_, _, cx| cx.stop_propagation())
@@ -337,10 +336,10 @@ impl Render for AnimationCurveEditor {
                                     })
                                     .bg(colors.background)
                                     .cursor_pointer()
-                                    .on_mouse_down(MouseButton::Left, move |_, window, cx| {
+                                    .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                                         cx.stop_propagation();
                                         select_editor.update(cx, |editor, cx| {
-                                            editor.begin_handle_drag(point, window, cx);
+                                            editor.begin_handle_drag(point, cx);
                                         });
                                     })
                                     .on_click(|_, _, cx| cx.stop_propagation())
@@ -400,10 +399,12 @@ impl Render for AnimationCurveEditor {
                             .w_full()
                             .label(interpolation_label(interpolation))
                             .dropdown_caret(true)
-                            .dropdown_menu_with_anchor(Corner::TopLeft, move |menu, window, _| {
+                            .dropdown_menu_with_anchor(Corner::TopLeft, move |menu, window, cx| {
                                 let linear_editor = interpolation_editor.clone();
                                 let hold_editor = interpolation_editor.clone();
                                 let custom_editor = interpolation_editor.clone();
+                                let action_context =
+                                    interpolation_editor.read(cx).focus_handle.clone();
                                 let max_height =
                                     (window.viewport_size().height - px(16.)).min(px(320.));
                                 let menu = menu
@@ -460,6 +461,7 @@ impl Render for AnimationCurveEditor {
                                                 }),
                                         )
                                     })
+                                    .action_context(action_context)
                             }),
                     )
                     .into_any_element(),
@@ -469,6 +471,8 @@ impl Render for AnimationCurveEditor {
         let graph = graph
             .children(segment_editor)
             .context_menu(move |menu, window, cx| {
+                let action_context = context_menu_editor.read(cx).focus_handle.clone();
+                let menu = menu.action_context(action_context);
                 let position = window.mouse_position();
                 let Some(index) = context_menu_editor
                     .read(cx)
@@ -544,10 +548,10 @@ impl Render for AnimationCurveEditor {
                                     .hover(move |style| style.bg(fill.lighten(0.12)))
                                     .active(move |style| style.bg(fill.darken(0.12)))
                                     .cursor_pointer()
-                                    .on_click(move |_, window, cx| {
+                                    .on_click(move |_, _, cx| {
                                         cx.stop_propagation();
                                         segment_editor.update(cx, |editor, cx| {
-                                            editor.focus_source_segment(segment, window, cx);
+                                            editor.focus_source_segment(segment, cx);
                                         });
                                     })
                             },
@@ -615,6 +619,9 @@ impl Render for AnimationCurveEditor {
                             .bg(colors.foreground),
                     )
                     .context_menu(move |menu, window, cx| {
+                        let action_context =
+                            overview_context_menu_editor.read(cx).focus_handle.clone();
+                        let menu = menu.action_context(action_context);
                         let position = window.mouse_position();
                         let (source_stop, frame) = {
                             let editor = overview_context_menu_editor.read(cx);
@@ -662,6 +669,9 @@ impl Render for AnimationCurveEditor {
 
         div()
             .track_focus(&self.focus_handle)
+            .capture_any_mouse_down(move |_, window, cx| {
+                focus_handle.focus(window, cx);
+            })
             .size_full()
             .flex()
             .flex_col()

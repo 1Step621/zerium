@@ -205,25 +205,14 @@ impl AnimationCurveEditor {
             .map(|(segment, _)| segment)
     }
 
-    fn set_selected_segment(
-        &mut self,
-        segment: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn set_selected_segment(&mut self, segment: usize, cx: &mut Context<Self>) {
         self.editor
             .update(cx, |editor, _| editor.finish_history_group());
         self.selected_segment = Some(segment);
-        self.focus_handle.focus(window, cx);
         cx.notify();
     }
 
-    pub(super) fn focus_source_segment(
-        &mut self,
-        segment: usize,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn focus_source_segment(&mut self, segment: usize, cx: &mut Context<Self>) {
         let Some(selected) = self.selected_curve(cx) else {
             return;
         };
@@ -244,7 +233,6 @@ impl AnimationCurveEditor {
         self.selected_segment = None;
         self.transport
             .update(cx, |transport, cx| transport.seek(frame, cx));
-        self.focus_handle.focus(window, cx);
         cx.notify();
     }
 
@@ -350,7 +338,6 @@ impl AnimationCurveEditor {
     pub(super) fn resolve_graph_click(
         &mut self,
         position: gpui::Point<Pixels>,
-        window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         if matches!(self.graph_interaction, GraphInteraction::SuppressClick) {
@@ -359,7 +346,7 @@ impl AnimationCurveEditor {
         }
         self.graph_interaction = GraphInteraction::Idle;
         if let Some(segment) = self.segment_at_position(position, cx) {
-            self.set_selected_segment(segment, window, cx);
+            self.set_selected_segment(segment, cx);
         } else {
             self.clear_selection(cx);
             let in_plot = self

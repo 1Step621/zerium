@@ -1,5 +1,5 @@
 use ::ui::{
-    ActiveTheme as _, ContextModal as _, Root, Sizable as _,
+    ActiveTheme as _, Root, Sizable as _,
     button::{Button, ButtonVariants as _},
     menu::{PopupMenuItem, popup_menu::PopupMenuExt as _},
     resizable::{h_resizable, resizable_panel, v_resizable},
@@ -53,13 +53,9 @@ impl Workspace {
     fn copy_selected_items(
         &mut self,
         _: &CopySelectedItems,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if window.has_focused_input(cx) {
-            cx.propagate();
-            return;
-        }
         if self
             .timeline
             .update(cx, |timeline, cx| timeline.copy_selected_items(cx))
@@ -71,13 +67,9 @@ impl Workspace {
     fn cut_selected_items(
         &mut self,
         _: &CutSelectedItems,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if window.has_focused_input(cx) {
-            cx.propagate();
-            return;
-        }
         if self
             .timeline
             .update(cx, |timeline, cx| timeline.cut_selected_items(cx))
@@ -86,11 +78,7 @@ impl Workspace {
         }
     }
 
-    fn paste_items(&mut self, _: &PasteItems, window: &mut Window, cx: &mut Context<Self>) {
-        if window.has_focused_input(cx) {
-            cx.propagate();
-            return;
-        }
+    fn paste_items(&mut self, _: &PasteItems, _window: &mut Window, cx: &mut Context<Self>) {
         if self
             .timeline
             .update(cx, |timeline, cx| timeline.paste_items(cx))
@@ -102,39 +90,28 @@ impl Workspace {
     fn delete_selected_item(
         &mut self,
         _: &DeleteSelectedItem,
-        window: &mut Window,
+        _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if window.has_focused_input(cx) {
-            cx.propagate();
-            return;
-        }
         self.timeline
             .update(cx, |timeline, cx| timeline.remove_selected_item(cx));
     }
 
-    fn toggle_playback(&mut self, _: &TogglePlayback, window: &mut Window, cx: &mut Context<Self>) {
-        if window.has_focused_input(cx) {
-            cx.propagate();
-            return;
-        }
+    fn toggle_playback(
+        &mut self,
+        _: &TogglePlayback,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         self.timeline
             .update(cx, |timeline, cx| timeline.toggle_playback(cx));
     }
 
-    fn undo(&mut self, _: &Undo, window: &mut Window, cx: &mut Context<Self>) {
-        if window.has_focused_input(cx) {
-            cx.propagate();
-            return;
-        }
+    fn undo(&mut self, _: &Undo, _window: &mut Window, cx: &mut Context<Self>) {
         self.timeline.update(cx, |timeline, cx| timeline.undo(cx));
     }
 
-    fn redo(&mut self, _: &Redo, window: &mut Window, cx: &mut Context<Self>) {
-        if window.has_focused_input(cx) {
-            cx.propagate();
-            return;
-        }
+    fn redo(&mut self, _: &Redo, _window: &mut Window, cx: &mut Context<Self>) {
         self.timeline.update(cx, |timeline, cx| timeline.redo(cx));
     }
 

@@ -1054,7 +1054,6 @@ impl PropertyInspector {
                     &argument.id,
                     SceneArgumentSetting::Default,
                     &render.inspector,
-                    render.focus_handle,
                 ))
                 .child(Self::scene_argument_setting_row(
                     "最小",
@@ -1063,7 +1062,6 @@ impl PropertyInspector {
                     &argument.id,
                     SceneArgumentSetting::Min,
                     &render.inspector,
-                    render.focus_handle,
                 ))
                 .child(Self::scene_argument_setting_row(
                     "最大",
@@ -1072,7 +1070,6 @@ impl PropertyInspector {
                     &argument.id,
                     SceneArgumentSetting::Max,
                     &render.inspector,
-                    render.focus_handle,
                 ))
                 .into_any_element(),
         )
@@ -1085,7 +1082,6 @@ impl PropertyInspector {
         argument_id: &str,
         setting: SceneArgumentSetting,
         inspector: &Entity<Self>,
-        focus_handle: &FocusHandle,
     ) -> gpui::AnyElement {
         let drag = SceneArgumentValueDrag {
             inspector_id: inspector.entity_id(),
@@ -1096,7 +1092,6 @@ impl PropertyInspector {
         let drag_origin = drag.clone();
         let drag_inspector = inspector.clone();
         let drag_input = input.clone();
-        let drag_focus_handle = focus_handle.clone();
         div()
             .w_full()
             .flex()
@@ -1120,7 +1115,6 @@ impl PropertyInspector {
                     .on_drag(drag, move |drag, _, window, cx| {
                         cx.stop_propagation();
                         drag_input.update(cx, |input, cx| input.unselect(window, cx));
-                        drag_focus_handle.focus(window, cx);
                         cx.new(|_| drag.clone())
                     })
                     .child(NumberInput::new(input).small().w_full()),

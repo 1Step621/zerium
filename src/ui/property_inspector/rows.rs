@@ -8,7 +8,6 @@ pub(super) struct RenderCtx<'a> {
     pub colors: ThemeColor,
     pub editor: &'a Entity<TimelineEditor>,
     pub inspector: Entity<PropertyInspector>,
-    pub focus_handle: &'a FocusHandle,
     pub store: &'a ControlStore,
     pub font_names: &'a [String],
     pub item_id: ItemId,
@@ -313,7 +312,6 @@ impl PropertyInspector {
         let drag_input_id = input_id;
         let drag_animation_stop = animation_stop;
         let drag_input = input.clone();
-        let drag_focus_handle = ctx.focus_handle.clone();
 
         div()
             .id(element_id)
@@ -338,7 +336,6 @@ impl PropertyInspector {
                 this.on_drag(drag, move |drag, _, window, cx| {
                     cx.stop_propagation();
                     drag_input.update(cx, |input, cx| input.unselect(window, cx));
-                    drag_focus_handle.focus(window, cx);
                     cx.new(|_| drag.clone())
                 })
             })

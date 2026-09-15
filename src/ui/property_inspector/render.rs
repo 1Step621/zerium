@@ -32,6 +32,9 @@ impl Render for PropertyInspector {
             .overflow_hidden()
             .on_drag_move(cx.listener(
                 |this, event: &DragMoveEvent<PropertyValueDrag>, window, cx| {
+                    if !this.focus_handle.is_focused(window) {
+                        this.focus_handle.focus(window, cx);
+                    }
                     let drag = event.drag(cx).clone();
                     cx.set_active_drag_cursor_style(CursorStyle::ResizeLeftRight, window);
                     this.handle_value_drag(
@@ -45,6 +48,9 @@ impl Render for PropertyInspector {
             ))
             .on_drag_move(cx.listener(
                 |this, event: &DragMoveEvent<SceneArgumentValueDrag>, window, cx| {
+                    if !this.focus_handle.is_focused(window) {
+                        this.focus_handle.focus(window, cx);
+                    }
                     let drag = event.drag(cx).clone();
                     cx.set_active_drag_cursor_style(CursorStyle::ResizeLeftRight, window);
                     this.handle_scene_argument_value_drag(
@@ -89,7 +95,6 @@ impl PropertyInspector {
             colors: cx.theme().colors,
             editor: &self.editor,
             inspector: cx.entity(),
-            focus_handle: &self.focus_handle,
             store: &self.store,
             font_names: &self.font_names,
             item_id: selection.item.id,
