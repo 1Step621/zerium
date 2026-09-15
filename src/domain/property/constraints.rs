@@ -13,26 +13,15 @@ pub(crate) struct PropertyConstraints {
     pub min: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub max: Option<f64>,
-    #[serde(rename = "elements", default, skip_serializing_if = "Vec::is_empty")]
-    scalars: Vec<PropertyConstraints>,
 }
 
 impl PropertyConstraints {
-    pub(crate) fn from_bounds(min: Option<f64>, max: Option<f64>) -> Self {
-        Self {
-            min,
-            max,
-            scalars: Vec::new(),
-        }
+    pub(crate) fn is_default(&self) -> bool {
+        self == &Self::default()
     }
 
-    pub(crate) fn for_scalar(&self, scalar_index: usize) -> &Self {
-        static DEFAULT: PropertyConstraints = PropertyConstraints {
-            min: None,
-            max: None,
-            scalars: Vec::new(),
-        };
-        self.scalars.get(scalar_index).unwrap_or(&DEFAULT)
+    pub(crate) fn from_bounds(min: Option<f64>, max: Option<f64>) -> Self {
+        Self { min, max }
     }
 
     pub(in crate::domain) fn allows(&self, value: &PropertyValue) -> bool {
@@ -40,13 +29,7 @@ impl PropertyConstraints {
             PropertyValue::F32(value) => self.allows_number(f64::from(*value)),
             PropertyValue::I32(value) => self.allows_number(f64::from(*value)),
             PropertyValue::U32(value) => self.allows_number(f64::from(*value)),
-            PropertyValue::Tuple(values) => values
-                .iter()
-                .enumerate()
-                .all(|(index, value)| self.for_scalar(index).allows(value)),
-            PropertyValue::Array(values) => {
-                values.iter().all(|element| self.allows(element.value()))
-            }
+            PropertyValue::Tuple(_) | PropertyValue::Array(_) => false,
             PropertyValue::Color(values) => values
                 .iter()
                 .all(|value| self.allows_number(f64::from(*value))),
@@ -71,21 +54,7 @@ impl PropertyConstraints {
             }
             PropertyValue::I32(value) => Some(PropertyValue::I32(self.clamp_i32(*value)?)),
             PropertyValue::U32(value) => Some(PropertyValue::U32(self.clamp_u32(*value)?)),
-            PropertyValue::Tuple(values) => values
-                .iter()
-                .enumerate()
-                .map(|(index, value)| self.for_scalar(index).clamp_value(value))
-                .collect::<Option<Vec<_>>>()
-                .map(PropertyValue::Tuple),
-            PropertyValue::Array(values) => values
-                .iter()
-                .map(|element| {
-                    let mut constrained = element.clone();
-                    *constrained.value_mut() = self.clamp_value(element.value())?;
-                    Some(constrained)
-                })
-                .collect::<Option<Vec<_>>>()
-                .map(PropertyValue::Array),
+            PropertyValue::Tuple(_) | PropertyValue::Array(_) => None,
             PropertyValue::Color(values) => {
                 let mut constrained = *values;
                 for value in &mut constrained {
@@ -156,7 +125,7 @@ impl PropertyConstraints {
         owner_id: &str,
         property_id: &str,
         ty: &PropertyType,
-        default: &PropertyValue,
+        default: Option<&PropertyValue>,
     ) -> Result<(), PropertyError> {
         let invalid = || {
             PropertyError::invalid_definition(format!(
@@ -166,7 +135,7 @@ impl PropertyConstraints {
         if !self.bounds_valid() || !self.valid_for_type(ty) {
             return Err(invalid());
         }
-        if ty.allows(default) && !self.allows(default) {
+        if default.is_some_and(|default| ty.allows(default) && !self.allows(default)) {
             return Err(PropertyError::invalid_definition(format!(
                 "{owner_kind} '{owner_id}' property '{property_id}' default violates its constraints"
             )));
@@ -190,24 +159,6 @@ impl PropertyConstraints {
                 ..
             } => value_type,
         };
-        if !self.scalars.is_empty() {
-            let PropertyValueType::Tuple(tuple) = value_type else {
-                return false;
-            };
-            return self.min.is_none()
-                && self.max.is_none()
-                && self.scalars.len() == tuple.scalar_count()
-                && self
-                    .scalars
-                    .iter()
-                    .zip(tuple.scalars())
-                    .all(|(constraints, ty)| {
-                        constraints.scalars.is_empty()
-                            && constraints.bounds_valid()
-                            && ((constraints.min.is_none() && constraints.max.is_none())
-                                || constraints.valid_for_scalar(ty))
-                    });
-        }
         let constrained = self.min.is_some() || self.max.is_some();
         if !constrained {
             return true;

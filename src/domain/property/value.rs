@@ -241,20 +241,18 @@ fn json_f32(value: &Value) -> Option<f32> {
 
 #[derive(Clone, Debug, PartialEq)]
 struct PropertyContract {
-    ty: PropertyType,
-    constraints: super::PropertyConstraints,
+    schema: PropertySchema,
 }
 
 impl PropertyContract {
     fn from_schema(property: &PropertySchema) -> Self {
         Self {
-            ty: property.ty.clone(),
-            constraints: property.constraints.clone(),
+            schema: property.clone(),
         }
     }
 
     fn accepts(&self, value: &PropertyValue) -> bool {
-        self.ty.allows(value) && self.constraints.allows(value)
+        self.schema.accepts_value(value)
     }
 }
 

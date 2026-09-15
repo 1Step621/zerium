@@ -3,8 +3,8 @@ use std::collections::{HashMap, HashSet};
 use crate::domain::animation::{ScalarAnimationAddress, ScalarAnimations};
 use crate::domain::property::materialized_property_values;
 use crate::domain::property::{
-    PropertyAnimatable, PropertyEditable, PropertyElementId, PropertySchema, PropertyType,
-    PropertyValue, PropertyValueType, PropertyValues, ScalarPropertyType,
+    PropertyElementId, PropertySchema, PropertyType, PropertyValue, PropertyValueType,
+    PropertyValues, ScalarPropertyType,
 };
 
 use super::{
@@ -158,7 +158,8 @@ pub(crate) fn project_scene_binding_value(
         schema.ty = PropertyType::Value(PropertyValueType::Scalar(
             tuple.scalars().get(scalar_index)?.clone(),
         ));
-        schema.constraints = schema.constraints.for_scalar(scalar_index).clone();
+        let scalar = schema.scalar(Some(scalar_index)).clone();
+        schema.scalars = vec![scalar];
     } else {
         if !matches!(
             &schema.ty,
@@ -168,12 +169,6 @@ pub(crate) fn project_scene_binding_value(
         }
     }
 
-    schema.ui = schema.ui.to_scalar(scalar_index);
-
-    if let Some(scalar_index) = scalar_index {
-        schema.animatable = schema.animatable.to_scalar(scalar_index);
-        schema.editable = schema.editable.to_scalar(scalar_index);
-    }
     value = schema.constrained_value(&value)?;
     schema.default = value.clone();
     Some((schema, value))
@@ -378,7 +373,7 @@ impl SceneArgumentSchema {
         // A scene argument is its own editable input contract. The source
         // property's editability only controls direct edits on the bound
         // plugin property.
-        property.editable = PropertyEditable::Scalar(true);
+        property.scalar_mut(None).editable = true;
         property.scene_bindable = true;
         Some(Self { property })
     }
@@ -428,7 +423,7 @@ impl SceneArgumentSchema {
         }
         let mut next = self.clone();
         next.property.default = default;
-        next.property.constraints = constraints;
+        next.property.scalar_mut(None).constraints = constraints;
         Some(next)
     }
 
@@ -442,8 +437,8 @@ impl SceneArgumentSchema {
         if self.ty() != &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::F32)) {
             return None;
         }
-        self.property.editable = PropertyEditable::Scalar(false);
-        self.property.animatable = PropertyAnimatable::Scalar(false);
+        self.property.scalar_mut(None).editable = false;
+        self.property.scalar_mut(None).animatable = false;
         self.property.scene_bindable = false;
         Some(self)
     }

@@ -1,86 +1,69 @@
-//! Property schemas, animation permissions, and semantic validation.
+//! Property schemas, scalar metadata, and semantic validation.
 
 use super::{PropertyError, constraints::PropertyConstraints, ui::PropertyUi};
-use crate::domain::property::{PropertyType, PropertyValue, PropertyValueType};
+use crate::domain::property::{PropertyType, PropertyValue, PropertyValueType, ScalarPropertyType};
+use serde::{Deserialize, Serialize};
 
 const MAX_ARRAY_ITEMS: u32 = 1_000_000;
 
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum PropertyAnimatable {
-    Scalar(bool),
-    Tuple(Vec<bool>),
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(default, deny_unknown_fields)]
+pub(crate) struct PropertyScalarSchema {
+    #[serde(skip_serializing_if = "is_true")]
+    pub(in crate::domain) editable: bool,
+    #[serde(skip_serializing_if = "is_false")]
+    pub(in crate::domain) animatable: bool,
+    #[serde(skip_serializing_if = "PropertyConstraints::is_default")]
+    pub(in crate::domain) constraints: PropertyConstraints,
+    #[serde(skip_serializing_if = "PropertyUi::is_default")]
+    pub(in crate::domain) ui: PropertyUi,
 }
 
-impl Default for PropertyAnimatable {
+fn is_true(value: &bool) -> bool {
+    *value
+}
+
+fn is_false(value: &bool) -> bool {
+    !*value
+}
+
+impl Default for PropertyScalarSchema {
     fn default() -> Self {
-        Self::Scalar(false)
-    }
-}
-
-impl PropertyAnimatable {
-    pub(crate) fn is_enabled(&self, scalar_index: Option<usize>) -> bool {
-        match (self, scalar_index) {
-            (Self::Scalar(enabled), None) => *enabled,
-            (Self::Tuple(scalars), Some(index)) => scalars.get(index).copied().unwrap_or(false),
-            _ => false,
-        }
-    }
-
-    pub(crate) fn to_scalar(&self, scalar_index: usize) -> Self {
-        Self::Scalar(self.is_enabled(Some(scalar_index)))
-    }
-
-    fn valid_for(&self, ty: &PropertyValueType) -> bool {
-        match (self, ty) {
-            (Self::Scalar(enabled), PropertyValueType::Scalar(ty)) => {
-                !enabled || ty.is_interpolatable()
-            }
-            (Self::Tuple(scalars), PropertyValueType::Tuple(tuple)) => {
-                scalars.len() == tuple.scalar_count()
-                    && scalars
-                        .iter()
-                        .zip(tuple.scalars())
-                        .all(|(enabled, ty)| !enabled || ty.is_interpolatable())
-            }
-            _ => false,
+        Self {
+            editable: true,
+            animatable: false,
+            constraints: PropertyConstraints::default(),
+            ui: PropertyUi::default(),
         }
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) enum PropertyEditable {
-    Scalar(bool),
-    Tuple(Vec<bool>),
-}
-
-impl Default for PropertyEditable {
-    fn default() -> Self {
-        Self::Scalar(true)
-    }
-}
-
-impl PropertyEditable {
-    pub(crate) fn is_enabled(&self, scalar_index: Option<usize>) -> bool {
-        match (self, scalar_index) {
-            (Self::Scalar(enabled), None) => *enabled,
-            (Self::Tuple(scalars), Some(index)) => scalars.get(index).copied().unwrap_or(false),
-            (Self::Tuple(scalars), None) => scalars.iter().all(|enabled| *enabled),
-            _ => false,
-        }
+impl PropertyScalarSchema {
+    fn valid_for(&self, ty: &ScalarPropertyType) -> bool {
+        !self.animatable || ty.is_interpolatable()
     }
 
-    pub(crate) fn to_scalar(&self, scalar_index: usize) -> Self {
-        Self::Scalar(self.is_enabled(Some(scalar_index)))
+    fn accepts(&self, value: &PropertyValue) -> bool {
+        self.constraints.allows(value)
     }
 
-    fn valid_for(&self, ty: &PropertyValueType) -> bool {
-        match (self, ty) {
-            (Self::Scalar(_), PropertyValueType::Scalar(_)) => true,
-            (Self::Tuple(scalars), PropertyValueType::Tuple(tuple)) => {
-                scalars.len() == tuple.scalar_count()
-            }
-            _ => false,
-        }
+    fn constrain(&self, value: &PropertyValue) -> Option<PropertyValue> {
+        self.constraints.clamp_value(value)
+    }
+
+    fn validate(
+        &self,
+        owner_kind: &str,
+        owner_id: &str,
+        property_id: &str,
+        scalar_type: &ScalarPropertyType,
+        ui_type: &PropertyType,
+        default: Option<&PropertyValue>,
+    ) -> Result<(), PropertyError> {
+        let value_type = PropertyType::Value(PropertyValueType::Scalar(scalar_type.clone()));
+        self.constraints
+            .validate(owner_kind, owner_id, property_id, &value_type, default)?;
+        self.ui.validate(owner_kind, owner_id, property_id, ui_type)
     }
 }
 
@@ -90,28 +73,31 @@ pub(crate) struct PropertySchema {
     pub(in crate::domain) label: String,
     pub(in crate::domain) ty: PropertyType,
     pub(in crate::domain) default: PropertyValue,
-    pub(in crate::domain) editable: PropertyEditable,
-    pub(in crate::domain) animatable: PropertyAnimatable,
+    pub(in crate::domain) scalars: Vec<PropertyScalarSchema>,
     pub(in crate::domain) scene_bindable: bool,
-    pub(in crate::domain) constraints: PropertyConstraints,
-    pub(in crate::domain) ui: PropertyUi,
 }
 
 impl PropertySchema {
+    pub(crate) fn scalar(&self, scalar_index: Option<usize>) -> &PropertyScalarSchema {
+        &self.scalars[scalar_index.unwrap_or(0)]
+    }
+
+    pub(crate) fn scalar_mut(&mut self, scalar_index: Option<usize>) -> &mut PropertyScalarSchema {
+        &mut self.scalars[scalar_index.unwrap_or(0)]
+    }
+
     pub(crate) fn scalar_ui(&self, scalar_index: Option<usize>) -> &PropertyUi {
-        scalar_index.map_or(&self.ui, |index| self.ui.for_scalar(index))
+        &self.scalar(scalar_index).ui
     }
 
     pub(crate) fn scalar_constraints(&self, scalar_index: Option<usize>) -> &PropertyConstraints {
-        scalar_index.map_or(&self.constraints, |index| {
-            self.constraints.for_scalar(index)
-        })
+        &self.scalar(scalar_index).constraints
     }
 
     pub(crate) fn scalar_label(&self, scalar_index: Option<usize>) -> Option<String> {
         scalar_index.map(|index| {
-            self.ui
-                .for_scalar(index)
+            self.scalar(Some(index))
+                .ui
                 .label()
                 .map(str::to_owned)
                 .unwrap_or_else(|| (index + 1).to_string())
@@ -135,39 +121,71 @@ impl PropertySchema {
     }
 
     pub(crate) fn is_editable(&self, scalar_index: Option<usize>) -> bool {
-        self.editable.is_enabled(scalar_index)
+        scalar_index.map_or_else(
+            || self.scalars.iter().all(|scalar| scalar.editable),
+            |index| self.scalar(Some(index)).editable,
+        )
     }
 
     pub(crate) fn is_animatable(&self, scalar_index: Option<usize>) -> bool {
-        self.is_editable(scalar_index) && self.animatable.is_enabled(scalar_index)
+        let scalar = scalar_index.map_or_else(
+            || (self.scalars.len() == 1).then(|| self.scalar(None)),
+            |index| Some(self.scalar(Some(index))),
+        );
+        scalar.is_some_and(|scalar| scalar.editable && scalar.animatable)
     }
 
     pub(crate) const fn is_scene_bindable(&self) -> bool {
         self.scene_bindable
     }
 
-    pub(crate) const fn constraints(&self) -> &PropertyConstraints {
-        &self.constraints
-    }
-
-    pub(crate) const fn ui(&self) -> &PropertyUi {
-        &self.ui
-    }
-
     pub(crate) fn is_visible(&self) -> bool {
-        self.ui.is_visible()
+        self.scalars.iter().any(|scalar| scalar.ui.is_visible())
     }
 
     pub(crate) fn accepts_value(&self, value: &PropertyValue) -> bool {
-        self.ty.allows(value) && self.constraints.allows(value)
+        self.ty.allows(value) && self.accepts_constraints(value)
     }
 
     pub(crate) fn constrained_value(&self, value: &PropertyValue) -> Option<PropertyValue> {
         if !self.ty.allows(value) {
             return None;
         }
-        let constrained = self.constraints.clamp_value(value)?;
+        let mut map =
+            |scalar: &PropertyScalarSchema, value: &PropertyValue| scalar.constrain(value);
+        let constrained = self.map_values(value, &mut map)?;
         self.accepts_value(&constrained).then_some(constrained)
+    }
+
+    fn accepts_constraints(&self, value: &PropertyValue) -> bool {
+        let mut map = |scalar: &PropertyScalarSchema, value: &PropertyValue| {
+            scalar.accepts(value).then(|| value.clone())
+        };
+        self.map_values(value, &mut map).is_some()
+    }
+
+    fn map_values<F>(&self, value: &PropertyValue, map: &mut F) -> Option<PropertyValue>
+    where
+        F: FnMut(&PropertyScalarSchema, &PropertyValue) -> Option<PropertyValue>,
+    {
+        match value {
+            PropertyValue::Tuple(values) => values
+                .iter()
+                .enumerate()
+                .map(|(index, value)| map(&self.scalar(Some(index)), value))
+                .collect::<Option<Vec<_>>>()
+                .map(PropertyValue::Tuple),
+            PropertyValue::Array(values) => values
+                .iter()
+                .map(|element| {
+                    let mut constrained = element.clone();
+                    *constrained.value_mut() = self.map_values(element.value(), map)?;
+                    Some(constrained)
+                })
+                .collect::<Option<Vec<_>>>()
+                .map(PropertyValue::Array),
+            value => map(self.scalar(None), value),
+        }
     }
 
     pub(in crate::domain) fn validate(
@@ -208,18 +226,21 @@ impl PropertySchema {
                 ..
             } => value_type,
         };
-        if !self.editable.valid_for(component_type) {
+        let scalar_types = match component_type {
+            PropertyValueType::Scalar(scalar) => std::slice::from_ref(scalar),
+            PropertyValueType::Tuple(tuple) => tuple.scalars(),
+        };
+        if self.scalars.len() != scalar_types.len()
+            || self
+                .scalars
+                .iter()
+                .zip(scalar_types)
+                .any(|(scalar, ty)| !scalar.valid_for(ty))
+        {
             return Err(self.validation_error(
                 owner_kind,
                 owner_id,
-                "has editable elements that do not match its type",
-            ));
-        }
-        if !self.animatable.valid_for(component_type) {
-            return Err(self.validation_error(
-                owner_kind,
-                owner_id,
-                "has animatable elements that do not match its type",
+                "has scalar metadata that does not match its type",
             ));
         }
         if !self.ty.allows(&self.default) {
@@ -233,10 +254,24 @@ impl PropertySchema {
             return Err(self.validation_error(owner_kind, owner_id, "label must not be empty"));
         }
 
-        self.constraints
-            .validate(owner_kind, owner_id, &self.id, &self.ty, &self.default)?;
-        self.ui
-            .validate(owner_kind, owner_id, &self.id, &self.ty, component_type)
+        for (index, (scalar, ty)) in self.scalars.iter().zip(scalar_types).enumerate() {
+            let scalar_ui_type = PropertyType::Value(PropertyValueType::Scalar(ty.clone()));
+            let ui_type = if matches!(component_type, PropertyValueType::Scalar(_)) {
+                &self.ty
+            } else {
+                &scalar_ui_type
+            };
+            let default = matches!(&self.ty, PropertyType::Value(_))
+                .then(|| self.default.scalar_at(Some(index)).unwrap_or(&self.default));
+            scalar.validate(owner_kind, owner_id, &self.id, ty, ui_type, default)?;
+        }
+        if !self.accepts_value(&self.default) {
+            return Err(PropertyError::invalid_definition(format!(
+                "{owner_kind} '{owner_id}' property '{}' default violates its constraints",
+                self.id
+            )));
+        }
+        Ok(())
     }
 
     fn validation_error(&self, owner_kind: &str, owner_id: &str, message: &str) -> PropertyError {

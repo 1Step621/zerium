@@ -15,8 +15,8 @@ use crate::domain::animation::{
 };
 use crate::domain::media::ImportedMedia;
 use crate::domain::property::{
-    PropertyAnimatable, PropertyEditable, PropertyElementId, PropertySchema, PropertyType,
-    PropertyUi, PropertyValue, ScalarPropertyType,
+    PropertyElementId, PropertyScalarSchema, PropertySchema, PropertyType, PropertyValue,
+    ScalarPropertyType,
 };
 
 use super::{
@@ -600,11 +600,12 @@ impl TimelineEditor {
             label,
             ty: PropertyType::Value(PropertyValueType::Scalar(preset.scalar())),
             default,
-            editable: PropertyEditable::Scalar(true),
-            animatable: PropertyAnimatable::Scalar(preset.scalar().is_interpolatable()),
+            scalars: vec![PropertyScalarSchema {
+                editable: true,
+                animatable: preset.scalar().is_interpolatable(),
+                ..Default::default()
+            }],
             scene_bindable: true,
-            constraints: Default::default(),
-            ui: PropertyUi::default(),
         };
         let schema = SceneArgumentSchema::from_property(schema)
             .expect("supported scene argument types must produce a scalar schema");
@@ -635,11 +636,8 @@ impl TimelineEditor {
             label,
             ty: PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::F32)),
             default: PropertyValue::F32(0.),
-            editable: PropertyEditable::Scalar(true),
-            animatable: PropertyAnimatable::Scalar(false),
+            scalars: vec![PropertyScalarSchema::default()],
             scene_bindable: true,
-            constraints: Default::default(),
-            ui: PropertyUi::default(),
         };
         let schema = SceneArgumentSchema::from_property(schema)
             .expect("expression scene arguments have a supported scalar schema");

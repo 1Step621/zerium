@@ -16,46 +16,74 @@
             "source": "rectangle.wgsl"
           }
         },
-        "editor": { "size": "size" }
+        "editor": {
+          "size": "size"
+        }
       },
       "properties": [
         {
           "id": "position",
-          "type": { "tuple": ["f32", "f32"] },
-          "default": [0, 0],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "X", "unit": "px" },
-              { "label": "Y", "unit": "px" }
-            ]
+          "type": {
+            "tuple": ["f32", "f32"]
           },
+          "default": [0, 0],
           "label": "位置",
-          "constraints": {
-            "elements": [
-              { "min": -1000000, "max": 1000000 },
-              { "min": -1000000, "max": 1000000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "X",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "Y",
+                "unit": "px"
+              }
+            }
+          ]
         },
         {
           "id": "size",
-          "type": { "tuple": ["f32", "f32"] },
-          "default": [320, 180],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "幅", "unit": "px" },
-              { "label": "高さ", "unit": "px" }
-            ]
+          "type": {
+            "tuple": ["f32", "f32"]
           },
+          "default": [320, 180],
           "label": "サイズ",
-          "constraints": {
-            "elements": [
-              { "min": 1, "max": 10000 },
-              { "min": 1, "max": 10000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "幅",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "高さ",
+                "unit": "px"
+              }
+            }
+          ]
         },
         {
           "id": "color",
@@ -93,46 +121,74 @@
             "source": "triangle.wgsl"
           }
         },
-        "editor": { "size": "size" }
+        "editor": {
+          "size": "size"
+        }
       },
       "properties": [
         {
           "id": "position",
-          "type": { "tuple": ["f32", "f32"] },
-          "default": [0, 0],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "X", "unit": "px" },
-              { "label": "Y", "unit": "px" }
-            ]
+          "type": {
+            "tuple": ["f32", "f32"]
           },
+          "default": [0, 0],
           "label": "位置",
-          "constraints": {
-            "elements": [
-              { "min": -1000000, "max": 1000000 },
-              { "min": -1000000, "max": 1000000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "X",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "Y",
+                "unit": "px"
+              }
+            }
+          ]
         },
         {
           "id": "size",
-          "type": { "tuple": ["f32", "f32"] },
-          "default": [240, 200],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "幅", "unit": "px" },
-              { "label": "高さ", "unit": "px" }
-            ]
+          "type": {
+            "tuple": ["f32", "f32"]
           },
+          "default": [240, 200],
           "label": "サイズ",
-          "constraints": {
-            "elements": [
-              { "min": 1, "max": 10000 },
-              { "min": 1, "max": 10000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "幅",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "高さ",
+                "unit": "px"
+              }
+            }
+          ]
         },
         {
           "id": "color",
@@ -175,41 +231,67 @@
       "properties": [
         {
           "id": "position",
-          "type": { "tuple": ["f32", "f32"] },
-          "default": [0, 0],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "X", "unit": "px" },
-              { "label": "Y", "unit": "px" }
-            ]
+          "type": {
+            "tuple": ["f32", "f32"]
           },
+          "default": [0, 0],
           "label": "位置",
-          "constraints": {
-            "elements": [
-              { "min": -1000000, "max": 1000000 },
-              { "min": -1000000, "max": 1000000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "X",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "Y",
+                "unit": "px"
+              }
+            }
+          ]
         },
         {
           "id": "radius",
-          "type": { "tuple": ["f32", "f32"] },
-          "default": [120, 80],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "横", "unit": "px" },
-              { "label": "縦", "unit": "px" }
-            ]
+          "type": {
+            "tuple": ["f32", "f32"]
           },
+          "default": [120, 80],
           "label": "半径",
-          "constraints": {
-            "elements": [
-              { "min": 1, "max": 10000 },
-              { "min": 1, "max": 10000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "横",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "縦",
+                "unit": "px"
+              }
+            }
+          ]
         },
         {
           "id": "color",
@@ -233,52 +315,82 @@
             "source": "polygon.wgsl"
           }
         },
-        "editor": { "size": "size" }
+        "editor": {
+          "size": "size"
+        }
       },
       "properties": [
         {
           "id": "position",
-          "type": { "tuple": ["f32", "f32"] },
-          "default": [0, 0],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "X", "unit": "px" },
-              { "label": "Y", "unit": "px" }
-            ]
+          "type": {
+            "tuple": ["f32", "f32"]
           },
+          "default": [0, 0],
           "label": "位置",
-          "constraints": {
-            "elements": [
-              { "min": -1000000, "max": 1000000 },
-              { "min": -1000000, "max": 1000000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "X",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "Y",
+                "unit": "px"
+              }
+            }
+          ]
         },
         {
           "id": "size",
-          "type": { "tuple": ["f32", "f32"] },
-          "default": [320, 240],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "幅", "unit": "px" },
-              { "label": "高さ", "unit": "px" }
-            ]
+          "type": {
+            "tuple": ["f32", "f32"]
           },
+          "default": [320, 240],
           "label": "サイズ",
-          "constraints": {
-            "elements": [
-              { "min": 1, "max": 10000 },
-              { "min": 1, "max": 10000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "幅",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "高さ",
+                "unit": "px"
+              }
+            }
+          ]
         },
         {
           "id": "points",
           "type": {
             "array": {
-              "type": { "tuple": ["f32", "f32"] },
+              "type": {
+                "tuple": ["f32", "f32"]
+              },
               "min_items": 3,
               "max_items": 1024
             }
@@ -288,20 +400,33 @@
             [100, 100],
             [0, 100]
           ],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "X", "unit": "%", "step": 1 },
-              { "label": "Y", "unit": "%", "step": 1 }
-            ]
-          },
           "label": "頂点",
-          "constraints": {
-            "elements": [
-              { "min": 0, "max": 100 },
-              { "min": 0, "max": 100 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 100
+              },
+              "ui": {
+                "label": "X",
+                "unit": "%",
+                "step": 1
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 100
+              },
+              "ui": {
+                "label": "Y",
+                "unit": "%",
+                "step": 1
+              }
+            }
+          ]
         },
         {
           "id": "color",
@@ -325,46 +450,74 @@
             "source": "line.wgsl"
           }
         },
-        "editor": { "size": "size" }
+        "editor": {
+          "size": "size"
+        }
       },
       "properties": [
         {
           "id": "position",
-          "type": { "tuple": ["f32", "f32"] },
-          "default": [0, 0],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "X", "unit": "px" },
-              { "label": "Y", "unit": "px" }
-            ]
+          "type": {
+            "tuple": ["f32", "f32"]
           },
+          "default": [0, 0],
           "label": "位置",
-          "constraints": {
-            "elements": [
-              { "min": -1000000, "max": 1000000 },
-              { "min": -1000000, "max": 1000000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "X",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "Y",
+                "unit": "px"
+              }
+            }
+          ]
         },
         {
           "id": "size",
-          "type": { "tuple": ["f32", "f32"] },
-          "default": [400, 12],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "長さ", "unit": "px" },
-              { "label": "太さ", "unit": "px" }
-            ]
+          "type": {
+            "tuple": ["f32", "f32"]
           },
+          "default": [400, 12],
           "label": "サイズ",
-          "constraints": {
-            "elements": [
-              { "min": 1, "max": 10000 },
-              { "min": 1, "max": 10000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "長さ",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "太さ",
+                "unit": "px"
+              }
+            }
+          ]
         },
         {
           "id": "angle",
@@ -409,46 +562,74 @@
             "source": "star.wgsl"
           }
         },
-        "editor": { "size": "size" }
+        "editor": {
+          "size": "size"
+        }
       },
       "properties": [
         {
           "id": "position",
-          "type": { "tuple": ["f32", "f32"] },
-          "default": [0, 0],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "X", "unit": "px" },
-              { "label": "Y", "unit": "px" }
-            ]
+          "type": {
+            "tuple": ["f32", "f32"]
           },
+          "default": [0, 0],
           "label": "位置",
-          "constraints": {
-            "elements": [
-              { "min": -1000000, "max": 1000000 },
-              { "min": -1000000, "max": 1000000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "X",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "Y",
+                "unit": "px"
+              }
+            }
+          ]
         },
         {
           "id": "size",
-          "type": { "tuple": ["f32", "f32"] },
-          "default": [240, 240],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "幅", "unit": "px" },
-              { "label": "高さ", "unit": "px" }
-            ]
+          "type": {
+            "tuple": ["f32", "f32"]
           },
+          "default": [240, 240],
           "label": "サイズ",
-          "constraints": {
-            "elements": [
-              { "min": 1, "max": 10000 },
-              { "min": 1, "max": 10000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "幅",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "高さ",
+                "unit": "px"
+              }
+            }
+          ]
         },
         {
           "id": "points",
@@ -526,46 +707,75 @@
           "horizontal_alignment": "horizontal_alignment",
           "vertical_alignment": "vertical_alignment"
         },
-        "editor": { "size": "size", "label": "text" }
+        "editor": {
+          "size": "size",
+          "label": "text"
+        }
       },
       "properties": [
         {
           "id": "position",
-          "type": { "tuple": ["f32", "f32"] },
-          "default": [0, 0],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "X", "unit": "px" },
-              { "label": "Y", "unit": "px" }
-            ]
+          "type": {
+            "tuple": ["f32", "f32"]
           },
+          "default": [0, 0],
           "label": "位置",
-          "constraints": {
-            "elements": [
-              { "min": -1000000, "max": 1000000 },
-              { "min": -1000000, "max": 1000000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "X",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "Y",
+                "unit": "px"
+              }
+            }
+          ]
         },
         {
           "id": "size",
-          "type": { "tuple": ["f32", "f32"] },
-          "default": [640, 240],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "幅", "unit": "px" },
-              { "label": "高さ", "unit": "px" }
-            ]
+          "type": {
+            "tuple": ["f32", "f32"]
           },
+          "default": [640, 240],
           "label": "サイズ",
-          "constraints": {
-            "elements": [
-              { "min": 1, "max": 10000 },
-              { "min": 1, "max": 10000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "幅",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "高さ",
+                "unit": "px"
+              }
+            }
+          ]
         },
         {
           "id": "text",
@@ -578,7 +788,12 @@
         },
         {
           "id": "font_family",
-          "type": { "array": { "type": "string", "max_items": 1024 } },
+          "type": {
+            "array": {
+              "type": "string",
+              "max_items": 1024
+            }
+          },
           "default": [],
           "label": "フォント",
           "ui": {
@@ -629,20 +844,32 @@
         },
         {
           "id": "horizontal_alignment",
-          "type": { "enum": [0, 1, 2] },
+          "type": {
+            "enum": [0, 1, 2]
+          },
           "default": 1,
           "label": "左右揃え",
           "ui": {
-            "enum_variants": { "0": "左揃え", "1": "中央揃え", "2": "右揃え" }
+            "enum_variants": {
+              "0": "左揃え",
+              "1": "中央揃え",
+              "2": "右揃え"
+            }
           }
         },
         {
           "id": "vertical_alignment",
-          "type": { "enum": [0, 1, 2] },
+          "type": {
+            "enum": [0, 1, 2]
+          },
           "default": 1,
           "label": "上下揃え",
           "ui": {
-            "enum_variants": { "0": "上揃え", "1": "中央揃え", "2": "下揃え" }
+            "enum_variants": {
+              "0": "上揃え",
+              "1": "中央揃え",
+              "2": "下揃え"
+            }
           }
         },
         {
@@ -685,46 +912,74 @@
           "inputs": ["source"],
           "volume": "volume"
         },
-        "editor": { "size": "size" }
+        "editor": {
+          "size": "size"
+        }
       },
       "properties": [
         {
           "id": "position",
-          "type": { "tuple": ["f32", "f32"] },
-          "default": [0, 0],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "X", "unit": "px" },
-              { "label": "Y", "unit": "px" }
-            ]
+          "type": {
+            "tuple": ["f32", "f32"]
           },
+          "default": [0, 0],
           "label": "位置",
-          "constraints": {
-            "elements": [
-              { "min": -1000000, "max": 1000000 },
-              { "min": -1000000, "max": 1000000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "X",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "Y",
+                "unit": "px"
+              }
+            }
+          ]
         },
         {
           "id": "size",
-          "type": { "tuple": ["f32", "f32"] },
-          "default": [960, 540],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "幅", "unit": "px" },
-              { "label": "高さ", "unit": "px" }
-            ]
+          "type": {
+            "tuple": ["f32", "f32"]
           },
+          "default": [960, 540],
           "label": "サイズ",
-          "constraints": {
-            "elements": [
-              { "min": 1, "max": 10000 },
-              { "min": 1, "max": 10000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "幅",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "高さ",
+                "unit": "px"
+              }
+            }
+          ]
         },
         {
           "id": "volume",
@@ -764,46 +1019,74 @@
             "source": "media.wgsl"
           }
         },
-        "editor": { "size": "size" }
+        "editor": {
+          "size": "size"
+        }
       },
       "properties": [
         {
           "id": "position",
-          "type": { "tuple": ["f32", "f32"] },
-          "default": [0, 0],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "X", "unit": "px" },
-              { "label": "Y", "unit": "px" }
-            ]
+          "type": {
+            "tuple": ["f32", "f32"]
           },
+          "default": [0, 0],
           "label": "位置",
-          "constraints": {
-            "elements": [
-              { "min": -1000000, "max": 1000000 },
-              { "min": -1000000, "max": 1000000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "X",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "Y",
+                "unit": "px"
+              }
+            }
+          ]
         },
         {
           "id": "size",
-          "type": { "tuple": ["f32", "f32"] },
-          "default": [960, 540],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "幅", "unit": "px" },
-              { "label": "高さ", "unit": "px" }
-            ]
+          "type": {
+            "tuple": ["f32", "f32"]
           },
+          "default": [960, 540],
           "label": "サイズ",
-          "constraints": {
-            "elements": [
-              { "min": 1, "max": 10000 },
-              { "min": 1, "max": 10000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "幅",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "高さ",
+                "unit": "px"
+              }
+            }
+          ]
         }
       ]
     },
@@ -867,20 +1150,31 @@
             "tuple": ["f32", "f32"]
           },
           "default": [0, 0],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "X", "unit": "px" },
-              { "label": "Y", "unit": "px" }
-            ]
-          },
           "label": "移動量",
-          "constraints": {
-            "elements": [
-              { "min": -1000000, "max": 1000000 },
-              { "min": -1000000, "max": 1000000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "X",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "Y",
+                "unit": "px"
+              }
+            }
+          ]
         }
       ]
     },
@@ -919,20 +1213,31 @@
             "tuple": ["f32", "f32"]
           },
           "default": [0, 0],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "X", "unit": "px" },
-              { "label": "Y", "unit": "px" }
-            ]
-          },
           "label": "中心",
-          "constraints": {
-            "elements": [
-              { "min": -1000000, "max": 1000000 },
-              { "min": -1000000, "max": 1000000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "X",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "Y",
+                "unit": "px"
+              }
+            }
+          ]
         }
       ]
     },
@@ -956,22 +1261,45 @@
             "tuple": ["f32", "f32", "f32"]
           },
           "default": [0, 0, 0],
-          "animatable": { "elements": [true, true, true] },
-          "ui": {
-            "elements": [
-              { "label": "X", "unit": "°", "step": 1 },
-              { "label": "Y", "unit": "°", "step": 1 },
-              { "label": "Z", "unit": "°", "step": 1 }
-            ]
-          },
           "label": "回転",
-          "constraints": {
-            "elements": [
-              { "min": -360, "max": 360 },
-              { "min": -360, "max": 360 },
-              { "min": -360, "max": 360 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -360,
+                "max": 360
+              },
+              "ui": {
+                "label": "X",
+                "unit": "°",
+                "step": 1
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -360,
+                "max": 360
+              },
+              "ui": {
+                "label": "Y",
+                "unit": "°",
+                "step": 1
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -360,
+                "max": 360
+              },
+              "ui": {
+                "label": "Z",
+                "unit": "°",
+                "step": 1
+              }
+            }
+          ]
         },
         {
           "id": "perspective",
@@ -994,20 +1322,31 @@
             "tuple": ["f32", "f32"]
           },
           "default": [0, 0],
-          "animatable": { "elements": [true, true] },
-          "ui": {
-            "elements": [
-              { "label": "X", "unit": "px" },
-              { "label": "Y", "unit": "px" }
-            ]
-          },
           "label": "中心",
-          "constraints": {
-            "elements": [
-              { "min": -1000000, "max": 1000000 },
-              { "min": -1000000, "max": 1000000 }
-            ]
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "X",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "Y",
+                "unit": "px"
+              }
+            }
+          ]
         }
       ]
     },
@@ -1319,11 +1658,17 @@
         },
         {
           "id": "position",
-          "type": { "enum": [0, 1, 2] },
+          "type": {
+            "enum": [0, 1, 2]
+          },
           "default": 0,
           "label": "位置",
           "ui": {
-            "enum_variants": { "0": "外側", "1": "中央", "2": "内側" }
+            "enum_variants": {
+              "0": "外側",
+              "1": "中央",
+              "2": "内側"
+            }
           }
         },
         {

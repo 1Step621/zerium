@@ -2,8 +2,8 @@ use super::control::ElementGroup;
 use super::*;
 
 pub(super) fn append_default(group: &ElementGroup) -> PropertyValue {
-    let ui = group.property.ui();
-    let constraints = group.property.constraints();
+    let ui = group.property.scalar_ui(None);
+    let constraints = group.property.scalar_constraints(None);
     let step = f64::from(ui.step());
     let min = constraints.min.unwrap_or(f64::from(f32::MIN));
     let max = constraints.max.unwrap_or(f64::from(f32::MAX));
@@ -51,11 +51,7 @@ pub(super) fn append_default(group: &ElementGroup) -> PropertyValue {
             PropertyValue::String(String::new())
         }
     };
-    group
-        .property
-        .constraints()
-        .clamp_value(&value)
-        .unwrap_or(value)
+    group.property.constrained_value(&value).unwrap_or(value)
 }
 
 fn interpolated_or_last(group: &ElementGroup) -> Option<PropertyValue> {

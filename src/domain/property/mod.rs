@@ -11,7 +11,7 @@ mod wire;
 
 pub(crate) use constraints::PropertyConstraints;
 pub(crate) use numeric::NumericSettings;
-pub(crate) use schema::{PropertyAnimatable, PropertyEditable, PropertySchema};
+pub(crate) use schema::{PropertyScalarSchema, PropertySchema};
 pub(crate) use types::{PropertyType, PropertyValueType, ScalarPropertyType};
 pub(crate) use ui::PropertyUi;
 pub(in crate::domain) use value::MAX_STRING_BYTES;

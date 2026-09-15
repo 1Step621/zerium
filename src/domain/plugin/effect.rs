@@ -410,9 +410,12 @@ impl TemporalSamplingSchema {
         let samples = effect
             .property(sample_count)
             .expect("sample-count property type was checked");
-        if !samples.constraints.min.is_some_and(|minimum| minimum >= 1.)
+        if !samples
+            .scalar_constraints(None)
+            .min
+            .is_some_and(|minimum| minimum >= 1.)
             || !samples
-                .constraints
+                .scalar_constraints(None)
                 .max
                 .is_some_and(|maximum| maximum <= MAX_TEMPORAL_SAMPLES as f64)
         {
@@ -424,7 +427,11 @@ impl TemporalSamplingSchema {
         let angle = effect
             .property(angle)
             .expect("shutter-angle property type was checked");
-        if !angle.constraints.min.is_some_and(|minimum| minimum >= 0.) {
+        if !angle
+            .scalar_constraints(None)
+            .min
+            .is_some_and(|minimum| minimum >= 0.)
+        {
             return Err(PluginError::invalid_definition(format!(
                 "effect '{}' temporal shutter angle must have a non-negative minimum",
                 effect.id
@@ -445,8 +452,14 @@ impl TemporalSamplingSchema {
             let phase = effect
                 .property(property_id)
                 .expect("shutter-phase property type was checked");
-            if !phase.constraints.min.is_some_and(|minimum| minimum >= -1.)
-                || !phase.constraints.max.is_some_and(|maximum| maximum <= 1.)
+            if !phase
+                .scalar_constraints(None)
+                .min
+                .is_some_and(|minimum| minimum >= -1.)
+                || !phase
+                    .scalar_constraints(None)
+                    .max
+                    .is_some_and(|maximum| maximum <= 1.)
             {
                 return Err(PluginError::invalid_definition(format!(
                     "effect '{}' temporal shutter phase must be constrained to -1..=1",

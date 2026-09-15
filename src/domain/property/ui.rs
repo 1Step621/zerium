@@ -28,8 +28,6 @@ enum PropertyEditor {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct PropertyUi {
-    #[serde(rename = "elements", skip_serializing_if = "Vec::is_empty")]
-    scalars: Vec<PropertyUi>,
     #[serde(skip_serializing_if = "Option::is_none")]
     label: Option<String>,
     #[serde(skip_serializing_if = "String::is_empty")]
@@ -55,7 +53,6 @@ impl Default for PropertyUi {
     fn default() -> Self {
         Self {
             label: None,
-            scalars: Vec::new(),
             unit: String::new(),
             step: 1.,
             visible: true,
@@ -67,10 +64,8 @@ impl Default for PropertyUi {
 }
 
 impl PropertyUi {
-    pub(crate) fn for_scalar(&self, scalar_index: usize) -> &Self {
-        static DEFAULT: std::sync::LazyLock<PropertyUi> =
-            std::sync::LazyLock::new(PropertyUi::default);
-        self.scalars.get(scalar_index).unwrap_or(&DEFAULT)
+    pub(crate) fn is_default(&self) -> bool {
+        self == &Self::default()
     }
 
     pub(crate) fn enum_options(&self, ty: &ScalarPropertyType) -> Option<Vec<(u32, String)>> {
@@ -105,11 +100,7 @@ impl PropertyUi {
     }
 
     pub(crate) fn is_visible(&self) -> bool {
-        if self.scalars.is_empty() {
-            self.visible
-        } else {
-            self.scalars.iter().any(Self::is_visible)
-        }
+        self.visible
     }
 
     pub(crate) const fn is_multiline(&self) -> bool {
@@ -124,20 +115,12 @@ impl PropertyUi {
         self.enum_variants.get(&value).map(String::as_str)
     }
 
-    pub(in crate::domain) fn to_scalar(&self, source_scalar: Option<usize>) -> Self {
-        let mut projected =
-            source_scalar.map_or_else(|| self.clone(), |index| self.for_scalar(index).clone());
-        projected.scalars.clear();
-        projected
-    }
-
     pub(super) fn validate(
         &self,
         owner_kind: &str,
         owner_id: &str,
         property_id: &str,
         ty: &PropertyType,
-        component_type: &PropertyValueType,
     ) -> Result<(), PropertyError> {
         let invalid = |message: &str| {
             PropertyError::invalid_definition(format!(
@@ -145,33 +128,6 @@ impl PropertyUi {
             ))
         };
 
-        if matches!(component_type, PropertyValueType::Tuple(_)) {
-            let mut parent = self.clone();
-            parent.scalars.clear();
-            if parent != Self::default() {
-                return Err(invalid(
-                    "tuple UI properties must be specified in ui.elements",
-                ));
-            }
-        }
-        if !self.scalars.is_empty() {
-            let PropertyValueType::Tuple(tuple) = component_type else {
-                return Err(invalid("ui.elements requires a tuple"));
-            };
-            if self.scalars.len() != tuple.scalar_count() {
-                return Err(invalid("ui.elements must match the tuple length"));
-            }
-            for (ui, scalar) in self.scalars.iter().zip(tuple.scalars()) {
-                let value_type = PropertyValueType::Scalar(scalar.clone());
-                ui.validate(
-                    owner_kind,
-                    owner_id,
-                    property_id,
-                    &PropertyType::Value(value_type.clone()),
-                    &value_type,
-                )?;
-            }
-        }
         if !self.step.is_finite() || self.step <= 0. {
             return Err(invalid("UI step must be positive"));
         }

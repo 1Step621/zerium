@@ -425,11 +425,10 @@ impl PropertyInspector {
                 ..
             } => value_type,
         };
-        let ui = property.ui();
         ty.scalars()
             .filter_map(|(scalar_index, scalar_type)| {
                 let value = value.scalar_at(scalar_index)?.clone();
-                let scalar_ui = scalar_index.map_or(ui, |index| ui.for_scalar(index));
+                let scalar_ui = property.scalar_ui(scalar_index);
                 if !scalar_ui.is_visible() {
                     return None;
                 }
@@ -573,7 +572,7 @@ impl PropertyInspector {
         };
         let element_kind = match element_type {
             PropertyValueType::Scalar(ScalarPropertyType::String)
-                if property.ui().uses_font_family_editor() =>
+                if property.scalar_ui(None).uses_font_family_editor() =>
             {
                 ElementKind::FontFamily
             }

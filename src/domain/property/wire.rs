@@ -4,82 +4,12 @@ use serde::{Deserialize, Deserializer, Serialize, Serializer, de::Error as _};
 use serde_json::Value;
 
 use super::{
-    PropertyAnimatable, PropertyConstraints, PropertyEditable, PropertySchema, PropertyUi,
-    PropertyValue,
+    PropertyConstraints, PropertyScalarSchema, PropertySchema, PropertyUi, PropertyValue,
     types::{
         EnumPropertyType, MAX_TUPLE_ELEMENTS, PropertyType, PropertyValueType, ScalarPropertyType,
         TuplePropertyType,
     },
 };
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct ScalarMask {
-    #[serde(rename = "elements")]
-    scalars: Vec<bool>,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(untagged)]
-enum AnimatableWireDefinition {
-    Scalar(bool),
-    Tuple(ScalarMask),
-}
-
-impl Default for AnimatableWireDefinition {
-    fn default() -> Self {
-        Self::Scalar(false)
-    }
-}
-
-impl AnimatableWireDefinition {
-    fn into_property(self) -> PropertyAnimatable {
-        match self {
-            Self::Scalar(enabled) => PropertyAnimatable::Scalar(enabled),
-            Self::Tuple(mask) => PropertyAnimatable::Tuple(mask.scalars),
-        }
-    }
-}
-
-impl From<&PropertyAnimatable> for AnimatableWireDefinition {
-    fn from(value: &PropertyAnimatable) -> Self {
-        match value {
-            PropertyAnimatable::Scalar(enabled) => Self::Scalar(*enabled),
-            PropertyAnimatable::Tuple(scalars) => Self::Tuple(ScalarMask {
-                scalars: scalars.clone(),
-            }),
-        }
-    }
-}
-
-type EditableMask = ScalarMask;
-
-#[derive(Deserialize, Serialize)]
-#[serde(untagged)]
-enum EditableWireDefinition {
-    Scalar(bool),
-    Tuple(EditableMask),
-}
-
-impl EditableWireDefinition {
-    fn into_property(self) -> PropertyEditable {
-        match self {
-            Self::Scalar(enabled) => PropertyEditable::Scalar(enabled),
-            Self::Tuple(mask) => PropertyEditable::Tuple(mask.scalars),
-        }
-    }
-}
-
-impl From<&PropertyEditable> for EditableWireDefinition {
-    fn from(value: &PropertyEditable) -> Self {
-        match value {
-            PropertyEditable::Scalar(enabled) => Self::Scalar(*enabled),
-            PropertyEditable::Tuple(scalars) => Self::Tuple(EditableMask {
-                scalars: scalars.clone(),
-            }),
-        }
-    }
-}
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -90,15 +20,17 @@ struct PropertySchemaDefinition {
     ty: PropertyType,
     default: Value,
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    editable: Option<EditableWireDefinition>,
-    #[serde(default)]
-    animatable: AnimatableWireDefinition,
+    editable: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    animatable: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    scalars: Option<Vec<PropertyScalarSchema>>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     scene_bindable: Option<bool>,
-    #[serde(default)]
-    constraints: PropertyConstraints,
-    #[serde(default)]
-    ui: PropertyUi,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    constraints: Option<PropertyConstraints>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ui: Option<PropertyUi>,
 }
 
 impl<'de> Deserialize<'de> for PropertySchema {
@@ -110,36 +42,56 @@ impl<'de> Deserialize<'de> for PropertySchema {
         let default = PropertyValue::from_json(&definition.default, &definition.ty)
             .ok_or_else(|| D::Error::custom("property default does not match its type"))?;
         let scene_bindable = definition.scene_bindable.unwrap_or(true);
-        let editable = definition
-            .editable
-            .map(EditableWireDefinition::into_property)
-            .unwrap_or_else(|| {
-                let value_type = match &definition.ty {
-                    PropertyType::Value(value_type)
-                    | PropertyType::Array {
-                        element_type: value_type,
-                        ..
-                    } => value_type,
-                };
-                match value_type {
-                    PropertyValueType::Scalar(_) => PropertyEditable::Scalar(true),
-                    PropertyValueType::Tuple(tuple) => {
-                        PropertyEditable::Tuple(vec![true; tuple.scalar_count()])
-                    }
+        let value_type = match &definition.ty {
+            PropertyType::Value(value_type)
+            | PropertyType::Array {
+                element_type: value_type,
+                ..
+            } => value_type,
+        };
+        let scalars = match value_type {
+            PropertyValueType::Scalar(_) => {
+                if definition.scalars.is_some() {
+                    return Err(D::Error::custom(
+                        "property scalars requires a tuple value type",
+                    ));
                 }
-            });
-        let animatable = definition.animatable.into_property();
+                vec![PropertyScalarSchema {
+                    editable: definition.editable.unwrap_or(true),
+                    animatable: definition.animatable.unwrap_or(false),
+                    constraints: definition.constraints.unwrap_or_default(),
+                    ui: definition.ui.unwrap_or_default(),
+                }]
+            }
+            PropertyValueType::Tuple(tuple) => {
+                if definition.editable.is_some()
+                    || definition.animatable.is_some()
+                    || definition.constraints.is_some()
+                    || definition.ui.is_some()
+                {
+                    return Err(D::Error::custom(
+                        "tuple metadata must be specified in property scalars",
+                    ));
+                }
+                let scalars = definition
+                    .scalars
+                    .ok_or_else(|| D::Error::custom("tuple properties require scalars"))?;
+                if scalars.len() != tuple.scalar_count() {
+                    return Err(D::Error::custom(
+                        "property scalars must match the tuple length",
+                    ));
+                }
+                scalars
+            }
+        };
 
         Ok(Self {
             id: definition.id,
             label: definition.label,
             ty: definition.ty,
             default,
-            editable,
-            animatable,
+            scalars,
             scene_bindable,
-            constraints: definition.constraints,
-            ui: definition.ui,
         })
     }
 }
@@ -149,19 +101,26 @@ impl Serialize for PropertySchema {
     where
         S: Serializer,
     {
+        let is_scalar = self.scalars.len() == 1;
         PropertySchemaDefinition {
             id: self.id.clone(),
             label: self.label.clone(),
             ty: self.ty.clone(),
             default: self.default.to_json_value(),
-            editable: match &self.editable {
-                PropertyEditable::Scalar(true) => None,
-                editable => Some(editable.into()),
-            },
-            animatable: (&self.animatable).into(),
+            editable: is_scalar
+                .then_some(self.scalars[0].editable)
+                .filter(|editable| !*editable),
+            animatable: is_scalar
+                .then_some(self.scalars[0].animatable)
+                .filter(|animatable| *animatable),
+            scalars: (!is_scalar).then(|| self.scalars.clone()),
             scene_bindable: (!self.scene_bindable).then_some(false),
-            constraints: self.constraints.clone(),
-            ui: self.ui.clone(),
+            constraints: is_scalar
+                .then_some(self.scalars[0].constraints.clone())
+                .filter(|constraints| !constraints.is_default()),
+            ui: is_scalar
+                .then_some(self.scalars[0].ui.clone())
+                .filter(|ui| !ui.is_default()),
         }
         .serialize(serializer)
     }

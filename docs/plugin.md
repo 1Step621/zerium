@@ -166,22 +166,23 @@ and animated independently, but are not modeled as separate property lanes.
   "label": "Position",
   "type": {"tuple": ["f32", "f32"]},
   "default": [0, 0],
-  "animatable": {"elements": [true, true]},
-  "constraints": {"elements": [
-    {"min": -1000000, "max": 1000000},
-    {"min": -1000000, "max": 1000000}
-  ]},
-  "ui": {
-    "elements": [
-      {"label": "X", "unit": "px", "step": 1},
-      {"label": "Y", "unit": "px", "step": 1}
-    ]
-  }
+  "scalars": [
+    {
+      "animatable": true,
+      "constraints": {"min": -1000000, "max": 1000000},
+      "ui": {"label": "X", "unit": "px", "step": 1}
+    },
+    {
+      "animatable": true,
+      "constraints": {"min": -1000000, "max": 1000000},
+      "ui": {"label": "Y", "unit": "px", "step": 1}
+    }
+  ]
 }
 ```
 
 `label` and numeric `constraints` belong to the property contract. `ui` only
-contains presentation hints: `elements` (one entry per tuple scalar, including its `label`), `unit`, `step`,
+contains presentation hints: `label`, `unit`, `step`,
 `visible`, `enum_variants`, `multiline`, and `editor`. Numeric values use the same canonical
 unit in projects, shaders, and editor controls.
 Constraints are enforced for defaults, direct edits, array elements, loaded
@@ -245,8 +246,8 @@ Finite choices are types, not UI options:
 ```
 
 `editable` defaults to true. Set it to `false` for plugin properties whose values are produced by the
-plugin and must be displayed without allowing direct edits. Tuple properties can use
-`{"elements": [true, false, ...]}` to control each scalar independently. This also disables animation
+plugin and must be displayed without allowing direct edits. Tuple properties specify one object per scalar
+in `scalars`; each object has its own `editable` and `animatable` flags. This also disables animation
 editing for the property or scalar. `scene_bindable` defaults to true and remains independent, so a
 property can still be exposed through a scene binding when the plugin uses that as its input path.
 Scene arguments themselves are scalars, preserving enum membership;
@@ -254,20 +255,20 @@ tuple scalars are published and connected independently.
 
 ### Tuple metadata and animation
 
-`ui.elements` and `constraints.elements` specify metadata for each tuple scalar,
-including inside an array element. When present, each list must match the tuple length.
-Tuple UI properties (`label`, `unit`, `step`, `visible`,
-`enum_variants`, and `multiline`) belong inside `ui.elements`. Parent UI hints
-are not inherited. Missing labels use the one-based scalar index, and omitted
-UI metadata uses the scalar defaults. A tuple is visible if any scalar is visible.
-Numeric bounds belong inside `constraints.elements`; tuple-level `min`/`max`
-are rejected. Use `{}` for an unconstrained scalar. Omitting either metadata
-object leaves every scalar at its defaults. These rules also apply to arrays
-of tuples. The `font_family` editor remains an array-of-strings setting.
+`scalars` specifies metadata for each tuple scalar, including inside an array
+element. The list must match the tuple length. Each scalar object contains its
+`editable`, `animatable`, `constraints`, and `ui` settings; UI properties
+(`label`, `unit`, `step`, `visible`, `enum_variants`, and `multiline`) stay
+inside that scalar's `ui`. Missing labels use the one-based scalar index, and
+omitted UI metadata uses the scalar defaults. A tuple is visible if any scalar
+is visible. Numeric bounds belong inside each scalar's `constraints`; tuple-level
+`min`/`max` are rejected. Use `{}` for an unconstrained scalar. These rules
+also apply to arrays of tuples. The `font_family` editor remains an
+array-of-strings setting.
 `scene_bindable` remains a property-level permission. `animatable` is a scalar
 permission: standalone scalar properties use a boolean, while tuple properties
-use `{"elements": [true, false, ...]}`. The same scalar mask applies to every
-element in an array of tuples.
+use one `scalars` entry per tuple scalar. The same scalar metadata applies to
+every element in an array of tuples.
 
 ```json
 {
@@ -275,16 +276,20 @@ element in an array of tuples.
   "label": "Entry",
   "type": {"tuple": ["f32", {"enum": [2, 7]}, "string", "color"]},
   "default": [1, 2, "Caption", [1, 1, 1, 1]],
-  "animatable": {"elements": [true, false, false, true]},
-  "constraints": {"elements": [{"min": 0, "max": 10}, {}, {}, {"min": 0, "max": 1}]},
-  "ui": {
-    "elements": [
-      {"label": "Width", "unit": "px"},
-      {"label": "Mode", "enum_variants": {"2": "Low", "7": "High"}},
-      {"label": "Caption", "multiline": true},
-      {"label": "Tint"}
-    ]
-  }
+  "scalars": [
+    {
+      "animatable": true,
+      "constraints": {"min": 0, "max": 10},
+      "ui": {"label": "Width", "unit": "px"}
+    },
+    {"ui": {"label": "Mode", "enum_variants": {"2": "Low", "7": "High"}}},
+    {"ui": {"label": "Caption", "multiline": true}},
+    {
+      "animatable": true,
+      "constraints": {"min": 0, "max": 1},
+      "ui": {"label": "Tint"}
+    }
+  ]
 }
 ```
 

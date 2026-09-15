@@ -1191,7 +1191,7 @@ fn numeric_settings(number: &NumericInput, schema: &PropertySchema) -> Option<[S
         PropertyValue::U32(value) => f64::from(*value),
         _ => return None,
     };
-    let constraints = schema.constraints();
+    let constraints = schema.scalar_constraints(None);
     let (type_min, type_max) = number.bounds();
     let bound = |value: Option<f64>, lower: bool| {
         value

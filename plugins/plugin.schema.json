@@ -9,20 +9,44 @@
   "additionalProperties": false,
   "required": ["api_version", "id"],
   "anyOf": [
-    { "properties": { "items": { "minItems": 1 } }, "required": ["items"] },
-    { "properties": { "effects": { "minItems": 1 } }, "required": ["effects"] }
+    {
+      "properties": {
+        "items": {
+          "minItems": 1
+        }
+      },
+      "required": ["items"]
+    },
+    {
+      "properties": {
+        "effects": {
+          "minItems": 1
+        }
+      },
+      "required": ["effects"]
+    }
   ],
   "properties": {
-    "$schema": { "type": "string" },
-    "api_version": { "const": 1 },
-    "id": { "$ref": "#/$defs/logicalId" },
+    "$schema": {
+      "type": "string"
+    },
+    "api_version": {
+      "const": 1
+    },
+    "id": {
+      "$ref": "#/$defs/logicalId"
+    },
     "items": {
       "type": "array",
-      "items": { "$ref": "#/$defs/item" }
+      "items": {
+        "$ref": "#/$defs/item"
+      }
     },
     "effects": {
       "type": "array",
-      "items": { "$ref": "#/$defs/effect" }
+      "items": {
+        "$ref": "#/$defs/effect"
+      }
     }
   },
   "$defs": {
@@ -34,7 +58,9 @@
     "wgslId": {
       "type": "string",
       "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
-      "not": { "pattern": "^(?:_|__.*)$" }
+      "not": {
+        "pattern": "^(?:_|__.*)$"
+      }
     },
     "wgslSuffix": {
       "type": "string",
@@ -49,9 +75,15 @@
       "additionalProperties": false,
       "required": ["source"],
       "properties": {
-        "source": { "$ref": "#/$defs/shaderSource" },
-        "vertex_entry": { "$ref": "#/$defs/wgslId" },
-        "fragment_entry": { "$ref": "#/$defs/wgslId" }
+        "source": {
+          "$ref": "#/$defs/shaderSource"
+        },
+        "vertex_entry": {
+          "$ref": "#/$defs/wgslId"
+        },
+        "fragment_entry": {
+          "$ref": "#/$defs/wgslId"
+        }
       }
     },
     "computeShader": {
@@ -59,8 +91,12 @@
       "additionalProperties": false,
       "required": ["source"],
       "properties": {
-        "source": { "$ref": "#/$defs/shaderSource" },
-        "entry": { "$ref": "#/$defs/wgslId" }
+        "source": {
+          "$ref": "#/$defs/shaderSource"
+        },
+        "entry": {
+          "$ref": "#/$defs/wgslId"
+        }
       }
     },
     "file": {
@@ -70,17 +106,33 @@
       "properties": {
         "id": {
           "allOf": [
-            { "$ref": "#/$defs/wgslSuffix" },
-            { "not": { "enum": ["inputs", "sampler"] } }
+            {
+              "$ref": "#/$defs/wgslSuffix"
+            },
+            {
+              "not": {
+                "enum": ["inputs", "sampler"]
+              }
+            }
           ]
         },
-        "label": { "type": "string", "minLength": 1 },
-        "media_type": { "enum": ["video", "audio", "image"] },
-        "reader": { "$ref": "#/$defs/logicalId" },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "media_type": {
+          "enum": ["video", "audio", "image"]
+        },
+        "reader": {
+          "$ref": "#/$defs/logicalId"
+        },
         "extensions": {
           "type": "array",
           "uniqueItems": true,
-          "items": { "type": "string", "pattern": "^[a-z0-9]+$" }
+          "items": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+$"
+          }
         }
       }
     },
@@ -89,29 +141,73 @@
       "additionalProperties": false,
       "required": ["type", "shader"],
       "properties": {
-        "type": { "enum": ["procedural", "media", "text"] },
-        "shader": { "$ref": "#/$defs/shader" },
-        "vertex_count": { "type": "integer", "minimum": 1, "maximum": 4294967295 },
-        "size": { "$ref": "#/$defs/wgslId" },
-        "text": { "$ref": "#/$defs/wgslId" },
-        "font_family": { "$ref": "#/$defs/wgslId" },
-        "font_size": { "$ref": "#/$defs/wgslId" },
-        "color": { "$ref": "#/$defs/wgslId" },
-        "outline_width": { "$ref": "#/$defs/wgslId" },
-        "outline_color": { "$ref": "#/$defs/wgslId" },
-        "bold": { "$ref": "#/$defs/wgslId" },
-        "italic": { "$ref": "#/$defs/wgslId" },
-        "horizontal_alignment": { "$ref": "#/$defs/wgslId" },
-        "vertical_alignment": { "$ref": "#/$defs/wgslId" }
+        "type": {
+          "enum": ["procedural", "media", "text"]
+        },
+        "shader": {
+          "$ref": "#/$defs/shader"
+        },
+        "vertex_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295
+        },
+        "size": {
+          "$ref": "#/$defs/wgslId"
+        },
+        "text": {
+          "$ref": "#/$defs/wgslId"
+        },
+        "font_family": {
+          "$ref": "#/$defs/wgslId"
+        },
+        "font_size": {
+          "$ref": "#/$defs/wgslId"
+        },
+        "color": {
+          "$ref": "#/$defs/wgslId"
+        },
+        "outline_width": {
+          "$ref": "#/$defs/wgslId"
+        },
+        "outline_color": {
+          "$ref": "#/$defs/wgslId"
+        },
+        "bold": {
+          "$ref": "#/$defs/wgslId"
+        },
+        "italic": {
+          "$ref": "#/$defs/wgslId"
+        },
+        "horizontal_alignment": {
+          "$ref": "#/$defs/wgslId"
+        },
+        "vertical_alignment": {
+          "$ref": "#/$defs/wgslId"
+        }
       },
       "allOf": [
         {
-          "if": { "properties": { "type": { "const": "text" } } },
+          "if": {
+            "properties": {
+              "type": {
+                "const": "text"
+              }
+            }
+          },
           "then": {
             "required": [
-              "size", "text", "font_family", "font_size", "color",
-              "outline_width", "outline_color", "bold", "italic",
-              "horizontal_alignment", "vertical_alignment"
+              "size",
+              "text",
+              "font_family",
+              "font_size",
+              "color",
+              "outline_width",
+              "outline_color",
+              "bold",
+              "italic",
+              "horizontal_alignment",
+              "vertical_alignment"
             ]
           },
           "else": {
@@ -136,8 +232,15 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "files": { "type": "array", "items": { "$ref": "#/$defs/file" } },
-        "visual": { "$ref": "#/$defs/visual" },
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/file"
+          }
+        },
+        "visual": {
+          "$ref": "#/$defs/visual"
+        },
         "audio": {
           "type": "object",
           "additionalProperties": false,
@@ -147,9 +250,13 @@
               "type": "array",
               "minItems": 1,
               "uniqueItems": true,
-              "items": { "$ref": "#/$defs/wgslSuffix" }
+              "items": {
+                "$ref": "#/$defs/wgslSuffix"
+              }
             },
-            "volume": { "$ref": "#/$defs/wgslId" }
+            "volume": {
+              "$ref": "#/$defs/wgslId"
+            }
           }
         },
         "editor": {
@@ -157,8 +264,12 @@
           "additionalProperties": false,
           "minProperties": 1,
           "properties": {
-            "size": { "$ref": "#/$defs/wgslId" },
-            "label": { "$ref": "#/$defs/wgslId" }
+            "size": {
+              "$ref": "#/$defs/wgslId"
+            },
+            "label": {
+              "$ref": "#/$defs/wgslId"
+            }
           }
         }
       }
@@ -166,14 +277,7 @@
     "scalarType": {
       "oneOf": [
         {
-          "enum": [
-            "f32",
-            "i32",
-            "u32",
-            "bool",
-            "color",
-            "string"
-          ]
+          "enum": ["f32", "i32", "u32", "bool", "color", "string"]
         },
         {
           "$ref": "#/$defs/enumType"
@@ -183,9 +287,7 @@
     "tupleType": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "tuple"
-      ],
+      "required": ["tuple"],
       "properties": {
         "tuple": {
           "type": "array",
@@ -206,9 +308,7 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "tuple"
-          ],
+          "required": ["tuple"],
           "properties": {
             "tuple": {
               "type": "array",
@@ -241,24 +341,23 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
+          "items": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 4294967295
+          }
         }
       }
     },
     "arrayType": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "array"
-      ],
+      "required": ["array"],
       "properties": {
         "array": {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "type",
-            "max_items"
-          ],
+          "required": ["type", "max_items"],
           "properties": {
             "type": {
               "$ref": "#/$defs/arrayValueType"
@@ -290,12 +389,7 @@
     "property": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "id",
-        "label",
-        "type",
-        "default"
-      ],
+      "required": ["id", "label", "type", "default"],
       "properties": {
         "id": {
           "$ref": "#/$defs/wgslId"
@@ -309,61 +403,27 @@
         },
         "default": true,
         "editable": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "elements"
-              ],
-              "properties": {
-                "elements": {
-                  "type": "array",
-                  "minItems": 2,
-                  "maxItems": 64,
-                  "items": {
-                    "type": "boolean"
-                  }
-                }
-              }
-            }
-          ]
+          "type": "boolean"
         },
         "animatable": {
-          "anyOf": [
-            {
-              "type": "boolean"
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": [
-                "elements"
-              ],
-              "properties": {
-                "elements": {
-                  "type": "array",
-                  "minItems": 2,
-                  "maxItems": 64,
-                  "items": {
-                    "type": "boolean"
-                  }
-                }
-              }
-            }
-          ]
+          "type": "boolean"
         },
         "scene_bindable": {
           "type": "boolean"
         },
         "constraints": {
-          "$ref": "#/$defs/propertyConstraints"
+          "$ref": "#/$defs/numericConstraints"
         },
         "ui": {
-          "$ref": "#/$defs/propertyUi"
+          "$ref": "#/$defs/scalarUi"
+        },
+        "scalars": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 64,
+          "items": {
+            "$ref": "#/$defs/scalarDefinition"
+          }
         }
       },
       "allOf": [
@@ -374,27 +434,19 @@
                 "anyOf": [
                   {
                     "type": "object",
-                    "required": [
-                      "tuple"
-                    ]
+                    "required": ["tuple"]
                   },
                   {
                     "type": "object",
-                    "required": [
-                      "array"
-                    ],
+                    "required": ["array"],
                     "properties": {
                       "array": {
                         "type": "object",
-                        "required": [
-                          "type"
-                        ],
+                        "required": ["type"],
                         "properties": {
                           "type": {
                             "type": "object",
-                            "required": [
-                              "tuple"
-                            ]
+                            "required": ["tuple"]
                           }
                         }
                       }
@@ -403,95 +455,20 @@
                 ]
               }
             },
-            "required": [
-              "type"
-            ]
+            "required": ["type"]
           },
           "then": {
+            "required": ["scalars"],
             "properties": {
-              "animatable": {
-                "type": "object",
-                "required": [
-                  "elements"
-                ]
-              },
-              "editable": {
-                "type": "object",
-                "required": [
-                  "elements"
-                ]
-              }
+              "editable": false,
+              "animatable": false,
+              "constraints": false,
+              "ui": false
             }
           },
           "else": {
             "properties": {
-              "animatable": {
-                "type": "boolean"
-              },
-              "editable": {
-                "type": "boolean"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "anyOf": [
-                  {
-                    "type": "object",
-                    "required": [
-                      "tuple"
-                    ]
-                  },
-                  {
-                    "type": "object",
-                    "required": [
-                      "array"
-                    ],
-                    "properties": {
-                      "array": {
-                        "type": "object",
-                        "required": [
-                          "type"
-                        ],
-                        "properties": {
-                          "type": {
-                            "type": "object",
-                            "required": [
-                              "tuple"
-                            ]
-                          }
-                        }
-                      }
-                    }
-                  }
-                ]
-              }
-            },
-            "required": [
-              "type"
-            ]
-          },
-          "then": {
-            "properties": {
-              "ui": {
-                "$ref": "#/$defs/tupleUi"
-              },
-              "constraints": {
-                "$ref": "#/$defs/tupleConstraints"
-              }
-            }
-          },
-          "else": {
-            "properties": {
-              "ui": {
-                "$ref": "#/$defs/scalarUi"
-              },
-              "constraints": {
-                "$ref": "#/$defs/numericConstraints"
-              }
+              "scalars": false
             }
           }
         },
@@ -504,14 +481,10 @@
                     "const": "font_family"
                   }
                 },
-                "required": [
-                  "editor"
-                ]
+                "required": ["editor"]
               }
             },
-            "required": [
-              "ui"
-            ]
+            "required": ["ui"]
           },
           "then": {
             "properties": {
@@ -524,9 +497,7 @@
                     "properties": {
                       "array": {
                         "type": "object",
-                        "required": [
-                          "type"
-                        ],
+                        "required": ["type"],
                         "properties": {
                           "type": {
                             "const": "string"
@@ -547,9 +518,7 @@
                 "const": "f32"
               }
             },
-            "required": [
-              "type"
-            ]
+            "required": ["type"]
           },
           "then": {
             "properties": {
@@ -566,9 +535,7 @@
                 "const": "i32"
               }
             },
-            "required": [
-              "type"
-            ]
+            "required": ["type"]
           },
           "then": {
             "properties": {
@@ -587,9 +554,7 @@
                 "const": "u32"
               }
             },
-            "required": [
-              "type"
-            ]
+            "required": ["type"]
           },
           "then": {
             "properties": {
@@ -608,9 +573,7 @@
                 "const": "bool"
               }
             },
-            "required": [
-              "type"
-            ]
+            "required": ["type"]
           },
           "then": {
             "properties": {
@@ -627,9 +590,7 @@
                 "const": "string"
               }
             },
-            "required": [
-              "type"
-            ]
+            "required": ["type"]
           },
           "then": {
             "properties": {
@@ -647,9 +608,7 @@
                 "const": "color"
               }
             },
-            "required": [
-              "type"
-            ]
+            "required": ["type"]
           },
           "then": {
             "properties": {
@@ -684,9 +643,7 @@
                 "properties": {
                   "array": {
                     "type": "object",
-                    "required": [
-                      "type"
-                    ],
+                    "required": ["type"],
                     "properties": {
                       "type": {
                         "const": "string"
@@ -694,14 +651,10 @@
                     }
                   }
                 },
-                "required": [
-                  "array"
-                ]
+                "required": ["array"]
               }
             },
-            "required": [
-              "type"
-            ]
+            "required": ["type"]
           },
           "then": {
             "properties": {
@@ -722,13 +675,37 @@
       "additionalProperties": false,
       "required": ["id", "label", "category", "symbol", "capabilities"],
       "properties": {
-        "id": { "$ref": "#/$defs/logicalId" },
-        "label": { "type": "string", "minLength": 1 },
-        "category": { "type": "string", "minLength": 1 },
-        "tags": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-        "symbol": { "type": "string", "minLength": 1 },
-        "capabilities": { "$ref": "#/$defs/capabilities" },
-        "properties": { "type": "array", "items": { "$ref": "#/$defs/property" } }
+        "id": {
+          "$ref": "#/$defs/logicalId"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "capabilities": {
+          "$ref": "#/$defs/capabilities"
+        },
+        "properties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/property"
+          }
+        }
       }
     },
     "passConstant": {
@@ -736,29 +713,96 @@
       "additionalProperties": false,
       "required": ["id", "type", "value"],
       "properties": {
-        "id": { "$ref": "#/$defs/wgslId" },
-        "type": { "$ref": "#/$defs/passValueType" },
+        "id": {
+          "$ref": "#/$defs/wgslId"
+        },
+        "type": {
+          "$ref": "#/$defs/passValueType"
+        },
         "value": true
       },
       "allOf": [
         {
-          "if": { "properties": { "type": { "const": "f32" } }, "required": ["type"] },
-          "then": { "properties": { "value": { "type": "number" } } }
+          "if": {
+            "properties": {
+              "type": {
+                "const": "f32"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "number"
+              }
+            }
+          }
         },
         {
-          "if": { "properties": { "type": { "const": "i32" } }, "required": ["type"] },
-          "then": { "properties": { "value": { "type": "integer", "minimum": -2147483648, "maximum": 2147483647 } } }
+          "if": {
+            "properties": {
+              "type": {
+                "const": "i32"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "integer",
+                "minimum": -2147483648,
+                "maximum": 2147483647
+              }
+            }
+          }
         },
         {
-          "if": { "properties": { "type": { "const": "u32" } }, "required": ["type"] },
-          "then": { "properties": { "value": { "type": "integer", "minimum": 0, "maximum": 4294967295 } } }
+          "if": {
+            "properties": {
+              "type": {
+                "const": "u32"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "integer",
+                "minimum": 0,
+                "maximum": 4294967295
+              }
+            }
+          }
         },
         {
-          "if": { "properties": { "type": { "const": "bool" } }, "required": ["type"] },
-          "then": { "properties": { "value": { "type": "boolean" } } }
+          "if": {
+            "properties": {
+              "type": {
+                "const": "bool"
+              }
+            },
+            "required": ["type"]
+          },
+          "then": {
+            "properties": {
+              "value": {
+                "type": "boolean"
+              }
+            }
+          }
         },
         {
-          "if": { "properties": { "type": { "const": "color" } }, "required": ["type"] },
+          "if": {
+            "properties": {
+              "type": {
+                "const": "color"
+              }
+            },
+            "required": ["type"]
+          },
           "then": {
             "properties": {
               "value": {
@@ -766,8 +810,18 @@
                 "minItems": 4,
                 "maxItems": 4,
                 "prefixItems": [
-                  { "type": "number" }, { "type": "number" },
-                  { "type": "number" }, { "type": "number" }
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
                 ],
                 "items": false
               }
@@ -781,9 +835,18 @@
       "additionalProperties": false,
       "required": ["type", "shader"],
       "properties": {
-        "type": { "const": "render" },
-        "shader": { "$ref": "#/$defs/shader" },
-        "constants": { "type": "array", "items": { "$ref": "#/$defs/passConstant" } }
+        "type": {
+          "const": "render"
+        },
+        "shader": {
+          "$ref": "#/$defs/shader"
+        },
+        "constants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/passConstant"
+          }
+        }
       }
     },
     "computePass": {
@@ -791,41 +854,75 @@
       "additionalProperties": false,
       "required": ["type", "shader"],
       "properties": {
-        "type": { "const": "compute" },
-        "shader": { "$ref": "#/$defs/computeShader" },
+        "type": {
+          "const": "compute"
+        },
+        "shader": {
+          "$ref": "#/$defs/computeShader"
+        },
         "dispatch": {
           "type": "array",
           "minItems": 3,
           "maxItems": 3,
           "prefixItems": [
-            { "$ref": "#/$defs/dispatchDimension" },
-            { "$ref": "#/$defs/dispatchDimension" },
-            { "$ref": "#/$defs/dispatchDimension" }
+            {
+              "$ref": "#/$defs/dispatchDimension"
+            },
+            {
+              "$ref": "#/$defs/dispatchDimension"
+            },
+            {
+              "$ref": "#/$defs/dispatchDimension"
+            }
           ]
         },
-        "constants": { "type": "array", "items": { "$ref": "#/$defs/passConstant" } }
+        "constants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/passConstant"
+          }
+        }
       }
     },
-    "dispatchDimension": { "enum": ["width", "height", "max_dimension", "one"] },
+    "dispatchDimension": {
+      "enum": ["width", "height", "max_dimension", "one"]
+    },
     "temporalPass": {
       "type": "object",
       "additionalProperties": false,
       "required": ["type", "sampling", "reducer"],
       "properties": {
-        "type": { "const": "temporal" },
+        "type": {
+          "const": "temporal"
+        },
         "sampling": {
           "type": "object",
           "additionalProperties": false,
           "required": ["type", "sample_count", "angle"],
           "properties": {
-            "type": { "const": "shutter" },
-            "sample_count": { "$ref": "#/$defs/wgslId" },
-            "angle": { "$ref": "#/$defs/wgslId" },
-            "phase": { "$ref": "#/$defs/wgslId" }
+            "type": {
+              "const": "shutter"
+            },
+            "sample_count": {
+              "$ref": "#/$defs/wgslId"
+            },
+            "angle": {
+              "$ref": "#/$defs/wgslId"
+            },
+            "phase": {
+              "$ref": "#/$defs/wgslId"
+            }
           }
         },
-        "reducer": { "$ref": "#/$defs/shader" },
-        "constants": { "type": "array", "items": { "$ref": "#/$defs/passConstant" } }
+        "reducer": {
+          "$ref": "#/$defs/shader"
+        },
+        "constants": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/passConstant"
+          }
+        }
       }
     },
     "effect": {
@@ -833,20 +930,49 @@
       "additionalProperties": false,
       "required": ["id", "label", "category", "properties", "passes"],
       "properties": {
-        "id": { "$ref": "#/$defs/logicalId" },
-        "label": { "type": "string", "minLength": 1 },
-        "category": { "type": "string", "minLength": 1 },
-        "tags": { "type": "array", "items": { "type": "string", "minLength": 1 } },
-        "render_scale": { "type": "integer", "minimum": 1, "maximum": 4 },
-        "properties": { "type": "array", "items": { "$ref": "#/$defs/property" } },
+        "id": {
+          "$ref": "#/$defs/logicalId"
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1
+        },
+        "category": {
+          "type": "string",
+          "minLength": 1
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "render_scale": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4
+        },
+        "properties": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/property"
+          }
+        },
         "passes": {
           "type": "array",
           "minItems": 1,
           "items": {
             "oneOf": [
-              { "$ref": "#/$defs/renderPass" },
-              { "$ref": "#/$defs/computePass" },
-              { "$ref": "#/$defs/temporalPass" }
+              {
+                "$ref": "#/$defs/renderPass"
+              },
+              {
+                "$ref": "#/$defs/computePass"
+              },
+              {
+                "$ref": "#/$defs/temporalPass"
+              }
             ]
           }
         }
@@ -855,13 +981,7 @@
     "fixedScalarType": {
       "oneOf": [
         {
-          "enum": [
-            "f32",
-            "i32",
-            "u32",
-            "bool",
-            "color"
-          ]
+          "enum": ["f32", "i32", "u32", "bool", "color"]
         },
         {
           "$ref": "#/$defs/enumType"
@@ -902,9 +1022,7 @@
           "type": "boolean"
         },
         "editor": {
-          "enum": [
-            "font_family"
-          ]
+          "enum": ["font_family"]
         },
         "enum_variants": {
           "type": "object",
@@ -919,51 +1037,23 @@
         }
       }
     },
-    "propertyConstraints": {
-      "anyOf": [
-        {
+    "scalarDefinition": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "editable": {
+          "type": "boolean",
+          "default": true
+        },
+        "animatable": {
+          "type": "boolean",
+          "default": false
+        },
+        "constraints": {
           "$ref": "#/$defs/numericConstraints"
         },
-        {
-          "$ref": "#/$defs/tupleConstraints"
-        }
-      ]
-    },
-    "propertyUi": {
-      "anyOf": [
-        {
+        "ui": {
           "$ref": "#/$defs/scalarUi"
-        },
-        {
-          "$ref": "#/$defs/tupleUi"
-        }
-      ]
-    },
-    "tupleUi": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "elements": {
-          "type": "array",
-          "minItems": 2,
-          "maxItems": 64,
-          "items": {
-            "$ref": "#/$defs/scalarUi"
-          }
-        }
-      }
-    },
-    "tupleConstraints": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "elements": {
-          "type": "array",
-          "minItems": 2,
-          "maxItems": 64,
-          "items": {
-            "$ref": "#/$defs/numericConstraints"
-          }
         }
       }
     }
