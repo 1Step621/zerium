@@ -232,28 +232,53 @@ impl PropertyInspector {
         let scene_settings = view
             .editing_scene
             .then(|| self.scene_settings_element(&view.scene_arguments, &render));
-        let controls = view
-            .tree
-            .roots
-            .iter()
-            .cloned()
-            .filter_map(|control| self.control_root_element(control, &view, &render, cx))
-            .collect::<Vec<_>>();
+        let mut controls = Vec::new();
+        let mut effect_controls = Vec::new();
+        for control in view.tree.roots.iter().cloned() {
+            match control {
+                Control::Group {
+                    children,
+                    kind: GroupKind::Effect(effect),
+                    ..
+                } => {
+                    effect_controls.push(self.effect_element(effect, children, &view, &render, cx))
+                }
+                control => {
+                    if let Some(control) =
+                        Self::control_element(control, view.aspect_ratio_lock, &render)
+                    {
+                        controls.push(control);
+                    }
+                }
+            }
+        }
+        let effects = (!effect_controls.is_empty() || view.has_visual).then(|| {
+            div()
+                .w_full()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .child(
+                    div()
+                        .w_full()
+                        .h(px(1.))
+                        .flex_none()
+                        .bg(render.colors.border),
+                )
+                .children(effect_controls)
+                .when(view.has_visual && !view.multiple, |this| {
+                    this.child(Self::add_effect_picker(
+                        view.available_effects.clone(),
+                        render.inspector.clone(),
+                    ))
+                })
+        });
         let files = view
             .file_inputs
             .iter()
             .cloned()
             .map(|file| self.file_input_element(file, &render))
             .collect::<Vec<_>>();
-        let effect_picker = if view.has_visual && !view.multiple {
-            Some(Self::add_effect_picker(
-                view.available_effects.clone(),
-                render.inspector.clone(),
-            ))
-        } else {
-            None
-        };
-
         div()
             .size_full()
             .flex()
@@ -298,35 +323,9 @@ impl PropertyInspector {
                                 .child(error),
                         )
                     })
-                    .when_some(effect_picker, |this, picker| {
-                        this.child(
-                            div()
-                                .w_full()
-                                .h(px(1.))
-                                .flex_none()
-                                .bg(render.colors.border),
-                        )
-                        .child(picker)
-                    }),
+                    .when_some(effects, |this, effects| this.child(effects)),
             )
             .into_any_element()
-    }
-
-    fn control_root_element(
-        &self,
-        control: Control,
-        view: &SelectionView,
-        render: &RenderCtx<'_>,
-        cx: &Context<Self>,
-    ) -> Option<gpui::AnyElement> {
-        match control {
-            Control::Group {
-                children,
-                kind: GroupKind::Effect(effect),
-                ..
-            } => Some(self.effect_element(effect, children, view, render, cx)),
-            control => Self::control_element(control, view.aspect_ratio_lock, render),
-        }
     }
 
     fn control_element(
