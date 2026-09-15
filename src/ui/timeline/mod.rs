@@ -1161,9 +1161,9 @@ impl Timeline {
             .context_target
             .map(|target| (target.layer, target.start));
         let timeline = cx.entity();
+        let action_context = self.focus_handle.clone();
         let content = if let Some(item_id) = target_item {
-            let menu = PopupMenu::build(window, cx, move |menu, _, cx| {
-                let action_context = timeline.read(cx).focus_handle.clone();
+            let menu = PopupMenu::build(window, cx, move |menu, _, _cx| {
                 let copy_timeline = timeline.clone();
                 let cut_timeline = timeline.clone();
                 let paste_timeline = timeline.clone();
