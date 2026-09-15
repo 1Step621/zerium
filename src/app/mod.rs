@@ -6,7 +6,7 @@ use ::ui::{
 };
 use gpui::{
     App, Application, Bounds, Context, FocusHandle, KeyBinding, Render, Subscription, Window,
-    WindowBounds, WindowOptions, div, prelude::*, px, size,
+    WindowBounds, WindowIcon, WindowOptions, div, prelude::*, px, size,
 };
 
 gpui::actions!(
@@ -30,6 +30,7 @@ gpui::actions!(
 const WORKSPACE_KEY_CONTEXT: &str = "ZeriumWorkspace";
 const WORKSPACE_SHORTCUT_KEY_CONTEXT: &str = "ZeriumWorkspace && !Input";
 const MENU_BAR_HEIGHT: f32 = 30.;
+const WINDOW_ICON_PNG: &[u8] = include_bytes!("../../assets/zerium.png");
 
 struct Workspace {
     timeline: gpui::Entity<crate::ui::timeline::Timeline>,
@@ -430,6 +431,10 @@ pub fn run() {
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
                     window_min_size: Some(size(px(720.), px(520.))),
+                    app_icon: Some(
+                        WindowIcon::from_png_bytes(WINDOW_ICON_PNG)
+                            .expect("bundled window icon must be a valid PNG"),
+                    ),
                     ..Default::default()
                 },
                 |window, cx| {
