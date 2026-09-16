@@ -172,7 +172,7 @@ impl PropertySchema {
             PropertyValue::Tuple(values) => values
                 .iter()
                 .enumerate()
-                .map(|(index, value)| map(&self.scalar(Some(index)), value))
+                .map(|(index, value)| map(self.scalar(Some(index)), value))
                 .collect::<Option<Vec<_>>>()
                 .map(PropertyValue::Tuple),
             PropertyValue::Array(values) => values

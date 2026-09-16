@@ -9,12 +9,12 @@ mod shader;
 use std::{
     borrow::Cow,
     collections::{HashMap, HashSet},
-    error::Error,
     fmt,
     num::NonZeroU64,
     ops::{Deref, Range},
     sync::{Arc, Mutex},
 };
+use thiserror::Error;
 
 mod text;
 pub(crate) use text::TextFrameCache;
@@ -59,6 +59,7 @@ const TEMPORAL_INTERFACE: &str = concat!(
     include_str!("interfaces/common.wgsl")
 );
 const COMPOSITE: &str = include_str!("composite.wgsl");
+const YUV_CONVERT: &str = include_str!("yuv.wgsl");
 
 pub(crate) use readback::ExportFramePipeline;
 pub(crate) use scene::{
@@ -177,6 +178,18 @@ struct VideoTextureCache {
     // only the previous scene avoids uploading it twice without mirroring the
     // much larger CPU frame cache in GPU memory.
     previous_scene: Vec<Arc<UploadedVideoFrame>>,
+    // Per-frame transient buffers for texture items. Recreating them every
+    // frame stalls the driver under GPU memory pressure, so matching shapes
+    // are parked here and rewritten instead.
+    scratch: Vec<ScratchTextureBuffers>,
+}
+
+struct ScratchTextureBuffers {
+    input_count: usize,
+    property_size: usize,
+    input_properties: wgpu::Buffer,
+    item_properties: wgpu::Buffer,
+    item: wgpu::Buffer,
 }
 
 struct RenderResources {

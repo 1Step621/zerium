@@ -1,4 +1,6 @@
-use std::{error::Error, fmt, num::NonZeroU32, str::FromStr};
+use std::{num::NonZeroU32, str::FromStr};
+
+use thiserror::Error;
 
 use super::FrameRate;
 
@@ -39,9 +41,11 @@ impl ProjectResolution {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub(crate) enum ProjectSettingsError {
+    #[error("{0}")]
     InvalidFrameRate(String),
+    #[error("{0}")]
     OutOfRange(String),
 }
 
@@ -54,16 +58,6 @@ impl ProjectSettingsError {
         Self::InvalidFrameRate(message.into())
     }
 }
-
-impl fmt::Display for ProjectSettingsError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::InvalidFrameRate(message) | Self::OutOfRange(message) => message,
-        })
-    }
-}
-
-impl Error for ProjectSettingsError {}
 
 impl FromStr for FrameRate {
     type Err = ProjectSettingsError;

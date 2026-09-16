@@ -762,6 +762,24 @@ impl FrameRenderer {
             scene.background,
         )?;
         self.encode_output_pass(&mut encoder, target_view, &base_resources.output_input);
-        Ok(self.queue.submit([encoder.finish()]))
+        let submission = self.queue.submit([encoder.finish()]);
+        // The queue retains the submitted work, so scratch buffers are parked
+        // for the next frame instead of destroyed.
+        let mut cache = self
+            .video_textures
+            .lock()
+            .map_err(|_| RenderError::backend("video texture cache lock poisoned"))?;
+        for resource in texture_resources {
+            cache.scratch.push(ScratchTextureBuffers {
+                input_count: resource._uploaded_frames.len(),
+                property_size: usize::try_from(resource._item_properties.size()).map_err(|_| {
+                    RenderError::backend("texture item property size exceeds usize")
+                })?,
+                input_properties: resource._input_properties,
+                item_properties: resource._item_properties,
+                item: resource._item,
+            });
+        }
+        Ok(submission)
     }
 }

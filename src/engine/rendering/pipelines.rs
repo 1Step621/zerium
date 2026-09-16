@@ -420,6 +420,42 @@ impl RendererBuilder {
 }
 
 impl RendererDevice {
+    /// Creates an independent device for export work.
+    ///
+    /// The preview surface shares its device with the UI thread, whose frame
+    /// pacing can stall background submissions. Export owns this device
+    /// outright, so its throughput never depends on window state.
+    pub(crate) fn create_headless(plugins: &PluginRegistry) -> Result<Arc<Self>, RenderError> {
+        let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
+            backends: wgpu::Backends::PRIMARY,
+            flags: wgpu::InstanceFlags::default(),
+            memory_budget_thresholds: wgpu::MemoryBudgetThresholds::default(),
+            backend_options: wgpu::BackendOptions::default(),
+            display: None,
+        });
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            power_preference: wgpu::PowerPreference::HighPerformance,
+            force_fallback_adapter: false,
+            compatible_surface: None,
+            apply_limit_buckets: false,
+        }))
+        .map_err(|error| {
+            RenderError::backend(format!("export GPU adapter is unavailable: {error}"))
+        })?;
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+            label: Some("zerium-export-device"),
+            required_features: wgpu::Features::empty(),
+            required_limits: wgpu::Limits::default(),
+            ..Default::default()
+        }))
+        .map_err(|error| {
+            RenderError::backend(format!("export GPU device is unavailable: {error}"))
+        })?;
+        RendererBuilder::new(Arc::new(device), Arc::new(queue))?
+            .register_plugins(plugins)
+            .map(|builder| builder.build())
+    }
+
     pub(super) fn register_compute_shader(
         &mut self,
         schema: &EffectSchema,

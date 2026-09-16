@@ -810,9 +810,11 @@ impl RenderScene {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub(crate) enum RenderError {
+    #[error("{0}")]
     ResourceLimit(String),
+    #[error("{0}")]
     Backend(String),
 }
 
@@ -825,13 +827,3 @@ impl RenderError {
         Self::ResourceLimit(message.into())
     }
 }
-
-impl fmt::Display for RenderError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::ResourceLimit(message) | Self::Backend(message) => message,
-        })
-    }
-}
-
-impl Error for RenderError {}

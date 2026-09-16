@@ -1,13 +1,17 @@
-use std::{error::Error, fmt};
+use thiserror::Error;
 
 /// Failure to decode, validate, or resolve a plugin bundle.
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub(crate) enum PluginError {
+    #[error("{message}")]
     InvalidManifest {
         message: String,
+        #[source]
         source: serde_json::Error,
     },
+    #[error("{0}")]
     InvalidDefinition(String),
+    #[error("{0}")]
     MissingAsset(String),
 }
 
@@ -25,25 +29,6 @@ impl PluginError {
 
     pub(crate) fn missing_asset(message: impl Into<String>) -> Self {
         Self::MissingAsset(message.into())
-    }
-}
-
-impl fmt::Display for PluginError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::InvalidManifest { message, .. }
-            | Self::InvalidDefinition(message)
-            | Self::MissingAsset(message) => message,
-        })
-    }
-}
-
-impl Error for PluginError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::InvalidManifest { source, .. } => Some(source),
-            Self::InvalidDefinition(_) | Self::MissingAsset(_) => None,
-        }
     }
 }
 

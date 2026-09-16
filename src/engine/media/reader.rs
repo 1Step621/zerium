@@ -1,11 +1,12 @@
 use std::{
     collections::HashMap,
-    error::Error,
     fmt, fs,
     path::Path,
     sync::{Arc, atomic::AtomicBool},
     time::Duration,
 };
+
+use thiserror::Error;
 
 use crate::{
     domain::{
@@ -332,39 +333,30 @@ pub(crate) fn bundled_media_readers(
     Ok(Arc::new(registry))
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
 pub(crate) enum MediaError {
+    #[error("{0}")]
     Unsupported(String),
+    #[error("{0}")]
     InvalidInput(String),
+    #[error("{0}")]
     ReaderUnavailable(String),
+    #[error("{0}")]
     External(String),
+    #[error("キャンセルされました")]
     Cancelled,
 }
 
 impl MediaError {
-    pub(super) fn external(message: impl Into<String>) -> Self {
-        Self::External(message.into())
+    pub(super) fn external(message: impl fmt::Display) -> Self {
+        Self::External(message.to_string())
     }
 
-    fn unsupported(message: impl Into<String>) -> Self {
-        Self::Unsupported(message.into())
+    fn unsupported(message: impl fmt::Display) -> Self {
+        Self::Unsupported(message.to_string())
     }
 
-    fn invalid_input(message: impl Into<String>) -> Self {
-        Self::InvalidInput(message.into())
-    }
-}
-
-impl fmt::Display for MediaError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Cancelled => formatter.write_str("キャンセルされました"),
-            Self::Unsupported(message)
-            | Self::InvalidInput(message)
-            | Self::ReaderUnavailable(message)
-            | Self::External(message) => formatter.write_str(message),
-        }
+    fn invalid_input(message: impl fmt::Display) -> Self {
+        Self::InvalidInput(message.to_string())
     }
 }
-
-impl Error for MediaError {}

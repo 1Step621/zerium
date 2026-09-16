@@ -1,12 +1,12 @@
 use std::{
     collections::HashMap,
-    error::Error,
-    fmt,
     sync::{
         Arc,
         atomic::{AtomicU32, Ordering},
     },
 };
+
+use thiserror::Error;
 
 use crate::domain::timeline::{FrameRate, ItemId, TimelineItem, TimelineTime};
 
@@ -24,43 +24,26 @@ pub(crate) enum AudioGainEvaluation {
     TimelineAnimation,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub(crate) enum AudioTimelineError {
+    #[error(
+        "音声入力'{}'（item {:?}）を処理できません: {error}",
+        clip.input_id,
+        clip.item_id
+    )]
     Media {
         clip: AudioClipId,
+        #[source]
         error: MediaError,
     },
-    InvalidDecoderOutput {
-        clip: AudioClipId,
-    },
+    #[error(
+        "音声入力'{}'（item {:?}）が不正な形式を返しました",
+        clip.input_id,
+        clip.item_id
+    )]
+    InvalidDecoderOutput { clip: AudioClipId },
+    #[error("音声レンダー範囲が大きすぎます")]
     RangeTooLarge,
-}
-
-impl fmt::Display for AudioTimelineError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::Media { clip, error } => write!(
-                formatter,
-                "音声入力'{}'（item {:?}）を処理できません: {error}",
-                clip.input_id, clip.item_id
-            ),
-            Self::InvalidDecoderOutput { clip } => write!(
-                formatter,
-                "音声入力'{}'（item {:?}）が不正な形式を返しました",
-                clip.input_id, clip.item_id
-            ),
-            Self::RangeTooLarge => formatter.write_str("音声レンダー範囲が大きすぎます"),
-        }
-    }
-}
-
-impl Error for AudioTimelineError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Media { error, .. } => Some(error),
-            Self::InvalidDecoderOutput { .. } | Self::RangeTooLarge => None,
-        }
-    }
 }
 
 struct AudioClip {

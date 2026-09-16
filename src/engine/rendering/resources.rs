@@ -592,31 +592,45 @@ impl FrameRenderer {
                     0.,
                 ],
             });
-            let input_properties = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("zerium-texture-input-properties"),
-                size: (input_metadata.len() * size_of::<GpuTextureInput>()) as u64,
-                usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
+            let item_property_size = encoded.properties.len().max(PROPERTY_WORD_SIZE);
+            let scratch_index = cache.scratch.iter().position(|scratch| {
+                scratch.input_count == uploaded_frames.len()
+                    && scratch.property_size == item_property_size
             });
+            let scratch = match scratch_index {
+                Some(index) => cache.scratch.swap_remove(index),
+                None => ScratchTextureBuffers {
+                    input_count: uploaded_frames.len(),
+                    property_size: item_property_size,
+                    input_properties: self.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("zerium-texture-input-properties"),
+                        size: ((uploaded_frames.len() + 1) * size_of::<GpuTextureInput>()) as u64,
+                        usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    }),
+                    item_properties: self.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("zerium-texture-item-properties"),
+                        size: item_property_size as u64,
+                        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    }),
+                    item: self.device.create_buffer(&wgpu::BufferDescriptor {
+                        label: Some("zerium-texture-item"),
+                        size: size_of::<GpuItem>() as u64,
+                        usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+                        mapped_at_creation: false,
+                    }),
+                },
+            };
+            let input_properties = scratch.input_properties;
+            let item_properties = scratch.item_properties;
+            let item = scratch.item;
             self.queue
                 .write_buffer(&input_properties, 0, bytemuck::cast_slice(&input_metadata));
-            let item_property_size = encoded.properties.len().max(PROPERTY_WORD_SIZE);
-            let item_properties = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("zerium-texture-item-properties"),
-                size: item_property_size as u64,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
             if !encoded.properties.as_bytes().is_empty() {
                 self.queue
                     .write_buffer(&item_properties, 0, encoded.properties.as_bytes());
             }
-            let item = self.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some("zerium-texture-item"),
-                size: size_of::<GpuItem>() as u64,
-                usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            });
             self.queue.write_buffer(
                 &item,
                 0,

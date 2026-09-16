@@ -1,20 +1,28 @@
 //! Errors from decoding and reconstructing persisted domain state.
-use std::{error::Error, fmt};
+use thiserror::Error;
 
-#[derive(Debug)]
+#[derive(Debug, Error)]
 pub(crate) enum ProjectError {
+    #[error("{message}")]
     Encode {
         message: String,
+        #[source]
         source: serde_json::Error,
     },
+    #[error("{message}")]
     InvalidFormat {
         message: String,
+        #[source]
         source: serde_json::Error,
     },
+    #[error("{0}")]
     InvalidData(String),
+    #[error("{0}")]
     UnsupportedFormat(String),
+    #[error("{message}")]
     Io {
         message: String,
+        #[source]
         source: std::io::Error,
     },
 }
@@ -46,28 +54,6 @@ impl ProjectError {
         Self::Io {
             message: message.into(),
             source,
-        }
-    }
-}
-
-impl fmt::Display for ProjectError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::Encode { message, .. }
-            | Self::InvalidFormat { message, .. }
-            | Self::Io { message, .. }
-            | Self::InvalidData(message)
-            | Self::UnsupportedFormat(message) => message,
-        })
-    }
-}
-
-impl Error for ProjectError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Encode { source, .. } | Self::InvalidFormat { source, .. } => Some(source),
-            Self::Io { source, .. } => Some(source),
-            Self::InvalidData(_) | Self::UnsupportedFormat(_) => None,
         }
     }
 }

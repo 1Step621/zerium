@@ -40,7 +40,6 @@ pub(crate) struct ProjectController {
     path: Option<PathBuf>,
     saved_revision: u64,
     busy: bool,
-    status: Option<String>,
     _dialog_task: Task<()>,
     _io_task: Task<()>,
 }
@@ -64,7 +63,6 @@ impl ProjectController {
             path: None,
             saved_revision: 0,
             busy: false,
-            status: None,
             _dialog_task: Task::ready(()),
             _io_task: Task::ready(()),
         }
@@ -142,10 +140,15 @@ impl ProjectController {
                             .zip(height.ok())
                             .and_then(|(width, height)| ProjectResolution::new(width, height));
                         let Some(resolution) = resolution else {
-                            controller.status = Some(format!(
-                                "解像度は1〜{}の整数で入力してください",
-                                ProjectResolution::MAX_DIMENSION
-                            ));
+                            controller.notifications.update(cx, |notifications, cx| {
+                                notifications.push(
+                                    format!(
+                                        "解像度は1〜{}の整数で入力してください",
+                                        ProjectResolution::MAX_DIMENSION
+                                    ),
+                                    cx,
+                                );
+                            });
                             cx.notify();
                             return false;
                         };
@@ -164,18 +167,22 @@ impl ProjectController {
                                 match FrameRate::new(numerator, denominator) {
                                     Some(frame_rate) => frame_rate,
                                     None => {
-                                        controller.status = Some(
-                                            "フレームレートは0より大きくしてください".to_owned(),
-                                        );
+                                        controller.notifications.update(cx, |notifications, cx| {
+                                            notifications.push(
+                                                "フレームレートは0より大きくしてください",
+                                                cx,
+                                            );
+                                        });
                                         cx.notify();
                                         return false;
                                     }
                                 }
                             }
                             _ => {
-                                controller.status = Some(
-                                    "フレームレートは1以上の整数で入力してください".to_owned(),
-                                );
+                                controller.notifications.update(cx, |notifications, cx| {
+                                    notifications
+                                        .push("フレームレートは1以上の整数で入力してください", cx);
+                                });
                                 cx.notify();
                                 return false;
                             }
@@ -191,12 +198,13 @@ impl ProjectController {
                                 controller.transport.update(cx, |transport, cx| {
                                     transport.stop(cx);
                                 });
-                                controller.status = None;
                                 cx.notify();
                                 true
                             }
                             Err(error) => {
-                                controller.status = Some(error.to_string());
+                                controller.notifications.update(cx, |notifications, cx| {
+                                    notifications.push(error.to_string(), cx);
+                                });
                                 cx.notify();
                                 false
                             }
@@ -232,10 +240,6 @@ impl ProjectController {
                         )),
                 )
         });
-    }
-
-    pub(crate) fn status(&self) -> Option<String> {
-        self.status.clone()
     }
 
     pub(crate) fn window_title(&self, cx: &App) -> String {
@@ -312,7 +316,6 @@ impl ProjectController {
         });
         self.path = None;
         self.saved_revision = self.editor.read(cx).project_revision();
-        self.status = None;
         cx.notify();
     }
 
@@ -324,7 +327,6 @@ impl ProjectController {
             prompt: Some("Zeriumプロジェクトを開く".into()),
         });
         self.busy = true;
-        self.status = Some("プロジェクトを選択中…".to_owned());
         cx.notify();
 
         let plugins = self.plugins.clone();
@@ -354,17 +356,6 @@ impl ProjectController {
                             cx,
                         );
                     } else {
-                        controller
-                            .update(cx, |controller, cx| {
-                                controller.status = Some(format!(
-                                    "読み込み中… {}",
-                                    path.file_name()
-                                        .map(|name| name.to_string_lossy())
-                                        .unwrap_or_default()
-                                ));
-                                cx.notify();
-                            })
-                            .ok();
                         let input = path.clone();
                         let result = cx
                             .background_spawn(async move { project_io::load(&input, &plugins) })
@@ -384,18 +375,22 @@ impl ProjectController {
                                         controller.saved_revision =
                                             controller.editor.read(cx).project_revision();
                                         controller.busy = false;
-                                        controller.status = Some(format!(
-                                            "読み込み完了: {}",
-                                            path.file_name()
-                                                .map(|name| name.to_string_lossy())
-                                                .unwrap_or_default()
-                                        ));
+                                        controller.notifications.update(cx, |notifications, cx| {
+                                            notifications.push_success(
+                                                format!(
+                                                    "読み込み完了: {}",
+                                                    path.file_name()
+                                                        .map(|name| name.to_string_lossy())
+                                                        .unwrap_or_default()
+                                                ),
+                                                cx,
+                                            );
+                                        });
                                         cx.notify();
                                     }
                                     Err(error) => {
                                         controller.busy = false;
                                         let message = format!("読み込み失敗: {error}");
-                                        controller.status = Some(message.clone());
                                         controller.notifications.update(cx, |notifications, cx| {
                                             notifications.push(message, cx);
                                         });
@@ -429,7 +424,6 @@ impl ProjectController {
             .unwrap_or("project.zero");
         let receiver = cx.prompt_for_new_path(&initial_directory, Some(suggested_name));
         self.busy = true;
-        self.status = Some("保存先を選択中…".to_owned());
         let session = self.session.clone();
         let operation = session.update(cx, |session, cx| session.begin(ProjectActivity::Save, cx));
         cx.notify();
@@ -486,12 +480,6 @@ impl ProjectController {
         let snapshot = self.editor.read(cx).snapshot();
         let revision = snapshot.project_revision();
         self.busy = true;
-        self.status = Some(format!(
-            "保存中… {}",
-            path.file_name()
-                .map(|name| name.to_string_lossy())
-                .unwrap_or_default()
-        ));
         cx.notify();
 
         let session = self.session.clone();
@@ -511,16 +499,20 @@ impl ProjectController {
                         Ok(()) => {
                             controller.path = Some(path.clone());
                             controller.saved_revision = revision;
-                            controller.status = Some(format!(
-                                "保存完了: {}",
-                                path.file_name()
-                                    .map(|name| name.to_string_lossy())
-                                    .unwrap_or_default()
-                            ));
+                            controller.notifications.update(cx, |notifications, cx| {
+                                notifications.push_success(
+                                    format!(
+                                        "保存完了: {}",
+                                        path.file_name()
+                                            .map(|name| name.to_string_lossy())
+                                            .unwrap_or_default()
+                                    ),
+                                    cx,
+                                );
+                            });
                         }
                         Err(error) => {
                             let message = format!("保存失敗: {error}");
-                            controller.status = Some(message.clone());
                             controller.notifications.update(cx, |notifications, cx| {
                                 notifications.push(message, cx);
                             });
@@ -633,7 +625,6 @@ fn set_failed(
     controller
         .update(cx, |controller, cx| {
             controller.busy = false;
-            controller.status = Some(error.clone());
             controller.notifications.update(cx, |notifications, cx| {
                 notifications.push(error, cx);
             });
@@ -646,7 +637,6 @@ fn set_idle(controller: &gpui::WeakEntity<ProjectController>, cx: &mut gpui::Asy
     controller
         .update(cx, |controller, cx| {
             controller.busy = false;
-            controller.status = None;
             cx.notify();
         })
         .ok();

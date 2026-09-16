@@ -1,5 +1,5 @@
 //! Shared property contracts, values, validation, and editor metadata.
-use std::{error::Error, fmt};
+use thiserror::Error;
 
 mod constraints;
 mod numeric;
@@ -19,7 +19,8 @@ pub(crate) use value::materialized_property_values;
 pub(crate) use value::{PropertyElement, PropertyElementId, PropertyValue, PropertyValues};
 
 /// A value or schema violates its property contract.
-#[derive(Debug)]
+#[derive(Debug, Error)]
+#[error("{0}")]
 pub(crate) struct PropertyError(String);
 
 impl PropertyError {
@@ -27,11 +28,3 @@ impl PropertyError {
         Self(message.into())
     }
 }
-
-impl fmt::Display for PropertyError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.0)
-    }
-}
-
-impl Error for PropertyError {}

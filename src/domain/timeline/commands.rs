@@ -4,11 +4,8 @@
 //! internals it needs are visible only inside `timeline`.
 
 use crate::domain::property::PropertyValueType;
-use std::{
-    collections::{HashMap, HashSet},
-    error::Error,
-    fmt,
-};
+use std::collections::{HashMap, HashSet};
+use thiserror::Error;
 
 use crate::domain::animation::{
     BezierHandle, ScalarAnimationAddress, ScalarAnimations, ScalarTrack, SegmentInterpolation,
@@ -104,54 +101,30 @@ pub(crate) enum SceneArgumentEditError {
 /// Commands that merely report whether they changed state still return
 /// `bool`; commands that can reject valid-looking user input use this type so
 /// the UI does not have to guess why they failed.
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub(crate) enum TimelineEditError {
-    PluginItemNotFound {
-        plugin_id: String,
-        item_id: String,
-    },
+    #[error("アイテム '{plugin_id}/{item_id}' がありません")]
+    PluginItemNotFound { plugin_id: String, item_id: String },
+    #[error("エフェクト '{plugin_id}/{effect_id}' がありません")]
     PluginEffectNotFound {
         plugin_id: String,
         effect_id: String,
     },
+    #[error("シーン {} がありません", .0.get())]
     SceneNotFound(SceneId),
+    #[error("シーン参照が循環します")]
     RecursiveSceneReference,
+    #[error("対象のアイテムが選択されていません")]
     NothingSelected,
+    #[error("新しいIDを割り当てられません")]
     IdentifierExhausted,
+    #[error("指定した位置にアイテムを配置できません")]
     PlacementUnavailable,
+    #[error("アイテム {} がありません", .0.get())]
     ItemNotFound(ItemId),
+    #[error("ファイルの種類がアイテム入力と一致しません")]
     IncompatibleMedia,
 }
-
-impl fmt::Display for TimelineEditError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::PluginItemNotFound { plugin_id, item_id } => {
-                write!(formatter, "アイテム '{plugin_id}/{item_id}' がありません")
-            }
-            Self::PluginEffectNotFound {
-                plugin_id,
-                effect_id,
-            } => write!(
-                formatter,
-                "エフェクト '{plugin_id}/{effect_id}' がありません"
-            ),
-            Self::SceneNotFound(id) => write!(formatter, "シーン {} がありません", id.get()),
-            Self::RecursiveSceneReference => formatter.write_str("シーン参照が循環します"),
-            Self::NothingSelected => formatter.write_str("対象のアイテムが選択されていません"),
-            Self::IdentifierExhausted => formatter.write_str("新しいIDを割り当てられません"),
-            Self::PlacementUnavailable => {
-                formatter.write_str("指定した位置にアイテムを配置できません")
-            }
-            Self::ItemNotFound(id) => write!(formatter, "アイテム {} がありません", id.get()),
-            Self::IncompatibleMedia => {
-                formatter.write_str("ファイルの種類がアイテム入力と一致しません")
-            }
-        }
-    }
-}
-
-impl Error for TimelineEditError {}
 
 // Scene definition and scene-argument commands.
 impl TimelineEditor {
@@ -1781,6 +1754,7 @@ impl TimelineEditor {
         self.finish_project_edit_if_changed(changed, Some(before), None)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn set_selected_property_animation_stop(
         &mut self,
         effect_id: Option<EffectInstanceId>,
@@ -1874,6 +1848,7 @@ impl TimelineEditor {
         inserted
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(crate) fn set_selected_animation_handle(
         &mut self,
         effect_id: Option<EffectInstanceId>,

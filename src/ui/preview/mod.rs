@@ -21,7 +21,8 @@ use crate::{
     engine::{
         media::{MediaReaderRegistry, VideoDecodeSize},
         rendering::{
-            FrameRenderer, RenderError, RenderScene, RenderSize, RendererBuilder, TextFrameCache,
+            FrameRenderer, RenderError, RenderScene, RenderSize, RendererBuilder, RendererDevice,
+            TextFrameCache,
         },
     },
     ui::{
@@ -34,12 +35,30 @@ use self::video::{VideoInputId, VideoPlaybackEngine};
 
 pub(crate) struct RenderBackend {
     renderer: Option<Arc<FrameRenderer>>,
+    export_device: Option<Arc<RendererDevice>>,
     error: Option<SharedString>,
 }
 
 impl RenderBackend {
     pub(crate) fn renderer(&self) -> Option<Arc<FrameRenderer>> {
         self.renderer.clone()
+    }
+
+    /// Rendering session on the dedicated export device, creating the device
+    /// on first use.
+    pub(crate) fn export_session(
+        &mut self,
+        plugins: &PluginRegistry,
+    ) -> Result<Arc<FrameRenderer>, RenderError> {
+        let device = match &self.export_device {
+            Some(device) => device.clone(),
+            None => {
+                let device = RendererDevice::create_headless(plugins)?;
+                self.export_device = Some(device.clone());
+                device
+            }
+        };
+        Ok(Arc::new(device.create_session()))
     }
 
     pub(crate) fn error(&self) -> Option<SharedString> {
@@ -165,7 +184,11 @@ impl Preview {
                 notifications.push(format!("プレビュー初期化失敗: {error}"), cx);
             });
         }
-        let backend = cx.new(|_| RenderBackend { renderer, error });
+        let backend = cx.new(|_| RenderBackend {
+            renderer,
+            export_device: None,
+            error,
+        });
         let video_playback = cx.new(|cx| {
             VideoPlaybackEngine::new(media_readers, session.clone(), notifications.clone(), cx)
         });

@@ -1,4 +1,6 @@
-use std::{error::Error, fmt, path::PathBuf, time::Duration};
+use std::{path::PathBuf, time::Duration};
+
+use thiserror::Error;
 
 use crate::domain::plugin::MediaType;
 
@@ -103,26 +105,17 @@ pub(crate) struct MediaSourceId {
     kind: MediaKind,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub(crate) enum MediaMetadataError {
+    #[error("media reader ID must not be empty")]
     EmptyReader,
+    #[error("visual media dimensions must be non-zero")]
     InvalidDimensions,
+    #[error("video frame count must be non-zero")]
     EmptyVideo,
+    #[error("audio channel count and sample rate must be non-zero")]
     InvalidAudio,
 }
-
-impl fmt::Display for MediaMetadataError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.write_str(match self {
-            Self::EmptyReader => "media reader ID must not be empty",
-            Self::InvalidDimensions => "visual media dimensions must be non-zero",
-            Self::EmptyVideo => "video frame count must be non-zero",
-            Self::InvalidAudio => "audio channel count and sample rate must be non-zero",
-        })
-    }
-}
-
-impl Error for MediaMetadataError {}
 
 impl MediaAsset {
     pub(crate) fn validate(&self) -> Result<(), MediaMetadataError> {

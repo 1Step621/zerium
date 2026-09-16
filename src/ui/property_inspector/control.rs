@@ -94,7 +94,7 @@ pub(super) struct EffectGroup {
 pub(super) enum GroupKind {
     Plain,
     Tuple { size_key: Option<InspectorPath> },
-    Elements(ElementGroup),
+    Elements(Box<ElementGroup>),
     Effect(EffectGroup),
 }
 
@@ -617,7 +617,7 @@ impl PropertyInspector {
             id: ControlId::group(&key),
             label: property.label().to_owned(),
             children,
-            kind: GroupKind::Elements(ElementGroup {
+            kind: GroupKind::Elements(Box::new(ElementGroup {
                 target,
                 property: Box::new(property.clone()),
                 elements: values.clone(),
@@ -625,7 +625,7 @@ impl PropertyInspector {
                 min_items: *min_items,
                 max_items: *max_items,
                 has_scene_binding,
-            }),
+            })),
         })
     }
 
@@ -697,13 +697,12 @@ impl PropertyInspector {
                 values
                     .get(argument.schema.id())
                     .map(|value| {
-                        let controls = Self::scene_value_controls(
+                        Self::scene_value_controls(
                             scene_id,
                             argument.schema.property(),
                             value,
                             resolution,
-                        );
-                        controls
+                        )
                     })
                     .unwrap_or_default()
             })
@@ -745,6 +744,7 @@ impl PropertyInspector {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn animation_stop_controls(
         item: &TimelineItem,
         effect_id: Option<EffectInstanceId>,

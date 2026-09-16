@@ -1,15 +1,19 @@
-use std::{path::PathBuf, sync::Arc};
+use std::{path::PathBuf, sync::Arc, time::Instant};
 
 use ::ui::{
     ContextModal as _, StyledExt as _,
     modal::{Modal, ModalButtonProps},
 };
+use futures::StreamExt as _;
 use gpui::{Context, Entity, SharedString, Subscription, Task, Window, div, prelude::*, px};
 
 use crate::{
-    domain::timeline::TimelineEditor,
+    domain::{
+        plugin::PluginRegistry,
+        timeline::{TimelineEditor, TimelineView},
+    },
     engine::{
-        export::{ExportSettings, export_timeline},
+        export::{ExportError, ExportProgress, ExportSettings, export_timeline},
         media::MediaReaderRegistry,
     },
     ui::{
@@ -23,15 +27,19 @@ use crate::{
 enum ExportState {
     Idle,
     ChoosingPath,
-    Exporting(PathBuf),
-    Complete(PathBuf),
-    Failed(String),
+    Exporting {
+        completed_frames: u64,
+        total_frames: u64,
+    },
+    Complete,
+    Failed,
 }
 
 pub(crate) struct ExportController {
     editor: Entity<TimelineEditor>,
     backend: Entity<RenderBackend>,
     media_readers: Arc<MediaReaderRegistry>,
+    plugins: Arc<PluginRegistry>,
     session: Entity<ProjectSession>,
     session_id: ProjectSessionId,
     notifications: Entity<UiNotifications>,
@@ -45,6 +53,7 @@ impl ExportController {
         editor: Entity<TimelineEditor>,
         backend: Entity<RenderBackend>,
         media_readers: Arc<MediaReaderRegistry>,
+        plugins: Arc<PluginRegistry>,
         session: Entity<ProjectSession>,
         notifications: Entity<UiNotifications>,
         cx: &mut Context<Self>,
@@ -64,6 +73,7 @@ impl ExportController {
             editor,
             backend,
             media_readers,
+            plugins,
             session,
             session_id,
             notifications,
@@ -76,8 +86,19 @@ impl ExportController {
     pub(crate) fn is_busy(&self) -> bool {
         matches!(
             self.state,
-            ExportState::ChoosingPath | ExportState::Exporting(_)
+            ExportState::ChoosingPath | ExportState::Exporting { .. }
         )
+    }
+
+    /// Progress fraction while exporting, if an export is running.
+    pub(crate) fn export_progress(&self) -> Option<(u64, u64)> {
+        match self.state {
+            ExportState::Exporting {
+                completed_frames,
+                total_frames,
+            } => Some((completed_frames, total_frames)),
+            _ => None,
+        }
     }
 
     pub(crate) fn open_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -123,24 +144,26 @@ impl ExportController {
         });
     }
 
-    pub(crate) fn status(&self) -> Option<String> {
-        match &self.state {
-            ExportState::Idle => None,
-            ExportState::ChoosingPath => Some("保存先を選択中…".to_owned()),
-            ExportState::Exporting(path) => Some(format!("書き出し中… {}", output_name(path))),
-            ExportState::Complete(path) => Some(format!("書き出し完了: {}", output_name(path))),
-            ExportState::Failed(error) => Some(format!("書き出し失敗: {error}")),
-        }
-    }
-
     fn choose_output(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        let Some(renderer) = self.backend.read(cx).renderer() else {
-            let message = "GPUレンダラーが利用できないため書き出しを開始できません".to_owned();
-            self.state = ExportState::Failed(message.clone());
-            self.notifications
-                .update(cx, |notifications, cx| notifications.push(message, cx));
-            cx.notify();
-            return;
+        let plugins = self.plugins.clone();
+        let renderer = match self
+            .backend
+            .update(cx, |backend, _| backend.export_session(&plugins))
+        {
+            Ok(renderer) => renderer,
+            Err(error) => {
+                eprintln!("dedicated export device unavailable, sharing preview device: {error}");
+                let Some(renderer) = self.backend.read(cx).renderer() else {
+                    let message =
+                        "GPUレンダラーが利用できないため書き出しを開始できません".to_owned();
+                    self.state = ExportState::Failed;
+                    self.notifications
+                        .update(cx, |notifications, cx| notifications.push(message, cx));
+                    cx.notify();
+                    return;
+                };
+                renderer
+            }
         };
         let snapshot = self.editor.read(cx).snapshot();
         let media_readers = self.media_readers.clone();
@@ -209,33 +232,92 @@ impl ExportController {
             if !operation_is_current(&session, operation, cx) {
                 return;
             }
+            let total_frames = snapshot.end_frame_exclusive().get();
             let _ = controller.update(cx, |controller, cx| {
-                controller.state = ExportState::Exporting(output.clone());
+                controller.state = ExportState::Exporting {
+                    completed_frames: 0,
+                    total_frames,
+                };
                 cx.notify();
             });
             let settings = ExportSettings {
                 output: output.clone(),
             };
-            let result = cx
-                .background_spawn(async move {
-                    export_timeline(snapshot, renderer, media_readers, settings)
-                })
-                .await;
+            let (progress_tx, mut progress_rx) = futures::channel::mpsc::unbounded();
+            // The blocking orchestration runs on a dedicated thread, never on
+            // the async executor, so export throughput cannot depend on how
+            // often the executor is pumped (e.g. while the window is idle).
+            // Completion travels through the same channel, so no join (which
+            // would block the executor) is needed.
+            let _ = std::thread::Builder::new()
+                .name("zerium-export".to_owned())
+                .spawn(move || {
+                    let result = export_timeline(
+                        snapshot,
+                        renderer,
+                        media_readers,
+                        settings,
+                        progress_tx.clone(),
+                    );
+                    let _ = progress_tx.unbounded_send(ExportProgress::Finished(result));
+                });
+            // UI updates are throttled to ~100 per export so progress
+            // reporting never competes with the export itself.
+            let quantum = total_frames.div_ceil(100).max(1);
+            let mut last_reported = 0;
+            let started = Instant::now();
+            let result = loop {
+                match progress_rx.next().await {
+                    Some(ExportProgress::Frame(completed)) => {
+                        if completed >= total_frames
+                            || completed.saturating_sub(last_reported) >= quantum
+                        {
+                            last_reported = completed;
+                            let _ = controller.update(cx, |controller, cx| {
+                                controller.state = ExportState::Exporting {
+                                    completed_frames: completed.min(total_frames),
+                                    total_frames,
+                                };
+                                cx.notify();
+                            });
+                        }
+                    }
+                    Some(ExportProgress::Finished(result)) => break result,
+                    None => {
+                        break Err(ExportError::encoding(
+                            "書き出しスレッドが予期せず終了しました",
+                        ));
+                    }
+                }
+            };
             if !operation_is_current(&session, operation, cx) {
                 return;
             }
             let error = result.as_ref().err().map(ToString::to_string);
+            let output_name = output_name(&output).to_owned();
             let _ = controller.update(cx, |controller, cx| {
-                controller.state = match result {
-                    Ok(()) => ExportState::Complete(output),
-                    Err(error) => ExportState::Failed(error.to_string()),
+                controller.state = match &result {
+                    Ok(()) => ExportState::Complete,
+                    Err(_) => ExportState::Failed,
                 };
                 cx.notify();
             });
-            if let Some(error) = error {
-                notifications.update(cx, |notifications, cx| {
-                    notifications.push(format!("書き出し失敗: {error}"), cx);
-                });
+            match error {
+                Some(error) => {
+                    notifications.update(cx, |notifications, cx| {
+                        notifications.push(format!("書き出し失敗: {error}"), cx);
+                    });
+                }
+                None => {
+                    let fps =
+                        total_frames as f64 / started.elapsed().as_secs_f64().max(f64::EPSILON);
+                    notifications.update(cx, |notifications, cx| {
+                        notifications.push_success(
+                            format!("書き出し完了: {output_name} ({fps:.1} fps)"),
+                            cx,
+                        );
+                    });
+                }
             }
             session.update(cx, |session, cx| {
                 session.finish(operation, cx);
@@ -264,7 +346,7 @@ fn fail_operation(
         return;
     }
     let _ = controller.update(cx, |controller, cx| {
-        controller.state = ExportState::Failed(error.clone());
+        controller.state = ExportState::Failed;
         cx.notify();
     });
     notifications.update(cx, |notifications, cx| {

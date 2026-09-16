@@ -1,12 +1,13 @@
 use std::{
     collections::HashMap,
-    error::Error,
     fmt,
     path::PathBuf,
     sync::{Arc, atomic::AtomicBool, mpsc},
     thread,
     time::Duration,
 };
+
+use thiserror::Error;
 
 use crate::{
     domain::{
@@ -29,51 +30,21 @@ pub(crate) struct ExportSettings {
     pub output: PathBuf,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub(crate) enum ExportError {
+    #[error("{0}")]
     InvalidTimeline(String),
-    Media(crate::engine::media::MediaError),
-    Render(crate::engine::rendering::RenderError),
+    #[error(transparent)]
+    Media(#[from] crate::engine::media::MediaError),
+    #[error(transparent)]
+    Render(#[from] crate::engine::rendering::RenderError),
+    #[error("{0}")]
     Encoding(String),
 }
 
 impl ExportError {
-    fn encoding(message: impl Into<String>) -> Self {
-        Self::Encoding(message.into())
-    }
-}
-
-impl fmt::Display for ExportError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::InvalidTimeline(message) | Self::Encoding(message) => {
-                formatter.write_str(message)
-            }
-            Self::Media(error) => error.fmt(formatter),
-            Self::Render(error) => error.fmt(formatter),
-        }
-    }
-}
-
-impl Error for ExportError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Media(error) => Some(error),
-            Self::Render(error) => Some(error),
-            Self::InvalidTimeline(_) | Self::Encoding(_) => None,
-        }
-    }
-}
-
-impl From<crate::engine::media::MediaError> for ExportError {
-    fn from(error: crate::engine::media::MediaError) -> Self {
-        Self::Media(error)
-    }
-}
-
-impl From<crate::engine::rendering::RenderError> for ExportError {
-    fn from(error: crate::engine::rendering::RenderError) -> Self {
-        Self::Render(error)
+    pub(crate) fn encoding(message: impl fmt::Display) -> Self {
+        Self::Encoding(message.to_string())
     }
 }
 
@@ -92,11 +63,17 @@ const EXPORT_AUDIO_FORMAT: AudioFormat = AudioFormat {
     sample_rate: 48_000,
     channels: 2,
 };
-const EXPORT_PIPELINE_DEPTH: usize = 2;
+const EXPORT_PIPELINE_DEPTH: usize = 3;
+const DECODE_PREFETCH_FRAMES: usize = 3;
+
+pub(crate) enum ExportProgress {
+    Frame(u64),
+    Finished(Result<(), ExportError>),
+}
 
 struct RenderedFrame {
     index: u64,
-    rgba: Vec<u8>,
+    yuv: Vec<u8>,
 }
 
 enum EncoderMessage {
@@ -120,6 +97,7 @@ pub(crate) fn export_timeline(
     renderer: Arc<FrameRenderer>,
     media_readers: Arc<MediaReaderRegistry>,
     settings: ExportSettings,
+    progress: futures::channel::mpsc::UnboundedSender<ExportProgress>,
 ) -> Result<(), ExportError> {
     let frame_count = timeline.end_frame_exclusive().get();
     if frame_count == 0 {
@@ -129,7 +107,6 @@ pub(crate) fn export_timeline(
     }
     let frame_rate = timeline.frame_rate();
     let size = RenderSize::from(timeline.resolution());
-    let composition_size = RenderSize::from(timeline.resolution());
     let output_spec = VideoOutputSpec {
         width: size.width,
         height: size.height,
@@ -165,41 +142,33 @@ pub(crate) fn export_timeline(
         .map_err(|error| {
             ExportError::encoding(format!("映像エンコードスレッドを開始できません: {error}"))
         })?;
-    let mut decoders = HashMap::<TextureInputId, ExportDecoder>::new();
-    let mut text_frames = TextFrameCache::new();
-    let cancelled = AtomicBool::new(false);
+    // Scene evaluation, video decoding, and text rasterization run ahead on a
+    // worker so the render thread only waits on the GPU, never on the CPU.
+    let (decoded_scenes_tx, decoded_scenes_rx) = mpsc::sync_channel(DECODE_PREFETCH_FRAMES);
+    let decode_worker = thread::Builder::new()
+        .name("zerium-export-decode".to_owned())
+        .spawn(move || {
+            decode_scenes(
+                timeline,
+                media_readers,
+                size,
+                frame_count,
+                decoded_scenes_tx,
+            )
+        })
+        .map_err(|error| {
+            ExportError::encoding(format!("映像デコードスレッドを開始できません: {error}"))
+        })?;
 
     let render_result = (|| {
-        for frame_index in 0..frame_count {
-            let frame = Frame::new(frame_index);
-            let render_time = TimelineTime::from_frame(frame);
-            let active_items = timeline.active_items_at(frame);
-            text_frames.retain_active(active_items.iter().map(|(_, item)| item.id));
-            let effect_size =
-                RenderScene::effect_render_size_for_timeline(&timeline, render_time, size)?;
-            let scene = RenderScene::from_timeline(
-                &timeline,
-                render_time,
-                size,
-                |request| {
-                    decode_texture_frame(
-                        &timeline,
-                        request.item_id,
-                        request.input_id,
-                        request.time,
-                        effect_size,
-                        &mut decoders,
-                        &media_readers,
-                        &cancelled,
-                    )
-                },
-                |item, schema, target_size| {
-                    text_frames.frame_for(item, schema, target_size, composition_size)
-                },
-            )?;
+        for _ in 0..frame_count {
+            let (frame_index, scene) = decoded_scenes_rx.recv().map_err(|_| {
+                ExportError::encoding("映像デコードスレッドが予期せず終了しました")
+            })??;
             if let Some(frame) = readbacks.submit(frame_index, &scene)? {
                 send_frame(&frames_to_encode, frame)?;
             }
+            let _ = progress.unbounded_send(ExportProgress::Frame(frame_index.saturating_add(1)));
         }
         while let Some(frame) = readbacks.finish_next()? {
             send_frame(&frames_to_encode, frame)?;
@@ -209,27 +178,83 @@ pub(crate) fn export_timeline(
             .map_err(|_| ExportError::encoding("映像エンコーダーが予期せず終了しました"))?;
         Ok(())
     })();
+    drop(decoded_scenes_rx);
+    let decode_result = decode_worker.join();
     drop(frames_to_encode);
     let encoding_result = encoder_worker
         .join()
         .map_err(|_| ExportError::encoding("映像エンコードスレッドが予期せず終了しました"))?;
-    match (render_result, encoding_result) {
-        (Err(error), Err(EncoderWorkerError::IncompleteInput)) => Err(error),
-        (_, Err(EncoderWorkerError::Export(error))) => Err(error),
-        (Ok(()), Err(EncoderWorkerError::IncompleteInput)) => Err(ExportError::encoding(
+    match (render_result, decode_result, encoding_result) {
+        (Err(error), _, _) => Err(error),
+        (Ok(()), Err(_), _) => Err(ExportError::encoding(
+            "映像デコードスレッドが予期せず終了しました",
+        )),
+        (Ok(()), Ok(()), Err(EncoderWorkerError::Export(error))) => Err(error),
+        (Ok(()), Ok(()), Err(EncoderWorkerError::IncompleteInput)) => Err(ExportError::encoding(
             "レンダリングが完了する前に書き出し入力が閉じられました",
         )),
-        (Err(error), Ok(())) => Err(error),
-        (Ok(()), Ok(())) => Ok(()),
+        (Ok(()), Ok(()), Ok(())) => Ok(()),
+    }
+}
+
+fn decode_scenes(
+    timeline: TimelineSnapshot,
+    media_readers: Arc<MediaReaderRegistry>,
+    size: RenderSize,
+    frame_count: u64,
+    scenes: mpsc::SyncSender<Result<(u64, RenderScene), ExportError>>,
+) {
+    let composition_size = RenderSize::from(timeline.resolution());
+    let mut decoders = HashMap::<TextureInputId, ExportDecoder>::new();
+    let mut text_frames = TextFrameCache::new();
+    let cancelled = AtomicBool::new(false);
+    for frame_index in 0..frame_count {
+        let frame = Frame::new(frame_index);
+        let render_time = TimelineTime::from_frame(frame);
+        let active_items = timeline.active_items_at(frame);
+        text_frames.retain_active(active_items.iter().map(|(_, item)| item.id));
+        let effect_size =
+            match RenderScene::effect_render_size_for_timeline(&timeline, render_time, size) {
+                Ok(size) => size,
+                Err(error) => {
+                    let _ = scenes.send(Err(error.into()));
+                    break;
+                }
+            };
+        let result = RenderScene::from_timeline(
+            &timeline,
+            render_time,
+            size,
+            |request| {
+                decode_texture_frame(
+                    &timeline,
+                    request.item_id,
+                    request.input_id,
+                    request.time,
+                    effect_size,
+                    &mut decoders,
+                    &media_readers,
+                    &cancelled,
+                )
+            },
+            |item, schema, target_size| {
+                text_frames.frame_for(item, schema, target_size, composition_size)
+            },
+        )
+        .map(|scene| (frame_index, scene));
+        let failed = result.is_err();
+        if scenes.send(result).is_err() || failed {
+            break;
+        }
     }
 }
 
 fn send_frame(
     sender: &mpsc::SyncSender<EncoderMessage>,
-    (index, rgba): (u64, Vec<u8>),
+    (index, yuv): (u64, Vec<u8>),
 ) -> Result<(), ExportError> {
     sender
-        .send(EncoderMessage::Frame(RenderedFrame { index, rgba }))
+        .send(EncoderMessage::Frame(RenderedFrame { index, yuv }))
         .map_err(|_| ExportError::encoding("映像エンコーダーが予期せず終了しました"))
 }
 
@@ -277,14 +302,7 @@ fn encode_frames(
             return Ok(());
         };
         encoder
-            .encode_video(
-                &RgbaFrame {
-                    width: output_spec.width,
-                    height: output_spec.height,
-                    rgba: frame.rgba.into(),
-                },
-                frame.index,
-            )
+            .encode_yuv420p(&frame.yuv, frame.index)
             .map_err(ExportError::encoding)?;
         if has_audio {
             let start = sample_boundary(frame.index, frame_rate, EXPORT_AUDIO_FORMAT.sample_rate);

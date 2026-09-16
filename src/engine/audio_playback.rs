@@ -1,7 +1,5 @@
 use std::{
     collections::{HashMap, VecDeque},
-    error::Error,
-    fmt,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
@@ -9,6 +7,8 @@ use std::{
     thread,
     time::Duration,
 };
+
+use thiserror::Error;
 
 use cpal::traits::{DeviceTrait as _, HostTrait as _, StreamTrait as _};
 
@@ -39,37 +39,18 @@ pub(crate) enum AudioPlaybackEvent {
     WorkerPanicked,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub(crate) enum AudioPlaybackError {
+    #[error("音声出力デバイスが見つかりません")]
     DeviceUnavailable,
+    #[error("{0}")]
     Configuration(String),
+    #[error("{0}")]
     Stream(String),
+    #[error("{0}")]
     Worker(String),
-    Timeline(AudioTimelineError),
-}
-
-impl fmt::Display for AudioPlaybackError {
-    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        match self {
-            Self::DeviceUnavailable => formatter.write_str("音声出力デバイスが見つかりません"),
-            Self::Configuration(message) | Self::Stream(message) | Self::Worker(message) => {
-                formatter.write_str(message)
-            }
-            Self::Timeline(error) => error.fmt(formatter),
-        }
-    }
-}
-
-impl Error for AudioPlaybackError {
-    fn source(&self) -> Option<&(dyn Error + 'static)> {
-        match self {
-            Self::Timeline(error) => Some(error),
-            Self::DeviceUnavailable
-            | Self::Configuration(_)
-            | Self::Stream(_)
-            | Self::Worker(_) => None,
-        }
-    }
+    #[error(transparent)]
+    Timeline(#[from] AudioTimelineError),
 }
 
 struct AudioUnderrunState {

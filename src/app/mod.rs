@@ -1,7 +1,8 @@
 use ::ui::{
-    ActiveTheme as _, Root, Sizable as _,
+    ActiveTheme as _, ContextModal as _, Root, Sizable as _,
     button::{Button, ButtonVariants as _},
     menu::{PopupMenuItem, popup_menu::PopupMenuExt as _},
+    notification::Notification,
     resizable::{h_resizable, resizable_panel, v_resizable},
 };
 use gpui::{
@@ -41,6 +42,7 @@ struct Workspace {
     project_controller: gpui::Entity<crate::ui::project::ProjectController>,
     export_controller: gpui::Entity<crate::ui::export::ExportController>,
     notifications: gpui::Entity<crate::ui::session::UiNotifications>,
+    forwarded_notifications: u64,
     focus_handle: FocusHandle,
     _animation_selection_subscription: Subscription,
     _editor_subscription: Subscription,
@@ -152,18 +154,21 @@ impl Render for Workspace {
         let background = cx.theme().background;
         let colors = cx.theme().colors;
         let show_animation = self.animation_curve.read(cx).has_selected_curve(cx);
-        let status = [
-            self.project_controller.read(cx).status(),
-            self.export_controller.read(cx).status(),
-            self.notifications
-                .read(cx)
-                .latest()
-                .map(|message| message.to_string()),
-        ]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>();
-        let status = (!status.is_empty()).then(|| status.join("  /  "));
+        // Forward new messages to the toast layer. Only unseen messages are
+        // pushed, so re-renders never duplicate toasts and the push itself
+        // (which notifies the toast list, not this workspace) cannot loop.
+        let seen = self.forwarded_notifications;
+        let (unseen, next) = self.notifications.read(cx).unseen_since(seen);
+        self.forwarded_notifications = next;
+        for (message, success) in unseen {
+            let notification = if success {
+                Notification::success(message)
+            } else {
+                Notification::error(message)
+            };
+            window.push_notification(notification, cx);
+        }
+        let export_progress = self.export_controller.read(cx).export_progress();
         let project_controller = self.project_controller.clone();
         let export_controller = self.export_controller.clone();
         let can_undo = self.timeline.read(cx).can_undo(cx);
@@ -305,17 +310,41 @@ impl Render for Workspace {
                                     }),
                             ),
                     )
-                    .when_some(status, |this, status| {
+                    .when_some(export_progress, |this, (completed, total)| {
+                        let fraction = if total == 0 {
+                            0.
+                        } else {
+                            (completed.min(total) as f32 / total as f32).clamp(0., 1.)
+                        };
                         this.child(
                             div()
-                                .max_w(px(420.))
-                                .overflow_hidden()
-                                .text_ellipsis()
-                                .whitespace_nowrap()
+                                .flex_none()
+                                .flex()
+                                .items_center()
+                                .gap_2()
                                 .px_3()
-                                .text_xs()
-                                .text_color(colors.muted_foreground)
-                                .child(status),
+                                .child(
+                                    div()
+                                        .text_xs()
+                                        .whitespace_nowrap()
+                                        .text_color(colors.muted_foreground)
+                                        .child(format!("書き出し中… {completed}/{total}")),
+                                )
+                                .child(
+                                    div()
+                                        .w(px(120.))
+                                        .h(px(4.))
+                                        .rounded_full()
+                                        .bg(colors.border)
+                                        .overflow_hidden()
+                                        .child(
+                                            div()
+                                                .h_full()
+                                                .w(gpui::relative(fraction))
+                                                .rounded_full()
+                                                .bg(colors.foreground),
+                                        ),
+                                ),
                         )
                     }),
             )
@@ -498,6 +527,7 @@ pub fn run() {
                             editor.clone(),
                             render_backend,
                             media_readers.clone(),
+                            plugins.clone(),
                             session.clone(),
                             notifications.clone(),
                             cx,
@@ -540,6 +570,7 @@ pub fn run() {
                             project_controller,
                             export_controller,
                             notifications,
+                            forwarded_notifications: 0,
                             focus_handle: cx.focus_handle(),
                             _animation_selection_subscription: animation_selection_subscription,
                             _editor_subscription: editor_subscription,
