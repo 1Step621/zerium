@@ -81,6 +81,8 @@
             ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
               pkgs.libiconv
             ];
+
+            runtimeDependencies = lib.optionals pkgs.stdenv.hostPlatform.isLinux (linuxRuntimeDeps pkgs);
           };
 
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
