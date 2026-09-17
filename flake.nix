@@ -3,6 +3,7 @@
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-unstable";
+    crane.url = "github:ipetkov/crane";
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -13,6 +14,7 @@
     {
       self,
       nixpkgs,
+      crane,
       rust-overlay,
       ...
     }:
@@ -54,31 +56,22 @@
         let
           pkgs = pkgsFor system;
 
-          rust = pkgs.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
+          rustToolchain = p: p.rust-bin.fromRustupToolchainFile ./rust-toolchain.toml;
 
-          rustPlatform = pkgs.makeRustPlatform {
-            cargo = rust;
-            rustc = rust;
-          };
+          craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
-          zerium = rustPlatform.buildRustPackage {
+          commonArgs = {
+            src = ./.;
+
             pname = cargoToml.package.name;
             version = cargoToml.package.version;
 
-            src = ./.;
-            cargoLock = {
-              lockFile = ./Cargo.lock;
-              allowBuiltinFetchGit = true;
-            };
             strictDeps = true;
             doCheck = false;
 
             nativeBuildInputs = [
               pkgs.pkg-config
               pkgs.rustPlatform.bindgenHook
-            ]
-            ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
-              pkgs.autoPatchelfHook
             ];
 
             buildInputs = [
@@ -88,38 +81,43 @@
             ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
               pkgs.libiconv
             ];
-
-            installPhase = ''
-              runHook preInstall
-
-              install -Dm755 \
-                target/${pkgs.stdenv.hostPlatform.rust.cargoShortTarget}/release/zerium \
-                "$out/bin/zerium"
-            ''
-            + lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
-              install -Dm644 packaging/linux/zerium.desktop \
-                "$out/share/applications/zerium.desktop"
-
-              install -Dm644 assets/zerium.png \
-                "$out/share/icons/hicolor/256x256/apps/zerium.png"
-
-              install -Dm644 assets/zerium.svg \
-                "$out/share/icons/hicolor/scalable/apps/zerium.svg"
-
-              install -Dm644 LICENSE \
-                "$out/share/doc/zerium/copyright"
-            ''
-            + ''
-              runHook postInstall
-            '';
-
-            meta = {
-              description = cargoToml.package.description;
-              license = lib.licenses.gpl3Plus;
-              mainProgram = "zerium";
-              platforms = systems;
-            };
           };
+
+          cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+
+          zerium = craneLib.buildPackage (
+            commonArgs
+            // {
+              inherit cargoArtifacts;
+
+              nativeBuildInputs =
+                commonArgs.nativeBuildInputs
+                ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
+                  pkgs.autoPatchelfHook
+                ];
+
+              postInstall = lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
+                install -Dm644 packaging/linux/zerium.desktop \
+                  "$out/share/applications/zerium.desktop"
+
+                install -Dm644 assets/zerium.png \
+                  "$out/share/icons/hicolor/256x256/apps/zerium.png"
+
+                install -Dm644 assets/zerium.svg \
+                  "$out/share/icons/hicolor/scalable/apps/zerium.svg"
+
+                install -Dm644 LICENSE \
+                  "$out/share/doc/zerium/copyright"
+              '';
+
+              meta = {
+                description = cargoToml.package.description;
+                license = lib.licenses.gpl3Plus;
+                mainProgram = "zerium";
+                platforms = systems;
+              };
+            }
+          );
         in
         {
           inherit zerium;
