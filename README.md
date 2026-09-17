@@ -13,6 +13,37 @@ A video editor with zero limits.
 - Cross-platform support
 - Open source and free forever!
 
+## Install
+
+Available formats include MSI, DMG, AppImage, DEB, RPM, ELF binaries, and Nix packages.
+
+### Nix
+
+Run Zerium directly with:
+
+```sh
+nix run github:1Step621/zerium
+```
+
+For NixOS or nix-darwin, add Zerium as a flake input:
+
+```nix
+{
+  inputs.zerium.url = "github:1Step621/zerium";
+}
+```
+
+Then add it to your system packages:
+
+```nix
+{ inputs, pkgs, ... }:
+{
+  environment.systemPackages = [
+    inputs.zerium.packages.${pkgs.system}.default
+  ];
+}
+```
+
 ## Status
 
 Under active development: all features, including the project file format, are subject to breaking changes.

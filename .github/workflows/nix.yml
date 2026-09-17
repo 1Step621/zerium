@@ -1,0 +1,45 @@
+name: Nix
+
+on:
+  push:
+    branches:
+      - main
+      - release
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: nix build (${{ matrix.system }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - system: x86_64-linux
+            os: ubuntu-latest
+          - system: aarch64-linux
+            os: ubuntu-24.04-arm
+          - system: aarch64-darwin
+            os: macos-latest
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v7
+
+      - name: Install Nix
+        uses: DeterminateSystems/nix-installer-action@v23
+        with:
+          extra-conf: |
+            accept-flake-config = true
+
+      - name: Set up Cachix
+        uses: cachix/cachix-action@v17
+        with:
+          name: zerium
+          authToken: ${{ secrets.CACHIX_AUTH_TOKEN }}
+
+      - name: Build zerium package
+        run: nix build .#zerium --print-build-logs
