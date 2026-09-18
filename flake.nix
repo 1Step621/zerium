@@ -81,8 +81,6 @@
             ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
               pkgs.libiconv
             ];
-
-            runtimeDependencies = lib.optionals pkgs.stdenv.hostPlatform.isLinux (linuxRuntimeDeps pkgs);
           };
 
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
@@ -97,6 +95,8 @@
                 ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [
                   pkgs.autoPatchelfHook
                 ];
+
+              runtimeDependencies = lib.optionals pkgs.stdenv.hostPlatform.isLinux (linuxRuntimeDeps pkgs);
 
               postInstall = lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
                 install -Dm644 packaging/linux/zerium.desktop \
