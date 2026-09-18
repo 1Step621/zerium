@@ -39,7 +39,7 @@ Then add it to your system packages:
 { inputs, pkgs, ... }:
 {
   environment.systemPackages = [
-    inputs.zerium.packages.${pkgs.system}.default
+    inputs.zerium.packages.${pkgs.stdenv.hostPlatform.system}.default
   ];
 }
 ```
