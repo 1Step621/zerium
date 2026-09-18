@@ -1,9 +1,7 @@
 mod video;
 
-use video::VideoPlaybackBatchRequest;
-
 use std::{
-    collections::{HashMap, HashSet},
+    collections::HashMap,
     sync::Arc,
 };
 
@@ -27,11 +25,11 @@ use crate::{
     },
     ui::{
         session::{ProjectSession, ProjectSessionId, UiNotifications},
-        transport::{PreviewPlaybackMode, TransportController},
+        transport::TransportController,
     },
 };
 
-use self::video::{VideoInputId, VideoPlaybackEngine};
+use self::video::{RequestedVideoFrame, VideoInputId, VideoPlaybackEngine};
 
 pub(crate) struct RenderBackend {
     renderer: Option<Arc<FrameRenderer>>,
@@ -97,7 +95,6 @@ impl PreviewDependencies {
 
 struct PreparedVideoFrames {
     revision: u64,
-    frames: HashMap<(u64, VideoInputId), Arc<crate::engine::frame::RgbaFrame>>,
     error: Option<String>,
 }
 
@@ -230,7 +227,6 @@ impl Preview {
 
     fn prepare_scene(
         &mut self,
-        active_items: &[(LayerId, TimelineItem)],
         render_time: TimelineTime,
         size: RenderSize,
         cx: &mut Context<Self>,
@@ -244,110 +240,66 @@ impl Preview {
             )
         };
         let composition_size = RenderSize::from(resolution);
-        let mut requested_time_keys = HashSet::new();
-        let mut requested_times = Vec::new();
-        let probe_scene = {
-            let editor = self.editor.clone();
-            let editor = editor.read(cx);
-            let text_frames = &mut self.text_frames;
-            RenderScene::from_timeline(
-                editor,
-                render_time,
-                size,
-                |request| {
-                    let key = request.time.frames().to_bits();
-                    if requested_time_keys.insert(key) {
-                        requested_times.push(request.time);
-                    }
-                    Ok(None)
-                },
-                |item, schema, size| text_frames.frame_for(item, schema, size, composition_size),
-            )?
-        };
-        let has_media_requests = !requested_times.is_empty();
-        let timed_items = if has_media_requests {
-            let editor = self.editor.read(cx);
-            requested_times
-                .into_iter()
-                .map(|time| (time, editor.active_items_at_time(time)))
-                .collect::<Vec<_>>()
-        } else {
-            vec![(render_time, active_items.to_vec())]
-        };
         let effect_size = {
             let editor = self.editor.read(cx);
             RenderScene::effect_render_size_for_timeline(editor, render_time, size)?
         };
-        let playback = self.prepare_video_frames(
-            &timed_items,
-            frame_rate,
-            mode,
-            VideoDecodeSize {
-                max_width: effect_size.width,
-                max_height: effect_size.height,
-            },
-            cx,
-        );
-        if !has_media_requests {
-            return Ok((probe_scene, playback));
-        }
-
-        let scene = {
-            let editor = self.editor.clone();
-            let editor = editor.read(cx);
-            let text_frames = &mut self.text_frames;
-            RenderScene::from_timeline(
-                editor,
-                render_time,
-                size,
-                |request| {
-                    Ok(playback
-                        .frames
-                        .get(&(
-                            request.time.frames().to_bits(),
-                            VideoInputId {
-                                item_id: request.item_id,
-                                input_id: request.input_id.to_owned(),
-                            },
-                        ))
-                        .cloned())
-                },
-                |item, schema, size| text_frames.frame_for(item, schema, size, composition_size),
-            )?
+        let decode_size = VideoDecodeSize {
+            max_width: effect_size.width,
+            max_height: effect_size.height,
         };
-        Ok((scene, playback))
-    }
-
-    fn prepare_video_frames(
-        &mut self,
-        requests: &[(
-            TimelineTime,
-            Vec<(
-                crate::domain::timeline::LayerId,
-                crate::domain::timeline::TimelineItem,
-            )>,
-        )],
-        frame_rate: crate::domain::timeline::FrameRate,
-        mode: PreviewPlaybackMode,
-        size: VideoDecodeSize,
-        cx: &mut Context<Self>,
-    ) -> PreparedVideoFrames {
-        let snapshot = self.video_playback.update(cx, |playback, cx| {
-            playback.prepare(
-                VideoPlaybackBatchRequest {
-                    samples: requests,
-                    frame_rate,
-                    mode,
+        let video_playback = self.video_playback.clone();
+        video_playback.update(cx, |playback, cx| {
+            playback.begin_frame_demand(mode);
+            let mut items_by_time: HashMap<u64, Vec<(LayerId, TimelineItem)>> = HashMap::new();
+            let mut recorded: HashMap<(u64, VideoInputId), RequestedVideoFrame> = HashMap::new();
+            let scene = {
+                let editor = self.editor.clone();
+                let editor = editor.read(cx);
+                let text_frames = &mut self.text_frames;
+                RenderScene::from_timeline(
+                    editor,
+                    render_time,
                     size,
+                    |request| {
+                        let time_bits = request.time.frames().to_bits();
+                        let input = VideoInputId {
+                            item_id: request.item_id,
+                            input_id: request.input_id.to_owned(),
+                        };
+                        if !recorded.contains_key(&(time_bits, input.clone())) {
+                            let items = items_by_time.entry(time_bits).or_insert_with(|| {
+                                editor.active_items_at_time(request.time)
+                            });
+                            for (input, requested) in playback.record_media_requests(
+                                request.time,
+                                items,
+                                frame_rate,
+                                decode_size,
+                            ) {
+                                recorded.insert((time_bits, input), requested);
+                            }
+                        }
+                        Ok(recorded
+                            .get(&(time_bits, input.clone()))
+                            .and_then(|requested| {
+                                playback.present_recorded_frame(&input, requested)
+                            }))
+                    },
+                    |item, schema, size| {
+                        text_frames.frame_for(item, schema, size, composition_size)
+                    },
+                )?
+            };
+            let snapshot = playback.finish_frame_demand(cx);
+            Ok((
+                scene,
+                PreparedVideoFrames {
+                    revision: snapshot.revision,
+                    error: snapshot.error,
                 },
-                cx,
-            )
-        });
-        PreparedVideoFrames {
-            revision: snapshot.revision,
-            frames: snapshot.frames,
-            error: snapshot.error,
-        }
+            ))
+        })
     }
 
     fn render_latest_frame(&mut self, cx: &mut Context<Self>) {
@@ -371,7 +323,7 @@ impl Preview {
         };
         self.text_frames
             .retain_active(active_items.iter().map(|(_, item)| item.id));
-        let (scene, playback) = match self.prepare_scene(&active_items, render_time, size, cx) {
+        let (scene, playback) = match self.prepare_scene(render_time, size, cx) {
             Ok(prepared) => prepared,
             Err(error) => {
                 self.report_error(format!("プレビューシーンの構築に失敗しました: {error}"), cx);
@@ -399,7 +351,7 @@ impl Preview {
         let (scene, playback) = if actual_size == (width, height) {
             (scene, playback)
         } else {
-            match self.prepare_scene(&active_items, render_time, size, cx) {
+            match self.prepare_scene(render_time, size, cx) {
                 Ok(prepared) => prepared,
                 Err(error) => {
                     self.report_error(
