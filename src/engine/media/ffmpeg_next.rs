@@ -77,6 +77,8 @@ enum SeekCandidate {
 }
 
 impl FfmpegVideoDecoder {
+    const MAX_FORWARD_SCAN_FRAMES: u32 = 60;
+
     fn cache_candidate(&mut self, candidate: Option<SeekCandidate>, width: u32, height: u32) {
         self.last_frame = match candidate {
             Some(SeekCandidate::Ready(frame)) => Some(frame),
@@ -699,6 +701,18 @@ impl FfmpegVideoDecoder {
         }
     }
 
+    fn max_forward_scan_gap(&self) -> Duration {
+        let frame = self.default_frame_duration();
+        let mut gap = Duration::ZERO;
+        for _ in 0..Self::MAX_FORWARD_SCAN_FRAMES {
+            gap = gap.checked_add(frame).unwrap_or(Duration::MAX);
+            if gap == Duration::MAX {
+                break;
+            }
+        }
+        gap
+    }
+
     fn rgba_frame(
         &mut self,
         decoded: &ffmpeg::frame::Video,
@@ -839,12 +853,24 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
                 .last_frame
                 .as_ref()
                 .is_some_and(|frame| frame.presentation_time <= presentation_time);
+        let forward_gap_too_large = can_continue
+            && self
+                .last_frame
+                .as_ref()
+                .and_then(|frame| {
+                    let end = frame
+                        .presentation_time
+                        .checked_add(frame.duration)
+                        .unwrap_or(Duration::MAX);
+                    presentation_time.checked_sub(end)
+                })
+                .is_some_and(|gap| gap > self.max_forward_scan_gap());
         let fresh_at_stream_start = presentation_time.is_zero()
             && self.last_frame.is_none()
             && self.pending_decoded.is_none()
             && self.fallback_time.is_zero()
             && !self.draining;
-        if !can_continue && !fresh_at_stream_start {
+        if (!can_continue || forward_gap_too_large) && !fresh_at_stream_start {
             self.seek(presentation_time)?;
         }
 
