@@ -3,7 +3,7 @@ use std::{collections::HashSet, rc::Rc, sync::Arc};
 use ::ui::{
     ActiveTheme as _, Colorize as _, Icon, IconName, Sizable as _, ThemeColor,
     button::{Button, ButtonVariants as _},
-    menu::{PopupMenu, PopupMenuItem},
+    menu::{PopupMenu, PopupMenuItem, popup_menu::PopupMenuExt as _},
 };
 use gpui::{
     App, Bounds, ClickEvent, Context, Corner, CursorStyle, DismissEvent, Div, DragMoveEvent, Empty,
@@ -41,6 +41,7 @@ mod viewport;
 use viewport::TimelineViewport;
 
 const LAYER_HEADER_WIDTH: f32 = 200.;
+const SCENE_SWITCHER_LABEL_WIDTH: usize = 12;
 const ZOOM_STEP: f32 = 1.05;
 const ANIMATION_STOP_SNAP_DISTANCE: f32 = 8.;
 const ANIMATION_STOP_POSITION_EPSILON: f32 = 0.0001;
@@ -315,6 +316,22 @@ impl Timeline {
     fn reset_viewport(&mut self) {
         self.viewport = TimelineViewport::default();
         layer_scroll_base(&self.layer_scroll).set_offset(point(px(0.), px(0.)));
+    }
+
+    fn switch_scene(&mut self, scene_id: Option<SceneId>, cx: &mut Context<Self>) {
+        if self.editor.read(cx).active_scene_id() == scene_id {
+            return;
+        }
+        self.stop_playback(cx);
+        while self.editor.read(cx).active_scene_id().is_some() {
+            self.editor
+                .update_if_changed(cx, TimelineEditor::close_scene);
+        }
+        if let Some(scene_id) = scene_id {
+            self.editor
+                .update_if_changed(cx, |editor| editor.open_scene(scene_id));
+        }
+        self.reset_viewport();
     }
 
     fn cancel_async_work(&mut self) {
@@ -1563,13 +1580,6 @@ impl Timeline {
         self.reset_viewport();
     }
 
-    fn close_scene(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
-        self.stop_playback(cx);
-        self.editor
-            .update_if_changed(cx, TimelineEditor::close_scene);
-        self.reset_viewport();
-    }
-
     fn delete_empty_scene(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.stop_playback(cx);
         let deleted = self.editor.update_if_changed(cx, |editor| {
@@ -1608,9 +1618,36 @@ impl Timeline {
         cx: &mut Context<Self>,
     ) -> Div {
         let viewport = self.viewport;
-        let playhead_seconds = self.editor.read(cx).playhead_seconds();
+        let (playhead_seconds, active_scene, scenes) = {
+            let editor = self.editor.read(cx);
+            (
+                editor.playhead_seconds(),
+                editor.active_scene_id(),
+                editor
+                    .scenes()
+                    .map(|scene| (scene.id, scene.name.clone()))
+                    .collect::<Vec<_>>(),
+            )
+        };
         let playhead_x = viewport.x_at_seconds(playhead_seconds);
         let ruler_ticks = grid.major_ticks.as_ref().clone();
+        let active_scene_name = active_scene
+            .and_then(|id| {
+                scenes
+                    .iter()
+                    .find(|(scene_id, _)| *scene_id == id)
+                    .map(|(_, name)| name.clone())
+            })
+            .unwrap_or_else(|| "メイン".to_owned());
+        let mut label_width = 0;
+        let active_scene_label = active_scene_name
+            .char_indices()
+            .find_map(|(index, character)| {
+                label_width += if character.is_ascii() { 1 } else { 2 };
+                (label_width > SCENE_SWITCHER_LABEL_WIDTH - 2)
+                    .then(|| format!("{}…", &active_scene_name[..index]))
+            })
+            .unwrap_or_else(|| active_scene_name.clone());
         let playback_icon = if self.transport.read(cx).is_playing() {
             IconName::Pause
         } else {
@@ -1672,6 +1709,44 @@ impl Timeline {
                                 )
                                 .on_click(cx.listener(Self::next_frame)),
                             ),
+                    )
+                    .child(
+                        Button::new("timeline-scene-switcher")
+                            .small()
+                            .compact()
+                            .ghost()
+                            .flex_1()
+                            .min_w_0()
+                            .overflow_hidden()
+                            .label(active_scene_label)
+                            .dropdown_caret(true)
+                            .tooltip(active_scene_name)
+                            .popup_menu({
+                                let timeline = cx.entity();
+                                move |menu, _, _| {
+                                    let root_timeline = timeline.clone();
+                                    let menu = menu.item(PopupMenuItem::new("メイン").on_click(
+                                        move |_, _, cx| {
+                                            root_timeline.update(cx, |timeline, cx| {
+                                                timeline.switch_scene(None, cx);
+                                            });
+                                        },
+                                    ));
+                                    scenes.iter().cloned().fold(
+                                        menu.separator(),
+                                        |menu, (id, name)| {
+                                            let timeline = timeline.clone();
+                                            menu.item(PopupMenuItem::new(name).on_click(
+                                                move |_, _, cx| {
+                                                    timeline.update(cx, |timeline, cx| {
+                                                        timeline.switch_scene(Some(id), cx);
+                                                    });
+                                                },
+                                            ))
+                                        },
+                                    )
+                                }
+                            }),
                     ),
             )
             .child(
@@ -2250,9 +2325,7 @@ impl Render for Timeline {
         };
         self.viewport
             .follow_playhead(playhead, viewport_width, frame_rate);
-        let active_scene_name = active_scene.as_ref().map(|(name, _)| name.clone());
         let active_scene_is_empty = active_scene.is_some_and(|(_, is_empty)| is_empty);
-        let scene_switcher_visible = active_scene_name.is_some();
         let grid = Self::timeline_grid(self.viewport, viewport_width, frame_rate);
         let ruler = self.ruler(colors, viewport_width, grid.clone(), cx);
         let animation_selection = self.animation_selection.read(cx);
@@ -2416,35 +2489,12 @@ impl Render for Timeline {
                         ),
                 )
             })
-            .when_some(active_scene_name, |this, name| {
-                this.child(
-                    div()
-                        .absolute()
-                        .left(px(8.))
-                        .bottom(px(8.))
-                        .rounded_md()
-                        .border_1()
-                        .border_color(colors.border)
-                        .bg(colors.background.opacity(0.96))
-                        .shadow_md()
-                        .child(
-                            Button::new("timeline-close-scene")
-                                .small()
-                                .compact()
-                                .ghost()
-                                .icon(IconName::ChevronLeft)
-                                .label(name)
-                                .tooltip("親タイムラインへ戻る")
-                                .on_click(cx.listener(Self::close_scene)),
-                        ),
-                )
-            })
             .when_some(file_drop_error, |this, error| {
                 this.child(
                     div()
                         .absolute()
                         .left(px(8.))
-                        .bottom(px(if scene_switcher_visible { 48. } else { 8. }))
+                        .bottom(px(8.))
                         .max_w(px(520.))
                         .px_2()
                         .py_1()
