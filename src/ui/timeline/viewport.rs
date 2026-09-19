@@ -14,6 +14,7 @@ pub(super) struct TimelineViewport {
     pub layer_height: f32,
     horizontal_offset_seconds: f64,
     horizontal_zoom: f64,
+    followed_playhead: Option<Frame>,
 }
 
 impl Default for TimelineViewport {
@@ -22,6 +23,7 @@ impl Default for TimelineViewport {
             layer_height: INITIAL_LAYER_HEIGHT,
             horizontal_offset_seconds: 0.,
             horizontal_zoom: 1.,
+            followed_playhead: None,
         }
     }
 }
@@ -88,6 +90,27 @@ impl TimelineViewport {
 
     pub(super) fn x_at_seconds(self, seconds: f64) -> f32 {
         ((seconds - self.horizontal_offset_seconds) * self.pixels_per_second()) as f32
+    }
+
+    pub(super) fn follow_playhead(
+        &mut self,
+        frame: Frame,
+        viewport_width: f32,
+        frame_rate: FrameRate,
+    ) {
+        if self.followed_playhead == Some(frame) {
+            return;
+        }
+        self.followed_playhead = Some(frame);
+        let playhead_seconds = frame_rate.frame_to_seconds(frame);
+        let playhead_x = self.x_at_seconds(playhead_seconds);
+        let margin = 32.;
+        if playhead_x >= margin && playhead_x <= viewport_width - margin {
+            return;
+        }
+
+        let visible_seconds = viewport_width.max(1.) as f64 / self.pixels_per_second();
+        self.horizontal_offset_seconds = (playhead_seconds - visible_seconds / 2.).max(0.);
     }
 
     pub(super) fn ruler_step(self) -> f64 {

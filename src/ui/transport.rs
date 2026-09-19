@@ -1,6 +1,6 @@
 use std::time::Instant;
 
-use gpui::{Context, Entity};
+use gpui::{App, Context, Entity};
 
 use crate::{
     domain::timeline::{Frame, TimelineEditor},
@@ -15,6 +15,7 @@ use super::session::UiNotifications;
 pub(crate) enum ScrubSource {
     Timeline,
     AnimationCurve,
+    Preview,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -86,6 +87,10 @@ impl TransportController {
             TransportMode::Scrubbing(_) => PreviewPlaybackMode::Scrubbing,
             TransportMode::Playing(_) => PreviewPlaybackMode::Playing,
         }
+    }
+
+    pub(crate) fn audio_levels(&self, cx: &App) -> [f32; 2] {
+        self.audio.read(cx).levels()
     }
 
     pub(crate) fn toggle_playback(&mut self, cx: &mut Context<Self>) {

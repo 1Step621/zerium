@@ -7,15 +7,12 @@ pub(super) struct MoveOrigin {
 
 pub(super) fn virtual_layer_count(
     highest_occupied_layer: Option<usize>,
-    visible_rows: usize,
-    minimum_rows: usize,
-    trailing_rows: usize,
+    viewport_end: usize,
 ) -> usize {
     highest_occupied_layer
-        .map_or(1, |layer| layer.saturating_add(2))
-        .saturating_add(trailing_rows)
-        .max(visible_rows.saturating_add(trailing_rows))
-        .max(minimum_rows)
+        .map_or(0, |layer| layer.saturating_add(1))
+        .max(viewport_end)
+        .saturating_add(1)
 }
 
 pub(super) fn clamp_move_delta(

@@ -9,8 +9,8 @@ use gpui::{
     App, Bounds, ClickEvent, Context, Corner, CursorStyle, DismissEvent, Div, DragMoveEvent, Empty,
     Entity, EntityId, FocusHandle, Focusable as _, Hsla, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, PathBuilder, Pixels, Render, ScrollWheelEvent, SharedString,
-    Stateful, Subscription, UniformListScrollHandle, Window, anchored, canvas, deferred, div,
-    point, prelude::*, px, relative, size, uniform_list,
+    SmoothScrollMode, Stateful, Subscription, UniformListScrollHandle, Window, anchored, canvas,
+    deferred, div, point, prelude::*, px, relative, size, uniform_list,
 };
 
 use crate::{
@@ -41,8 +41,6 @@ mod viewport;
 use viewport::TimelineViewport;
 
 const LAYER_HEADER_WIDTH: f32 = 200.;
-const MIN_DYNAMIC_LAYER_COUNT: usize = 32;
-const EXTRA_DYNAMIC_LAYERS: usize = 8;
 const ZOOM_STEP: f32 = 1.05;
 const ANIMATION_STOP_SNAP_DISTANCE: f32 = 8.;
 const ANIMATION_STOP_POSITION_EPSILON: f32 = 0.0001;
@@ -244,6 +242,12 @@ impl Timeline {
         cx: &mut Context<Self>,
     ) -> Self {
         let session_id = session.read(cx).id();
+        let layer_scroll = UniformListScrollHandle::new();
+        layer_scroll
+            .0
+            .borrow_mut()
+            .smooth_scroll
+            .set_mode(SmoothScrollMode::Disabled);
         let subscriptions = vec![
             cx.observe(&editor, |_, _, cx| cx.notify()),
             cx.observe(&transport, |_, _, cx| cx.notify()),
@@ -255,8 +259,7 @@ impl Timeline {
                 }
                 this.session_id = session_id;
                 this.cancel_async_work();
-                this.viewport = TimelineViewport::default();
-                layer_scroll_base(&this.layer_scroll).set_offset(point(px(0.), px(0.)));
+                this.reset_viewport();
                 this.context_target = None;
                 this.explorer_drop_target = None;
                 this.item_move_origin = None;
@@ -273,7 +276,7 @@ impl Timeline {
             session_id,
             notifications,
             media_readers,
-            layer_scroll: UniformListScrollHandle::new(),
+            layer_scroll,
             viewport: TimelineViewport::default(),
             context_target: None,
             explorer_drop_target: None,
@@ -295,15 +298,23 @@ impl Timeline {
             .map(|(_, layer, _, _)| layer.get())
             .max()
             .and_then(|layer| usize::try_from(layer).ok());
-        let visible = (f32::from(window.viewport_size().height) / self.viewport.layer_height)
+        let scroll = layer_scroll_base(&self.layer_scroll);
+        let measured_height = f32::from(scroll.bounds().size.height);
+        let viewport_height = if measured_height > 0. {
+            measured_height
+        } else {
+            f32::from(window.viewport_size().height)
+        };
+        let scroll_top = (-f32::from(scroll.offset().y)).max(0.);
+        let viewport_end = ((scroll_top + viewport_height) / self.viewport.layer_height)
             .ceil()
             .max(1.) as usize;
-        model::virtual_layer_count(
-            highest_occupied_layer,
-            visible,
-            MIN_DYNAMIC_LAYER_COUNT,
-            EXTRA_DYNAMIC_LAYERS,
-        )
+        model::virtual_layer_count(highest_occupied_layer, viewport_end)
+    }
+
+    fn reset_viewport(&mut self) {
+        self.viewport = TimelineViewport::default();
+        layer_scroll_base(&self.layer_scroll).set_offset(point(px(0.), px(0.)));
     }
 
     fn cancel_async_work(&mut self) {
@@ -460,6 +471,17 @@ impl Timeline {
         cx.notify();
     }
 
+    fn scroll_layers(&self, event: &ScrollWheelEvent, window: &Window, cx: &mut Context<Self>) {
+        let delta = event.delta.pixel_delta(window.line_height());
+        let scroll = layer_scroll_base(&self.layer_scroll);
+        let old_offset = scroll.offset();
+        let new_y = (old_offset.y + delta.y).min(px(0.));
+        if new_y != old_offset.y {
+            scroll.set_offset(point(old_offset.x, new_y));
+            cx.notify();
+        }
+    }
+
     fn on_track_scroll(
         &mut self,
         event: &ScrollWheelEvent,
@@ -473,12 +495,7 @@ impl Timeline {
                 self.zoom_horizontal(event, window, cx);
             }
         } else if event.modifiers.alt {
-            let delta = event.delta.pixel_delta(window.line_height());
-            let old_offset = layer_scroll_base(&self.layer_scroll).offset();
-            let max_offset = layer_scroll_base(&self.layer_scroll).max_offset().height;
-            let new_y = (old_offset.y + delta.y).clamp(-max_offset, px(0.));
-            layer_scroll_base(&self.layer_scroll).set_offset(point(old_offset.x, new_y));
-            cx.notify();
+            self.scroll_layers(event, window, cx);
         } else {
             let delta = Self::dominant_scroll_delta(event, window);
             if self.viewport.scroll_horizontal(delta) {
@@ -486,6 +503,7 @@ impl Timeline {
             }
         }
 
+        window.prevent_default();
         cx.stop_propagation();
     }
 
@@ -502,14 +520,10 @@ impl Timeline {
                 self.zoom_horizontal(event, window, cx);
             }
         } else {
-            let delta = event.delta.pixel_delta(window.line_height());
-            let old_offset = layer_scroll_base(&self.layer_scroll).offset();
-            let max_offset = layer_scroll_base(&self.layer_scroll).max_offset().height;
-            let new_y = (old_offset.y + delta.y).clamp(-max_offset, px(0.));
-            layer_scroll_base(&self.layer_scroll).set_offset(point(old_offset.x, new_y));
-            cx.notify();
+            self.scroll_layers(event, window, cx);
         }
 
+        window.prevent_default();
         cx.stop_propagation();
     }
 
@@ -1546,16 +1560,14 @@ impl Timeline {
         self.stop_playback(cx);
         self.editor
             .update_if_changed(cx, |editor| editor.open_scene(scene_id));
-        self.viewport = TimelineViewport::default();
-        layer_scroll_base(&self.layer_scroll).set_offset(point(px(0.), px(0.)));
+        self.reset_viewport();
     }
 
     fn close_scene(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
         self.stop_playback(cx);
         self.editor
             .update_if_changed(cx, TimelineEditor::close_scene);
-        self.viewport = TimelineViewport::default();
-        layer_scroll_base(&self.layer_scroll).set_offset(point(px(0.), px(0.)));
+        self.reset_viewport();
     }
 
     fn delete_empty_scene(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
@@ -1570,8 +1582,7 @@ impl Timeline {
             editor.delete_scene(scene_id)
         });
         if deleted {
-            self.viewport = TimelineViewport::default();
-            layer_scroll_base(&self.layer_scroll).set_offset(point(px(0.), px(0.)));
+            self.reset_viewport();
         }
     }
 
@@ -1597,10 +1608,7 @@ impl Timeline {
         cx: &mut Context<Self>,
     ) -> Div {
         let viewport = self.viewport;
-        let (playhead_seconds, timecode) = {
-            let editor = self.editor.read(cx);
-            (editor.playhead_seconds(), editor.timecode())
-        };
+        let playhead_seconds = self.editor.read(cx).playhead_seconds();
         let playhead_x = viewport.x_at_seconds(playhead_seconds);
         let ruler_ticks = grid.major_ticks.as_ref().clone();
         let playback_icon = if self.transport.read(cx).is_playing() {
@@ -1664,8 +1672,7 @@ impl Timeline {
                                 )
                                 .on_click(cx.listener(Self::next_frame)),
                             ),
-                    )
-                    .child(div().text_sm().text_color(colors.primary).child(timecode)),
+                    ),
             )
             .child(
                 div()
@@ -2220,6 +2227,7 @@ impl Render for Timeline {
         let layer_height = self.viewport.layer_height;
         let (
             frame_rate,
+            playhead,
             playhead_seconds,
             selected_item_ids,
             hidden_layers,
@@ -2229,6 +2237,7 @@ impl Render for Timeline {
             let editor = self.editor.read(cx);
             (
                 editor.frame_rate(),
+                editor.playhead(),
                 editor.playhead_seconds(),
                 Rc::new(editor.selected_item_ids().collect()),
                 Rc::new(editor.hidden_layer_ids().collect()),
@@ -2239,6 +2248,8 @@ impl Render for Timeline {
                     .map(|scene| (scene.name.clone(), scene.is_empty())),
             )
         };
+        self.viewport
+            .follow_playhead(playhead, viewport_width, frame_rate);
         let active_scene_name = active_scene.as_ref().map(|(name, _)| name.clone());
         let active_scene_is_empty = active_scene.is_some_and(|(_, is_empty)| is_empty);
         let scene_switcher_visible = active_scene_name.is_some();

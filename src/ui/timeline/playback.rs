@@ -6,7 +6,7 @@ impl Timeline {
             .update(cx, |transport, cx| transport.stop(cx))
     }
 
-    fn step_frame(&mut self, delta: i64, cx: &mut Context<Self>) {
+    pub(crate) fn step_frame(&mut self, delta: i64, cx: &mut Context<Self>) {
         self.transport
             .update(cx, |transport, cx| transport.step(delta, cx));
     }

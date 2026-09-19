@@ -59,6 +59,25 @@ struct AudioUnderrunState {
     missing: AtomicUsize,
 }
 
+#[derive(Clone, Default)]
+struct SharedAudioLevels {
+    values: Arc<[AtomicU32; 2]>,
+}
+
+impl SharedAudioLevels {
+    fn values(&self) -> [f32; 2] {
+        self.values
+            .each_ref()
+            .map(|value| f32::from_bits(value.load(Ordering::Relaxed)))
+    }
+
+    fn store(&self, values: [f32; 2]) {
+        for (slot, value) in self.values.iter().zip(values) {
+            slot.store(value.to_bits(), Ordering::Relaxed);
+        }
+    }
+}
+
 struct AudioPlaybackSession {
     stream: Option<cpal::Stream>,
     stop: Arc<AtomicBool>,
@@ -66,6 +85,7 @@ struct AudioPlaybackSession {
     played_sample_frames: Arc<AtomicU64>,
     start_seconds: f64,
     sample_rate: u32,
+    levels: SharedAudioLevels,
     gains: HashMap<ItemId, Arc<AtomicU32>>,
     events: Arc<Mutex<VecDeque<AudioPlaybackEvent>>>,
     underrun: Arc<AudioUnderrunState>,
@@ -213,6 +233,7 @@ impl AudioPlaybackEngine {
             pending: AtomicBool::new(false),
             missing: AtomicUsize::new(0),
         });
+        let levels = SharedAudioLevels::default();
         let stream = build_output_stream(
             &device,
             &supported,
@@ -220,6 +241,7 @@ impl AudioPlaybackEngine {
             played_sample_frames.clone(),
             events.clone(),
             underrun.clone(),
+            levels.clone(),
         )?;
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
@@ -282,6 +304,7 @@ impl AudioPlaybackEngine {
             played_sample_frames,
             start_seconds: start_sample_frame as f64 / f64::from(format.sample_rate),
             sample_rate: format.sample_rate,
+            levels,
             gains,
             events,
             underrun,
@@ -435,6 +458,13 @@ impl AudioPlaybackEngine {
         let played = session.played_sample_frames.load(Ordering::Acquire);
         Some(session.start_seconds + played as f64 / f64::from(session.sample_rate))
     }
+
+    pub(crate) fn levels(&self) -> [f32; 2] {
+        self.session
+            .as_ref()
+            .map(|session| session.levels.values())
+            .unwrap_or([0.; 2])
+    }
 }
 
 impl Drop for AudioPlaybackEngine {
@@ -450,6 +480,7 @@ fn build_output_stream(
     played_sample_frames: Arc<AtomicU64>,
     events: Arc<Mutex<VecDeque<AudioPlaybackEvent>>>,
     underrun: Arc<AudioUnderrunState>,
+    levels: SharedAudioLevels,
 ) -> Result<cpal::Stream, AudioPlaybackError> {
     let config = supported.config();
     let channels = usize::from(config.channels).max(1);
@@ -464,6 +495,7 @@ fn build_output_stream(
         cpal::SampleFormat::F32 => {
             let mut consumer = consumer;
             let underrun = underrun.clone();
+            let levels = levels.clone();
             device
                 .build_output_stream(
                     &config,
@@ -474,6 +506,7 @@ fn build_output_stream(
                             &mut consumer,
                             &played_sample_frames,
                             &underrun,
+                            &levels,
                             |sample| sample,
                         )
                     },
@@ -487,6 +520,7 @@ fn build_output_stream(
         cpal::SampleFormat::I16 => {
             let mut consumer = consumer;
             let underrun = underrun.clone();
+            let levels = levels.clone();
             device
                 .build_output_stream(
                     &config,
@@ -497,6 +531,7 @@ fn build_output_stream(
                             &mut consumer,
                             &played_sample_frames,
                             &underrun,
+                            &levels,
                             |sample| (sample * f32::from(i16::MAX)) as i16,
                         )
                     },
@@ -510,6 +545,7 @@ fn build_output_stream(
         cpal::SampleFormat::U16 => {
             let mut consumer = consumer;
             let underrun = underrun.clone();
+            let levels = levels.clone();
             device
                 .build_output_stream(
                     &config,
@@ -520,6 +556,7 @@ fn build_output_stream(
                             &mut consumer,
                             &played_sample_frames,
                             &underrun,
+                            &levels,
                             |sample| ((sample * 0.5 + 0.5) * f32::from(u16::MAX)) as u16,
                         )
                     },
@@ -542,18 +579,28 @@ fn fill_output<T: Copy>(
     consumer: &mut rtrb::Consumer<f32>,
     played_sample_frames: &AtomicU64,
     underrun: &AudioUnderrunState,
+    levels: &SharedAudioLevels,
     convert: impl Fn(f32) -> T,
 ) {
     let queued_samples = consumer.slots().min(output.len());
     let queued_samples = queued_samples - queued_samples % channels;
+    let mut peak = [0_f32; 2];
     for (index, output_sample) in output.iter_mut().enumerate() {
         let sample = if index < queued_samples {
             consumer.pop().unwrap_or(0.)
         } else {
             0.
         };
+        let channel = index % channels;
+        if channel < peak.len() {
+            peak[channel] = peak[channel].max(sample.abs());
+        }
         *output_sample = convert(sample);
     }
+    if channels == 1 {
+        peak[1] = peak[0];
+    }
+    levels.store(peak);
     if queued_samples < output.len() {
         let missing = (output.len() - queued_samples).div_ceil(channels);
         underrun.missing.fetch_add(missing, Ordering::Relaxed);

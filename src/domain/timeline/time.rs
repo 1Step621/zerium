@@ -130,21 +130,4 @@ impl FrameRate {
     pub(crate) const fn denominator(self) -> u32 {
         self.denominator
     }
-
-    pub(crate) fn format_timecode(self, frame: Frame) -> String {
-        let frame = u128::from(frame.get());
-        let numerator = u128::from(self.numerator);
-        let denominator = u128::from(self.denominator);
-        let total_seconds = frame.saturating_mul(denominator) / numerator;
-        let first_frame_in_second = total_seconds
-            .saturating_mul(numerator)
-            .div_ceil(denominator);
-        let frames = frame.saturating_sub(first_frame_in_second);
-        let seconds = total_seconds % 60;
-        let total_minutes = total_seconds / 60;
-        let minutes = total_minutes % 60;
-        let hours = total_minutes / 60;
-
-        format!("{hours:02}:{minutes:02}:{seconds:02}:{frames:02}")
-    }
 }

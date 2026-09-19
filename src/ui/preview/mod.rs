@@ -2,18 +2,22 @@ mod video;
 
 use std::{collections::HashMap, sync::Arc};
 
-use ::ui::ActiveTheme as _;
+use ::ui::{
+    ActiveTheme as _,
+    slider::{Slider, SliderEvent, SliderState},
+};
 use gpui::{
-    Context, Entity, Render, SharedString, Subscription, WgpuSurfaceHandle, Window, div,
-    prelude::*, wgpu_surface,
+    Context, Entity, Hsla, MouseButton, MouseDownEvent, MouseUpEvent, Render, SharedString,
+    Subscription, WgpuSurfaceHandle, Window, div, prelude::*, px, relative, wgpu_surface,
 };
 
 use crate::{
     domain::{
         plugin::PluginRegistry,
-        timeline::{LayerId, TimelineEditor, TimelineItem, TimelineTime},
+        timeline::{Frame, LayerId, TimelineEditor, TimelineItem, TimelineTime},
     },
     engine::{
+        audio_meter::AudioLevelSampler,
         media::{MediaReaderRegistry, VideoDecodeSize},
         rendering::{
             FrameRenderer, RenderError, RenderScene, RenderSize, RendererBuilder, RendererDevice,
@@ -22,7 +26,8 @@ use crate::{
     },
     ui::{
         session::{ProjectSession, ProjectSessionId, UiNotifications},
-        transport::TransportController,
+        time_grid,
+        transport::{ScrubSource, TransportController},
     },
 };
 
@@ -93,6 +98,8 @@ pub(crate) struct Preview {
     session_id: ProjectSessionId,
     notifications: Entity<UiNotifications>,
     video_playback: Entity<VideoPlaybackEngine>,
+    audio_level_sampler: AudioLevelSampler,
+    seekbar: Entity<SliderState>,
     surface: Option<WgpuSurfaceHandle>,
     backend: Entity<RenderBackend>,
     text_frames: TextFrameCache,
@@ -105,13 +112,16 @@ pub(crate) struct Preview {
     _transport_subscription: Subscription,
     _session_subscription: Subscription,
     _video_playback_subscription: Subscription,
+    _seekbar_subscription: Subscription,
 }
 
 impl Preview {
+    const METER_MIN_DB: f32 = -60.;
     const INITIAL_SIZE: RenderSize = RenderSize {
         width: 640,
         height: 360,
     };
+    const BAR_THICKNESS: f32 = 6.;
 
     pub(crate) fn new(
         dependencies: PreviewDependencies,
@@ -127,6 +137,16 @@ impl Preview {
             media_readers,
         } = dependencies;
         let session_id = session.read(cx).id();
+        let seekbar = cx.new(|_| SliderState::new().min(0.).max(1.).step(0.001));
+        let seekbar_subscription = cx.subscribe(&seekbar, |preview, _, event: &SliderEvent, cx| {
+            let SliderEvent::Change(value) = event;
+            let end = preview.editor.read(cx).end_frame_exclusive().get();
+            let frame =
+                Frame::new((f64::from(value.end().clamp(0., 1.)) * end as f64).round() as u64);
+            preview
+                .transport
+                .update(cx, |transport, cx| transport.set_playhead(frame, cx));
+        });
         let editor_subscription = cx.observe(&editor, |_, _, cx| cx.notify());
         let transport_subscription = cx.observe(&transport, |_, _, cx| cx.notify());
         let session_subscription = cx.observe(&session, |this, _, cx| {
@@ -141,6 +161,7 @@ impl Preview {
             this.rendered_revision = None;
             this.rendered_video_revision = None;
             this.rendered_size = None;
+            this.audio_level_sampler.clear();
             cx.notify();
         });
         let surface = window.create_wgpu_surface(
@@ -174,6 +195,7 @@ impl Preview {
             export_device: None,
             error,
         });
+        let audio_level_sampler = AudioLevelSampler::new(media_readers.clone());
         let video_playback = cx.new(|cx| {
             VideoPlaybackEngine::new(media_readers, session.clone(), notifications.clone(), cx)
         });
@@ -186,6 +208,8 @@ impl Preview {
             session_id,
             notifications,
             video_playback,
+            audio_level_sampler,
+            seekbar,
             surface,
             backend,
             text_frames: TextFrameCache::new(),
@@ -198,6 +222,7 @@ impl Preview {
             _transport_subscription: transport_subscription,
             _session_subscription: session_subscription,
             _video_playback_subscription: video_playback_subscription,
+            _seekbar_subscription: seekbar_subscription,
         }
     }
 
@@ -359,6 +384,142 @@ impl Preview {
         }
     }
 
+    fn render_controls(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let colors = cx.theme().colors;
+        let (current, end, frame_rate) = {
+            let editor = self.editor.read(cx);
+            let frame_rate = editor.frame_rate();
+            let end = editor.end_frame_exclusive();
+            let current = editor
+                .playback_time_seconds()
+                .map(|seconds| frame_rate.seconds_to_frame(seconds))
+                .unwrap_or_else(|| editor.playhead());
+            (current, end, frame_rate)
+        };
+        let ratio = if end.get() == 0 {
+            0.
+        } else {
+            (current.get() as f32 / end.get() as f32).clamp(0., 1.)
+        };
+        if (self.seekbar.read(cx).value().start() - ratio).abs() > f32::EPSILON {
+            self.seekbar
+                .update(cx, |seekbar, cx| seekbar.set_value(ratio, window, cx));
+        }
+        let current_label = format!(
+            "{}  {}f",
+            time_grid::format_timestamp(frame_rate.frame_to_seconds(current)),
+            current.get()
+        );
+        let total_label = format!(
+            "{}  {}f",
+            time_grid::format_timestamp(frame_rate.frame_to_seconds(end)),
+            end.get()
+        );
+        let begin_scrub = cx.listener(|this, event: &MouseDownEvent, _, cx| {
+            if event.button == MouseButton::Left {
+                this.transport.update(cx, |transport, cx| {
+                    transport.begin_scrub(ScrubSource::Preview, cx)
+                });
+            }
+        });
+        let end_scrub = cx.listener(|this, event: &MouseUpEvent, _, cx| {
+            if event.button == MouseButton::Left {
+                this.transport.update(cx, |transport, cx| {
+                    transport.end_scrub(ScrubSource::Preview, cx)
+                });
+            }
+        });
+        div()
+            .w_full()
+            .h(px(50.))
+            .flex_none()
+            .flex()
+            .items_center()
+            .bg(colors.background)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .flex()
+                    .flex_col()
+                    .h_full()
+                    .justify_center()
+                    .gap_0()
+                    .border_t_1()
+                    .border_color(colors.border.opacity(0.55))
+                    .px_3()
+                    .py_1()
+                    .child(
+                        div()
+                            .w_full()
+                            .flex()
+                            .justify_between()
+                            .text_sm()
+                            .text_color(colors.muted_foreground)
+                            .child(current_label)
+                            .child(total_label),
+                    )
+                    .child(
+                        div()
+                            .id("preview-seekbar")
+                            .w_full()
+                            .capture_any_mouse_down(begin_scrub)
+                            .capture_any_mouse_up(end_scrub)
+                            .child(
+                                div()
+                                    .relative()
+                                    .w_full()
+                                    .h(px(20.))
+                                    .child(
+                                        div()
+                                            .absolute()
+                                            .left_0()
+                                            .right_0()
+                                            .top(px(7.))
+                                            .h(px(Self::BAR_THICKNESS))
+                                            .bg(colors.slider_bar.opacity(0.75)),
+                                    )
+                                    .child(
+                                        div()
+                                            .absolute()
+                                            .left_0()
+                                            .top(px(7.))
+                                            .h(px(Self::BAR_THICKNESS))
+                                            .w(relative(ratio))
+                                            .bg(colors.primary),
+                                    )
+                                    .child(
+                                        Slider::new(&self.seekbar)
+                                            .horizontal()
+                                            .bg(colors.background.opacity(0.)),
+                                    ),
+                            ),
+                    ),
+            )
+    }
+
+    fn render_audio_meter(level: f32, background: Hsla, primary: Hsla) -> impl IntoElement {
+        let level = if level > 0. {
+            ((20. * level.log10() - Self::METER_MIN_DB) / -Self::METER_MIN_DB).clamp(0., 1.)
+        } else {
+            0.
+        };
+        div()
+            .w(px(Self::BAR_THICKNESS))
+            .h_full()
+            .relative()
+            .bg(background.opacity(0.75))
+            .child(
+                div()
+                    .absolute()
+                    .left_0()
+                    .right_0()
+                    .bottom_0()
+                    .h(relative(level))
+                    .bg(primary),
+            )
+    }
+
     fn report_error(&mut self, message: String, cx: &mut Context<Self>) {
         let message = SharedString::from(message);
         if self.error.as_ref() == Some(&message) {
@@ -381,7 +542,17 @@ impl Render for Preview {
 
         let colors = cx.theme().colors;
         let surface = self.surface.clone();
-        let aspect_ratio = self.editor.read(cx).resolution().aspect_ratio();
+        let (frame, aspect_ratio) = {
+            let editor = self.editor.read(cx);
+            (editor.playhead(), editor.resolution().aspect_ratio())
+        };
+        let levels = if self.transport.read(cx).is_playing() {
+            self.transport.read(cx).audio_levels(cx)
+        } else {
+            let editor = self.editor.read(cx);
+            self.audio_level_sampler
+                .levels_at(editor.visible_items(), frame, editor.frame_rate())
+        };
         let error = self
             .backend
             .read(cx)
@@ -392,33 +563,69 @@ impl Render for Preview {
 
         div()
             .size_full()
-            .relative()
             .flex()
-            .items_center()
-            .justify_center()
+            .flex_col()
             .overflow_hidden()
             .bg(colors.background)
-            .when_some(surface, |this, surface| {
-                this.child(
-                    wgpu_surface(surface)
-                        .w_full()
-                        .max_h_full()
-                        .aspect_ratio(aspect_ratio)
-                        .defer_resize_until_mouse_up(true),
-                )
-            })
-            .when_some(error, |this, error| {
-                this.child(
-                    div()
-                        .absolute()
-                        .inset_0()
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .text_sm()
-                        .text_color(colors.danger)
-                        .child(error),
-                )
-            })
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_h_0()
+                    .w_full()
+                    .flex()
+                    .items_center()
+                    .justify_center()
+                    .overflow_hidden()
+                    .when_some(surface, |this, surface| {
+                        this.child(
+                            wgpu_surface(surface)
+                                .w_full()
+                                .max_h_full()
+                                .aspect_ratio(aspect_ratio)
+                                .defer_resize_until_mouse_up(true),
+                        )
+                    })
+                    .when_some(error, |this, error| {
+                        this.child(
+                            div()
+                                .absolute()
+                                .inset_0()
+                                .flex()
+                                .items_center()
+                                .justify_center()
+                                .text_sm()
+                                .text_color(colors.danger)
+                                .child(error),
+                        )
+                    })
+                    .child(
+                        div()
+                            .absolute()
+                            .left_0()
+                            .top_0()
+                            .bottom_0()
+                            .w(px(Self::BAR_THICKNESS))
+                            .child(Self::render_audio_meter(
+                                levels[0],
+                                colors.slider_bar,
+                                colors.primary,
+                            )),
+                    )
+                    .child(
+                        div()
+                            .absolute()
+                            .right_0()
+                            .top_0()
+                            .bottom_0()
+                            .w(px(Self::BAR_THICKNESS))
+                            .child(Self::render_audio_meter(
+                                levels[1],
+                                colors.slider_bar,
+                                colors.primary,
+                            )),
+                    ),
+            )
+            .child(self.render_controls(window, cx))
     }
 }

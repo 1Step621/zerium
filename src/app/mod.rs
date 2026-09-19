@@ -18,6 +18,8 @@ gpui::actions!(
         CutSelectedItems,
         PasteItems,
         TogglePlayback,
+        PreviousFrame,
+        NextFrame,
         Undo,
         Redo,
         NewProject,
@@ -109,6 +111,16 @@ impl Workspace {
             .update(cx, |timeline, cx| timeline.toggle_playback(cx));
     }
 
+    fn previous_frame(&mut self, _: &PreviousFrame, _window: &mut Window, cx: &mut Context<Self>) {
+        self.timeline
+            .update(cx, |timeline, cx| timeline.step_frame(-1, cx));
+    }
+
+    fn next_frame(&mut self, _: &NextFrame, _window: &mut Window, cx: &mut Context<Self>) {
+        self.timeline
+            .update(cx, |timeline, cx| timeline.step_frame(1, cx));
+    }
+
     fn undo(&mut self, _: &Undo, _window: &mut Window, cx: &mut Context<Self>) {
         self.timeline.update(cx, |timeline, cx| timeline.undo(cx));
     }
@@ -189,6 +201,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::paste_items))
             .on_action(cx.listener(Self::delete_selected_item))
             .on_action(cx.listener(Self::toggle_playback))
+            .on_action(cx.listener(Self::previous_frame))
+            .on_action(cx.listener(Self::next_frame))
             .on_action(cx.listener(Self::undo))
             .on_action(cx.listener(Self::redo))
             .on_action(cx.listener(Self::new_project))
@@ -356,8 +370,8 @@ impl Render for Workspace {
                                 h_resizable("workspace-columns")
                                     .child(
                                         resizable_panel()
-                                            .size(px(240.))
-                                            .size_range(px(180.)..px(420.))
+                                            .size(px(300.))
+                                            .size_range(px(200.)..px(600.))
                                             .child(self.explorer.clone()),
                                     )
                                     .child(resizable_panel().child(self.preview.clone()))
@@ -419,6 +433,8 @@ pub fn run() {
                     TogglePlayback,
                     Some(WORKSPACE_SHORTCUT_KEY_CONTEXT),
                 ),
+                KeyBinding::new("left", PreviousFrame, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
+                KeyBinding::new("right", NextFrame, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
                 KeyBinding::new("ctrl-z", Undo, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
                 KeyBinding::new("ctrl-shift-z", Redo, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
                 KeyBinding::new("ctrl-y", Redo, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),

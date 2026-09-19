@@ -616,10 +616,6 @@ impl TimelineEditor {
         self.frame_rate().frame_to_seconds(self.playhead)
     }
 
-    pub(crate) fn timecode(&self) -> String {
-        self.frame_rate().format_timecode(self.playhead)
-    }
-
     pub(crate) fn selected_item_ids(&self) -> impl Iterator<Item = ItemId> + '_ {
         self.selection.current.iter().copied()
     }

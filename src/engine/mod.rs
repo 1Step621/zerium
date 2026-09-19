@@ -1,3 +1,4 @@
+pub(crate) mod audio_meter;
 pub(crate) mod audio_playback;
 pub(crate) mod cache;
 pub(crate) mod export;
