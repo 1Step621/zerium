@@ -14,7 +14,7 @@ struct ShaderContract {
     media_interface: Option<String>,
 }
 
-pub(crate) fn run(path: Option<&Path>) -> Result<(), String> {
+pub(crate) fn generate(path: Option<&Path>) -> Result<(), String> {
     let root = path
         .map(Path::to_owned)
         .unwrap_or(std::env::current_dir().map_err(|error| error.to_string())?);
@@ -86,7 +86,7 @@ pub(crate) fn run(path: Option<&Path>) -> Result<(), String> {
     write(
         &generated,
         MANIFEST_FINGERPRINT,
-        &manifest_fingerprint(&manifest_source),
+        &crate::plugin::manifest_fingerprint(&manifest_source),
     )?;
     write(&generated, "util.wesl", UTIL_INTERFACE)?;
     for kind in ShaderKind::ALL {
@@ -144,15 +144,6 @@ fn insert_contract(
 fn write(generated: &Path, name: &str, source: &str) -> Result<(), String> {
     fs::write(generated.join(name), source)
         .map_err(|error| format!("cannot write '{}': {error}", generated.join(name).display()))
-}
-
-pub(crate) fn manifest_fingerprint(source: &str) -> String {
-    let hash = source
-        .bytes()
-        .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
-        });
-    format!("{hash:016x}")
 }
 
 fn declaration_names(source: &str) -> String {

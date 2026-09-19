@@ -19,7 +19,7 @@ use gpui::{
 };
 
 use crate::{
-    plugin_catalog::plugins,
+    plugin::plugins,
     ui::session::{ProjectSession, ProjectSessionId, UiNotifications},
 };
 

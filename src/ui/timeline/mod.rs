@@ -19,7 +19,7 @@ use crate::{
         TimelineEditor, TimelineItem, TimelineTime,
     },
     engine::media::MediaReaderRegistry,
-    plugin_catalog::plugins,
+    plugin::plugins,
 };
 
 use super::{

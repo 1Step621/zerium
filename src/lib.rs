@@ -7,10 +7,10 @@
 #![deny(unreachable_pub)]
 
 mod app;
+mod cli;
 mod domain;
 mod engine;
-mod plugin_catalog;
-mod plugin_generator;
+mod plugin;
 mod ui;
 
 pub fn run() {
@@ -19,7 +19,7 @@ pub fn run() {
         match arguments.next().as_deref() {
             Some("generate") => {
                 let path = arguments.next().map(std::path::PathBuf::from);
-                if let Err(error) = plugin_generator::run(path.as_deref()) {
+                if let Err(error) = cli::plugin::generate(path.as_deref()) {
                     eprintln!("zerium plugin generate: {error}");
                     std::process::exit(1);
                 }
@@ -27,15 +27,19 @@ pub fn run() {
             }
             Some("validate") => {
                 let path = arguments.next().map(std::path::PathBuf::from);
-                if let Err(error) = plugin_catalog::validate(path.as_deref()) {
+                if let Err(error) = cli::plugin::validate(path.as_deref()) {
                     eprintln!("zerium plugin validate: {error}");
                     std::process::exit(1);
                 }
                 println!("plugin is valid");
                 return;
             }
-            _ => {}
+            _ => {
+                eprintln!("zerium plugin: unknown command");
+                std::process::exit(1);
+            }
         }
+    } else {
+        app::run();
     }
-    app::run();
 }

@@ -461,7 +461,7 @@ pub(crate) fn run() {
                 },
                 |window, cx| {
                     window.set_window_title("Zerium");
-                    let plugins = crate::plugin_catalog::plugins();
+                    let plugins = crate::plugin::plugins();
                     let media_readers = crate::engine::media::bundled_media_readers(&plugins)
                         .expect("bundled media readers must be valid");
                     let editor = cx.new(|_| {

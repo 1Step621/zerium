@@ -37,7 +37,7 @@ use crate::domain::timeline::{
     display_scene_expression,
 };
 use crate::engine::media::MediaReaderRegistry;
-use crate::plugin_catalog::plugins;
+use crate::plugin::plugins;
 use crate::ui::TimelineEditorEntityExt as _;
 use crate::ui::animation_curve::{AnimationPresentation, AnimationSelection, AnimationTarget};
 use crate::ui::inspector_path::InspectorPath;
