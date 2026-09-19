@@ -3,13 +3,8 @@
 use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
 
-use super::{
-    PropertyError,
-    schema::PropertySchema,
-    types::{PropertyType, PropertyValueType, ScalarPropertyType},
-};
+use super::{PropertyError, schema::PropertySchema};
 pub(in crate::domain) const MAX_STRING_BYTES: usize = 4_096;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -118,83 +113,6 @@ impl PropertyValue {
         Self::Tuple(values.into_iter().map(Self::F32).collect())
     }
 
-    pub(in crate::domain) fn from_json(value: &Value, ty: &PropertyType) -> Option<Self> {
-        match ty {
-            PropertyType::Value(ty) => Self::value_type_from_json(value, ty),
-            PropertyType::Array {
-                element_type,
-                min_items,
-                max_items,
-            } => {
-                let values = value.as_array()?;
-                if values.len() < *min_items as usize || values.len() > *max_items as usize {
-                    return None;
-                }
-                values
-                    .iter()
-                    .enumerate()
-                    .map(|(index, value)| {
-                        Some(PropertyElement {
-                            id: PropertyElementId(u64::try_from(index).ok()?.checked_add(1)?),
-                            value: Self::value_type_from_json(value, element_type)?,
-                        })
-                    })
-                    .collect::<Option<Vec<_>>>()
-                    .map(Self::Array)
-            }
-        }
-    }
-
-    fn value_type_from_json(value: &Value, ty: &PropertyValueType) -> Option<Self> {
-        match ty {
-            PropertyValueType::Scalar(ty) => Self::scalar_from_json(value, ty),
-            PropertyValueType::Tuple(tuple) => {
-                let values = value.as_array()?;
-                if values.len() != tuple.scalar_count() {
-                    return None;
-                }
-                values
-                    .iter()
-                    .zip(tuple.scalars())
-                    .map(|(value, ty)| Self::scalar_from_json(value, ty))
-                    .collect::<Option<Vec<_>>>()
-                    .map(Self::Tuple)
-            }
-        }
-    }
-
-    fn scalar_from_json(value: &Value, ty: &ScalarPropertyType) -> Option<Self> {
-        match ty {
-            ScalarPropertyType::Enum(ty) => {
-                let value = u32::try_from(value.as_u64()?).ok()?;
-                ty.contains(value).then_some(Self::Enum(value))
-            }
-            ScalarPropertyType::F32 => {
-                let value = value.as_f64()?;
-                let value = value as f32;
-                value.is_finite().then_some(Self::F32(value))
-            }
-            ScalarPropertyType::I32 => i32::try_from(value.as_i64()?).ok().map(Self::I32),
-            ScalarPropertyType::U32 => u32::try_from(value.as_u64()?).ok().map(Self::U32),
-            ScalarPropertyType::Bool => value.as_bool().map(Self::Bool),
-            ScalarPropertyType::Color => {
-                let values = value.as_array()?;
-                (values.len() == 4).then(|| {
-                    Some(Self::Color([
-                        json_f32(&values[0])?,
-                        json_f32(&values[1])?,
-                        json_f32(&values[2])?,
-                        json_f32(&values[3])?,
-                    ]))
-                })?
-            }
-            ScalarPropertyType::String => value
-                .as_str()
-                .filter(|value| value.len() <= MAX_STRING_BYTES)
-                .map(|value| Self::String(value.to_owned())),
-        }
-    }
-
     pub(crate) fn push_element(&mut self, value: PropertyValue) -> bool {
         let Self::Array(elements) = self else {
             return false;
@@ -214,11 +132,6 @@ impl PropertyValue {
         });
         true
     }
-}
-
-fn json_f32(value: &Value) -> Option<f32> {
-    let value = value.as_f64()? as f32;
-    value.is_finite().then_some(value)
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -1,7 +1,6 @@
 //! Deterministic lookup across structurally valid plugins with resolved assets.
 //!
-//! The registry does not claim that renderer-composed WGSL has been compiled. The rendering layer
-//! must validate each complete module before treating a registered plugin as executable.
+//! Shader linking and validation remain rendering responsibilities.
 
 use std::{
     collections::{BTreeMap, btree_map::Entry},
@@ -79,10 +78,6 @@ impl PluginRegistry {
         self.effects
             .get(&(plugin_id.to_owned(), effect_id.to_owned()))
             .cloned()
-    }
-
-    pub(crate) fn shader_source(&self, plugin_id: &str, source: &str) -> Option<&str> {
-        self.plugin(plugin_id)?.shader_source(source)
     }
 
     pub(crate) fn plugin(&self, plugin_id: &str) -> Option<&Plugin> {

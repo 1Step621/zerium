@@ -405,7 +405,7 @@ impl Render for Workspace {
     }
 }
 
-pub fn run() {
+pub(crate) fn run() {
     Application::new()
         .with_assets(::ui::assets::Assets)
         .run(|cx: &mut App| {

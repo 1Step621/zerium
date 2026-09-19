@@ -2,6 +2,27 @@ use serde::Deserialize;
 
 use super::{PluginError, identifier::validate_wgsl_identifier};
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum ShaderKind {
+    Item,
+    Effect,
+    Compute,
+    Temporal,
+}
+
+impl ShaderKind {
+    pub(crate) const ALL: [Self; 4] = [Self::Item, Self::Effect, Self::Compute, Self::Temporal];
+
+    pub(crate) const fn module_name(self) -> &'static str {
+        match self {
+            Self::Item => "item",
+            Self::Effect => "effect",
+            Self::Compute => "compute",
+            Self::Temporal => "temporal",
+        }
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ShaderSchema {
@@ -48,7 +69,7 @@ pub(super) fn validate_shader_source(
                 .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
     };
     let valid =
-        source.ends_with(".wgsl") && !source.contains('\\') && source.split('/').all(valid_segment);
+        source.ends_with(".wesl") && !source.contains('\\') && source.split('/').all(valid_segment);
     if !valid {
         return Err(PluginError::invalid_definition(format!(
             "{owner_kind} '{owner_id}' has an invalid shader source path"

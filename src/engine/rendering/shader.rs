@@ -1,4 +1,6 @@
+use super::wesl;
 use super::*;
+use crate::domain::plugin::PassConstantSchema;
 
 /// Stable identifier used to select the WGSL implementation for an item.
 ///
@@ -63,16 +65,13 @@ impl fmt::Display for TextureShaderId {
 
 /// A kind-specific vertex and fragment shader registered with the renderer.
 ///
-/// The source is appended to the renderer interface and must define the
-/// configured vertex and fragment entry points. Descriptors created with
-/// `from_schema` receive a generated `ZeriumProperties` type and
-/// `zerium_load_properties` function, so plugin WGSL never needs byte offsets.
+/// The source has already been linked from WESL into standalone WGSL and must
+/// define the configured vertex and fragment entry points.
 #[derive(Clone, Debug)]
 pub(super) struct ItemShaderDescriptor {
     pub id: ItemShaderId,
     pub label: Cow<'static, str>,
     pub wgsl: Cow<'static, str>,
-    pub(super) property_interface: Cow<'static, str>,
     pub(super) vertex_entry: Cow<'static, str>,
     pub(super) fragment_entry: Cow<'static, str>,
     pub(super) vertex_count: u32,
@@ -83,7 +82,6 @@ pub(super) struct EffectShaderDescriptor {
     pub id: EffectShaderId,
     pub label: Cow<'static, str>,
     pub wgsl: Cow<'static, str>,
-    pub(super) property_interface: Cow<'static, str>,
     pub(super) vertex_entry: Cow<'static, str>,
     pub(super) fragment_entry: Cow<'static, str>,
     pub(super) vertex_count: u32,
@@ -91,7 +89,6 @@ pub(super) struct EffectShaderDescriptor {
 
 impl EffectShaderDescriptor {
     pub(super) fn from_schema(
-        schema: &EffectSchema,
         pass: &EffectPassSchema,
         id: EffectShaderId,
         label: impl Into<Cow<'static, str>>,
@@ -100,14 +97,10 @@ impl EffectShaderDescriptor {
         let EffectPassSchema::Render { shader, .. } = pass else {
             return Err(RenderError::backend("effect pass is not a render pass"));
         };
-        let property_interface = schema
-            .wgsl_property_interface(pass)
-            .map_err(|error| RenderError::backend(error.to_string()))?;
         Ok(Self {
             id,
             label: label.into(),
             wgsl: wgsl.into(),
-            property_interface: Cow::Owned(property_interface),
             vertex_entry: Cow::Owned(shader.vertex_entry().to_owned()),
             fragment_entry: Cow::Owned(shader.fragment_entry().to_owned()),
             vertex_count: 3,
@@ -125,20 +118,34 @@ impl ItemShaderDescriptor {
         let shader = schema
             .visual_shader()
             .ok_or_else(|| RenderError::backend("item has no visual shader"))?;
-        let property_interface = schema
-            .wgsl_property_interface()
-            .map_err(|error| RenderError::backend(error.to_string()))?;
         Ok(Self {
             id: ItemShaderId::new(format!("{plugin_id}::item::{}", schema.id())),
             label: label.into(),
             wgsl: wgsl.into(),
-            property_interface: Cow::Owned(property_interface),
             vertex_entry: Cow::Owned(shader.vertex_entry().to_owned()),
             fragment_entry: Cow::Owned(shader.fragment_entry().to_owned()),
             vertex_count: schema.vertex_count().expect("visual shader was checked"),
         })
     }
 }
+
+pub(super) fn compile_plugin_shader(
+    plugins: &PluginRegistry,
+    plugin_id: &str,
+    source_name: &str,
+    constants: &[PassConstantSchema],
+) -> Result<String, RenderError> {
+    let plugin = plugins
+        .plugin(plugin_id)
+        .ok_or_else(|| RenderError::backend(format!("plugin '{plugin_id}' was not loaded")))?;
+    let source = plugin.shader_source(source_name).ok_or_else(|| {
+        RenderError::backend(format!(
+            "plugin '{plugin_id}' shader source '{source_name}' was not loaded"
+        ))
+    })?;
+    wesl::compile(plugin.wesl_modules(), source, constants)
+}
+
 pub(super) fn parse_and_validate_shader(
     id: impl fmt::Display,
     source: &str,
@@ -205,98 +212,6 @@ pub(super) fn validate_compute_shader(
         )));
     }
     Ok(workgroup_size)
-}
-
-pub(super) fn validate_plugin_shaders(plugins: &PluginRegistry) -> Result<(), RenderError> {
-    for (plugin_id, schema) in plugins.items() {
-        let Some(shader) = schema.visual_shader() else {
-            continue;
-        };
-        let source = plugins
-            .shader_source(plugin_id, shader.source())
-            .ok_or_else(|| {
-                RenderError::backend(format!(
-                    "plugin '{plugin_id}' shader source '{}' was not loaded",
-                    shader.source()
-                ))
-            })?;
-        let properties = schema
-            .wgsl_property_interface()
-            .map_err(|error| RenderError::backend(error.to_string()))?;
-        let completed = if schema.uses_texture_pipeline() {
-            let media = texture_media_interface(&texture_input_ids(schema));
-            format!("{ITEM_INTERFACE}\n{properties}\n{media}\n{source}")
-        } else {
-            format!("{ITEM_INTERFACE}\n{properties}\n{source}")
-        };
-        validate_render_shader(
-            format!("{plugin_id}::item::{}", schema.id()),
-            &completed,
-            shader.vertex_entry(),
-            shader.fragment_entry(),
-        )?;
-    }
-
-    for (plugin_id, schema) in plugins.effects() {
-        for (pass_index, pass) in schema.passes().iter().enumerate() {
-            let source_name = pass.shader_source();
-            let source = plugins
-                .shader_source(plugin_id, source_name)
-                .ok_or_else(|| {
-                    RenderError::backend(format!(
-                        "plugin '{plugin_id}' effect shader source '{source_name}' was not loaded"
-                    ))
-                })?;
-            let properties = schema
-                .wgsl_property_interface(pass)
-                .map_err(|error| RenderError::backend(error.to_string()))?;
-            let id = format!("{plugin_id}::effect::{}::pass::{pass_index}", schema.id());
-            match pass {
-                EffectPassSchema::Render { shader, .. } => validate_render_shader(
-                    id,
-                    &format!("{EFFECT_INTERFACE}\n{properties}\n{source}"),
-                    shader.vertex_entry(),
-                    shader.fragment_entry(),
-                )?,
-                EffectPassSchema::Compute { shader, .. } => {
-                    validate_compute_shader(
-                        id,
-                        &format!("{COMPUTE_INTERFACE}\n{properties}\n{source}"),
-                        shader.entry(),
-                    )?;
-                }
-                EffectPassSchema::Temporal { reducer, .. } => validate_render_shader(
-                    id,
-                    &format!("{TEMPORAL_INTERFACE}\n{properties}\n{source}"),
-                    reducer.vertex_entry(),
-                    reducer.fragment_entry(),
-                )?,
-            }
-        }
-    }
-    Ok(())
-}
-
-pub(super) fn texture_media_interface(input_ids: &[String]) -> String {
-    let sampler_binding = 2 + input_ids.len();
-    let metadata_binding = sampler_binding + 1;
-    let mut source = format!(
-        "struct ZeriumMediaInputs {{\n    source_sizes: array<vec4<f32>, {}>,\n    target_size: vec2<f32>,\n    padding: vec2<f32>,\n}};\n\n",
-        input_ids.len()
-    );
-    for index in 0..input_ids.len() {
-        source.push_str(&format!(
-            "@group(0) @binding({})\nvar zerium_media_slot_{}: texture_2d<f32>;\n\nfn zerium_media_slot_{}_size() -> vec2<f32> {{\n    return zerium_media_inputs.source_sizes[{}].xy;\n}}\n\n",
-            index + 2,
-            index,
-            index,
-            index
-        ));
-    }
-    source.push_str(&format!(
-        "@group(0) @binding({sampler_binding})\nvar zerium_media_sampler: sampler;\n\n@group(0) @binding({metadata_binding})\nvar<uniform> zerium_media_inputs: ZeriumMediaInputs;\n"
-    ));
-    source
 }
 
 pub(super) fn texture_input_ids(schema: &ItemSchema) -> Vec<String> {

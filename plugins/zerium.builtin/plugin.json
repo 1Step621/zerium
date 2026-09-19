@@ -13,7 +13,7 @@
         "visual": {
           "type": "procedural",
           "shader": {
-            "source": "rectangle.wgsl"
+            "source": "rectangle.wesl"
           }
         },
         "editor": {
@@ -168,7 +168,7 @@
         "visual": {
           "type": "procedural",
           "shader": {
-            "source": "triangle.wgsl"
+            "source": "triangle.wesl"
           }
         },
         "editor": {
@@ -324,7 +324,7 @@
         "visual": {
           "type": "procedural",
           "shader": {
-            "source": "ellipse.wgsl"
+            "source": "ellipse.wesl"
           }
         }
       },
@@ -451,7 +451,7 @@
         "visual": {
           "type": "procedural",
           "shader": {
-            "source": "polygon.wgsl"
+            "source": "polygon.wesl"
           }
         },
         "editor": {
@@ -673,7 +673,7 @@
         "visual": {
           "type": "procedural",
           "shader": {
-            "source": "line.wgsl"
+            "source": "line.wesl"
           }
         },
         "editor": {
@@ -843,7 +843,7 @@
         "visual": {
           "type": "procedural",
           "shader": {
-            "source": "star.wgsl"
+            "source": "star.wesl"
           }
         },
         "editor": {
@@ -1049,7 +1049,7 @@
         "visual": {
           "type": "text",
           "shader": {
-            "source": "text.wgsl"
+            "source": "text.wesl"
           },
           "size": "size",
           "text": "text",
@@ -1391,7 +1391,7 @@
         "visual": {
           "type": "media",
           "shader": {
-            "source": "media.wgsl"
+            "source": "media.wesl"
           }
         },
         "audio": {
@@ -1541,7 +1541,7 @@
         "visual": {
           "type": "media",
           "shader": {
-            "source": "media.wgsl"
+            "source": "media.wesl"
           }
         },
         "editor": {
@@ -1703,7 +1703,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "translate.wgsl"
+            "source": "translate.wesl"
           }
         }
       ],
@@ -1765,7 +1765,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "rotate_2d.wgsl"
+            "source": "rotate_2d.wesl"
           }
         }
       ],
@@ -1853,7 +1853,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "rotate_3d.wgsl"
+            "source": "rotate_3d.wesl"
           }
         }
       ],
@@ -2005,7 +2005,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "color_adjustment.wgsl"
+            "source": "color_adjustment.wesl"
           }
         }
       ],
@@ -2171,7 +2171,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "opacity.wgsl"
+            "source": "opacity.wesl"
           }
         }
       ],
@@ -2213,7 +2213,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "linear_gradient.wgsl"
+            "source": "linear_gradient.wesl"
           }
         }
       ],
@@ -2390,7 +2390,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "distance_field.wgsl"
+            "source": "distance_field.wesl"
           },
           "constants": [
             {
@@ -2403,7 +2403,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "distance_field.wgsl"
+            "source": "distance_field.wesl"
           },
           "constants": [
             {
@@ -2416,7 +2416,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "distance_field.wgsl"
+            "source": "distance_field.wesl"
           },
           "constants": [
             {
@@ -2429,7 +2429,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "glow.wgsl"
+            "source": "glow.wesl"
           }
         }
       ]
@@ -2516,7 +2516,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "distance_field.wgsl"
+            "source": "distance_field.wesl"
           },
           "constants": [
             {
@@ -2529,7 +2529,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "distance_field.wgsl"
+            "source": "distance_field.wesl"
           },
           "constants": [
             {
@@ -2542,7 +2542,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "distance_field.wgsl"
+            "source": "distance_field.wesl"
           },
           "constants": [
             {
@@ -2555,7 +2555,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "outline.wgsl"
+            "source": "outline.wesl"
           }
         }
       ]
@@ -2569,7 +2569,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "vignette.wgsl"
+            "source": "vignette.wesl"
           }
         }
       ],
@@ -2660,7 +2660,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "pixelate.wgsl"
+            "source": "pixelate.wesl"
           }
         }
       ],
@@ -2702,7 +2702,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "chromatic_aberration.wgsl"
+            "source": "chromatic_aberration.wesl"
           }
         }
       ],
@@ -2798,13 +2798,18 @@
         {
           "type": "compute",
           "shader": {
-            "source": "gaussian_blur.wgsl"
+            "source": "gaussian_blur.wesl"
           },
           "constants": [
             {
-              "id": "direction",
-              "type": ["f32", "f32"],
-              "value": [1, 0]
+              "id": "direction_x",
+              "type": "f32",
+              "value": 1
+            },
+            {
+              "id": "direction_y",
+              "type": "f32",
+              "value": 0
             },
             {
               "id": "radius_scale",
@@ -2816,13 +2821,18 @@
         {
           "type": "compute",
           "shader": {
-            "source": "gaussian_blur.wgsl"
+            "source": "gaussian_blur.wesl"
           },
           "constants": [
             {
-              "id": "direction",
-              "type": ["f32", "f32"],
-              "value": [0, 1]
+              "id": "direction_x",
+              "type": "f32",
+              "value": 0
+            },
+            {
+              "id": "direction_y",
+              "type": "f32",
+              "value": 1
             },
             {
               "id": "radius_scale",
@@ -2834,13 +2844,18 @@
         {
           "type": "compute",
           "shader": {
-            "source": "gaussian_blur.wgsl"
+            "source": "gaussian_blur.wesl"
           },
           "constants": [
             {
-              "id": "direction",
-              "type": ["f32", "f32"],
-              "value": [1, 0]
+              "id": "direction_x",
+              "type": "f32",
+              "value": 1
+            },
+            {
+              "id": "direction_y",
+              "type": "f32",
+              "value": 0
             },
             {
               "id": "radius_scale",
@@ -2852,13 +2867,18 @@
         {
           "type": "compute",
           "shader": {
-            "source": "gaussian_blur.wgsl"
+            "source": "gaussian_blur.wesl"
           },
           "constants": [
             {
-              "id": "direction",
-              "type": ["f32", "f32"],
-              "value": [0, 1]
+              "id": "direction_x",
+              "type": "f32",
+              "value": 0
+            },
+            {
+              "id": "direction_y",
+              "type": "f32",
+              "value": 1
             },
             {
               "id": "radius_scale",
@@ -2961,7 +2981,7 @@
             "phase": "shutter_phase"
           },
           "reducer": {
-            "source": "motion_blur.wgsl"
+            "source": "motion_blur.wesl"
           }
         }
       ]
@@ -3055,7 +3075,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "pixel_sort.wgsl"
+            "source": "pixel_sort.wesl"
           },
           "dispatch": ["width", "height", "one"]
         }

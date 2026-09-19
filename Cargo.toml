@@ -23,6 +23,7 @@ serde_json = "1"
 semver = "1"
 thiserror = "2"
 wgpu = { version = "30", default-features = false }
+wesl = "0.5"
 
 [dev-dependencies]
 gpui = { package = "gpui-ce", git = "https://github.com/1Step621/WGPUI", branch = "fix/input-selection-replacement", features = ["test-support"] }
@@ -32,6 +33,11 @@ opt-level = 1
 
 [profile.dev.package."*"]
 opt-level = 3
+
+[package.metadata.wgsl-analyzer]
+edition = "2026_pre"
+root = "plugins/zerium.builtin"
+include = ["plugins/zerium.builtin/**/*.wesl"]
 
 [package.metadata.deb]
 maintainer = "onestep621"

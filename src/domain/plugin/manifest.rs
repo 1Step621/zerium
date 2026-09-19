@@ -75,6 +75,10 @@ impl PluginManifest {
         self.items.iter().map(Arc::as_ref)
     }
 
+    pub(crate) fn effects(&self) -> impl ExactSizeIterator<Item = &EffectSchema> {
+        self.effects.iter().map(Arc::as_ref)
+    }
+
     pub(super) fn item_schemas(&self) -> &[Arc<ItemSchema>] {
         &self.items
     }

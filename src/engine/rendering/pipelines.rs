@@ -366,7 +366,6 @@ impl RendererBuilder {
         mut self,
         plugins: &PluginRegistry,
     ) -> Result<Self, RenderError> {
-        validate_plugin_shaders(plugins)?;
         for descriptor in RendererDevice::plugin_item_shaders(plugins)? {
             self.device.register_item_shader(descriptor)?;
         }
@@ -377,39 +376,30 @@ impl RendererBuilder {
                     schema.id()
                 ));
                 let shader_source = pass.shader_source();
-                let source = plugins
-                    .shader_source(plugin_id, shader_source)
-                    .ok_or_else(|| {
-                        RenderError::backend(format!(
-                            "plugin '{}' effect shader source '{}' was not loaded",
-                            plugin_id, shader_source
-                        ))
-                    })?;
+                let source =
+                    compile_plugin_shader(plugins, plugin_id, shader_source, pass.constants())?;
                 match pass {
                     EffectPassSchema::Render { .. } => {
                         let descriptor = EffectShaderDescriptor::from_schema(
-                            schema,
                             pass,
                             id,
                             format!("{} pass {pass_index}", schema.id()),
-                            source.to_owned(),
+                            source,
                         )?;
                         self.device.register_effect_shader(descriptor)?;
                     }
                     EffectPassSchema::Compute { shader, .. } => {
-                        self.device
-                            .register_compute_shader(schema, pass, id, shader, source)?;
+                        self.device.register_compute_shader(id, shader, &source)?;
                     }
                     EffectPassSchema::Temporal { reducer, .. } => {
-                        self.device
-                            .register_temporal_shader(schema, pass, id, reducer, source)?;
+                        self.device.register_temporal_shader(id, reducer, &source)?;
                     }
                 }
             }
         }
         for (plugin_id, schema, source) in RendererDevice::plugin_texture_shaders(plugins)? {
             self.device
-                .register_texture_shader(plugin_id, schema, source)?;
+                .register_texture_shader(plugin_id, schema, &source)?;
         }
         Ok(self)
     }
@@ -458,8 +448,6 @@ impl RendererDevice {
 
     pub(super) fn register_compute_shader(
         &mut self,
-        schema: &EffectSchema,
-        pass: &EffectPassSchema,
         id: EffectShaderId,
         shader: &crate::domain::plugin::ComputeShaderSchema,
         wgsl: &str,
@@ -470,17 +458,13 @@ impl RendererDevice {
                 id
             )));
         }
-        let property_interface = schema
-            .wgsl_property_interface(pass)
-            .map_err(|error| RenderError::backend(error.to_string()))?;
-        let source = format!("{COMPUTE_INTERFACE}\n{property_interface}\n{wgsl}");
-        let workgroup_size = validate_compute_shader(&id, &source, shader.entry())?;
+        let workgroup_size = validate_compute_shader(&id, wgsl, shader.entry())?;
         let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let module = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some(id.as_str()),
-                source: wgpu::ShaderSource::Wgsl(source.into()),
+                source: wgpu::ShaderSource::Wgsl(wgsl.to_owned().into()),
             });
         let layout = self
             .device
@@ -517,8 +501,6 @@ impl RendererDevice {
 
     pub(super) fn register_temporal_shader(
         &mut self,
-        schema: &EffectSchema,
-        pass: &EffectPassSchema,
         id: EffectShaderId,
         shader: &crate::domain::plugin::ShaderSchema,
         wgsl: &str,
@@ -529,17 +511,13 @@ impl RendererDevice {
                 id
             )));
         }
-        let property_interface = schema
-            .wgsl_property_interface(pass)
-            .map_err(|error| RenderError::backend(error.to_string()))?;
-        let source = format!("{TEMPORAL_INTERFACE}\n{property_interface}\n{wgsl}");
-        validate_render_shader(&id, &source, shader.vertex_entry(), shader.fragment_entry())?;
+        validate_render_shader(&id, wgsl, shader.vertex_entry(), shader.fragment_entry())?;
         let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let module = self
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some(id.as_str()),
-                source: wgpu::ShaderSource::Wgsl(source.into()),
+                source: wgpu::ShaderSource::Wgsl(wgsl.to_owned().into()),
             });
         let pipeline = self
             .device
@@ -596,20 +574,12 @@ impl RendererDevice {
                 Some((plugin_id, schema, schema.visual_shader()?))
             })
             .map(|(plugin_id, schema, shader)| {
-                let source = plugins
-                    .shader_source(plugin_id, shader.source())
-                    .ok_or_else(|| {
-                        RenderError::backend(format!(
-                            "plugin '{}' shader source '{}' was not loaded",
-                            plugin_id,
-                            shader.source()
-                        ))
-                    })?;
+                let source = compile_plugin_shader(plugins, plugin_id, shader.source(), &[])?;
                 ItemShaderDescriptor::from_schema(
                     plugin_id,
                     schema,
                     shader.source().to_owned(),
-                    source.to_owned(),
+                    source,
                 )
             })
             .collect()
@@ -617,7 +587,7 @@ impl RendererDevice {
 
     pub(super) fn plugin_texture_shaders(
         plugins: &PluginRegistry,
-    ) -> Result<Vec<(&str, &ItemSchema, &str)>, RenderError> {
+    ) -> Result<Vec<(&str, &ItemSchema, String)>, RenderError> {
         plugins
             .items()
             .filter_map(|(plugin_id, schema)| {
@@ -627,16 +597,8 @@ impl RendererDevice {
                 Some((plugin_id, schema, schema.visual_shader()?))
             })
             .map(|(plugin_id, schema, shader)| {
-                plugins
-                    .shader_source(plugin_id, shader.source())
-                    .map(|source| (plugin_id, schema, source))
-                    .ok_or_else(|| {
-                        RenderError::backend(format!(
-                            "plugin '{}' texture shader source '{}' was not loaded",
-                            plugin_id,
-                            shader.source()
-                        ))
-                    })
+                let source = compile_plugin_shader(plugins, plugin_id, shader.source(), &[])?;
+                Ok((plugin_id, schema, source))
             })
             .collect()
     }
@@ -659,13 +621,8 @@ impl RendererDevice {
                 id
             )));
         }
-        let property_interface = schema
-            .wgsl_property_interface()
-            .map_err(|error| RenderError::backend(error.to_string()))?;
         let input_ids = texture_input_ids(schema);
-        let media_interface = texture_media_interface(&input_ids);
-        let source = format!("{ITEM_INTERFACE}\n{property_interface}\n{media_interface}\n{source}");
-        validate_render_shader(&id, &source, shader.vertex_entry(), shader.fragment_entry())?;
+        validate_render_shader(&id, source, shader.vertex_entry(), shader.fragment_entry())?;
         let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
         let sampler_binding = u32::try_from(2 + input_ids.len())
             .map_err(|_| RenderError::backend("too many texture inputs"))?;
@@ -802,13 +759,9 @@ impl RendererDevice {
             )));
         }
 
-        let source = format!(
-            "{ITEM_INTERFACE}\n{}\n{}",
-            descriptor.property_interface, descriptor.wgsl
-        );
         validate_render_shader(
             &descriptor.id,
-            &source,
+            &descriptor.wgsl,
             &descriptor.vertex_entry,
             &descriptor.fragment_entry,
         )?;
@@ -817,7 +770,7 @@ impl RendererDevice {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some(&descriptor.label),
-                source: wgpu::ShaderSource::Wgsl(source.into()),
+                source: wgpu::ShaderSource::Wgsl(descriptor.wgsl.to_string().into()),
             });
         let pipeline = self
             .device
@@ -876,13 +829,9 @@ impl RendererDevice {
             )));
         }
 
-        let source = format!(
-            "{EFFECT_INTERFACE}\n{}\n{}",
-            descriptor.property_interface, descriptor.wgsl
-        );
         validate_render_shader(
             &descriptor.id,
-            &source,
+            &descriptor.wgsl,
             &descriptor.vertex_entry,
             &descriptor.fragment_entry,
         )?;
@@ -891,7 +840,7 @@ impl RendererDevice {
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some(&descriptor.label),
-                source: wgpu::ShaderSource::Wgsl(source.into()),
+                source: wgpu::ShaderSource::Wgsl(descriptor.wgsl.to_string().into()),
             });
         let pipeline = self
             .device

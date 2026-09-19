@@ -1,0 +1,103 @@
+import package::generated::util::{ZeriumContext, make_context, srgb_channel, srgb, scene_color, DEG2RAD};
+import package::generated::effect::{ZeriumEffect, effect_input, effect_sampler, effect_instance, property_words, effect_source, effect_props, context, ZeriumVertex, vertex, uv_to_position, position_to_uv, uv_inside, sample_or_transparent, straight, rotate, over, premul, ZeriumRawProps, read_word, read_u32, read_i32, read_f32, read_bool};
+import package::generated::properties_glow::{ZeriumProps, props};
+
+@vertex
+fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {
+    return vertex(vertex_index);
+}
+
+fn decode_site(value: vec4<f32>) -> vec2<i32> {
+    let bytes = vec4<u32>(round(clamp(value, vec4(0.0), vec4(1.0)) * 255.0));
+    let x = bytes.x | (bytes.y << 8u);
+    let y = bytes.z | (bytes.w << 8u);
+    if x == 0u || y == 0u {
+        return vec2(-1);
+    }
+    return vec2(i32(x) - 1, i32(y) - 1);
+}
+
+fn source_sample(sample_position: vec2<f32>, dimensions: vec2<i32>) -> vec4<f32> {
+    let uv = clamp(
+        (sample_position + vec2(0.5)) / vec2<f32>(dimensions),
+        vec2(0.0),
+        vec2(1.0),
+    );
+    return textureSampleLevel(effect_source, effect_sampler, uv, 0.0);
+}
+
+fn distance_at(
+    sample_position: vec2<f32>,
+    position: vec2<i32>,
+    dimensions: vec2<i32>,
+) -> f32 {
+    var best_distance_squared = 1.0e30;
+    for (var offset_y = -1; offset_y <= 1; offset_y += 1) {
+        for (var offset_x = -1; offset_x <= 1; offset_x += 1) {
+            let candidate_position = clamp(
+                position + vec2(offset_x, offset_y),
+                vec2(0),
+                dimensions - vec2(1),
+            );
+            let site = decode_site(textureLoad(effect_input, candidate_position, 0));
+            if site.x < 0 {
+                continue;
+            }
+            let site_alpha = textureLoad(effect_source, site, 0).a;
+            let delta = sample_position - vec2<f32>(site);
+            let edge_offset = 1.0 - site_alpha;
+            best_distance_squared = min(
+                best_distance_squared,
+                dot(delta, delta) + edge_offset * edge_offset,
+            );
+        }
+    }
+    return sqrt(best_distance_squared);
+}
+
+@fragment
+fn fragment_main(input: ZeriumVertex) -> @location(0) vec4<f32> {
+    let properties = props();
+    let dimensions = vec2<i32>(textureDimensions(effect_input));
+    let position = clamp(
+        vec2<i32>(input.uv * vec2<f32>(dimensions)),
+        vec2(0),
+        dimensions - vec2(1),
+    );
+    if properties.width <= 0.0 || properties.intensity <= 0.0 {
+        return textureLoad(effect_source, position, 0);
+    }
+
+    let composition_scale = context().composition_scale;
+    let radius = max(properties.width, 0.0001);
+    let solid_radius = radius * clamp(properties.spread / 100.0, 0.0, 1.0);
+    let sigma = max((radius - solid_radius) / 3.0, 0.5);
+
+    var result = vec4(0.0);
+    for (var sample_y = 0u; sample_y < 4u; sample_y += 1u) {
+        for (var sample_x = 0u; sample_x < 4u; sample_x += 1u) {
+            let offset = (vec2(f32(sample_x), f32(sample_y)) + vec2(0.5)) / 4.0
+                - vec2(0.5);
+            let sample_position = vec2<f32>(position) + offset;
+            let source = source_sample(sample_position, dimensions);
+            let distance = distance_at(sample_position, position, dimensions)
+                / max(composition_scale, 0.0001);
+            let soft_distance = max(distance - solid_radius, 0.0);
+            let falloff = exp(
+                -(soft_distance * soft_distance) / (2.0 * sigma * sigma),
+            );
+            let glow_alpha = clamp(
+                falloff * (properties.intensity / 100.0) * properties.color.a
+                    * (1.0 - source.a),
+                0.0,
+                1.0,
+            );
+            let glow = vec4(
+                srgb(properties.color.rgb) * glow_alpha,
+                glow_alpha,
+            );
+            result += over(source, glow);
+        }
+    }
+    return result / 16.0;
+}

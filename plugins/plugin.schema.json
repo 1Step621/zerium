@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://raw.githubusercontent.com/1Step621/zerium/refs/heads/main/plugins/plugin.schema.json",
   "title": "Zerium plugin API",
-  "$comment": "Structural tooling schema. Cross-reference, WGSL namespace, typed numeric, and total ABI budget invariants are enforced by the Rust wire/domain source of truth.",
+  "$comment": "Structural tooling schema. Cross-reference, shader namespace, typed numeric, and total ABI budget invariants are enforced by Rust domain validation.",
   "x-zerium-property-abi-byte-budget": 8388608,
   "x-zerium-max-string-bytes": 4096,
   "type": "object",
@@ -68,7 +68,7 @@
     },
     "shaderSource": {
       "type": "string",
-      "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\\.wgsl$"
+      "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\\.wesl$"
     },
     "shader": {
       "type": "object",
@@ -292,16 +292,9 @@
         "$ref": "#/$defs/scalarType"
       }
     },
-    "passValueType": {
-      "description": "Fixed-size values prepacked once when the pass schema is compiled.",
-      "oneOf": [
-        {
-          "$ref": "#/$defs/fixedScalarType"
-        },
-        {
-          "$ref": "#/$defs/tupleType"
-        }
-      ]
+    "passConstantType": {
+      "description": "Scalar types supported by WESL constant injection.",
+      "enum": ["f32", "i32", "u32", "bool"]
     },
     "arrayValueType": {
       "oneOf": [
@@ -465,7 +458,7 @@
           "$ref": "#/$defs/wgslId"
         },
         "type": {
-          "$ref": "#/$defs/passValueType"
+          "$ref": "#/$defs/passConstantType"
         },
         "value": true
       },
@@ -538,40 +531,6 @@
             "properties": {
               "value": {
                 "type": "boolean"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "color"
-              }
-            },
-            "required": ["type"]
-          },
-          "then": {
-            "properties": {
-              "value": {
-                "type": "array",
-                "minItems": 4,
-                "maxItems": 4,
-                "prefixItems": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "number"
-                  }
-                ],
-                "items": false
               }
             }
           }

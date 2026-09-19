@@ -14,7 +14,7 @@ pub(super) fn validate_logical_id(kind: &str, id: &str) -> Result<(), PluginErro
     })
 }
 
-/// Validates a complete identifier emitted directly into generated WGSL.
+/// Validates an identifier emitted directly into a shader module.
 pub(super) fn validate_wgsl_identifier(kind: &str, id: &str) -> Result<(), PluginError> {
     let mut bytes = id.bytes();
     let valid_syntax = bytes
@@ -34,11 +34,11 @@ pub(super) fn validate_wgsl_identifier(kind: &str, id: &str) -> Result<(), Plugi
     Ok(())
 }
 
-/// Validates a fragment appended after a safe prefix in generated WGSL.
+/// Validates a fragment appended after a media binding prefix.
 ///
-/// Unlike a complete identifier, a suffix may start with a digit or contain a
-/// reserved word because the generated identifier starts with `media_`.
-pub(super) fn validate_wgsl_identifier_suffix(kind: &str, id: &str) -> Result<(), PluginError> {
+/// Unlike a complete identifier, a suffix may start with a digit because it is
+/// appended after a valid media binding prefix.
+pub(super) fn validate_media_binding_suffix(kind: &str, id: &str) -> Result<(), PluginError> {
     let valid = !id.is_empty()
         && id
             .bytes()

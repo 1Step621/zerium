@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use serde::Deserialize;
 
 use super::PluginError;
-use super::identifier::{validate_logical_id, validate_wgsl_identifier_suffix};
+use super::identifier::{validate_logical_id, validate_media_binding_suffix};
 use super::item::ItemSchema;
 use super::shader::ShaderSchema;
 use crate::domain::property::{PropertyType, ScalarPropertyType};
@@ -51,21 +51,15 @@ impl FileCapability {
         &self.extensions
     }
 
-    pub(super) fn generated_wgsl_symbols(&self) -> [String; 2] {
+    pub(super) fn media_binding_symbols(&self) -> [String; 2] {
         [
-            format!("zerium_media_{}", self.id),
-            format!("zerium_media_{}_size", self.id),
+            format!("slot_{}", self.id),
+            format!("slot_{}_size", self.id),
         ]
     }
 
     pub(super) fn validate(&self, item_id: &str) -> Result<(), PluginError> {
-        validate_wgsl_identifier_suffix("file input", &self.id)?;
-        if matches!(self.id.as_str(), "inputs" | "sampler") {
-            return Err(PluginError::invalid_definition(format!(
-                "item '{}' file input ID '{}' is reserved by the media WGSL API",
-                item_id, self.id
-            )));
-        }
+        validate_media_binding_suffix("file input", &self.id)?;
         if self.label.trim().is_empty() {
             return Err(PluginError::invalid_definition(format!(
                 "item '{}' file input '{}' has an empty label",

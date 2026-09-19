@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Deserializer, de::Error as _};
 
 use super::PluginError;
-use super::abi::{CompiledPropertyAbi, PropertyAbiField, PropertyInterfaceNames};
+use super::abi::CompiledPropertyAbi;
 use super::capability::{
     AudioCapability, FileCapability, ItemCapabilities, MediaType, VisualCapability,
 };
@@ -53,18 +53,7 @@ impl<'de> Deserialize<'de> for ItemSchema {
             definition
                 .properties
                 .iter()
-                .map(|property| PropertyAbiField {
-                    id: property.id(),
-                    ty: property.ty(),
-                    static_value: None,
-                }),
-            PropertyInterfaceNames {
-                struct_name: "ZeriumProperties",
-                load_function: "zerium_load_properties",
-                raw_load_function: "zerium_raw_properties_for_instance",
-                accessor_prefix: "zerium_property",
-                takes_instance_index: true,
-            },
+                .map(|property| (property.id(), property.ty())),
         )
         .map_err(D::Error::custom)?;
         let schema = Self {
@@ -169,10 +158,8 @@ impl ItemSchema {
             )));
         }
         let mut file_ids = HashSet::new();
-        let mut media_symbols = HashSet::from([
-            "zerium_media_inputs".to_owned(),
-            "zerium_media_sampler".to_owned(),
-        ]);
+        let mut media_symbols =
+            HashSet::from(["media_inputs".to_owned(), "media_sampler".to_owned()]);
         for file in self.files() {
             file.validate(&self.id)?;
             if !file_ids.insert(file.id()) {
@@ -182,10 +169,10 @@ impl ItemSchema {
                     file.id()
                 )));
             }
-            for symbol in file.generated_wgsl_symbols() {
+            for symbol in file.media_binding_symbols() {
                 if !media_symbols.insert(symbol.clone()) {
                     return Err(PluginError::invalid_definition(format!(
-                        "item '{}' file input '{}' conflicts with generated WGSL symbol '{symbol}'",
+                        "item '{}' file input '{}' conflicts with media shader symbol '{symbol}'",
                         self.id,
                         file.id()
                     )));
@@ -321,11 +308,6 @@ impl ItemSchema {
 
     pub(crate) fn default_property_values(&self) -> PropertyValues {
         PropertyValues::for_owner("item", &self.id, &self.properties)
-    }
-
-    /// Returns the typed WGSL API compiled once with this schema.
-    pub(crate) fn wgsl_property_interface(&self) -> Result<String, PluginError> {
-        Ok(self.property_abi.interface().to_owned())
     }
 
     pub(crate) fn pack_property_values(

@@ -4,9 +4,9 @@ use serde::{Deserialize, Deserializer, de::Error as _};
 use serde_json::Value;
 
 use super::PluginError;
-use super::abi::{CompiledPropertyAbi, PropertyAbiField, PropertyInterfaceNames};
+use super::abi::CompiledPropertyAbi;
 use super::identifier::validate_wgsl_identifier;
-use super::shader::{ShaderSchema, validate_shader_source};
+use super::shader::{ShaderKind, ShaderSchema, validate_shader_source};
 use super::validation::{validate_catalog_entry, validate_property_schemas};
 use crate::domain::property::{
     PropertySchema, PropertyType, PropertyValue, PropertyValueType, PropertyValues,
@@ -24,7 +24,7 @@ pub(crate) struct EffectSchema {
     render_scale: u32,
     properties: Vec<PropertySchema>,
     passes: Vec<EffectPassSchema>,
-    pass_abis: Vec<CompiledPropertyAbi>,
+    property_abi: CompiledPropertyAbi,
 }
 
 #[derive(Deserialize)]
@@ -47,7 +47,16 @@ impl<'de> Deserialize<'de> for EffectSchema {
         D: Deserializer<'de>,
     {
         let definition = EffectSchemaDefinition::deserialize(deserializer)?;
-        let mut schema = Self {
+        let property_abi = CompiledPropertyAbi::compile(
+            "effect",
+            &definition.id,
+            definition
+                .properties
+                .iter()
+                .map(|property| (property.id(), property.ty())),
+        )
+        .map_err(D::Error::custom)?;
+        let schema = Self {
             id: definition.id,
             label: definition.label,
             category: definition.category,
@@ -55,10 +64,9 @@ impl<'de> Deserialize<'de> for EffectSchema {
             render_scale: definition.render_scale,
             properties: definition.properties,
             passes: definition.passes,
-            pass_abis: Vec::new(),
+            property_abi,
         };
         schema.validate().map_err(D::Error::custom)?;
-        schema.pass_abis = schema.compile_pass_abis().map_err(D::Error::custom)?;
         Ok(schema)
     }
 }
@@ -87,6 +95,14 @@ pub(crate) enum EffectPassSchema {
 }
 
 impl EffectPassSchema {
+    pub(crate) const fn shader_kind(&self) -> ShaderKind {
+        match self {
+            Self::Render { .. } => ShaderKind::Effect,
+            Self::Compute { .. } => ShaderKind::Compute,
+            Self::Temporal { .. } => ShaderKind::Temporal,
+        }
+    }
+
     pub(crate) fn constants(&self) -> &[PassConstantSchema] {
         match self {
             Self::Render { constants, .. }
@@ -107,8 +123,34 @@ impl EffectPassSchema {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct PassConstantSchema {
     id: String,
-    property_type: PropertyType,
-    value: PropertyValue,
+    value: PassConstantValue,
+}
+
+impl PassConstantSchema {
+    pub(crate) fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub(crate) const fn value(&self) -> PassConstantValue {
+        self.value
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) enum PassConstantValue {
+    F32(f32),
+    I32(i32),
+    U32(u32),
+    Bool(bool),
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+enum PassConstantType {
+    F32,
+    I32,
+    U32,
+    Bool,
 }
 
 #[derive(Deserialize)]
@@ -116,7 +158,7 @@ pub(crate) struct PassConstantSchema {
 struct PassConstantSchemaDefinition {
     id: String,
     #[serde(rename = "type")]
-    ty: PropertyValueType,
+    ty: PassConstantType,
     value: Value,
 }
 
@@ -128,18 +170,24 @@ impl<'de> Deserialize<'de> for PassConstantSchema {
         use serde::de::Error as _;
 
         let definition = PassConstantSchemaDefinition::deserialize(deserializer)?;
-        if definition.ty.scalar_at(None) == Some(&ScalarPropertyType::String) {
-            return Err(D::Error::custom(
-                "effect pass constants must have a fixed-size ABI type",
-            ));
+        let value = match definition.ty {
+            PassConstantType::F32 => serde_json::from_value::<f32>(definition.value)
+                .ok()
+                .filter(|value| value.is_finite())
+                .map(PassConstantValue::F32),
+            PassConstantType::I32 => serde_json::from_value(definition.value)
+                .ok()
+                .map(PassConstantValue::I32),
+            PassConstantType::U32 => serde_json::from_value(definition.value)
+                .ok()
+                .map(PassConstantValue::U32),
+            PassConstantType::Bool => serde_json::from_value(definition.value)
+                .ok()
+                .map(PassConstantValue::Bool),
         }
-        let ty = PropertyType::Value(definition.ty.clone());
-        let value = PropertyValue::from_json(&definition.value, &ty).ok_or_else(|| {
-            D::Error::custom("effect pass constant value does not match its type")
-        })?;
+        .ok_or_else(|| D::Error::custom("effect pass constant value does not match its type"))?;
         Ok(Self {
             id: definition.id,
-            property_type: ty,
             value,
         })
     }
@@ -240,6 +288,17 @@ impl EffectSchema {
             )));
         }
         for (pass_index, pass) in self.passes.iter().enumerate() {
+            let mut constant_ids = std::collections::HashSet::new();
+            for constant in pass.constants() {
+                validate_wgsl_identifier("pass constant", constant.id())?;
+                if !constant_ids.insert(constant.id()) {
+                    return Err(PluginError::invalid_definition(format!(
+                        "effect '{}' pass {pass_index} has duplicate constant ID '{}'",
+                        self.id,
+                        constant.id()
+                    )));
+                }
+            }
             match pass {
                 EffectPassSchema::Render { shader, .. } => {
                     shader.validate("render effect pass", &self.id)?;
@@ -296,70 +355,16 @@ impl EffectSchema {
         sampling.sample_offsets(values)
     }
 
-    pub(crate) fn wgsl_property_interface(
-        &self,
-        pass: &EffectPassSchema,
-    ) -> Result<String, PluginError> {
-        let index = self
-            .passes
-            .iter()
-            .position(|candidate| std::ptr::eq(candidate, pass))
-            .or_else(|| self.passes.iter().position(|candidate| candidate == pass))
-            .ok_or_else(|| {
-                PluginError::invalid_definition("effect pass does not belong to schema")
-            })?;
-        Ok(self.pass_abis[index].interface().to_owned())
-    }
-
-    pub(crate) fn pack_pass_properties(
-        &self,
-        values: &PropertyValues,
-    ) -> Result<Vec<Vec<u8>>, PluginError> {
+    pub(crate) fn pack_properties(&self, values: &PropertyValues) -> Result<Vec<u8>, PluginError> {
         values.validate_for("effect", &self.id, &self.properties)?;
-        self.pass_abis
-            .iter()
-            .map(|abi| {
-                abi.pack("effect", &self.id, |id, _| {
-                    values.property(id).ok_or_else(|| {
-                        PluginError::invalid_definition(format!(
-                            "effect '{}' is missing property '{id}'",
-                            self.id
-                        ))
-                    })
-                })
+        self.property_abi.pack("effect", &self.id, |id, _| {
+            values.property(id).ok_or_else(|| {
+                PluginError::invalid_definition(format!(
+                    "effect '{}' is missing property '{id}'",
+                    self.id
+                ))
             })
-            .collect()
-    }
-
-    fn compile_pass_abis(&self) -> Result<Vec<CompiledPropertyAbi>, PluginError> {
-        self.passes
-            .iter()
-            .enumerate()
-            .map(|(pass_index, pass)| {
-                let runtime = self.properties.iter().map(|property| PropertyAbiField {
-                    id: property.id(),
-                    ty: property.ty(),
-                    static_value: None,
-                });
-                let constants = pass.constants().iter().map(|constant| PropertyAbiField {
-                    id: &constant.id,
-                    ty: &constant.property_type,
-                    static_value: Some(&constant.value),
-                });
-                CompiledPropertyAbi::compile(
-                    "effect pass",
-                    &format!("{}:{pass_index}", self.id),
-                    runtime.chain(constants),
-                    PropertyInterfaceNames {
-                        struct_name: "ZeriumProperties",
-                        load_function: "zerium_load_properties",
-                        raw_load_function: "zerium_raw_properties_for_effect",
-                        accessor_prefix: "zerium_property",
-                        takes_instance_index: false,
-                    },
-                )
-            })
-            .collect()
+        })
     }
 }
 

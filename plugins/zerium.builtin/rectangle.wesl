@@ -1,0 +1,49 @@
+import package::generated::util::{ZeriumContext, make_context, srgb_channel, srgb, scene_color, DEG2RAD};
+import package::generated::item::{ZeriumItem, items, property_words, item_props, context, to_ndc, quad_corner, quad_uv, quad_position, rotate, ZeriumRawProps, read_word, read_u32, read_i32, read_f32, read_bool};
+import package::generated::properties_rectangle::{ZeriumPropsTuple0, ZeriumPropsTuple1, ZeriumProps, props};
+
+struct RectangleVertexOutput {
+    @builtin(position) position: vec4<f32>,
+    @location(0) local: vec2<f32>,
+    @location(1) color: vec4<f32>,
+    @location(2) half_size: vec2<f32>,
+    @location(3) @interpolate(flat) corner_radius: f32,
+};
+
+@vertex
+fn vertex_main(
+    @builtin(vertex_index) vertex_index: u32,
+    @builtin(instance_index) instance_index: u32,
+) -> RectangleVertexOutput {
+    let properties = props(instance_index);
+    let position = vec2(properties.position.v0, properties.position.v1);
+    let size = vec2(properties.size.v0, properties.size.v1);
+    let half_size = size * 0.5;
+    let local = quad_corner(vertex_index);
+
+    var output: RectangleVertexOutput;
+    output.position = quad_position(
+        instance_index,
+        position,
+        local,
+        size,
+    );
+    output.local = local;
+    output.color = scene_color(properties.color);
+    output.half_size = half_size;
+    output.corner_radius = max(properties.corner_radius, 0.0);
+    return output;
+}
+
+@fragment
+fn fragment_main(input: RectangleVertexOutput) -> @location(0) vec4<f32> {
+    let radius = min(input.corner_radius, min(input.half_size.x, input.half_size.y));
+    let point = input.local * input.half_size;
+    let corner = abs(point) - (input.half_size - vec2(radius));
+    let distance = length(max(corner, vec2(0.0))) +
+        min(max(corner.x, corner.y), 0.0) - radius;
+    if distance > 0.0 {
+        discard;
+    }
+    return input.color;
+}

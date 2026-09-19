@@ -1,15 +1,19 @@
 # Plugin API v1
 
-A plugin is one directory containing `plugin.json` and every WGSL file that the
+A plugin is one directory containing `plugin.json` and every WESL shader file that the
 manifest references. Zerium validates the complete bundle before registering
-it. Missing shader files, unreferenced files supplied to `PluginBundle`, invalid
-schemas, and shader/API mismatches are errors.
+it. Missing shader or generated files, invalid schemas, and shader/API mismatches
+are errors.
 
 ```text
 com.example.plugin/
+├── generated/
+│   └── …
 ├── plugin.json
-├── shape.wgsl
-└── blur.wgsl
+├── package.wesl
+├── shape.wesl
+├── blur.wesl
+└── wesl.toml
 ```
 
 The root contract is versioned independently from the plugin release:
@@ -27,7 +31,7 @@ The root contract is versioned independently from the plugin release:
     "capabilities": {
       "visual": {
         "type": "procedural",
-        "shader": { "source": "shape.wgsl" }
+        "shader": { "source": "shape.wesl" }
       }
     }
   }]
@@ -66,16 +70,15 @@ Shared property contracts live in [`../src/domain/property/`](../src/domain/prop
 of plugin loading: `types` owns the scalar/tuple/array algebra, `value` owns
 checked values and collections, `schema` exposes the read-only model,
 `schema` and `constraints` enforce contracts, and `ui`/`numeric` provide editor
-views. JSON conversion lives in `src/domain/property/wire.rs`.
-The plugin layer retains WGSL identifier and generated-name validation and the
-ABI compiler. Property errors are converted to plugin errors at this boundary.
+views. The plugin layer retains shader identifier validation and the runtime ABI
+packer. Property errors are converted to plugin errors at this boundary.
 Animation eligibility and interpolation are explicit operations in
 [`../src/domain/animation/`](../src/domain/animation/), rather than methods added to property types
 from another module.
 
 Public visibility is reserved for plugin loading and immutable schema
-inspection. Editor-derived choices, host capabilities, value projection, generated
-WGSL interfaces, and other Zerium runtime adapters are crate-private. The
+inspection. Editor-derived choices, host capabilities, value projection, and
+other Zerium runtime adapters are crate-private. The
 plugin module denies unreachable public items so private implementation helpers
 cannot accidentally become part of the Rust API.
 
@@ -84,8 +87,8 @@ cannot accidentally become part of the Rust API.
 An item composes file, visual, and audio capabilities. The visual kinds describe
 what supplies pixels:
 
-- `procedural`: WGSL generates the item directly.
-- `media`: WGSL displays one or more decoded video/image inputs.
+- `procedural`: WESL generates the item directly.
+- `media`: WESL displays one or more decoded video/image inputs.
 - `text`: Zerium rasterizes text and supplies it as a generated texture input.
 
 ```json
@@ -105,7 +108,7 @@ what supplies pixels:
     }],
     "visual": {
       "type": "media",
-      "shader": { "source": "video.wgsl" }
+      "shader": { "source": "video.wesl" }
     },
     "audio": { "inputs": ["source"], "volume": "volume" }
   },
@@ -132,7 +135,7 @@ A text visual names every item property consumed by the host rasterizer:
 ```json
 "visual": {
   "type": "text",
-  "shader": { "source": "text.wgsl" },
+  "shader": { "source": "text.wesl" },
   "size": "size",
   "text": "text",
   "font_family": "font_family",
@@ -151,9 +154,9 @@ The rasterizer resolves values through these references, so text properties can
 use any IDs as long as each referenced property has the expected storage
 type. Alignment references must be enums containing exactly `0`, `1`, and `2`.
 
-For each visual file input `<id>`, media WGSL receives
-`zerium_media_<id>`, `zerium_media_<id>_size()`, and the shared
-`zerium_media_sampler`. Text receives `zerium_media_text`.
+For each visual file input slot `<index>`, media WESL receives
+`slot_<index>`, `slot_<index>_size()`, and the shared
+`media_sampler`. Text receives `slot_0`.
 
 ## Properties
 
@@ -308,35 +311,65 @@ Enum membership is retained in runtime values and scene bindings. Its GPU
 representation is `u32`. `ui.enum_variants` may be omitted to show numeric labels;
 when provided it must label every member exactly once.
 
-## Generated WGSL API
+## Generated WESL API
 
-Zerium prepends a typed property struct to every pass. All shader kinds use
-the same public loader name:
+Shader sources are WESL modules. The host API is imported explicitly so editor
+tools can resolve it without seeing Zerium's Rust-side source concatenation:
 
-```wgsl
-let properties = zerium_load_properties(instance_index); // item shader
-let properties = zerium_load_properties();               // effect pass
+```wesl
+import package::generated::item::{context, quad_corner};
+import package::generated::properties_shape::{ZeriumProps, props};
+```
+
+`properties_<shader>.wesl` is generated from the manifest properties. Run
+`zerium plugin generate` in a plugin directory whenever its manifest or shader
+contract changes. The command writes the host interface modules, property
+modules, and media bindings under `generated/`. Shader imports are authored in
+the shader source and are not rewritten by the generator.
+These generated modules are packaged with the plugin and used by both editor
+tooling and runtime rendering. Zerium rejects generated files whose manifest
+fingerprint is stale. A source shared by several items or passes gets
+the property fields whose type and ABI location agree in every use. The source
+must use one shader kind and one media-input layout.
+
+```sh
+zerium plugin generate
+# or: zerium plugin generate path/to/plugin
+```
+
+Before opening the application, a plugin can be checked with the same WESL
+linking and WGSL validation used by the renderer:
+
+```sh
+zerium plugin validate path/to/plugin
+```
+
+The generated property module exposes a typed struct for each shader source.
+All shader kinds use the same loader name:
+
+```wesl
+let properties = props(instance_index); // item shader
+let properties = props();               // effect pass
 ```
 
 Tuple fields are generated structs with fields `v0`, `v1`, and so on. Arrays use
-`properties.<id>_len` plus `zerium_property_<id>_get(properties, index)`, including
-arrays of strings. A string is represented by `ZeriumString`; its byte length is
-`value.byte_len`, and `zerium_string_byte(properties._raw, value, index)` reads one
+`properties.<id>_len` plus `get_<id>(properties, index)`, including arrays
+of strings. A string is represented by `ZeriumStr`; its byte length is
+`value.byte_len`, and `str_byte(properties._raw, value, index)` reads one
 UTF-8 byte. The descriptor layout and backing-buffer offsets remain host-private.
 
-All host declarations use the `zerium_`/`Zerium` namespace. Plugin WGSL must
-not declare names in that namespace. Media file IDs `inputs` and `sampler` are
-reserved because they would collide after generated-name expansion.
+Host types use the `Zerium` namespace; resource and function names are concise
+and unprefixed. Plugin WESL must not redeclare imported host names.
 
-Every shader receives `ZeriumRenderContext` through `zerium_render_context`.
+Every shader receives `ZeriumContext` through `context`.
 It contains `output_size`, the fixed `composition_size`, and
 `composition_scale`. Item shaders pass their instance index; effect passes do
 not. Composition coordinates are centered, with positive X right and positive
 Y down.
 
 Procedural and media item shaders also receive quad and coordinate helpers such
-as `zerium_item_quad_corner`, `zerium_item_quad_clip_position`, and
-`zerium_rotate_2d`.
+as `quad_corner`, `quad_position`, and
+`rotate`.
 
 ## Effects and passes
 
@@ -357,27 +390,28 @@ top-level shader and no implicit render pass.
   }],
   "passes": [{
     "type": "compute",
-    "shader": { "source": "blur.wgsl" },
+    "shader": { "source": "blur.wesl" },
     "dispatch": ["width", "height", "one"],
-    "constants": [{
-      "id": "direction",
-      "type": { "tuple": ["f32", "f32"] },
-      "value": [1, 0]
-    }]
+    "constants": [
+      { "id": "direction_x", "type": "f32", "value": 1 },
+      { "id": "direction_y", "type": "f32", "value": 0 }
+    ]
   }]
 }
 ```
 
-Pass constants use fixed-size scalar or tuple value types. Strings, including strings inside tuples, are rejected for pass constants. They join the generated
-property struct for that pass but never become inspector state. Compute
-workgroup size is read from WGSL's `@workgroup_size`; the manifest only controls
+Pass constants use `f32`, `i32`, `u32`, or `bool` values and are injected through
+WESL's `constants` virtual module. Import them explicitly in the shader, for example
+`import constants::{direction_x, direction_y};`. They are compiled separately for
+each pass and never enter the property buffer or inspector state. Compute
+workgroup size is read from the shader's `@workgroup_size`; the manifest only controls
 dispatch dimensions.
 
-Render and compute passes receive `zerium_effect_input`, the current pipeline
-input; `zerium_effect_source`, the image captured at the start of the current
+Render and compute passes receive `effect_input`, the current pipeline
+input; `effect_source`, the image captured at the start of the current
 regular pass chain; and
-`zerium_effect_sampler`. Compute passes write with
-`zerium_store_output(position, color)`.
+`effect_sampler`. Compute passes write with
+`store(position, color)`.
 
 A temporal pass must be first and may occur at most once. Its `sampling`
 declaration maps public properties to host-controlled subframe sampling, while
@@ -392,7 +426,7 @@ its reducer owns the weighting algorithm:
     "angle": "shutter_angle",
     "phase": "phase"
   },
-  "reducer": { "source": "motion_blur_accumulate.wgsl" }
+  "reducer": { "source": "motion_blur_accumulate.wesl" }
 }
 ```
 
@@ -400,9 +434,9 @@ The sample-count property must have explicit constraints within `1..=32`, the
 angle must have a non-negative minimum, and phase (when present) must be bounded
 within `-1..=1`.
 
-Reducer WGSL receives `zerium_temporal_sample`,
-`zerium_temporal_accumulation`, `zerium_temporal_sampler`, and
-`zerium_temporal_info()`. Later render or compute passes consume the reduced
+Reducer WESL receives `temporal_sample`,
+`temporal_accumulation`, `temporal_sampler`, and
+`info()`. Later render or compute passes consume the reduced
 texture normally.
 
 Shader identities are derived internally from plugin ID, item/effect ID, and

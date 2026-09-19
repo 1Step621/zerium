@@ -768,32 +768,34 @@ impl RenderScene {
         temporal_samples: Vec<Option<Vec<RenderTemporalSample>>>,
     ) -> RenderEffect {
         let schema = effect.schema();
+        let properties = EffectProperties::from_bytes(
+            schema
+                .pack_properties(&effect.properties)
+                .expect("timeline effect properties come from the validated schema"),
+        );
         let passes = schema
-            .pack_pass_properties(&effect.properties)
-            .expect("timeline effect properties come from the validated schema")
-            .into_iter()
-            .zip(schema.passes())
+            .passes()
+            .iter()
             .zip(temporal_samples)
             .enumerate()
-            .map(|(pass_index, ((bytes, pass), temporal_samples))| {
+            .map(|(pass_index, (pass, temporal_samples))| {
                 let pass_shader = EffectShaderId::new(format!(
                     "{}::effect::{}::pass::{pass_index}",
                     effect.plugin_id, effect.effect_id
                 ));
-                let properties = EffectProperties::from_bytes(bytes);
                 match pass {
                     EffectPassSchema::Render { .. } => RenderEffectPass::Render {
                         shader: pass_shader,
-                        properties,
+                        properties: properties.clone(),
                     },
                     EffectPassSchema::Compute { dispatch, .. } => RenderEffectPass::Compute {
                         shader: pass_shader,
-                        properties,
+                        properties: properties.clone(),
                         dispatch: *dispatch,
                     },
                     EffectPassSchema::Temporal { .. } => RenderEffectPass::Temporal {
                         reducer: pass_shader,
-                        properties,
+                        properties: properties.clone(),
                         samples: temporal_samples.expect("temporal passes have rendered samples"),
                     },
                 }
