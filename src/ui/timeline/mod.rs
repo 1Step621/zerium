@@ -47,33 +47,8 @@ const ZOOM_STEP: f32 = 1.05;
 const ANIMATION_STOP_SNAP_DISTANCE: f32 = 8.;
 const ANIMATION_STOP_POSITION_EPSILON: f32 = 0.0001;
 
-#[derive(Clone)]
-struct LayerScrollHandle(UniformListScrollHandle);
-
-impl LayerScrollHandle {
-    fn new() -> Self {
-        Self(UniformListScrollHandle::new())
-    }
-
-    fn base(&self) -> gpui::ScrollHandle {
-        self.0.0.borrow().base_handle.clone()
-    }
-
-    fn offset(&self) -> gpui::Point<Pixels> {
-        self.base().offset()
-    }
-
-    fn max_offset(&self) -> gpui::Size<Pixels> {
-        self.base().max_offset()
-    }
-
-    fn bounds(&self) -> Bounds<Pixels> {
-        self.base().bounds()
-    }
-
-    fn set_offset(&self, offset: gpui::Point<Pixels>) {
-        self.base().set_offset(offset);
-    }
+fn layer_scroll_base(handle: &UniformListScrollHandle) -> gpui::ScrollHandle {
+    handle.0.borrow().base_handle.clone()
 }
 
 #[derive(Clone)]
@@ -245,7 +220,7 @@ pub(crate) struct Timeline {
     session_id: ProjectSessionId,
     notifications: Entity<UiNotifications>,
     media_readers: Arc<MediaReaderRegistry>,
-    layer_scroll: LayerScrollHandle,
+    layer_scroll: UniformListScrollHandle,
     viewport: TimelineViewport,
     context_target: Option<ContextTarget>,
     explorer_drop_target: Option<ExplorerDropTarget>,
@@ -281,7 +256,7 @@ impl Timeline {
                 this.session_id = session_id;
                 this.cancel_async_work();
                 this.viewport = TimelineViewport::default();
-                this.layer_scroll.set_offset(point(px(0.), px(0.)));
+                layer_scroll_base(&this.layer_scroll).set_offset(point(px(0.), px(0.)));
                 this.context_target = None;
                 this.explorer_drop_target = None;
                 this.item_move_origin = None;
@@ -298,7 +273,7 @@ impl Timeline {
             session_id,
             notifications,
             media_readers,
-            layer_scroll: LayerScrollHandle::new(),
+            layer_scroll: UniformListScrollHandle::new(),
             viewport: TimelineViewport::default(),
             context_target: None,
             explorer_drop_target: None,
@@ -479,8 +454,8 @@ impl Timeline {
             return;
         };
 
-        let old_offset = self.layer_scroll.offset();
-        self.layer_scroll
+        let old_offset = layer_scroll_base(&self.layer_scroll).offset();
+        layer_scroll_base(&self.layer_scroll)
             .set_offset(point(old_offset.x, old_offset.y * scroll_ratio));
         cx.notify();
     }
@@ -499,10 +474,10 @@ impl Timeline {
             }
         } else if event.modifiers.alt {
             let delta = event.delta.pixel_delta(window.line_height());
-            let old_offset = self.layer_scroll.offset();
-            let max_offset = self.layer_scroll.max_offset().height;
+            let old_offset = layer_scroll_base(&self.layer_scroll).offset();
+            let max_offset = layer_scroll_base(&self.layer_scroll).max_offset().height;
             let new_y = (old_offset.y + delta.y).clamp(-max_offset, px(0.));
-            self.layer_scroll.set_offset(point(old_offset.x, new_y));
+            layer_scroll_base(&self.layer_scroll).set_offset(point(old_offset.x, new_y));
             cx.notify();
         } else {
             let delta = Self::dominant_scroll_delta(event, window);
@@ -528,10 +503,10 @@ impl Timeline {
             }
         } else {
             let delta = event.delta.pixel_delta(window.line_height());
-            let old_offset = self.layer_scroll.offset();
-            let max_offset = self.layer_scroll.max_offset().height;
+            let old_offset = layer_scroll_base(&self.layer_scroll).offset();
+            let max_offset = layer_scroll_base(&self.layer_scroll).max_offset().height;
             let new_y = (old_offset.y + delta.y).clamp(-max_offset, px(0.));
-            self.layer_scroll.set_offset(point(old_offset.x, new_y));
+            layer_scroll_base(&self.layer_scroll).set_offset(point(old_offset.x, new_y));
             cx.notify();
         }
 
@@ -671,7 +646,7 @@ impl Timeline {
             return;
         };
         let selection_bounds = marquee.bounds();
-        let list_bounds = self.layer_scroll.bounds();
+        let list_bounds = layer_scroll_base(&self.layer_scroll).bounds();
         let track_bounds = Bounds {
             origin: point(
                 list_bounds.origin.x + px(LAYER_HEADER_WIDTH),
@@ -682,7 +657,7 @@ impl Timeline {
                 list_bounds.size.height,
             ),
         };
-        let layer_offset = f32::from(self.layer_scroll.offset().y);
+        let layer_offset = f32::from(layer_scroll_base(&self.layer_scroll).offset().y);
         let mut selected = marquee.baseline.clone();
         let editor = self.editor.read(cx);
         for (item_id, layer, start, end) in editor.item_layouts() {
@@ -740,7 +715,7 @@ impl Timeline {
             .marquee_selection
             .as_ref()
             .filter(|marquee| marquee.active)?;
-        let list_bounds = self.layer_scroll.bounds();
+        let list_bounds = layer_scroll_base(&self.layer_scroll).bounds();
         let bounds = marquee.bounds();
         let left =
             f32::from(bounds.origin.x).max(f32::from(list_bounds.origin.x) + LAYER_HEADER_WIDTH);
@@ -1572,7 +1547,7 @@ impl Timeline {
         self.editor
             .update_if_changed(cx, |editor| editor.open_scene(scene_id));
         self.viewport = TimelineViewport::default();
-        self.layer_scroll.set_offset(point(px(0.), px(0.)));
+        layer_scroll_base(&self.layer_scroll).set_offset(point(px(0.), px(0.)));
     }
 
     fn close_scene(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
@@ -1580,7 +1555,7 @@ impl Timeline {
         self.editor
             .update_if_changed(cx, TimelineEditor::close_scene);
         self.viewport = TimelineViewport::default();
-        self.layer_scroll.set_offset(point(px(0.), px(0.)));
+        layer_scroll_base(&self.layer_scroll).set_offset(point(px(0.), px(0.)));
     }
 
     fn delete_empty_scene(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
@@ -1596,7 +1571,7 @@ impl Timeline {
         });
         if deleted {
             self.viewport = TimelineViewport::default();
-            self.layer_scroll.set_offset(point(px(0.), px(0.)));
+            layer_scroll_base(&self.layer_scroll).set_offset(point(px(0.), px(0.)));
         }
     }
 
@@ -2383,7 +2358,7 @@ impl Render for Timeline {
                         })
                     },
                 )
-                .track_scroll(&self.layer_scroll.0)
+                .track_scroll(&self.layer_scroll)
                 .flex_1()
                 .min_h_0()
                 .w_full(),

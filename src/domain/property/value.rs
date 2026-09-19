@@ -240,18 +240,21 @@ fn json_f32(value: &Value) -> Option<f32> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct StoredPropertyValue {
-    value: PropertyValue,
-    schema: PropertySchema,
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct PropertyValues {
     owner: Option<(String, String)>,
-    values: HashMap<String, StoredPropertyValue>,
+    schemas: HashMap<String, PropertySchema>,
+    values: HashMap<String, PropertyValue>,
 }
 
 impl PropertyValues {
+    pub(crate) fn empty() -> Self {
+        Self {
+            owner: None,
+            schemas: HashMap::new(),
+            values: HashMap::new(),
+        }
+    }
+
     pub(crate) fn from_properties(properties: &[PropertySchema]) -> Self {
         Self::from_owner(None, properties)
     }
@@ -270,40 +273,35 @@ impl PropertyValues {
     fn from_owner(owner: Option<(String, String)>, properties: &[PropertySchema]) -> Self {
         Self {
             owner,
+            schemas: properties
+                .iter()
+                .map(|property| (property.id.clone(), property.clone()))
+                .collect(),
             values: properties
                 .iter()
-                .map(|property| {
-                    (
-                        property.id.clone(),
-                        StoredPropertyValue {
-                            value: property.default_value().clone(),
-                            schema: property.clone(),
-                        },
-                    )
-                })
+                .map(|property| (property.id.clone(), property.default_value().clone()))
                 .collect(),
         }
     }
 
     pub(crate) fn property(&self, id: &str) -> Option<&PropertyValue> {
-        self.values.get(id).map(|stored| &stored.value)
+        self.values.get(id)
     }
 
     pub(crate) fn property_mut(&mut self, id: &str) -> Option<&mut PropertyValue> {
-        self.values.get_mut(id).map(|stored| &mut stored.value)
+        self.values.get_mut(id)
     }
 
     pub(crate) fn remove(&mut self, id: &str) -> Option<PropertyValue> {
         if self.owner.is_some() {
             return None;
         }
-        self.values.remove(id).map(|stored| stored.value)
+        self.schemas.remove(id);
+        self.values.remove(id)
     }
 
     pub(crate) fn iter(&self) -> impl Iterator<Item = (&str, &PropertyValue)> {
-        self.values
-            .iter()
-            .map(|(id, stored)| (id.as_str(), &stored.value))
+        self.values.iter().map(|(id, value)| (id.as_str(), value))
     }
 
     pub(crate) fn set(
@@ -311,7 +309,7 @@ impl PropertyValues {
         property: &PropertySchema,
         value: PropertyValue,
     ) -> Result<bool, PropertyError> {
-        let existing_schema = self.values.get(&property.id).map(|stored| &stored.schema);
+        let existing_schema = self.schemas.get(&property.id);
         if self.owner.is_some() && existing_schema.is_none_or(|schema| schema != property) {
             return Err(PropertyError::invalid_definition(format!(
                 "property '{}' belongs to a different schema contract",
@@ -327,13 +325,8 @@ impl PropertyValues {
         if self.property(&property.id) == Some(&value) {
             return Ok(false);
         }
-        self.values.insert(
-            property.id.clone(),
-            StoredPropertyValue {
-                value,
-                schema: property.clone(),
-            },
-        );
+        self.schemas.insert(property.id.clone(), property.clone());
+        self.values.insert(property.id.clone(), value);
         Ok(true)
     }
 
@@ -358,13 +351,13 @@ impl PropertyValues {
             )));
         }
         for property in properties {
-            let stored = self.values.get(property.id()).ok_or_else(|| {
+            let value = self.values.get(property.id()).ok_or_else(|| {
                 PropertyError::invalid_definition(format!(
                     "{owner_kind} '{owner_id}' is missing property '{}'",
                     property.id()
                 ))
             })?;
-            if stored.schema != *property || !property.accepts_value(&stored.value) {
+            if self.schemas.get(property.id()) != Some(property) || !property.accepts_value(value) {
                 return Err(PropertyError::invalid_definition(format!(
                     "{owner_kind} '{owner_id}' property '{}' does not match its schema contract",
                     property.id()

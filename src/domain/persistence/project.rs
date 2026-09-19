@@ -758,7 +758,7 @@ fn load_property_overrides(
     values: BTreeMap<String, PropertyValue>,
     owner: &str,
 ) -> Result<PropertyValues, ProjectError> {
-    let mut loaded = PropertyValues::default();
+    let mut loaded = PropertyValues::empty();
     for (id, value) in values {
         let property = schema
             .iter()
@@ -790,7 +790,7 @@ fn load_properties(
             "{owner}のパラメータ数がプラグイン定義と一致しません"
         )));
     }
-    let mut loaded = PropertyValues::default();
+    let mut loaded = PropertyValues::empty();
     for property in schema {
         let value = values.get(&property.id).cloned().ok_or_else(|| {
             ProjectError::invalid_data(format!("{owner}パラメータ '{}' がありません", property.id))

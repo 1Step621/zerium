@@ -745,7 +745,7 @@ impl SceneDefinition {
         duration: FrameDuration,
     ) -> Option<TimelineItem> {
         debug_assert_eq!(duration, self.duration());
-        let properties = PropertyValues::default();
+        let properties = PropertyValues::empty();
         Some(TimelineItem {
             id,
             start,
