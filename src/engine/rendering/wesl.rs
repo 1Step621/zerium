@@ -11,6 +11,7 @@ use crate::domain::plugin::{PassConstantSchema, PassConstantValue};
 
 pub(super) fn compile(
     modules: &BTreeMap<String, String>,
+    source_name: &str,
     source: &str,
     constants: &[PassConstantSchema],
 ) -> Result<String, RenderError> {
@@ -22,7 +23,8 @@ pub(super) fn compile(
             module_source,
         )?;
     }
-    add_module(&mut resolver, "package::main", source)?;
+    let source_path = shader_module_path(source_name)?;
+    add_module(&mut resolver, &source_path, source)?;
 
     let mut constants_resolver = StandardResolver::new(".");
     add_constants(&mut constants_resolver, constants);
@@ -30,7 +32,7 @@ pub(super) fn compile(
     router.mount_resolver(ModulePath::new_root(), resolver);
     router.mount_fallback_resolver(constants_resolver);
 
-    let main_path = module_path("package::main")?;
+    let main_path = module_path(&source_path)?;
     let mut compiler = Compiler::new_with_resolver(CompileOptions::default(), router);
     compiler.options.keep_main = true;
     compiler.options.sourcemap = false;
@@ -38,6 +40,15 @@ pub(super) fn compile(
         .compile_module(&main_path)
         .map(|result| result.syntax.to_string())
         .map_err(|error| RenderError::backend(format!("WESL shader compilation failed: {error}")))
+}
+
+fn shader_module_path(source_name: &str) -> Result<String, RenderError> {
+    let source_name = source_name.strip_suffix(".wesl").ok_or_else(|| {
+        RenderError::backend(format!(
+            "shader source '{source_name}' does not have a .wesl extension"
+        ))
+    })?;
+    Ok(format!("package::{}", source_name.replace('/', "::")))
 }
 
 fn add_constants(resolver: &mut StandardResolver, constants: &[PassConstantSchema]) {

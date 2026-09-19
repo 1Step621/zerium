@@ -69,6 +69,7 @@ pub(crate) fn validate_plugin(plugin: &crate::domain::plugin::Plugin) -> Result<
         };
         let source = wesl::compile(
             plugin.wesl_modules(),
+            shader.source(),
             shader_source(plugin, shader.source())?,
             &[],
         )?;
@@ -83,6 +84,7 @@ pub(crate) fn validate_plugin(plugin: &crate::domain::plugin::Plugin) -> Result<
         for (pass_index, pass) in schema.passes().iter().enumerate() {
             let source = wesl::compile(
                 plugin.wesl_modules(),
+                pass.shader_source(),
                 shader_source(plugin, pass.shader_source())?,
                 pass.constants(),
             )?;

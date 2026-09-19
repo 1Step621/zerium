@@ -143,7 +143,7 @@ pub(super) fn compile_plugin_shader(
             "plugin '{plugin_id}' shader source '{source_name}' was not loaded"
         ))
     })?;
-    wesl::compile(plugin.wesl_modules(), source, constants)
+    wesl::compile(plugin.wesl_modules(), source_name, source, constants)
 }
 
 pub(super) fn parse_and_validate_shader(

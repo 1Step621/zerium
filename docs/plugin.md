@@ -10,7 +10,6 @@ com.example.plugin/
 ├── generated/
 │   └── …
 ├── plugin.json
-├── package.wesl
 ├── shape.wesl
 ├── blur.wesl
 └── wesl.toml
@@ -320,6 +319,10 @@ tools can resolve it without seeing Zerium's Rust-side source concatenation:
 import package::generated::item::{context, quad_corner};
 import package::generated::properties_shape::{ZeriumProps, props};
 ```
+
+The path without `.wesl` is also the module path used by runtime compilation;
+each path segment must be a valid WGSL identifier. For example,
+`shapes/ellipse.wesl` is compiled as `package::shapes::ellipse`.
 
 `properties_<shader>.wesl` is generated from the manifest properties. Run
 `zerium plugin generate` in a plugin directory whenever its manifest or shader

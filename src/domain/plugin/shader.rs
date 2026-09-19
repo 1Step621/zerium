@@ -59,18 +59,16 @@ pub(super) fn validate_shader_source(
     owner_id: &str,
     source: &str,
 ) -> Result<(), PluginError> {
-    let valid_segment = |segment: &str| {
-        segment
-            .bytes()
-            .next()
-            .is_some_and(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'_' | b'-'))
-            && segment
-                .bytes()
-                .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-'))
+    let Some(module_name) = source.strip_suffix(".wesl") else {
+        return Err(PluginError::invalid_definition(format!(
+            "{owner_kind} '{owner_id}' has an invalid shader source path"
+        )));
     };
-    let valid =
-        source.ends_with(".wesl") && !source.contains('\\') && source.split('/').all(valid_segment);
-    if !valid {
+    if source.contains('\\')
+        || module_name
+            .split('/')
+            .any(|segment| validate_wgsl_identifier("shader module", segment).is_err())
+    {
         return Err(PluginError::invalid_definition(format!(
             "{owner_kind} '{owner_id}' has an invalid shader source path"
         )));
