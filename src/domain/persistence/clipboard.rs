@@ -1,9 +1,9 @@
 //! Timeline clipboard encoding using the same checked item representation as project files.
 use super::ProjectError;
-use super::project::{
-    ProjectItem, ProjectSceneBinding, ProjectSceneIdentity, load_items, validate_no_overlaps,
+use super::project::{ProjectItem, ProjectSceneBinding, load_items, validate_no_overlaps};
+use crate::domain::timeline::{
+    LayerId, ProjectId, SceneBindingTarget, SceneId, TimelineEditor, TimelineItem,
 };
-use crate::domain::timeline::{LayerId, SceneBindingTarget, SceneId, TimelineEditor, TimelineItem};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{HashMap, HashSet},
@@ -28,7 +28,8 @@ pub(crate) fn encode_timeline_clipboard(
     let file = TimelineClipboardFile {
         format: TIMELINE_CLIPBOARD_FORMAT.to_owned(),
         format_version: TIMELINE_CLIPBOARD_FORMAT_VERSION,
-        source_scene: source_scene.map(ProjectSceneIdentity::capture),
+        source_scene: source_scene
+            .map(|scene| [scene.project().high(), scene.project().low(), scene.get()]),
         items: items
             .iter()
             .map(|(layer, item)| ProjectItem::capture(item, *layer, Path::new("")))
@@ -60,7 +61,14 @@ pub(crate) fn decode_timeline_clipboard(
     }
     let source_scene = file
         .source_scene
-        .map(ProjectSceneIdentity::into_domain)
+        .map(|[high, low, scene]| {
+            let project = ProjectId::from_parts(high, low)
+                .ok_or_else(|| ProjectError::invalid_data("プロジェクトIDが不正です"))?;
+            if scene == 0 || scene == u64::MAX {
+                return Err(ProjectError::invalid_data("シーンIDが不正です"));
+            }
+            Ok(SceneId::new(project, scene))
+        })
         .transpose()?;
     let scene_schemas = editor
         .scenes()
@@ -113,7 +121,7 @@ pub(crate) fn decode_timeline_clipboard(
 struct TimelineClipboardFile {
     format: String,
     format_version: u32,
-    source_scene: Option<ProjectSceneIdentity>,
+    source_scene: Option<[u64; 3]>,
     items: Vec<ProjectItem>,
     scene_bindings: Vec<TimelineClipboardSceneBinding>,
 }

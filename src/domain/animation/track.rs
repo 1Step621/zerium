@@ -353,10 +353,14 @@ impl ScalarTrack {
     }
 }
 
-#[derive(Clone, Debug, Eq, Ord, PartialEq, PartialOrd)]
+#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct ScalarAnimationAddress {
+    #[serde(rename = "property")]
     property_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     element_id: Option<PropertyElementId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     scalar_index: Option<usize>,
 }
 

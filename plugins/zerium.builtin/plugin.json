@@ -24,9 +24,22 @@
         {
           "id": "position",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [0, 0],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 0
+              },
+              {
+                "type": "f32",
+                "value": 0
+              }
+            ]
+          },
           "label": "位置",
           "scalars": [
             {
@@ -51,14 +64,28 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "size",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [320, 180],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 320
+              },
+              {
+                "type": "f32",
+                "value": 180
+              }
+            ]
+          },
           "label": "サイズ",
           "scalars": [
             {
@@ -83,28 +110,51 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "color",
-          "type": "color",
-          "default": [1, 0.28, 0.035, 1],
-          "animatable": true,
-          "label": "色"
+          "type": {
+            "kind": "value",
+            "value": "color"
+          },
+          "default": {
+            "type": "color",
+            "value": [1, 0.28, 0.035, 1]
+          },
+          "label": "色",
+          "scalars": [
+            {
+              "animatable": true
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "corner_radius",
-          "type": "f32",
-          "default": 0,
-          "animatable": true,
-          "ui": {
-            "unit": "px"
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 0
           },
           "label": "角丸",
-          "constraints": {
-            "min": 0,
-            "max": 5000
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 5000
+              },
+              "ui": {
+                "unit": "px"
+              }
+            }
+          ],
+          "scene_bindable": true
         }
       ]
     },
@@ -129,9 +179,22 @@
         {
           "id": "position",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [0, 0],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 0
+              },
+              {
+                "type": "f32",
+                "value": 0
+              }
+            ]
+          },
           "label": "位置",
           "scalars": [
             {
@@ -156,14 +219,28 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "size",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [240, 200],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 240
+              },
+              {
+                "type": "f32",
+                "value": 200
+              }
+            ]
+          },
           "label": "サイズ",
           "scalars": [
             {
@@ -188,29 +265,52 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "color",
-          "type": "color",
-          "default": [1, 0.52, 0.06, 1],
-          "animatable": true,
-          "label": "色"
+          "type": {
+            "kind": "value",
+            "value": "color"
+          },
+          "default": {
+            "type": "color",
+            "value": [1, 0.52, 0.06, 1]
+          },
+          "label": "色",
+          "scalars": [
+            {
+              "animatable": true
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "apex_position",
-          "type": "f32",
-          "default": 50,
-          "animatable": true,
-          "ui": {
-            "unit": "%",
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 50
           },
           "label": "頂点位置",
-          "constraints": {
-            "min": 0,
-            "max": 100
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 100
+              },
+              "ui": {
+                "unit": "%",
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         }
       ]
     },
@@ -232,9 +332,22 @@
         {
           "id": "position",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [0, 0],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 0
+              },
+              {
+                "type": "f32",
+                "value": 0
+              }
+            ]
+          },
           "label": "位置",
           "scalars": [
             {
@@ -259,14 +372,28 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "radius",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [120, 80],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 120
+              },
+              {
+                "type": "f32",
+                "value": 80
+              }
+            ]
+          },
           "label": "半径",
           "scalars": [
             {
@@ -291,14 +418,26 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "color",
-          "type": "color",
-          "default": [0.92, 0.18, 0.025, 1],
-          "animatable": true,
-          "label": "色"
+          "type": {
+            "kind": "value",
+            "value": "color"
+          },
+          "default": {
+            "type": "color",
+            "value": [0.92, 0.18, 0.025, 1]
+          },
+          "label": "色",
+          "scalars": [
+            {
+              "animatable": true
+            }
+          ],
+          "scene_bindable": true
         }
       ]
     },
@@ -323,9 +462,22 @@
         {
           "id": "position",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [0, 0],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 0
+              },
+              {
+                "type": "f32",
+                "value": 0
+              }
+            ]
+          },
           "label": "位置",
           "scalars": [
             {
@@ -350,14 +502,28 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "size",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [320, 240],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 320
+              },
+              {
+                "type": "f32",
+                "value": 240
+              }
+            ]
+          },
           "label": "サイズ",
           "scalars": [
             {
@@ -382,24 +548,72 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "points",
           "type": {
-            "array": {
-              "type": {
-                "tuple": ["f32", "f32"]
-              },
-              "min_items": 3,
-              "max_items": 1024
+            "kind": "array",
+            "value": {
+              "element_type": ["f32", "f32"],
+              "max_items": 1024,
+              "min_items": 3
             }
           },
-          "default": [
-            [50, 0],
-            [100, 100],
-            [0, 100]
-          ],
+          "default": {
+            "type": "array",
+            "value": [
+              {
+                "id": 1,
+                "value": {
+                  "type": "tuple",
+                  "value": [
+                    {
+                      "type": "f32",
+                      "value": 50
+                    },
+                    {
+                      "type": "f32",
+                      "value": 0
+                    }
+                  ]
+                }
+              },
+              {
+                "id": 2,
+                "value": {
+                  "type": "tuple",
+                  "value": [
+                    {
+                      "type": "f32",
+                      "value": 100
+                    },
+                    {
+                      "type": "f32",
+                      "value": 100
+                    }
+                  ]
+                }
+              },
+              {
+                "id": 3,
+                "value": {
+                  "type": "tuple",
+                  "value": [
+                    {
+                      "type": "f32",
+                      "value": 0
+                    },
+                    {
+                      "type": "f32",
+                      "value": 100
+                    }
+                  ]
+                }
+              }
+            ]
+          },
           "label": "頂点",
           "scalars": [
             {
@@ -426,14 +640,26 @@
                 "step": 1
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "color",
-          "type": "color",
-          "default": [1, 0.52, 0.06, 1],
-          "animatable": true,
-          "label": "色"
+          "type": {
+            "kind": "value",
+            "value": "color"
+          },
+          "default": {
+            "type": "color",
+            "value": [1, 0.52, 0.06, 1]
+          },
+          "label": "色",
+          "scalars": [
+            {
+              "animatable": true
+            }
+          ],
+          "scene_bindable": true
         }
       ]
     },
@@ -458,9 +684,22 @@
         {
           "id": "position",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [0, 0],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 0
+              },
+              {
+                "type": "f32",
+                "value": 0
+              }
+            ]
+          },
           "label": "位置",
           "scalars": [
             {
@@ -485,14 +724,28 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "size",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [400, 12],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 400
+              },
+              {
+                "type": "f32",
+                "value": 12
+              }
+            ]
+          },
           "label": "サイズ",
           "scalars": [
             {
@@ -517,35 +770,66 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "angle",
-          "type": "f32",
-          "default": 0,
-          "animatable": true,
-          "ui": {
-            "unit": "°",
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 0
           },
           "label": "角度",
-          "constraints": {
-            "min": -360,
-            "max": 360
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -360,
+                "max": 360
+              },
+              "ui": {
+                "unit": "°",
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "color",
-          "type": "color",
-          "default": [1, 1, 1, 1],
-          "animatable": true,
-          "label": "色"
+          "type": {
+            "kind": "value",
+            "value": "color"
+          },
+          "default": {
+            "type": "color",
+            "value": [1, 1, 1, 1]
+          },
+          "label": "色",
+          "scalars": [
+            {
+              "animatable": true
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "round_ends",
-          "type": "bool",
-          "default": true,
-          "label": "端を丸める"
+          "type": {
+            "kind": "value",
+            "value": "bool"
+          },
+          "default": {
+            "type": "bool",
+            "value": true
+          },
+          "label": "端を丸める",
+          "scalars": [{}],
+          "scene_bindable": true
         }
       ]
     },
@@ -570,9 +854,22 @@
         {
           "id": "position",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [0, 0],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 0
+              },
+              {
+                "type": "f32",
+                "value": 0
+              }
+            ]
+          },
           "label": "位置",
           "scalars": [
             {
@@ -597,14 +894,28 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "size",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [240, 240],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 240
+              },
+              {
+                "type": "f32",
+                "value": 240
+              }
+            ]
+          },
           "label": "サイズ",
           "scalars": [
             {
@@ -629,57 +940,102 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "points",
-          "type": "u32",
-          "default": 5,
-          "ui": {
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "u32"
+          },
+          "default": {
+            "type": "u32",
+            "value": 5
           },
           "label": "頂点数",
-          "constraints": {
-            "min": 3,
-            "max": 16
-          }
+          "scalars": [
+            {
+              "constraints": {
+                "min": 3,
+                "max": 16
+              },
+              "ui": {
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "inner_radius",
-          "type": "f32",
-          "default": 45,
-          "animatable": true,
-          "ui": {
-            "unit": "%",
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 45
           },
           "label": "内側半径",
-          "constraints": {
-            "min": 5,
-            "max": 95
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 5,
+                "max": 95
+              },
+              "ui": {
+                "unit": "%",
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "rotation",
-          "type": "f32",
-          "default": 0,
-          "animatable": true,
-          "ui": {
-            "unit": "°",
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 0
           },
           "label": "回転",
-          "constraints": {
-            "min": -360,
-            "max": 360
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -360,
+                "max": 360
+              },
+              "ui": {
+                "unit": "°",
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "color",
-          "type": "color",
-          "default": [1, 0.74, 0.04, 1],
-          "animatable": true,
-          "label": "色"
+          "type": {
+            "kind": "value",
+            "value": "color"
+          },
+          "default": {
+            "type": "color",
+            "value": [1, 0.74, 0.04, 1]
+          },
+          "label": "色",
+          "scalars": [
+            {
+              "animatable": true
+            }
+          ],
+          "scene_bindable": true
         }
       ]
     },
@@ -716,9 +1072,22 @@
         {
           "id": "position",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [0, 0],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 0
+              },
+              {
+                "type": "f32",
+                "value": 0
+              }
+            ]
+          },
           "label": "位置",
           "scalars": [
             {
@@ -743,14 +1112,28 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "size",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [640, 240],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 640
+              },
+              {
+                "type": "f32",
+                "value": 240
+              }
+            ]
+          },
           "label": "サイズ",
           "scalars": [
             {
@@ -775,114 +1158,217 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "text",
-          "type": "string",
-          "default": "テキスト",
+          "type": {
+            "kind": "value",
+            "value": "string"
+          },
+          "default": {
+            "type": "string",
+            "value": "テキスト"
+          },
           "label": "テキスト",
-          "ui": {
-            "multiline": true
-          }
+          "scalars": [
+            {
+              "ui": {
+                "multiline": true
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "font_family",
           "type": {
-            "array": {
-              "type": "string",
+            "kind": "array",
+            "value": {
+              "element_type": "string",
               "max_items": 1024
             }
           },
-          "default": [],
+          "default": {
+            "type": "array",
+            "value": []
+          },
           "label": "フォント",
-          "ui": {
-            "editor": "font_family"
-          }
+          "scalars": [
+            {
+              "ui": {
+                "editor": "font_family"
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "font_size",
-          "type": "f32",
-          "default": 64,
-          "animatable": true,
-          "ui": {
-            "unit": "px"
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 64
           },
           "label": "文字サイズ",
-          "constraints": {
-            "min": 1,
-            "max": 1000
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 1000
+              },
+              "ui": {
+                "unit": "px"
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "color",
-          "type": "color",
-          "default": [1, 1, 1, 1],
-          "animatable": true,
-          "label": "色"
+          "type": {
+            "kind": "value",
+            "value": "color"
+          },
+          "default": {
+            "type": "color",
+            "value": [1, 1, 1, 1]
+          },
+          "label": "色",
+          "scalars": [
+            {
+              "animatable": true
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "outline_width",
-          "type": "f32",
-          "default": 0,
-          "animatable": true,
-          "ui": {
-            "unit": "px"
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 0
           },
           "label": "枠線",
-          "constraints": {
-            "min": 0,
-            "max": 64
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 64
+              },
+              "ui": {
+                "unit": "px"
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "outline_color",
-          "type": "color",
-          "default": [1, 1, 1, 1],
-          "animatable": true,
-          "label": "枠線色"
+          "type": {
+            "kind": "value",
+            "value": "color"
+          },
+          "default": {
+            "type": "color",
+            "value": [1, 1, 1, 1]
+          },
+          "label": "枠線色",
+          "scalars": [
+            {
+              "animatable": true
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "horizontal_alignment",
           "type": {
-            "enum": [0, 1, 2]
-          },
-          "default": 1,
-          "label": "左右揃え",
-          "ui": {
-            "enum_variants": {
-              "0": "左揃え",
-              "1": "中央揃え",
-              "2": "右揃え"
+            "kind": "value",
+            "value": {
+              "enum": [0, 1, 2]
             }
-          }
+          },
+          "default": {
+            "type": "enum",
+            "value": 1
+          },
+          "label": "左右揃え",
+          "scalars": [
+            {
+              "ui": {
+                "enum_variants": {
+                  "0": "左揃え",
+                  "1": "中央揃え",
+                  "2": "右揃え"
+                }
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "vertical_alignment",
           "type": {
-            "enum": [0, 1, 2]
-          },
-          "default": 1,
-          "label": "上下揃え",
-          "ui": {
-            "enum_variants": {
-              "0": "上揃え",
-              "1": "中央揃え",
-              "2": "下揃え"
+            "kind": "value",
+            "value": {
+              "enum": [0, 1, 2]
             }
-          }
+          },
+          "default": {
+            "type": "enum",
+            "value": 1
+          },
+          "label": "上下揃え",
+          "scalars": [
+            {
+              "ui": {
+                "enum_variants": {
+                  "0": "上揃え",
+                  "1": "中央揃え",
+                  "2": "下揃え"
+                }
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "bold",
-          "type": "bool",
-          "default": false,
-          "label": "太字"
+          "type": {
+            "kind": "value",
+            "value": "bool"
+          },
+          "default": {
+            "type": "bool",
+            "value": false
+          },
+          "label": "太字",
+          "scalars": [{}],
+          "scene_bindable": true
         },
         {
           "id": "italic",
-          "type": "bool",
-          "default": false,
-          "label": "イタリック"
+          "type": {
+            "kind": "value",
+            "value": "bool"
+          },
+          "default": {
+            "type": "bool",
+            "value": false
+          },
+          "label": "イタリック",
+          "scalars": [{}],
+          "scene_bindable": true
         }
       ]
     },
@@ -920,9 +1406,22 @@
         {
           "id": "position",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [0, 0],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 0
+              },
+              {
+                "type": "f32",
+                "value": 0
+              }
+            ]
+          },
           "label": "位置",
           "scalars": [
             {
@@ -947,14 +1446,28 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "size",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [960, 540],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 960
+              },
+              {
+                "type": "f32",
+                "value": 540
+              }
+            ]
+          },
           "label": "サイズ",
           "scalars": [
             {
@@ -979,21 +1492,33 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "volume",
-          "type": "f32",
-          "default": 1,
-          "animatable": true,
-          "ui": {
-            "step": 0.01
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 1
           },
           "label": "音量",
-          "constraints": {
-            "min": 0,
-            "max": 2
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 2
+              },
+              "ui": {
+                "step": 0.01
+              }
+            }
+          ],
+          "scene_bindable": true
         }
       ]
     },
@@ -1027,9 +1552,22 @@
         {
           "id": "position",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [0, 0],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 0
+              },
+              {
+                "type": "f32",
+                "value": 0
+              }
+            ]
+          },
           "label": "位置",
           "scalars": [
             {
@@ -1054,14 +1592,28 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "size",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [960, 540],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 960
+              },
+              {
+                "type": "f32",
+                "value": 540
+              }
+            ]
+          },
           "label": "サイズ",
           "scalars": [
             {
@@ -1086,7 +1638,8 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         }
       ]
     },
@@ -1114,17 +1667,28 @@
       "properties": [
         {
           "id": "volume",
-          "type": "f32",
-          "default": 1,
-          "animatable": true,
-          "ui": {
-            "step": 0.01
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 1
           },
           "label": "音量",
-          "constraints": {
-            "min": 0,
-            "max": 2
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 2
+              },
+              "ui": {
+                "step": 0.01
+              }
+            }
+          ],
+          "scene_bindable": true
         }
       ]
     }
@@ -1147,9 +1711,22 @@
         {
           "id": "offset",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [0, 0],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 0
+              },
+              {
+                "type": "f32",
+                "value": 0
+              }
+            ]
+          },
           "label": "移動量",
           "scalars": [
             {
@@ -1174,7 +1751,8 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         }
       ]
     },
@@ -1194,25 +1772,49 @@
       "properties": [
         {
           "id": "angle",
-          "type": "f32",
-          "default": 0,
-          "animatable": true,
-          "ui": {
-            "unit": "°",
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 0
           },
           "label": "角度",
-          "constraints": {
-            "min": -360,
-            "max": 360
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -360,
+                "max": 360
+              },
+              "ui": {
+                "unit": "°",
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "center",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [0, 0],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 0
+              },
+              {
+                "type": "f32",
+                "value": 0
+              }
+            ]
+          },
           "label": "中心",
           "scalars": [
             {
@@ -1237,7 +1839,8 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         }
       ]
     },
@@ -1258,9 +1861,26 @@
         {
           "id": "rotation",
           "type": {
-            "tuple": ["f32", "f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32", "f32"]
           },
-          "default": [0, 0, 0],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 0
+              },
+              {
+                "type": "f32",
+                "value": 0
+              },
+              {
+                "type": "f32",
+                "value": 0
+              }
+            ]
+          },
           "label": "回転",
           "scalars": [
             {
@@ -1299,29 +1919,54 @@
                 "step": 1
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         },
         {
           "id": "perspective",
-          "type": "f32",
-          "default": 1000,
-          "animatable": true,
-          "ui": {
-            "unit": "px",
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 1000
           },
           "label": "遠近感",
-          "constraints": {
-            "min": 50,
-            "max": 5000
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 50,
+                "max": 5000
+              },
+              "ui": {
+                "unit": "px",
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "center",
           "type": {
-            "tuple": ["f32", "f32"]
+            "kind": "value",
+            "value": ["f32", "f32"]
           },
-          "default": [0, 0],
+          "default": {
+            "type": "tuple",
+            "value": [
+              {
+                "type": "f32",
+                "value": 0
+              },
+              {
+                "type": "f32",
+                "value": 0
+              }
+            ]
+          },
           "label": "中心",
           "scalars": [
             {
@@ -1346,7 +1991,8 @@
                 "unit": "px"
               }
             }
-          ]
+          ],
+          "scene_bindable": true
         }
       ]
     },
@@ -1366,87 +2012,153 @@
       "properties": [
         {
           "id": "brightness",
-          "type": "f32",
-          "default": 0,
-          "animatable": true,
-          "ui": {
-            "step": 0.01
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 0
           },
           "label": "明るさ",
-          "constraints": {
-            "min": -1,
-            "max": 1
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1,
+                "max": 1
+              },
+              "ui": {
+                "step": 0.01
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "contrast",
-          "type": "f32",
-          "default": 1,
-          "animatable": true,
-          "ui": {
-            "step": 0.01
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 1
           },
           "label": "コントラスト",
-          "constraints": {
-            "min": 0,
-            "max": 3
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 3
+              },
+              "ui": {
+                "step": 0.01
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "saturation",
-          "type": "f32",
-          "default": 1,
-          "animatable": true,
-          "ui": {
-            "step": 0.01
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 1
           },
           "label": "彩度",
-          "constraints": {
-            "min": 0,
-            "max": 3
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 3
+              },
+              "ui": {
+                "step": 0.01
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "temperature",
-          "type": "f32",
-          "default": 0,
-          "animatable": true,
-          "ui": {
-            "step": 0.01
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 0
           },
           "label": "色温度",
-          "constraints": {
-            "min": -1,
-            "max": 1
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1,
+                "max": 1
+              },
+              "ui": {
+                "step": 0.01
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "tint",
-          "type": "f32",
-          "default": 0,
-          "animatable": true,
-          "ui": {
-            "step": 0.01
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 0
           },
           "label": "色かぶり",
-          "constraints": {
-            "min": -1,
-            "max": 1
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1,
+                "max": 1
+              },
+              "ui": {
+                "step": 0.01
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "gamma",
-          "type": "f32",
-          "default": 1,
-          "animatable": true,
-          "ui": {
-            "step": 0.01
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 1
           },
           "label": "ガンマ",
-          "constraints": {
-            "min": 0.1,
-            "max": 3
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0.1,
+                "max": 3
+              },
+              "ui": {
+                "step": 0.01
+              }
+            }
+          ],
+          "scene_bindable": true
         }
       ]
     },
@@ -1466,18 +2178,29 @@
       "properties": [
         {
           "id": "opacity",
-          "type": "f32",
-          "default": 100,
-          "animatable": true,
-          "ui": {
-            "unit": "%",
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 100
           },
           "label": "不透明度",
-          "constraints": {
-            "min": 0,
-            "max": 100
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 100
+              },
+              "ui": {
+                "unit": "%",
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         }
       ]
     },
@@ -1497,32 +2220,65 @@
       "properties": [
         {
           "id": "start_color",
-          "type": "color",
-          "default": [0.08, 0.12, 0.28, 1],
-          "animatable": true,
-          "label": "開始色"
+          "type": {
+            "kind": "value",
+            "value": "color"
+          },
+          "default": {
+            "type": "color",
+            "value": [0.08, 0.12, 0.28, 1]
+          },
+          "label": "開始色",
+          "scalars": [
+            {
+              "animatable": true
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "end_color",
-          "type": "color",
-          "default": [0.92, 0.18, 0.32, 1],
-          "animatable": true,
-          "label": "終了色"
+          "type": {
+            "kind": "value",
+            "value": "color"
+          },
+          "default": {
+            "type": "color",
+            "value": [0.92, 0.18, 0.32, 1]
+          },
+          "label": "終了色",
+          "scalars": [
+            {
+              "animatable": true
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "angle",
-          "type": "f32",
-          "default": 0,
-          "animatable": true,
-          "ui": {
-            "unit": "°",
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 0
           },
           "label": "角度",
-          "constraints": {
-            "min": -360,
-            "max": 360
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -360,
+                "max": 360
+              },
+              "ui": {
+                "unit": "°",
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         }
       ]
     },
@@ -1535,55 +2291,99 @@
       "properties": [
         {
           "id": "width",
-          "type": "f32",
-          "default": 20,
-          "animatable": true,
-          "ui": {
-            "unit": "px",
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 20
           },
           "label": "半径",
-          "constraints": {
-            "min": 0,
-            "max": 128
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 128
+              },
+              "ui": {
+                "unit": "px",
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "intensity",
-          "type": "f32",
-          "default": 100,
-          "animatable": true,
-          "ui": {
-            "unit": "%",
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 100
           },
           "label": "強さ",
-          "constraints": {
-            "min": 0,
-            "max": 500
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 500
+              },
+              "ui": {
+                "unit": "%",
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "spread",
-          "type": "f32",
-          "default": 20,
-          "animatable": true,
-          "ui": {
-            "unit": "%",
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 20
           },
           "label": "広がり",
-          "constraints": {
-            "min": 0,
-            "max": 100
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 100
+              },
+              "ui": {
+                "unit": "%",
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "color",
-          "type": "color",
-          "default": [0.1, 0.55, 1, 1],
-          "animatable": true,
-          "label": "色"
+          "type": {
+            "kind": "value",
+            "value": "color"
+          },
+          "default": {
+            "type": "color",
+            "value": [0.1, 0.55, 1, 1]
+          },
+          "label": "色",
+          "scalars": [
+            {
+              "animatable": true
+            }
+          ],
+          "scene_bindable": true
         }
       ],
       "passes": [
@@ -1643,40 +2443,73 @@
       "properties": [
         {
           "id": "width",
-          "type": "f32",
-          "default": 4,
-          "animatable": true,
-          "ui": {
-            "unit": "px",
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 4
           },
           "label": "太さ",
-          "constraints": {
-            "min": 0,
-            "max": 64
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 64
+              },
+              "ui": {
+                "unit": "px",
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "position",
           "type": {
-            "enum": [0, 1, 2]
-          },
-          "default": 0,
-          "label": "位置",
-          "ui": {
-            "enum_variants": {
-              "0": "外側",
-              "1": "中央",
-              "2": "内側"
+            "kind": "value",
+            "value": {
+              "enum": [0, 1, 2]
             }
-          }
+          },
+          "default": {
+            "type": "enum",
+            "value": 0
+          },
+          "label": "位置",
+          "scalars": [
+            {
+              "ui": {
+                "enum_variants": {
+                  "0": "外側",
+                  "1": "中央",
+                  "2": "内側"
+                }
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "color",
-          "type": "color",
-          "default": [1, 1, 1, 1],
-          "animatable": true,
-          "label": "色"
+          "type": {
+            "kind": "value",
+            "value": "color"
+          },
+          "default": {
+            "type": "color",
+            "value": [1, 1, 1, 1]
+          },
+          "label": "色",
+          "scalars": [
+            {
+              "animatable": true
+            }
+          ],
+          "scene_bindable": true
         }
       ],
       "passes": [
@@ -1743,45 +2576,78 @@
       "properties": [
         {
           "id": "amount",
-          "type": "f32",
-          "default": 0.45,
-          "animatable": true,
-          "ui": {
-            "step": 0.01
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 0.45
           },
           "label": "強さ",
-          "constraints": {
-            "min": 0,
-            "max": 1
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 1
+              },
+              "ui": {
+                "step": 0.01
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "softness",
-          "type": "f32",
-          "default": 0.5,
-          "animatable": true,
-          "ui": {
-            "step": 0.01
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 0.5
           },
           "label": "ぼかし",
-          "constraints": {
-            "min": 0.01,
-            "max": 1
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0.01,
+                "max": 1
+              },
+              "ui": {
+                "step": 0.01
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "roundness",
-          "type": "f32",
-          "default": 1,
-          "animatable": true,
-          "ui": {
-            "step": 0.01
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 1
           },
           "label": "丸み",
-          "constraints": {
-            "min": 0.25,
-            "max": 4
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0.25,
+                "max": 4
+              },
+              "ui": {
+                "step": 0.01
+              }
+            }
+          ],
+          "scene_bindable": true
         }
       ]
     },
@@ -1801,18 +2667,29 @@
       "properties": [
         {
           "id": "block_size",
-          "type": "f32",
-          "default": 12,
-          "animatable": true,
-          "ui": {
-            "unit": "px",
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 12
           },
           "label": "ブロック幅",
-          "constraints": {
-            "min": 1,
-            "max": 256
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 256
+              },
+              "ui": {
+                "unit": "px",
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         }
       ]
     },
@@ -1832,33 +2709,55 @@
       "properties": [
         {
           "id": "amount",
-          "type": "f32",
-          "default": 4,
-          "animatable": true,
-          "ui": {
-            "unit": "px",
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 4
           },
           "label": "ずれ",
-          "constraints": {
-            "min": 0,
-            "max": 100
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 100
+              },
+              "ui": {
+                "unit": "px",
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "angle",
-          "type": "f32",
-          "default": 0,
-          "animatable": true,
-          "ui": {
-            "unit": "°",
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 0
           },
           "label": "角度",
-          "constraints": {
-            "min": -180,
-            "max": 180
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -180,
+                "max": 180
+              },
+              "ui": {
+                "unit": "°",
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         }
       ]
     },
@@ -1870,18 +2769,29 @@
       "properties": [
         {
           "id": "radius",
-          "type": "f32",
-          "default": 12,
-          "animatable": true,
-          "ui": {
-            "unit": "px",
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 12
           },
           "label": "半径",
-          "constraints": {
-            "min": 0,
-            "max": 64
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 64
+              },
+              "ui": {
+                "unit": "px",
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         }
       ],
       "passes": [
@@ -1893,9 +2803,7 @@
           "constants": [
             {
               "id": "direction",
-              "type": {
-                "tuple": ["f32", "f32"]
-              },
+              "type": ["f32", "f32"],
               "value": [1, 0]
             },
             {
@@ -1913,9 +2821,7 @@
           "constants": [
             {
               "id": "direction",
-              "type": {
-                "tuple": ["f32", "f32"]
-              },
+              "type": ["f32", "f32"],
               "value": [0, 1]
             },
             {
@@ -1933,9 +2839,7 @@
           "constants": [
             {
               "id": "direction",
-              "type": {
-                "tuple": ["f32", "f32"]
-              },
+              "type": ["f32", "f32"],
               "value": [1, 0]
             },
             {
@@ -1953,9 +2857,7 @@
           "constants": [
             {
               "id": "direction",
-              "type": {
-                "tuple": ["f32", "f32"]
-              },
+              "type": ["f32", "f32"],
               "value": [0, 1]
             },
             {
@@ -1975,45 +2877,78 @@
       "properties": [
         {
           "id": "samples",
-          "type": "u32",
-          "default": 8,
-          "ui": {
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "u32"
+          },
+          "default": {
+            "type": "u32",
+            "value": 8
           },
           "label": "サンプル数",
-          "constraints": {
-            "min": 1,
-            "max": 16
-          }
+          "scalars": [
+            {
+              "constraints": {
+                "min": 1,
+                "max": 16
+              },
+              "ui": {
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "shutter_angle",
-          "type": "f32",
-          "default": 180,
-          "animatable": true,
-          "ui": {
-            "unit": "°",
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 180
           },
           "label": "シャッター角度",
-          "constraints": {
-            "min": 0,
-            "max": 720
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 720
+              },
+              "ui": {
+                "unit": "°",
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "shutter_phase",
-          "type": "f32",
-          "default": 0,
-          "animatable": true,
-          "ui": {
-            "step": 0.01
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 0
           },
           "label": "シャッター位相",
-          "constraints": {
-            "min": -1,
-            "max": 1
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1,
+                "max": 1
+              },
+              "ui": {
+                "step": 0.01
+              }
+            }
+          ],
+          "scene_bindable": true
         }
       ],
       "passes": [
@@ -2039,43 +2974,81 @@
       "properties": [
         {
           "id": "block_size",
-          "type": "u32",
-          "default": 64,
-          "ui": {
-            "unit": "px",
-            "step": 1
+          "type": {
+            "kind": "value",
+            "value": "u32"
+          },
+          "default": {
+            "type": "u32",
+            "value": 64
           },
           "label": "ブロック幅",
-          "constraints": {
-            "min": 2,
-            "max": 256
-          }
+          "scalars": [
+            {
+              "constraints": {
+                "min": 2,
+                "max": 256
+              },
+              "ui": {
+                "unit": "px",
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "threshold",
-          "type": "f32",
-          "default": 0.25,
-          "animatable": true,
-          "ui": {
-            "step": 0.01
+          "type": {
+            "kind": "value",
+            "value": "f32"
+          },
+          "default": {
+            "type": "f32",
+            "value": 0.25
           },
           "label": "しきい値",
-          "constraints": {
-            "min": 0,
-            "max": 1
-          }
+          "scalars": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 0,
+                "max": 1
+              },
+              "ui": {
+                "step": 0.01
+              }
+            }
+          ],
+          "scene_bindable": true
         },
         {
           "id": "vertical",
-          "type": "bool",
-          "default": false,
-          "label": "縦方向"
+          "type": {
+            "kind": "value",
+            "value": "bool"
+          },
+          "default": {
+            "type": "bool",
+            "value": false
+          },
+          "label": "縦方向",
+          "scalars": [{}],
+          "scene_bindable": true
         },
         {
           "id": "descending",
-          "type": "bool",
-          "default": false,
-          "label": "明るい順"
+          "type": {
+            "kind": "value",
+            "value": "bool"
+          },
+          "default": {
+            "type": "bool",
+            "value": false
+          },
+          "label": "明るい順",
+          "scalars": [{}],
+          "scene_bindable": true
         }
       ],
       "passes": [

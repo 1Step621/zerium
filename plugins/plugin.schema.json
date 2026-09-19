@@ -30,9 +30,6 @@
     "$schema": {
       "type": "string"
     },
-    "api_version": {
-      "const": 1
-    },
     "id": {
       "$ref": "#/$defs/logicalId"
     },
@@ -47,6 +44,9 @@
       "items": {
         "$ref": "#/$defs/effect"
       }
+    },
+    "api_version": {
+      "const": 1
     }
   },
   "$defs": {
@@ -285,18 +285,11 @@
       ]
     },
     "tupleType": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["tuple"],
-      "properties": {
-        "tuple": {
-          "type": "array",
-          "minItems": 2,
-          "maxItems": 64,
-          "items": {
-            "$ref": "#/$defs/scalarType"
-          }
-        }
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 64,
+      "items": {
+        "$ref": "#/$defs/scalarType"
       }
     },
     "passValueType": {
@@ -306,19 +299,7 @@
           "$ref": "#/$defs/fixedScalarType"
         },
         {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["tuple"],
-          "properties": {
-            "tuple": {
-              "type": "array",
-              "minItems": 2,
-              "maxItems": 64,
-              "items": {
-                "$ref": "#/$defs/fixedScalarType"
-              }
-            }
-          }
+          "$ref": "#/$defs/tupleType"
         }
       ]
     },
@@ -352,14 +333,17 @@
     "arrayType": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["array"],
+      "required": ["kind", "value"],
       "properties": {
-        "array": {
+        "kind": {
+          "const": "array"
+        },
+        "value": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["type", "max_items"],
+          "required": ["element_type", "max_items"],
           "properties": {
-            "type": {
+            "element_type": {
               "$ref": "#/$defs/arrayValueType"
             },
             "min_items": {
@@ -379,7 +363,17 @@
     "propertyType": {
       "oneOf": [
         {
-          "$ref": "#/$defs/arrayValueType"
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "value"],
+          "properties": {
+            "kind": {
+              "const": "value"
+            },
+            "value": {
+              "$ref": "#/$defs/arrayValueType"
+            }
+          }
         },
         {
           "$ref": "#/$defs/arrayType"
@@ -389,7 +383,14 @@
     "property": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "label", "type", "default"],
+      "required": [
+        "id",
+        "label",
+        "type",
+        "default",
+        "scalars",
+        "scene_bindable"
+      ],
       "properties": {
         "id": {
           "$ref": "#/$defs/wgslId"
@@ -401,274 +402,21 @@
         "type": {
           "$ref": "#/$defs/propertyType"
         },
-        "default": true,
-        "editable": {
-          "type": "boolean"
-        },
-        "animatable": {
-          "type": "boolean"
+        "default": {
+          "$ref": "#/$defs/propertyValue"
         },
         "scene_bindable": {
           "type": "boolean"
         },
-        "constraints": {
-          "$ref": "#/$defs/numericConstraints"
-        },
-        "ui": {
-          "$ref": "#/$defs/scalarUi"
-        },
         "scalars": {
           "type": "array",
-          "minItems": 2,
+          "minItems": 1,
           "maxItems": 64,
           "items": {
             "$ref": "#/$defs/scalarDefinition"
           }
         }
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "anyOf": [
-                  {
-                    "type": "object",
-                    "required": ["tuple"]
-                  },
-                  {
-                    "type": "object",
-                    "required": ["array"],
-                    "properties": {
-                      "array": {
-                        "type": "object",
-                        "required": ["type"],
-                        "properties": {
-                          "type": {
-                            "type": "object",
-                            "required": ["tuple"]
-                          }
-                        }
-                      }
-                    }
-                  }
-                ]
-              }
-            },
-            "required": ["type"]
-          },
-          "then": {
-            "required": ["scalars"],
-            "properties": {
-              "editable": false,
-              "animatable": false,
-              "constraints": false,
-              "ui": false
-            }
-          },
-          "else": {
-            "properties": {
-              "scalars": false
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "ui": {
-                "properties": {
-                  "editor": {
-                    "const": "font_family"
-                  }
-                },
-                "required": ["editor"]
-              }
-            },
-            "required": ["ui"]
-          },
-          "then": {
-            "properties": {
-              "type": {
-                "allOf": [
-                  {
-                    "$ref": "#/$defs/arrayType"
-                  },
-                  {
-                    "properties": {
-                      "array": {
-                        "type": "object",
-                        "required": ["type"],
-                        "properties": {
-                          "type": {
-                            "const": "string"
-                          }
-                        }
-                      }
-                    }
-                  }
-                ]
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "f32"
-              }
-            },
-            "required": ["type"]
-          },
-          "then": {
-            "properties": {
-              "default": {
-                "type": "number"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "i32"
-              }
-            },
-            "required": ["type"]
-          },
-          "then": {
-            "properties": {
-              "default": {
-                "type": "integer",
-                "minimum": -2147483648,
-                "maximum": 2147483647
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "u32"
-              }
-            },
-            "required": ["type"]
-          },
-          "then": {
-            "properties": {
-              "default": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 4294967295
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "bool"
-              }
-            },
-            "required": ["type"]
-          },
-          "then": {
-            "properties": {
-              "default": {
-                "type": "boolean"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "string"
-              }
-            },
-            "required": ["type"]
-          },
-          "then": {
-            "properties": {
-              "default": {
-                "type": "string",
-                "maxLength": 4096
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "color"
-              }
-            },
-            "required": ["type"]
-          },
-          "then": {
-            "properties": {
-              "default": {
-                "type": "array",
-                "minItems": 4,
-                "maxItems": 4,
-                "prefixItems": [
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "number"
-                  },
-                  {
-                    "type": "number"
-                  }
-                ],
-                "items": false
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "type": "object",
-                "properties": {
-                  "array": {
-                    "type": "object",
-                    "required": ["type"],
-                    "properties": {
-                      "type": {
-                        "const": "string"
-                      }
-                    }
-                  }
-                },
-                "required": ["array"]
-              }
-            },
-            "required": ["type"]
-          },
-          "then": {
-            "properties": {
-              "default": {
-                "type": "array",
-                "items": {
-                  "type": "string",
-                  "maxLength": 4096
-                }
-              }
-            }
-          }
-        }
-      ]
+      }
     },
     "item": {
       "type": "object",
@@ -1055,6 +803,27 @@
         "ui": {
           "$ref": "#/$defs/scalarUi"
         }
+      }
+    },
+    "propertyValue": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "value"],
+      "properties": {
+        "type": {
+          "enum": [
+            "f32",
+            "i32",
+            "u32",
+            "enum",
+            "bool",
+            "tuple",
+            "color",
+            "string",
+            "array"
+          ]
+        },
+        "value": true
       }
     }
   }

@@ -18,7 +18,7 @@ use crate::domain::property::{
 
 use super::{
     document::{ResizeEdge, TimelineDocument},
-    editor::{HistoryKey, TimelineEditor},
+    editor::{HistoryKey, HistorySnapshot, TimelineEditor},
     evaluation::evaluate_expression_arguments,
     expression,
     ids::{EffectInstanceId, ItemId, LayerId, SceneId},
@@ -230,6 +230,26 @@ impl TimelineEditor {
     ) -> Option<&mut ScalarTrack> {
         self.animation_store_mut(item_id, effect_id)?
             .track_mut(address)
+    }
+
+    fn edit_selected_animation(
+        &mut self,
+        item_id: ItemId,
+        effect_id: Option<EffectInstanceId>,
+        address: ScalarAnimationAddress,
+        before: Option<HistorySnapshot>,
+        key: Option<HistoryKey>,
+        edit: impl FnOnce(&mut ScalarTrack) -> bool,
+    ) -> bool {
+        let changed = self
+            .animation_schema(item_id, effect_id, address.property_id())
+            .is_some_and(|schema| {
+                schema.is_editable(address.scalar_index())
+                    && self
+                        .animation_track_mut(item_id, effect_id, &address)
+                        .is_some_and(edit)
+            });
+        self.finish_project_edit_if_changed(changed, before, key)
     }
 
     fn scene_reaches(
@@ -1795,11 +1815,7 @@ impl TimelineEditor {
         let changed = schema.is_editable(scalar_index)
             && schema.scalar_constraints(scalar_index).allows(&value)
             && self
-                .animation_track_mut(
-                    item_id,
-                    effect_id,
-                    &ScalarAnimationAddress::new(property_id, element_id, scalar_index),
-                )
+                .animation_track_mut(item_id, effect_id, &address)
                 .is_some_and(|animation| animation.set_stop(index, value, focused_segment));
         self.finish_project_edit_if_changed(changed, before, Some(key))
     }
@@ -1872,21 +1888,14 @@ impl TimelineEditor {
             handle,
         );
         let before = self.history_snapshot_for_edit(Some(&key));
-        let changed = self
-            .animation_schema(item_id, effect_id, &property_id)
-            .is_some_and(|schema| {
-                schema.is_editable(scalar_index)
-                    && self
-                        .animation_track_mut(
-                            item_id,
-                            effect_id,
-                            &ScalarAnimationAddress::new(property_id, element_id, scalar_index),
-                        )
-                        .is_some_and(|animation| {
-                            animation.set_segment_handle(segment, handle, position)
-                        })
-            });
-        self.finish_project_edit_if_changed(changed, before, Some(key))
+        self.edit_selected_animation(
+            item_id,
+            effect_id,
+            ScalarAnimationAddress::new(property_id.as_str(), element_id, scalar_index),
+            before,
+            Some(key),
+            |animation| animation.set_segment_handle(segment, handle, position),
+        )
     }
 
     pub(crate) fn set_selected_animation_interpolation(
@@ -1902,21 +1911,14 @@ impl TimelineEditor {
             return false;
         };
         let before = self.history_snapshot();
-        let changed = self
-            .animation_schema(item_id, effect_id, &property_id)
-            .is_some_and(|schema| {
-                schema.is_editable(scalar_index)
-                    && self
-                        .animation_track_mut(
-                            item_id,
-                            effect_id,
-                            &ScalarAnimationAddress::new(property_id, element_id, scalar_index),
-                        )
-                        .is_some_and(|animation| {
-                            animation.set_segment_interpolation(segment, interpolation)
-                        })
-            });
-        self.finish_project_edit_if_changed(changed, Some(before), None)
+        self.edit_selected_animation(
+            item_id,
+            effect_id,
+            ScalarAnimationAddress::new(property_id.as_str(), element_id, scalar_index),
+            Some(before),
+            None,
+            |animation| animation.set_segment_interpolation(segment, interpolation),
+        )
     }
 
     pub(crate) fn remove_selected_animation_stop(
@@ -1931,19 +1933,14 @@ impl TimelineEditor {
             return false;
         };
         let before = self.history_snapshot();
-        let changed = self
-            .animation_schema(item_id, effect_id, &property_id)
-            .is_some_and(|schema| {
-                schema.is_editable(scalar_index)
-                    && self
-                        .animation_track_mut(
-                            item_id,
-                            effect_id,
-                            &ScalarAnimationAddress::new(property_id, element_id, scalar_index),
-                        )
-                        .is_some_and(|animation| animation.remove_stop(stop))
-            });
-        self.finish_project_edit_if_changed(changed, Some(before), None)
+        self.edit_selected_animation(
+            item_id,
+            effect_id,
+            ScalarAnimationAddress::new(property_id.as_str(), element_id, scalar_index),
+            Some(before),
+            None,
+            |animation| animation.remove_stop(stop),
+        )
     }
 
     pub(crate) fn move_selected_animation_stop(
@@ -1967,19 +1964,14 @@ impl TimelineEditor {
             stop,
         );
         let before = self.history_snapshot_for_edit(Some(&key));
-        let changed = self
-            .animation_schema(item_id, effect_id, &property_id)
-            .is_some_and(|schema| {
-                schema.is_editable(scalar_index)
-                    && self
-                        .animation_track_mut(
-                            item_id,
-                            effect_id,
-                            &ScalarAnimationAddress::new(property_id, element_id, scalar_index),
-                        )
-                        .is_some_and(|animation| animation.move_stop(stop, position))
-            });
-        self.finish_project_edit_if_changed(changed, before, Some(key))
+        self.edit_selected_animation(
+            item_id,
+            effect_id,
+            ScalarAnimationAddress::new(property_id.as_str(), element_id, scalar_index),
+            before,
+            Some(key),
+            |animation| animation.move_stop(stop, position),
+        )
     }
 
     pub(crate) fn remove_selected_effect(&mut self, effect_id: EffectInstanceId) -> bool {

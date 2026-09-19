@@ -118,24 +118,6 @@ impl PropertyValue {
         Self::Tuple(values.into_iter().map(Self::F32).collect())
     }
 
-    pub(crate) fn to_json_value(&self) -> Value {
-        match self {
-            Self::F32(value) => serde_json::json!(value),
-            Self::I32(value) => serde_json::json!(value),
-            Self::U32(value) | Self::Enum(value) => serde_json::json!(value),
-            Self::Bool(value) => serde_json::json!(value),
-            Self::Tuple(values) => Value::Array(values.iter().map(Self::to_json_value).collect()),
-            Self::Color(value) => serde_json::json!(value),
-            Self::String(value) => serde_json::json!(value),
-            Self::Array(values) => Value::Array(
-                values
-                    .iter()
-                    .map(|element| element.value.to_json_value())
-                    .collect(),
-            ),
-        }
-    }
-
     pub(in crate::domain) fn from_json(value: &Value, ty: &PropertyType) -> Option<Self> {
         match ty {
             PropertyType::Value(ty) => Self::value_type_from_json(value, ty),

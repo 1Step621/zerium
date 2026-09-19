@@ -71,39 +71,12 @@ pub(crate) fn decode(
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct ProjectSceneIdentity {
-    project_high: u64,
-    project_low: u64,
-    scene: u64,
-}
-
-impl ProjectSceneIdentity {
-    pub(super) fn capture(scene: SceneId) -> Self {
-        Self {
-            project_high: scene.project().high(),
-            project_low: scene.project().low(),
-            scene: scene.get(),
-        }
-    }
-
-    pub(super) fn into_domain(self) -> Result<SceneId, ProjectError> {
-        let project = ProjectId::from_parts(self.project_high, self.project_low)
-            .ok_or_else(|| ProjectError::invalid_data("プロジェクトIDが不正です"))?;
-        if self.scene == 0 || self.scene == u64::MAX {
-            return Err(ProjectError::invalid_data("シーンIDが不正です"));
-        }
-        Ok(SceneId::new(project, self.scene))
-    }
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
 struct ProjectFile {
     format_version: u32,
     project_high: u64,
     project_low: u64,
-    resolution: ProjectResolutionFile,
-    frame_rate: ProjectFrameRate,
+    resolution: [u32; 2],
+    frame_rate: [u32; 2],
     playhead: u64,
     items: Vec<ProjectItem>,
     scenes: Vec<ProjectScene>,
@@ -128,14 +101,14 @@ impl ProjectFile {
             format_version: FORMAT_VERSION,
             project_high: snapshot.project_id().high(),
             project_low: snapshot.project_id().low(),
-            resolution: ProjectResolutionFile {
-                width: snapshot.resolution().width(),
-                height: snapshot.resolution().height(),
-            },
-            frame_rate: ProjectFrameRate {
-                numerator: snapshot.frame_rate().numerator(),
-                denominator: snapshot.frame_rate().denominator(),
-            },
+            resolution: [
+                snapshot.resolution().width(),
+                snapshot.resolution().height(),
+            ],
+            frame_rate: [
+                snapshot.frame_rate().numerator(),
+                snapshot.frame_rate().denominator(),
+            ],
             playhead: snapshot.playhead().get(),
             items,
             scenes,
@@ -155,9 +128,9 @@ impl ProjectFile {
         }
         let project_id = ProjectId::from_parts(self.project_high, self.project_low)
             .ok_or_else(|| ProjectError::invalid_data("プロジェクトIDが不正です"))?;
-        let frame_rate = FrameRate::new(self.frame_rate.numerator, self.frame_rate.denominator)
+        let frame_rate = FrameRate::new(self.frame_rate[0], self.frame_rate[1])
             .ok_or_else(|| ProjectError::invalid_data("フレームレートが不正です"))?;
-        let resolution = ProjectResolution::new(self.resolution.width, self.resolution.height)
+        let resolution = ProjectResolution::new(self.resolution[0], self.resolution[1])
             .ok_or_else(|| ProjectError::invalid_data("解像度が不正です"))?;
         let mut scene_ids = HashSet::new();
         let mut scene_schemas = HashMap::new();
@@ -292,20 +265,6 @@ pub(super) fn load_items(
             item.into_timeline(project_path, effect_ids, scene_schemas, plugins)
         })
         .collect()
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct ProjectFrameRate {
-    numerator: u32,
-    denominator: u32,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct ProjectResolutionFile {
-    width: u32,
-    height: u32,
 }
 
 #[derive(Deserialize, Serialize)]
@@ -656,11 +615,8 @@ impl ProjectEffect {
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectScalarAnimation {
-    property: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    element: Option<PropertyElementId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    scalar: Option<usize>,
+    #[serde(flatten)]
+    address: ScalarAnimationAddress,
     track: ScalarTrack,
 }
 
@@ -668,9 +624,7 @@ fn capture_animations(animations: &ScalarAnimations) -> Vec<ProjectScalarAnimati
     animations
         .tracks()
         .map(|(address, track)| ProjectScalarAnimation {
-            property: address.property_id().to_owned(),
-            element: address.element_id(),
-            scalar: address.scalar_index(),
+            address: address.clone(),
             track: track.clone(),
         })
         .collect()
@@ -685,20 +639,20 @@ fn load_animations(
     for animation in animations {
         let property = schema
             .iter()
-            .find(|property| property.id == animation.property)
+            .find(|property| property.id == animation.address.property_id())
             .ok_or_else(|| {
                 ProjectError::invalid_data(format!(
                     "アニメーション対象 '{}' が見つかりません",
-                    animation.property
+                    animation.address.property_id()
                 ))
             })?;
         validate_project_track(
             &mut loaded,
             properties,
             property,
-            &animation.property,
-            animation.element,
-            animation.scalar,
+            animation.address.property_id(),
+            animation.address.element_id(),
+            animation.address.scalar_index(),
             animation.track,
         )?;
     }

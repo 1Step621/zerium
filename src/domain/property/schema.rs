@@ -67,10 +67,12 @@ impl PropertyScalarSchema {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct PropertySchema {
     pub(in crate::domain) id: String,
     pub(in crate::domain) label: String,
+    #[serde(rename = "type")]
     pub(in crate::domain) ty: PropertyType,
     pub(in crate::domain) default: PropertyValue,
     pub(in crate::domain) scalars: Vec<PropertyScalarSchema>,

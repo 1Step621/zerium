@@ -4,10 +4,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use super::{
-    value::{MAX_STRING_BYTES, PropertyValue},
-    wire::TypeDefinition,
-};
+use super::value::{MAX_STRING_BYTES, PropertyValue};
 
 pub(super) const MAX_TUPLE_ELEMENTS: usize = 64;
 
@@ -41,8 +38,22 @@ impl EnumPropertyType {
     }
 }
 
+impl TryFrom<Vec<u32>> for EnumPropertyType {
+    type Error = &'static str;
+
+    fn try_from(values: Vec<u32>) -> Result<Self, Self::Error> {
+        Self::new(values)
+    }
+}
+
+impl From<EnumPropertyType> for Vec<u32> {
+    fn from(value: EnumPropertyType) -> Self {
+        value.into_values().into()
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(try_from = "TypeDefinition", into = "TypeDefinition")]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum ScalarPropertyType {
     F32,
     I32,
@@ -101,8 +112,24 @@ impl TuplePropertyType {
     }
 }
 
+impl TryFrom<Vec<ScalarPropertyType>> for TuplePropertyType {
+    type Error = String;
+
+    fn try_from(scalars: Vec<ScalarPropertyType>) -> Result<Self, Self::Error> {
+        Self::new(scalars).ok_or_else(|| {
+            format!("tuple must contain between 2 and {MAX_TUPLE_ELEMENTS} elements")
+        })
+    }
+}
+
+impl From<TuplePropertyType> for Vec<ScalarPropertyType> {
+    fn from(value: TuplePropertyType) -> Self {
+        value.into_scalars().into()
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(try_from = "TypeDefinition", into = "TypeDefinition")]
+#[serde(untagged)]
 pub(crate) enum PropertyValueType {
     Scalar(ScalarPropertyType),
     Tuple(TuplePropertyType),
@@ -148,14 +175,19 @@ impl PropertyValueType {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(try_from = "TypeDefinition", into = "TypeDefinition")]
+#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
 pub(crate) enum PropertyType {
     Value(PropertyValueType),
     Array {
         element_type: PropertyValueType,
+        #[serde(default, skip_serializing_if = "is_zero")]
         min_items: u32,
         max_items: u32,
     },
+}
+
+fn is_zero(value: &u32) -> bool {
+    *value == 0
 }
 
 impl PropertyType {
