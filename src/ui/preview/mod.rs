@@ -1,9 +1,6 @@
 mod video;
 
-use std::{
-    collections::HashMap,
-    sync::Arc,
-};
+use std::{collections::HashMap, sync::Arc};
 
 use ::ui::ActiveTheme as _;
 use gpui::{
@@ -58,10 +55,6 @@ impl RenderBackend {
         };
         Ok(Arc::new(device.create_session()))
     }
-
-    pub(crate) fn error(&self) -> Option<SharedString> {
-        self.error.clone()
-    }
 }
 
 pub(crate) struct PreviewDependencies {
@@ -91,11 +84,6 @@ impl PreviewDependencies {
             media_readers,
         }
     }
-}
-
-struct PreparedVideoFrames {
-    revision: u64,
-    error: Option<String>,
 }
 
 pub(crate) struct Preview {
@@ -230,7 +218,7 @@ impl Preview {
         render_time: TimelineTime,
         size: RenderSize,
         cx: &mut Context<Self>,
-    ) -> Result<(RenderScene, PreparedVideoFrames), RenderError> {
+    ) -> Result<(RenderScene, video::VideoPlaybackSnapshot), RenderError> {
         let (frame_rate, mode, resolution) = {
             let editor = self.editor.read(cx);
             (
@@ -268,9 +256,9 @@ impl Preview {
                             input_id: request.input_id.to_owned(),
                         };
                         if !recorded.contains_key(&(time_bits, input.clone())) {
-                            let items = items_by_time.entry(time_bits).or_insert_with(|| {
-                                editor.active_items_at_time(request.time)
-                            });
+                            let items = items_by_time
+                                .entry(time_bits)
+                                .or_insert_with(|| editor.active_items_at_time(request.time));
                             for (input, requested) in playback.record_media_requests(
                                 request.time,
                                 items,
@@ -292,13 +280,7 @@ impl Preview {
                 )?
             };
             let snapshot = playback.finish_frame_demand(cx);
-            Ok((
-                scene,
-                PreparedVideoFrames {
-                    revision: snapshot.revision,
-                    error: snapshot.error,
-                },
-            ))
+            Ok((scene, snapshot))
         })
     }
 
@@ -403,7 +385,8 @@ impl Render for Preview {
         let error = self
             .backend
             .read(cx)
-            .error()
+            .error
+            .clone()
             .or_else(|| self.error.clone())
             .or_else(|| self.playback_error.clone());
 

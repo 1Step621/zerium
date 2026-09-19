@@ -1,20 +1,6 @@
 use super::*;
 
 impl GraphCurve {
-    pub(super) fn stops(&self) -> &[[f32; 2]] {
-        &self.stops
-    }
-
-    pub(super) fn interpolation(&self, segment: usize) -> Option<SegmentInterpolation> {
-        self.interpolations.get(segment).copied()
-    }
-
-    pub(super) fn is_custom(&self, segment: usize) -> bool {
-        self.interpolations
-            .get(segment)
-            .is_some_and(|interpolation| interpolation.is_custom())
-    }
-
     fn segment_for_handle(index: usize, handle: BezierHandle) -> Option<usize> {
         match handle {
             BezierHandle::In => index.checked_sub(1),
@@ -24,7 +10,11 @@ impl GraphCurve {
 
     pub(super) fn handle_position(&self, index: usize, handle: BezierHandle) -> Option<[f32; 2]> {
         let segment = Self::segment_for_handle(index, handle)?;
-        let local = self.interpolations.get(segment)?.handle_position(handle)?;
+        let local = match (handle, self.interpolations.get(segment)?) {
+            (BezierHandle::Out, SegmentInterpolation::Custom { handle_out, .. }) => *handle_out,
+            (BezierHandle::In, SegmentInterpolation::Custom { handle_in, .. }) => *handle_in,
+            _ => return None,
+        };
         let start = self.stops.get(segment)?;
         let end = self.stops.get(segment + 1)?;
         Some([
@@ -179,13 +169,9 @@ impl AnimationCurveEditor {
         } else {
             (0., 100., vec![[0., 0.], [1., 1.]], "%".to_owned())
         };
-        let animation = GraphAnimation {
-            value_min,
-            value_max,
-            curve: GraphCurve {
-                stops,
-                interpolations: vec![*track.interpolations().get(source_segment)?],
-            },
+        let curve = GraphCurve {
+            stops,
+            interpolations: vec![*track.interpolations().get(source_segment)?],
         };
         let frame_rate = editor.frame_rate();
         let frames_per_second = frame_rate.frames_per_second();
@@ -197,7 +183,9 @@ impl AnimationCurveEditor {
         Some(SelectedCurve {
             target,
             presentation,
-            animation,
+            value_min,
+            value_max,
+            curve,
             axis_suffix,
             source_segment,
             source_stop_count: track.stops().len(),

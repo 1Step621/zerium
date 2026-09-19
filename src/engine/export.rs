@@ -71,13 +71,8 @@ pub(crate) enum ExportProgress {
     Finished(Result<(), ExportError>),
 }
 
-struct RenderedFrame {
-    index: u64,
-    yuv: Vec<u8>,
-}
-
 enum EncoderMessage {
-    Frame(RenderedFrame),
+    Frame { index: u64, yuv: Vec<u8> },
     Complete,
 }
 
@@ -254,7 +249,7 @@ fn send_frame(
     (index, yuv): (u64, Vec<u8>),
 ) -> Result<(), ExportError> {
     sender
-        .send(EncoderMessage::Frame(RenderedFrame { index, yuv }))
+        .send(EncoderMessage::Frame { index, yuv })
         .map_err(|_| ExportError::encoding("映像エンコーダーが予期せず終了しました"))
 }
 
@@ -291,7 +286,7 @@ fn encode_frames(
     )
     .map_err(ExportError::encoding)?;
     for message in frames {
-        let EncoderMessage::Frame(frame) = message else {
+        let EncoderMessage::Frame { index, yuv } = message else {
             encoder.finish().map_err(ExportError::encoding)?;
             transaction.commit().map_err(|error| {
                 ExportError::encoding(format!(
@@ -302,12 +297,12 @@ fn encode_frames(
             return Ok(());
         };
         encoder
-            .encode_yuv420p(&frame.yuv, frame.index)
+            .encode_yuv420p(&yuv, index)
             .map_err(ExportError::encoding)?;
         if has_audio {
-            let start = sample_boundary(frame.index, frame_rate, EXPORT_AUDIO_FORMAT.sample_rate);
+            let start = sample_boundary(index, frame_rate, EXPORT_AUDIO_FORMAT.sample_rate);
             let end = sample_boundary(
-                frame.index.saturating_add(1),
+                index.saturating_add(1),
                 frame_rate,
                 EXPORT_AUDIO_FORMAT.sample_rate,
             );

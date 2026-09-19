@@ -429,7 +429,7 @@ pub(super) struct ProjectItem {
     kind: ProjectItemKind,
     assets: BTreeMap<String, ProjectMediaAsset>,
     properties: BTreeMap<String, PropertyValue>,
-    animations: ProjectAnimations,
+    animations: Vec<ProjectScalarAnimation>,
     aspect_ratio_locked: bool,
     effects: Vec<ProjectEffect>,
 }
@@ -613,7 +613,7 @@ struct ProjectEffect {
     plugin_id: String,
     effect_id: String,
     properties: BTreeMap<String, PropertyValue>,
-    animations: ProjectAnimations,
+    animations: Vec<ProjectScalarAnimation>,
 }
 
 impl ProjectEffect {
@@ -653,10 +653,6 @@ impl ProjectEffect {
     }
 }
 
-#[derive(Default, Deserialize, Serialize)]
-#[serde(transparent)]
-struct ProjectAnimations(Vec<ProjectScalarAnimation>);
-
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectScalarAnimation {
@@ -668,27 +664,25 @@ struct ProjectScalarAnimation {
     track: ScalarTrack,
 }
 
-fn capture_animations(animations: &ScalarAnimations) -> ProjectAnimations {
-    ProjectAnimations(
-        animations
-            .tracks()
-            .map(|(address, track)| ProjectScalarAnimation {
-                property: address.property_id().to_owned(),
-                element: address.element_id(),
-                scalar: address.scalar_index(),
-                track: track.clone(),
-            })
-            .collect(),
-    )
+fn capture_animations(animations: &ScalarAnimations) -> Vec<ProjectScalarAnimation> {
+    animations
+        .tracks()
+        .map(|(address, track)| ProjectScalarAnimation {
+            property: address.property_id().to_owned(),
+            element: address.element_id(),
+            scalar: address.scalar_index(),
+            track: track.clone(),
+        })
+        .collect()
 }
 
 fn load_animations(
     schema: &[PropertySchema],
     properties: &PropertyValues,
-    animations: ProjectAnimations,
+    animations: Vec<ProjectScalarAnimation>,
 ) -> Result<ScalarAnimations, ProjectError> {
     let mut loaded = ScalarAnimations::default();
-    for animation in animations.0 {
+    for animation in animations {
         let property = schema
             .iter()
             .find(|property| property.id == animation.property)

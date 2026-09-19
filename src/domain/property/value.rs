@@ -240,26 +240,9 @@ fn json_f32(value: &Value) -> Option<f32> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct PropertyContract {
-    schema: PropertySchema,
-}
-
-impl PropertyContract {
-    fn from_schema(property: &PropertySchema) -> Self {
-        Self {
-            schema: property.clone(),
-        }
-    }
-
-    fn accepts(&self, value: &PropertyValue) -> bool {
-        self.schema.accepts_value(value)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
 struct StoredPropertyValue {
     value: PropertyValue,
-    contract: PropertyContract,
+    schema: PropertySchema,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -294,7 +277,7 @@ impl PropertyValues {
                         property.id.clone(),
                         StoredPropertyValue {
                             value: property.default_value().clone(),
-                            contract: PropertyContract::from_schema(property),
+                            schema: property.clone(),
                         },
                     )
                 })
@@ -328,17 +311,14 @@ impl PropertyValues {
         property: &PropertySchema,
         value: PropertyValue,
     ) -> Result<bool, PropertyError> {
-        let supplied_contract = PropertyContract::from_schema(property);
-        let existing_contract = self.values.get(&property.id).map(|stored| &stored.contract);
-        if self.owner.is_some()
-            && existing_contract.is_none_or(|contract| contract != &supplied_contract)
-        {
+        let existing_schema = self.values.get(&property.id).map(|stored| &stored.schema);
+        if self.owner.is_some() && existing_schema.is_none_or(|schema| schema != property) {
             return Err(PropertyError::invalid_definition(format!(
                 "property '{}' belongs to a different schema contract",
                 property.id
             )));
         }
-        if !supplied_contract.accepts(&value) {
+        if !property.accepts_value(&value) {
             return Err(PropertyError::invalid_definition(format!(
                 "property '{}' value violates its schema contract",
                 property.id
@@ -351,7 +331,7 @@ impl PropertyValues {
             property.id.clone(),
             StoredPropertyValue {
                 value,
-                contract: supplied_contract,
+                schema: property.clone(),
             },
         );
         Ok(true)
@@ -384,9 +364,7 @@ impl PropertyValues {
                     property.id()
                 ))
             })?;
-            if stored.contract != PropertyContract::from_schema(property)
-                || !stored.contract.accepts(&stored.value)
-            {
+            if stored.schema != *property || !property.accepts_value(&stored.value) {
                 return Err(PropertyError::invalid_definition(format!(
                     "{owner_kind} '{owner_id}' property '{}' does not match its schema contract",
                     property.id()

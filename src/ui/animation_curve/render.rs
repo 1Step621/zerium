@@ -79,12 +79,12 @@ impl Render for AnimationCurveEditor {
                 Self::format_number(selected.frame_rate.frame_to_seconds(frame))
             ));
         }
-        let curve = selected.animation.curve.clone();
+        let curve = selected.curve.clone();
         let playhead_progress = selected.playhead_progress;
         let curve_editor = cx.entity();
         let focus_handle = self.focus_handle.clone();
         let graph_editor = curve_editor.clone();
-        let stops = curve.stops().to_vec();
+        let stops = curve.stops.clone();
         let stop_count = stops.len();
         let source_segment = selected.source_segment;
         let source_stop_count = selected.source_stop_count;
@@ -96,7 +96,15 @@ impl Render for AnimationCurveEditor {
             .collect::<Vec<_>>();
         let overview_stops = selected.source_stop_positions.clone();
         let custom_segments = (0..stop_count.saturating_sub(1))
-            .map(|segment| curve.is_custom(segment))
+            .map(|segment| {
+                curve
+                    .interpolations
+                    .get(segment)
+                    .copied()
+                    .is_some_and(|interpolation| {
+                        matches!(interpolation, SegmentInterpolation::Custom { .. })
+                    })
+            })
             .collect::<Vec<_>>();
         let active_handle = match self.graph_interaction {
             GraphInteraction::HandleDrag { point } => Some(point),
@@ -112,7 +120,7 @@ impl Render for AnimationCurveEditor {
             selected.duration_seconds,
             selected.frame_rate,
         );
-        curve_grid.values = Self::value_grid(&selected.animation);
+        curve_grid.values = Self::value_grid(selected.value_min, selected.value_max);
         let value_ticks = curve_grid.values.clone();
         let time_ticks = curve_grid.major.clone();
         let begin_scrub_editor = curve_editor.clone();
@@ -356,7 +364,7 @@ impl Render for AnimationCurveEditor {
             }));
 
         let segment_editor = selected_segment.and_then(|segment| {
-            let interpolation = curve.interpolation(segment)?;
+            let interpolation = curve.interpolations.get(segment).copied()?;
             // Clamp the menu position because some easing families overshoot
             // the value range.
             let screen = Self::segment_panel_position(&curve, segment)?;
@@ -436,7 +444,10 @@ impl Render for AnimationCurveEditor {
                                     )
                                     .item(
                                         PopupMenuItem::new("カスタム")
-                                            .checked(interpolation.is_custom())
+                                            .checked(matches!(
+                                                interpolation,
+                                                SegmentInterpolation::Custom { .. }
+                                            ))
                                             .on_click(move |_, _, cx| {
                                                 custom_editor.update(cx, |editor, cx| {
                                                     editor.set_interpolation(

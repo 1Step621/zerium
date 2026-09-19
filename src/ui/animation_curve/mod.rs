@@ -123,7 +123,9 @@ struct CurveGrid {
 struct SelectedCurve {
     target: AnimationTarget,
     presentation: AnimationPresentation,
-    animation: GraphAnimation,
+    value_min: f64,
+    value_max: f64,
+    curve: GraphCurve,
     axis_suffix: String,
     source_segment: usize,
     source_stop_count: usize,
@@ -137,13 +139,6 @@ struct SelectedCurve {
     start_seconds: f32,
     duration_seconds: f32,
     frame_rate: FrameRate,
-}
-
-#[derive(Clone)]
-struct GraphAnimation {
-    value_min: f64,
-    value_max: f64,
-    curve: GraphCurve,
 }
 
 #[derive(Clone)]

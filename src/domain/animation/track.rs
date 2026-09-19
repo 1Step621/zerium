@@ -264,9 +264,14 @@ impl ScalarTrack {
         segment: usize,
         interpolation: SegmentInterpolation,
     ) -> bool {
-        self.interpolations
-            .get_mut(segment)
-            .is_some_and(|slot| slot.set_interpolation(interpolation))
+        let Some(slot) = self.interpolations.get_mut(segment) else {
+            return false;
+        };
+        if *slot == interpolation {
+            return false;
+        }
+        *slot = interpolation;
+        true
     }
 
     pub(crate) fn set_segment_handle(
@@ -275,9 +280,17 @@ impl ScalarTrack {
         handle: BezierHandle,
         position: [f32; 2],
     ) -> bool {
-        self.interpolations
-            .get_mut(segment)
-            .is_some_and(|interpolation| interpolation.set_handle(handle, position))
+        let Some(slot) = self.interpolations.get_mut(segment) else {
+            return false;
+        };
+        let Some(next) = (*slot).with_handle(handle, position) else {
+            return false;
+        };
+        if *slot == next {
+            return false;
+        }
+        *slot = next;
+        true
     }
 
     fn remap_time_range(&mut self, start: f64, end: f64) {

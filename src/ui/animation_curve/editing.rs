@@ -230,7 +230,6 @@ impl AnimationCurveEditor {
             return;
         };
         let Some((_, position)) = selected
-            .animation
             .curve
             .local_handle_position(index, handle, position)
         else {

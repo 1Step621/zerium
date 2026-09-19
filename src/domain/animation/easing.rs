@@ -91,14 +91,6 @@ impl SegmentInterpolation {
         }
     }
 
-    pub(crate) fn handle_position(self, handle: BezierHandle) -> Option<[f32; 2]> {
-        match (handle, self) {
-            (BezierHandle::Out, Self::Custom { handle_out, .. }) => Some(handle_out),
-            (BezierHandle::In, Self::Custom { handle_in, .. }) => Some(handle_in),
-            _ => None,
-        }
-    }
-
     pub(crate) fn is_valid(self) -> bool {
         let Self::Custom {
             handle_out,
@@ -114,40 +106,22 @@ impl SegmentInterpolation {
         })
     }
 
-    pub(crate) fn set_handle(&mut self, handle: BezierHandle, position: [f32; 2]) -> bool {
+    pub(crate) fn with_handle(self, handle: BezierHandle, position: [f32; 2]) -> Option<Self> {
         if !position.iter().all(|value| value.is_finite()) {
-            return false;
+            return None;
         }
         let position = [position[0].clamp(0., 1.), position[1].clamp(0., 1.)];
         match (handle, self) {
-            (BezierHandle::Out, Self::Custom { handle_out, .. }) => {
-                if *handle_out == position {
-                    return false;
-                }
-                *handle_out = position;
-                true
-            }
-            (BezierHandle::In, Self::Custom { handle_in, .. }) => {
-                if *handle_in == position {
-                    return false;
-                }
-                *handle_in = position;
-                true
-            }
-            _ => false,
+            (BezierHandle::Out, Self::Custom { handle_in, .. }) => Some(Self::Custom {
+                handle_out: position,
+                handle_in,
+            }),
+            (BezierHandle::In, Self::Custom { handle_out, .. }) => Some(Self::Custom {
+                handle_out,
+                handle_in: position,
+            }),
+            _ => None,
         }
-    }
-
-    pub(crate) fn set_interpolation(&mut self, interpolation: Self) -> bool {
-        if *self == interpolation {
-            return false;
-        }
-        *self = interpolation;
-        true
-    }
-
-    pub(crate) fn is_custom(self) -> bool {
-        matches!(self, Self::Custom { .. })
     }
 
     pub(crate) fn custom_default() -> Self {

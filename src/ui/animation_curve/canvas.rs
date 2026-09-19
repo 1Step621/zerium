@@ -82,11 +82,10 @@ impl AnimationCurveEditor {
                 }
 
                 let plot_width = f32::from(width).max(1.);
-                let stops = state.curve.stops();
+                let stops = &state.curve.stops;
                 let mut handle_path = PathBuilder::stroke(px(1.));
                 for (index, stop) in stops.iter().enumerate() {
                     if index > 0
-                        && state.curve.is_custom(index - 1)
                         && let Some(handle) = state
                             .curve
                             .handle_position(index, crate::domain::animation::BezierHandle::In)
@@ -95,7 +94,6 @@ impl AnimationCurveEditor {
                         handle_path.line_to(to_point(handle));
                     }
                     if index + 1 < stops.len()
-                        && state.curve.is_custom(index)
                         && let Some(handle) = state
                             .curve
                             .handle_position(index, crate::domain::animation::BezierHandle::Out)
@@ -110,7 +108,7 @@ impl AnimationCurveEditor {
 
                 let mut curve_path = PathBuilder::stroke(px(2.));
                 let mut started = false;
-                for stops in state.curve.stops().windows(2) {
+                for stops in state.curve.stops.windows(2) {
                     let start = stops[0][0];
                     let end = stops[1][0];
                     if start > end {
@@ -135,7 +133,7 @@ impl AnimationCurveEditor {
 
                 if let Some(segment) = state.selected_segment
                     && let Some(end) = segment.checked_add(1)
-                    && let Some(stops) = state.curve.stops().get(segment..=end)
+                    && let Some(stops) = state.curve.stops.get(segment..=end)
                 {
                     let start = stops[0][0];
                     let end = stops[1][0];

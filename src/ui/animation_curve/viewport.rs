@@ -33,9 +33,8 @@ impl AnimationCurveEditor {
             f32::from(position.y - bounds.origin.y),
         ];
         selected
-            .animation
             .curve
-            .stops()
+            .stops
             .iter()
             .enumerate()
             .find_map(|(index, stop)| {
@@ -177,24 +176,21 @@ impl AnimationCurveEditor {
         };
 
         selected
-            .animation
             .curve
-            .stops()
+            .stops
             .windows(2)
             .enumerate()
             .filter_map(|(segment, stops)| {
                 let start_progress = stops[0][0];
                 let end_progress = stops[1][0];
-                let mut previous = to_pixel([
-                    start_progress,
-                    selected.animation.curve.evaluate(start_progress),
-                ]);
+                let mut previous =
+                    to_pixel([start_progress, selected.curve.evaluate(start_progress)]);
                 let mut distance = f32::INFINITY;
                 for step in 1..=SAMPLES_PER_SEGMENT {
                     let progress = start_progress
                         + (end_progress - start_progress) * step as f32
                             / SAMPLES_PER_SEGMENT as f32;
-                    let current = to_pixel([progress, selected.animation.curve.evaluate(progress)]);
+                    let current = to_pixel([progress, selected.curve.evaluate(progress)]);
                     distance =
                         distance.min(squared_distance_to_line_segment(pointer, previous, current));
                     previous = current;
@@ -362,7 +358,7 @@ impl AnimationCurveEditor {
     /// Placement point for the selected-segment floating panel.
     pub(super) fn segment_panel_position(curve: &GraphCurve, segment: usize) -> Option<[f32; 2]> {
         let end = segment.checked_add(1)?;
-        let stops = curve.stops().get(segment..=end)?;
+        let stops = curve.stops.get(segment..=end)?;
         let midpoint = (stops[0][0] + stops[1][0]) * 0.5;
         Some([midpoint, curve.evaluate(midpoint).clamp(0., 1.)])
     }

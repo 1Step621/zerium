@@ -20,12 +20,10 @@ impl AnimationCurveEditor {
         nice_fraction * magnitude
     }
 
-    pub(super) fn value_grid(animation: &GraphAnimation) -> Vec<(f64, f32)> {
-        let minimum = animation.value_min;
-        let maximum = animation.value_max;
+    pub(super) fn value_grid(minimum: f64, maximum: f64) -> Vec<(f64, f32)> {
         let range = maximum - minimum;
         if !range.is_finite() || range <= f64::EPSILON {
-            return vec![(animation.value_min, 0.5)];
+            return vec![(minimum, 0.5)];
         }
 
         let step = Self::nice_value_step(range);
@@ -34,8 +32,7 @@ impl AnimationCurveEditor {
         (0..count.min(32))
             .map(|index| {
                 let value = first + index as f64 * step;
-                let normalized =
-                    (value - animation.value_min) / (animation.value_max - animation.value_min);
+                let normalized = (value - minimum) / (maximum - minimum);
                 (value, normalized as f32)
             })
             .collect()
