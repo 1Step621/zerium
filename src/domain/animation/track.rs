@@ -321,6 +321,8 @@ impl ScalarTrack {
         if !start.is_finite() || !end.is_finite() || start >= end {
             return;
         }
+        let extends_left = start < 0.;
+        let extends_right = end > 1.;
         let (Some(first), Some(last)) = (self.stops.first(), self.stops.last()) else {
             return;
         };
@@ -328,6 +330,15 @@ impl ScalarTrack {
         let end_value = self.evaluate(end).unwrap_or_else(|| last.value.clone());
         let old_stops = self.stops.clone();
         let old_interpolations = self.interpolations.clone();
+        let stretch_left = extends_left
+            && old_stops.len() >= 2
+            && Self::values_are_linked(&old_stops[0].value, &old_stops[1].value);
+        let stretch_right = extends_right
+            && old_stops.len() >= 2
+            && Self::values_are_linked(
+                &old_stops[old_stops.len() - 2].value,
+                &old_stops[old_stops.len() - 1].value,
+            );
         let mut stops = vec![AnimationStop {
             position: start,
             value: start_value,
@@ -335,12 +346,24 @@ impl ScalarTrack {
         stops.extend(
             old_stops
                 .iter()
-                .filter(|stop| stop.position > start && stop.position < end)
+                .filter(|stop| {
+                    stop.position > start
+                        && stop.position < end
+                        && !(stretch_left && stop.position <= STOP_POSITION_EPSILON)
+                        && !(stretch_right && stop.position >= 1. - STOP_POSITION_EPSILON)
+                })
                 .cloned(),
         );
-        stops.push(AnimationStop {
-            position: end,
-            value: end_value,
+        stops.push(if stretch_right {
+            AnimationStop {
+                position: 1.,
+                value: last.value.clone(),
+            }
+        } else {
+            AnimationStop {
+                position: end,
+                value: end_value,
+            }
         });
         let interpolations = stops
             .windows(2)
