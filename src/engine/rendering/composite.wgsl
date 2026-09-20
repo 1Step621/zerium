@@ -32,6 +32,14 @@ fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> CompositeVertexOutpu
 }
 
 fn composite_sample(input: CompositeVertexOutput) -> vec4<f32> {
+    if all(composite_info.input_size == composite_info.output_size) {
+        let position = min(
+            vec2<u32>(input.position.xy),
+            composite_info.input_size - vec2(1u),
+        );
+        return textureLoad(composite_input, vec2<i32>(position), 0);
+    }
+
     let scale = max(composite_info.input_size.x / composite_info.output_size.x, 1u);
     if scale == 1u {
         return textureSample(composite_input, composite_sampler, input.uv);

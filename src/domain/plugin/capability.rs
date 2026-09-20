@@ -11,6 +11,8 @@ use super::item::ItemSchema;
 use super::shader::ShaderSchema;
 use crate::domain::property::{PropertyType, ScalarPropertyType};
 
+const MAX_RENDER_RESULT_OFFSET: u32 = 30;
+
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum MediaType {
@@ -124,30 +126,41 @@ pub(crate) enum VisualCapability {
         horizontal_alignment: String,
         vertical_alignment: String,
     },
+    /// Composites an inclusive range measured backward from the item's layer.
+    RenderResult {
+        shader: ShaderSchema,
+        #[serde(default = "default_item_vertex_count")]
+        vertex_count: u32,
+        start_offset: String,
+        end_offset: String,
+        hide_original: String,
+    },
 }
 
 impl VisualCapability {
-    pub(super) fn validate_text_properties(&self, item: &ItemSchema) -> Result<(), PluginError> {
-        let Self::Text {
-            size,
-            text,
-            font_family,
-            font_size,
-            color,
-            outline_width,
-            outline_color,
-            bold,
-            italic,
-            horizontal_alignment,
-            vertical_alignment,
-            ..
-        } = self
-        else {
-            return Ok(());
+    pub(super) fn validate(&self, item: &ItemSchema) -> Result<(), PluginError> {
+        self.shader().validate("item", item.id())?;
+        let vertex_count = match self {
+            Self::Procedural { vertex_count, .. }
+            | Self::Media { vertex_count, .. }
+            | Self::Text { vertex_count, .. }
+            | Self::RenderResult { vertex_count, .. } => *vertex_count,
         };
+        if vertex_count == 0 {
+            return Err(PluginError::invalid_definition(format!(
+                "item '{}' vertex count must be non-zero",
+                item.id()
+            )));
+        }
+        if matches!(self, Self::Media { .. }) && item.texture_inputs().next().is_none() {
+            return Err(PluginError::invalid_definition(format!(
+                "texture item '{}' must define the file capability",
+                item.id()
+            )));
+        }
         let mistyped = |property_id: &str, expected: &str| {
             PluginError::invalid_definition(format!(
-                "text item '{}' text property '{}' has the wrong type; expected {expected}",
+                "item '{}' visual property '{}' has the wrong type; expected {expected}",
                 item.id(),
                 property_id
             ))
@@ -155,7 +168,7 @@ impl VisualCapability {
         let property = |property_id: &str| {
             item.property(property_id).ok_or_else(|| {
                 PluginError::invalid_definition(format!(
-                    "text item '{}' is missing text property '{}'",
+                    "item '{}' visual capability references missing property '{}'",
                     item.id(),
                     property_id
                 ))
@@ -182,44 +195,87 @@ impl VisualCapability {
             }
             Ok(())
         };
-        tuple_f32_pair(size)?;
-        scalar(text, ScalarPropertyType::String)?;
-        let font_property = property(font_family)?;
-        if !matches!(
-            font_property.ty(),
-            PropertyType::Array {
-                element_type: crate::domain::property::PropertyValueType::Scalar(
-                    ScalarPropertyType::String,
-                ),
-                ..
-            }
-        ) {
-            return Err(mistyped(font_family, "an array of strings"));
-        }
-        scalar(font_size, ScalarPropertyType::F32)?;
-        scalar(color, ScalarPropertyType::Color)?;
-        scalar(outline_width, ScalarPropertyType::F32)?;
-        scalar(outline_color, ScalarPropertyType::Color)?;
-        scalar(bold, ScalarPropertyType::Bool)?;
-        scalar(italic, ScalarPropertyType::Bool)?;
-        for property_id in [horizontal_alignment, vertical_alignment] {
-            let property = property(property_id)?;
-            let scalar_type = match property.ty() {
-                PropertyType::Value(value_type) => value_type.scalar_at(None),
-                PropertyType::Array { .. } => None,
-            };
-            let Some(ScalarPropertyType::Enum(enumeration)) = scalar_type else {
-                return Err(mistyped(property_id, "an enum type"));
-            };
-            let values = enumeration.values();
-            if values.len() != 3
-                || !(values.contains(&0) && values.contains(&1) && values.contains(&2))
+        let layer_offset = |property_id: &str| {
+            scalar(property_id, ScalarPropertyType::U32)?;
+            let constraints = property(property_id)?.scalar_constraints(None);
+            if constraints.min.is_none_or(|min| min < 1.)
+                || constraints
+                    .max
+                    .is_none_or(|max| max > f64::from(MAX_RENDER_RESULT_OFFSET))
             {
                 return Err(mistyped(
                     property_id,
-                    "an enum containing exactly 0, 1, and 2",
+                    &format!("a u32 constrained to 1..={MAX_RENDER_RESULT_OFFSET}"),
                 ));
             }
+            Ok(())
+        };
+        match self {
+            Self::Text {
+                size,
+                text,
+                font_family,
+                font_size,
+                color,
+                outline_width,
+                outline_color,
+                bold,
+                italic,
+                horizontal_alignment,
+                vertical_alignment,
+                ..
+            } => {
+                tuple_f32_pair(size)?;
+                scalar(text, ScalarPropertyType::String)?;
+                let font_property = property(font_family)?;
+                if !matches!(
+                    font_property.ty(),
+                    PropertyType::Array {
+                        element_type: crate::domain::property::PropertyValueType::Scalar(
+                            ScalarPropertyType::String,
+                        ),
+                        ..
+                    }
+                ) {
+                    return Err(mistyped(font_family, "an array of strings"));
+                }
+                scalar(font_size, ScalarPropertyType::F32)?;
+                scalar(color, ScalarPropertyType::Color)?;
+                scalar(outline_width, ScalarPropertyType::F32)?;
+                scalar(outline_color, ScalarPropertyType::Color)?;
+                scalar(bold, ScalarPropertyType::Bool)?;
+                scalar(italic, ScalarPropertyType::Bool)?;
+                for property_id in [horizontal_alignment, vertical_alignment] {
+                    let property = property(property_id)?;
+                    let scalar_type = match property.ty() {
+                        PropertyType::Value(value_type) => value_type.scalar_at(None),
+                        PropertyType::Array { .. } => None,
+                    };
+                    let Some(ScalarPropertyType::Enum(enumeration)) = scalar_type else {
+                        return Err(mistyped(property_id, "an enum type"));
+                    };
+                    let values = enumeration.values();
+                    if values.len() != 3
+                        || !(values.contains(&0) && values.contains(&1) && values.contains(&2))
+                    {
+                        return Err(mistyped(
+                            property_id,
+                            "an enum containing exactly 0, 1, and 2",
+                        ));
+                    }
+                }
+            }
+            Self::RenderResult {
+                start_offset,
+                end_offset,
+                hide_original,
+                ..
+            } => {
+                layer_offset(start_offset)?;
+                layer_offset(end_offset)?;
+                scalar(hide_original, ScalarPropertyType::Bool)?;
+            }
+            Self::Procedural { .. } | Self::Media { .. } => {}
         }
         Ok(())
     }
@@ -228,32 +284,9 @@ impl VisualCapability {
         match self {
             Self::Procedural { shader, .. }
             | Self::Media { shader, .. }
-            | Self::Text { shader, .. } => shader,
+            | Self::Text { shader, .. }
+            | Self::RenderResult { shader, .. } => shader,
         }
-    }
-
-    pub(crate) const fn vertex_count(&self) -> u32 {
-        match self {
-            Self::Procedural { vertex_count, .. }
-            | Self::Media { vertex_count, .. }
-            | Self::Text { vertex_count, .. } => *vertex_count,
-        }
-    }
-
-    pub(crate) const fn is_procedural(&self) -> bool {
-        matches!(self, Self::Procedural { .. })
-    }
-
-    pub(crate) const fn is_media(&self) -> bool {
-        matches!(self, Self::Media { .. })
-    }
-
-    pub(crate) const fn uses_texture_pipeline(&self) -> bool {
-        matches!(self, Self::Media { .. } | Self::Text { .. })
-    }
-
-    pub(crate) const fn is_text(&self) -> bool {
-        matches!(self, Self::Text { .. })
     }
 }
 

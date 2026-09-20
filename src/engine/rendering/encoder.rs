@@ -46,11 +46,11 @@ impl FrameRenderer {
         pass.draw(0..pipeline.vertex_count, instances);
     }
 
-    pub(super) fn encode_video_pass(
+    pub(super) fn encode_texture_pass(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         target_view: &wgpu::TextureView,
-        video: &TextureResource,
+        bind_group: &wgpu::BindGroup,
         shader: &TextureShaderId,
         load: wgpu::LoadOp<wgpu::Color>,
     ) {
@@ -73,8 +73,51 @@ impl FrameRenderer {
             .get(shader)
             .expect("scene texture item shaders were validated before encoding");
         pass.set_pipeline(&pipeline.pipeline);
-        pass.set_bind_group(0, &video.bind_group, &[]);
+        pass.set_bind_group(0, bind_group, &[]);
         pass.draw(0..pipeline.vertex_count, 0..1);
+    }
+
+    fn rendered_texture_bind_group(
+        &self,
+        texture: &TextureResource,
+        input: &wgpu::TextureView,
+        shader: &TextureShaderId,
+    ) -> Result<wgpu::BindGroup, RenderError> {
+        if texture.input_count != 1 || !matches!(&texture.binding, TextureBinding::Rendered) {
+            return Err(RenderError::backend(
+                "rendered texture resource has an invalid input shape",
+            ));
+        }
+        let pipeline = self
+            .texture_pipelines
+            .get(shader)
+            .ok_or_else(|| RenderError::backend("rendered texture shader is not registered"))?;
+        Ok(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("zerium-rendered-texture-bind-group"),
+            layout: &pipeline.bind_group_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: texture._item.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: texture._item_properties.as_entire_binding(),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 2,
+                    resource: wgpu::BindingResource::TextureView(input),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 3,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 4,
+                    resource: texture._input_properties.as_entire_binding(),
+                },
+            ],
+        }))
     }
 
     pub(super) fn encode_effect_pass(
@@ -345,13 +388,47 @@ impl FrameRenderer {
                                 "temporal render source references a missing texture",
                             )
                         })?;
-                        self.encode_video_pass(
+                        let TextureBinding::Static(bind_group) = &texture.binding else {
+                            return Err(RenderError::backend(
+                                "decoded texture source has no static bind group",
+                            ));
+                        };
+                        self.encode_texture_pass(
                             encoder,
                             &resources.effect_view_a,
-                            texture,
+                            bind_group,
                             shader,
                             wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         );
+                    }
+                    RenderSourceCommand::RenderedTexture {
+                        input,
+                        index,
+                        shader,
+                    } => {
+                        let input_is_a = self.encode_render_node(
+                            encoder, resources, textures, input, stride, depth,
+                        )?;
+                        let (input_view, target_view) = if input_is_a {
+                            (&resources.effect_view_a, &resources.effect_view_b)
+                        } else {
+                            (&resources.effect_view_b, &resources.effect_view_a)
+                        };
+                        let texture = textures.get(*index).ok_or_else(|| {
+                            RenderError::backend(
+                                "rendered source references a missing texture resource",
+                            )
+                        })?;
+                        let bind_group =
+                            self.rendered_texture_bind_group(texture, input_view, shader)?;
+                        self.encode_texture_pass(
+                            encoder,
+                            target_view,
+                            &bind_group,
+                            shader,
+                            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        );
+                        return Ok(!input_is_a);
                     }
                 }
                 Ok(true)
@@ -401,15 +478,23 @@ impl FrameRenderer {
                                     "scene node references a missing texture input",
                                 )
                             })?;
-                            self.encode_video_pass(
+                            let TextureBinding::Static(bind_group) = &texture.binding else {
+                                return Err(RenderError::backend(
+                                    "decoded texture source has no static bind group",
+                                ));
+                            };
+                            self.encode_texture_pass(
                                 encoder,
                                 &composition.view,
-                                texture,
+                                bind_group,
                                 shader,
                                 wgpu::LoadOp::Load,
                             );
                         }
-                        RenderNodeCommandKind::Composite { .. }
+                        RenderNodeCommandKind::Source(RenderSourceCommand::RenderedTexture {
+                            ..
+                        })
+                        | RenderNodeCommandKind::Composite { .. }
                         | RenderNodeCommandKind::Effect { .. }
                         | RenderNodeCommandKind::TemporalEffect { .. } => {
                             let child_is_a = self.encode_render_node(
@@ -592,10 +677,21 @@ impl FrameRenderer {
                     wgpu::LoadOp::Load,
                 ),
                 RenderCommand::Texture { index, shader } => {
-                    let video = textures.get(*index).ok_or_else(|| {
+                    let texture = textures.get(*index).ok_or_else(|| {
                         RenderError::backend("video render command references a missing frame")
                     })?;
-                    self.encode_video_pass(encoder, target_view, video, shader, wgpu::LoadOp::Load);
+                    let TextureBinding::Static(bind_group) = &texture.binding else {
+                        return Err(RenderError::backend(
+                            "decoded texture source has no static bind group",
+                        ));
+                    };
+                    self.encode_texture_pass(
+                        encoder,
+                        target_view,
+                        bind_group,
+                        shader,
+                        wgpu::LoadOp::Load,
+                    );
                 }
                 RenderCommand::Effected { node, render_scale } => {
                     let resources = resources_by_scale
@@ -771,7 +867,7 @@ impl FrameRenderer {
             .map_err(|_| RenderError::backend("video texture cache lock poisoned"))?;
         for resource in texture_resources {
             cache.scratch.push(ScratchTextureBuffers {
-                input_count: resource._uploaded_frames.len(),
+                input_count: resource.input_count,
                 property_size: usize::try_from(resource._item_properties.size()).map_err(|_| {
                     RenderError::backend("texture item property size exceeds usize")
                 })?,

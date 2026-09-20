@@ -24,7 +24,7 @@ use crate::{
         plugin::{ComputeDispatchDimension, EffectPassSchema, ItemSchema, VisualCapability},
         timeline::{
             EffectInstance, EvaluatedSceneNode, EvaluatedSceneNodeKind, ItemId, LayerId,
-            ProjectResolution, TimelineItem, TimelineTime, TimelineView,
+            ProjectResolution, RenderResultSettings, TimelineItem, TimelineTime, TimelineView,
         },
     },
     engine::frame::RgbaFrame,
@@ -139,11 +139,17 @@ struct TexturePipeline {
 }
 
 struct TextureResource {
+    input_count: usize,
     _uploaded_frames: Vec<Arc<UploadedVideoFrame>>,
     _input_properties: wgpu::Buffer,
     _item: wgpu::Buffer,
     _item_properties: wgpu::Buffer,
-    bind_group: wgpu::BindGroup,
+    binding: TextureBinding,
+}
+
+enum TextureBinding {
+    Static(wgpu::BindGroup),
+    Rendered,
 }
 
 struct UploadedVideoFrame {

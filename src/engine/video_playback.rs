@@ -12,6 +12,7 @@ use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use crate::{
     domain::{
         media::{MediaAsset, MediaKind, MediaSourceId},
+        plugin::VisualCapability,
         timeline::{Frame, FrameRate, ItemId, LayerId, TimelineItem, TimelineTime},
     },
     engine::{
@@ -915,7 +916,7 @@ impl VideoPlaybackEngine {
             .iter()
             .filter_map(|(_, item)| {
                 let schema = item.schema()?;
-                if !schema.is_media() {
+                if !matches!(schema.visual(), Some(VisualCapability::Media { .. })) {
                     return Some(Vec::new());
                 }
                 let local_frame = Frame::new(playhead.get().saturating_sub(item.start.get()));

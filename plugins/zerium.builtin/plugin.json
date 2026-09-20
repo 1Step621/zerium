@@ -1691,6 +1691,88 @@
           "scene_bindable": true
         }
       ]
+    },
+    {
+      "id": "render_result",
+      "label": "レンダー結果",
+      "category": "合成",
+      "tags": ["レイヤー", "範囲", "render", "composite"],
+      "symbol": "▣",
+      "capabilities": {
+        "visual": {
+          "type": "render_result",
+          "shader": {
+            "source": "render_result.wesl"
+          },
+          "start_offset": "start_offset",
+          "end_offset": "end_offset",
+          "hide_original": "hide_original"
+        }
+      },
+      "properties": [
+        {
+          "id": "start_offset",
+          "type": {
+            "kind": "value",
+            "value": "u32"
+          },
+          "default": {
+            "type": "u32",
+            "value": 1
+          },
+          "label": "開始オフセット",
+          "scalars": [
+            {
+              "constraints": {
+                "min": 1,
+                "max": 30
+              },
+              "ui": {
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
+        },
+        {
+          "id": "end_offset",
+          "type": {
+            "kind": "value",
+            "value": "u32"
+          },
+          "default": {
+            "type": "u32",
+            "value": 1
+          },
+          "label": "終了オフセット",
+          "scalars": [
+            {
+              "constraints": {
+                "min": 1,
+                "max": 30
+              },
+              "ui": {
+                "step": 1
+              }
+            }
+          ],
+          "scene_bindable": true
+        },
+        {
+          "id": "hide_original",
+          "type": {
+            "kind": "value",
+            "value": "bool"
+          },
+          "default": {
+            "type": "bool",
+            "value": false
+          },
+          "label": "原本を隠す",
+          "scalars": [{}],
+          "scene_bindable": true
+        }
+      ]
     }
   ],
   "effects": [

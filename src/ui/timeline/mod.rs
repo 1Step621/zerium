@@ -186,6 +186,14 @@ struct TimelineGrid {
     minor_ticks: Rc<Vec<f32>>,
 }
 
+#[derive(Clone, Copy)]
+struct RenderResultHighlight {
+    top_layer: LayerId,
+    bottom_layer: LayerId,
+    start: Frame,
+    end: Frame,
+}
+
 #[derive(Clone)]
 struct LayerRenderState {
     editor: Entity<TimelineEditor>,
@@ -201,6 +209,7 @@ struct LayerRenderState {
     selected_item_ids: Rc<HashSet<ItemId>>,
     hidden_layers: Rc<HashSet<LayerId>>,
     hidden_items: Rc<HashSet<ItemId>>,
+    render_result_highlights: Rc<Vec<RenderResultHighlight>>,
     explorer_drop_target: Option<ExplorerDropTarget>,
     grid: TimelineGrid,
 }
@@ -2192,6 +2201,30 @@ impl Timeline {
                     .x_at_seconds(state.frame_rate.frame_to_seconds(target.start))
             });
         let explorer_drop_highlight = state.colors.primary.opacity(0.08);
+        let render_result_highlights = state
+            .render_result_highlights
+            .iter()
+            .copied()
+            .filter_map(|highlight| {
+                let layer = layer_index as u64;
+                if !(highlight.top_layer.get()..=highlight.bottom_layer.get()).contains(&layer) {
+                    return None;
+                }
+                let start = state.frame_rate.frame_to_seconds(highlight.start);
+                let end = state.frame_rate.frame_to_seconds(highlight.end);
+                if end <= visible_range.0 || start >= visible_range.1 {
+                    return None;
+                }
+                let left = state.viewport.x_at_seconds(start);
+                let width = ((end - start) * state.viewport.pixels_per_second()) as f32;
+                Some((
+                    left,
+                    width,
+                    layer == highlight.top_layer.get(),
+                    layer == highlight.bottom_layer.get(),
+                ))
+            })
+            .collect::<Vec<_>>();
         let timeline_id = cx.entity_id();
 
         div()
@@ -2253,6 +2286,22 @@ impl Timeline {
                                 state.colors.border.opacity(0.45),
                                 state.colors.border.opacity(0.20),
                             ))
+                            .children(render_result_highlights.into_iter().map(
+                                |(left, width, is_top, is_bottom)| {
+                                    div()
+                                        .absolute()
+                                        .top_0()
+                                        .bottom_0()
+                                        .left(px(left))
+                                        .w(px(width))
+                                        .border_l_1()
+                                        .border_r_1()
+                                        .when(is_top, |highlight| highlight.border_t_1())
+                                        .when(is_bottom, |highlight| highlight.border_b_1())
+                                        .border_color(state.colors.primary.opacity(0.55))
+                                        .bg(state.colors.primary.opacity(0.09))
+                                },
+                            ))
                             .children(items.into_iter().filter_map(|item| {
                                 Self::timeline_item(
                                     item,
@@ -2305,16 +2354,33 @@ impl Render for Timeline {
             playhead,
             playhead_seconds,
             selected_item_ids,
+            render_result_highlights,
             hidden_layers,
             hidden_items,
             active_scene,
         ) = {
             let editor = self.editor.read(cx);
+            let selected_items = editor.selected_items();
+            let render_result_highlights = selected_items
+                .iter()
+                .filter_map(|item| {
+                    let source_layer = editor.item_layer(item.id)?;
+                    let settings = item.render_result_settings()?;
+                    let (top_layer, bottom_layer) = settings.layer_bounds(source_layer)?;
+                    Some(RenderResultHighlight {
+                        top_layer,
+                        bottom_layer,
+                        start: item.start,
+                        end: item.end_exclusive(),
+                    })
+                })
+                .collect();
             (
                 editor.frame_rate(),
                 editor.playhead(),
                 editor.playhead_seconds(),
-                Rc::new(editor.selected_item_ids().collect()),
+                Rc::new(selected_items.iter().map(|item| item.id).collect()),
+                Rc::new(render_result_highlights),
                 Rc::new(editor.hidden_layer_ids().collect()),
                 Rc::new(editor.hidden_item_ids().collect()),
                 editor
@@ -2341,6 +2407,7 @@ impl Render for Timeline {
             frame_rate,
             playhead_seconds,
             selected_item_ids,
+            render_result_highlights,
             hidden_layers,
             hidden_items,
             explorer_drop_target: self.explorer_drop_target,

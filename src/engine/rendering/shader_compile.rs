@@ -9,7 +9,9 @@ use super::{
     },
     wesl,
 };
-use crate::domain::plugin::{EffectPassSchema, PassConstantSchema, Plugin, PluginRegistry};
+use crate::domain::plugin::{
+    EffectPassSchema, PassConstantSchema, Plugin, PluginRegistry, VisualCapability,
+};
 
 pub(crate) fn compile_plugins(
     plugins: &PluginRegistry,
@@ -18,33 +20,49 @@ pub(crate) fn compile_plugins(
     let mut item_sources = HashMap::<(String, String), Arc<str>>::new();
 
     for (plugin_id, schema) in plugins.items() {
-        let Some(shader) = schema.visual_shader() else {
+        let Some(visual) = schema.visual() else {
             continue;
         };
+        let shader = visual.shader();
         let source = compile_item_source(plugins, &mut item_sources, plugin_id, shader.source())?;
-        if schema.is_procedural() {
-            let id = ItemShaderId::plugin_item(plugin_id, schema.id());
-            validate_render_shader(&id, &source, shader.vertex_entry(), shader.fragment_entry())?;
-            compiled.items.push(ItemShaderDescriptor {
-                id,
-                label: shader.source().to_owned(),
-                wgsl: source,
-                vertex_entry: shader.vertex_entry().to_owned(),
-                fragment_entry: shader.fragment_entry().to_owned(),
-                vertex_count: schema.vertex_count().expect("visual shader was checked"),
-            });
-        } else if schema.uses_texture_pipeline() {
-            let id = TextureShaderId::plugin_item(plugin_id, schema.id());
-            validate_render_shader(&id, &source, shader.vertex_entry(), shader.fragment_entry())?;
-            compiled.textures.push(TextureShaderDescriptor {
-                id,
-                label: shader.source().to_owned(),
-                wgsl: source,
-                vertex_entry: shader.vertex_entry().to_owned(),
-                fragment_entry: shader.fragment_entry().to_owned(),
-                vertex_count: schema.vertex_count().expect("visual shader was checked"),
-                input_ids: schema.texture_input_ids(),
-            });
+        match visual {
+            VisualCapability::Procedural { vertex_count, .. } => {
+                let id = ItemShaderId::plugin_item(plugin_id, schema.id());
+                validate_render_shader(
+                    &id,
+                    &source,
+                    shader.vertex_entry(),
+                    shader.fragment_entry(),
+                )?;
+                compiled.items.push(ItemShaderDescriptor {
+                    id,
+                    label: shader.source().to_owned(),
+                    wgsl: source,
+                    vertex_entry: shader.vertex_entry().to_owned(),
+                    fragment_entry: shader.fragment_entry().to_owned(),
+                    vertex_count: *vertex_count,
+                });
+            }
+            VisualCapability::Media { vertex_count, .. }
+            | VisualCapability::Text { vertex_count, .. }
+            | VisualCapability::RenderResult { vertex_count, .. } => {
+                let id = TextureShaderId::plugin_item(plugin_id, schema.id());
+                validate_render_shader(
+                    &id,
+                    &source,
+                    shader.vertex_entry(),
+                    shader.fragment_entry(),
+                )?;
+                compiled.textures.push(TextureShaderDescriptor {
+                    id,
+                    label: shader.source().to_owned(),
+                    wgsl: source,
+                    vertex_entry: shader.vertex_entry().to_owned(),
+                    fragment_entry: shader.fragment_entry().to_owned(),
+                    vertex_count: *vertex_count,
+                    input_ids: schema.texture_input_ids(),
+                });
+            }
         }
     }
 

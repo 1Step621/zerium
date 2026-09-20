@@ -89,6 +89,7 @@ what supplies pixels:
 - `procedural`: WESL generates the item directly.
 - `media`: WESL displays one or more decoded video/image inputs.
 - `text`: Zerium rasterizes text and supplies it as a generated texture input.
+- `render_result`: WESL receives an inclusive layer range as a texture input.
 
 ```json
 {
@@ -153,9 +154,31 @@ The rasterizer resolves values through these references, so text properties can
 use any IDs as long as each referenced property has the expected storage
 type. Alignment references must be enums containing exactly `0`, `1`, and `2`.
 
+A render-result visual names two `u32` properties containing offsets behind the
+item's layer. An offset of `1` means the layer immediately behind the item. The
+range is inclusive and may be entered in either order. Layers beyond the back of
+the composition contribute transparency. Inside a scene, offsets are measured
+within that scene. Both properties must constrain their values to the `1..=30`
+range. It also names a bool property that controls whether the referenced layers
+remain in the containing scene's normal output. The referenced layers still
+contribute to the texture supplied to the render-result shader.
+
+```json
+"visual": {
+  "type": "render_result",
+  "shader": { "source": "render_result.wesl" },
+  "start_offset": "start_offset",
+  "end_offset": "end_offset",
+  "hide_original": "hide_original"
+}
+```
+
+The host composites the selected layers, supplies the result as `slot_0`, runs
+the item shader, and then applies effects attached to the render-result item.
+
 For each visual file input slot `<index>`, media WESL receives
 `slot_<index>`, `slot_<index>_size()`, and the shared
-`media_sampler`. Text receives `slot_0`.
+`media_sampler`. Text and render-result visuals receive `slot_0`.
 
 ## Properties
 

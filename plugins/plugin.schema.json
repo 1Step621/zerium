@@ -137,92 +137,120 @@
       }
     },
     "visual": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["type", "shader"],
-      "properties": {
-        "type": {
-          "enum": ["procedural", "media", "text"]
-        },
-        "shader": {
-          "$ref": "#/$defs/shader"
-        },
-        "vertex_count": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967295
-        },
-        "size": {
-          "$ref": "#/$defs/wgslId"
-        },
-        "text": {
-          "$ref": "#/$defs/wgslId"
-        },
-        "font_family": {
-          "$ref": "#/$defs/wgslId"
-        },
-        "font_size": {
-          "$ref": "#/$defs/wgslId"
-        },
-        "color": {
-          "$ref": "#/$defs/wgslId"
-        },
-        "outline_width": {
-          "$ref": "#/$defs/wgslId"
-        },
-        "outline_color": {
-          "$ref": "#/$defs/wgslId"
-        },
-        "bold": {
-          "$ref": "#/$defs/wgslId"
-        },
-        "italic": {
-          "$ref": "#/$defs/wgslId"
-        },
-        "horizontal_alignment": {
-          "$ref": "#/$defs/wgslId"
-        },
-        "vertical_alignment": {
-          "$ref": "#/$defs/wgslId"
-        }
-      },
-      "allOf": [
+      "oneOf": [
         {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "text"
-              }
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "shader"],
+          "properties": {
+            "type": {
+              "enum": ["procedural", "media"]
+            },
+            "shader": {
+              "$ref": "#/$defs/shader"
+            },
+            "vertex_count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
             }
-          },
-          "then": {
-            "required": [
-              "size",
-              "text",
-              "font_family",
-              "font_size",
-              "color",
-              "outline_width",
-              "outline_color",
-              "bold",
-              "italic",
-              "horizontal_alignment",
-              "vertical_alignment"
-            ]
-          },
-          "else": {
-            "properties": {
-              "size": false,
-              "text": false,
-              "font_family": false,
-              "font_size": false,
-              "color": false,
-              "outline_width": false,
-              "outline_color": false,
-              "bold": false,
-              "italic": false,
-              "horizontal_alignment": false,
-              "vertical_alignment": false
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "shader",
+            "size",
+            "text",
+            "font_family",
+            "font_size",
+            "color",
+            "outline_width",
+            "outline_color",
+            "bold",
+            "italic",
+            "horizontal_alignment",
+            "vertical_alignment"
+          ],
+          "properties": {
+            "type": {
+              "const": "text"
+            },
+            "shader": {
+              "$ref": "#/$defs/shader"
+            },
+            "vertex_count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            },
+            "size": {
+              "$ref": "#/$defs/wgslId"
+            },
+            "text": {
+              "$ref": "#/$defs/wgslId"
+            },
+            "font_family": {
+              "$ref": "#/$defs/wgslId"
+            },
+            "font_size": {
+              "$ref": "#/$defs/wgslId"
+            },
+            "color": {
+              "$ref": "#/$defs/wgslId"
+            },
+            "outline_width": {
+              "$ref": "#/$defs/wgslId"
+            },
+            "outline_color": {
+              "$ref": "#/$defs/wgslId"
+            },
+            "bold": {
+              "$ref": "#/$defs/wgslId"
+            },
+            "italic": {
+              "$ref": "#/$defs/wgslId"
+            },
+            "horizontal_alignment": {
+              "$ref": "#/$defs/wgslId"
+            },
+            "vertical_alignment": {
+              "$ref": "#/$defs/wgslId"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "shader",
+            "start_offset",
+            "end_offset",
+            "hide_original"
+          ],
+          "properties": {
+            "type": {
+              "const": "render_result"
+            },
+            "shader": {
+              "$ref": "#/$defs/shader"
+            },
+            "vertex_count": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 4294967295
+            },
+            "start_offset": {
+              "$ref": "#/$defs/wgslId"
+            },
+            "end_offset": {
+              "$ref": "#/$defs/wgslId"
+            },
+            "hide_original": {
+              "$ref": "#/$defs/wgslId"
             }
           }
         }

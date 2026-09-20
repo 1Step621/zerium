@@ -1,4 +1,4 @@
-use super::scene::EffectProperties;
+use super::scene::{EffectProperties, RenderTextureInput};
 use super::*;
 
 #[repr(C)]
@@ -76,6 +76,11 @@ pub(super) enum RenderSourceCommand {
         index: usize,
         shader: TextureShaderId,
     },
+    RenderedTexture {
+        input: Box<RenderNodeCommand>,
+        index: usize,
+        shader: TextureShaderId,
+    },
 }
 
 #[derive(Debug, PartialEq)]
@@ -103,6 +108,9 @@ pub(super) enum RenderNodeCommandKind {
 impl RenderNodeCommand {
     pub(super) fn temporal_depth(&self) -> usize {
         match &self.kind {
+            RenderNodeCommandKind::Source(RenderSourceCommand::RenderedTexture {
+                input, ..
+            }) => input.temporal_depth(),
             RenderNodeCommandKind::Source(_) => 0,
             RenderNodeCommandKind::Composite { children } => {
                 children.iter().map(Self::temporal_depth).max().unwrap_or(0)
@@ -120,6 +128,9 @@ impl RenderNodeCommand {
 
     pub(super) fn composition_depth(&self) -> usize {
         match &self.kind {
+            RenderNodeCommandKind::Source(RenderSourceCommand::RenderedTexture {
+                input, ..
+            }) => input.composition_depth(),
             RenderNodeCommandKind::Source(_) => 0,
             RenderNodeCommandKind::Composite { children } => {
                 1 + children
@@ -173,10 +184,15 @@ pub(super) struct EncodedScene {
 
 pub(super) struct EncodedTexture {
     pub(super) shader: TextureShaderId,
-    pub(super) frames: Vec<Arc<RgbaFrame>>,
+    pub(super) input: EncodedTextureInput,
     pub(super) properties: ItemProperties,
     pub(super) target_size: RenderSize,
     pub(super) composition_size: RenderSize,
+}
+
+pub(super) enum EncodedTextureInput {
+    Frames(Vec<Arc<RgbaFrame>>),
+    Rendered,
 }
 
 fn encode_effect_pass(
@@ -264,17 +280,33 @@ impl EncodeContext<'_> {
                 })
             }
             RenderItem::Texture(item) => {
+                let (input, render_input) = match &item.input {
+                    RenderTextureInput::Rendered(input) => (
+                        EncodedTextureInput::Rendered,
+                        Some(self.encode_node(input)?),
+                    ),
+                    RenderTextureInput::Frames(frames) => {
+                        (EncodedTextureInput::Frames(frames.clone()), None)
+                    }
+                };
                 let index = self.textures.len();
                 self.textures.push(EncodedTexture {
                     shader: item.shader.clone(),
-                    frames: item.frames.clone(),
+                    input,
                     properties: item.properties.clone(),
                     target_size: item.target_size,
                     composition_size: self.composition_size,
                 });
-                Ok(RenderSourceCommand::Texture {
-                    index,
-                    shader: item.shader.clone(),
+                Ok(match render_input {
+                    Some(input) => RenderSourceCommand::RenderedTexture {
+                        input: Box::new(input),
+                        index,
+                        shader: item.shader.clone(),
+                    },
+                    None => RenderSourceCommand::Texture {
+                        index,
+                        shader: item.shader.clone(),
+                    },
                 })
             }
         }
@@ -460,7 +492,7 @@ pub(super) fn encode_items(scene: &RenderScene) -> Result<EncodedScene, RenderEr
                 Some(RenderItem::Shader(item.clone())),
             ),
             RenderNodeContent::Item(RenderItem::Texture(item)) => (
-                !item.effects.is_empty(),
+                !item.effects.is_empty() || matches!(&item.input, RenderTextureInput::Rendered(_)),
                 Some(RenderItem::Texture(item.clone())),
             ),
             RenderNodeContent::Scene { effects, .. } => (!effects.is_empty(), None),
@@ -493,6 +525,9 @@ pub(super) fn encode_items(scene: &RenderScene) -> Result<EncodedScene, RenderEr
             },
             RenderSourceCommand::Texture { index, shader } => {
                 commands.push(RenderCommand::Texture { index, shader });
+            }
+            RenderSourceCommand::RenderedTexture { .. } => {
+                unreachable!("render-result sources are encoded as nested commands")
             }
             RenderSourceCommand::Transparent => unreachable!("scene items are never transparent"),
         }

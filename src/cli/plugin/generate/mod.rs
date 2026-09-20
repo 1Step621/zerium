@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fs, path::Path};
 
-use crate::domain::plugin::{PluginManifest, ShaderKind};
+use crate::domain::plugin::{PluginManifest, ShaderKind, VisualCapability};
 
 mod property;
 
@@ -37,18 +37,23 @@ pub(crate) fn generate(path: Option<&Path>) -> Result<(), String> {
 
     let mut contracts = BTreeMap::<String, ShaderContract>::new();
     for schema in manifest.items() {
-        let Some(shader) = schema.visual_shader() else {
+        let Some(visual) = schema.visual() else {
             continue;
         };
+        let shader = visual.shader();
         insert_contract(
             &mut contracts,
             shader.source(),
             ShaderContract {
                 kind: ShaderKind::Item,
                 properties: property::Layout::from_abi(schema.property_layout()),
-                media_interface: schema
-                    .uses_texture_pipeline()
-                    .then(|| texture_media_interface(&schema.texture_input_ids())),
+                media_interface: matches!(
+                    visual,
+                    VisualCapability::Media { .. }
+                        | VisualCapability::Text { .. }
+                        | VisualCapability::RenderResult { .. }
+                )
+                .then(|| texture_media_interface(&schema.texture_input_ids())),
             },
         )?;
     }

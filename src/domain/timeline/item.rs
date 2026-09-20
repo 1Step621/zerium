@@ -2,15 +2,37 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::domain::animation::{ScalarAnimationAddress, ScalarAnimations, ScalarTrack};
 use crate::domain::media::MediaAsset;
-use crate::domain::plugin::{EffectSchema, ItemSchema};
+use crate::domain::plugin::{EffectSchema, ItemSchema, VisualCapability};
 use crate::domain::property::{PropertyElementId, PropertyValue, PropertyValues};
 
 use super::{
-    ids::{EffectInstanceId, ItemId, SceneId},
+    ids::{EffectInstanceId, ItemId, LayerId, SceneId},
     time::{Frame, FrameDuration, TimelineTime},
 };
 
 const MAX_ITEM_LABEL_CHARS: usize = 40;
+
+#[derive(Clone, Copy)]
+pub(crate) struct RenderResultSettings {
+    pub start_offset: u64,
+    pub end_offset: u64,
+    pub hide_original: bool,
+}
+
+impl RenderResultSettings {
+    pub(crate) fn includes(self, source: LayerId, candidate: LayerId) -> bool {
+        let Some(offset) = source.get().checked_sub(candidate.get()) else {
+            return false;
+        };
+        (self.start_offset..=self.end_offset).contains(&offset)
+    }
+
+    pub(crate) fn layer_bounds(self, source: LayerId) -> Option<(LayerId, LayerId)> {
+        let top = source.get().saturating_sub(self.end_offset);
+        let bottom = source.get().checked_sub(self.start_offset)?;
+        Some((LayerId::new(top), LayerId::new(bottom)))
+    }
+}
 
 fn concise_label(value: &str) -> Option<String> {
     let first_line = value.lines().map(str::trim).find(|line| !line.is_empty())?;
@@ -227,6 +249,34 @@ impl TimelineItem {
             Some(PropertyValue::F32(value)) => value.max(0.),
             _ => 1.,
         }
+    }
+
+    pub(crate) fn render_result_settings(&self) -> Option<RenderResultSettings> {
+        let VisualCapability::RenderResult {
+            start_offset,
+            end_offset,
+            hide_original,
+            ..
+        } = self.schema()?.visual()?
+        else {
+            return None;
+        };
+        let PropertyValue::U32(start) = self.properties.property(start_offset)? else {
+            return None;
+        };
+        let PropertyValue::U32(end) = self.properties.property(end_offset)? else {
+            return None;
+        };
+        let PropertyValue::Bool(hide_original) = self.properties.property(hide_original)? else {
+            return None;
+        };
+        let start = u64::from(*start);
+        let end = u64::from(*end);
+        Some(RenderResultSettings {
+            start_offset: start.min(end),
+            end_offset: start.max(end),
+            hide_original: *hide_original,
+        })
     }
 
     pub(super) fn current_aspect_ratio(&self, schema: &ItemSchema) -> Option<f32> {

@@ -10,7 +10,6 @@ use super::abi::PropertyLayout;
 use super::capability::{
     AudioCapability, FileCapability, ItemCapabilities, MediaType, VisualCapability,
 };
-use super::shader::ShaderSchema;
 use super::validation::{validate_catalog_entry, validate_property_schemas};
 use crate::domain::property::{PropertySchema, PropertyType, PropertyValues, ScalarPropertyType};
 
@@ -108,31 +107,6 @@ impl ItemSchema {
         self.capabilities.visual()
     }
 
-    pub(crate) fn visual_shader(&self) -> Option<&ShaderSchema> {
-        self.visual().map(VisualCapability::shader)
-    }
-
-    pub(crate) fn vertex_count(&self) -> Option<u32> {
-        self.visual().map(VisualCapability::vertex_count)
-    }
-
-    pub(crate) fn is_procedural(&self) -> bool {
-        self.visual().is_some_and(VisualCapability::is_procedural)
-    }
-
-    pub(crate) fn is_media(&self) -> bool {
-        self.visual().is_some_and(VisualCapability::is_media)
-    }
-
-    pub(crate) fn is_text(&self) -> bool {
-        self.visual().is_some_and(VisualCapability::is_text)
-    }
-
-    pub(crate) fn uses_texture_pipeline(&self) -> bool {
-        self.visual()
-            .is_some_and(VisualCapability::uses_texture_pipeline)
-    }
-
     pub(crate) fn texture_inputs(&self) -> impl Iterator<Item = &FileCapability> {
         self.files()
             .iter()
@@ -140,12 +114,13 @@ impl ItemSchema {
     }
 
     pub(crate) fn texture_input_ids(&self) -> Vec<String> {
-        if self.is_text() {
-            vec!["text".to_owned()]
-        } else {
-            self.texture_inputs()
+        match self.visual() {
+            Some(VisualCapability::Text { .. }) => vec!["text".to_owned()],
+            Some(VisualCapability::RenderResult { .. }) => vec!["render_result".to_owned()],
+            _ => self
+                .texture_inputs()
                 .map(|input| input.id().to_owned())
-                .collect()
+                .collect(),
         }
     }
 
@@ -235,35 +210,19 @@ impl ItemSchema {
                 )));
             }
         }
-        if let Some(visual) = self.visual() {
-            visual.shader().validate("item", &self.id)?;
-            if visual.vertex_count() == 0 {
-                return Err(PluginError::invalid_definition(format!(
-                    "item '{}' vertex count must be non-zero",
-                    self.id
-                )));
-            }
-            if visual.is_media()
-                && !self
-                    .files()
-                    .iter()
-                    .any(|file| matches!(file.media_type(), MediaType::Video | MediaType::Image))
-            {
-                return Err(PluginError::invalid_definition(format!(
-                    "texture item '{}' must define the file capability",
-                    self.id
-                )));
-            }
-        }
         for file in self.files() {
             match file.media_type() {
-                MediaType::Video if !self.visual().is_some_and(VisualCapability::is_media) => {
+                MediaType::Video
+                    if !matches!(self.visual(), Some(VisualCapability::Media { .. })) =>
+                {
                     return Err(PluginError::invalid_definition(format!(
                         "video item '{}' must define a texture visual capability",
                         self.id
                     )));
                 }
-                MediaType::Image if !self.visual().is_some_and(VisualCapability::is_media) => {
+                MediaType::Image
+                    if !matches!(self.visual(), Some(VisualCapability::Media { .. })) =>
+                {
                     return Err(PluginError::invalid_definition(format!(
                         "image item '{}' must define a texture visual capability",
                         self.id
@@ -286,7 +245,7 @@ impl ItemSchema {
             editor.validate(self)?;
         }
         if let Some(visual) = self.visual() {
-            visual.validate_text_properties(self)?;
+            visual.validate(self)?;
         }
         Ok(())
     }

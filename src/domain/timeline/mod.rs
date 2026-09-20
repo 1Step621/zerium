@@ -19,7 +19,7 @@ pub(crate) use document::TimelineDocument;
 pub(crate) use editor::TimelineEditor;
 pub(crate) use evaluation::{EvaluatedSceneNode, EvaluatedSceneNodeKind};
 pub(crate) use ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId};
-pub(crate) use item::{EffectInstance, TimelineItem, TimelineItemKind};
+pub(crate) use item::{EffectInstance, RenderResultSettings, TimelineItem, TimelineItemKind};
 pub(crate) use scene::SceneDefinition;
 pub(crate) use scene::{
     SceneArgument, SceneArgumentPreset, SceneArgumentSchema, SceneBindingOwner, SceneBindingTarget,

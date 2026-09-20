@@ -461,12 +461,15 @@ impl FrameRenderer {
         }
 
         if let Some(frame) = render_items.iter().find_map(|item| match item {
-            RenderItem::Texture(video) => video.frames.iter().find(|frame| {
-                frame.width == 0
-                    || frame.height == 0
-                    || frame.width > limits.max_texture_dimension_2d
-                    || frame.height > limits.max_texture_dimension_2d
-            }),
+            RenderItem::Texture(video) => match &video.input {
+                super::scene::RenderTextureInput::Frames(frames) => frames.iter().find(|frame| {
+                    frame.width == 0
+                        || frame.height == 0
+                        || frame.width > limits.max_texture_dimension_2d
+                        || frame.height > limits.max_texture_dimension_2d
+                }),
+                super::scene::RenderTextureInput::Rendered(_) => None,
+            },
             RenderItem::Shader(_) => None,
         }) {
             return Err(RenderError::backend(format!(
@@ -523,7 +526,11 @@ impl FrameRenderer {
             .map_err(|_| RenderError::backend("video texture cache lock poisoned"))?;
         let desired_frames = textures
             .iter()
-            .flat_map(|texture| texture.frames.iter())
+            .filter_map(|texture| match &texture.input {
+                EncodedTextureInput::Frames(frames) => Some(frames),
+                EncodedTextureInput::Rendered => None,
+            })
+            .flat_map(|frames| frames.iter())
             .collect::<Vec<_>>();
         let mut current_scene = Vec::with_capacity(textures.len());
         let mut resources = Vec::with_capacity(textures.len());
@@ -532,14 +539,22 @@ impl FrameRenderer {
                 .texture_pipelines
                 .get(&encoded.shader)
                 .ok_or_else(|| RenderError::backend("texture shader is not registered"))?;
-            if encoded.frames.len() != pipeline.input_ids.len() {
+            let input_count = match &encoded.input {
+                EncodedTextureInput::Frames(frames) => frames.len(),
+                EncodedTextureInput::Rendered => 1,
+            };
+            if input_count != pipeline.input_ids.len() {
                 return Err(RenderError::backend(format!(
                     "texture input slot count for shader '{}' does not match its plugin schema",
                     encoded.shader
                 )));
             }
-            let mut uploaded_frames = Vec::with_capacity(encoded.frames.len());
-            for frame in &encoded.frames {
+            let mut uploaded_frames = Vec::with_capacity(input_count);
+            let frames = match &encoded.input {
+                EncodedTextureInput::Frames(frames) => frames.as_slice(),
+                EncodedTextureInput::Rendered => &[],
+            };
+            for frame in frames {
                 let uploaded = cache
                     .previous_scene
                     .iter()
@@ -584,6 +599,16 @@ impl FrameRenderer {
                     ],
                 })
                 .collect::<Vec<_>>();
+            if matches!(&encoded.input, EncodedTextureInput::Rendered) {
+                input_metadata.push(GpuTextureInput {
+                    size: [
+                        encoded.target_size.width as f32,
+                        encoded.target_size.height as f32,
+                        0.,
+                        0.,
+                    ],
+                });
+            }
             input_metadata.push(GpuTextureInput {
                 size: [
                     encoded.target_size.width as f32,
@@ -594,17 +619,16 @@ impl FrameRenderer {
             });
             let item_property_size = encoded.properties.len().max(PROPERTY_WORD_SIZE);
             let scratch_index = cache.scratch.iter().position(|scratch| {
-                scratch.input_count == uploaded_frames.len()
-                    && scratch.property_size == item_property_size
+                scratch.input_count == input_count && scratch.property_size == item_property_size
             });
             let scratch = match scratch_index {
                 Some(index) => cache.scratch.swap_remove(index),
                 None => ScratchTextureBuffers {
-                    input_count: uploaded_frames.len(),
+                    input_count,
                     property_size: item_property_size,
                     input_properties: self.device.create_buffer(&wgpu::BufferDescriptor {
                         label: Some("zerium-texture-input-properties"),
-                        size: ((uploaded_frames.len() + 1) * size_of::<GpuTextureInput>()) as u64,
+                        size: ((input_count + 1) * size_of::<GpuTextureInput>()) as u64,
                         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                         mapped_at_creation: false,
                     }),
@@ -665,27 +689,33 @@ impl FrameRenderer {
                     resource: wgpu::BindingResource::TextureView(&uploaded.view),
                 }
             }));
-            let sampler_binding = u32::try_from(2 + uploaded_frames.len())
+            let sampler_binding = u32::try_from(2 + input_count)
                 .map_err(|_| RenderError::backend("too many texture inputs"))?;
-            bind_entries.push(wgpu::BindGroupEntry {
-                binding: sampler_binding,
-                resource: wgpu::BindingResource::Sampler(&self.sampler),
-            });
-            bind_entries.push(wgpu::BindGroupEntry {
-                binding: sampler_binding + 1,
-                resource: input_properties.as_entire_binding(),
-            });
-            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("zerium-texture-item-bind-group"),
-                layout: &pipeline.bind_group_layout,
-                entries: &bind_entries,
-            });
+            let binding = match &encoded.input {
+                EncodedTextureInput::Frames(_) => TextureBinding::Static({
+                    bind_entries.push(wgpu::BindGroupEntry {
+                        binding: sampler_binding,
+                        resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    });
+                    bind_entries.push(wgpu::BindGroupEntry {
+                        binding: sampler_binding + 1,
+                        resource: input_properties.as_entire_binding(),
+                    });
+                    self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("zerium-texture-item-bind-group"),
+                        layout: &pipeline.bind_group_layout,
+                        entries: &bind_entries,
+                    })
+                }),
+                EncodedTextureInput::Rendered => TextureBinding::Rendered,
+            };
             resources.push(TextureResource {
+                input_count,
                 _uploaded_frames: uploaded_frames,
                 _input_properties: input_properties,
                 _item: item,
                 _item_properties: item_properties,
-                bind_group,
+                binding,
             });
         }
         cache.previous_scene = current_scene;

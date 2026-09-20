@@ -158,6 +158,9 @@ impl EvaluatedClip {
 /// node; runtime-remapped leaf IDs remain available on `item`.
 #[derive(Clone, Debug)]
 pub(crate) struct EvaluatedSceneNode {
+    /// Layer in the composition that directly contains this node.
+    pub local_layer: LayerId,
+    /// Root timeline layer used by visibility and flattened media evaluation.
     pub layer: LayerId,
     pub clip: EvaluatedClip,
     pub path: Vec<ItemId>,
@@ -242,6 +245,7 @@ fn evaluated_document_graph_with_visibility(
                 item.start = clip.start;
                 item.duration = clip.duration;
                 output.push(EvaluatedSceneNode {
+                    local_layer: layer,
                     layer: output_layer,
                     clip,
                     path,
@@ -276,6 +280,7 @@ fn evaluated_document_graph_with_visibility(
                 visibility.retain_visible_effects(&mut item);
             }
             output.push(EvaluatedSceneNode {
+                local_layer: layer,
                 layer: output_layer,
                 clip,
                 path,

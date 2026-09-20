@@ -91,7 +91,7 @@ impl PluginManifest {
         let item_sources = self
             .items
             .iter()
-            .filter_map(|schema| schema.visual_shader())
+            .filter_map(|schema| schema.visual().map(|visual| visual.shader()))
             .map(super::ShaderSchema::source);
         let effect_sources = self
             .effects
