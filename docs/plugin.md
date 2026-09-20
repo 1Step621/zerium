@@ -330,8 +330,10 @@ contract changes. The command writes the host interface modules, property
 modules, and media bindings under `generated/`. Shader imports are authored in
 the shader source and are not rewritten by the generator.
 These generated modules are packaged with the plugin and used by both editor
-tooling and runtime rendering. Zerium rejects generated files whose manifest
-fingerprint is stale. A source shared by several items or passes gets
+tooling and runtime rendering. Zerium links plugin WESL to in-memory WGSL once
+when loading the application and shares that result between preview and export;
+plugin authors do not generate or distribute WGSL. Zerium rejects generated
+files whose manifest fingerprint is stale. A source shared by several items or passes gets
 the property fields whose type and ABI location agree in every use. The source
 must use one shader kind and one media-input layout.
 

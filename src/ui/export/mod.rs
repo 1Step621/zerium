@@ -8,10 +8,7 @@ use futures::StreamExt as _;
 use gpui::{Context, Entity, SharedString, Subscription, Task, Window, div, prelude::*, px};
 
 use crate::{
-    domain::{
-        plugin::PluginRegistry,
-        timeline::{TimelineEditor, TimelineView},
-    },
+    domain::timeline::{TimelineEditor, TimelineView},
     engine::{
         export::{ExportError, ExportProgress, ExportSettings, export_timeline},
         media::MediaReaderRegistry,
@@ -39,7 +36,6 @@ pub(crate) struct ExportController {
     editor: Entity<TimelineEditor>,
     backend: Entity<RenderBackend>,
     media_readers: Arc<MediaReaderRegistry>,
-    plugins: Arc<PluginRegistry>,
     session: Entity<ProjectSession>,
     session_id: ProjectSessionId,
     notifications: Entity<UiNotifications>,
@@ -53,7 +49,6 @@ impl ExportController {
         editor: Entity<TimelineEditor>,
         backend: Entity<RenderBackend>,
         media_readers: Arc<MediaReaderRegistry>,
-        plugins: Arc<PluginRegistry>,
         session: Entity<ProjectSession>,
         notifications: Entity<UiNotifications>,
         cx: &mut Context<Self>,
@@ -73,7 +68,6 @@ impl ExportController {
             editor,
             backend,
             media_readers,
-            plugins,
             session,
             session_id,
             notifications,
@@ -145,10 +139,9 @@ impl ExportController {
     }
 
     fn choose_output(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        let plugins = self.plugins.clone();
         let renderer = match self
             .backend
-            .update(cx, |backend, _| backend.export_session(&plugins))
+            .update(cx, |backend, _| backend.export_session())
         {
             Ok(renderer) => renderer,
             Err(error) => {

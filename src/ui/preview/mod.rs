@@ -11,16 +11,13 @@ use gpui::{
 };
 
 use crate::{
-    domain::{
-        plugin::PluginRegistry,
-        timeline::{Frame, LayerId, TimelineEditor, TimelineItem, TimelineTime},
-    },
+    domain::timeline::{Frame, LayerId, TimelineEditor, TimelineItem, TimelineTime},
     engine::{
         audio_meter::AudioLevelSampler,
         media::{MediaReaderRegistry, VideoDecodeSize},
         rendering::{
-            FrameRenderer, RenderError, RenderScene, RenderSize, RendererBuilder, RendererDevice,
-            TextFrameCache,
+            CompiledPluginShaders, FrameRenderer, RenderError, RenderScene, RenderSize,
+            RendererBuilder, RendererDevice, TextFrameCache,
         },
         video_playback::{
             RequestedVideoFrame, VideoInputId, VideoPlaybackEngine, VideoPlaybackSnapshot,
@@ -36,6 +33,7 @@ use crate::{
 pub(crate) struct RenderBackend {
     renderer: Option<Arc<FrameRenderer>>,
     export_device: Option<Arc<RendererDevice>>,
+    plugin_shaders: Arc<CompiledPluginShaders>,
     error: Option<SharedString>,
 }
 
@@ -46,14 +44,11 @@ impl RenderBackend {
 
     /// Rendering session on the dedicated export device, creating the device
     /// on first use.
-    pub(crate) fn export_session(
-        &mut self,
-        plugins: &PluginRegistry,
-    ) -> Result<Arc<FrameRenderer>, RenderError> {
+    pub(crate) fn export_session(&mut self) -> Result<Arc<FrameRenderer>, RenderError> {
         let device = match &self.export_device {
             Some(device) => device.clone(),
             None => {
-                let device = RendererDevice::create_headless(plugins)?;
+                let device = RendererDevice::create_headless(&self.plugin_shaders)?;
                 self.export_device = Some(device.clone());
                 device
             }
@@ -67,7 +62,7 @@ pub(crate) struct PreviewDependencies {
     transport: Entity<TransportController>,
     session: Entity<ProjectSession>,
     notifications: Entity<UiNotifications>,
-    plugins: Arc<PluginRegistry>,
+    plugin_shaders: Arc<CompiledPluginShaders>,
     media_readers: Arc<MediaReaderRegistry>,
 }
 
@@ -77,7 +72,7 @@ impl PreviewDependencies {
         transport: Entity<TransportController>,
         session: Entity<ProjectSession>,
         notifications: Entity<UiNotifications>,
-        plugins: Arc<PluginRegistry>,
+        plugin_shaders: Arc<CompiledPluginShaders>,
         media_readers: Arc<MediaReaderRegistry>,
     ) -> Self {
         Self {
@@ -85,7 +80,7 @@ impl PreviewDependencies {
             transport,
             session,
             notifications,
-            plugins,
+            plugin_shaders,
             media_readers,
         }
     }
@@ -133,7 +128,7 @@ impl Preview {
             transport,
             session,
             notifications,
-            plugins,
+            plugin_shaders,
             media_readers,
         } = dependencies;
         let session_id = session.read(cx).id();
@@ -175,7 +170,7 @@ impl Preview {
                 Arc::new(surface.device().clone()),
                 Arc::new(surface.queue().clone()),
             )
-            .and_then(|builder| builder.register_plugins(&plugins))
+            .and_then(|builder| builder.register_plugins(&plugin_shaders))
             .map(|builder| Arc::new(builder.build().create_session()))
             {
                 Ok(renderer) => (Some(renderer), None),
@@ -194,6 +189,7 @@ impl Preview {
         let backend = cx.new(|_| RenderBackend {
             renderer,
             export_device: None,
+            plugin_shaders,
             error,
         });
         let audio_level_sampler = AudioLevelSampler::new(media_readers.clone());

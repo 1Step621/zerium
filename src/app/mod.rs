@@ -462,6 +462,8 @@ pub(crate) fn run() {
                 |window, cx| {
                     window.set_window_title("Zerium");
                     let plugins = crate::plugin::plugins();
+                    let plugin_shaders = crate::engine::rendering::compile_plugins(&plugins)
+                        .expect("bundled plugin shaders must compile");
                     let media_readers = crate::engine::media::bundled_media_readers(&plugins)
                         .expect("bundled media readers must be valid");
                     let editor = cx.new(|_| {
@@ -504,7 +506,7 @@ pub(crate) fn run() {
                                 transport.clone(),
                                 session.clone(),
                                 notifications.clone(),
-                                plugins.clone(),
+                                plugin_shaders,
                                 media_readers.clone(),
                             ),
                             window,
@@ -543,7 +545,6 @@ pub(crate) fn run() {
                             editor.clone(),
                             render_backend,
                             media_readers.clone(),
-                            plugins.clone(),
                             session.clone(),
                             notifications.clone(),
                             cx,

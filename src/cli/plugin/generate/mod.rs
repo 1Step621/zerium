@@ -45,15 +45,10 @@ pub(crate) fn generate(path: Option<&Path>) -> Result<(), String> {
             shader.source(),
             ShaderContract {
                 kind: ShaderKind::Item,
-                properties: property::Layout::from_declarations(
-                    schema
-                        .properties()
-                        .iter()
-                        .map(|property| (property.id(), property.ty())),
-                ),
+                properties: property::Layout::from_abi(schema.property_layout()),
                 media_interface: schema
                     .uses_texture_pipeline()
-                    .then(|| texture_media_interface(&texture_input_ids(schema))),
+                    .then(|| texture_media_interface(&schema.texture_input_ids())),
             },
         )?;
     }
@@ -64,46 +59,58 @@ pub(crate) fn generate(path: Option<&Path>) -> Result<(), String> {
                 pass.shader_source(),
                 ShaderContract {
                     kind: pass.shader_kind(),
-                    properties: property::Layout::from_declarations(
-                        schema
-                            .properties()
-                            .iter()
-                            .map(|property| (property.id(), property.ty())),
-                    ),
+                    properties: property::Layout::from_abi(schema.property_layout()),
                     media_interface: None,
                 },
             )?;
         }
     }
 
-    let generated = root.join(GENERATED_DIR);
-    if generated.exists() {
-        fs::remove_dir_all(&generated)
-            .map_err(|error| format!("cannot clear '{}': {error}", generated.display()))?;
+    let staging = root.join(format!(".{GENERATED_DIR}.tmp-{}", std::process::id()));
+    if staging.exists() {
+        fs::remove_dir_all(&staging)
+            .map_err(|error| format!("cannot clear '{}': {error}", staging.display()))?;
     }
-    fs::create_dir(&generated)
-        .map_err(|error| format!("cannot create '{}': {error}", generated.display()))?;
+    fs::create_dir(&staging)
+        .map_err(|error| format!("cannot create '{}': {error}", staging.display()))?;
+    let result = write_generated(&staging, &manifest_source, &contracts);
+    if let Err(error) = result {
+        let _ = fs::remove_dir_all(&staging);
+        return Err(error);
+    }
+    install_generated(&root, &staging)?;
+    println!(
+        "generated WESL modules in {}",
+        root.join(GENERATED_DIR).display()
+    );
+    Ok(())
+}
+
+fn write_generated(
+    generated: &Path,
+    manifest_source: &str,
+    contracts: &BTreeMap<String, ShaderContract>,
+) -> Result<(), String> {
     write(
-        &generated,
+        generated,
         MANIFEST_FINGERPRINT,
-        &crate::plugin::manifest_fingerprint(&manifest_source),
+        &crate::plugin::manifest_fingerprint(manifest_source),
     )?;
-    write(&generated, "util.wesl", UTIL_INTERFACE)?;
+    write(generated, "util.wesl", UTIL_INTERFACE)?;
     for kind in ShaderKind::ALL {
         let source = host_interface(kind);
-        write(&generated, &format!("{}.wesl", kind.module_name()), &source)?;
+        write(generated, &format!("{}.wesl", kind.module_name()), &source)?;
     }
-    for (source_name, contract) in &contracts {
+    for (source_name, contract) in contracts {
         let module = source_module_name(source_name);
-        let host_interface = host_interface(contract.kind);
         let property_interface = contract.properties.interface(contract.kind);
         let host = format!(
             "import package::generated::{}::{{{}}};\n\n",
             contract.kind.module_name(),
-            declaration_names(&host_interface)
+            property_imports(contract.kind)
         );
         write(
-            &generated,
+            generated,
             &format!("properties_{module}.wesl"),
             &(host + &property_interface),
         )?;
@@ -113,13 +120,43 @@ pub(crate) fn generate(path: Option<&Path>) -> Result<(), String> {
             .map(|_| format!("media_interface_{module}"));
         if let Some(media_module) = &media_module {
             write(
-                &generated,
+                generated,
                 &format!("{media_module}.wesl"),
                 contract.media_interface.as_deref().unwrap(),
             )?;
         }
     }
-    println!("generated WESL modules in {}", generated.display());
+    Ok(())
+}
+
+fn install_generated(root: &Path, staging: &Path) -> Result<(), String> {
+    let generated = root.join(GENERATED_DIR);
+    let backup = root.join(format!(".{GENERATED_DIR}.old-{}", std::process::id()));
+    if backup.exists() {
+        fs::remove_dir_all(&backup)
+            .map_err(|error| format!("cannot clear '{}': {error}", backup.display()))?;
+    }
+    if generated.exists() {
+        fs::rename(&generated, &backup).map_err(|error| {
+            format!(
+                "cannot prepare generated directory '{}': {error}",
+                generated.display()
+            )
+        })?;
+    }
+    if let Err(error) = fs::rename(staging, &generated) {
+        if backup.exists() {
+            let _ = fs::rename(&backup, &generated);
+        }
+        return Err(format!(
+            "cannot install generated directory '{}': {error}",
+            generated.display()
+        ));
+    }
+    if backup.exists() {
+        fs::remove_dir_all(&backup)
+            .map_err(|error| format!("cannot remove '{}': {error}", backup.display()))?;
+    }
     Ok(())
 }
 
@@ -146,14 +183,6 @@ fn write(generated: &Path, name: &str, source: &str) -> Result<(), String> {
         .map_err(|error| format!("cannot write '{}': {error}", generated.join(name).display()))
 }
 
-fn declaration_names(source: &str) -> String {
-    source
-        .lines()
-        .filter_map(declaration_name)
-        .collect::<Vec<_>>()
-        .join(", ")
-}
-
 fn host_interface(kind: ShaderKind) -> String {
     let kind_source = match kind {
         ShaderKind::Item => include_str!("wesl/item.wesl"),
@@ -162,6 +191,15 @@ fn host_interface(kind: ShaderKind) -> String {
         ShaderKind::Temporal => include_str!("wesl/temporal.wesl"),
     };
     format!("{kind_source}\n{}", include_str!("wesl/raw_props.wesl"))
+}
+
+const fn property_imports(kind: ShaderKind) -> &'static str {
+    match kind {
+        ShaderKind::Item => "ZeriumRawProps, item_props, read_u32, read_i32, read_f32, read_bool",
+        ShaderKind::Effect | ShaderKind::Compute | ShaderKind::Temporal => {
+            "ZeriumRawProps, effect_props, read_u32, read_i32, read_f32, read_bool"
+        }
+    }
 }
 
 fn validate_source_modules(manifest: &PluginManifest) -> Result<(), String> {
@@ -197,43 +235,6 @@ fn source_module_name(source: &str) -> String {
         }
     }
     name
-}
-
-fn declaration_name(line: &str) -> Option<&str> {
-    let name = [
-        line.strip_prefix("struct "),
-        line.strip_prefix("fn "),
-        line.strip_prefix("const "),
-        line.strip_prefix("override "),
-        line.strip_prefix("alias "),
-    ]
-    .into_iter()
-    .flatten()
-    .next()
-    .or_else(|| {
-        let line = line.strip_prefix("var")?;
-        let line = if let Some(line) = line.strip_prefix('<') {
-            line.split_once('>')?.1.trim_start()
-        } else {
-            line.trim_start()
-        };
-        Some(line)
-    })?;
-    Some(
-        name.split(|character: char| !(character.is_ascii_alphanumeric() || character == '_'))
-            .next()
-            .expect("declaration name is non-empty"),
-    )
-}
-
-fn texture_input_ids(schema: &crate::domain::plugin::ItemSchema) -> Vec<String> {
-    if schema.is_text() {
-        return vec!["text".to_owned()];
-    }
-    schema
-        .texture_inputs()
-        .map(|input| input.id().to_owned())
-        .collect()
 }
 
 fn texture_media_interface(input_ids: &[String]) -> String {

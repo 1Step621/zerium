@@ -698,11 +698,10 @@ impl RenderScene {
         let properties = Self::pack_item_properties(item, schema);
         let render_item = match visual {
             VisualCapability::Procedural { .. } => RenderItem::Shader(RenderShaderItem {
-                shader: ItemShaderId::new(format!(
-                    "{}::item::{}",
+                shader: ItemShaderId::plugin_item(
                     item.plugin_id().unwrap_or_default(),
-                    item.item_id().unwrap_or_default()
-                )),
+                    item.item_id().unwrap_or_default(),
+                ),
                 properties,
                 effects,
                 target_size,
@@ -734,11 +733,10 @@ impl RenderScene {
                     return Ok(None);
                 }
                 RenderItem::Texture(RenderTextureItem {
-                    shader: TextureShaderId::new(format!(
-                        "{}::item::{}",
+                    shader: TextureShaderId::plugin_item(
                         item.plugin_id().unwrap_or_default(),
-                        item.item_id().unwrap_or_default()
-                    )),
+                        item.item_id().unwrap_or_default(),
+                    ),
                     frames,
                     properties,
                     effects,
@@ -747,11 +745,10 @@ impl RenderScene {
                 })
             }
             VisualCapability::Text { .. } => RenderItem::Texture(RenderTextureItem {
-                shader: TextureShaderId::new(format!(
-                    "{}::item::{}",
+                shader: TextureShaderId::plugin_item(
                     item.plugin_id().unwrap_or_default(),
-                    item.item_id().unwrap_or_default()
-                )),
+                    item.item_id().unwrap_or_default(),
+                ),
                 frames: vec![text_frame(item, schema, target_size)?],
                 properties,
                 effects,
@@ -779,10 +776,8 @@ impl RenderScene {
             .zip(temporal_samples)
             .enumerate()
             .map(|(pass_index, (pass, temporal_samples))| {
-                let pass_shader = EffectShaderId::new(format!(
-                    "{}::effect::{}::pass::{pass_index}",
-                    effect.plugin_id, effect.effect_id
-                ));
+                let pass_shader =
+                    EffectShaderId::plugin_pass(&effect.plugin_id, &effect.effect_id, pass_index);
                 match pass {
                     EffectPassSchema::Render { .. } => RenderEffectPass::Render {
                         shader: pass_shader,

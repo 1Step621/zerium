@@ -6,7 +6,7 @@ use std::collections::HashSet;
 use serde::{Deserialize, Deserializer, de::Error as _};
 
 use super::PluginError;
-use super::abi::CompiledPropertyAbi;
+use super::abi::PropertyLayout;
 use super::capability::{
     AudioCapability, FileCapability, ItemCapabilities, MediaType, VisualCapability,
 };
@@ -23,7 +23,7 @@ pub(crate) struct ItemSchema {
     symbol: String,
     capabilities: ItemCapabilities,
     properties: Vec<PropertySchema>,
-    property_abi: CompiledPropertyAbi,
+    property_abi: PropertyLayout,
 }
 
 #[derive(Deserialize)]
@@ -47,7 +47,7 @@ impl<'de> Deserialize<'de> for ItemSchema {
         D: Deserializer<'de>,
     {
         let definition = ItemSchemaDefinition::deserialize(deserializer)?;
-        let property_abi = CompiledPropertyAbi::compile(
+        let property_abi = PropertyLayout::compile(
             "item",
             &definition.id,
             definition
@@ -96,6 +96,10 @@ impl ItemSchema {
         &self.properties
     }
 
+    pub(crate) fn property_layout(&self) -> &PropertyLayout {
+        &self.property_abi
+    }
+
     pub(crate) fn files(&self) -> &[FileCapability] {
         self.capabilities.files()
     }
@@ -133,6 +137,16 @@ impl ItemSchema {
         self.files()
             .iter()
             .filter(|file| matches!(file.media_type(), MediaType::Video | MediaType::Image))
+    }
+
+    pub(crate) fn texture_input_ids(&self) -> Vec<String> {
+        if self.is_text() {
+            vec!["text".to_owned()]
+        } else {
+            self.texture_inputs()
+                .map(|input| input.id().to_owned())
+                .collect()
+        }
     }
 
     pub(crate) fn audio(&self) -> Option<&AudioCapability> {

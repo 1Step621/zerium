@@ -1,4 +1,4 @@
-import package::generated::item::{ZeriumItem, items, property_words, item_props, context, to_ndc, quad_corner, quad_uv, quad_position, rotate, ZeriumRawProps, read_word, read_u32, read_i32, read_f32, read_bool};
+import package::generated::item::{ZeriumRawProps, item_props, read_u32, read_i32, read_f32, read_bool};
 
 struct ZeriumStr {
     _offset: u32,

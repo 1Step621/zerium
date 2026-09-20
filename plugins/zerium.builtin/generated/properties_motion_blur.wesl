@@ -1,4 +1,4 @@
-import package::generated::temporal::{ZeriumTemporal, temporal_sample, temporal_accumulation, temporal_sampler, temporal_state, property_words, effect_props, info, context, ZeriumVertex, vertex, ZeriumRawProps, read_word, read_u32, read_i32, read_f32, read_bool};
+import package::generated::temporal::{ZeriumRawProps, effect_props, read_u32, read_i32, read_f32, read_bool};
 
 struct ZeriumProps {
     _raw: ZeriumRawProps,

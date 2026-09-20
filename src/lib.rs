@@ -13,33 +13,25 @@ mod engine;
 mod plugin;
 mod ui;
 
-pub fn run() {
+pub fn run() -> Result<(), String> {
     let mut arguments = std::env::args().skip(1);
     if arguments.next().as_deref() == Some("plugin") {
         match arguments.next().as_deref() {
             Some("generate") => {
                 let path = arguments.next().map(std::path::PathBuf::from);
-                if let Err(error) = cli::plugin::generate(path.as_deref()) {
-                    eprintln!("zerium plugin generate: {error}");
-                    std::process::exit(1);
-                }
-                return;
+                cli::plugin::generate(path.as_deref())
+                    .map_err(|error| format!("zerium plugin generate: {error}"))?;
             }
             Some("validate") => {
                 let path = arguments.next().map(std::path::PathBuf::from);
-                if let Err(error) = cli::plugin::validate(path.as_deref()) {
-                    eprintln!("zerium plugin validate: {error}");
-                    std::process::exit(1);
-                }
+                cli::plugin::validate(path.as_deref())
+                    .map_err(|error| format!("zerium plugin validate: {error}"))?;
                 println!("plugin is valid");
-                return;
             }
-            _ => {
-                eprintln!("zerium plugin: unknown command");
-                std::process::exit(1);
-            }
+            _ => return Err("zerium plugin: unknown command".to_owned()),
         }
     } else {
         app::run();
     }
+    Ok(())
 }

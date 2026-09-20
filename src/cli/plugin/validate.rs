@@ -2,6 +2,8 @@
 
 use std::path::Path;
 
+use crate::domain::plugin::PluginRegistry;
+
 /// Validate a plugin directory using the same WESL and WGSL checks as runtime
 /// pipeline registration.
 pub(crate) fn validate(path: Option<&Path>) -> Result<(), String> {
@@ -15,5 +17,8 @@ pub(crate) fn validate(path: Option<&Path>) -> Result<(), String> {
         )
     })?;
     let plugin = crate::plugin::load_filesystem_plugin(&root).map_err(|error| error.to_string())?;
-    crate::engine::rendering::validate_plugin(&plugin).map_err(|error| error.to_string())
+    let plugins = PluginRegistry::new([plugin]).map_err(|error| error.to_string())?;
+    crate::engine::rendering::compile_plugins(&plugins)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
 }

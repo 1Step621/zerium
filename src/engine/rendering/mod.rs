@@ -7,7 +7,6 @@ mod scene;
 mod shader;
 
 use std::{
-    borrow::Cow,
     collections::{HashMap, HashSet},
     fmt,
     num::NonZeroU64,
@@ -53,78 +52,13 @@ pub(crate) use scene::{
 };
 pub(crate) use scene::{RenderError, RenderSize};
 use shader::{
-    EffectShaderDescriptor, EffectShaderId, ItemShaderDescriptor, ItemShaderId, TextureShaderId,
+    CompiledEffectShader, ComputeShaderDescriptor, EffectShaderDescriptor, EffectShaderId,
+    ItemShaderDescriptor, ItemShaderId, TextureShaderDescriptor, TextureShaderId,
+    validate_render_shader,
 };
+pub(crate) use shader::{CompiledPluginShaders, compile_plugins};
 
 use encoded_scene::*;
-use shader::{
-    compile_plugin_shader, texture_input_ids, validate_compute_shader, validate_render_shader,
-};
-
-pub(crate) fn validate_plugin(plugin: &crate::domain::plugin::Plugin) -> Result<(), RenderError> {
-    let manifest = plugin.manifest();
-    for schema in manifest.items() {
-        let Some(shader) = schema.visual_shader() else {
-            continue;
-        };
-        let source = wesl::compile(
-            plugin.wesl_modules(),
-            shader.source(),
-            shader_source(plugin, shader.source())?,
-            &[],
-        )?;
-        validate_render_shader(
-            format!("{}::item::{}", manifest.id(), schema.id()),
-            &source,
-            shader.vertex_entry(),
-            shader.fragment_entry(),
-        )?;
-    }
-    for schema in manifest.effects() {
-        for (pass_index, pass) in schema.passes().iter().enumerate() {
-            let source = wesl::compile(
-                plugin.wesl_modules(),
-                pass.shader_source(),
-                shader_source(plugin, pass.shader_source())?,
-                pass.constants(),
-            )?;
-            let id = format!(
-                "{}::effect::{}::pass{pass_index}",
-                manifest.id(),
-                schema.id()
-            );
-            match pass {
-                EffectPassSchema::Render { shader, .. }
-                | EffectPassSchema::Temporal {
-                    reducer: shader, ..
-                } => {
-                    validate_render_shader(
-                        id,
-                        &source,
-                        shader.vertex_entry(),
-                        shader.fragment_entry(),
-                    )?;
-                }
-                EffectPassSchema::Compute { shader, .. } => {
-                    validate_compute_shader(id, &source, shader.entry())?;
-                }
-            }
-        }
-    }
-    Ok(())
-}
-
-fn shader_source<'a>(
-    plugin: &'a crate::domain::plugin::Plugin,
-    name: &str,
-) -> Result<&'a str, RenderError> {
-    plugin.shader_source(name).ok_or_else(|| {
-        RenderError::backend(format!(
-            "plugin '{}' shader source '{name}' was not loaded",
-            plugin.manifest().id()
-        ))
-    })
-}
 
 /// Immutable GPU state. A single device can cheaply create independent render
 /// sessions for preview, export, thumbnails, and background jobs.

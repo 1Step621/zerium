@@ -1,17 +1,13 @@
 use super::wesl;
 use super::*;
-use crate::domain::plugin::PassConstantSchema;
+use crate::domain::plugin::{PassConstantSchema, Plugin};
 
-/// Stable identifier used to select the WGSL implementation for an item.
-///
-/// Manifest-backed IDs are derived from the plugin and item IDs. Callers that
-/// register a descriptor directly own the namespace of the value they pass.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct ItemShaderId(Cow<'static, str>);
+pub(crate) struct ItemShaderId(String);
 
 impl ItemShaderId {
-    pub(crate) fn new(value: impl Into<String>) -> Self {
-        Self(Cow::Owned(value.into()))
+    pub(crate) fn plugin_item(plugin_id: &str, item_id: &str) -> Self {
+        Self(format!("{plugin_id}::item::{item_id}"))
     }
 
     pub(crate) fn as_str(&self) -> &str {
@@ -26,11 +22,13 @@ impl fmt::Display for ItemShaderId {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct EffectShaderId(Cow<'static, str>);
+pub(crate) struct EffectShaderId(String);
 
 impl EffectShaderId {
-    pub(crate) fn new(value: impl Into<String>) -> Self {
-        Self(Cow::Owned(value.into()))
+    pub(crate) fn plugin_pass(plugin_id: &str, effect_id: &str, pass_index: usize) -> Self {
+        Self(format!(
+            "{plugin_id}::effect::{effect_id}::pass::{pass_index}"
+        ))
     }
 
     pub(crate) fn as_str(&self) -> &str {
@@ -45,11 +43,11 @@ impl fmt::Display for EffectShaderId {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct TextureShaderId(Cow<'static, str>);
+pub(crate) struct TextureShaderId(String);
 
 impl TextureShaderId {
-    pub(crate) fn new(value: impl Into<String>) -> Self {
-        Self(Cow::Owned(value.into()))
+    pub(crate) fn plugin_item(plugin_id: &str, item_id: &str) -> Self {
+        Self(format!("{plugin_id}::item::{item_id}"))
     }
 
     pub(crate) fn as_str(&self) -> &str {
@@ -63,73 +61,166 @@ impl fmt::Display for TextureShaderId {
     }
 }
 
-/// A kind-specific vertex and fragment shader registered with the renderer.
-///
-/// The source has already been linked from WESL into standalone WGSL and must
-/// define the configured vertex and fragment entry points.
 #[derive(Clone, Debug)]
 pub(super) struct ItemShaderDescriptor {
-    pub id: ItemShaderId,
-    pub label: Cow<'static, str>,
-    pub wgsl: Cow<'static, str>,
-    pub(super) vertex_entry: Cow<'static, str>,
-    pub(super) fragment_entry: Cow<'static, str>,
+    pub(super) id: ItemShaderId,
+    pub(super) label: String,
+    pub(super) wgsl: Arc<str>,
+    pub(super) vertex_entry: String,
+    pub(super) fragment_entry: String,
     pub(super) vertex_count: u32,
+}
+
+#[derive(Clone, Debug)]
+pub(super) struct TextureShaderDescriptor {
+    pub(super) id: TextureShaderId,
+    pub(super) label: String,
+    pub(super) wgsl: Arc<str>,
+    pub(super) vertex_entry: String,
+    pub(super) fragment_entry: String,
+    pub(super) vertex_count: u32,
+    pub(super) input_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug)]
 pub(super) struct EffectShaderDescriptor {
-    pub id: EffectShaderId,
-    pub label: Cow<'static, str>,
-    pub wgsl: Cow<'static, str>,
-    pub(super) vertex_entry: Cow<'static, str>,
-    pub(super) fragment_entry: Cow<'static, str>,
-    pub(super) vertex_count: u32,
+    pub(super) id: EffectShaderId,
+    pub(super) label: String,
+    pub(super) wgsl: Arc<str>,
+    pub(super) vertex_entry: String,
+    pub(super) fragment_entry: String,
 }
 
-impl EffectShaderDescriptor {
-    pub(super) fn from_schema(
-        pass: &EffectPassSchema,
-        id: EffectShaderId,
-        label: impl Into<Cow<'static, str>>,
-        wgsl: impl Into<Cow<'static, str>>,
-    ) -> Result<Self, RenderError> {
-        let EffectPassSchema::Render { shader, .. } = pass else {
-            return Err(RenderError::backend("effect pass is not a render pass"));
+#[derive(Clone, Debug)]
+pub(super) struct ComputeShaderDescriptor {
+    pub(super) id: EffectShaderId,
+    pub(super) wgsl: Arc<str>,
+    pub(super) entry: String,
+    pub(super) workgroup_size: [u32; 3],
+}
+
+#[derive(Clone, Debug)]
+pub(super) enum CompiledEffectShader {
+    Render(EffectShaderDescriptor),
+    Compute(ComputeShaderDescriptor),
+    Temporal(EffectShaderDescriptor),
+}
+
+#[derive(Clone, Debug, Default)]
+pub(crate) struct CompiledPluginShaders {
+    pub(super) items: Vec<ItemShaderDescriptor>,
+    pub(super) textures: Vec<TextureShaderDescriptor>,
+    pub(super) effects: Vec<CompiledEffectShader>,
+}
+
+pub(crate) fn compile_plugins(
+    plugins: &PluginRegistry,
+) -> Result<Arc<CompiledPluginShaders>, RenderError> {
+    let mut compiled = CompiledPluginShaders::default();
+    let mut item_sources = HashMap::<(String, String), Arc<str>>::new();
+
+    for (plugin_id, schema) in plugins.items() {
+        let Some(shader) = schema.visual_shader() else {
+            continue;
         };
-        Ok(Self {
-            id,
-            label: label.into(),
-            wgsl: wgsl.into(),
-            vertex_entry: Cow::Owned(shader.vertex_entry().to_owned()),
-            fragment_entry: Cow::Owned(shader.fragment_entry().to_owned()),
-            vertex_count: 3,
-        })
+        let source = compile_item_source(plugins, &mut item_sources, plugin_id, shader.source())?;
+        if schema.is_procedural() {
+            let id = ItemShaderId::plugin_item(plugin_id, schema.id());
+            validate_render_shader(&id, &source, shader.vertex_entry(), shader.fragment_entry())?;
+            compiled.items.push(ItemShaderDescriptor {
+                id,
+                label: shader.source().to_owned(),
+                wgsl: source,
+                vertex_entry: shader.vertex_entry().to_owned(),
+                fragment_entry: shader.fragment_entry().to_owned(),
+                vertex_count: schema.vertex_count().expect("visual shader was checked"),
+            });
+        } else if schema.uses_texture_pipeline() {
+            let id = TextureShaderId::plugin_item(plugin_id, schema.id());
+            validate_render_shader(&id, &source, shader.vertex_entry(), shader.fragment_entry())?;
+            compiled.textures.push(TextureShaderDescriptor {
+                id,
+                label: shader.source().to_owned(),
+                wgsl: source,
+                vertex_entry: shader.vertex_entry().to_owned(),
+                fragment_entry: shader.fragment_entry().to_owned(),
+                vertex_count: schema.vertex_count().expect("visual shader was checked"),
+                input_ids: schema.texture_input_ids(),
+            });
+        }
     }
+
+    for (plugin_id, schema) in plugins.effects() {
+        for (pass_index, pass) in schema.passes().iter().enumerate() {
+            let id = EffectShaderId::plugin_pass(plugin_id, schema.id(), pass_index);
+            let source: Arc<str> =
+                compile_plugin_shader(plugins, plugin_id, pass.shader_source(), pass.constants())?
+                    .into();
+            let label = format!("{} pass {pass_index}", schema.id());
+            let effect = match pass {
+                EffectPassSchema::Render { shader, .. } => {
+                    validate_render_shader(
+                        &id,
+                        &source,
+                        shader.vertex_entry(),
+                        shader.fragment_entry(),
+                    )?;
+                    CompiledEffectShader::Render(EffectShaderDescriptor {
+                        id,
+                        label,
+                        wgsl: source,
+                        vertex_entry: shader.vertex_entry().to_owned(),
+                        fragment_entry: shader.fragment_entry().to_owned(),
+                    })
+                }
+                EffectPassSchema::Compute { shader, .. } => {
+                    let workgroup_size = validate_compute_shader(&id, &source, shader.entry())?;
+                    CompiledEffectShader::Compute(ComputeShaderDescriptor {
+                        id,
+                        wgsl: source,
+                        entry: shader.entry().to_owned(),
+                        workgroup_size,
+                    })
+                }
+                EffectPassSchema::Temporal { reducer, .. } => {
+                    validate_render_shader(
+                        &id,
+                        &source,
+                        reducer.vertex_entry(),
+                        reducer.fragment_entry(),
+                    )?;
+                    CompiledEffectShader::Temporal(EffectShaderDescriptor {
+                        id,
+                        label,
+                        wgsl: source,
+                        vertex_entry: reducer.vertex_entry().to_owned(),
+                        fragment_entry: reducer.fragment_entry().to_owned(),
+                    })
+                }
+            };
+            compiled.effects.push(effect);
+        }
+    }
+
+    Ok(Arc::new(compiled))
 }
 
-impl ItemShaderDescriptor {
-    pub(super) fn from_schema(
-        plugin_id: &str,
-        schema: &ItemSchema,
-        label: impl Into<Cow<'static, str>>,
-        wgsl: impl Into<Cow<'static, str>>,
-    ) -> Result<Self, RenderError> {
-        let shader = schema
-            .visual_shader()
-            .ok_or_else(|| RenderError::backend("item has no visual shader"))?;
-        Ok(Self {
-            id: ItemShaderId::new(format!("{plugin_id}::item::{}", schema.id())),
-            label: label.into(),
-            wgsl: wgsl.into(),
-            vertex_entry: Cow::Owned(shader.vertex_entry().to_owned()),
-            fragment_entry: Cow::Owned(shader.fragment_entry().to_owned()),
-            vertex_count: schema.vertex_count().expect("visual shader was checked"),
-        })
+fn compile_item_source(
+    plugins: &PluginRegistry,
+    cache: &mut HashMap<(String, String), Arc<str>>,
+    plugin_id: &str,
+    source_name: &str,
+) -> Result<Arc<str>, RenderError> {
+    let key = (plugin_id.to_owned(), source_name.to_owned());
+    if let Some(source) = cache.get(&key) {
+        return Ok(source.clone());
     }
+    let source: Arc<str> = compile_plugin_shader(plugins, plugin_id, source_name, &[])?.into();
+    cache.insert(key, source.clone());
+    Ok(source)
 }
 
-pub(super) fn compile_plugin_shader(
+fn compile_plugin_shader(
     plugins: &PluginRegistry,
     plugin_id: &str,
     source_name: &str,
@@ -138,15 +229,24 @@ pub(super) fn compile_plugin_shader(
     let plugin = plugins
         .plugin(plugin_id)
         .ok_or_else(|| RenderError::backend(format!("plugin '{plugin_id}' was not loaded")))?;
+    compile_shader(plugin, source_name, constants)
+}
+
+fn compile_shader(
+    plugin: &Plugin,
+    source_name: &str,
+    constants: &[PassConstantSchema],
+) -> Result<String, RenderError> {
     let source = plugin.shader_source(source_name).ok_or_else(|| {
         RenderError::backend(format!(
-            "plugin '{plugin_id}' shader source '{source_name}' was not loaded"
+            "plugin '{}' shader source '{source_name}' was not loaded",
+            plugin.manifest().id()
         ))
     })?;
     wesl::compile(plugin.wesl_modules(), source_name, source, constants)
 }
 
-pub(super) fn parse_and_validate_shader(
+fn parse_and_validate_shader(
     id: impl fmt::Display,
     source: &str,
 ) -> Result<naga::Module, RenderError> {
@@ -212,14 +312,4 @@ pub(super) fn validate_compute_shader(
         )));
     }
     Ok(workgroup_size)
-}
-
-pub(super) fn texture_input_ids(schema: &ItemSchema) -> Vec<String> {
-    if schema.is_text() {
-        return vec!["text".to_owned()];
-    }
-    schema
-        .texture_inputs()
-        .map(|input| input.id().to_owned())
-        .collect()
 }

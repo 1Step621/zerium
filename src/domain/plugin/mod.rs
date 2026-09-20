@@ -13,13 +13,12 @@ mod registry;
 mod shader;
 mod validation;
 
-pub(crate) use abi::{abi_size, scalar_abi_size, value_string_count};
+pub(crate) use abi::{PropertyLayout, abi_size, scalar_abi_size, value_string_count};
 pub(crate) use bundle::Plugin;
 pub(crate) use capability::{FileCapability, MediaType, VisualCapability};
 pub(crate) use catalog::PluginCatalogEntry;
 pub(crate) use effect::{
-    ComputeDispatchDimension, ComputeShaderSchema, EffectPassSchema, EffectSchema,
-    PassConstantSchema, PassConstantValue,
+    ComputeDispatchDimension, EffectPassSchema, EffectSchema, PassConstantSchema, PassConstantValue,
 };
 pub(crate) use error::PluginError;
 pub(crate) use item::ItemSchema;

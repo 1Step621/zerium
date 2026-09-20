@@ -11,20 +11,20 @@ use crate::domain::property::{
 pub(super) const MAX_PROPERTY_BLOCK_BYTES: usize = 8 * 1024 * 1024;
 
 #[derive(Clone, Debug, PartialEq)]
-pub(super) struct CompiledPropertyAbi {
-    fields: Box<[CompiledPropertyField]>,
+pub(crate) struct PropertyLayout {
+    fields: Box<[PropertyLayoutField]>,
     header_size: usize,
     worst_case_size: usize,
 }
 
 #[derive(Clone, Debug, PartialEq)]
-struct CompiledPropertyField {
+struct PropertyLayoutField {
     id: Box<str>,
     ty: PropertyType,
     offset: usize,
 }
 
-impl CompiledPropertyAbi {
+impl PropertyLayout {
     pub(super) fn compile<'a>(
         owner_kind: &str,
         owner_id: &str,
@@ -42,7 +42,7 @@ impl CompiledPropertyAbi {
                     "{owner_kind} '{owner_id}' property layout overflow"
                 ))
             })?;
-            fields.push(CompiledPropertyField {
+            fields.push(PropertyLayoutField {
                 id: id.into(),
                 ty: ty.clone(),
                 offset: header_size,
@@ -65,6 +65,12 @@ impl CompiledPropertyAbi {
             header_size,
             worst_case_size,
         })
+    }
+
+    pub(crate) fn fields(&self) -> impl ExactSizeIterator<Item = (&str, &PropertyType, usize)> {
+        self.fields
+            .iter()
+            .map(|field| (field.id.as_ref(), &field.ty, field.offset))
     }
 
     pub(super) fn pack<'a>(

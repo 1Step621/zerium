@@ -4,7 +4,7 @@ use serde::{Deserialize, Deserializer, de::Error as _};
 use serde_json::Value;
 
 use super::PluginError;
-use super::abi::CompiledPropertyAbi;
+use super::abi::PropertyLayout;
 use super::identifier::validate_wgsl_identifier;
 use super::shader::{ShaderKind, ShaderSchema, validate_shader_source};
 use super::validation::{validate_catalog_entry, validate_property_schemas};
@@ -24,7 +24,7 @@ pub(crate) struct EffectSchema {
     render_scale: u32,
     properties: Vec<PropertySchema>,
     passes: Vec<EffectPassSchema>,
-    property_abi: CompiledPropertyAbi,
+    property_abi: PropertyLayout,
 }
 
 #[derive(Deserialize)]
@@ -47,7 +47,7 @@ impl<'de> Deserialize<'de> for EffectSchema {
         D: Deserializer<'de>,
     {
         let definition = EffectSchemaDefinition::deserialize(deserializer)?;
-        let property_abi = CompiledPropertyAbi::compile(
+        let property_abi = PropertyLayout::compile(
             "effect",
             &definition.id,
             definition
@@ -266,6 +266,10 @@ impl EffectSchema {
 
     pub(crate) fn properties(&self) -> &[PropertySchema] {
         &self.properties
+    }
+
+    pub(crate) fn property_layout(&self) -> &PropertyLayout {
+        &self.property_abi
     }
 
     pub(crate) fn passes(&self) -> &[EffectPassSchema] {

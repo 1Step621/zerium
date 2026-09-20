@@ -1,38 +1,32 @@
 use crate::domain::{
-    plugin::{ShaderKind, abi_size, scalar_abi_size, value_string_count},
+    plugin::{PropertyLayout, ShaderKind, abi_size, scalar_abi_size, value_string_count},
     property::{PropertyType, PropertyValueType, ScalarPropertyType},
 };
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq)]
 struct InterfaceField {
     id: String,
     ty: PropertyType,
     offset: usize,
 }
 
-#[derive(Clone, PartialEq, Eq)]
+#[derive(Clone)]
 pub(crate) struct Layout {
     fields: Vec<InterfaceField>,
 }
 
 impl Layout {
-    pub(crate) fn from_declarations<'a>(
-        declarations: impl IntoIterator<Item = (&'a str, &'a PropertyType)>,
-    ) -> Self {
-        let mut offset = 0;
-        let fields = declarations
-            .into_iter()
-            .map(|(id, ty)| {
-                let field = InterfaceField {
+    pub(crate) fn from_abi(layout: &PropertyLayout) -> Self {
+        Self {
+            fields: layout
+                .fields()
+                .map(|(id, ty, offset)| InterfaceField {
                     id: id.to_owned(),
                     ty: ty.clone(),
                     offset,
-                };
-                offset += header_abi_size(ty);
-                field
-            })
-            .collect();
-        Self { fields }
+                })
+                .collect(),
+        }
     }
 
     pub(crate) fn retain_compatible(&mut self, other: &Self) {
@@ -197,13 +191,6 @@ fn generate_property_interface(fields: &[InterfaceField], kind: ShaderKind) -> S
         ));
     }
     source
-}
-
-fn header_abi_size(ty: &PropertyType) -> usize {
-    match ty {
-        PropertyType::Array { .. } => 8,
-        PropertyType::Value(value_type) => abi_size(value_type),
-    }
 }
 
 const fn scalar_type_name(ty: &ScalarPropertyType) -> &'static str {

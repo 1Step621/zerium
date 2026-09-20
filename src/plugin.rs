@@ -102,8 +102,12 @@ fn from_parts(
 }
 
 pub(crate) fn manifest_fingerprint(source: &str) -> String {
-    let hash = source
-        .bytes()
+    // Bump when the generated interface format or bundled templates change.
+    const GENERATED_INTERFACE_REVISION: &[u8] = b"zerium-plugin-interface-1\0";
+    let hash = GENERATED_INTERFACE_REVISION
+        .iter()
+        .copied()
+        .chain(source.bytes())
         .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
             (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
         });
