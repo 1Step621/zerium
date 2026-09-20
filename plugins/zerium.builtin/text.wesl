@@ -1,7 +1,6 @@
-import package::generated::util::{ZeriumContext, make_context, srgb_channel, srgb, scene_color, DEG2RAD};
-import package::generated::item::{ZeriumItem, items, property_words, item_props, context, to_ndc, quad_corner, quad_uv, quad_position, rotate, ZeriumRawProps, read_word, read_u32, read_i32, read_f32, read_bool};
-import package::generated::properties_text::{ZeriumStr, str_byte, ZeriumPropsTuple0, ZeriumPropsTuple1, ZeriumProps, props, get_font_family};
-import package::generated::media_interface_text::{ZeriumMedia, slot_0, slot_0_size, media_sampler, media_inputs};
+import package::generated::item::{quad_corner, quad_uv, quad_position};
+import package::generated::properties_text::props;
+import package::generated::media_interface_text::{slot_0, media_sampler};
 
 struct TextVertexOutput {
     @builtin(position) position: vec4<f32>,

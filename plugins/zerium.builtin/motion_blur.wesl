@@ -1,6 +1,4 @@
-import package::generated::util::{ZeriumContext, make_context, srgb_channel, srgb, scene_color, DEG2RAD};
-import package::generated::temporal::{ZeriumTemporal, temporal_sample, temporal_accumulation, temporal_sampler, temporal_state, property_words, effect_props, info, context, ZeriumVertex, vertex, ZeriumRawProps, read_word, read_u32, read_i32, read_f32, read_bool};
-import package::generated::properties_motion_blur::{ZeriumProps, props};
+import package::generated::temporal::{temporal_sample, temporal_accumulation, temporal_sampler, info, ZeriumVertex, vertex};
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

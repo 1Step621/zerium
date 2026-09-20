@@ -1,6 +1,6 @@
-import package::generated::util::{ZeriumContext, make_context, srgb_channel, srgb, scene_color, DEG2RAD};
-import package::generated::item::{ZeriumItem, items, property_words, item_props, context, to_ndc, quad_corner, quad_uv, quad_position, rotate, ZeriumRawProps, read_word, read_u32, read_i32, read_f32, read_bool};
-import package::generated::properties_triangle::{ZeriumPropsTuple0, ZeriumPropsTuple1, ZeriumProps, props};
+import package::generated::util::scene_color;
+import package::generated::item::{quad_corner, quad_position};
+import package::generated::properties_triangle::props;
 
 struct TriangleVertexOutput {
     @builtin(position) position: vec4<f32>,

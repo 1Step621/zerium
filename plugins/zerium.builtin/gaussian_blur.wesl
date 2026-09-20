@@ -1,6 +1,5 @@
-import package::generated::util::{ZeriumContext, make_context, srgb_channel, srgb, scene_color, DEG2RAD};
-import package::generated::compute::{ZeriumCompute, effect_input, effect_sampler, compute_info, property_words, effect_output, effect_source, effect_props, context, store, ZeriumRawProps, read_word, read_u32, read_i32, read_f32, read_bool};
-import package::generated::properties_gaussian_blur::{ZeriumProps, props};
+import package::generated::compute::{effect_input, effect_sampler, context, store};
+import package::generated::properties_gaussian_blur::props;
 import constants::{direction_x, direction_y, radius_scale};
 
 // Each axis is blurred twice at radius / sqrt(2). Convolving the two passes
