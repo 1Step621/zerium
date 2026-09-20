@@ -377,8 +377,8 @@ impl Render for Workspace {
                                     .child(resizable_panel().child(self.preview.clone()))
                                     .child(
                                         resizable_panel()
-                                            .size(px(400.))
-                                            .size_range(px(200.)..px(600.))
+                                            .size(px(420.))
+                                            .size_range(px(420.)..px(600.))
                                             .child(self.property_inspector.clone()),
                                     ),
                             ),

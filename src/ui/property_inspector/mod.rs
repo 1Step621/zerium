@@ -336,6 +336,7 @@ pub(crate) struct PropertyInspector {
 
 impl PropertyInspector {
     pub(super) const PROPERTY_LABEL_WIDTH: f32 = 64.;
+    pub(super) const ANIMATION_STOP_INPUT_MIN_WIDTH: f32 = 112.;
     pub(super) const DRAG_RANGE_PIXELS: f64 = 200.;
     pub(super) const MIN_STEP_MULTIPLIER: f64 = 0.1;
     pub(super) const MAX_STEP_MULTIPLIER: f64 = 2.;

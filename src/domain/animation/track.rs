@@ -188,6 +188,19 @@ impl ScalarTrack {
         true
     }
 
+    pub(crate) fn set_stop_exact(&mut self, index: usize, value: PropertyValue) -> bool {
+        let Some(current) = self.stops.get_mut(index).map(|stop| &mut stop.value) else {
+            return false;
+        };
+        if interpolate_scalar(current, &value, 0.).is_none()
+            || Self::values_are_linked(current, &value)
+        {
+            return false;
+        }
+        *current = value;
+        true
+    }
+
     pub(crate) fn insert_stop(&mut self, position: f32, value: PropertyValue) -> Option<usize> {
         if !position.is_finite()
             || !(0. ..=1.).contains(&position)

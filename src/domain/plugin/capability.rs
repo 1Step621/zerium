@@ -317,13 +317,31 @@ impl AudioCapability {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(super) struct EditorCapability {
+    position: Option<String>,
     size: Option<String>,
+    points: Option<String>,
     label: Option<String>,
 }
 
 impl EditorCapability {
+    fn is_f32_pair(ty: &PropertyValueType) -> bool {
+        matches!(
+            ty,
+            PropertyValueType::Tuple(tuple)
+                if tuple.scalars() == [ScalarPropertyType::F32, ScalarPropertyType::F32]
+        )
+    }
+
+    pub(super) fn position_property(&self) -> Option<&str> {
+        self.position.as_deref()
+    }
+
     pub(super) fn size_property(&self) -> Option<&str> {
         self.size.as_deref()
+    }
+
+    pub(super) fn points_property(&self) -> Option<&str> {
+        self.points.as_deref()
     }
 
     pub(super) fn label_property(&self) -> Option<&str> {
@@ -331,28 +349,55 @@ impl EditorCapability {
     }
 
     pub(super) fn validate(&self, item: &ItemSchema) -> Result<(), PluginError> {
-        if self.size.is_none() && self.label.is_none() {
+        if self.position.is_none()
+            && self.size.is_none()
+            && self.points.is_none()
+            && self.label.is_none()
+        {
             return Err(PluginError::invalid_definition(format!(
                 "item '{}' editor capability must reference at least one property",
                 item.id()
             )));
         }
-        if let Some(property_id) = self.size_property() {
+        for (kind, property_id) in [
+            ("position", self.position_property()),
+            ("size", self.size_property()),
+        ] {
+            let Some(property_id) = property_id else {
+                continue;
+            };
+            if !item.property(property_id).is_some_and(|property| {
+                matches!(property.ty(), PropertyType::Value(ty) if Self::is_f32_pair(ty))
+            }) {
+                return Err(PluginError::invalid_definition(format!(
+                    "item '{}' editor {kind} property '{}' must be a tuple of two f32 values",
+                    item.id(),
+                    property_id
+                )));
+            }
+        }
+        if let Some(property_id) = self.points_property() {
             let valid = item.property(property_id).is_some_and(|property| {
                 matches!(
                     property.ty(),
-                    PropertyType::Value(PropertyValueType::Tuple(tuple))
-                        if tuple.scalar_count() == 2
-                            && tuple.scalars().iter().all(|scalar_type| {
-                                *scalar_type == crate::domain::property::ScalarPropertyType::F32
-                            })
+                    PropertyType::Array {
+                        element_type,
+                        ..
+                    }
+                        if Self::is_f32_pair(element_type)
                 )
             });
             if !valid {
                 return Err(PluginError::invalid_definition(format!(
-                    "item '{}' editor size property '{}' must be a tuple of two f32 values",
+                    "item '{}' editor points property '{}' must be an array of two-f32 tuples",
                     item.id(),
                     property_id
+                )));
+            }
+            if self.position_property().is_none() || self.size_property().is_none() {
+                return Err(PluginError::invalid_definition(format!(
+                    "item '{}' editor points property requires position and size properties",
+                    item.id()
                 )));
             }
         }

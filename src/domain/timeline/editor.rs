@@ -61,6 +61,7 @@ pub(super) enum HistoryKey {
         Option<usize>,
         Frame,
     ),
+    AnimationPairStopValue(ItemId, String, Option<PropertyElementId>, Frame),
     AnimationHandle(
         ItemId,
         Option<EffectInstanceId>,

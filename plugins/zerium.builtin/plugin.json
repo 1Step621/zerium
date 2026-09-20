@@ -17,6 +17,7 @@
           }
         },
         "editor": {
+          "position": "position",
           "size": "size"
         }
       },
@@ -172,6 +173,7 @@
           }
         },
         "editor": {
+          "position": "position",
           "size": "size"
         }
       },
@@ -326,6 +328,9 @@
           "shader": {
             "source": "ellipse.wesl"
           }
+        },
+        "editor": {
+          "position": "position"
         }
       },
       "properties": [
@@ -455,7 +460,9 @@
           }
         },
         "editor": {
-          "size": "size"
+          "position": "position",
+          "size": "size",
+          "points": "points"
         }
       },
       "properties": [
@@ -677,6 +684,7 @@
           }
         },
         "editor": {
+          "position": "position",
           "size": "size"
         }
       },
@@ -847,6 +855,7 @@
           }
         },
         "editor": {
+          "position": "position",
           "size": "size"
         }
       },
@@ -1064,6 +1073,7 @@
           "vertical_alignment": "vertical_alignment"
         },
         "editor": {
+          "position": "position",
           "size": "size",
           "label": "text"
         }
@@ -1399,6 +1409,7 @@
           "volume": "volume"
         },
         "editor": {
+          "position": "position",
           "size": "size"
         }
       },
@@ -1545,6 +1556,7 @@
           }
         },
         "editor": {
+          "position": "position",
           "size": "size"
         }
       },

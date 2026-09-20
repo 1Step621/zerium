@@ -292,7 +292,13 @@
           "additionalProperties": false,
           "minProperties": 1,
           "properties": {
+            "position": {
+              "$ref": "#/$defs/wgslId"
+            },
             "size": {
+              "$ref": "#/$defs/wgslId"
+            },
+            "points": {
               "$ref": "#/$defs/wgslId"
             },
             "label": {

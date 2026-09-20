@@ -261,6 +261,20 @@ impl ItemSchema {
             .and_then(|id| self.property(id))
     }
 
+    pub(crate) fn position_property(&self) -> Option<&PropertySchema> {
+        self.capabilities
+            .editor()?
+            .position_property()
+            .and_then(|id| self.property(id))
+    }
+
+    pub(crate) fn points_property(&self) -> Option<&PropertySchema> {
+        self.capabilities
+            .editor()?
+            .points_property()
+            .and_then(|id| self.property(id))
+    }
+
     pub(crate) fn label_property(&self) -> Option<&PropertySchema> {
         self.capabilities
             .editor()?

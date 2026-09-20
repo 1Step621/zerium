@@ -12,6 +12,11 @@ pub(super) struct RenderCtx<'a> {
     pub active_scene_name_input: Option<Entity<InputState>>,
 }
 
+struct DraggableNumberInput {
+    id: ControlId,
+    animation_stop: Option<AnimationStopBinding>,
+}
+
 impl PropertyInspector {
     fn scalar_label(label: Option<String>) -> Option<Div> {
         label.map(|label| div().w(px(32.)).flex_none().text_sm().child(label))
@@ -294,11 +299,15 @@ impl PropertyInspector {
         target: &PropertyTarget,
         spec: &NumberSpec,
         input: &Entity<InputState>,
-        input_id: ControlId,
-        animation_stop: Option<AnimationStopBinding>,
+        presentation: DraggableNumberInput,
         disabled: bool,
         ctx: &RenderCtx,
     ) -> gpui::AnyElement {
+        let DraggableNumberInput {
+            id: input_id,
+            animation_stop,
+        } = presentation;
+        let is_animation_stop = animation_stop.is_some();
         let element_id = SharedString::from(format!("value-drag-{input_id:?}"));
         let drag = PropertyValueDrag {
             inspector_id: ctx.inspector.entity_id(),
@@ -310,6 +319,15 @@ impl PropertyInspector {
         let drag_input_id = input_id;
         let drag_animation_stop = animation_stop;
         let drag_input = input.clone();
+        let value_input = NumberInput::new(input)
+            .small()
+            .w_full()
+            .min_w_0()
+            .when(is_animation_stop, |input| {
+                input.min_w(px(Self::ANIMATION_STOP_INPUT_MIN_WIDTH))
+            })
+            .disabled(disabled)
+            .suffix(div().text_sm().child(spec.suffix.clone()));
 
         div()
             .id(element_id)
@@ -337,13 +355,7 @@ impl PropertyInspector {
                     cx.new(|_| drag.clone())
                 })
             })
-            .child(
-                NumberInput::new(input)
-                    .small()
-                    .w_full()
-                    .disabled(disabled)
-                    .suffix(div().text_sm().child(spec.suffix.clone())),
-            )
+            .child(value_input)
             .into_any_element()
     }
 
@@ -402,12 +414,14 @@ impl PropertyInspector {
                     &common.target,
                     spec,
                     &input,
-                    stop.id.clone(),
-                    Some(AnimationStopBinding::new(
-                        ctx.item_id,
-                        common.target.effect_id,
-                        stop,
-                    )),
+                    DraggableNumberInput {
+                        id: stop.id.clone(),
+                        animation_stop: Some(AnimationStopBinding::new(
+                            ctx.item_id,
+                            common.target.effect_id,
+                            stop,
+                        )),
+                    },
                     disabled,
                     ctx,
                 ))
@@ -425,21 +439,33 @@ impl PropertyInspector {
                 .flex()
                 .items_center()
                 .gap_1()
-                .child(div().min_w_0().flex_1().child(start))
+                .child(
+                    div()
+                        .min_w(px(Self::ANIMATION_STOP_INPUT_MIN_WIDTH))
+                        .flex_1()
+                        .child(start),
+                )
                 .child(
                     Icon::new(IconName::ArrowRight)
                         .xsmall()
                         .text_color(ctx.colors.muted_foreground),
                 )
-                .child(div().min_w_0().flex_1().child(end))
+                .child(
+                    div()
+                        .min_w(px(Self::ANIMATION_STOP_INPUT_MIN_WIDTH))
+                        .flex_1()
+                        .child(end),
+                )
                 .into_any_element();
         }
         Self::draggable_number_input(
             &common.target,
             spec,
             input,
-            common.id.clone(),
-            None,
+            DraggableNumberInput {
+                id: common.id.clone(),
+                animation_stop: None,
+            },
             disabled,
             ctx,
         )

@@ -6,9 +6,14 @@ use ::ui::{
 };
 use futures::StreamExt as _;
 use gpui::{
-    Context, Entity, Hsla, MouseButton, MouseDownEvent, MouseUpEvent, Render, SharedString,
-    Subscription, Task, WgpuSurfaceHandle, Window, div, prelude::*, px, relative, wgpu_surface,
+    Context, DragMoveEvent, Entity, Hsla, MouseButton, MouseDownEvent, MouseUpEvent, Render,
+    SharedString, Subscription, Task, WgpuSurfaceHandle, Window, div, prelude::*, px, relative,
+    wgpu_surface,
 };
+
+mod editor_overlay;
+
+use editor_overlay::{PreviewEditorDrag, PreviewEditorDragState};
 
 use crate::{
     domain::timeline::{Frame, LayerId, TimelineEditor, TimelineItem, TimelineTime},
@@ -103,6 +108,7 @@ pub(crate) struct Preview {
     rendered_revision: Option<u64>,
     rendered_video_revision: Option<u64>,
     rendered_size: Option<RenderSize>,
+    editor_drag: PreviewEditorDragState,
     _editor_subscription: Subscription,
     _transport_subscription: Subscription,
     _session_subscription: Subscription,
@@ -156,6 +162,7 @@ impl Preview {
             this.rendered_revision = None;
             this.rendered_video_revision = None;
             this.rendered_size = None;
+            this.editor_drag.clear();
             this.audio_level_sampler.clear();
             this.video_playback.reset();
             cx.notify();
@@ -224,6 +231,7 @@ impl Preview {
             rendered_revision: None,
             rendered_video_revision: None,
             rendered_size: None,
+            editor_drag: PreviewEditorDragState::default(),
             _editor_subscription: editor_subscription,
             _transport_subscription: transport_subscription,
             _session_subscription: session_subscription,
@@ -553,10 +561,11 @@ impl Render for Preview {
 
         let colors = cx.theme().colors;
         let surface = self.surface.clone();
-        let (frame, aspect_ratio) = {
+        let (frame, resolution) = {
             let editor = self.editor.read(cx);
-            (editor.playhead(), editor.resolution().aspect_ratio())
+            (editor.playhead(), editor.resolution())
         };
+        let aspect_ratio = resolution.aspect_ratio();
         let levels = if self.transport.read(cx).is_playing() {
             self.transport.read(cx).audio_levels(cx)
         } else {
@@ -571,6 +580,11 @@ impl Render for Preview {
             .clone()
             .or_else(|| self.error.clone())
             .or_else(|| self.playback_error.clone());
+        let overlay = self.selected_editor_overlay(frame, cx);
+        let composition_units_per_pixel = surface.as_ref().map_or(0., |surface| {
+            let logical_width = surface.size().0 as f32 / window.scale_factor();
+            resolution.width() as f32 / logical_width.max(1.)
+        });
 
         div()
             .size_full()
@@ -602,11 +616,54 @@ impl Render for Preview {
                             .overflow_hidden()
                             .when_some(surface, |this, surface| {
                                 this.child(
-                                    wgpu_surface(surface)
+                                    div()
+                                        .relative()
                                         .w_full()
                                         .max_h_full()
                                         .aspect_ratio(aspect_ratio)
-                                        .defer_resize_until_mouse_up(true),
+                                        .on_drag_move(cx.listener(
+                                            |this,
+                                             event: &DragMoveEvent<PreviewEditorDrag>,
+                                             window,
+                                             cx| {
+                                                let drag = event.drag(cx).clone();
+                                                this.move_editor_control_from_pointer(
+                                                    &drag,
+                                                    [
+                                                        f32::from(event.event.position.x),
+                                                        f32::from(event.event.position.y),
+                                                    ],
+                                                    window,
+                                                    cx,
+                                                );
+                                            },
+                                        ))
+                                        .capture_any_mouse_up(cx.listener(
+                                            |this, event: &MouseUpEvent, _, cx| {
+                                                if event.button == MouseButton::Left {
+                                                    let changed = this.editor_drag.clear();
+                                                    if changed {
+                                                        cx.notify();
+                                                    }
+                                                }
+                                            },
+                                        ))
+                                        .child(
+                                            wgpu_surface(surface)
+                                                .absolute()
+                                                .inset_0()
+                                                .size_full()
+                                                .defer_resize_until_mouse_up(true),
+                                        )
+                                        .when_some(overlay, |this, overlay| {
+                                            this.child(self.editor_overlay(
+                                                overlay,
+                                                resolution,
+                                                composition_units_per_pixel,
+                                                colors.primary,
+                                                cx,
+                                            ))
+                                        }),
                                 )
                             })
                             .when_some(error, |this, error| {

@@ -1820,6 +1820,57 @@ impl TimelineEditor {
         self.finish_project_edit_if_changed(changed, before, Some(key))
     }
 
+    pub(crate) fn set_selected_property_animation_pair_stop_at(
+        &mut self,
+        property_id: &str,
+        element_id: Option<PropertyElementId>,
+        position: f32,
+        value: [f32; 2],
+    ) -> bool {
+        let Some(item_id) = self.selection.primary else {
+            return false;
+        };
+        let Some(item) = self.active_document().item(item_id) else {
+            return false;
+        };
+        let stop_frame = Frame::new(item.animation_timeline_frame(position).round().max(0.) as u64);
+        let key = HistoryKey::AnimationPairStopValue(
+            item_id,
+            property_id.to_owned(),
+            element_id,
+            stop_frame,
+        );
+        let before = self.history_snapshot_for_edit(Some(&key));
+        let Some(schema) = self.animation_schema(item_id, None, property_id) else {
+            return false;
+        };
+        let editable = [0_usize, 1].map(|scalar_index| {
+            schema.is_editable(Some(scalar_index))
+                && schema
+                    .scalar_constraints(Some(scalar_index))
+                    .allows(&PropertyValue::F32(value[scalar_index]))
+        });
+        let mut changed = false;
+        for scalar_index in 0..2 {
+            if !editable[scalar_index] {
+                continue;
+            }
+            let address = ScalarAnimationAddress::new(property_id, element_id, Some(scalar_index));
+            let Some(index) = self
+                .animation_track(item_id, None, &address)
+                .and_then(|track| track.stop_index_at(position))
+            else {
+                continue;
+            };
+            changed |= self
+                .animation_track_mut(item_id, None, &address)
+                .is_some_and(|track| {
+                    track.set_stop_exact(index, PropertyValue::F32(value[scalar_index]))
+                });
+        }
+        self.finish_project_edit_if_changed(changed, before, Some(key))
+    }
+
     pub(crate) fn insert_selected_property_animation_stop(
         &mut self,
         effect_id: Option<EffectInstanceId>,

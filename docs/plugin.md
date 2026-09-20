@@ -214,12 +214,15 @@ Constraints are enforced for defaults, direct edits, array elements, loaded
 projects, and animation endpoints.
 
 Scalar types are `f32`, `i32`, `u32`, `bool`, `color`, `string`, and finite `enum` contracts. Color is one scalar, edited with a color picker even inside tuples and arrays. Numeric inputs address numeric scalars by their tuple index; RGBA components are not flattened into numeric input indices.
-Item-generic editor behaviors reference properties from the item
-capability, for example `"editor": { "size": "size", "label": "text" }`.
-The size reference requires a two-`f32` tuple and the label reference requires a
-string. This follows the same property-ID wiring used by text rasterization,
-audio gain, and temporal sampling. Effects may still use presentation hints such
-as `multiline`.
+Item-generic editor behaviors reference properties from the item capability, for
+example `"editor": { "position": "position", "size": "size", "points":
+"points", "label": "text" }`. Position and size references require two-`f32`
+tuples. The points reference requires an array of two-`f32` tuples and also
+requires position and size references; each point is expressed as a percentage
+within the item's size, with `[0, 0]` at the top-left and `[100, 100]` at the
+bottom-right. The label reference requires a string. This follows the same
+property-ID wiring used by text rasterization, audio gain, and temporal
+sampling. Effects may still use presentation hints such as `multiline`.
 
 An array of strings uses the ordinary array inspector with a text input for each
 element by default.
