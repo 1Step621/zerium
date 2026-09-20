@@ -23,6 +23,44 @@ pub(crate) enum ResizeEdge {
     Right,
 }
 
+impl ResizeEdge {
+    pub(super) fn item_frame(self, item: &TimelineItem) -> u64 {
+        match self {
+            Self::Left => item.start.get(),
+            Self::Right => item.end_exclusive().get(),
+        }
+    }
+
+    fn delta_bounds(self, item: &TimelineItem, previous_end: u64, next_start: u64) -> (i128, i128) {
+        let start = item.start.get();
+        let end = item.end_exclusive().get();
+        match self {
+            Self::Left => (
+                i128::from(previous_end) - i128::from(start),
+                i128::from(end.saturating_sub(1)) - i128::from(start),
+            ),
+            Self::Right => (
+                i128::from(start.saturating_add(1)) - i128::from(end),
+                i128::from(next_start) - i128::from(end),
+            ),
+        }
+    }
+
+    fn resize_by(self, item: &mut TimelineItem, delta: i128) {
+        let start = item.start.get();
+        let end = item.end_exclusive().get();
+        let (new_start, new_end) = match self {
+            Self::Left => ((i128::from(start) + delta) as u64, end),
+            Self::Right => (start, (i128::from(end) + delta) as u64),
+        };
+        let duration = FrameDuration::new_saturating(new_end - new_start);
+        match self {
+            Self::Left => item.trim_left_to(Frame(new_start), duration),
+            Self::Right => item.trim_right_to(duration),
+        }
+    }
+}
+
 #[derive(Clone)]
 pub(crate) struct TimelineDocument {
     frame_rate: FrameRate,
@@ -745,69 +783,74 @@ impl TimelineDocument {
         true
     }
 
-    pub(crate) fn resize_item_from(
+    pub(crate) fn resize_items_from(
         &mut self,
-        origin: &TimelineItem,
+        origins: &[TimelineItem],
+        anchor_id: ItemId,
         edge: ResizeEdge,
         pointer: Frame,
     ) -> bool {
-        let id = origin.id;
-        let Some(current) = self.items.get(&id).cloned() else {
+        if origins.is_empty() {
             return false;
-        };
-        self.items.insert(id, Arc::new(origin.clone()));
-        self.resize_item(id, edge, pointer);
-        let changed = self.items[&id].as_ref() != current.as_ref();
-        if !changed {
-            self.items.insert(id, current);
         }
-        changed
-    }
 
-    pub(crate) fn resize_item(&mut self, id: ItemId, edge: ResizeEdge, pointer: Frame) -> bool {
-        let Some(item) = self.items.get(&id) else {
-            return false;
-        };
-        let Some(layer) = self.item_layers.get(&id).copied() else {
-            return false;
-        };
-        let start = item.start.0;
-        let end = item.end_exclusive().0;
-        let mut previous_end = 0;
-        let mut next_start = u64::MAX;
-        for candidate in self
-            .layer_items
-            .get(&layer)
-            .into_iter()
-            .flatten()
-            .filter(|candidate| **candidate != id)
-            .filter_map(|candidate| self.items.get(candidate))
+        let moving = origins.iter().map(|item| item.id).collect::<HashSet<_>>();
+        if moving.len() != origins.len()
+            || !moving
+                .iter()
+                .all(|id| self.items.contains_key(id) && self.item_layers.contains_key(id))
         {
-            if candidate.end_exclusive().0 <= start {
-                previous_end = previous_end.max(candidate.end_exclusive().0);
-            }
-            if candidate.start.0 >= end {
-                next_start = next_start.min(candidate.start.0);
-            }
-        }
-        let (new_start, new_end) = match edge {
-            ResizeEdge::Left => (pointer.0.clamp(previous_end, end.saturating_sub(1)), end),
-            ResizeEdge::Right => (start, pointer.0.clamp(start.saturating_add(1), next_start)),
-        };
-        if start == new_start && end == new_end {
             return false;
         }
-        let Some(item) = self.items.get_mut(&id).map(Arc::make_mut) else {
+        let Some(anchor) = origins.iter().find(|item| item.id == anchor_id) else {
             return false;
         };
-        let duration = FrameDuration::new_saturating(new_end - new_start);
-        match edge {
-            ResizeEdge::Left => item.trim_left_to(Frame(new_start), duration),
-            ResizeEdge::Right => item.trim_right_to(duration),
+        let anchor_edge = edge.item_frame(anchor);
+        let requested_delta = i128::from(pointer.get()) - i128::from(anchor_edge);
+        let mut minimum_delta = i128::MIN;
+        let mut maximum_delta = i128::MAX;
+
+        for origin in origins {
+            let layer = self.item_layers[&origin.id];
+            let start = origin.start.get();
+            let end = origin.end_exclusive().get();
+            let mut previous_end = 0;
+            let mut next_start = u64::MAX;
+            for candidate in self
+                .layer_items
+                .get(&layer)
+                .into_iter()
+                .flatten()
+                .filter(|candidate| !moving.contains(candidate))
+                .filter_map(|candidate| self.items.get(candidate))
+            {
+                if candidate.end_exclusive().get() <= start {
+                    previous_end = previous_end.max(candidate.end_exclusive().get());
+                }
+                if candidate.start.get() >= end {
+                    next_start = next_start.min(candidate.start.get());
+                }
+            }
+
+            let (lower, upper) = edge.delta_bounds(origin, previous_end, next_start);
+            minimum_delta = minimum_delta.max(lower);
+            maximum_delta = maximum_delta.min(upper);
+        }
+
+        let delta = requested_delta.clamp(minimum_delta, maximum_delta);
+        let mut changed = false;
+
+        for origin in origins {
+            let mut item = origin.clone();
+            edge.resize_by(&mut item, delta);
+            if self.items[&origin.id].as_ref() != &item {
+                self.items.insert(origin.id, Arc::new(item));
+                changed = true;
+            }
         }
         #[cfg(debug_assertions)]
         self.assert_consistent();
-        true
+        changed
     }
 
     pub(crate) fn move_items_from(

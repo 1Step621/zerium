@@ -2047,36 +2047,54 @@ impl TimelineEditor {
         self.finish_project_edit_if_changed(changed, Some(before), None)
     }
 
-    pub(crate) fn resize_item(
+    pub(crate) fn resize_items(
         &mut self,
-        origin: &TimelineItem,
+        origins: &[TimelineItem],
+        anchor_id: ItemId,
         edge: ResizeEdge,
         pointer: Frame,
     ) -> bool {
-        let id = origin.id;
-        let scene_limit = self
-            .active_document()
-            .item(id)
-            .and_then(TimelineItem::scene_id)
-            .and_then(|scene_id| self.project().scenes.get(&scene_id))
-            .map(SceneDefinition::duration);
-        if scene_limit.is_some() && edge == ResizeEdge::Left {
+        if origins.is_empty()
+            || origins
+                .iter()
+                .any(|item| edge == ResizeEdge::Left && item.scene_id().is_some())
+        {
             return false;
         }
-        let pointer = if let Some(limit) = scene_limit {
-            Frame::new(
-                pointer
-                    .get()
-                    .min(origin.start.get().saturating_add(limit.get())),
-            )
-        } else {
-            pointer
+        let Some(anchor) = origins.iter().find(|item| item.id == anchor_id) else {
+            return false;
         };
-        let key = HistoryKey::ItemResize(id, edge);
+        let anchor_edge = edge.item_frame(anchor);
+        let mut delta = i128::from(pointer.get()) - i128::from(anchor_edge);
+        if edge == ResizeEdge::Right {
+            for origin in origins {
+                let Some(limit) = origin
+                    .scene_id()
+                    .and_then(|scene_id| self.project().scenes.get(&scene_id))
+                    .map(SceneDefinition::duration)
+                else {
+                    continue;
+                };
+                let maximum = i128::from(limit.get()) - i128::from(origin.duration.get());
+                delta = delta.min(maximum);
+            }
+        }
+        let pointer = (i128::from(anchor_edge) + delta).clamp(0, i128::from(u64::MAX)) as u64;
+        let mut ids = origins.iter().map(|item| item.id).collect::<Vec<_>>();
+        ids.sort_unstable_by_key(|id| id.get());
+        ids.dedup();
+        let key = if ids.len() == 1 {
+            HistoryKey::ItemResize(ids[0], edge)
+        } else {
+            HistoryKey::ItemsResize(ids, edge)
+        };
         let before = self.history_snapshot_for_edit(Some(&key));
-        let changed = self
-            .active_document_mut()
-            .resize_item_from(origin, edge, pointer);
+        let changed = self.active_document_mut().resize_items_from(
+            origins,
+            anchor_id,
+            edge,
+            Frame::new(pointer),
+        );
         self.finish_project_edit_if_changed(changed, before, Some(key))
     }
 

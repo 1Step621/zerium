@@ -38,6 +38,11 @@ Then add it to your system packages:
 ```nix
 { inputs, pkgs, ... }:
 {
+  nix.settings = {
+    substituters = [ "https://zerium.cachix.org" ];
+    trusted-public-keys = [ "zerium.cachix.org-1:H6/69zhx0y/NO0jKNrqp2TTTVOFPyIyuZNJy/TX5IlU=" ];
+  };
+
   environment.systemPackages = [
     inputs.zerium.packages.${pkgs.stdenv.hostPlatform.system}.default
   ];

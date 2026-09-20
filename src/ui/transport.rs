@@ -216,6 +216,12 @@ impl TransportController {
         } else {
             playback.start_seconds + playback.started_at.elapsed().as_secs_f64()
         };
+        let mut frame = frame_rate.seconds_to_frame(seconds);
+        if frame >= end {
+            self.stop(cx);
+            self.set_playhead(end, cx);
+            return;
+        }
         if !playback.uses_audio_clock && frame_rate.seconds_to_frame(seconds) < end {
             match self
                 .audio
@@ -233,13 +239,13 @@ impl TransportController {
                 _ => {}
             }
         }
-        self.mode = TransportMode::Playing(playback);
-        let frame = frame_rate.seconds_to_frame(seconds);
+        frame = frame_rate.seconds_to_frame(seconds);
         if frame >= end {
             self.stop(cx);
             self.set_playhead(end, cx);
             return;
         }
+        self.mode = TransportMode::Playing(playback);
         let changed = self.update_editor(cx, |editor| editor.set_playback_position(seconds, frame));
         if changed {
             let active_items = self

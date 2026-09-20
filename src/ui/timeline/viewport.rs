@@ -6,8 +6,8 @@ pub(super) const INITIAL_LAYER_HEIGHT: f32 = 30.;
 const MIN_LAYER_HEIGHT: f32 = 28.;
 const MAX_LAYER_HEIGHT: f32 = 96.;
 const BASE_PIXELS_PER_SECOND: f64 = 1_400. / 60.;
-const MIN_HORIZONTAL_ZOOM: f64 = 0.25;
-const MAX_HORIZONTAL_ZOOM: f64 = 16.;
+const MIN_HORIZONTAL_ZOOM: f64 = 0.05;
+const MAX_HORIZONTAL_ZOOM: f64 = 20.;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct TimelineViewport {

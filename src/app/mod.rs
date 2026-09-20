@@ -26,7 +26,9 @@ gpui::actions!(
         OpenProject,
         SaveProject,
         SaveProjectAs,
-        OpenExportDialog
+        OpenExportDialog,
+        OpenItemPicker,
+        OpenEffectPicker
     ]
 );
 
@@ -82,10 +84,10 @@ impl Workspace {
         }
     }
 
-    fn paste_items(&mut self, _: &PasteItems, _window: &mut Window, cx: &mut Context<Self>) {
+    fn paste_items(&mut self, _: &PasteItems, window: &mut Window, cx: &mut Context<Self>) {
         if self
             .timeline
-            .update(cx, |timeline, cx| timeline.paste_items(cx))
+            .update(cx, |timeline, cx| timeline.paste_items(window, cx))
         {
             cx.notify();
         }
@@ -138,6 +140,27 @@ impl Workspace {
         self.export_controller.update(cx, |export, cx| {
             export.open_dialog(window, cx);
         });
+    }
+
+    fn open_item_picker(
+        &mut self,
+        _: &OpenItemPicker,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.timeline.update(cx, |timeline, cx| {
+            timeline.open_item_picker_at_cursor(window, cx)
+        });
+    }
+
+    fn open_effect_picker(
+        &mut self,
+        _: &OpenEffectPicker,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.property_inspector
+            .update(cx, |inspector, cx| inspector.open_effect_picker(window, cx));
     }
 
     fn new_project(&mut self, _: &NewProject, window: &mut Window, cx: &mut Context<Self>) {
@@ -210,6 +233,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::save_project))
             .on_action(cx.listener(Self::save_project_as))
             .on_action(cx.listener(Self::open_export_dialog))
+            .on_action(cx.listener(Self::open_item_picker))
+            .on_action(cx.listener(Self::open_effect_picker))
             .size_full()
             .flex()
             .flex_col()
@@ -443,6 +468,8 @@ pub(crate) fn run() {
                     OpenExportDialog,
                     Some(WORKSPACE_SHORTCUT_KEY_CONTEXT),
                 ),
+                KeyBinding::new("i", OpenItemPicker, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
+                KeyBinding::new("e", OpenEffectPicker, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
                 KeyBinding::new("ctrl-n", NewProject, Some(WORKSPACE_KEY_CONTEXT)),
                 KeyBinding::new("ctrl-o", OpenProject, Some(WORKSPACE_KEY_CONTEXT)),
                 KeyBinding::new("ctrl-s", SaveProject, Some(WORKSPACE_KEY_CONTEXT)),

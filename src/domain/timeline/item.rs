@@ -415,7 +415,7 @@ impl TimelineItem {
         Frame(self.start.0.saturating_add(self.duration.get()))
     }
 
-    pub(super) fn contains(&self, frame: Frame) -> bool {
+    pub(crate) fn contains(&self, frame: Frame) -> bool {
         frame >= self.start && frame < self.end_exclusive()
     }
 }

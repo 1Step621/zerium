@@ -5,6 +5,7 @@ use super::*;
 pub(super) struct RenderCtx<'a> {
     pub colors: ThemeColor,
     pub editor: &'a Entity<TimelineEditor>,
+    pub animation_target: Option<AnimationTarget>,
     pub inspector: Entity<PropertyInspector>,
     pub store: &'a ControlStore,
     pub font_names: &'a [String],
@@ -17,32 +18,134 @@ struct DraggableNumberInput {
     animation_stop: Option<AnimationStopBinding>,
 }
 
-impl PropertyInspector {
-    fn scalar_label(label: Option<String>) -> Option<Div> {
-        label.map(|label| div().w(px(32.)).flex_none().text_sm().child(label))
-    }
+#[derive(Clone, Copy)]
+enum AnimationLabelWidth {
+    Fixed(f32),
+    Fill,
+}
 
+impl PropertyInspector {
     // Layout primitives. Editors below only build their value widget and
     // these helpers provide the shared labeled/compact row geometry.
-    fn labeled_row(label: impl Into<SharedString>, content: Div) -> Div {
+    fn labeled_row(label: gpui::AnyElement, content: Div) -> Div {
         div()
             .w_full()
             .flex()
             .items_center()
             .gap_3()
-            .child(Self::property_label_column(label))
+            .child(label)
             .child(content)
     }
 
-    fn compact_row(label: Option<String>, content: Div) -> Div {
+    fn compact_row(label: Option<gpui::AnyElement>, content: Div) -> Div {
         div()
             .min_w_0()
             .w_full()
             .flex()
             .items_center()
             .gap_2()
-            .when_some(Self::scalar_label(label), |this, label| this.child(label))
+            .when_some(label, |this, label| this.child(label))
             .child(content)
+    }
+
+    fn animation_target_is_focused(common: &LeafControl, ctx: &RenderCtx) -> bool {
+        ctx.animation_target
+            .as_ref()
+            .is_some_and(|target| common.target.matches_animation_target(ctx.item_id, target))
+    }
+
+    fn focused_animation_label(
+        label: impl Into<SharedString>,
+        common: &LeafControl,
+        ctx: &RenderCtx,
+        width: AnimationLabelWidth,
+        id_prefix: &str,
+    ) -> gpui::AnyElement {
+        let target = common.target.clone();
+        let focused = Self::animation_target_is_focused(common, ctx);
+        let inspector = ctx.inspector.clone();
+        Self::animation_label_base(label.into(), width, focused, ctx)
+            .id(SharedString::from(format!("{id_prefix}-{:?}", common.id)))
+            .when(common.animation_enabled, |this| {
+                this.cursor_pointer().on_click(move |_, _, cx| {
+                    inspector.update(cx, |inspector, cx| {
+                        inspector.select_animation(&target, cx);
+                    });
+                })
+            })
+            .into_any_element()
+    }
+
+    fn animation_label_base(
+        label: SharedString,
+        width: AnimationLabelWidth,
+        focused: bool,
+        ctx: &RenderCtx,
+    ) -> Div {
+        let label = div()
+            .h(px(24.))
+            .flex()
+            .items_center()
+            .text_sm()
+            .when(focused, |this| this.text_color(ctx.colors.primary))
+            .child(label);
+        match width {
+            AnimationLabelWidth::Fixed(width) => label.w(px(width)).flex_none(),
+            AnimationLabelWidth::Fill => label.flex_1(),
+        }
+    }
+
+    fn animation_property_label(
+        label: impl Into<SharedString>,
+        common: &LeafControl,
+        ctx: &RenderCtx,
+    ) -> gpui::AnyElement {
+        Self::focused_animation_label(
+            label,
+            common,
+            ctx,
+            AnimationLabelWidth::Fixed(Self::PROPERTY_LABEL_WIDTH),
+            "property-label",
+        )
+    }
+
+    fn animation_scalar_label(common: &LeafControl, ctx: &RenderCtx) -> Option<gpui::AnyElement> {
+        common.scalar_label.clone().map(|label| {
+            Self::focused_animation_label(
+                label,
+                common,
+                ctx,
+                AnimationLabelWidth::Fixed(32.),
+                "scalar-label",
+            )
+        })
+    }
+
+    fn animation_container_label(
+        label: impl Into<SharedString>,
+        children: &[Control],
+        ctx: &RenderCtx,
+        width: AnimationLabelWidth,
+        id_prefix: &str,
+    ) -> gpui::AnyElement {
+        if let [child] = children
+            && let Some(common) = child.common()
+        {
+            return Self::focused_animation_label(label, common, ctx, width, id_prefix);
+        }
+        let focused = children
+            .iter()
+            .any(|child| Self::control_contains_focused_animation(child, ctx));
+        Self::animation_label_base(label.into(), width, focused, ctx).into_any_element()
+    }
+
+    fn control_contains_focused_animation(control: &Control, ctx: &RenderCtx) -> bool {
+        control
+            .common()
+            .is_some_and(|common| Self::animation_target_is_focused(common, ctx))
+            || matches!(control, Control::Group { children, .. } if children
+            .iter()
+            .any(|child| Self::control_contains_focused_animation(child, ctx)))
     }
 
     pub(super) fn scene_binding_button(
@@ -590,7 +693,7 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_3()
-            .child(Self::property_label_column(label))
+            .child(Self::animation_property_label(label, common, ctx))
             .child(
                 div()
                     .min_w_0()
@@ -676,10 +779,9 @@ impl PropertyInspector {
                     });
                 })
             })
-            .when_some(
-                Self::scalar_label(common.scalar_label.clone()),
-                |this, label| this.child(label),
-            )
+            .when_some(Self::animation_scalar_label(common, ctx), |this, label| {
+                this.child(label)
+            })
             .when(!is_bound, |this| {
                 this.child(div().min_w_0().flex().flex_1().child(value_input))
             })
@@ -707,7 +809,7 @@ impl PropertyInspector {
             )
         });
         Self::labeled_row(
-            common.label.clone(),
+            Self::animation_property_label(common.label.clone(), common, ctx),
             div()
                 .min_w_0()
                 .flex_1()
@@ -739,7 +841,7 @@ impl PropertyInspector {
             )
         });
         let row = Self::compact_row(
-            common.scalar_label.clone(),
+            Self::animation_scalar_label(common, ctx),
             div()
                 .min_w_0()
                 .flex_1()
@@ -780,7 +882,7 @@ impl PropertyInspector {
             &ctx.inspector,
         );
         Self::labeled_row(
-            common.label.clone(),
+            Self::animation_property_label(common.label.clone(), common, ctx),
             div()
                 .min_w_0()
                 .flex_1()
@@ -826,10 +928,9 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_2()
-            .when_some(
-                Self::scalar_label(common.scalar_label.clone()),
-                |this, label| this.child(label),
-            )
+            .when_some(Self::animation_scalar_label(common, ctx), |this, label| {
+                this.child(label)
+            })
             .child(
                 div()
                     .min_w_0()
@@ -869,7 +970,11 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_3()
-            .child(Self::property_label_column(common.label.clone()))
+            .child(Self::animation_property_label(
+                common.label.clone(),
+                common,
+                ctx,
+            ))
             .when(!bound, |row| {
                 row.child(Self::choice_dropdown(
                     &common.target,
@@ -906,10 +1011,9 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_2()
-            .when_some(
-                Self::scalar_label(common.scalar_label.clone()),
-                |this, label| this.child(label),
-            )
+            .when_some(Self::animation_scalar_label(common, ctx), |this, label| {
+                this.child(label)
+            })
             .child(
                 div()
                     .min_w_0()
@@ -960,7 +1064,11 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_3()
-            .child(Self::property_label_column(common.label.clone()))
+            .child(Self::animation_property_label(
+                common.label.clone(),
+                common,
+                ctx,
+            ))
             .child(
                 div()
                     .min_w_0()
@@ -1018,10 +1126,9 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_2()
-            .when_some(
-                Self::scalar_label(common.scalar_label.clone()),
-                |this, label| this.child(label),
-            )
+            .when_some(Self::animation_scalar_label(common, ctx), |this, label| {
+                this.child(label)
+            })
             .child(
                 div()
                     .min_w_0()
@@ -1239,7 +1346,13 @@ impl PropertyInspector {
             .flex()
             .items_start()
             .gap_3()
-            .child(Self::property_label_column(label))
+            .child(Self::animation_container_label(
+                label,
+                children,
+                ctx,
+                AnimationLabelWidth::Fixed(Self::PROPERTY_LABEL_WIDTH),
+                "group-label",
+            ))
             .child(
                 div()
                     .w_0()
@@ -1526,12 +1639,13 @@ impl PropertyInspector {
                             .h(px(24.))
                             .flex()
                             .items_center()
-                            .child(
-                                div()
-                                    .flex_1()
-                                    .text_sm()
-                                    .child(format!("要素 {}", element_index + 1)),
-                            )
+                            .child(Self::animation_container_label(
+                                format!("要素 {}", element_index + 1),
+                                row_controls,
+                                ctx,
+                                AnimationLabelWidth::Fill,
+                                "element-label",
+                            ))
                             .when(allow_structure_edit, |this| this.child(structure_buttons))
                             .when_some(binding_button, |this, button| this.child(button)),
                     )
@@ -1587,7 +1701,13 @@ impl PropertyInspector {
             .flex()
             .items_start()
             .gap_3()
-            .child(Self::property_label_column(property_label))
+            .child(Self::animation_container_label(
+                property_label,
+                children,
+                ctx,
+                AnimationLabelWidth::Fixed(Self::PROPERTY_LABEL_WIDTH),
+                "group-label",
+            ))
             .child(
                 div()
                     .w_0()

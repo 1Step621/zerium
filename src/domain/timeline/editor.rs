@@ -80,6 +80,7 @@ pub(super) enum HistoryKey {
         usize,
     ),
     ItemResize(ItemId, ResizeEdge),
+    ItemsResize(Vec<ItemId>, ResizeEdge),
     ItemMove(ItemId),
     ItemsMove(Vec<ItemId>),
     SceneName(SceneId),
@@ -623,6 +624,10 @@ impl TimelineEditor {
 
     pub(crate) fn is_item_selected(&self, id: ItemId) -> bool {
         self.selection.current.contains(&id)
+    }
+
+    pub(crate) fn selection_remembers_item(&self, id: ItemId) -> bool {
+        self.selection.remembered.contains(&id)
     }
 
     pub(crate) fn selected_items(&self) -> Vec<TimelineItem> {

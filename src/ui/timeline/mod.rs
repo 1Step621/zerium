@@ -53,7 +53,8 @@ fn layer_scroll_base(handle: &UniformListScrollHandle) -> gpui::ScrollHandle {
 #[derive(Clone)]
 struct ResizeTimelineItem {
     timeline_id: EntityId,
-    origin: TimelineItem,
+    origins: Rc<[TimelineItem]>,
+    anchor_id: ItemId,
     edge: ResizeEdge,
 }
 
@@ -104,6 +105,8 @@ struct ItemMoveOrigin {
     items: Vec<MovingItemOrigin>,
     pointer_x: f32,
     pointer_y: f32,
+    was_selected: bool,
+    moved: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -231,6 +234,7 @@ pub(crate) struct Timeline {
     layer_scroll: UniformListScrollHandle,
     viewport: TimelineViewport,
     context_target: Option<ContextTarget>,
+    cursor_layer: Option<LayerId>,
     explorer_drop_target: Option<ExplorerDropTarget>,
     file_drop_error: Option<SharedString>,
     item_move_origin: Option<ItemMoveOrigin>,
@@ -271,6 +275,7 @@ impl Timeline {
                 this.cancel_async_work();
                 this.reset_viewport();
                 this.context_target = None;
+                this.cursor_layer = None;
                 this.explorer_drop_target = None;
                 this.item_move_origin = None;
                 this.marquee_selection = None;
@@ -289,6 +294,7 @@ impl Timeline {
             layer_scroll,
             viewport: TimelineViewport::default(),
             context_target: None,
+            cursor_layer: None,
             explorer_drop_target: None,
             file_drop_error: None,
             item_move_origin: None,
@@ -641,6 +647,7 @@ impl Timeline {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.cursor_layer = Some(LayerId::new(layer_index as u64));
         if is_marquee_pointer_down(event) {
             self.begin_marquee_selection(layer_index, event, cx);
         } else {
@@ -657,6 +664,14 @@ impl Timeline {
         if !is_marquee_pointer_drag(event) || self.marquee_selection.is_none() {
             return;
         }
+        self.update_marquee_selection_at(event.position, cx);
+    }
+
+    fn update_marquee_selection_at(
+        &mut self,
+        position: gpui::Point<Pixels>,
+        cx: &mut Context<Self>,
+    ) {
         let was_active = self
             .marquee_selection
             .as_ref()
@@ -664,7 +679,7 @@ impl Timeline {
         self.marquee_selection
             .as_mut()
             .expect("marquee selection was checked above")
-            .update(event.position);
+            .update(position);
         let is_active = self
             .marquee_selection
             .as_ref()
@@ -797,10 +812,10 @@ impl Timeline {
 
         let mut pointer = self.pointer_frame(pointer_x, window, cx);
         if !snap_disabled {
-            pointer = self.snap_frame(pointer, None, Some(drag.origin.id), cx);
+            pointer = self.snap_frame(pointer, None, &drag.origins, cx);
         }
         self.editor.update_if_changed(cx, |editor| {
-            editor.resize_item(&drag.origin, drag.edge, pointer)
+            editor.resize_items(drag.origins.as_ref(), drag.anchor_id, drag.edge, pointer)
         });
     }
 
@@ -810,9 +825,11 @@ impl Timeline {
         event: &MouseDownEvent,
         cx: &mut Context<Self>,
     ) {
+        self.cursor_layer = self.editor.read(cx).item_layer(item_id);
         self.editor
             .update(cx, |editor, _| editor.finish_history_group());
-        if !self.editor.read(cx).is_item_selected(item_id) {
+        let was_selected = self.editor.read(cx).is_item_selected(item_id);
+        if !was_selected {
             self.editor
                 .update_if_changed(cx, |editor| editor.select(item_id));
         }
@@ -843,6 +860,8 @@ impl Timeline {
             items,
             pointer_x: f32::from(event.position.x),
             pointer_y: f32::from(event.position.y),
+            was_selected,
+            moved: false,
         });
         cx.stop_propagation();
     }
@@ -853,6 +872,7 @@ impl Timeline {
         event: &MouseDownEvent,
         cx: &mut Context<Self>,
     ) {
+        self.cursor_layer = self.editor.read(cx).item_layer(item_id);
         if event.modifiers.shift {
             self.item_move_origin = None;
             self.editor.update(cx, |editor, cx| {
@@ -868,10 +888,13 @@ impl Timeline {
     }
 
     fn select_item(&mut self, item_id: ItemId, event: &MouseDownEvent, cx: &mut Context<Self>) {
+        self.cursor_layer = self.editor.read(cx).item_layer(item_id);
         self.editor.update(cx, |editor, cx| {
             editor.finish_history_group();
             let changed = if event.modifiers.shift {
                 editor.toggle_item_selection(item_id)
+            } else if editor.is_item_selected(item_id) {
+                false
             } else {
                 editor.select(item_id)
             };
@@ -950,6 +973,11 @@ impl Timeline {
             .iter()
             .map(|item| (item.item_id, item.start, item.source_layer))
             .collect::<Vec<_>>();
+        if (frame_delta != 0 || layer_delta != 0)
+            && let Some(origin) = self.item_move_origin.as_mut()
+        {
+            origin.moved = true;
+        }
         self.editor.update_if_changed(cx, |editor| {
             editor.move_items_from(&origins, frame_delta, layer_delta)
         });
@@ -1007,7 +1035,7 @@ impl Timeline {
         &self,
         frame: Frame,
         moving_duration: Option<FrameDuration>,
-        excluded_item: Option<ItemId>,
+        excluded_items: &[TimelineItem],
         cx: &Context<Self>,
     ) -> Frame {
         let editor = self.editor.read(cx);
@@ -1023,7 +1051,7 @@ impl Timeline {
         let mut targets = vec![editor.playhead_seconds()];
         for (_, start, end) in editor
             .item_time_ranges()
-            .filter(|(item_id, _, _)| Some(*item_id) != excluded_item)
+            .filter(|(item_id, _, _)| !excluded_items.iter().any(|item| item.id == *item_id))
         {
             targets.push(frame_rate.frame_to_seconds(start));
             targets.push(frame_rate.frame_to_seconds(end));
@@ -1123,7 +1151,14 @@ impl Timeline {
     }
 
     fn finish_item_move(&mut self, cx: &mut Context<Self>) {
-        self.item_move_origin = None;
+        let origin = self.item_move_origin.take();
+        if let Some(origin) = origin
+            && origin.was_selected
+            && !origin.moved
+        {
+            self.editor
+                .update_if_changed(cx, |editor| editor.toggle_item_selection(origin.item_id));
+        }
         self.editor
             .update(cx, |editor, _| editor.finish_history_group());
     }
@@ -1135,30 +1170,150 @@ impl Timeline {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let raw_start = self.pointer_frame(f32::from(pointer_x), window, cx);
-        let start = if window.modifiers().alt {
-            raw_start
-        } else {
-            self.snap_frame(raw_start, None, None, cx)
-        };
-        self.context_target = Some(ContextTarget {
-            layer: LayerId::new(layer_index as u64),
-            start,
-            item: self
-                .editor
-                .read(cx)
-                .items_on_layer(LayerId::new(layer_index as u64))
-                .into_iter()
-                .rev()
-                .find(|item| item.start <= raw_start && raw_start < item.end_exclusive())
-                .map(|item| item.id),
-        });
-        if let Some(item_id) = self.context_target.and_then(|target| target.item)
+        let layer = LayerId::new(layer_index as u64);
+        let target = self.context_target_at(layer, pointer_x, true, window, cx);
+        self.cursor_layer = Some(layer);
+        self.context_target = Some(target);
+        if let Some(item_id) = target.item
             && !self.editor.read(cx).is_item_selected(item_id)
         {
             self.editor
                 .update_if_changed(cx, |editor| editor.select(item_id));
         }
+    }
+
+    fn context_target_at(
+        &self,
+        layer: LayerId,
+        pointer_x: Pixels,
+        include_item: bool,
+        window: &Window,
+        cx: &Context<Self>,
+    ) -> ContextTarget {
+        let raw_start = self.pointer_frame(f32::from(pointer_x), window, cx);
+        let start = if window.modifiers().alt {
+            raw_start
+        } else {
+            self.snap_frame(raw_start, None, &[], cx)
+        };
+        let item = if include_item {
+            self.editor
+                .read(cx)
+                .items_on_layer(layer)
+                .into_iter()
+                .rev()
+                .find(|item| item.start <= raw_start && raw_start < item.end_exclusive())
+                .map(|item| item.id)
+        } else {
+            None
+        };
+        ContextTarget { layer, start, item }
+    }
+
+    fn layer_at_cursor(&self, position: gpui::Point<Pixels>, cx: &Context<Self>) -> LayerId {
+        let scroll = layer_scroll_base(&self.layer_scroll);
+        if scroll.bounds().contains(&position) {
+            let content_y = f32::from(position.y - scroll.bounds().origin.y - scroll.offset().y);
+            LayerId::new((content_y / self.viewport.layer_height).floor().max(0.) as u64)
+        } else {
+            let selected_layer = {
+                let editor = self.editor.read(cx);
+                editor
+                    .selected_item()
+                    .and_then(|item| editor.item_layer(item.id))
+            };
+            self.cursor_layer
+                .or(selected_layer)
+                .unwrap_or_else(|| LayerId::new(0))
+        }
+    }
+
+    fn item_picker_entries(&self, cx: &Context<Self>) -> Vec<SearchPickerEntry<ItemPickerTarget>> {
+        let mut entries = plugins()
+            .items()
+            .map(|(plugin_id, schema)| {
+                SearchPickerEntry::from_plugin_schema(
+                    plugin_id,
+                    schema,
+                    ItemPickerTarget::Plugin {
+                        plugin_id: plugin_id.to_owned(),
+                        item_id: schema.id().to_owned(),
+                    },
+                )
+            })
+            .collect::<Vec<_>>();
+        if self.can_paste_items(cx) {
+            entries.insert(
+                0,
+                SearchPickerEntry::new("貼り付け", "クリップボード", ItemPickerTarget::Paste)
+                    .search_terms(["paste"]),
+            );
+        }
+        let editor = self.editor.read(cx);
+        entries.extend(
+            editor
+                .scenes()
+                .filter(|scene| editor.can_add_scene_instance(scene.id))
+                .map(|scene| {
+                    SearchPickerEntry::new(
+                        scene.name.clone(),
+                        "シーン",
+                        ItemPickerTarget::Scene(scene.id),
+                    )
+                    .search_terms(["scene"])
+                }),
+        );
+        entries
+    }
+
+    fn open_item_picker(
+        &mut self,
+        position: gpui::Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let entries = self.item_picker_entries(cx);
+        let timeline = cx.entity();
+        let picker_timeline = timeline.clone();
+        let picker = cx.new(|cx| {
+            SearchPicker::new(
+                entries,
+                "アイテムを検索",
+                move |target, window, cx| {
+                    let focus_handle = picker_timeline.read(cx).focus_handle.clone();
+                    picker_timeline.update(cx, |timeline, cx| {
+                        timeline.add_picker_item(target, cx);
+                    });
+                    window.focus(&focus_handle, cx);
+                },
+                window,
+                cx,
+            )
+        });
+        cx.subscribe(&picker, |this, _, _: &DismissEvent, cx| {
+            this.context_menu = None;
+            cx.notify();
+        })
+        .detach();
+        picker.focus_handle(cx).focus(window, cx);
+        self.context_menu = Some(TimelineContextMenu {
+            content: TimelineContextMenuContent::ItemPicker(picker),
+            position,
+        });
+        cx.notify();
+    }
+
+    pub(crate) fn open_item_picker_at_cursor(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let position = window.mouse_position();
+        let layer = self.layer_at_cursor(position, cx);
+        let target = self.context_target_at(layer, position.x, false, window, cx);
+        self.cursor_layer = Some(layer);
+        self.context_target = Some(target);
+        self.open_item_picker(position, window, cx);
     }
 
     fn open_context_menu(
@@ -1227,63 +1382,8 @@ impl Timeline {
             menu.read(cx).focus_handle(cx).focus(window, cx);
             TimelineContextMenuContent::Commands(menu)
         } else {
-            let mut entries = plugins()
-                .items()
-                .map(|(plugin_id, schema)| {
-                    SearchPickerEntry::from_plugin_schema(
-                        plugin_id,
-                        schema,
-                        ItemPickerTarget::Plugin {
-                            plugin_id: plugin_id.to_owned(),
-                            item_id: schema.id().to_owned(),
-                        },
-                    )
-                })
-                .collect::<Vec<_>>();
-            if can_paste {
-                entries.insert(
-                    0,
-                    SearchPickerEntry::new("貼り付け", "クリップボード", ItemPickerTarget::Paste)
-                        .search_terms(["paste"]),
-                );
-            }
-            let editor = self.editor.read(cx);
-            entries.extend(
-                editor
-                    .scenes()
-                    .filter(|scene| editor.can_add_scene_instance(scene.id))
-                    .map(|scene| {
-                        SearchPickerEntry::new(
-                            scene.name.clone(),
-                            "シーン",
-                            ItemPickerTarget::Scene(scene.id),
-                        )
-                        .search_terms(["scene"])
-                    }),
-            );
-            let picker_timeline = timeline.clone();
-            let picker = cx.new(|cx| {
-                SearchPicker::new(
-                    entries,
-                    "アイテムを検索",
-                    move |target, window, cx| {
-                        let focus_handle = picker_timeline.read(cx).focus_handle.clone();
-                        picker_timeline.update(cx, |timeline, cx| {
-                            timeline.add_picker_item(target, cx);
-                        });
-                        window.focus(&focus_handle, cx);
-                    },
-                    window,
-                    cx,
-                )
-            });
-            cx.subscribe(&picker, |this, _, _: &DismissEvent, cx| {
-                this.context_menu = None;
-                cx.notify();
-            })
-            .detach();
-            picker.focus_handle(cx).focus(window, cx);
-            TimelineContextMenuContent::ItemPicker(picker)
+            self.open_item_picker(position, window, cx);
+            return;
         };
         self.context_menu = Some(TimelineContextMenu { content, position });
         cx.notify();
@@ -1396,7 +1496,7 @@ impl Timeline {
             self.editor.read(cx).frame_rate(),
         );
         if !event.event.modifiers.alt {
-            start = self.snap_frame(start, None, None, cx);
+            start = self.snap_frame(start, None, &[], cx);
         }
         let target = ExplorerDropTarget {
             layer: LayerId::new(layer_index as u64),
@@ -1439,7 +1539,7 @@ impl Timeline {
             self.explorer_drop_target
                 .filter(|target| target.layer == layer)
                 .map(|target| target.start)
-                .unwrap_or_else(|| self.snap_frame(raw_pointer, None, None, cx))
+                .unwrap_or_else(|| self.snap_frame(raw_pointer, None, &[], cx))
         };
         self.explorer_drop_target = None;
         window.focus(&self.focus_handle, cx);
@@ -1587,6 +1687,22 @@ impl Timeline {
         self.editor
             .update_if_changed(cx, |editor| editor.open_scene(scene_id));
         self.reset_viewport();
+    }
+
+    fn clear_selection_on_double_click(
+        &mut self,
+        event: &ClickEvent,
+        _: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if event.click_count() < 2 {
+            return;
+        }
+        self.editor.update_if_changed(cx, |editor| {
+            editor.select_items(std::iter::empty::<ItemId>())
+        });
+        self.animation_selection
+            .update(cx, |selection, cx| selection.clear(cx));
     }
 
     fn delete_empty_scene(&mut self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>) {
@@ -1919,6 +2035,7 @@ impl Timeline {
             .frame_to_seconds(Frame::new(item.duration.get()))
             * state.viewport.pixels_per_second()) as f32;
         let is_selected = state.selected_item_ids.contains(&item_id);
+        let snap_frame = state.editor.read(cx).playhead();
         let mut animation_stops = Vec::new();
         for (_, track) in item.animations.tracks() {
             animation_stops.extend(track.stops().iter().map(|stop| stop.position()));
@@ -1934,10 +2051,9 @@ impl Timeline {
         let focused_target = state
             .animation_target
             .as_ref()
-            .filter(|target| target.item_id == item_id)
+            .filter(|target| target.item_id == item_id && item.contains(snap_frame))
             .cloned();
         let has_focused_target = focused_target.is_some();
-        let snap_frame = state.editor.read(cx).playhead();
         let focused_animation_stops = focused_target
             .as_ref()
             .and_then(|target| {
@@ -1983,14 +2099,22 @@ impl Timeline {
             timeline_id,
             item_id,
         };
+        let resize_origins =
+            Rc::<[TimelineItem]>::from(if state.selected_item_ids.contains(&item_id) {
+                state.editor.read(cx).selected_items()
+            } else {
+                vec![item.clone()]
+            });
         let left_drag = ResizeTimelineItem {
             timeline_id,
-            origin: item.clone(),
+            origins: resize_origins.clone(),
+            anchor_id: item_id,
             edge: ResizeEdge::Left,
         };
         let right_drag = ResizeTimelineItem {
             timeline_id,
-            origin: item.clone(),
+            origins: resize_origins,
+            anchor_id: item_id,
             edge: ResizeEdge::Right,
         };
         Some(
@@ -2001,7 +2125,8 @@ impl Timeline {
                 .left(px(item_left))
                 .h(px(clip_height))
                 .w(px(item_width))
-                .px_2()
+                .min_w_0()
+                .max_w(px(item_width))
                 .flex()
                 .items_center()
                 .gap_1()
@@ -2045,14 +2170,24 @@ impl Timeline {
                     MouseButton::Left,
                     cx.listener(|this, _, _, cx| this.finish_item_move(cx)),
                 )
-                .when(scene_id.is_none(), |this| {
-                    this.child(
-                        div()
-                            .text_color(state.colors.primary)
-                            .child(item.symbol().to_owned()),
-                    )
-                })
-                .child(item_label)
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .flex()
+                        .items_center()
+                        .gap_1()
+                        .pl_1()
+                        .overflow_hidden()
+                        .when(scene_id.is_none(), |this| {
+                            this.child(
+                                div()
+                                    .text_color(state.colors.primary)
+                                    .child(item.symbol().to_owned()),
+                            )
+                        })
+                        .child(item_label),
+                )
                 .child(
                     div()
                         .id(("timeline-item-left-handle", item_id.get()))
@@ -2414,10 +2549,12 @@ impl Render for Timeline {
             grid,
         };
         let timeline = cx.entity();
+        let timeline_for_mouse_leave = timeline.clone();
         let file_drop_error = self.file_drop_error.clone();
         let focus_handle = self.focus_handle.clone();
 
         div()
+            .id("timeline-root")
             .relative()
             .track_focus(&self.focus_handle)
             .capture_any_mouse_down(move |_, window, cx| {
@@ -2431,6 +2568,14 @@ impl Render for Timeline {
                 this.update_playhead_scrub(event, window, cx);
                 this.update_marquee_selection(event, window, cx);
             }))
+            .on_mouse_leave(move |_, cx| {
+                timeline_for_mouse_leave.update(cx, |timeline, cx| {
+                    if timeline.marquee_selection.take().is_some() {
+                        cx.notify();
+                    }
+                });
+            })
+            .on_click(cx.listener(Self::clear_selection_on_double_click))
             .capture_any_mouse_up(cx.listener(|this, event: &MouseUpEvent, window, cx| {
                 if event.button == MouseButton::Left {
                     this.finish_playhead_scrub(cx);

@@ -1,6 +1,6 @@
 use std::collections::HashSet;
 
-use gpui::{App, ClipboardItem, Context};
+use gpui::{App, ClipboardItem, Context, Window};
 
 use crate::{
     domain::{
@@ -78,8 +78,30 @@ impl Timeline {
         decode_timeline_clipboard(item.metadata()?, self.editor.read(cx)).ok()
     }
 
-    pub(crate) fn paste_items(&mut self, cx: &mut Context<Self>) -> bool {
-        self.paste_items_at(None, cx)
+    pub(crate) fn paste_items(&mut self, window: &Window, cx: &mut Context<Self>) -> bool {
+        let layer = self
+            .cursor_layer_at(window)
+            .or(self.cursor_layer)
+            .or_else(|| {
+                let editor = self.editor.read(cx);
+                editor
+                    .selected_item()
+                    .and_then(|item| editor.item_layer(item.id))
+            });
+        let target = layer.map(|layer| (layer, self.editor.read(cx).playhead()));
+        self.paste_items_at(target, cx)
+    }
+
+    fn cursor_layer_at(&self, window: &Window) -> Option<LayerId> {
+        let scroll = super::layer_scroll_base(&self.layer_scroll);
+        let bounds = scroll.bounds();
+        let position = window.mouse_position();
+        if !bounds.contains(&position) {
+            return None;
+        }
+        let offset_y = f32::from(scroll.offset().y);
+        let content_y = f32::from(position.y - bounds.origin.y) - offset_y;
+        (content_y >= 0.).then(|| LayerId::new((content_y / self.viewport.layer_height) as u64))
     }
 
     pub(super) fn paste_items_at(

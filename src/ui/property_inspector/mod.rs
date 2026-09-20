@@ -20,9 +20,9 @@ use ::ui::{
     switch::Switch,
 };
 use gpui::{
-    App, Context, CursorStyle, Div, DragMoveEvent, Empty, Entity, EntityId, FocusHandle,
-    Focusable as _, MouseButton, MouseDownEvent, PathPromptOptions, Render, Rgba, SharedString,
-    Subscription, Task, Window, div, prelude::*, px,
+    App, Context, CursorStyle, DismissEvent, Div, DragMoveEvent, Empty, Entity, EntityId,
+    FocusHandle, Focusable as _, MouseButton, MouseDownEvent, PathPromptOptions, Render, Rgba,
+    SharedString, Subscription, Task, Window, div, prelude::*, px,
 };
 
 use crate::domain::media::{MediaAsset, MediaKind};
@@ -44,6 +44,8 @@ use crate::ui::inspector_path::InspectorPath;
 use crate::ui::pane::pane_header;
 use crate::ui::search_picker::{SearchPicker, SearchPickerEntry};
 use crate::ui::session::{ProjectActivity, ProjectSession, ProjectSessionId, UiNotifications};
+
+pub(super) type EffectPickerTarget = (String, String);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum ControlId {
@@ -152,6 +154,19 @@ pub(super) struct PropertyTarget {
 }
 
 impl PropertyTarget {
+    pub(super) fn matches_animation_target(
+        &self,
+        item_id: ItemId,
+        target: &AnimationTarget,
+    ) -> bool {
+        target.item_id == item_id
+            && target.effect_id == self.effect_id
+            && target.property_id == self.property_id
+            && target.element_id == self.path.element_id()
+            && target.scalar_index == self.path.scalar_index()
+            && target.property == self.key
+    }
+
     pub(super) fn animation_enabled(&self, item: &TimelineItem) -> bool {
         item.animation_track(
             self.effect_id,
@@ -330,7 +345,9 @@ pub(crate) struct PropertyInspector {
     pub(super) loading_file: bool,
     pub(super) file_error: Option<SharedString>,
     pub(super) _file_task: Task<()>,
+    pub(super) effect_picker: Option<Entity<SearchPicker<EffectPickerTarget>>>,
     pub(super) _editor_subscription: Subscription,
+    pub(super) _animation_selection_subscription: Subscription,
     pub(super) _session_subscription: Subscription,
 }
 
@@ -365,6 +382,8 @@ impl PropertyInspector {
         let editor_subscription = cx.observe_in(&editor, window, |this, editor, window, cx| {
             this.sync_from_editor(&editor, window, cx);
         });
+        let animation_selection_subscription =
+            cx.observe(&animation_selection, |_, _, cx| cx.notify());
         let session_subscription = cx.observe(&session, |this, _, cx| {
             let session_id = this.session.read(cx).id();
             if session_id == this.session_id {
@@ -397,7 +416,9 @@ impl PropertyInspector {
             loading_file: false,
             file_error: None,
             _file_task: Task::ready(()),
+            effect_picker: None,
             _editor_subscription: editor_subscription,
+            _animation_selection_subscription: animation_selection_subscription,
             _session_subscription: session_subscription,
         };
         let editor = inspector.editor.clone();

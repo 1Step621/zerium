@@ -10,7 +10,7 @@ pub(super) struct SelectionView {
     pub tree: ControlTree,
     pub scene_arguments: Vec<SceneArgumentOption>,
     pub file_inputs: Vec<(FileCapability, Option<MediaAsset>)>,
-    pub available_effects: Vec<SearchPickerEntry<(String, String)>>,
+    pub available_effects: Vec<SearchPickerEntry<EffectPickerTarget>>,
     pub multiple: bool,
     pub editing_scene: bool,
     pub has_visual: bool,
@@ -25,6 +25,7 @@ impl Render for PropertyInspector {
         let selected = self.selected_view(cx);
 
         div()
+            .relative()
             .track_focus(&self.focus_handle)
             .size_full()
             .flex()
@@ -75,6 +76,24 @@ impl Render for PropertyInspector {
             .when_some(selected, |this, selected| {
                 this.child(self.selected_view_element(selected, cx))
             })
+            .when_some(self.effect_picker.clone(), |this, picker| {
+                this.child(
+                    div()
+                        .absolute()
+                        .top(px(32.))
+                        .right(px(8.))
+                        .bg(colors.popover)
+                        .border_1()
+                        .border_color(colors.border)
+                        .rounded_md()
+                        .shadow_md()
+                        .on_mouse_down_out(cx.listener(|this, _, _, cx| {
+                            this.effect_picker = None;
+                            cx.notify();
+                        }))
+                        .child(picker),
+                )
+            })
     }
 }
 
@@ -94,6 +113,7 @@ impl PropertyInspector {
         RenderCtx {
             colors: cx.theme().colors,
             editor: &self.editor,
+            animation_target: self.animation_selection.read(cx).target().cloned(),
             inspector: cx.entity(),
             store: &self.store,
             font_names: &self.font_names,
@@ -163,7 +183,6 @@ impl PropertyInspector {
                 )
             })
             .collect();
-
         Some(SelectionView {
             item,
             item_label,
@@ -326,6 +345,63 @@ impl PropertyInspector {
                     .when_some(effects, |this, effects| this.child(effects)),
             )
             .into_any_element()
+    }
+
+    pub(crate) fn open_effect_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if let Some(picker) = self.effect_picker.clone() {
+            picker.focus_handle(cx).focus(window, cx);
+            return;
+        }
+        let Some(view) = self.selected_view(cx) else {
+            return;
+        };
+        if view.multiple || !view.has_visual {
+            return;
+        }
+        let picker = Self::effect_search_picker(view.available_effects, cx.entity(), window, cx);
+        cx.subscribe(&picker, |this, _, _: &DismissEvent, cx| {
+            this.effect_picker = None;
+            cx.notify();
+        })
+        .detach();
+        picker.focus_handle(cx).focus(window, cx);
+        self.effect_picker = Some(picker);
+        cx.notify();
+    }
+
+    fn effect_search_picker(
+        entries: Vec<SearchPickerEntry<EffectPickerTarget>>,
+        inspector: Entity<Self>,
+        window: &mut Window,
+        cx: &mut App,
+    ) -> Entity<SearchPicker<EffectPickerTarget>> {
+        cx.new(|cx| {
+            SearchPicker::new(
+                entries,
+                "エフェクトを検索",
+                move |target, _, cx| Self::add_effect(&inspector, target, cx),
+                window,
+                cx,
+            )
+        })
+    }
+
+    fn add_effect(inspector: &Entity<Self>, target: EffectPickerTarget, cx: &mut App) {
+        let (plugin_id, effect_id) = target;
+        inspector.update(cx, |inspector, cx| {
+            let result = inspector.editor.update(cx, |editor, cx| {
+                let result = editor.add_selected_effect(&plugin_id, &effect_id);
+                if result.is_ok() {
+                    cx.notify();
+                }
+                result
+            });
+            if let Err(error) = result {
+                inspector.notifications.update(cx, |notifications, cx| {
+                    notifications.push(format!("エフェクトを追加できません: {error}"), cx);
+                });
+            }
+        });
     }
 
     fn control_element(
@@ -672,7 +748,7 @@ impl PropertyInspector {
     }
 
     fn add_effect_picker(
-        entries: Vec<SearchPickerEntry<(String, String)>>,
+        entries: Vec<SearchPickerEntry<EffectPickerTarget>>,
         inspector: Entity<Self>,
     ) -> gpui::AnyElement {
         Popover::new("add-effect-picker")
@@ -683,35 +759,7 @@ impl PropertyInspector {
                     .dropdown_caret(true),
             )
             .content(move |window, cx| {
-                let inspector = inspector.clone();
-                let entries = entries.clone();
-                cx.new(|cx| {
-                    SearchPicker::new(
-                        entries,
-                        "エフェクトを検索",
-                        move |(plugin_id, effect_id), _, cx| {
-                            inspector.update(cx, |inspector, cx| {
-                                let result = inspector.editor.update(cx, |editor, cx| {
-                                    let result = editor.add_selected_effect(&plugin_id, &effect_id);
-                                    if result.is_ok() {
-                                        cx.notify();
-                                    }
-                                    result
-                                });
-                                if let Err(error) = result {
-                                    inspector.notifications.update(cx, |notifications, cx| {
-                                        notifications.push(
-                                            format!("エフェクトを追加できません: {error}"),
-                                            cx,
-                                        );
-                                    });
-                                }
-                            });
-                        },
-                        window,
-                        cx,
-                    )
-                })
+                Self::effect_search_picker(entries.clone(), inspector.clone(), window, cx)
             })
             .into_any_element()
     }

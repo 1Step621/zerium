@@ -619,10 +619,11 @@ impl PropertyInspector {
                     )
                 })
                 .is_some();
-            let selected_another_item = selected_items.len() != 1
-                || selected_item
-                    .as_ref()
-                    .is_some_and(|item| item.id != target.item_id);
+            let selected_another_item = match selected_items.as_slice() {
+                [] => !editor.selection_remembers_item(target.item_id),
+                [item] => item.id != target.item_id,
+                _ => true,
+            };
             !target_exists || selected_another_item
         });
         if invalid_animation_target {
