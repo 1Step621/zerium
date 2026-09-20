@@ -5,7 +5,7 @@ use std::{
 
 use super::{
     FrameRenderer, OUTPUT_FORMAT, RenderError, RenderScene, RenderSize, YUV_CONVERT,
-    shader::validate_render_shader,
+    shader_compile::validate_render_shader,
 };
 
 /// YUV420P planes are single-channel 8-bit targets.

@@ -1,3 +1,4 @@
+use super::shader_compile::validate_render_shader;
 use super::*;
 
 impl RendererBuilder {

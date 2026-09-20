@@ -5,10 +5,10 @@ mod readback;
 mod resources;
 mod scene;
 mod shader;
+mod shader_compile;
 
 use std::{
     collections::{HashMap, HashSet},
-    fmt,
     num::NonZeroU64,
     ops::{Deref, Range},
     sync::{Arc, Mutex},
@@ -21,10 +21,7 @@ pub(crate) use text::TextFrameCache;
 
 use crate::{
     domain::{
-        plugin::{
-            ComputeDispatchDimension, EffectPassSchema, ItemSchema, PluginRegistry,
-            VisualCapability,
-        },
+        plugin::{ComputeDispatchDimension, EffectPassSchema, ItemSchema, VisualCapability},
         timeline::{
             EffectInstance, EvaluatedSceneNode, EvaluatedSceneNodeKind, ItemId, LayerId,
             ProjectResolution, TimelineItem, TimelineTime, TimelineView,
@@ -51,12 +48,12 @@ pub(crate) use scene::{
     RenderNodeMetadata, RenderScene, RenderTemporalSample,
 };
 pub(crate) use scene::{RenderError, RenderSize};
+pub(crate) use shader::CompiledPluginShaders;
 use shader::{
     CompiledEffectShader, ComputeShaderDescriptor, EffectShaderDescriptor, EffectShaderId,
     ItemShaderDescriptor, ItemShaderId, TextureShaderDescriptor, TextureShaderId,
-    validate_render_shader,
 };
-pub(crate) use shader::{CompiledPluginShaders, compile_plugins};
+pub(crate) use shader_compile::compile_plugins;
 
 use encoded_scene::*;
 
