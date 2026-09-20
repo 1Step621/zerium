@@ -105,8 +105,6 @@ struct ItemMoveOrigin {
     items: Vec<MovingItemOrigin>,
     pointer_x: f32,
     pointer_y: f32,
-    was_selected: bool,
-    moved: bool,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -828,8 +826,7 @@ impl Timeline {
         self.cursor_layer = self.editor.read(cx).item_layer(item_id);
         self.editor
             .update(cx, |editor, _| editor.finish_history_group());
-        let was_selected = self.editor.read(cx).is_item_selected(item_id);
-        if !was_selected {
+        if !self.editor.read(cx).is_item_selected(item_id) {
             self.editor
                 .update_if_changed(cx, |editor| editor.select(item_id));
         }
@@ -860,8 +857,6 @@ impl Timeline {
             items,
             pointer_x: f32::from(event.position.x),
             pointer_y: f32::from(event.position.y),
-            was_selected,
-            moved: false,
         });
         cx.stop_propagation();
     }
@@ -973,11 +968,6 @@ impl Timeline {
             .iter()
             .map(|item| (item.item_id, item.start, item.source_layer))
             .collect::<Vec<_>>();
-        if (frame_delta != 0 || layer_delta != 0)
-            && let Some(origin) = self.item_move_origin.as_mut()
-        {
-            origin.moved = true;
-        }
         self.editor.update_if_changed(cx, |editor| {
             editor.move_items_from(&origins, frame_delta, layer_delta)
         });
@@ -1151,14 +1141,7 @@ impl Timeline {
     }
 
     fn finish_item_move(&mut self, cx: &mut Context<Self>) {
-        let origin = self.item_move_origin.take();
-        if let Some(origin) = origin
-            && origin.was_selected
-            && !origin.moved
-        {
-            self.editor
-                .update_if_changed(cx, |editor| editor.toggle_item_selection(origin.item_id));
-        }
+        self.item_move_origin.take();
         self.editor
             .update(cx, |editor, _| editor.finish_history_group());
     }

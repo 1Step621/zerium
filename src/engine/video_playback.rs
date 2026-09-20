@@ -683,7 +683,7 @@ impl VideoPlaybackEngine {
         time: TimelineTime,
         active_items: &[(LayerId, TimelineItem)],
         frame_rate: FrameRate,
-        size: VideoDecodeSize,
+        size_for_item: impl Fn(ItemId) -> VideoDecodeSize,
     ) -> Vec<(VideoInputId, RequestedVideoFrame)> {
         if !self.tick_seen_times.insert(time.frames().to_bits()) {
             return Vec::new();
@@ -696,6 +696,7 @@ impl VideoPlaybackEngine {
             frame_rate,
             playback_seconds,
         ) {
+            let size = size_for_item(request.input.item_id);
             let (source, source_start) = match self.decode_mode {
                 VideoPlaybackMode::Idle => self.idle_source(&request, size),
                 VideoPlaybackMode::Playing | VideoPlaybackMode::Scrubbing => {

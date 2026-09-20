@@ -45,7 +45,7 @@ const YUV_CONVERT: &str = include_str!("yuv.wgsl");
 pub(crate) use readback::ExportFramePipeline;
 pub(crate) use scene::{
     ItemProperties, RenderEffect, RenderEffectPass, RenderItem, RenderNode, RenderNodeContent,
-    RenderNodeMetadata, RenderScene, RenderTemporalSample,
+    RenderNodeMetadata, RenderQuality, RenderScene, RenderTemporalSample,
 };
 pub(crate) use scene::{RenderError, RenderSize};
 pub(crate) use shader::CompiledPluginShaders;
@@ -201,17 +201,20 @@ struct RenderResources {
     effect_texture_a: wgpu::Texture,
     effect_texture_b: wgpu::Texture,
     effect_source_texture: wgpu::Texture,
+    effect_source_view: wgpu::TextureView,
     effect_view_a: wgpu::TextureView,
     effect_view_b: wgpu::TextureView,
     effect_input_a: wgpu::BindGroup,
     effect_input_b: wgpu::BindGroup,
     composite_input_a: wgpu::BindGroup,
     composite_input_b: wgpu::BindGroup,
-    compositions: Vec<CompositionRenderResource>,
+    compositions: Vec<RenderTarget>,
     temporal: Vec<TemporalRenderResource>,
+    cached_nodes: Vec<RenderTarget>,
+    cached_node_keys: Vec<Option<Arc<RenderNodeKey>>>,
 }
 
-struct CompositionRenderResource {
+struct RenderTarget {
     texture: wgpu::Texture,
     view: wgpu::TextureView,
 }
@@ -232,4 +235,5 @@ struct RenderResourceRequirements {
     effect_property_size: usize,
     composition_depth: usize,
     temporal_depth: usize,
+    shared_node_count: usize,
 }

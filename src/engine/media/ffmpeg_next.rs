@@ -865,7 +865,11 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
                     presentation_time.checked_sub(end)
                 })
                 .is_some_and(|gap| gap > self.max_forward_scan_gap());
-        let fresh_at_stream_start = presentation_time.is_zero()
+        // Still-image demuxers often reject seeks to a non-zero timestamp even
+        // though the image is valid for the whole asset duration. The first
+        // request can arrive in the middle of the timeline, so let the normal
+        // packet read start from the beginning and reuse the decoded image.
+        let fresh_at_stream_start = (presentation_time.is_zero() || is_image)
             && self.last_frame.is_none()
             && self.pending_decoded.is_none()
             && self.fallback_time.is_zero()

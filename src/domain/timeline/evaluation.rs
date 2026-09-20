@@ -178,13 +178,6 @@ pub(crate) enum EvaluatedSceneNodeKind {
 }
 
 impl EvaluatedSceneNode {
-    pub(crate) fn children(&self) -> &[Self] {
-        match &self.kind {
-            EvaluatedSceneNodeKind::Item(_) => &[],
-            EvaluatedSceneNodeKind::Scene { children, .. } => children,
-        }
-    }
-
     pub(crate) fn item(&self) -> &TimelineItem {
         match &self.kind {
             EvaluatedSceneNodeKind::Item(item) => item,

@@ -3,6 +3,64 @@ use super::*;
 const MAX_TEMPORAL_DEPTH: usize = 4;
 const MAX_TEMPORAL_RENDER_NODES: usize = 4_096;
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) enum RenderQuality {
+    #[default]
+    Full,
+    Realtime {
+        max_temporal_samples: usize,
+    },
+}
+
+impl RenderQuality {
+    fn temporal_offsets(self, offsets: Vec<f64>) -> Vec<f64> {
+        let Self::Realtime {
+            max_temporal_samples,
+        } = self
+        else {
+            return offsets;
+        };
+        let limit = max_temporal_samples.max(1);
+        if offsets.len() <= limit {
+            return offsets;
+        }
+        let count = offsets.len();
+        (0..limit)
+            .map(|index| {
+                let bucket_center = (2 * index + 1) * count;
+                let source_index = (bucket_center / (2 * limit)).min(count - 1);
+                offsets[source_index]
+            })
+            .collect()
+    }
+}
+
+#[cfg(test)]
+mod render_quality_tests {
+    use super::RenderQuality;
+
+    #[test]
+    fn realtime_quality_keeps_samples_distributed_across_exposure() {
+        let offsets = (-4..4).map(f64::from).collect();
+        assert_eq!(
+            RenderQuality::Realtime {
+                max_temporal_samples: 4,
+            }
+            .temporal_offsets(offsets),
+            vec![-3., -1., 1., 3.]
+        );
+    }
+
+    #[test]
+    fn full_quality_preserves_all_samples() {
+        let offsets = vec![-0.25, 0.25];
+        assert_eq!(
+            RenderQuality::Full.temporal_offsets(offsets.clone()),
+            offsets
+        );
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct RenderCacheKey {
     item_id: ItemId,
@@ -11,7 +69,7 @@ struct RenderCacheKey {
     render_scale: u32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct RenderSize {
     pub width: u32,
     pub height: u32,
@@ -234,6 +292,7 @@ pub(crate) struct MediaFrameRequest<'a> {
     pub item_id: ItemId,
     pub input_id: &'a str,
     pub time: TimelineTime,
+    pub target_size: RenderSize,
 }
 
 type MediaFrameCache = HashMap<(ItemId, usize, u64), Option<Arc<RgbaFrame>>>;
@@ -248,6 +307,25 @@ pub(crate) struct RenderScene {
 }
 
 impl RenderScene {
+    pub(crate) fn render_size_for_item(
+        item: &TimelineItem,
+        size: RenderSize,
+    ) -> Result<RenderSize, RenderError> {
+        let render_scale = item
+            .effects
+            .iter()
+            .map(|effect| effect.schema().render_scale())
+            .max()
+            .unwrap_or(1);
+        size.checked_scale(render_scale).ok_or_else(|| {
+            RenderError::resource_limit(format!(
+                "item '{}' render size at scale {render_scale} overflows",
+                item.intrinsic_label()
+                    .unwrap_or_else(|| "unknown".to_owned())
+            ))
+        })
+    }
+
     fn original_is_hidden(node: &EvaluatedSceneNode, scope: &[EvaluatedSceneNode]) -> bool {
         scope.iter().any(|render_result| {
             render_result
@@ -257,6 +335,24 @@ impl RenderScene {
                     settings.hide_original
                         && settings.includes(render_result.local_layer, node.local_layer)
                 })
+        })
+    }
+
+    fn is_included_by_nested_render_result(
+        node: &EvaluatedSceneNode,
+        scope: &[EvaluatedSceneNode],
+        containing: RenderResultSettings,
+        source_layer: LayerId,
+    ) -> bool {
+        scope.iter().any(|render_result| {
+            render_result.local_layer != node.local_layer
+                && containing.includes(source_layer, render_result.local_layer)
+                && render_result
+                    .item()
+                    .render_result_settings()
+                    .is_some_and(|settings| {
+                        settings.includes(render_result.local_layer, node.local_layer)
+                    })
         })
     }
 
@@ -337,6 +433,7 @@ impl RenderScene {
         timeline: &dyn TimelineView,
         time: TimelineTime,
         size: RenderSize,
+        quality: RenderQuality,
         mut media_frame: impl FnMut(MediaFrameRequest<'_>) -> Result<Option<Arc<RgbaFrame>>, E>,
         mut text_frame: impl FnMut(
             &TimelineItem,
@@ -363,6 +460,7 @@ impl RenderScene {
                 timeline,
                 time,
                 size,
+                quality,
                 0,
                 &mut temporal_nodes_remaining,
                 &mut graph_cache,
@@ -391,6 +489,7 @@ impl RenderScene {
         timeline: &dyn TimelineView,
         time: TimelineTime,
         size: RenderSize,
+        quality: RenderQuality,
         temporal_depth: usize,
         temporal_nodes_remaining: &mut usize,
         graph_cache: &mut HashMap<u64, Vec<EvaluatedSceneNode>>,
@@ -423,6 +522,7 @@ impl RenderScene {
                         timeline,
                         time,
                         size,
+                        quality,
                         temporal_depth,
                         temporal_nodes_remaining,
                         graph_cache,
@@ -446,6 +546,7 @@ impl RenderScene {
                     time,
                     size,
                     render_scale,
+                    quality,
                     temporal_depth,
                     temporal_nodes_remaining,
                     render_cache,
@@ -471,6 +572,7 @@ impl RenderScene {
                     timeline,
                     time,
                     size,
+                    quality,
                     temporal_depth,
                     temporal_nodes_remaining,
                     graph_cache,
@@ -494,6 +596,7 @@ impl RenderScene {
         timeline: &dyn TimelineView,
         time: TimelineTime,
         size: RenderSize,
+        quality: RenderQuality,
         temporal_depth: usize,
         temporal_nodes_remaining: &mut usize,
         graph_cache: &mut HashMap<u64, Vec<EvaluatedSceneNode>>,
@@ -513,6 +616,14 @@ impl RenderScene {
                 if !settings.includes(node.local_layer, child.local_layer) {
                     continue;
                 }
+                if Self::is_included_by_nested_render_result(
+                    child,
+                    child_scope,
+                    settings,
+                    node.local_layer,
+                ) {
+                    continue;
+                }
             } else if Self::original_is_hidden(child, child_scope) {
                 continue;
             }
@@ -523,6 +634,7 @@ impl RenderScene {
                 timeline,
                 time,
                 size,
+                quality,
                 temporal_depth,
                 temporal_nodes_remaining,
                 graph_cache,
@@ -560,7 +672,8 @@ impl RenderScene {
                             "temporal effect depth exceeds {MAX_TEMPORAL_DEPTH}"
                         ))));
                     }
-                    offsets
+                    quality
+                        .temporal_offsets(offsets)
                         .into_iter()
                         .map(|offset| {
                             *temporal_nodes_remaining = temporal_nodes_remaining
@@ -590,6 +703,7 @@ impl RenderScene {
                                         timeline,
                                         sample_time,
                                         size,
+                                        quality,
                                         temporal_depth + 1,
                                         temporal_nodes_remaining,
                                         graph_cache,
@@ -671,36 +785,6 @@ impl RenderScene {
         None
     }
 
-    pub(crate) fn effect_render_size_for_timeline(
-        timeline: &dyn TimelineView,
-        time: TimelineTime,
-        size: RenderSize,
-    ) -> Result<RenderSize, RenderError> {
-        fn max_scale(nodes: &[EvaluatedSceneNode]) -> u32 {
-            nodes
-                .iter()
-                .map(|node| {
-                    node.item()
-                        .effects
-                        .iter()
-                        .map(|effect| effect.schema().render_scale())
-                        .max()
-                        .unwrap_or(1)
-                        .max(max_scale(node.children()))
-                })
-                .max()
-                .unwrap_or(1)
-        }
-
-        let scale = max_scale(&timeline.active_scene_graph_at_time(time));
-        size.checked_scale(scale).ok_or_else(|| {
-            RenderError::resource_limit(format!(
-                "effect render size {}x{} at scale {scale} overflows",
-                size.width, size.height
-            ))
-        })
-    }
-
     #[allow(clippy::too_many_arguments)]
     fn render_item<E: From<RenderError>>(
         item: &TimelineItem,
@@ -709,6 +793,7 @@ impl RenderScene {
         time: TimelineTime,
         size: RenderSize,
         render_scale: u32,
+        quality: RenderQuality,
         temporal_depth: usize,
         temporal_nodes_remaining: &mut usize,
         render_cache: &mut HashMap<RenderCacheKey, Option<RenderItem>>,
@@ -762,7 +847,8 @@ impl RenderScene {
                                 .temporal_sample_offsets(pass, &effect.properties)
                             {
                                 Some(offsets) => Some(
-                                    offsets
+                                    quality
+                                        .temporal_offsets(offsets)
                                         .into_iter()
                                         .map(|offset| {
                                             if temporal_depth >= MAX_TEMPORAL_DEPTH {
@@ -801,6 +887,7 @@ impl RenderScene {
                                                         sample_time,
                                                         size,
                                                         render_scale,
+                                                        quality,
                                                         temporal_depth + 1,
                                                         temporal_nodes_remaining,
                                                         render_cache,
@@ -859,6 +946,7 @@ impl RenderScene {
                                 item_id: item.id,
                                 input_id: input.id(),
                                 time,
+                                target_size,
                             })?;
                             entry.insert(frame.clone()).clone()
                         }

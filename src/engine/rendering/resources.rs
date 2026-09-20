@@ -15,6 +15,7 @@ impl FrameRenderer {
             effect_property_size,
             composition_depth,
             temporal_depth,
+            shared_node_count,
         } = requirements;
         let item_capacity = item_count
             .max(1)
@@ -286,7 +287,7 @@ impl FrameRenderer {
                 };
                 let texture = self.device.create_texture(&descriptor);
                 let view = texture.create_view(&Default::default());
-                CompositionRenderResource { texture, view }
+                RenderTarget { texture, view }
             })
             .collect();
         let temporal = (0..temporal_depth)
@@ -346,6 +347,21 @@ impl FrameRenderer {
                 }
             })
             .collect();
+        let cached_nodes = (0..shared_node_count)
+            .map(|_| {
+                let descriptor = wgpu::TextureDescriptor {
+                    label: Some("zerium-shared-render-node"),
+                    usage: wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_DST
+                        | wgpu::TextureUsages::COPY_SRC,
+                    ..effect_texture_descriptor
+                };
+                let texture = self.device.create_texture(&descriptor);
+                let view = texture.create_view(&Default::default());
+                RenderTarget { texture, view }
+            })
+            .collect();
+        let cached_node_keys = vec![None; shared_node_count];
 
         Ok(RenderResources {
             size,
@@ -370,6 +386,7 @@ impl FrameRenderer {
             effect_texture_a,
             effect_texture_b,
             effect_source_texture,
+            effect_source_view,
             effect_view_a,
             effect_view_b,
             effect_input_a,
@@ -378,6 +395,8 @@ impl FrameRenderer {
             composite_input_b,
             compositions,
             temporal,
+            cached_nodes,
+            cached_node_keys,
         })
     }
 

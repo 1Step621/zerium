@@ -16,16 +16,17 @@ mod editor_overlay;
 use editor_overlay::{PreviewEditorDrag, PreviewEditorDragState};
 
 use crate::{
-    domain::timeline::{Frame, LayerId, TimelineEditor, TimelineItem, TimelineTime},
+    domain::timeline::{Frame, ItemId, LayerId, TimelineEditor, TimelineItem, TimelineTime},
     engine::{
         audio_meter::AudioLevelSampler,
         media::{MediaReaderRegistry, VideoDecodeSize},
         rendering::{
-            CompiledPluginShaders, FrameRenderer, RenderError, RenderScene, RenderSize,
-            RendererBuilder, RendererDevice, TextFrameCache,
+            CompiledPluginShaders, FrameRenderer, RenderError, RenderQuality, RenderScene,
+            RenderSize, RendererBuilder, RendererDevice, TextFrameCache,
         },
         video_playback::{
-            RequestedVideoFrame, VideoInputId, VideoPlaybackEngine, VideoPlaybackSnapshot,
+            RequestedVideoFrame, VideoInputId, VideoPlaybackEngine, VideoPlaybackMode,
+            VideoPlaybackSnapshot,
         },
     },
     ui::{
@@ -122,6 +123,7 @@ impl Preview {
         width: 640,
         height: 360,
     };
+    const REALTIME_TEMPORAL_SAMPLES: usize = 4;
     const BAR_THICKNESS: f32 = 6.;
 
     pub(crate) fn new(
@@ -267,16 +269,10 @@ impl Preview {
             )
         };
         let composition_size = RenderSize::from(resolution);
-        let effect_size = {
-            let editor = self.editor.read(cx);
-            RenderScene::effect_render_size_for_timeline(editor, render_time, size)?
-        };
-        let decode_size = VideoDecodeSize {
-            max_width: effect_size.width,
-            max_height: effect_size.height,
-        };
         self.video_playback.begin_frame_demand(mode);
         let mut items_by_time: HashMap<u64, Vec<(LayerId, TimelineItem)>> = HashMap::new();
+        let mut decode_sizes_by_time: HashMap<u64, HashMap<ItemId, VideoDecodeSize>> =
+            HashMap::new();
         let mut recorded: HashMap<(u64, VideoInputId), RequestedVideoFrame> = HashMap::new();
         let editor = self.editor.clone();
         let editor = editor.read(cx);
@@ -286,6 +282,14 @@ impl Preview {
             editor,
             render_time,
             size,
+            match mode {
+                VideoPlaybackMode::Idle => RenderQuality::Full,
+                VideoPlaybackMode::Playing | VideoPlaybackMode::Scrubbing => {
+                    RenderQuality::Realtime {
+                        max_temporal_samples: Self::REALTIME_TEMPORAL_SAMPLES,
+                    }
+                }
+            },
             |request| {
                 let time_bits = request.time.frames().to_bits();
                 let input = VideoInputId {
@@ -296,8 +300,34 @@ impl Preview {
                     let items = items_by_time
                         .entry(time_bits)
                         .or_insert_with(|| editor.active_items_at_time(request.time));
+                    let decode_sizes = decode_sizes_by_time.entry(time_bits).or_insert_with(|| {
+                        items
+                            .iter()
+                            .filter_map(|(_, item)| {
+                                RenderScene::render_size_for_item(item, size)
+                                    .ok()
+                                    .map(|size| {
+                                        (
+                                            item.id,
+                                            VideoDecodeSize {
+                                                max_width: size.width,
+                                                max_height: size.height,
+                                            },
+                                        )
+                                    })
+                            })
+                            .collect()
+                    });
                     for (input, requested) in
-                        playback.record_media_requests(request.time, items, frame_rate, decode_size)
+                        playback.record_media_requests(request.time, items, frame_rate, |item_id| {
+                            decode_sizes
+                                .get(&item_id)
+                                .copied()
+                                .unwrap_or(VideoDecodeSize {
+                                    max_width: request.target_size.width,
+                                    max_height: request.target_size.height,
+                                })
+                        })
                     {
                         recorded.insert((time_bits, input), requested);
                     }

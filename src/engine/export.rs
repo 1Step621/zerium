@@ -21,7 +21,10 @@ use crate::{
             FfmpegFileEncoder, MediaReaderRegistry, VideoColorSpec, VideoDecodeSize,
             VideoDecoderSession, VideoEncoderSettings, VideoOutputSpec, sample_boundary,
         },
-        rendering::{ExportFramePipeline, FrameRenderer, RenderScene, RenderSize, TextFrameCache},
+        rendering::{
+            ExportFramePipeline, FrameRenderer, RenderQuality, RenderScene, RenderSize,
+            TextFrameCache,
+        },
     },
 };
 
@@ -208,25 +211,18 @@ fn decode_scenes(
         let render_time = TimelineTime::from_frame(frame);
         let active_items = timeline.active_items_at(frame);
         text_frames.retain_active(active_items.iter().map(|(_, item)| item.id));
-        let effect_size =
-            match RenderScene::effect_render_size_for_timeline(&timeline, render_time, size) {
-                Ok(size) => size,
-                Err(error) => {
-                    let _ = scenes.send(Err(error.into()));
-                    break;
-                }
-            };
         let result = RenderScene::from_timeline(
             &timeline,
             render_time,
             size,
+            RenderQuality::Full,
             |request| {
                 decode_texture_frame(
                     &timeline,
                     request.item_id,
                     request.input_id,
                     request.time,
-                    effect_size,
+                    request.target_size,
                     &mut decoders,
                     &media_readers,
                     &cancelled,
