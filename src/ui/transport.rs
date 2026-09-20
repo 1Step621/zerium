@@ -7,6 +7,7 @@ use crate::{
     engine::audio_playback::{
         AudioPlaybackEngine, AudioPlaybackError, AudioPlaybackEvent, PlaybackClock,
     },
+    engine::video_playback::VideoPlaybackMode,
 };
 
 use super::session::UiNotifications;
@@ -16,13 +17,6 @@ pub(crate) enum ScrubSource {
     Timeline,
     AnimationCurve,
     Preview,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum PreviewPlaybackMode {
-    Idle,
-    Scrubbing,
-    Playing,
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -81,11 +75,11 @@ impl TransportController {
         matches!(self.mode, TransportMode::Playing(_))
     }
 
-    pub(crate) fn playback_mode(&self) -> PreviewPlaybackMode {
+    pub(crate) fn playback_mode(&self) -> VideoPlaybackMode {
         match self.mode {
-            TransportMode::Stopped => PreviewPlaybackMode::Idle,
-            TransportMode::Scrubbing(_) => PreviewPlaybackMode::Scrubbing,
-            TransportMode::Playing(_) => PreviewPlaybackMode::Playing,
+            TransportMode::Stopped => VideoPlaybackMode::Idle,
+            TransportMode::Scrubbing(_) => VideoPlaybackMode::Scrubbing,
+            TransportMode::Playing(_) => VideoPlaybackMode::Playing,
         }
     }
 

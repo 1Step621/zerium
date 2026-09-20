@@ -1,14 +1,13 @@
-mod video;
-
 use std::{collections::HashMap, sync::Arc};
 
 use ::ui::{
     ActiveTheme as _,
     slider::{Slider, SliderEvent, SliderState},
 };
+use futures::StreamExt as _;
 use gpui::{
     Context, Entity, Hsla, MouseButton, MouseDownEvent, MouseUpEvent, Render, SharedString,
-    Subscription, WgpuSurfaceHandle, Window, div, prelude::*, px, relative, wgpu_surface,
+    Subscription, Task, WgpuSurfaceHandle, Window, div, prelude::*, px, relative, wgpu_surface,
 };
 
 use crate::{
@@ -23,6 +22,9 @@ use crate::{
             FrameRenderer, RenderError, RenderScene, RenderSize, RendererBuilder, RendererDevice,
             TextFrameCache,
         },
+        video_playback::{
+            RequestedVideoFrame, VideoInputId, VideoPlaybackEngine, VideoPlaybackSnapshot,
+        },
     },
     ui::{
         session::{ProjectSession, ProjectSessionId, UiNotifications},
@@ -30,8 +32,6 @@ use crate::{
         transport::{ScrubSource, TransportController},
     },
 };
-
-use self::video::{RequestedVideoFrame, VideoInputId, VideoPlaybackEngine};
 
 pub(crate) struct RenderBackend {
     renderer: Option<Arc<FrameRenderer>>,
@@ -97,7 +97,7 @@ pub(crate) struct Preview {
     session: Entity<ProjectSession>,
     session_id: ProjectSessionId,
     notifications: Entity<UiNotifications>,
-    video_playback: Entity<VideoPlaybackEngine>,
+    video_playback: VideoPlaybackEngine,
     audio_level_sampler: AudioLevelSampler,
     seekbar: Entity<SliderState>,
     surface: Option<WgpuSurfaceHandle>,
@@ -111,8 +111,8 @@ pub(crate) struct Preview {
     _editor_subscription: Subscription,
     _transport_subscription: Subscription,
     _session_subscription: Subscription,
-    _video_playback_subscription: Subscription,
     _seekbar_subscription: Subscription,
+    _video_playback_task: Task<()>,
 }
 
 impl Preview {
@@ -162,6 +162,7 @@ impl Preview {
             this.rendered_video_revision = None;
             this.rendered_size = None;
             this.audio_level_sampler.clear();
+            this.video_playback.reset();
             cx.notify();
         });
         let surface = window.create_wgpu_surface(
@@ -196,10 +197,19 @@ impl Preview {
             error,
         });
         let audio_level_sampler = AudioLevelSampler::new(media_readers.clone());
-        let video_playback = cx.new(|cx| {
-            VideoPlaybackEngine::new(media_readers, session.clone(), notifications.clone(), cx)
+        let (video_playback, mut video_playback_events) = VideoPlaybackEngine::new(media_readers);
+        let video_playback_task = cx.spawn(async move |preview, cx| {
+            while let Some(event) = video_playback_events.next().await {
+                let Some(preview) = preview.upgrade() else {
+                    return;
+                };
+                preview.update(cx, |preview, cx| {
+                    let snapshot = preview.video_playback.handle_event(event);
+                    preview.handle_playback_snapshot(&snapshot, cx);
+                    cx.notify();
+                });
+            }
         });
-        let video_playback_subscription = cx.observe(&video_playback, |_, _, cx| cx.notify());
 
         Self {
             editor,
@@ -221,8 +231,8 @@ impl Preview {
             _editor_subscription: editor_subscription,
             _transport_subscription: transport_subscription,
             _session_subscription: session_subscription,
-            _video_playback_subscription: video_playback_subscription,
             _seekbar_subscription: seekbar_subscription,
+            _video_playback_task: video_playback_task,
         }
     }
 
@@ -243,7 +253,7 @@ impl Preview {
         render_time: TimelineTime,
         size: RenderSize,
         cx: &mut Context<Self>,
-    ) -> Result<(RenderScene, video::VideoPlaybackSnapshot), RenderError> {
+    ) -> Result<(RenderScene, VideoPlaybackSnapshot), RenderError> {
         let (frame_rate, mode, resolution) = {
             let editor = self.editor.read(cx);
             (
@@ -261,52 +271,54 @@ impl Preview {
             max_width: effect_size.width,
             max_height: effect_size.height,
         };
-        let video_playback = self.video_playback.clone();
-        video_playback.update(cx, |playback, cx| {
-            playback.begin_frame_demand(mode);
-            let mut items_by_time: HashMap<u64, Vec<(LayerId, TimelineItem)>> = HashMap::new();
-            let mut recorded: HashMap<(u64, VideoInputId), RequestedVideoFrame> = HashMap::new();
-            let scene = {
-                let editor = self.editor.clone();
-                let editor = editor.read(cx);
-                let text_frames = &mut self.text_frames;
-                RenderScene::from_timeline(
-                    editor,
-                    render_time,
-                    size,
-                    |request| {
-                        let time_bits = request.time.frames().to_bits();
-                        let input = VideoInputId {
-                            item_id: request.item_id,
-                            input_id: request.input_id.to_owned(),
-                        };
-                        if !recorded.contains_key(&(time_bits, input.clone())) {
-                            let items = items_by_time
-                                .entry(time_bits)
-                                .or_insert_with(|| editor.active_items_at_time(request.time));
-                            for (input, requested) in playback.record_media_requests(
-                                request.time,
-                                items,
-                                frame_rate,
-                                decode_size,
-                            ) {
-                                recorded.insert((time_bits, input), requested);
-                            }
-                        }
-                        Ok(recorded
-                            .get(&(time_bits, input.clone()))
-                            .and_then(|requested| {
-                                playback.present_recorded_frame(&input, requested)
-                            }))
-                    },
-                    |item, schema, size| {
-                        text_frames.frame_for(item, schema, size, composition_size)
-                    },
-                )?
-            };
-            let snapshot = playback.finish_frame_demand(cx);
-            Ok((scene, snapshot))
-        })
+        self.video_playback.begin_frame_demand(mode);
+        let mut items_by_time: HashMap<u64, Vec<(LayerId, TimelineItem)>> = HashMap::new();
+        let mut recorded: HashMap<(u64, VideoInputId), RequestedVideoFrame> = HashMap::new();
+        let editor = self.editor.clone();
+        let editor = editor.read(cx);
+        let playback = &mut self.video_playback;
+        let text_frames = &mut self.text_frames;
+        let scene = RenderScene::from_timeline(
+            editor,
+            render_time,
+            size,
+            |request| {
+                let time_bits = request.time.frames().to_bits();
+                let input = VideoInputId {
+                    item_id: request.item_id,
+                    input_id: request.input_id.to_owned(),
+                };
+                if !recorded.contains_key(&(time_bits, input.clone())) {
+                    let items = items_by_time
+                        .entry(time_bits)
+                        .or_insert_with(|| editor.active_items_at_time(request.time));
+                    for (input, requested) in
+                        playback.record_media_requests(request.time, items, frame_rate, decode_size)
+                    {
+                        recorded.insert((time_bits, input), requested);
+                    }
+                }
+                Ok(recorded
+                    .get(&(time_bits, input.clone()))
+                    .and_then(|requested| playback.present_recorded_frame(&input, requested)))
+            },
+            |item, schema, size| text_frames.frame_for(item, schema, size, composition_size),
+        )?;
+        let snapshot = playback.finish_frame_demand();
+        Ok((scene, snapshot))
+    }
+
+    fn handle_playback_snapshot(
+        &mut self,
+        playback: &VideoPlaybackSnapshot,
+        cx: &mut Context<Self>,
+    ) {
+        self.playback_error = playback.error.clone().map(Into::into);
+        for message in &playback.notifications {
+            self.notifications.update(cx, |notifications, cx| {
+                notifications.push(message.clone(), cx);
+            });
+        }
     }
 
     fn render_latest_frame(&mut self, cx: &mut Context<Self>) {
@@ -337,7 +349,7 @@ impl Preview {
                 return;
             }
         };
-        self.playback_error = playback.error.clone().map(Into::into);
+        self.handle_playback_snapshot(&playback, cx);
 
         let Some(renderer) = self.backend.read(cx).renderer() else {
             return;
@@ -359,7 +371,10 @@ impl Preview {
             (scene, playback)
         } else {
             match self.prepare_scene(render_time, size, cx) {
-                Ok(prepared) => prepared,
+                Ok(prepared) => {
+                    self.handle_playback_snapshot(&prepared.1, cx);
+                    prepared
+                }
                 Err(error) => {
                     self.report_error(
                         format!("プレビューシーンの再構築に失敗しました: {error}"),
@@ -569,62 +584,54 @@ impl Render for Preview {
             .bg(colors.background)
             .child(
                 div()
-                    .relative()
                     .flex_1()
                     .min_h_0()
                     .w_full()
                     .flex()
-                    .items_center()
-                    .justify_center()
                     .overflow_hidden()
-                    .when_some(surface, |this, surface| {
-                        this.child(
-                            wgpu_surface(surface)
-                                .w_full()
-                                .max_h_full()
-                                .aspect_ratio(aspect_ratio)
-                                .defer_resize_until_mouse_up(true),
-                        )
-                    })
-                    .when_some(error, |this, error| {
-                        this.child(
-                            div()
-                                .absolute()
-                                .inset_0()
-                                .flex()
-                                .items_center()
-                                .justify_center()
-                                .text_sm()
-                                .text_color(colors.danger)
-                                .child(error),
-                        )
-                    })
+                    .child(Self::render_audio_meter(
+                        levels[0],
+                        colors.slider_bar,
+                        colors.primary,
+                    ))
                     .child(
                         div()
-                            .absolute()
-                            .left_0()
-                            .top_0()
-                            .bottom_0()
-                            .w(px(Self::BAR_THICKNESS))
-                            .child(Self::render_audio_meter(
-                                levels[0],
-                                colors.slider_bar,
-                                colors.primary,
-                            )),
+                            .relative()
+                            .flex_1()
+                            .min_w_0()
+                            .h_full()
+                            .flex()
+                            .items_center()
+                            .justify_center()
+                            .overflow_hidden()
+                            .when_some(surface, |this, surface| {
+                                this.child(
+                                    wgpu_surface(surface)
+                                        .w_full()
+                                        .max_h_full()
+                                        .aspect_ratio(aspect_ratio)
+                                        .defer_resize_until_mouse_up(true),
+                                )
+                            })
+                            .when_some(error, |this, error| {
+                                this.child(
+                                    div()
+                                        .absolute()
+                                        .inset_0()
+                                        .flex()
+                                        .items_center()
+                                        .justify_center()
+                                        .text_sm()
+                                        .text_color(colors.danger)
+                                        .child(error),
+                                )
+                            }),
                     )
-                    .child(
-                        div()
-                            .absolute()
-                            .right_0()
-                            .top_0()
-                            .bottom_0()
-                            .w(px(Self::BAR_THICKNESS))
-                            .child(Self::render_audio_meter(
-                                levels[1],
-                                colors.slider_bar,
-                                colors.primary,
-                            )),
-                    ),
+                    .child(Self::render_audio_meter(
+                        levels[1],
+                        colors.slider_bar,
+                        colors.primary,
+                    )),
             )
             .child(self.render_controls(window, cx))
     }

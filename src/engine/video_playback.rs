@@ -7,7 +7,7 @@ use std::{
     time::Duration,
 };
 
-use gpui::{AppContext as _, Context, Entity, Subscription, Task};
+use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 
 use crate::{
     domain::{
@@ -22,11 +22,14 @@ use crate::{
             VideoDecoderSession, VideoProxy, VideoProxyRequest, estimate_max_keyframe_gap,
         },
     },
-    ui::{
-        session::{ProjectSession, ProjectSessionId, UiNotifications},
-        transport::PreviewPlaybackMode,
-    },
 };
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum VideoPlaybackMode {
+    Idle,
+    Scrubbing,
+    Playing,
+}
 
 struct InFlightVideoDecode {
     generation: u64,
@@ -34,18 +37,18 @@ struct InFlightVideoDecode {
     source: MediaAsset,
     presentation_time: Duration,
     size: VideoDecodeSize,
-    mode: PreviewPlaybackMode,
+    mode: VideoPlaybackMode,
     expected_end: Duration,
 }
 
 impl InFlightVideoDecode {
-    fn retain_for_requests(&self, requests: &[RequestedVideoFrame], mode: PreviewPlaybackMode) {
+    fn retain_for_requests(&self, requests: &[RequestedVideoFrame], mode: VideoPlaybackMode) {
         if !requests.iter().any(|request| self.serves(request, mode)) {
             self.cancel.store(true, Ordering::Release);
         }
     }
 
-    fn serves(&self, request: &RequestedVideoFrame, mode: PreviewPlaybackMode) -> bool {
+    fn serves(&self, request: &RequestedVideoFrame, mode: VideoPlaybackMode) -> bool {
         if self.cancel.load(Ordering::Acquire)
             || self.source != request.source
             || self.size != request.size
@@ -55,8 +58,8 @@ impl InFlightVideoDecode {
         let in_range = request.presentation_time >= self.presentation_time
             && request.presentation_time < self.expected_end;
         match mode {
-            PreviewPlaybackMode::Playing => self.mode == mode && in_range,
-            PreviewPlaybackMode::Scrubbing | PreviewPlaybackMode::Idle => {
+            VideoPlaybackMode::Playing => self.mode == mode && in_range,
+            VideoPlaybackMode::Scrubbing | VideoPlaybackMode::Idle => {
                 request.presentation_time == self.presentation_time || in_range
             }
         }
@@ -80,7 +83,7 @@ impl InFlightVideoDecodes {
         source: MediaAsset,
         presentation_time: Duration,
         size: VideoDecodeSize,
-        mode: PreviewPlaybackMode,
+        mode: VideoPlaybackMode,
         frame_count: usize,
     ) -> (u64, Arc<AtomicBool>) {
         if let Some(active) = self.active.get(&input) {
@@ -142,6 +145,11 @@ impl InFlightVideoDecodes {
             }
         }
     }
+
+    fn reset(&mut self) {
+        self.cancel_orphans(&HashSet::new());
+        self.active.clear();
+    }
 }
 
 #[derive(Clone)]
@@ -202,13 +210,13 @@ struct VideoProxyJob {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(super) struct VideoInputId {
-    pub item_id: ItemId,
-    pub input_id: String,
+pub(crate) struct VideoInputId {
+    pub(crate) item_id: ItemId,
+    pub(crate) input_id: String,
 }
 
 #[derive(Clone)]
-pub(super) struct RequestedVideoFrame {
+pub(crate) struct RequestedVideoFrame {
     presentation_time: Duration,
     asset: MediaAsset,
     source: MediaAsset,
@@ -264,10 +272,25 @@ struct VideoWorkerHandle {
     requests: std::sync::mpsc::Sender<VideoWorkerDirective>,
 }
 
+pub(crate) struct VideoPlaybackEvent(VideoPlaybackEventKind);
+
+enum VideoPlaybackEventKind {
+    Decoded {
+        input: VideoInputId,
+        result: VideoWorkerResult,
+    },
+    ProxyGenerated {
+        generation: u64,
+        key: VideoProxyKey,
+        result: Result<VideoProxy, MediaError>,
+    },
+}
+
 fn video_worker_main(
     media_readers: Arc<MediaReaderRegistry>,
     requests: std::sync::mpsc::Receiver<VideoWorkerDirective>,
-    results: futures::channel::mpsc::UnboundedSender<VideoWorkerResult>,
+    input: VideoInputId,
+    events: UnboundedSender<VideoPlaybackEvent>,
 ) {
     let mut decoder: Option<VideoDecoderState> = None;
     while let Ok(first) = requests.recv() {
@@ -280,14 +303,17 @@ fn video_worker_main(
             VideoWorkerDirective::Decode(request) => request,
         };
         if request.cancel.load(Ordering::Acquire) {
-            let _ = results.unbounded_send(VideoWorkerResult {
-                generation: request.generation,
-                sequence: request.sequence,
-                source: request.source,
-                presentation_time: request.presentation_time,
-                size: request.size,
-                result: Err(MediaError::Cancelled),
-            });
+            let _ = events.unbounded_send(VideoPlaybackEvent(VideoPlaybackEventKind::Decoded {
+                input: input.clone(),
+                result: VideoWorkerResult {
+                    generation: request.generation,
+                    sequence: request.sequence,
+                    source: request.source,
+                    presentation_time: request.presentation_time,
+                    size: request.size,
+                    result: Err(MediaError::Cancelled),
+                },
+            }));
             continue;
         }
         if decoder
@@ -300,14 +326,19 @@ fn video_worker_main(
                     decoder,
                 }),
                 Err(error) => {
-                    let _ = results.unbounded_send(VideoWorkerResult {
-                        generation: request.generation,
-                        sequence: request.sequence,
-                        source: request.source,
-                        presentation_time: request.presentation_time,
-                        size: request.size,
-                        result: Err(error),
-                    });
+                    let _ = events.unbounded_send(VideoPlaybackEvent(
+                        VideoPlaybackEventKind::Decoded {
+                            input: input.clone(),
+                            result: VideoWorkerResult {
+                                generation: request.generation,
+                                sequence: request.sequence,
+                                source: request.source,
+                                presentation_time: request.presentation_time,
+                                size: request.size,
+                                result: Err(error),
+                            },
+                        },
+                    ));
                     continue;
                 }
             };
@@ -322,15 +353,18 @@ fn video_worker_main(
                 request.size,
                 &request.cancel,
             );
-        if results
-            .unbounded_send(VideoWorkerResult {
-                generation: request.generation,
-                sequence: request.sequence,
-                source: request.source,
-                presentation_time: request.presentation_time,
-                size: request.size,
-                result,
-            })
+        if events
+            .unbounded_send(VideoPlaybackEvent(VideoPlaybackEventKind::Decoded {
+                input: input.clone(),
+                result: VideoWorkerResult {
+                    generation: request.generation,
+                    sequence: request.sequence,
+                    source: request.source,
+                    presentation_time: request.presentation_time,
+                    size: request.size,
+                    result,
+                },
+            }))
             .is_err()
         {
             break;
@@ -338,16 +372,21 @@ fn video_worker_main(
     }
 }
 
+struct InFlightVideoProxy {
+    generation: u64,
+    job: VideoProxyJob,
+}
+
 struct VideoProxyManager {
     media_readers: Arc<MediaReaderRegistry>,
-    session: Entity<ProjectSession>,
-    notifications: Entity<UiNotifications>,
     proxies: HashMap<VideoProxyKey, VideoProxy>,
     queued: VecDeque<VideoProxyJob>,
-    generating: Option<VideoProxyJob>,
+    generating: Option<InFlightVideoProxy>,
+    next_generation: u64,
     failed_attempts: HashMap<VideoProxyKey, u8>,
     keyframe_gaps: HashMap<MediaSourceId, Option<u64>>,
     error: Option<String>,
+    notifications: Vec<String>,
 }
 
 impl VideoProxyManager {
@@ -358,21 +397,17 @@ impl VideoProxyManager {
     const MAX_KEYFRAME_GAP: u64 = 24;
     const MAX_ATTEMPTS: u8 = 3;
 
-    fn new(
-        media_readers: Arc<MediaReaderRegistry>,
-        session: Entity<ProjectSession>,
-        notifications: Entity<UiNotifications>,
-    ) -> Self {
+    fn new(media_readers: Arc<MediaReaderRegistry>) -> Self {
         Self {
             media_readers,
-            session,
-            notifications,
             proxies: HashMap::new(),
             queued: VecDeque::new(),
             generating: None,
+            next_generation: 0,
             failed_attempts: HashMap::new(),
             keyframe_gaps: HashMap::new(),
             error: None,
+            notifications: Vec::new(),
         }
     }
 
@@ -479,7 +514,7 @@ impl VideoProxyManager {
                 || self
                     .generating
                     .as_ref()
-                    .is_some_and(|current| current.key == job.key)
+                    .is_some_and(|current| current.job.key == job.key)
                 || self.queued.iter().any(|queued| queued.key == job.key)
             {
                 continue;
@@ -488,63 +523,82 @@ impl VideoProxyManager {
         }
     }
 
-    fn start_next(&mut self, cx: &mut Context<VideoPlaybackEngine>) {
+    fn start_next(&mut self, events: &UnboundedSender<VideoPlaybackEvent>) {
         if self.generating.is_some() {
             return;
         }
-        let Some(job) = self.queued.pop_front() else {
-            return;
-        };
-        self.generating = Some(job.clone());
-        let key = job.key.clone();
-        let media_readers = self.media_readers.clone();
-        let session = self.session.clone();
-        let session_id = session.read(cx).id();
-        cx.spawn(async move |playback, cx| {
-            let result = cx
-                .background_spawn(async move {
-                    media_readers.create_video_proxy(&job.source, job.request)
-                })
-                .await;
-            if !session.update(cx, |session, _| session.is_current(session_id)) {
+        while let Some(job) = self.queued.pop_front() {
+            self.next_generation = self.next_generation.wrapping_add(1);
+            let generation = self.next_generation;
+            let key = job.key.clone();
+            let failure_key = key.clone();
+            let media_readers = self.media_readers.clone();
+            let worker_job = job.clone();
+            let events = events.clone();
+            self.generating = Some(InFlightVideoProxy { generation, job });
+            let spawn = std::thread::Builder::new()
+                .name("zerium-video-proxy".to_owned())
+                .spawn(move || {
+                    let result =
+                        media_readers.create_video_proxy(&worker_job.source, worker_job.request);
+                    let _ = events.unbounded_send(VideoPlaybackEvent(
+                        VideoPlaybackEventKind::ProxyGenerated {
+                            generation,
+                            key,
+                            result,
+                        },
+                    ));
+                });
+            if spawn.is_ok() {
                 return;
             }
-            if let Some(playback) = playback.upgrade() {
-                playback.update(cx, |playback, cx| {
-                    let proxy = &mut playback.proxy;
-                    if proxy
-                        .generating
-                        .as_ref()
-                        .is_none_or(|current| current.key != key)
-                    {
-                        return;
-                    }
-                    proxy.generating = None;
-                    match result {
-                        Ok(proxy_asset) => {
-                            proxy.failed_attempts.remove(&key);
-                            proxy.proxies.insert(key, proxy_asset);
-                        }
-                        Err(error) => {
-                            let attempts = proxy.failed_attempts.entry(key).or_insert(0);
-                            *attempts = attempts.saturating_add(1);
-                            let message = format!(
-                                "動画proxyの生成に失敗しました ({}/{}): {error}",
-                                *attempts,
-                                Self::MAX_ATTEMPTS,
-                            );
-                            proxy.error = Some(message.clone());
-                            proxy.notifications.update(cx, |notifications, cx| {
-                                notifications.push(message, cx);
-                            });
-                        }
-                    }
-                    proxy.start_next(cx);
-                    cx.notify();
-                });
+            self.generating = None;
+            self.record_result(
+                failure_key,
+                Err(MediaError::External(
+                    "動画proxy workerを開始できませんでした".to_owned(),
+                )),
+            );
+        }
+    }
+
+    fn finish_current(
+        &mut self,
+        generation: u64,
+        key: VideoProxyKey,
+        result: Result<VideoProxy, MediaError>,
+        events: &UnboundedSender<VideoPlaybackEvent>,
+    ) -> bool {
+        let Some(generating) = &self.generating else {
+            return false;
+        };
+        if generating.generation != generation || generating.job.key != key {
+            return false;
+        }
+        self.generating = None;
+        self.record_result(key, result);
+        self.start_next(events);
+        true
+    }
+
+    fn record_result(&mut self, key: VideoProxyKey, result: Result<VideoProxy, MediaError>) {
+        match result {
+            Ok(proxy) => {
+                self.failed_attempts.remove(&key);
+                self.proxies.insert(key, proxy);
             }
-        })
-        .detach();
+            Err(error) => {
+                let attempts = self.failed_attempts.entry(key).or_insert(0);
+                *attempts = attempts.saturating_add(1);
+                let message = format!(
+                    "動画proxyの生成に失敗しました ({}/{}): {error}",
+                    *attempts,
+                    Self::MAX_ATTEMPTS,
+                );
+                self.error = Some(message.clone());
+                self.notifications.push(message);
+            }
+        }
     }
 
     fn reset(&mut self) {
@@ -554,15 +608,17 @@ impl VideoProxyManager {
         self.failed_attempts.clear();
         self.keyframe_gaps.clear();
         self.error = None;
+        self.notifications.clear();
     }
 }
 
-pub(super) struct VideoPlaybackSnapshot {
-    pub revision: u64,
-    pub error: Option<String>,
+pub(crate) struct VideoPlaybackSnapshot {
+    pub(crate) revision: u64,
+    pub(crate) error: Option<String>,
+    pub(crate) notifications: Vec<String>,
 }
 
-pub(super) struct VideoPlaybackEngine {
+pub(crate) struct VideoPlaybackEngine {
     media_readers: Arc<MediaReaderRegistry>,
     frame_cache: BudgetedTimestampCache<VideoFrameSequence, Arc<RgbaFrame>>,
     requested_frames: HashMap<VideoInputId, Vec<RequestedVideoFrame>>,
@@ -572,15 +628,12 @@ pub(super) struct VideoPlaybackEngine {
     in_flight: InFlightVideoDecodes,
     workers: HashMap<VideoInputId, VideoWorkerHandle>,
     proxy: VideoProxyManager,
+    events: UnboundedSender<VideoPlaybackEvent>,
     failed_frames: HashSet<(VideoFrameSequence, Duration)>,
-    session: Entity<ProjectSession>,
-    session_id: ProjectSessionId,
-    notifications: Entity<UiNotifications>,
-    decode_tasks: HashMap<VideoInputId, Task<()>>,
-    decode_mode: PreviewPlaybackMode,
+    notifications: Vec<String>,
+    decode_mode: VideoPlaybackMode,
     revision: u64,
     error: Option<String>,
-    _session_subscription: Subscription,
 }
 
 impl VideoPlaybackEngine {
@@ -591,56 +644,40 @@ impl VideoPlaybackEngine {
 
     const MAX_DECODE_BATCH_BYTES: u64 = 64 * 1024 * 1024;
     const FRAME_CACHE_BUDGET_BYTES: usize = 512 * 1024 * 1024;
-    pub(super) fn new(
+    pub(crate) fn new(
         media_readers: Arc<MediaReaderRegistry>,
-        session: Entity<ProjectSession>,
-        notifications: Entity<UiNotifications>,
-        cx: &mut Context<Self>,
-    ) -> Self {
-        let session_id = session.read(cx).id();
-        let session_subscription = cx.observe(&session, |this, _, cx| {
-            let session_id = this.session.read(cx).id();
-            if session_id == this.session_id {
-                return;
-            }
-            this.session_id = session_id;
-            this.reset_for_project_change();
-            cx.notify();
-        });
-        Self {
-            media_readers: media_readers.clone(),
-            frame_cache: BudgetedTimestampCache::new(Self::FRAME_CACHE_BUDGET_BYTES),
-            requested_frames: HashMap::new(),
-            tick_decode_requests: Vec::new(),
-            tick_seen_times: HashSet::new(),
-            last_presented_frames: HashMap::new(),
-            in_flight: InFlightVideoDecodes::default(),
-            workers: HashMap::new(),
-            proxy: VideoProxyManager::new(
-                media_readers.clone(),
-                session.clone(),
-                notifications.clone(),
-            ),
-            failed_frames: HashSet::new(),
-            session,
-            session_id,
-            notifications,
-            decode_tasks: HashMap::new(),
-            decode_mode: PreviewPlaybackMode::Idle,
-            revision: 0,
-            error: None,
-            _session_subscription: session_subscription,
-        }
+    ) -> (Self, UnboundedReceiver<VideoPlaybackEvent>) {
+        let (events, event_receiver) = unbounded();
+        (
+            Self {
+                media_readers: media_readers.clone(),
+                frame_cache: BudgetedTimestampCache::new(Self::FRAME_CACHE_BUDGET_BYTES),
+                requested_frames: HashMap::new(),
+                tick_decode_requests: Vec::new(),
+                tick_seen_times: HashSet::new(),
+                last_presented_frames: HashMap::new(),
+                in_flight: InFlightVideoDecodes::default(),
+                workers: HashMap::new(),
+                proxy: VideoProxyManager::new(media_readers),
+                events,
+                failed_frames: HashSet::new(),
+                notifications: Vec::new(),
+                decode_mode: VideoPlaybackMode::Idle,
+                revision: 0,
+                error: None,
+            },
+            event_receiver,
+        )
     }
 
-    pub(super) fn begin_frame_demand(&mut self, mode: PreviewPlaybackMode) {
+    pub(crate) fn begin_frame_demand(&mut self, mode: VideoPlaybackMode) {
         self.decode_mode = mode;
         self.requested_frames.clear();
         self.tick_decode_requests.clear();
         self.tick_seen_times.clear();
     }
 
-    pub(super) fn record_media_requests(
+    pub(crate) fn record_media_requests(
         &mut self,
         time: TimelineTime,
         active_items: &[(LayerId, TimelineItem)],
@@ -659,8 +696,8 @@ impl VideoPlaybackEngine {
             playback_seconds,
         ) {
             let (source, source_start) = match self.decode_mode {
-                PreviewPlaybackMode::Idle => self.idle_source(&request, size),
-                PreviewPlaybackMode::Playing | PreviewPlaybackMode::Scrubbing => {
+                VideoPlaybackMode::Idle => self.idle_source(&request, size),
+                VideoPlaybackMode::Playing | VideoPlaybackMode::Scrubbing => {
                     self.proxy.interactive_source(&request)
                 }
             };
@@ -701,7 +738,7 @@ impl VideoPlaybackEngine {
                 .get_nearest_at_or_after(&sequence, request.presentation_time)
                 .map(|hit| (request.source.clone(), request.source_start, hit)),
         );
-        if self.decode_mode == PreviewPlaybackMode::Idle
+        if self.decode_mode == VideoPlaybackMode::Idle
             && request.source == request.asset
             && let Some((proxy_source, proxy_start)) = self
                 .proxy
@@ -737,7 +774,7 @@ impl VideoPlaybackEngine {
         &mut self,
         request: &RequestedVideoFrame,
     ) -> Option<(MediaAsset, Duration, TimestampCacheHit<Arc<RgbaFrame>>)> {
-        if self.decode_mode != PreviewPlaybackMode::Idle || request.source != request.asset {
+        if self.decode_mode != VideoPlaybackMode::Idle || request.source != request.asset {
             return None;
         }
         let requested_asset_time = request
@@ -757,7 +794,7 @@ impl VideoPlaybackEngine {
             .map(|hit| (proxy_source, proxy_start, hit))
     }
 
-    pub(super) fn present_recorded_frame(
+    pub(crate) fn present_recorded_frame(
         &mut self,
         input: &VideoInputId,
         request: &RequestedVideoFrame,
@@ -954,7 +991,7 @@ impl VideoPlaybackEngine {
         let mut protected = Vec::new();
         for request in self.requested_frames.values().flatten() {
             protected.push((request.sequence(), request.presentation_time));
-            if self.decode_mode != PreviewPlaybackMode::Idle || request.source != request.asset {
+            if self.decode_mode != VideoPlaybackMode::Idle || request.source != request.asset {
                 continue;
             }
             let asset_time = request
@@ -976,7 +1013,7 @@ impl VideoPlaybackEngine {
         protected
     }
 
-    pub(super) fn finish_frame_demand(&mut self, cx: &mut Context<Self>) -> VideoPlaybackSnapshot {
+    pub(crate) fn finish_frame_demand(&mut self) -> VideoPlaybackSnapshot {
         let active_inputs = self
             .requested_frames
             .keys()
@@ -992,25 +1029,54 @@ impl VideoPlaybackEngine {
         let protected = self.protected_positions();
         self.failed_frames.retain(|entry| protected.contains(entry));
         for input in active_inputs {
-            self.decode_input_if_needed(&input, cx);
+            self.decode_input_if_needed(&input);
         }
-        self.proxy.start_next(cx);
+        self.proxy.start_next(&self.events);
+        self.snapshot()
+    }
+
+    pub(crate) fn handle_event(&mut self, event: VideoPlaybackEvent) -> VideoPlaybackSnapshot {
+        match event.0 {
+            VideoPlaybackEventKind::Decoded { input, result } => {
+                if self.finish_decode(&input, result) {
+                    self.decode_input_if_needed(&input);
+                }
+            }
+            VideoPlaybackEventKind::ProxyGenerated {
+                generation,
+                key,
+                result,
+            } => {
+                let events = self.events.clone();
+                if self.proxy.finish_current(generation, key, result, &events) {
+                    self.revision = self.revision.saturating_add(1);
+                }
+            }
+        }
+        self.snapshot()
+    }
+
+    fn snapshot(&mut self) -> VideoPlaybackSnapshot {
+        let mut notifications = std::mem::take(&mut self.notifications);
+        notifications.append(&mut self.proxy.notifications);
         VideoPlaybackSnapshot {
             revision: self.revision,
             error: self.error.clone().or_else(|| self.proxy.error.clone()),
+            notifications,
         }
     }
 
-    fn ensure_worker(&mut self, input: &VideoInputId, cx: &mut Context<Self>) -> bool {
+    fn ensure_worker(&mut self, input: &VideoInputId) -> bool {
         if self.workers.contains_key(input) {
             return true;
         }
         let (request_tx, request_rx) = std::sync::mpsc::channel::<VideoWorkerDirective>();
-        let (result_tx, result_rx) = futures::channel::mpsc::unbounded::<VideoWorkerResult>();
         let media_readers = self.media_readers.clone();
+        let worker_input = input.clone();
+        let events = self.events.clone();
         if std::thread::Builder::new()
             .name("zerium-video-worker".to_owned())
-            .spawn(move || video_worker_main(media_readers, request_rx, result_tx))
+            .spawn(move || video_worker_main(media_readers, request_rx, worker_input, events))
             .is_err()
         {
             return false;
@@ -1021,26 +1087,6 @@ impl VideoPlaybackEngine {
                 requests: request_tx,
             },
         );
-        let session = self.session.clone();
-        let session_id = session.read(cx).id();
-        let task_input = input.clone();
-        let task = cx.spawn(async move |playback, cx| {
-            use futures::StreamExt;
-            let mut result_rx = result_rx;
-            while let Some(message) = result_rx.next().await {
-                if !session.update(cx, |session, _| session.is_current(session_id)) {
-                    return;
-                }
-                if let Some(playback) = playback.upgrade() {
-                    playback.update(cx, |playback, cx| {
-                        playback.finish_decode(&task_input, message, cx);
-                    });
-                } else {
-                    return;
-                }
-            }
-        });
-        self.decode_tasks.insert(input.clone(), task);
         true
     }
 
@@ -1053,11 +1099,9 @@ impl VideoPlaybackEngine {
             self.in_flight.remove(input);
             false
         });
-        self.decode_tasks
-            .retain(|input, _| active_inputs.contains(input));
     }
 
-    fn decode_input_if_needed(&mut self, input: &VideoInputId, cx: &mut Context<Self>) {
+    fn decode_input_if_needed(&mut self, input: &VideoInputId) {
         let Some(requests) = self.requested_frames.get(input) else {
             return;
         };
@@ -1091,13 +1135,13 @@ impl VideoPlaybackEngine {
         let presentation_time = requested.presentation_time;
         let size = requested.size;
         let frame_count = match self.decode_mode {
-            PreviewPlaybackMode::Playing => usize::try_from(Self::decode_batch_frames(
+            VideoPlaybackMode::Playing => usize::try_from(Self::decode_batch_frames(
                 size,
                 Self::PREFETCH_BATCH_FRAMES,
                 Self::PREFETCH_BATCH_FRAMES,
             ))
             .unwrap_or(1),
-            PreviewPlaybackMode::Scrubbing | PreviewPlaybackMode::Idle => 1,
+            VideoPlaybackMode::Scrubbing | VideoPlaybackMode::Idle => 1,
         };
         let (generation, cancel) = self.in_flight.spawn(
             input.clone(),
@@ -1107,7 +1151,7 @@ impl VideoPlaybackEngine {
             self.decode_mode,
             frame_count,
         );
-        if !self.ensure_worker(input, cx) {
+        if !self.ensure_worker(input) {
             self.in_flight.remove(input);
             self.failed_frames.insert((sequence, presentation_time));
             return;
@@ -1134,14 +1178,9 @@ impl VideoPlaybackEngine {
         }
     }
 
-    fn finish_decode(
-        &mut self,
-        input: &VideoInputId,
-        message: VideoWorkerResult,
-        cx: &mut Context<Self>,
-    ) {
+    fn finish_decode(&mut self, input: &VideoInputId, message: VideoWorkerResult) -> bool {
         if !self.in_flight.complete(input, message.generation) {
-            return;
+            return false;
         }
         let VideoWorkerResult {
             sequence,
@@ -1194,32 +1233,28 @@ impl VideoPlaybackEngine {
                     .insert((sequence.clone(), presentation_time));
                 if current {
                     self.error = Some(error.to_string());
-                    self.notifications.update(cx, |notifications, cx| {
-                        notifications
-                            .push(format!("動画フレームの読み込みに失敗しました: {error}"), cx);
-                    });
+                    self.notifications
+                        .push(format!("動画フレームの読み込みに失敗しました: {error}"));
                 }
             }
         }
         self.revision = self.revision.saturating_add(1);
-        self.decode_input_if_needed(input, cx);
-        cx.notify();
+        true
     }
 
-    fn reset_for_project_change(&mut self) {
-        self.in_flight.cancel_orphans(&HashSet::new());
+    pub(crate) fn reset(&mut self) {
+        self.in_flight.reset();
         for (_, worker) in self.workers.drain() {
             let _ = worker.requests.send(VideoWorkerDirective::Shutdown);
         }
-        self.decode_tasks.clear();
         self.frame_cache = BudgetedTimestampCache::new(Self::FRAME_CACHE_BUDGET_BYTES);
         self.requested_frames.clear();
         self.tick_decode_requests.clear();
         self.tick_seen_times.clear();
         self.last_presented_frames.clear();
-        self.in_flight = InFlightVideoDecodes::default();
         self.proxy.reset();
         self.failed_frames.clear();
+        self.notifications.clear();
         self.error = None;
         self.revision = self.revision.saturating_add(1);
     }

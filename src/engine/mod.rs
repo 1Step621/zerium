@@ -6,3 +6,4 @@ pub(crate) mod frame;
 pub(crate) mod media;
 pub(crate) mod project_io;
 pub(crate) mod rendering;
+pub(crate) mod video_playback;
