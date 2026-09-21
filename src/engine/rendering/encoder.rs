@@ -242,8 +242,8 @@ impl FrameRenderer {
 
     fn composite_input_bind_group(
         &self,
-        resources: &RenderResources,
         input: &wgpu::TextureView,
+        info: &wgpu::Buffer,
     ) -> wgpu::BindGroup {
         self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("zerium-dynamic-composite-input"),
@@ -259,7 +259,7 @@ impl FrameRenderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 2,
-                    resource: resources._composite_info_buffer.as_entire_binding(),
+                    resource: info.as_entire_binding(),
                 },
             ],
         })
@@ -799,14 +799,14 @@ impl FrameRenderer {
                             )?;
                             let dynamic_input;
                             let input = match child_output {
-                                RenderOutput::EffectA => &resources.composite_input_a,
-                                RenderOutput::EffectB => &resources.composite_input_b,
+                                RenderOutput::EffectA => &resources.composition_input_a,
+                                RenderOutput::EffectB => &resources.composition_input_b,
                                 RenderOutput::Composition(_)
                                 | RenderOutput::Temporal { .. }
                                 | RenderOutput::Cached(_) => {
                                     dynamic_input = self.composite_input_bind_group(
-                                        resources,
                                         child_output.view(resources)?,
+                                        &resources._composition_info_buffer,
                                     );
                                     &dynamic_input
                                 }
@@ -1028,8 +1028,10 @@ impl FrameRenderer {
                         RenderOutput::Composition(_)
                         | RenderOutput::Temporal { .. }
                         | RenderOutput::Cached(_) => {
-                            dynamic_input =
-                                self.composite_input_bind_group(resources, output.view(resources)?);
+                            dynamic_input = self.composite_input_bind_group(
+                                output.view(resources)?,
+                                &resources._composite_info_buffer,
+                            );
                             &dynamic_input
                         }
                     };

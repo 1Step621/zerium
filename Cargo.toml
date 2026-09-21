@@ -48,6 +48,7 @@ assets = [
     ["target/release/zerium", "usr/bin/zerium", "755"],
     ["target/ffmpeg-sdk/lib/*.so*", "usr/lib/zerium/", "755"],
     ["packaging/linux/zerium.desktop", "usr/share/applications/zerium.desktop", "644"],
+    ["packaging/linux/zerium.xml", "usr/share/mime/packages/zerium.xml", "644"],
     ["assets/zerium.png", "usr/share/icons/hicolor/256x256/apps/zerium.png", "644"],
     ["LICENSE", "usr/share/doc/zerium/copyright", "644"],
 ]
@@ -60,6 +61,7 @@ assets = [
     { source = "target/release/zerium", dest = "/usr/bin/zerium", mode = "0755" },
     { source = "target/ffmpeg-sdk/lib/*.so*", dest = "/usr/lib/zerium/", mode = "0755" },
     { source = "packaging/linux/zerium.desktop", dest = "/usr/share/applications/zerium.desktop", mode = "0644" },
+    { source = "packaging/linux/zerium.xml", dest = "/usr/share/mime/packages/zerium.xml", mode = "0644" },
     { source = "assets/zerium.png", dest = "/usr/share/icons/hicolor/256x256/apps/zerium.png", mode = "0644" },
     { source = "LICENSE", dest = "/usr/share/doc/zerium/LICENSE", mode = "0644" },
 ]

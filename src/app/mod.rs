@@ -1,3 +1,5 @@
+use std::path::PathBuf;
+
 use ::ui::{
     ActiveTheme as _, ContextModal as _, Root, Sizable as _,
     button::{Button, ButtonVariants as _},
@@ -430,7 +432,7 @@ impl Render for Workspace {
     }
 }
 
-pub(crate) fn run() {
+pub(crate) fn run(initial_project: Option<PathBuf>) {
     Application::new()
         .with_assets(::ui::assets::Assets)
         .run(|cx: &mut App| {
@@ -486,7 +488,7 @@ pub(crate) fn run() {
                     ),
                     ..Default::default()
                 },
-                |window, cx| {
+                move |window, cx| {
                     window.set_window_title("Zerium");
                     let plugins = crate::plugin::plugins();
                     let plugin_shaders = crate::engine::rendering::compile_plugins(&plugins)
@@ -587,6 +589,11 @@ pub(crate) fn run() {
                             plugins.clone(),
                         )
                     });
+                    if let Some(path) = initial_project {
+                        project_controller.update(cx, |project, cx| {
+                            project.open_path(path, cx);
+                        });
+                    }
                     let close_project_controller = project_controller.clone();
                     let close_export_controller = export_controller.clone();
                     let close_window_lifetime_guard = preview.read(cx).window_lifetime_guard();

@@ -46,9 +46,29 @@
       </Component>
     </DirectoryRef>
 
+    <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="ProjectFileAssociation" Guid="{7B9C4B9A-4E17-4F7E-8B6A-8B7B7C3D7B14}">
+        <RegistryKey Root="HKLM" Key="Software\Classes\.zero">
+          <RegistryValue Type="string" Value="Zerium.Project" KeyPath="yes" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Zerium.Project">
+          <RegistryValue Type="string" Value="Zerium Project" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Zerium.Project\DefaultIcon">
+          <RegistryValue Type="string" Value="[INSTALLFOLDER]zerium.exe,0" />
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\Zerium.Project\shell\open\command">
+          <RegistryValue
+            Type="string"
+            Value="&quot;[INSTALLFOLDER]zerium.exe&quot; &quot;%1&quot;" />
+        </RegistryKey>
+      </Component>
+    </DirectoryRef>
+
     <Feature Id="ProductFeature" Title="Zerium" Level="1">
       <ComponentGroupRef Id="ApplicationFiles" />
       <ComponentRef Id="ApplicationShortcut" />
+      <ComponentRef Id="ProjectFileAssociation" />
     </Feature>
   </Product>
 </Wix>

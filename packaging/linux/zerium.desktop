@@ -2,7 +2,8 @@
 Type=Application
 Name=Zerium
 Comment=A video editor with zero limits.
-Exec=zerium
+Exec=zerium %f
 Icon=zerium
 Categories=AudioVideo;Video;Graphics;
+MimeType=application/x-zerium-project;
 Terminal=false

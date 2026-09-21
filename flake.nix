@@ -102,6 +102,9 @@
                 install -Dm644 packaging/linux/zerium.desktop \
                   "$out/share/applications/zerium.desktop"
 
+                install -Dm644 packaging/linux/zerium.xml \
+                  "$out/share/mime/packages/zerium.xml"
+
                 install -Dm644 assets/zerium.png \
                   "$out/share/icons/hicolor/256x256/apps/zerium.png"
 

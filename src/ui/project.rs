@@ -76,6 +76,73 @@ impl ProjectController {
         self.request_project_change(PendingProjectChange::Open, window, cx);
     }
 
+    pub(crate) fn open_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
+        if self.busy {
+            return;
+        }
+        if !has_project_extension(&path) {
+            self.notifications.update(cx, |notifications, cx| {
+                notifications.push(
+                    format!(".{} ファイルを選択してください", PROJECT_EXTENSION),
+                    cx,
+                );
+            });
+            return;
+        }
+
+        self.busy = true;
+        cx.notify();
+        let plugins = self.plugins.clone();
+        let session = self.session.clone();
+        let operation = session.update(cx, |session, cx| session.begin(ProjectActivity::Load, cx));
+        self._io_task = cx.spawn(async move |controller, cx| {
+            let input = path.clone();
+            let result = cx
+                .background_spawn(async move { project_io::load(&input, &plugins) })
+                .await;
+            if session.update(cx, |session, _| session.operation_is_current(operation)) {
+                controller
+                    .update(cx, |controller, cx| match result {
+                        Ok(project) => {
+                            controller.begin_new_session(cx);
+                            controller.reset_transient_ui(cx);
+                            controller.editor.update(cx, |editor, cx| {
+                                project.apply(editor);
+                                cx.notify();
+                            });
+                            controller.path = Some(path.clone());
+                            controller.saved_revision =
+                                controller.editor.read(cx).project_revision();
+                            controller.busy = false;
+                            controller.notifications.update(cx, |notifications, cx| {
+                                notifications.push_success(
+                                    format!(
+                                        "読み込み完了: {}",
+                                        path.file_name()
+                                            .map(|name| name.to_string_lossy())
+                                            .unwrap_or_default()
+                                    ),
+                                    cx,
+                                );
+                            });
+                            cx.notify();
+                        }
+                        Err(error) => {
+                            controller.busy = false;
+                            controller.notifications.update(cx, |notifications, cx| {
+                                notifications.push(format!("読み込み失敗: {error}"), cx);
+                            });
+                            cx.notify();
+                        }
+                    })
+                    .ok();
+            }
+            session.update(cx, |session, cx| {
+                session.finish(operation, cx);
+            });
+        });
+    }
+
     pub(crate) fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.busy {
             return;
@@ -326,13 +393,7 @@ impl ProjectController {
             multiple: false,
             prompt: Some("Zeriumプロジェクトを開く".into()),
         });
-        self.busy = true;
-        cx.notify();
-
-        let plugins = self.plugins.clone();
-        let session = self.session.clone();
-        let operation = session.update(cx, |session, cx| session.begin(ProjectActivity::Load, cx));
-        self._io_task = cx.spawn(async move |controller, cx| {
+        self._dialog_task = cx.spawn(async move |controller, cx| {
             let selected: Result<Option<PathBuf>, String> = match receiver.await {
                 Ok(Ok(Some(paths))) => Ok(paths.into_iter().next()),
                 Ok(Ok(None)) => Ok(None),
@@ -349,62 +410,11 @@ impl ProjectController {
                     set_idle(&controller, cx);
                 }
                 Ok(Some(path)) => {
-                    if !has_project_extension(&path) {
-                        set_failed(
-                            &controller,
-                            format!(".{} ファイルを選択してください", PROJECT_EXTENSION),
-                            cx,
-                        );
-                    } else {
-                        let input = path.clone();
-                        let result = cx
-                            .background_spawn(async move { project_io::load(&input, &plugins) })
-                            .await;
-                        if session.update(cx, |session, _| session.operation_is_current(operation))
-                        {
-                            controller
-                                .update(cx, |controller, cx| match result {
-                                    Ok(project) => {
-                                        controller.begin_new_session(cx);
-                                        controller.reset_transient_ui(cx);
-                                        controller.editor.update(cx, |editor, cx| {
-                                            project.apply(editor);
-                                            cx.notify();
-                                        });
-                                        controller.path = Some(path.clone());
-                                        controller.saved_revision =
-                                            controller.editor.read(cx).project_revision();
-                                        controller.busy = false;
-                                        controller.notifications.update(cx, |notifications, cx| {
-                                            notifications.push_success(
-                                                format!(
-                                                    "読み込み完了: {}",
-                                                    path.file_name()
-                                                        .map(|name| name.to_string_lossy())
-                                                        .unwrap_or_default()
-                                                ),
-                                                cx,
-                                            );
-                                        });
-                                        cx.notify();
-                                    }
-                                    Err(error) => {
-                                        controller.busy = false;
-                                        let message = format!("読み込み失敗: {error}");
-                                        controller.notifications.update(cx, |notifications, cx| {
-                                            notifications.push(message, cx);
-                                        });
-                                        cx.notify();
-                                    }
-                                })
-                                .ok();
-                        }
-                    }
+                    controller
+                        .update(cx, |controller, cx| controller.open_path(path, cx))
+                        .ok();
                 }
             }
-            session.update(cx, |session, cx| {
-                session.finish(operation, cx);
-            });
         });
     }
 

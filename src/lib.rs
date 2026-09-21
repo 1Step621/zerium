@@ -15,7 +15,11 @@ mod ui;
 
 pub fn run() -> Result<(), String> {
     let mut arguments = std::env::args().skip(1);
-    if arguments.next().as_deref() == Some("plugin") {
+    let Some(command) = arguments.next() else {
+        app::run(None);
+        return Ok(());
+    };
+    if command == "plugin" {
         match arguments.next().as_deref() {
             Some("generate") => {
                 let path = arguments.next().map(std::path::PathBuf::from);
@@ -31,7 +35,7 @@ pub fn run() -> Result<(), String> {
             _ => return Err("zerium plugin: unknown command".to_owned()),
         }
     } else {
-        app::run();
+        app::run(Some(command.into()));
     }
     Ok(())
 }

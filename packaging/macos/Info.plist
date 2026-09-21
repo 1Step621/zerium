@@ -16,6 +16,21 @@
   <string>Zerium</string>
   <key>CFBundlePackageType</key>
   <string>APPL</string>
+  <key>CFBundleDocumentTypes</key>
+  <array>
+    <dict>
+      <key>CFBundleTypeExtensions</key>
+      <array>
+        <string>zero</string>
+      </array>
+      <key>CFBundleTypeName</key>
+      <string>Zerium Project</string>
+      <key>CFBundleTypeRole</key>
+      <string>Editor</string>
+      <key>LSHandlerRank</key>
+      <string>Owner</string>
+    </dict>
+  </array>
   <key>CFBundleShortVersionString</key>
   <string>__VERSION__</string>
   <key>CFBundleVersion</key>

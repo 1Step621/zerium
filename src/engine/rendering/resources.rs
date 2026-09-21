@@ -122,6 +122,20 @@ impl FrameRenderer {
                 output_size: [output_size.width, output_size.height],
             }),
         );
+        let composition_info_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("zerium-composition-info"),
+            size: size_of::<GpuComposite>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.queue.write_buffer(
+            &composition_info_buffer,
+            0,
+            bytemuck::bytes_of(&GpuComposite {
+                input_size: [size.width, size.height],
+                output_size: [size.width, size.height],
+            }),
+        );
         let scene_texture = self.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("zerium-scene-linear-texture"),
             size: wgpu::Extent3d {
@@ -253,7 +267,7 @@ impl FrameRenderer {
                 &effect_view_a,
             ),
         ];
-        let composite_input = |label, view: &wgpu::TextureView| {
+        let composite_input = |label, view: &wgpu::TextureView, info: &wgpu::Buffer| {
             self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some(label),
                 layout: &self.composite_bind_group_layout,
@@ -268,14 +282,33 @@ impl FrameRenderer {
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
-                        resource: composite_info_buffer.as_entire_binding(),
+                        resource: info.as_entire_binding(),
                     },
                 ],
             })
         };
-        let composite_input_a = composite_input("zerium-composite-input-a", &effect_view_a);
-        let composite_input_b = composite_input("zerium-composite-input-b", &effect_view_b);
-        let output_input = composite_input("zerium-output-input", &scene_view);
+        let composite_input_a = composite_input(
+            "zerium-composite-input-a",
+            &effect_view_a,
+            &composite_info_buffer,
+        );
+        let composite_input_b = composite_input(
+            "zerium-composite-input-b",
+            &effect_view_b,
+            &composite_info_buffer,
+        );
+        let composition_input_a = composite_input(
+            "zerium-composition-input-a",
+            &effect_view_a,
+            &composition_info_buffer,
+        );
+        let composition_input_b = composite_input(
+            "zerium-composition-input-b",
+            &effect_view_b,
+            &composition_info_buffer,
+        );
+        let output_input =
+            composite_input("zerium-output-input", &scene_view, &composite_info_buffer);
         let compositions = (0..composition_depth)
             .map(|_| {
                 let descriptor = wgpu::TextureDescriptor {
@@ -381,6 +414,7 @@ impl FrameRenderer {
             compute_info_buffer,
             compute_inputs,
             _composite_info_buffer: composite_info_buffer,
+            _composition_info_buffer: composition_info_buffer,
             scene_view,
             output_input,
             effect_texture_a,
@@ -393,6 +427,8 @@ impl FrameRenderer {
             effect_input_b,
             composite_input_a,
             composite_input_b,
+            composition_input_a,
+            composition_input_b,
             compositions,
             temporal,
             cached_nodes,
