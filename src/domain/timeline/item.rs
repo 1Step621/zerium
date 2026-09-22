@@ -94,8 +94,8 @@ pub(super) fn size_with_derived_height(
     let Some(property) = schema.size_property() else {
         return requested;
     };
-    let width = property.scalar_constraints(Some(0));
-    let height = property.scalar_constraints(Some(1));
+    let width = property.configuration_constraints(Some(0));
+    let height = property.configuration_constraints(Some(1));
     let ratio = f64::from(aspect_ratio);
     // Intersect both axes in width units before writing either component.
     // Keep a positive size so a locked ratio survives even schemas allowing zero.

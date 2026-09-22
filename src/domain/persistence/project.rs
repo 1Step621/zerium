@@ -694,7 +694,7 @@ fn validate_project_track(
                 && scalar_ty.allows(scalar)
                 && track.stops().iter().all(|stop| {
                     property
-                        .scalar_constraints(scalar_index)
+                        .configuration_constraints(scalar_index)
                         .allows(stop.value())
                 })
         });
@@ -964,7 +964,7 @@ fn validate_scenes(
                         scene.name, property_id
                     ))
                 })?;
-                if !resolved.schema.scene_bindable {
+                if !resolved.schema.is_scene_bindable(None) {
                     return Err(ProjectError::invalid_data(format!(
                         "シーン '{}' の接続先 '{}' はシーン引数へ公開できません",
                         scene.name, property_id

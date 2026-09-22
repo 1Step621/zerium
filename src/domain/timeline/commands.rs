@@ -12,7 +12,7 @@ use crate::domain::animation::{
 };
 use crate::domain::media::ImportedMedia;
 use crate::domain::property::{
-    PropertyElementId, PropertyScalarSchema, PropertySchema, PropertyType, PropertyValue,
+    PropertyConfiguration, PropertyElementId, PropertySchema, PropertyType, PropertyValue,
     ScalarPropertyType,
 };
 
@@ -551,7 +551,7 @@ impl TimelineEditor {
         if resolved.animated {
             return Err(SceneArgumentEditError::TargetAnimated);
         }
-        if !resolved.schema.scene_bindable {
+        if !resolved.schema.is_scene_bindable(None) {
             return Err(SceneArgumentEditError::TargetNotBindable);
         }
         let before = self.history_snapshot();
@@ -593,12 +593,12 @@ impl TimelineEditor {
             label,
             ty: PropertyType::Value(PropertyValueType::Scalar(preset.scalar())),
             default,
-            scalars: vec![PropertyScalarSchema {
+            configurations: vec![PropertyConfiguration {
+                scene_bindable: true,
                 editable: true,
                 animatable: preset.scalar().is_interpolatable(),
                 ..Default::default()
             }],
-            scene_bindable: true,
         };
         let schema = SceneArgumentSchema::from_property(schema)
             .expect("supported scene argument types must produce a scalar schema");
@@ -629,8 +629,10 @@ impl TimelineEditor {
             label,
             ty: PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::F32)),
             default: PropertyValue::F32(0.),
-            scalars: vec![PropertyScalarSchema::default()],
-            scene_bindable: true,
+            configurations: vec![PropertyConfiguration {
+                scene_bindable: true,
+                ..Default::default()
+            }],
         };
         let schema = SceneArgumentSchema::from_property(schema)
             .expect("expression scene arguments have a supported scalar schema");
@@ -894,7 +896,7 @@ impl TimelineEditor {
         if resolved.animated {
             return Err(SceneArgumentEditError::TargetAnimated);
         }
-        if !resolved.schema.scene_bindable {
+        if !resolved.schema.is_scene_bindable(None) {
             return Err(SceneArgumentEditError::TargetNotBindable);
         }
         let Some(argument) = scene.argument(argument_id) else {
@@ -1813,7 +1815,9 @@ impl TimelineEditor {
             return false;
         };
         let changed = schema.is_editable(scalar_index)
-            && schema.scalar_constraints(scalar_index).allows(&value)
+            && schema
+                .configuration_constraints(scalar_index)
+                .allows(&value)
             && self
                 .animation_track_mut(item_id, effect_id, &address)
                 .is_some_and(|animation| animation.set_stop(index, value, focused_segment));
@@ -1847,7 +1851,7 @@ impl TimelineEditor {
         let editable = [0_usize, 1].map(|scalar_index| {
             schema.is_editable(Some(scalar_index))
                 && schema
-                    .scalar_constraints(Some(scalar_index))
+                    .configuration_constraints(Some(scalar_index))
                     .allows(&PropertyValue::F32(value[scalar_index]))
         });
         let mut changed = false;
@@ -1899,7 +1903,9 @@ impl TimelineEditor {
             .animation_schema(item_id, effect_id, &property_id)
             .filter(|schema| {
                 schema.is_editable(scalar_index)
-                    && schema.scalar_constraints(scalar_index).allows(&value)
+                    && schema
+                        .configuration_constraints(scalar_index)
+                        .allows(&value)
             })
             .and_then(|_| {
                 self.animation_track_mut(

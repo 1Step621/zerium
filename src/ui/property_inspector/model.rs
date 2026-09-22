@@ -2,8 +2,8 @@ use super::control::ElementGroup;
 use super::*;
 
 pub(super) fn append_default(group: &ElementGroup) -> PropertyValue {
-    let ui = group.property.scalar_ui(None);
-    let constraints = group.property.scalar_constraints(None);
+    let ui = group.property.configuration_ui(None);
+    let constraints = group.property.configuration_constraints(None);
     let step = f64::from(ui.step());
     let min = constraints.min.unwrap_or(f64::from(f32::MIN));
     let max = constraints.max.unwrap_or(f64::from(f32::MAX));

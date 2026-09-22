@@ -197,7 +197,7 @@ impl VisualCapability {
         };
         let layer_offset = |property_id: &str| {
             scalar(property_id, ScalarPropertyType::U32)?;
-            let constraints = property(property_id)?.scalar_constraints(None);
+            let constraints = property(property_id)?.configuration_constraints(None);
             if constraints.min.is_none_or(|min| min < 1.)
                 || constraints
                     .max

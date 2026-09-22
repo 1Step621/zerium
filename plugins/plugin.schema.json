@@ -410,14 +410,7 @@
     "property": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "id",
-        "label",
-        "type",
-        "default",
-        "scalars",
-        "scene_bindable"
-      ],
+      "required": ["id", "label", "type", "default", "configurations"],
       "properties": {
         "id": {
           "$ref": "#/$defs/wgslId"
@@ -432,15 +425,12 @@
         "default": {
           "$ref": "#/$defs/propertyValue"
         },
-        "scene_bindable": {
-          "type": "boolean"
-        },
-        "scalars": {
+        "configurations": {
           "type": "array",
           "minItems": 1,
           "maxItems": 64,
           "items": {
-            "$ref": "#/$defs/scalarDefinition"
+            "$ref": "#/$defs/configuration"
           }
         }
       }
@@ -778,10 +768,14 @@
         }
       }
     },
-    "scalarDefinition": {
+    "configuration": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
+        "scene_bindable": {
+          "type": "boolean",
+          "default": true
+        },
         "editable": {
           "type": "boolean",
           "default": true

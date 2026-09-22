@@ -158,8 +158,8 @@ pub(crate) fn project_scene_binding_value(
         schema.ty = PropertyType::Value(PropertyValueType::Scalar(
             tuple.scalars().get(scalar_index)?.clone(),
         ));
-        let scalar = schema.scalar(Some(scalar_index)).clone();
-        schema.scalars = vec![scalar];
+        let configuration = schema.configuration(Some(scalar_index)).clone();
+        schema.configurations = vec![configuration];
     } else {
         if !matches!(
             &schema.ty,
@@ -373,8 +373,10 @@ impl SceneArgumentSchema {
         // A scene argument is its own editable input contract. The source
         // property's editability only controls direct edits on the bound
         // plugin property.
-        property.scalar_mut(None).editable = true;
-        property.scene_bindable = true;
+        property.configuration_mut(None).editable = true;
+        for configuration in &mut property.configurations {
+            configuration.scene_bindable = true;
+        }
         Some(Self { property })
     }
 
@@ -423,7 +425,7 @@ impl SceneArgumentSchema {
         }
         let mut next = self.clone();
         next.property.default = default;
-        next.property.scalar_mut(None).constraints = constraints;
+        next.property.configuration_mut(None).constraints = constraints;
         Some(next)
     }
 
@@ -437,9 +439,11 @@ impl SceneArgumentSchema {
         if self.ty() != &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::F32)) {
             return None;
         }
-        self.property.scalar_mut(None).editable = false;
-        self.property.scalar_mut(None).animatable = false;
-        self.property.scene_bindable = false;
+        self.property.configuration_mut(None).editable = false;
+        self.property.configuration_mut(None).animatable = false;
+        for configuration in &mut self.property.configurations {
+            configuration.scene_bindable = false;
+        }
         Some(self)
     }
 }

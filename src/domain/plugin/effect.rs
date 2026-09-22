@@ -420,11 +420,11 @@ impl TemporalSamplingSchema {
             .property(sample_count)
             .expect("sample-count property type was checked");
         if !samples
-            .scalar_constraints(None)
+            .configuration_constraints(None)
             .min
             .is_some_and(|minimum| minimum >= 1.)
             || !samples
-                .scalar_constraints(None)
+                .configuration_constraints(None)
                 .max
                 .is_some_and(|maximum| maximum <= MAX_TEMPORAL_SAMPLES as f64)
         {
@@ -437,7 +437,7 @@ impl TemporalSamplingSchema {
             .property(angle)
             .expect("shutter-angle property type was checked");
         if !angle
-            .scalar_constraints(None)
+            .configuration_constraints(None)
             .min
             .is_some_and(|minimum| minimum >= 0.)
         {
@@ -462,11 +462,11 @@ impl TemporalSamplingSchema {
                 .property(property_id)
                 .expect("shutter-phase property type was checked");
             if !phase
-                .scalar_constraints(None)
+                .configuration_constraints(None)
                 .min
                 .is_some_and(|minimum| minimum >= -1.)
                 || !phase
-                    .scalar_constraints(None)
+                    .configuration_constraints(None)
                     .max
                     .is_some_and(|maximum| maximum <= 1.)
             {

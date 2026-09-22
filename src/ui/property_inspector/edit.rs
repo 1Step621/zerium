@@ -687,7 +687,7 @@ impl PropertyInspector {
         );
         match target.scalar_index {
             Some(scalar_index) => property
-                .scalar_label(Some(scalar_index))
+                .configuration_label(Some(scalar_index))
                 .map_or(label.clone(), |scalar_label| {
                     format!("{label} {scalar_label}")
                 }),

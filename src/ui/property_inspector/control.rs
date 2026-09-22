@@ -333,7 +333,7 @@ impl PropertyInspector {
         scalar_index: Option<usize>,
         is_size: bool,
     ) -> Option<NumberSpec> {
-        if !property.is_visible() || !property.scalar_ui(scalar_index).is_visible() {
+        if !property.is_visible() || !property.configuration_ui(scalar_index).is_visible() {
             return None;
         }
         let value_type = match property.ty() {
@@ -350,8 +350,8 @@ impl PropertyInspector {
         ) {
             return None;
         }
-        let ui = property.scalar_ui(scalar_index);
-        let constraints = property.scalar_constraints(scalar_index);
+        let ui = property.configuration_ui(scalar_index);
+        let constraints = property.configuration_constraints(scalar_index);
         let (type_min, type_max) = NumericInput::new(scalar_type.clone())?.bounds();
         let min = constraints.min.unwrap_or(type_min).max(type_min);
         let max = constraints.max.unwrap_or(type_max).min(type_max);
@@ -390,9 +390,9 @@ impl PropertyInspector {
                 path: InspectorPath::new(element_id, scalar_index),
             },
             label,
-            scalar_label: property.scalar_label(scalar_index),
+            scalar_label: property.configuration_label(scalar_index),
             animatable: property.is_animatable(scalar_index),
-            scene_bindable: property.is_scene_bindable(),
+            scene_bindable: property.is_scene_bindable(scalar_index),
             read_only: !property.is_editable(scalar_index),
             mixed: false,
             value,
@@ -428,7 +428,7 @@ impl PropertyInspector {
         ty.scalars()
             .filter_map(|(scalar_index, scalar_type)| {
                 let value = value.scalar_at(scalar_index)?.clone();
-                let scalar_ui = property.scalar_ui(scalar_index);
+                let scalar_ui = property.configuration_ui(scalar_index);
                 if !scalar_ui.is_visible() {
                     return None;
                 }
@@ -572,7 +572,7 @@ impl PropertyInspector {
         };
         let element_kind = match element_type {
             PropertyValueType::Scalar(ScalarPropertyType::String)
-                if property.scalar_ui(None).uses_font_family_editor() =>
+                if property.configuration_ui(None).uses_font_family_editor() =>
             {
                 ElementKind::FontFamily
             }

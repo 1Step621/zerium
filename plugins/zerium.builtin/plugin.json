@@ -42,7 +42,7 @@
             ]
           },
           "label": "位置",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -65,8 +65,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "size",
@@ -88,7 +87,7 @@
             ]
           },
           "label": "サイズ",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -111,8 +110,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "color",
@@ -125,12 +123,11 @@
             "value": [1, 0.28, 0.035, 1]
           },
           "label": "色",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "corner_radius",
@@ -143,7 +140,7 @@
             "value": 0
           },
           "label": "角丸",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -154,8 +151,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ]
     },
@@ -198,7 +194,7 @@
             ]
           },
           "label": "位置",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -221,8 +217,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "size",
@@ -244,7 +239,7 @@
             ]
           },
           "label": "サイズ",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -267,8 +262,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "color",
@@ -281,12 +275,11 @@
             "value": [1, 0.52, 0.06, 1]
           },
           "label": "色",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "apex_position",
@@ -299,7 +292,7 @@
             "value": 50
           },
           "label": "頂点位置",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -311,8 +304,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ]
     },
@@ -354,7 +346,7 @@
             ]
           },
           "label": "位置",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -377,8 +369,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "radius",
@@ -400,7 +391,7 @@
             ]
           },
           "label": "半径",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -423,8 +414,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "color",
@@ -437,12 +427,11 @@
             "value": [0.92, 0.18, 0.025, 1]
           },
           "label": "色",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ]
     },
@@ -486,7 +475,7 @@
             ]
           },
           "label": "位置",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -509,8 +498,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "size",
@@ -532,7 +520,7 @@
             ]
           },
           "label": "サイズ",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -555,8 +543,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "points",
@@ -622,7 +609,7 @@
             ]
           },
           "label": "頂点",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -647,8 +634,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "color",
@@ -661,12 +647,11 @@
             "value": [1, 0.52, 0.06, 1]
           },
           "label": "色",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ]
     },
@@ -709,7 +694,7 @@
             ]
           },
           "label": "位置",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -732,8 +717,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "size",
@@ -755,7 +739,7 @@
             ]
           },
           "label": "サイズ",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -778,8 +762,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "angle",
@@ -792,7 +775,7 @@
             "value": 0
           },
           "label": "角度",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -804,8 +787,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "color",
@@ -818,12 +800,11 @@
             "value": [1, 1, 1, 1]
           },
           "label": "色",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "round_ends",
@@ -836,8 +817,7 @@
             "value": true
           },
           "label": "端を丸める",
-          "scalars": [{}],
-          "scene_bindable": true
+          "configurations": [{}]
         }
       ]
     },
@@ -880,7 +860,7 @@
             ]
           },
           "label": "位置",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -903,8 +883,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "size",
@@ -926,7 +905,7 @@
             ]
           },
           "label": "サイズ",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -949,8 +928,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "points",
@@ -963,7 +941,7 @@
             "value": 5
           },
           "label": "頂点数",
-          "scalars": [
+          "configurations": [
             {
               "constraints": {
                 "min": 3,
@@ -973,8 +951,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "inner_radius",
@@ -987,7 +964,7 @@
             "value": 45
           },
           "label": "内側半径",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -999,8 +976,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "rotation",
@@ -1013,7 +989,7 @@
             "value": 0
           },
           "label": "回転",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -1025,8 +1001,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "color",
@@ -1039,12 +1014,11 @@
             "value": [1, 0.74, 0.04, 1]
           },
           "label": "色",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ]
     },
@@ -1099,7 +1073,7 @@
             ]
           },
           "label": "位置",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -1122,8 +1096,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "size",
@@ -1145,7 +1118,7 @@
             ]
           },
           "label": "サイズ",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -1168,8 +1141,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "text",
@@ -1182,14 +1154,13 @@
             "value": "テキスト"
           },
           "label": "テキスト",
-          "scalars": [
+          "configurations": [
             {
               "ui": {
                 "multiline": true
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "font_family",
@@ -1205,14 +1176,13 @@
             "value": []
           },
           "label": "フォント",
-          "scalars": [
+          "configurations": [
             {
               "ui": {
                 "editor": "font_family"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "font_size",
@@ -1225,7 +1195,7 @@
             "value": 64
           },
           "label": "文字サイズ",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -1236,8 +1206,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "color",
@@ -1250,12 +1219,11 @@
             "value": [1, 1, 1, 1]
           },
           "label": "色",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "outline_width",
@@ -1268,7 +1236,7 @@
             "value": 0
           },
           "label": "枠線",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -1279,8 +1247,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "outline_color",
@@ -1293,12 +1260,11 @@
             "value": [1, 1, 1, 1]
           },
           "label": "枠線色",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "horizontal_alignment",
@@ -1313,7 +1279,7 @@
             "value": 1
           },
           "label": "左右揃え",
-          "scalars": [
+          "configurations": [
             {
               "ui": {
                 "enum_variants": {
@@ -1323,8 +1289,7 @@
                 }
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "vertical_alignment",
@@ -1339,7 +1304,7 @@
             "value": 1
           },
           "label": "上下揃え",
-          "scalars": [
+          "configurations": [
             {
               "ui": {
                 "enum_variants": {
@@ -1349,8 +1314,7 @@
                 }
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "bold",
@@ -1363,8 +1327,7 @@
             "value": false
           },
           "label": "太字",
-          "scalars": [{}],
-          "scene_bindable": true
+          "configurations": [{}]
         },
         {
           "id": "italic",
@@ -1377,8 +1340,7 @@
             "value": false
           },
           "label": "イタリック",
-          "scalars": [{}],
-          "scene_bindable": true
+          "configurations": [{}]
         }
       ]
     },
@@ -1434,7 +1396,7 @@
             ]
           },
           "label": "位置",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -1457,8 +1419,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "size",
@@ -1480,7 +1441,7 @@
             ]
           },
           "label": "サイズ",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -1503,8 +1464,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "volume",
@@ -1517,7 +1477,7 @@
             "value": 1
           },
           "label": "音量",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -1528,8 +1488,7 @@
                 "step": 0.01
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ]
     },
@@ -1581,7 +1540,7 @@
             ]
           },
           "label": "位置",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -1604,8 +1563,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "size",
@@ -1627,7 +1585,7 @@
             ]
           },
           "label": "サイズ",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -1650,8 +1608,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ]
     },
@@ -1688,7 +1645,7 @@
             "value": 1
           },
           "label": "音量",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -1699,8 +1656,7 @@
                 "step": 0.01
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ]
     },
@@ -1733,7 +1689,7 @@
             "value": 1
           },
           "label": "開始オフセット",
-          "scalars": [
+          "configurations": [
             {
               "constraints": {
                 "min": 1,
@@ -1743,8 +1699,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "end_offset",
@@ -1757,7 +1712,7 @@
             "value": 1
           },
           "label": "終了オフセット",
-          "scalars": [
+          "configurations": [
             {
               "constraints": {
                 "min": 1,
@@ -1767,8 +1722,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "hide_original",
@@ -1781,8 +1735,7 @@
             "value": false
           },
           "label": "原本を隠す",
-          "scalars": [{}],
-          "scene_bindable": true
+          "configurations": [{}]
         }
       ]
     }
@@ -1822,7 +1775,7 @@
             ]
           },
           "label": "移動量",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -1845,8 +1798,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ]
     },
@@ -1875,7 +1827,7 @@
             "value": 0
           },
           "label": "角度",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -1887,8 +1839,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "center",
@@ -1910,7 +1861,7 @@
             ]
           },
           "label": "中心",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -1933,8 +1884,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ]
     },
@@ -1976,7 +1926,7 @@
             ]
           },
           "label": "回転",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2013,8 +1963,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "perspective",
@@ -2027,7 +1976,7 @@
             "value": 1000
           },
           "label": "遠近感",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2039,8 +1988,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "center",
@@ -2062,7 +2010,7 @@
             ]
           },
           "label": "中心",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2085,8 +2033,7 @@
                 "unit": "px"
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ]
     },
@@ -2115,7 +2062,7 @@
             "value": 0
           },
           "label": "明るさ",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2126,8 +2073,7 @@
                 "step": 0.01
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "contrast",
@@ -2140,7 +2086,7 @@
             "value": 1
           },
           "label": "コントラスト",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2151,8 +2097,7 @@
                 "step": 0.01
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "saturation",
@@ -2165,7 +2110,7 @@
             "value": 1
           },
           "label": "彩度",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2176,8 +2121,7 @@
                 "step": 0.01
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "temperature",
@@ -2190,7 +2134,7 @@
             "value": 0
           },
           "label": "色温度",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2201,8 +2145,7 @@
                 "step": 0.01
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "tint",
@@ -2215,7 +2158,7 @@
             "value": 0
           },
           "label": "色かぶり",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2226,8 +2169,7 @@
                 "step": 0.01
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "gamma",
@@ -2240,7 +2182,7 @@
             "value": 1
           },
           "label": "ガンマ",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2251,8 +2193,7 @@
                 "step": 0.01
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ]
     },
@@ -2281,7 +2222,7 @@
             "value": 100
           },
           "label": "不透明度",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2293,8 +2234,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ]
     },
@@ -2323,12 +2263,11 @@
             "value": [0.08, 0.12, 0.28, 1]
           },
           "label": "開始色",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "end_color",
@@ -2341,12 +2280,11 @@
             "value": [0.92, 0.18, 0.32, 1]
           },
           "label": "終了色",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "angle",
@@ -2359,7 +2297,7 @@
             "value": 0
           },
           "label": "角度",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2371,8 +2309,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ]
     },
@@ -2394,7 +2331,7 @@
             "value": 20
           },
           "label": "半径",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2406,8 +2343,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "intensity",
@@ -2420,7 +2356,7 @@
             "value": 100
           },
           "label": "強さ",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2432,8 +2368,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "spread",
@@ -2446,7 +2381,7 @@
             "value": 20
           },
           "label": "広がり",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2458,8 +2393,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "color",
@@ -2472,12 +2406,11 @@
             "value": [0.1, 0.55, 1, 1]
           },
           "label": "色",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ],
       "passes": [
@@ -2546,7 +2479,7 @@
             "value": 4
           },
           "label": "太さ",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2558,8 +2491,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "position",
@@ -2574,7 +2506,7 @@
             "value": 0
           },
           "label": "位置",
-          "scalars": [
+          "configurations": [
             {
               "ui": {
                 "enum_variants": {
@@ -2584,8 +2516,7 @@
                 }
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "color",
@@ -2598,12 +2529,11 @@
             "value": [1, 1, 1, 1]
           },
           "label": "色",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ],
       "passes": [
@@ -2679,7 +2609,7 @@
             "value": 0.45
           },
           "label": "強さ",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2690,8 +2620,7 @@
                 "step": 0.01
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "softness",
@@ -2704,7 +2633,7 @@
             "value": 0.5
           },
           "label": "ぼかし",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2715,8 +2644,7 @@
                 "step": 0.01
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "roundness",
@@ -2729,7 +2657,7 @@
             "value": 1
           },
           "label": "丸み",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2740,8 +2668,7 @@
                 "step": 0.01
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ]
     },
@@ -2770,7 +2697,7 @@
             "value": 12
           },
           "label": "ブロック幅",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2782,8 +2709,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ]
     },
@@ -2812,7 +2738,7 @@
             "value": 4
           },
           "label": "ずれ",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2824,8 +2750,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "angle",
@@ -2838,7 +2763,7 @@
             "value": 0
           },
           "label": "角度",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2850,8 +2775,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ]
     },
@@ -2872,7 +2796,7 @@
             "value": 12
           },
           "label": "半径",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -2884,8 +2808,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ],
       "passes": [
@@ -3000,7 +2923,7 @@
             "value": 8
           },
           "label": "サンプル数",
-          "scalars": [
+          "configurations": [
             {
               "constraints": {
                 "min": 1,
@@ -3010,8 +2933,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "shutter_angle",
@@ -3024,7 +2946,7 @@
             "value": 180
           },
           "label": "シャッター角度",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -3036,8 +2958,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "shutter_phase",
@@ -3050,7 +2971,7 @@
             "value": 0
           },
           "label": "シャッター位相",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -3061,8 +2982,7 @@
                 "step": 0.01
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         }
       ],
       "passes": [
@@ -3097,7 +3017,7 @@
             "value": 64
           },
           "label": "ブロック幅",
-          "scalars": [
+          "configurations": [
             {
               "constraints": {
                 "min": 2,
@@ -3108,8 +3028,7 @@
                 "step": 1
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "threshold",
@@ -3122,7 +3041,7 @@
             "value": 0.25
           },
           "label": "しきい値",
-          "scalars": [
+          "configurations": [
             {
               "animatable": true,
               "constraints": {
@@ -3133,8 +3052,7 @@
                 "step": 0.01
               }
             }
-          ],
-          "scene_bindable": true
+          ]
         },
         {
           "id": "vertical",
@@ -3147,8 +3065,7 @@
             "value": false
           },
           "label": "縦方向",
-          "scalars": [{}],
-          "scene_bindable": true
+          "configurations": [{}]
         },
         {
           "id": "descending",
@@ -3161,8 +3078,7 @@
             "value": false
           },
           "label": "明るい順",
-          "scalars": [{}],
-          "scene_bindable": true
+          "configurations": [{}]
         }
       ],
       "passes": [

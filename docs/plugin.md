@@ -117,7 +117,9 @@ what supplies pixels:
     "label": "Volume",
     "type": "f32",
     "default": 1,
-    "constraints": { "min": 0 }
+    "configurations": [{
+      "constraints": { "min": 0 }
+    }]
   }]
 }
 ```
@@ -191,7 +193,7 @@ and animated independently, but are not modeled as separate property lanes.
   "label": "Position",
   "type": {"tuple": ["f32", "f32"]},
   "default": [0, 0],
-  "scalars": [
+  "configurations": [
     {
       "animatable": true,
       "constraints": {"min": -1000000, "max": 1000000},
@@ -206,7 +208,16 @@ and animated independently, but are not modeled as separate property lanes.
 }
 ```
 
-`label` and numeric `constraints` belong to the property contract. `ui` only
+`default` lives next to `type` and always mirrors the value shape: one
+scalar, one tuple, or one array of elements. Each `configurations` entry
+describes one scalar position instead: its `scene_bindable` permission,
+`editable`/`animatable` flags, `constraints`, and `ui` hints.
+`scene_bindable` defaults to true and is checked per scalar, so tuple
+scalars are published and connected independently.
+
+`label` and `default` belong to the property contract, while each scalar's
+`scene_bindable` permission and numeric `constraints` belong to its
+`configurations` entry. `ui` only
 contains presentation hints: `label`, `unit`, `step`,
 `visible`, `enum_variants`, `multiline`, and `editor`. Numeric values use the same canonical
 unit in projects, shaders, and editor controls.
@@ -233,9 +244,15 @@ fonts:
 {
   "type": {"array": {"type": "string", "max_items": 1024}},
   "default": [],
-  "ui": { "editor": "font_family" }
+  "configurations": [{
+    "ui": { "editor": "font_family" }
+  }]
 }
 ```
+
+Array configurations describe the scalar positions of one element template
+and apply to every element. The property-level `default` holds the initial
+elements; an empty list means the array starts empty.
 
 Without `ui.editor`, entries can be added, edited, reordered, and removed as
 ordinary strings. Empty and duplicate strings are valid list values. With
@@ -269,34 +286,37 @@ Finite choices are types, not UI options:
 {
   "type": { "enum": [0, 1] },
   "default": 0,
-  "ui": { "enum_variants": { "0": "Outside", "1": "Inside" } }
+  "configurations": [{
+    "ui": { "enum_variants": { "0": "Outside", "1": "Inside" } }
+  }]
 }
 ```
 
 `editable` defaults to true. Set it to `false` for plugin properties whose values are produced by the
 plugin and must be displayed without allowing direct edits. Tuple properties specify one object per scalar
-in `scalars`; each object has its own `editable` and `animatable` flags. This also disables animation
+in `configurations`; each object has its own `scene_bindable`,
+`editable`, and `animatable` settings. Disabling `editable` also disables animation
 editing for the property or scalar. `scene_bindable` defaults to true and remains independent, so a
-property can still be exposed through a scene binding when the plugin uses that as its input path.
+scalar can still be exposed through a scene binding when the plugin uses that as its input path.
 Scene arguments themselves are scalars, preserving enum membership;
 tuple scalars are published and connected independently.
 
 ### Tuple metadata and animation
 
-`scalars` specifies metadata for each tuple scalar, including inside an array
+`configurations` specifies metadata for each tuple scalar, including inside an array
 element. The list must match the tuple length. Each scalar object contains its
-`editable`, `animatable`, `constraints`, and `ui` settings; UI properties
+`scene_bindable`, `editable`, `animatable`, `constraints`, and `ui`
+settings; UI properties
 (`label`, `unit`, `step`, `visible`, `enum_variants`, and `multiline`) stay
 inside that scalar's `ui`. Missing labels use the one-based scalar index, and
 omitted UI metadata uses the scalar defaults. A tuple is visible if any scalar
 is visible. Numeric bounds belong inside each scalar's `constraints`; tuple-level
-`min`/`max` are rejected. Use `{}` for an unconstrained scalar. These rules
-also apply to arrays of tuples. The `font_family` editor remains an
+`min`/`max` are rejected. The `font_family` editor remains an
 array-of-strings setting.
-`scene_bindable` remains a property-level permission. `animatable` is a scalar
-permission: standalone scalar properties use a boolean, while tuple properties
-use one `scalars` entry per tuple scalar. The same scalar metadata applies to
-every element in an array of tuples.
+`scene_bindable` and `animatable` are scalar permissions: standalone scalar
+properties use one `configurations` entry, while tuple properties use one
+entry per tuple scalar. The same scalar metadata applies to every element in
+an array of tuples.
 
 ```json
 {
@@ -304,7 +324,7 @@ every element in an array of tuples.
   "label": "Entry",
   "type": {"tuple": ["f32", {"enum": [2, 7]}, "string", "color"]},
   "default": [1, 2, "Caption", [1, 1, 1, 1]],
-  "scalars": [
+  "configurations": [
     {
       "animatable": true,
       "constraints": {"min": 0, "max": 10},
@@ -417,7 +437,9 @@ top-level shader and no implicit render pass.
     "label": "Radius",
     "type": "f32",
     "default": 8,
-    "animatable": true
+    "configurations": [{
+      "animatable": true
+    }]
   }],
   "passes": [{
     "type": "compute",
