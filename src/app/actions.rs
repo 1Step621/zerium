@@ -1,0 +1,21 @@
+gpui::actions!(
+    zerium,
+    [
+        DeleteSelectedItem,
+        CopySelectedItems,
+        CutSelectedItems,
+        PasteItems,
+        TogglePlayback,
+        PreviousFrame,
+        NextFrame,
+        Undo,
+        Redo,
+        NewProject,
+        OpenProject,
+        SaveProject,
+        SaveProjectAs,
+        OpenExportDialog,
+        OpenItemPicker,
+        OpenEffectPicker
+    ]
+);

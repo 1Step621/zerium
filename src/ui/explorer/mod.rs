@@ -5,6 +5,7 @@ use std::{
     hash::{Hash, Hasher},
     path::{Path, PathBuf},
     rc::Rc,
+    sync::Arc,
 };
 
 use ::ui::{
@@ -19,8 +20,9 @@ use gpui::{
 };
 
 use crate::{
-    plugin::plugins,
-    ui::session::{ProjectSession, ProjectSessionId, UiNotifications},
+    app::project_session::{ProjectSession, ProjectSessionId},
+    domain::plugin::PluginRegistry,
+    ui::session::UiNotifications,
 };
 
 #[derive(Clone)]
@@ -150,6 +152,7 @@ impl ExplorerMarquee {
 }
 
 pub(crate) struct Explorer {
+    plugins: Arc<PluginRegistry>,
     session: Entity<ProjectSession>,
     session_id: ProjectSessionId,
     notifications: Entity<UiNotifications>,
@@ -166,6 +169,7 @@ pub(crate) struct Explorer {
 
 impl Explorer {
     pub(crate) fn new(
+        plugins: Arc<PluginRegistry>,
         session: Entity<ProjectSession>,
         notifications: Entity<UiNotifications>,
         cx: &mut Context<Self>,
@@ -186,6 +190,7 @@ impl Explorer {
             cx.notify();
         });
         let mut explorer = Self {
+            plugins,
             session,
             session_id,
             notifications,
@@ -203,9 +208,9 @@ impl Explorer {
         explorer
     }
 
-    fn import_target(path: &Path) -> Option<FileImportTarget> {
+    fn import_target(&self, path: &Path) -> Option<FileImportTarget> {
         let extension = path.extension()?.to_str()?;
-        plugins().items().find_map(|(plugin_id, item)| {
+        self.plugins.items().find_map(|(plugin_id, item)| {
             item.files().iter().find_map(|input| {
                 (input.extensions().is_empty()
                     || input
@@ -296,7 +301,7 @@ impl Explorer {
                                     ExplorerEntry {
                                         element_id: hasher.finish(),
                                         import_target: (!is_directory)
-                                            .then(|| Self::import_target(&path))
+                                            .then(|| explorer.import_target(&path))
                                             .flatten(),
                                         path,
                                         name: name.into(),

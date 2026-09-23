@@ -6,6 +6,9 @@ mod render;
 mod rows;
 mod scene_args;
 mod state;
+pub(super) use crate::ui::animation_presentation::{
+    NumberSpec, number_animation_source, number_spec,
+};
 use numeric::NumericInput;
 
 use std::collections::{HashMap, HashSet};
@@ -25,6 +28,7 @@ use gpui::{
     SharedString, Subscription, Task, Window, div, prelude::*, px,
 };
 
+use crate::app::project_session::{ProjectActivity, ProjectSession, ProjectSessionId};
 use crate::domain::media::{MediaAsset, MediaKind};
 use crate::domain::plugin::{FileCapability, ItemSchema};
 use crate::domain::property::{
@@ -32,18 +36,17 @@ use crate::domain::property::{
     PropertyValueType, ScalarPropertyType,
 };
 use crate::domain::timeline::{
-    EffectInstance, EffectInstanceId, ItemId, SceneArgument, SceneArgumentPreset,
+    EffectInstance, EffectInstanceId, ItemId, PropertyAddress, SceneArgument, SceneArgumentPreset,
     SceneBindingOwner, SceneBindingTarget, SceneId, TimelineEditor, TimelineItem, TimelineTime,
     display_scene_expression,
 };
 use crate::engine::media::MediaReaderRegistry;
-use crate::plugin::plugins;
 use crate::ui::TimelineEditorEntityExt as _;
-use crate::ui::animation_curve::{AnimationPresentation, AnimationSelection, AnimationTarget};
+use crate::ui::animation_curve::{AnimationSelection, AnimationTarget};
 use crate::ui::inspector_path::InspectorPath;
 use crate::ui::pane::pane_header;
 use crate::ui::search_picker::{SearchPicker, SearchPickerEntry};
-use crate::ui::session::{ProjectActivity, ProjectSession, ProjectSessionId, UiNotifications};
+use crate::ui::session::UiNotifications;
 
 pub(super) type EffectPickerTarget = (String, String);
 
@@ -154,6 +157,16 @@ pub(super) struct PropertyTarget {
 }
 
 impl PropertyTarget {
+    pub(super) fn address(&self, item_id: ItemId) -> PropertyAddress {
+        PropertyAddress {
+            item_id,
+            effect_id: self.effect_id,
+            property_id: self.property_id.clone(),
+            element_id: self.path.element_id(),
+            scalar_index: self.path.scalar_index(),
+        }
+    }
+
     pub(super) fn matches_animation_target(
         &self,
         item_id: ItemId,
@@ -164,7 +177,6 @@ impl PropertyTarget {
             && target.property_id == self.property_id
             && target.element_id == self.path.element_id()
             && target.scalar_index == self.path.scalar_index()
-            && target.property == self.key
     }
 
     pub(super) fn animation_enabled(&self, item: &TimelineItem) -> bool {
@@ -179,12 +191,7 @@ impl PropertyTarget {
 
     pub(super) fn animation_target(&self, item: &TimelineItem) -> AnimationTarget {
         AnimationTarget {
-            item_id: item.id,
-            effect_id: self.effect_id,
-            property_id: self.property_id.clone(),
-            element_id: self.path.element_id(),
-            scalar_index: self.path.scalar_index(),
-            property: self.key.clone(),
+            address: self.address(item.id),
         }
     }
 }
@@ -213,14 +220,6 @@ pub(super) enum SceneArgumentSetting {
     Default,
     Min,
     Max,
-}
-
-#[derive(Clone)]
-pub(super) struct NumberAnimationSource {
-    pub property_id: String,
-    pub element_id: Option<PropertyElementId>,
-    pub scalar_index: Option<usize>,
-    pub value_factor: f64,
 }
 
 #[derive(Clone, Copy)]

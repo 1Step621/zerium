@@ -173,16 +173,20 @@ impl PropertyInspector {
         };
         let aspect_ratio_lock =
             Self::aspect_ratio_lock_state(&item, &selected_items, &scene_arguments, editing_scene);
-        let available_effects = plugins()
-            .effects()
-            .map(|(plugin_id, effect)| {
-                SearchPickerEntry::from_plugin_schema(
-                    plugin_id,
-                    effect,
-                    (plugin_id.to_owned(), effect.id().to_owned()),
-                )
-            })
-            .collect();
+        let available_effects = {
+            let editor = self.editor.read(cx);
+            editor
+                .plugin_registry()
+                .effects()
+                .map(|(plugin_id, effect)| {
+                    SearchPickerEntry::from_plugin_schema(
+                        plugin_id,
+                        effect,
+                        (plugin_id.to_owned(), effect.id().to_owned()),
+                    )
+                })
+                .collect()
+        };
         Some(SelectionView {
             item,
             item_label,

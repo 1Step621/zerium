@@ -1,5 +1,4 @@
 use super::*;
-use crate::ui::property_inspector::control::NumberSpec;
 
 #[derive(Clone, Copy)]
 pub(super) enum ArrayEdit {
@@ -483,72 +482,6 @@ impl PropertyInspector {
             .update(cx, |editor, _| editor.finish_history_group());
     }
 
-    fn linked_animation_aspect_ratio(
-        item: &TimelineItem,
-        target: &PropertyTarget,
-        spec: &NumberSpec,
-    ) -> Option<(f64, String, InspectorPath)> {
-        if target.effect_id.is_some() || !spec.is_size || target.path.scalar_index() != Some(1) {
-            return None;
-        }
-        let schema = item.schema()?;
-        if !item.aspect_ratio_locked {
-            return None;
-        }
-        let size = schema.size_property()?;
-        let value = item.properties.property(size.id())?;
-        let width = value.scalar_at(Some(0))?.numeric_scalar()?;
-        let height = value.scalar_at(Some(1))?.numeric_scalar()?;
-        (width.is_finite() && height.is_finite() && width > 0. && height > 0.).then_some((
-            width / height,
-            size.id().to_owned(),
-            InspectorPath::new(None, Some(0)),
-        ))
-    }
-
-    pub(super) fn number_animation_source(
-        item: &TimelineItem,
-        target: &PropertyTarget,
-        spec: &NumberSpec,
-    ) -> Option<NumberAnimationSource> {
-        let target_element_id = target.path.element_id();
-        let target_scalar_index = target.path.scalar_index();
-        if item
-            .animation_track(
-                target.effect_id,
-                &target.property_id,
-                target_element_id,
-                target_scalar_index,
-            )
-            .is_some()
-        {
-            return Some(NumberAnimationSource {
-                property_id: target.property_id.clone(),
-                element_id: target_element_id,
-                scalar_index: target_scalar_index,
-                value_factor: 1.,
-            });
-        }
-
-        let (aspect_ratio, source_property_id, source_path) =
-            Self::linked_animation_aspect_ratio(item, target, spec)?;
-        let source_element_id = source_path.element_id();
-        let source_scalar_index = source_path.scalar_index();
-        item.animation_track(
-            None,
-            &source_property_id,
-            source_element_id,
-            source_scalar_index,
-        )?;
-        let value_factor = aspect_ratio.recip();
-        Some(NumberAnimationSource {
-            property_id: source_property_id,
-            element_id: source_element_id,
-            scalar_index: source_scalar_index,
-            value_factor,
-        })
-    }
-
     pub(super) fn select_number_animation(
         &mut self,
         target: &PropertyTarget,
@@ -558,13 +491,16 @@ impl PropertyInspector {
         let selected_items = self.editor.read(cx).selected_items();
         let target = match selected_items.as_slice() {
             [item] => {
-                Self::number_animation_source(item, target, spec).map(|display| AnimationTarget {
-                    item_id: item.id,
-                    effect_id: target.effect_id,
-                    property_id: display.property_id,
-                    element_id: display.element_id,
-                    scalar_index: display.scalar_index,
-                    property: target.key.clone(),
+                number_animation_source(item, &target.address(item.id), spec).map(|display| {
+                    AnimationTarget {
+                        address: PropertyAddress {
+                            item_id: item.id,
+                            effect_id: target.effect_id,
+                            property_id: display.property_id,
+                            element_id: display.element_id,
+                            scalar_index: display.scalar_index,
+                        },
+                    }
                 })
             }
             _ => None,
@@ -589,7 +525,8 @@ impl PropertyInspector {
         };
         let mut resolved = target.clone();
         if !enabled {
-            let Some(display) = Self::number_animation_source(&item, target, spec) else {
+            let Some(display) = number_animation_source(&item, &target.address(item.id), spec)
+            else {
                 return;
             };
             resolved.property_id = display.property_id;
@@ -646,127 +583,6 @@ impl PropertyInspector {
             }
         });
         cx.notify();
-    }
-
-    fn animation_property(
-        editor: &TimelineEditor,
-        item: &TimelineItem,
-        target: &AnimationTarget,
-    ) -> Option<PropertySchema> {
-        if let Some(scene_id) = item.scene_id()
-            && let Some(property) = editor
-                .scene(scene_id)?
-                .arguments
-                .iter()
-                .find(|argument| argument.schema.id() == target.property_id)
-                .map(|argument| argument.schema.clone())
-        {
-            return Some(property);
-        }
-        if let Some(effect_id) = target.effect_id {
-            return item
-                .effects
-                .iter()
-                .find(|effect| effect.id == effect_id)
-                .and_then(|effect| effect.schema().property(&target.property_id))
-                .cloned();
-        }
-        item.schema()?.property(&target.property_id).cloned()
-    }
-
-    fn animation_property_target(
-        item: &TimelineItem,
-        target: &AnimationTarget,
-    ) -> Option<PropertyTarget> {
-        if let Some(id) = target.element_id {
-            item.property_values(target.effect_id)?
-                .property(&target.property_id)?
-                .element_index(id)?;
-        }
-        Some(PropertyTarget {
-            key: target.property.clone(),
-            property_id: target.property_id.clone(),
-            effect_id: target.effect_id,
-            path: InspectorPath::new(target.element_id, target.scalar_index),
-        })
-    }
-
-    fn animation_label(
-        property: &PropertySchema,
-        target: &AnimationTarget,
-        element_index: Option<usize>,
-    ) -> String {
-        let label = element_index.map_or_else(
-            || property.label().to_owned(),
-            |index| format!("{} {}", property.label(), index + 1),
-        );
-        match target.scalar_index {
-            Some(scalar_index) => property
-                .configuration_label(Some(scalar_index))
-                .map_or(label.clone(), |scalar_label| {
-                    format!("{label} {scalar_label}")
-                }),
-            None => label,
-        }
-    }
-
-    pub(crate) fn animation_presentation(
-        editor: &TimelineEditor,
-        item: &TimelineItem,
-        target: &AnimationTarget,
-    ) -> Option<AnimationPresentation> {
-        let property = Self::animation_property(editor, item, target)?;
-        let property_target = Self::animation_property_target(item, target)?;
-        let scalar_index = target.scalar_index;
-        let value_type = match property.ty() {
-            PropertyType::Value(value_type)
-            | PropertyType::Array {
-                element_type: value_type,
-                ..
-            } => value_type,
-        };
-        let scalar_type = value_type.scalar_at(scalar_index)?.clone();
-        let label = Self::animation_label(
-            &property,
-            target,
-            property_target.path.element_id().and_then(|id| {
-                item.property_values(target.effect_id)?
-                    .property(&target.property_id)?
-                    .element_index(id)
-            }),
-        );
-        if matches!(scalar_type, ScalarPropertyType::Color) {
-            if !property_target.animation_enabled(item) {
-                return None;
-            }
-            return Some(AnimationPresentation {
-                label,
-                suffix: String::new(),
-                step: 0.01,
-                value_factor: 1.,
-            });
-        }
-        let is_size = target.effect_id.is_none()
-            && item.scene_id().is_none()
-            && item
-                .schema()
-                .is_some_and(|schema| schema.is_size_property(&target.property_id));
-        let spec = Self::number_spec(&property, scalar_index, is_size)?;
-        // Scene-bound values resolve through the same display mapping as the
-        // inspector elements; size linkage only applies to size properties.
-        let display = Self::number_animation_source(item, &property_target, &spec)?;
-        if display.property_id != target.property_id
-            || display.element_id != target.element_id
-            || display.scalar_index != target.scalar_index
-        {
-            return None;
-        }
-        Some(AnimationPresentation {
-            label,
-            suffix: spec.suffix.clone(),
-            step: spec.step,
-            value_factor: display.value_factor,
-        })
     }
 
     pub(super) fn update_elements(

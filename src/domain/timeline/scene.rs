@@ -804,34 +804,3 @@ pub(crate) fn display_scene_expression(arguments: &[SceneArgument], source: &str
         .collect();
     expression::rewrite_variables(source, &replacements).unwrap_or_else(|| source.to_owned())
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn scene_binding_round_trips_in_project_format() {
-        let binding = SceneBindingTarget::new(
-            ItemId(12),
-            SceneBindingOwner::Effect(EffectInstanceId::new(7)),
-            "gain",
-            None,
-            Some(1),
-        );
-        let encoded = serde_json::to_value(&binding).unwrap();
-
-        assert_eq!(
-            encoded,
-            serde_json::json!({
-                "item_id": 12,
-                "owner": {"effect": 7},
-                "property_id": "gain",
-                "scalar_index": 1
-            })
-        );
-        assert_eq!(
-            serde_json::from_value::<SceneBindingTarget>(encoded).unwrap(),
-            binding
-        );
-    }
-}

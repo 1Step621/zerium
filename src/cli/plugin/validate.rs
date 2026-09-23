@@ -16,7 +16,8 @@ pub(crate) fn validate(path: Option<&Path>) -> Result<(), String> {
             root.display()
         )
     })?;
-    let plugin = crate::plugin::load_filesystem_plugin(&root).map_err(|error| error.to_string())?;
+    let plugin =
+        crate::plugin_loader::load_filesystem_plugin(&root).map_err(|error| error.to_string())?;
     let plugins = PluginRegistry::new([plugin]).map_err(|error| error.to_string())?;
     crate::engine::rendering::compile_plugins(&plugins)
         .map(|_| ())

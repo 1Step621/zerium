@@ -1,21 +1,17 @@
 use super::*;
+use std::ops::Deref;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct AnimationTarget {
-    pub item_id: ItemId,
-    pub effect_id: Option<EffectInstanceId>,
-    pub property_id: String,
-    pub element_id: Option<PropertyElementId>,
-    pub scalar_index: Option<usize>,
-    pub property: InspectorPath,
+    pub address: PropertyAddress,
 }
 
-#[derive(Clone, Debug)]
-pub(crate) struct AnimationPresentation {
-    pub label: String,
-    pub suffix: String,
-    pub step: f64,
-    pub value_factor: f64,
+impl Deref for AnimationTarget {
+    type Target = PropertyAddress;
+
+    fn deref(&self) -> &Self::Target {
+        &self.address
+    }
 }
 
 #[derive(Default)]

@@ -1,13 +1,14 @@
 use std::sync::Arc;
 
 use super::{
-    editor::{TimelineEditor, TimelineProjectState},
+    editor::TimelineEditor,
     evaluation::{
         EvaluatedSceneNode, document_items, evaluated_document_graph_at_time,
         evaluated_document_items_at_time, evaluated_visible_document_graph_at_time,
     },
     ids::{ItemId, LayerId, ProjectId},
     item::TimelineItem,
+    project::TimelineProject,
     scene::SceneDefinition,
     settings::ProjectResolution,
     time::{Frame, FrameRate, TimelineTime},
@@ -20,7 +21,7 @@ use super::{
 /// read model, which contains only the state a background consumer can use.
 #[derive(Clone)]
 pub(crate) struct TimelineSnapshot {
-    pub(super) project: Arc<TimelineProjectState>,
+    pub(super) project: Arc<TimelineProject>,
     pub(super) playhead: Frame,
     pub(super) project_revision: u64,
 }

@@ -10,7 +10,7 @@ mod app;
 mod cli;
 mod domain;
 mod engine;
-mod plugin;
+mod plugin_loader;
 mod ui;
 
 pub fn run() -> Result<(), String> {

@@ -6,6 +6,8 @@ mod expression;
 mod history;
 mod ids;
 mod item;
+mod project;
+mod property_address;
 mod scene;
 mod selection;
 mod settings;
@@ -20,6 +22,7 @@ pub(crate) use editor::TimelineEditor;
 pub(crate) use evaluation::{EvaluatedSceneNode, EvaluatedSceneNodeKind};
 pub(crate) use ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId};
 pub(crate) use item::{EffectInstance, RenderResultSettings, TimelineItem, TimelineItemKind};
+pub(crate) use property_address::PropertyAddress;
 pub(crate) use scene::SceneDefinition;
 pub(crate) use scene::{
     SceneArgument, SceneArgumentPreset, SceneBindingOwner, SceneBindingTarget,

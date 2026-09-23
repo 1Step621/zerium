@@ -1,6 +1,6 @@
 //! Property schemas, scalar metadata, and semantic validation.
 
-use super::{PropertyError, constraints::PropertyConstraints, ui::PropertyUi};
+use super::{PropertyError, constraints::PropertyConstraints, metadata::PropertyUi};
 use crate::domain::property::{PropertyType, PropertyValue, PropertyValueType, ScalarPropertyType};
 use serde::{Deserialize, Serialize};
 

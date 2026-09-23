@@ -3,6 +3,7 @@ mod encoder;
 mod pipelines;
 mod readback;
 mod resources;
+mod runtime;
 mod scene;
 mod shader;
 mod shader_compile;
@@ -43,6 +44,7 @@ const COMPOSITE: &str = include_str!("composite.wgsl");
 const YUV_CONVERT: &str = include_str!("yuv.wgsl");
 
 pub(crate) use readback::ExportFramePipeline;
+pub(crate) use runtime::RenderRuntime;
 pub(crate) use scene::{
     RenderEffect, RenderEffectPassKind, RenderItem, RenderItemSource, RenderNode,
     RenderNodeContent, RenderNodeMetadata, RenderQuality, RenderScene, RenderTemporalSample,

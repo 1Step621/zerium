@@ -13,18 +13,35 @@ input into domain commands. `engine` owns stateful adapters such as media,
 audio, rendering, export, and project I/O. `domain` owns validated models and
 business rules and must not depend on GPUI, WGPU, FFmpeg processes, or audio
 devices. Engine code may read domain models, but must not depend on UI entities.
+Application construction lives in `app::bootstrap`; `Workspace` composes the
+top-level UI and forwards actions. UI components may share domain addresses and
+application/runtime dependencies, but do not call sibling components for their
+presentation or behavior.
+
+`ProjectSession` belongs to `app` and tracks project generations and pending
+operations so stale load, save, import, and export work can be ignored after a
+project change. `ProjectRuntime` groups the editor, transport, animation
+selection, and session handles that must be reset together when a project is
+replaced. `ProjectController` handles project I/O and settings and delegates
+that replacement reset to the runtime group. Notifications remain UI state.
 
 ## Timeline
 
-`TimelineEditor` is the only owner of live editing state. It coordinates:
+`TimelineProject` is the persistent project state: its document, reusable
+scenes, resolution, and project identity. The project is stored in
+`domain::timeline::project` and is changed only through `TimelineEditor`.
+`TimelineEditor` owns the editing session around that project and coordinates:
 
 - `TimelineDocument`: persistent items, layers, properties, effects, scenes,
   and IDs;
 - selection, preview visibility, and edit history: session-only state.
 
 Commands that change persistent state go through `TimelineEditor`, which keeps
-revision and history bookkeeping consistent. Background work receives an
-immutable `TimelineSnapshot`/`TimelineView`, never a live editor or UI entity.
+revision and history bookkeeping consistent. Selection, preview visibility,
+playhead, and edit history remain editor session state. Background work
+receives an immutable `TimelineSnapshot`; rendering and export read its
+`TimelineView`, never a live editor or UI entity. Timeline editor mutations are
+grouped in `domain::timeline::commands` by scene, session, and item concerns.
 
 `TimelineDocument` owns indexes and document invariants. `TimelineItem` owns its
 plugin or scene identity, properties, effects, and geometry. Scene resolution
@@ -53,6 +70,12 @@ elements; element values and animation groups resolve tuple scalar indices.
 and animation evaluation. A track contains one interpolation per adjacent stop
 pair. Property validation determines whether a scalar can be animated; the
 animation module owns interpolation and track rules.
+
+`PropertyAddress` identifies an item, effect, property, array element, and
+scalar independently of inspector widget identity. `InspectorPath` remains a
+PropertyInspector-only key for row state. Shared animation presentation
+calculations live in `ui::animation_presentation`, so the curve editor does not
+depend on PropertyInspector.
 
 ## Plugins and persistence
 
@@ -85,9 +108,12 @@ encoding. `MediaReaderRegistry` is the boundary between timeline/rendering code
 and the concrete media adapter.
 
 Rendering depends on the read-only `TimelineView`, not editing commands.
-Preview and export use independent render sessions while sharing immutable
-pipelines and the GPU device. Timeline evaluation preserves scene composition
-boundaries and carries sample time through media and temporal passes.
+`engine::rendering::RenderRuntime` is constructed by the app composition root
+and shared by Preview and Export. It owns the preview renderer and lazily
+creates the dedicated export device; each consumer uses an independent render
+session while sharing compiled plugin shaders. Timeline evaluation preserves
+scene composition boundaries and carries sample time through media and
+temporal passes.
 
 ## Change rules
 

@@ -16,13 +16,14 @@ mod editor_overlay;
 use editor_overlay::{PreviewEditorDrag, PreviewEditorDragState};
 
 use crate::{
+    app::project_session::{ProjectSession, ProjectSessionId},
     domain::timeline::{Frame, ItemId, LayerId, TimelineEditor, TimelineItem, TimelineTime},
     engine::{
         audio_meter::AudioLevelSampler,
         media::{MediaReaderRegistry, VideoDecodeSize},
         rendering::{
-            CompiledPluginShaders, FrameRenderer, RenderError, RenderQuality, RenderScene,
-            RenderSize, RendererBuilder, RendererDevice, TextFrameCache,
+            CompiledPluginShaders, FrameRenderer, RenderError, RenderQuality, RenderRuntime,
+            RenderScene, RenderSize, TextFrameCache,
         },
         video_playback::{
             RequestedVideoFrame, VideoInputId, VideoPlaybackEngine, VideoPlaybackMode,
@@ -30,44 +31,18 @@ use crate::{
         },
     },
     ui::{
-        session::{ProjectSession, ProjectSessionId, UiNotifications},
+        session::UiNotifications,
         time_grid,
         transport::{ScrubSource, TransportController},
     },
 };
-
-pub(crate) struct RenderBackend {
-    renderer: Option<Arc<FrameRenderer>>,
-    export_device: Option<Arc<RendererDevice>>,
-    plugin_shaders: Arc<CompiledPluginShaders>,
-    error: Option<SharedString>,
-}
-
-impl RenderBackend {
-    pub(crate) fn renderer(&self) -> Option<Arc<FrameRenderer>> {
-        self.renderer.clone()
-    }
-
-    /// Rendering session on the dedicated export device, creating the device
-    /// on first use.
-    pub(crate) fn export_session(&mut self) -> Result<Arc<FrameRenderer>, RenderError> {
-        let device = match &self.export_device {
-            Some(device) => device.clone(),
-            None => {
-                let device = RendererDevice::create_headless(&self.plugin_shaders)?;
-                self.export_device = Some(device.clone());
-                device
-            }
-        };
-        Ok(Arc::new(device.create_session()))
-    }
-}
 
 pub(crate) struct PreviewDependencies {
     editor: Entity<TimelineEditor>,
     transport: Entity<TransportController>,
     session: Entity<ProjectSession>,
     notifications: Entity<UiNotifications>,
+    render_runtime: Entity<RenderRuntime>,
     plugin_shaders: Arc<CompiledPluginShaders>,
     media_readers: Arc<MediaReaderRegistry>,
 }
@@ -78,6 +53,7 @@ impl PreviewDependencies {
         transport: Entity<TransportController>,
         session: Entity<ProjectSession>,
         notifications: Entity<UiNotifications>,
+        render_runtime: Entity<RenderRuntime>,
         plugin_shaders: Arc<CompiledPluginShaders>,
         media_readers: Arc<MediaReaderRegistry>,
     ) -> Self {
@@ -86,6 +62,7 @@ impl PreviewDependencies {
             transport,
             session,
             notifications,
+            render_runtime,
             plugin_shaders,
             media_readers,
         }
@@ -102,7 +79,7 @@ pub(crate) struct Preview {
     audio_level_sampler: AudioLevelSampler,
     seekbar: Entity<SliderState>,
     surface: Option<WgpuSurfaceHandle>,
-    backend: Entity<RenderBackend>,
+    render_runtime: Entity<RenderRuntime>,
     text_frames: TextFrameCache,
     error: Option<SharedString>,
     playback_error: Option<SharedString>,
@@ -136,6 +113,7 @@ impl Preview {
             transport,
             session,
             notifications,
+            render_runtime,
             plugin_shaders,
             media_readers,
         } = dependencies;
@@ -174,14 +152,12 @@ impl Preview {
             Self::INITIAL_SIZE.height,
             wgpu::TextureFormat::Rgba8UnormSrgb,
         );
-        let (renderer, error) = match &surface {
-            Some(surface) => match RendererBuilder::new(
+        let (renderer, error): (Option<Arc<FrameRenderer>>, Option<SharedString>) = match &surface {
+            Some(surface) => match RenderRuntime::preview_renderer(
                 Arc::new(surface.device().clone()),
                 Arc::new(surface.queue().clone()),
-            )
-            .and_then(|builder| builder.register_plugins(&plugin_shaders))
-            .map(|builder| Arc::new(builder.build().create_session()))
-            {
+                &plugin_shaders,
+            ) {
                 Ok(renderer) => (Some(renderer), None),
                 Err(error) => (None, Some(error.to_string().into())),
             },
@@ -195,11 +171,8 @@ impl Preview {
                 notifications.push(format!("プレビュー初期化失敗: {error}"), cx);
             });
         }
-        let backend = cx.new(|_| RenderBackend {
-            renderer,
-            export_device: None,
-            plugin_shaders,
-            error,
+        render_runtime.update(cx, |runtime, _| {
+            runtime.set_preview_renderer(renderer, error.clone().map(|error| error.to_string()));
         });
         let audio_level_sampler = AudioLevelSampler::new(media_readers.clone());
         let (video_playback, mut video_playback_events) = VideoPlaybackEngine::new(media_readers);
@@ -226,7 +199,7 @@ impl Preview {
             audio_level_sampler,
             seekbar,
             surface,
-            backend,
+            render_runtime,
             text_frames: TextFrameCache::new(),
             error: None,
             playback_error: None,
@@ -240,10 +213,6 @@ impl Preview {
             _seekbar_subscription: seekbar_subscription,
             _video_playback_task: video_playback_task,
         }
-    }
-
-    pub(crate) fn render_backend(&self) -> Entity<RenderBackend> {
-        self.backend.clone()
     }
 
     /// Keeps the native window alive until GPUI has dropped its WGPU renderer.
@@ -385,7 +354,7 @@ impl Preview {
         };
         self.handle_playback_snapshot(&playback, cx);
 
-        let Some(renderer) = self.backend.read(cx).renderer() else {
+        let Some(renderer) = self.render_runtime.read(cx).renderer() else {
             return;
         };
         if self.rendered_revision == Some(revision)
@@ -604,10 +573,10 @@ impl Render for Preview {
                 .levels_at(editor.visible_items(), frame, editor.frame_rate())
         };
         let error = self
-            .backend
+            .render_runtime
             .read(cx)
-            .error
-            .clone()
+            .error()
+            .map(SharedString::from)
             .or_else(|| self.error.clone())
             .or_else(|| self.playback_error.clone());
         let overlay = self.selected_editor_overlay(frame, cx);

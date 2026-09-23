@@ -1,16 +1,6 @@
 use super::*;
 
 #[derive(Clone)]
-pub(super) struct NumberSpec {
-    pub suffix: String,
-    pub min: f64,
-    pub max: f64,
-    pub step: f64,
-    pub scalar_type: ScalarPropertyType,
-    pub is_size: bool,
-}
-
-#[derive(Clone)]
 pub(super) struct LeafControl {
     pub id: ControlId,
     pub target: PropertyTarget,
@@ -328,50 +318,6 @@ impl PropertyInspector {
         .into()
     }
 
-    pub(super) fn number_spec(
-        property: &PropertySchema,
-        scalar_index: Option<usize>,
-        is_size: bool,
-    ) -> Option<NumberSpec> {
-        if !property.is_visible() || !property.configuration_ui(scalar_index).is_visible() {
-            return None;
-        }
-        let value_type = match property.ty() {
-            PropertyType::Value(value_type)
-            | PropertyType::Array {
-                element_type: value_type,
-                ..
-            } => value_type,
-        };
-        let scalar_type = value_type.scalar_at(scalar_index)?.clone();
-        if !matches!(
-            scalar_type,
-            ScalarPropertyType::F32 | ScalarPropertyType::I32 | ScalarPropertyType::U32
-        ) {
-            return None;
-        }
-        let ui = property.configuration_ui(scalar_index);
-        let constraints = property.configuration_constraints(scalar_index);
-        let (type_min, type_max) = NumericInput::new(scalar_type.clone())?.bounds();
-        let min = constraints.min.unwrap_or(type_min).max(type_min);
-        let max = constraints.max.unwrap_or(type_max).min(type_max);
-        let step = f64::from(ui.step());
-        let (min, max, step) = match scalar_type {
-            ScalarPropertyType::I32 | ScalarPropertyType::U32 => {
-                (min.ceil(), max.floor(), step.max(1.))
-            }
-            _ => (min, max, step),
-        };
-        Some(NumberSpec {
-            suffix: ui.unit().to_owned(),
-            min,
-            max,
-            step,
-            scalar_type,
-            is_size,
-        })
-    }
-
     fn scalar_common(
         key: &InspectorPath,
         property: &PropertySchema,
@@ -460,7 +406,7 @@ impl PropertyInspector {
                         _value,
                     ) => Control::Number(NumberControl {
                         common,
-                        spec: Self::number_spec(property, scalar_index, is_size)?,
+                        spec: number_spec(property, scalar_index, is_size)?,
                     }),
                     (ScalarPropertyType::Color, PropertyValue::Color(_)) => {
                         Control::Color(ColorControl { common })
@@ -786,9 +732,9 @@ impl PropertyInspector {
         match control {
             Control::Group { .. } => {}
             Control::Number(number) => {
-                let animation_source = Self::number_animation_source(
+                let animation_source = number_animation_source(
                     resolution.item,
-                    &number.common.target,
+                    &number.common.target.address(resolution.item.id),
                     &number.spec,
                 );
                 let animation_enabled = animation_source.is_some();

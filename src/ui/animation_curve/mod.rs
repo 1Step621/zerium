@@ -6,7 +6,7 @@ mod render;
 mod selection;
 mod viewport;
 
-pub(crate) use selection::{AnimationPresentation, AnimationSelection, AnimationTarget};
+pub(crate) use selection::{AnimationSelection, AnimationTarget};
 
 use std::cell::Cell;
 
@@ -23,18 +23,15 @@ use gpui::{
 
 use crate::domain::{
     animation::{BezierHandle, EasingDirection, EasingFamily, SegmentInterpolation},
-    property::PropertyElementId,
-    timeline::{
-        EffectInstanceId, Frame, FrameDuration, FrameRate, ItemId, TimelineEditor, TimelineTime,
-    },
+    timeline::{Frame, FrameDuration, FrameRate, PropertyAddress, TimelineEditor, TimelineTime},
 };
 
 use super::{
-    inspector_path::InspectorPath,
     pane::pane_header,
     time_grid,
     transport::{ScrubSource, TransportController},
 };
+use crate::ui::AnimationPresentation;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CurvePoint {

@@ -22,6 +22,7 @@ use super::{
     history::EditHistory,
     ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId},
     item::TimelineItem,
+    project::TimelineProject,
     scene::{SceneDefinition, materialize_scene_instance_properties},
     selection::SelectionState,
     settings::{ProjectResolution, ProjectSettingsError},
@@ -91,19 +92,11 @@ pub(super) enum HistoryKey {
 
 #[derive(Clone)]
 pub(super) struct HistorySnapshot {
-    project: Arc<TimelineProjectState>,
+    project: Arc<TimelineProject>,
     scene_path: Vec<SceneId>,
     playhead: Frame,
     selection: SelectionState,
     project_revision: u64,
-}
-
-#[derive(Clone)]
-pub(super) struct TimelineProjectState {
-    pub(super) id: ProjectId,
-    pub(super) document: TimelineDocument,
-    pub(super) scenes: HashMap<SceneId, SceneDefinition>,
-    pub(super) resolution: ProjectResolution,
 }
 
 pub(super) type ScopedHistoryKey = (Option<SceneId>, HistoryKey);
@@ -114,7 +107,7 @@ pub(super) type ScopedHistoryKey = (Option<SceneId>, HistoryKey);
 /// cross-document concerns such as scene navigation, revisions, and undo/redo.
 pub(crate) struct TimelineEditor {
     pub(super) plugins: Arc<PluginRegistry>,
-    project: Arc<TimelineProjectState>,
+    project: Arc<TimelineProject>,
     pub(super) scene_path: Vec<SceneId>,
     pub(super) next_scene_id: Option<u64>,
     pub(super) next_effect_id: Option<u64>,
@@ -130,15 +123,15 @@ pub(crate) struct TimelineEditor {
 }
 
 impl TimelineEditor {
-    pub(super) fn project(&self) -> &TimelineProjectState {
+    pub(super) fn project(&self) -> &TimelineProject {
         &self.project
     }
 
-    pub(super) fn project_mut(&mut self) -> &mut TimelineProjectState {
+    pub(super) fn project_mut(&mut self) -> &mut TimelineProject {
         Arc::make_mut(&mut self.project)
     }
 
-    pub(super) fn commit_project_state(&mut self, project: TimelineProjectState) {
+    pub(super) fn commit_project_state(&mut self, project: TimelineProject) {
         self.project = Arc::new(project);
     }
 
@@ -158,7 +151,7 @@ impl TimelineEditor {
         let next_effect_id = Self::next_effect_id(&document, std::iter::empty());
         Self {
             plugins,
-            project: Arc::new(TimelineProjectState {
+            project: Arc::new(TimelineProject {
                 id: new_project_id(),
                 document,
                 scenes: HashMap::new(),
@@ -210,6 +203,10 @@ impl TimelineEditor {
 
     pub(crate) fn plugin_registry(&self) -> &PluginRegistry {
         &self.plugins
+    }
+
+    pub(crate) fn plugin_registry_arc(&self) -> Arc<PluginRegistry> {
+        self.plugins.clone()
     }
 
     pub(crate) fn snapshot(&self) -> TimelineSnapshot {

@@ -43,7 +43,7 @@ impl AnimationCurveEditor {
             let changed = editor
                 .insert_selected_property_animation_stop(
                     target.effect_id,
-                    target.property_id,
+                    target.property_id.clone(),
                     target.element_id,
                     target.scalar_index,
                     progress,
@@ -171,7 +171,7 @@ impl AnimationCurveEditor {
         let changed = self.editor.update(cx, |editor, cx| {
             let changed = editor.move_selected_animation_stop(
                 target.effect_id,
-                target.property_id,
+                target.property_id.clone(),
                 target.element_id,
                 target.scalar_index,
                 drag.stop,
@@ -239,7 +239,7 @@ impl AnimationCurveEditor {
         self.editor.update(cx, |editor, cx| {
             if editor.set_selected_animation_handle(
                 target.effect_id,
-                target.property_id,
+                target.property_id.clone(),
                 target.element_id,
                 target.scalar_index,
                 selected.source_segment,
@@ -259,7 +259,7 @@ impl AnimationCurveEditor {
         self.editor.update(cx, |editor, cx| {
             if editor.remove_selected_animation_stop(
                 target.effect_id,
-                target.property_id,
+                target.property_id.clone(),
                 target.element_id,
                 target.scalar_index,
                 source_stop,
@@ -282,7 +282,7 @@ impl AnimationCurveEditor {
         self.editor.update(cx, |editor, cx| {
             if editor.set_selected_animation_interpolation(
                 target.effect_id,
-                target.property_id,
+                target.property_id.clone(),
                 target.element_id,
                 target.scalar_index,
                 selected.source_segment,

@@ -8,17 +8,14 @@ use futures::StreamExt as _;
 use gpui::{Context, Entity, SharedString, Subscription, Task, Window, div, prelude::*, px};
 
 use crate::{
+    app::project_session::{ProjectActivity, ProjectOperation, ProjectSession, ProjectSessionId},
     domain::timeline::{TimelineEditor, TimelineView},
     engine::{
         export::{ExportError, ExportProgress, ExportSettings, export_timeline},
         media::MediaReaderRegistry,
+        rendering::RenderRuntime,
     },
-    ui::{
-        preview::RenderBackend,
-        session::{
-            ProjectActivity, ProjectOperation, ProjectSession, ProjectSessionId, UiNotifications,
-        },
-    },
+    ui::session::UiNotifications,
 };
 
 enum ExportState {
@@ -34,7 +31,7 @@ enum ExportState {
 
 pub(crate) struct ExportController {
     editor: Entity<TimelineEditor>,
-    backend: Entity<RenderBackend>,
+    render_runtime: Entity<RenderRuntime>,
     media_readers: Arc<MediaReaderRegistry>,
     session: Entity<ProjectSession>,
     session_id: ProjectSessionId,
@@ -47,7 +44,7 @@ pub(crate) struct ExportController {
 impl ExportController {
     pub(crate) fn new(
         editor: Entity<TimelineEditor>,
-        backend: Entity<RenderBackend>,
+        render_runtime: Entity<RenderRuntime>,
         media_readers: Arc<MediaReaderRegistry>,
         session: Entity<ProjectSession>,
         notifications: Entity<UiNotifications>,
@@ -66,7 +63,7 @@ impl ExportController {
         });
         Self {
             editor,
-            backend,
+            render_runtime,
             media_readers,
             session,
             session_id,
@@ -140,13 +137,13 @@ impl ExportController {
 
     fn choose_output(&mut self, _: &mut Window, cx: &mut Context<Self>) {
         let renderer = match self
-            .backend
+            .render_runtime
             .update(cx, |backend, _| backend.export_session())
         {
             Ok(renderer) => renderer,
             Err(error) => {
                 eprintln!("dedicated export device unavailable, sharing preview device: {error}");
-                let Some(renderer) = self.backend.read(cx).renderer() else {
+                let Some(renderer) = self.render_runtime.read(cx).renderer() else {
                     let message =
                         "GPUレンダラーが利用できないため書き出しを開始できません".to_owned();
                     self.state = ExportState::Failed;

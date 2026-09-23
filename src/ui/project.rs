@@ -1,7 +1,4 @@
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::path::{Path, PathBuf};
 
 use ::ui::{
     ContextModal as _, Sizable as _, StyledExt as _,
@@ -11,17 +8,13 @@ use ::ui::{
 use gpui::{App, Context, Entity, PathPromptOptions, Task, Window, div, prelude::*};
 
 use crate::{
+    app::{project_runtime::ProjectRuntime, project_session::ProjectActivity},
     domain::{
         persistence::PROJECT_EXTENSION,
-        plugin::PluginRegistry,
-        timeline::{Frame, FrameRate, ProjectResolution, TimelineEditor},
+        timeline::{Frame, FrameRate, ProjectResolution},
     },
     engine::project_io,
-    ui::{
-        animation_curve::AnimationSelection,
-        session::{ProjectActivity, ProjectSession, UiNotifications},
-        transport::TransportController,
-    },
+    ui::session::UiNotifications,
 };
 
 #[derive(Clone, Copy)]
@@ -31,12 +24,8 @@ enum PendingProjectChange {
 }
 
 pub(crate) struct ProjectController {
-    editor: Entity<TimelineEditor>,
-    transport: Entity<TransportController>,
-    animation_selection: Entity<AnimationSelection>,
-    session: Entity<ProjectSession>,
+    runtime: crate::app::project_runtime::ProjectRuntime,
     notifications: Entity<UiNotifications>,
-    plugins: Arc<PluginRegistry>,
     path: Option<PathBuf>,
     saved_revision: u64,
     busy: bool,
@@ -45,21 +34,10 @@ pub(crate) struct ProjectController {
 }
 
 impl ProjectController {
-    pub(crate) fn new(
-        editor: Entity<TimelineEditor>,
-        transport: Entity<TransportController>,
-        animation_selection: Entity<AnimationSelection>,
-        session: Entity<ProjectSession>,
-        notifications: Entity<UiNotifications>,
-        plugins: Arc<PluginRegistry>,
-    ) -> Self {
+    pub(crate) fn new(runtime: ProjectRuntime, notifications: Entity<UiNotifications>) -> Self {
         Self {
-            editor,
-            transport,
-            animation_selection,
-            session,
+            runtime,
             notifications,
-            plugins,
             path: None,
             saved_revision: 0,
             busy: false,
@@ -92,8 +70,8 @@ impl ProjectController {
 
         self.busy = true;
         cx.notify();
-        let plugins = self.plugins.clone();
-        let session = self.session.clone();
+        let plugins = self.runtime.editor.read(cx).plugin_registry_arc();
+        let session = self.runtime.session().clone();
         let operation = session.update(cx, |session, cx| session.begin(ProjectActivity::Load, cx));
         self._io_task = cx.spawn(async move |controller, cx| {
             let input = path.clone();
@@ -104,15 +82,15 @@ impl ProjectController {
                 controller
                     .update(cx, |controller, cx| match result {
                         Ok(project) => {
-                            controller.begin_new_session(cx);
-                            controller.reset_transient_ui(cx);
-                            controller.editor.update(cx, |editor, cx| {
+                            controller.runtime.advance_session(cx);
+                            controller.runtime.reset_transient_state(cx);
+                            controller.runtime.editor.update(cx, |editor, cx| {
                                 project.apply(editor);
                                 cx.notify();
                             });
                             controller.path = Some(path.clone());
                             controller.saved_revision =
-                                controller.editor.read(cx).project_revision();
+                                controller.runtime.editor.read(cx).project_revision();
                             controller.busy = false;
                             controller.notifications.update(cx, |notifications, cx| {
                                 notifications.push_success(
@@ -164,7 +142,7 @@ impl ProjectController {
         if self.busy {
             return;
         }
-        let editor = self.editor.read(cx);
+        let editor = self.runtime.editor.read(cx);
         let resolution = editor.resolution();
         let frame_rate = editor.frame_rate();
         let width =
@@ -254,7 +232,7 @@ impl ProjectController {
                                 return false;
                             }
                         };
-                        match controller.editor.update(cx, |editor, cx| {
+                        match controller.runtime.editor.update(cx, |editor, cx| {
                             let result = editor.update_project_settings(resolution, frame_rate);
                             if matches!(result, Ok(true)) {
                                 cx.notify();
@@ -262,9 +240,7 @@ impl ProjectController {
                             result
                         }) {
                             Ok(_) => {
-                                controller.transport.update(cx, |transport, cx| {
-                                    transport.stop(cx);
-                                });
+                                controller.runtime.stop_transport(cx);
                                 cx.notify();
                                 true
                             }
@@ -310,7 +286,7 @@ impl ProjectController {
     }
 
     pub(crate) fn window_title(&self, cx: &App) -> String {
-        let dirty = self.editor.read(cx).project_revision() != self.saved_revision;
+        let dirty = self.runtime.editor.read(cx).project_revision() != self.saved_revision;
         let Some(name) = self
             .path
             .as_deref()
@@ -331,7 +307,7 @@ impl ProjectController {
         if self.busy {
             return;
         }
-        if self.editor.read(cx).project_revision() == self.saved_revision {
+        if self.runtime.editor.read(cx).project_revision() == self.saved_revision {
             self.perform_project_change(operation, window, cx);
             return;
         }
@@ -375,14 +351,14 @@ impl ProjectController {
     }
 
     fn new_project(&mut self, cx: &mut Context<Self>) {
-        self.begin_new_session(cx);
-        self.reset_transient_ui(cx);
-        self.editor.update(cx, |editor, cx| {
+        self.runtime.advance_session(cx);
+        self.runtime.reset_transient_state(cx);
+        self.runtime.editor.update(cx, |editor, cx| {
             editor.reset(ProjectResolution::DEFAULT, FrameRate::FPS_30, Frame::new(0));
             cx.notify();
         });
         self.path = None;
-        self.saved_revision = self.editor.read(cx).project_revision();
+        self.saved_revision = self.runtime.editor.read(cx).project_revision();
         cx.notify();
     }
 
@@ -434,7 +410,7 @@ impl ProjectController {
             .unwrap_or("project.zero");
         let receiver = cx.prompt_for_new_path(&initial_directory, Some(suggested_name));
         self.busy = true;
-        let session = self.session.clone();
+        let session = self.runtime.session().clone();
         let operation = session.update(cx, |session, cx| session.begin(ProjectActivity::Save, cx));
         cx.notify();
 
@@ -487,12 +463,12 @@ impl ProjectController {
     }
 
     fn save_to(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        let snapshot = self.editor.read(cx).snapshot();
+        let snapshot = self.runtime.editor.read(cx).snapshot();
         let revision = snapshot.project_revision();
         self.busy = true;
         cx.notify();
 
-        let session = self.session.clone();
+        let session = self.runtime.session().clone();
         let operation = session.update(cx, |session, cx| session.begin(ProjectActivity::Save, cx));
         self._io_task = cx.spawn(async move |controller, cx| {
             let output = path.clone();
@@ -543,8 +519,8 @@ impl ProjectController {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if self.busy || export_busy || self.session.read(cx).is_busy() {
-            let activities = self.session.read(cx).busy_activities();
+        if self.busy || export_busy || self.runtime.session().read(cx).is_busy() {
+            let activities = self.runtime.session().read(cx).busy_activities();
             let activity = if activities.is_empty() {
                 if export_busy {
                     "書き出し".to_owned()
@@ -569,7 +545,7 @@ impl ProjectController {
             });
             return false;
         }
-        if self.editor.read(cx).project_revision() == self.saved_revision {
+        if self.runtime.editor.read(cx).project_revision() == self.saved_revision {
             return true;
         }
 
@@ -594,20 +570,6 @@ impl ProjectController {
                 .child("保存されていない変更があります。破棄して終了しますか？")
         });
         false
-    }
-
-    fn begin_new_session(&self, cx: &mut Context<Self>) {
-        self.session.update(cx, |session, cx| {
-            session.advance(cx);
-        });
-    }
-
-    fn reset_transient_ui(&self, cx: &mut Context<Self>) {
-        self.transport.update(cx, |transport, cx| {
-            transport.reset_for_project_change(cx);
-        });
-        self.animation_selection
-            .update(cx, |selection, cx| selection.clear(cx));
     }
 }
 

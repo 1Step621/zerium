@@ -2,10 +2,10 @@
 use thiserror::Error;
 
 mod constraints;
+mod metadata;
 mod numeric;
 mod schema;
 mod types;
-mod ui;
 mod value;
 
 pub(crate) use constraints::PropertyConstraints;

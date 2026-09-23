@@ -99,7 +99,7 @@ fn write_generated(
     write(
         generated,
         MANIFEST_FINGERPRINT,
-        &crate::plugin::manifest_fingerprint(manifest_source),
+        &crate::plugin_loader::manifest_fingerprint(manifest_source),
     )?;
     write(generated, "util.wesl", UTIL_INTERFACE)?;
     for kind in ShaderKind::ALL {
