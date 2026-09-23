@@ -42,7 +42,7 @@ use crate::domain::timeline::{
 };
 use crate::engine::media::MediaReaderRegistry;
 use crate::ui::TimelineEditorEntityExt as _;
-use crate::ui::animation_curve::{AnimationSelection, AnimationTarget};
+use crate::ui::animation_curve::AnimationSelection;
 use crate::ui::inspector_path::InspectorPath;
 use crate::ui::pane::pane_header;
 use crate::ui::search_picker::{SearchPicker, SearchPickerEntry};
@@ -167,16 +167,12 @@ impl PropertyTarget {
         }
     }
 
-    pub(super) fn matches_animation_target(
-        &self,
-        item_id: ItemId,
-        target: &AnimationTarget,
-    ) -> bool {
-        target.item_id == item_id
-            && target.effect_id == self.effect_id
-            && target.property_id == self.property_id
-            && target.element_id == self.path.element_id()
-            && target.scalar_index == self.path.scalar_index()
+    pub(super) fn matches_address(&self, item_id: ItemId, address: &PropertyAddress) -> bool {
+        address.item_id == item_id
+            && address.effect_id == self.effect_id
+            && address.property_id == self.property_id
+            && address.element_id == self.path.element_id()
+            && address.scalar_index == self.path.scalar_index()
     }
 
     pub(super) fn animation_enabled(&self, item: &TimelineItem) -> bool {
@@ -187,12 +183,6 @@ impl PropertyTarget {
             self.path.scalar_index(),
         )
         .is_some()
-    }
-
-    pub(super) fn animation_target(&self, item: &TimelineItem) -> AnimationTarget {
-        AnimationTarget {
-            address: self.address(item.id),
-        }
     }
 }
 

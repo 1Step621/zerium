@@ -108,20 +108,19 @@ impl AnimationCurveEditor {
 
     pub(super) fn selected_curve(&self, cx: &App) -> Option<SelectedCurve> {
         let selection = self.selection.read(cx);
-        let target = selection.target()?.clone();
+        let address = selection.address()?.clone();
         let focused_segment = selection.focused_segment();
         let editor = self.editor.read(cx);
         let item = editor.selected_item()?;
-        if item.id != target.item_id {
+        if item.id != address.item_id {
             return None;
         }
-        let presentation =
-            crate::ui::animation_presentation::calculate(editor, &item, &target.address)?;
+        let presentation = crate::ui::animation_presentation::calculate(editor, &item, &address)?;
         let track = item.animation_track(
-            target.effect_id,
-            &target.property_id,
-            target.element_id,
-            target.scalar_index,
+            address.effect_id,
+            &address.property_id,
+            address.element_id,
+            address.scalar_index,
         )?;
         let timeline_item = editor.item(item.id)?;
         let source_progress =
@@ -179,7 +178,7 @@ impl AnimationCurveEditor {
         let start_seconds = (animation_start_frame / frames_per_second) as f32;
         let duration_seconds = (animation_span_frames / frames_per_second) as f32;
         Some(SelectedCurve {
-            target,
+            address,
             presentation,
             value_min,
             value_max,

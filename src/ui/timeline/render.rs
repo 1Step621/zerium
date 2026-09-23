@@ -323,7 +323,7 @@ impl Timeline {
         animation_stops
             .dedup_by(|left, right| (*left - *right).abs() < ANIMATION_STOP_POSITION_EPSILON);
         let focused_target = state
-            .animation_target
+            .animation_address
             .as_ref()
             .filter(|target| target.item_id == item_id && item.contains(snap_frame))
             .cloned();
@@ -536,7 +536,7 @@ impl Timeline {
                     move |(target, stop, progress, frame, follow_focus, movable)| {
                         let drag = MoveAnimationStop {
                             timeline_id,
-                            target,
+                            address: target,
                             stop,
                             snap_frame,
                             follow_focus,
@@ -807,7 +807,7 @@ impl Render for Timeline {
         let row_state = LayerRenderState {
             editor: self.editor.clone(),
             transport: self.transport.clone(),
-            animation_target: animation_selection.target().cloned(),
+            animation_address: animation_selection.address().cloned(),
             focused_animation_segment: animation_selection.focused_segment(),
             colors,
             layer_height,

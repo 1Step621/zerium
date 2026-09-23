@@ -6,7 +6,7 @@ mod render;
 mod selection;
 mod viewport;
 
-pub(crate) use selection::{AnimationSelection, AnimationTarget};
+pub(crate) use selection::AnimationSelection;
 
 use std::cell::Cell;
 
@@ -118,7 +118,7 @@ struct CurveGrid {
 
 #[derive(Clone)]
 struct SelectedCurve {
-    target: AnimationTarget,
+    address: PropertyAddress,
     presentation: AnimationPresentation,
     value_min: f64,
     value_max: f64,

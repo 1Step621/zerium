@@ -9,7 +9,7 @@ mod layout;
 pub(super) struct RenderCtx<'a> {
     pub colors: ThemeColor,
     pub editor: &'a Entity<TimelineEditor>,
-    pub animation_target: Option<AnimationTarget>,
+    pub animation_address: Option<PropertyAddress>,
     pub inspector: Entity<PropertyInspector>,
     pub store: &'a ControlStore,
     pub font_names: &'a [String],
@@ -52,10 +52,10 @@ impl PropertyInspector {
             .child(content)
     }
 
-    fn animation_target_is_focused(common: &LeafControl, ctx: &RenderCtx) -> bool {
-        ctx.animation_target
+    fn animation_address_is_focused(common: &LeafControl, ctx: &RenderCtx) -> bool {
+        ctx.animation_address
             .as_ref()
-            .is_some_and(|target| common.target.matches_animation_target(ctx.item_id, target))
+            .is_some_and(|address| common.target.matches_address(ctx.item_id, address))
     }
 
     fn focused_animation_label(
@@ -66,7 +66,7 @@ impl PropertyInspector {
         id_prefix: &str,
     ) -> gpui::AnyElement {
         let target = common.target.clone();
-        let focused = Self::animation_target_is_focused(common, ctx);
+        let focused = Self::animation_address_is_focused(common, ctx);
         let inspector = ctx.inspector.clone();
         Self::animation_label_base(label.into(), width, focused, ctx)
             .id(SharedString::from(format!("{id_prefix}-{:?}", common.id)))
@@ -146,7 +146,7 @@ impl PropertyInspector {
     fn control_contains_focused_animation(control: &Control, ctx: &RenderCtx) -> bool {
         control
             .common()
-            .is_some_and(|common| Self::animation_target_is_focused(common, ctx))
+            .is_some_and(|common| Self::animation_address_is_focused(common, ctx))
             || matches!(control, Control::Group { children, .. } if children
             .iter()
             .any(|child| Self::control_contains_focused_animation(child, ctx)))

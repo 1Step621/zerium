@@ -113,7 +113,7 @@ impl PropertyInspector {
         RenderCtx {
             colors: cx.theme().colors,
             editor: &self.editor,
-            animation_target: self.animation_selection.read(cx).target().cloned(),
+            animation_address: self.animation_selection.read(cx).address().cloned(),
             inspector: cx.entity(),
             store: &self.store,
             font_names: &self.font_names,

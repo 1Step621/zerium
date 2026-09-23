@@ -461,7 +461,7 @@ impl Timeline {
         cx: &mut Context<Self>,
     ) {
         if drag.timeline_id != cx.entity_id()
-            || self.animation_selection.read(cx).target() != Some(&drag.target)
+            || self.animation_selection.read(cx).address() != Some(&drag.address)
         {
             return;
         }
@@ -471,15 +471,15 @@ impl Timeline {
             let editor = self.editor.read(cx);
             let Some(item) = editor
                 .selected_item()
-                .filter(|item| item.id == drag.target.item_id)
+                .filter(|item| item.id == drag.address.item_id)
             else {
                 return;
             };
             let Some(track) = item.animation_track(
-                drag.target.effect_id,
-                &drag.target.property_id,
-                drag.target.element_id,
-                drag.target.scalar_index,
+                drag.address.effect_id,
+                &drag.address.property_id,
+                drag.address.element_id,
+                drag.address.scalar_index,
             ) else {
                 return;
             };
@@ -518,10 +518,10 @@ impl Timeline {
 
         let changed = self.editor.update(cx, |editor, cx| {
             let changed = editor.move_selected_animation_stop(
-                drag.target.effect_id,
-                drag.target.property_id.clone(),
-                drag.target.element_id,
-                drag.target.scalar_index,
+                drag.address.effect_id,
+                drag.address.property_id.clone(),
+                drag.address.element_id,
+                drag.address.scalar_index,
                 drag.stop,
                 progress,
             );

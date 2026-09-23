@@ -212,7 +212,7 @@ impl PropertyInspector {
         let focused_segment = {
             let selection = self.animation_selection.read(cx);
             selection
-                .target()
+                .address()
                 .filter(|target| {
                     target.item_id == binding.item_id
                         && target.effect_id == binding.effect_id
@@ -492,14 +492,12 @@ impl PropertyInspector {
         let target = match selected_items.as_slice() {
             [item] => {
                 number_animation_source(item, &target.address(item.id), spec).map(|display| {
-                    AnimationTarget {
-                        address: PropertyAddress {
-                            item_id: item.id,
-                            effect_id: target.effect_id,
-                            property_id: display.property_id,
-                            element_id: display.element_id,
-                            scalar_index: display.scalar_index,
-                        },
+                    PropertyAddress {
+                        item_id: item.id,
+                        effect_id: target.effect_id,
+                        property_id: display.property_id,
+                        element_id: display.element_id,
+                        scalar_index: display.scalar_index,
                     }
                 })
             }
@@ -538,7 +536,7 @@ impl PropertyInspector {
     pub(super) fn select_animation(&mut self, property: &PropertyTarget, cx: &mut Context<Self>) {
         let items = self.editor.read(cx).selected_items();
         let target = match items.as_slice() {
-            [item] if property.animation_enabled(item) => Some(property.animation_target(item)),
+            [item] if property.animation_enabled(item) => Some(property.address(item.id)),
             _ => None,
         };
         self.animation_selection
@@ -558,13 +556,13 @@ impl PropertyInspector {
         let Some(item) = self.editor.read(cx).selected_item() else {
             return;
         };
-        let target = property.animation_target(&item);
+        let address = property.address(item.id);
         let changed = self.editor.update(cx, |editor, cx| {
             let changed = editor.set_selected_property_animation_enabled(
                 property.effect_id,
-                target.property_id.clone(),
-                target.element_id,
-                target.scalar_index,
+                address.property_id.clone(),
+                address.element_id,
+                address.scalar_index,
                 enabled,
             );
             if changed {
@@ -577,9 +575,9 @@ impl PropertyInspector {
         }
         self.animation_selection.update(cx, |selection, cx| {
             if enabled {
-                selection.select(target, cx);
+                selection.select(address, cx);
             } else {
-                selection.clear_if(&target, cx);
+                selection.clear_if(&address, cx);
             }
         });
         cx.notify();

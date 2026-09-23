@@ -4,13 +4,13 @@ impl AnimationCurveEditor {
     fn stop_location_at_frame(&self, frame: Frame, cx: &App) -> Option<(SelectedCurve, f32)> {
         let selected = self.selected_curve(cx)?;
         let editor = self.editor.read(cx);
-        let item = editor.item(selected.target.item_id)?;
+        let item = editor.item(selected.address.item_id)?;
         let progress = item.animation_progress_at_time(TimelineTime::from_frame(frame));
         let track = item.animation_track(
-            selected.target.effect_id,
-            &selected.target.property_id,
-            selected.target.element_id,
-            selected.target.scalar_index,
+            selected.address.effect_id,
+            &selected.address.property_id,
+            selected.address.element_id,
+            selected.address.scalar_index,
         )?;
         (progress > 0. && progress < 1. && track.stop_index_at(progress).is_none())
             .then_some((selected, progress))
@@ -26,19 +26,19 @@ impl AnimationCurveEditor {
         };
         let Some(value) = (|| {
             let editor = self.editor.read(cx);
-            let item = editor.item(selected.target.item_id)?;
+            let item = editor.item(selected.address.item_id)?;
             let track = item.animation_track(
-                selected.target.effect_id,
-                &selected.target.property_id,
-                selected.target.element_id,
-                selected.target.scalar_index,
+                selected.address.effect_id,
+                &selected.address.property_id,
+                selected.address.element_id,
+                selected.address.scalar_index,
             )?;
             let index = track.stop_index_nearest(progress)?;
             track.stops().get(index).map(|stop| stop.value()).cloned()
         })() else {
             return;
         };
-        let target = selected.target;
+        let target = selected.address;
         let changed = self.editor.update(cx, |editor, cx| {
             let changed = editor
                 .insert_selected_property_animation_stop(
@@ -167,7 +167,7 @@ impl AnimationCurveEditor {
             requested_frame
         };
         let progress = (frame.saturating_sub(clip_start) as f64 / span_frames as f64) as f32;
-        let target = selected.target;
+        let target = selected.address;
         let changed = self.editor.update(cx, |editor, cx| {
             let changed = editor.move_selected_animation_stop(
                 target.effect_id,
@@ -235,7 +235,7 @@ impl AnimationCurveEditor {
         else {
             return;
         };
-        let target = selected.target;
+        let target = selected.address;
         self.editor.update(cx, |editor, cx| {
             if editor.set_selected_animation_handle(
                 target.effect_id,
@@ -255,7 +255,7 @@ impl AnimationCurveEditor {
         let Some(selected) = self.selected_curve(cx) else {
             return;
         };
-        let target = selected.target;
+        let target = selected.address;
         self.editor.update(cx, |editor, cx| {
             if editor.remove_selected_animation_stop(
                 target.effect_id,
@@ -278,7 +278,7 @@ impl AnimationCurveEditor {
         let Some(selected) = self.selected_curve(cx) else {
             return;
         };
-        let target = selected.target;
+        let target = selected.address;
         self.editor.update(cx, |editor, cx| {
             if editor.set_selected_animation_interpolation(
                 target.effect_id,

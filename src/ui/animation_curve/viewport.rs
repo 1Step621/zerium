@@ -218,7 +218,7 @@ impl AnimationCurveEditor {
         let Some(frame) = self
             .editor
             .read(cx)
-            .item(selected.target.item_id)
+            .item(selected.address.item_id)
             .map(|item| Frame::new(item.animation_timeline_frame(progress).round().max(0.) as u64))
         else {
             return;

@@ -16,15 +16,15 @@ use gpui::{
 use crate::{
     application::project_session::{ProjectActivity, ProjectSession, ProjectSessionId},
     domain::timeline::{
-        Frame, FrameDuration, FrameRate, ItemId, LayerId, ResizeEdge, SceneId, TimelineEditError,
-        TimelineEditor, TimelineItem, TimelineTime,
+        Frame, FrameDuration, FrameRate, ItemId, LayerId, PropertyAddress, ResizeEdge, SceneId,
+        TimelineEditError, TimelineEditor, TimelineItem, TimelineTime,
     },
     engine::media::MediaReaderRegistry,
 };
 
 use super::{
     TimelineEditorEntityExt as _,
-    animation_curve::{AnimationSelection, AnimationTarget},
+    animation_curve::AnimationSelection,
     explorer::ExplorerFileDrag,
     pane::PANE_HEADER_HEIGHT,
     search_picker::{SearchPicker, SearchPickerEntry},
@@ -75,7 +75,7 @@ struct MoveTimelineItem {
 #[derive(Clone)]
 struct MoveAnimationStop {
     timeline_id: EntityId,
-    target: AnimationTarget,
+    address: PropertyAddress,
     stop: usize,
     snap_frame: Frame,
     follow_focus: Option<usize>,
@@ -201,7 +201,7 @@ struct RenderResultHighlight {
 struct LayerRenderState {
     editor: Entity<TimelineEditor>,
     transport: Entity<TransportController>,
-    animation_target: Option<AnimationTarget>,
+    animation_address: Option<PropertyAddress>,
     focused_animation_segment: Option<usize>,
     colors: ThemeColor,
     layer_height: f32,

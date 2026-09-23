@@ -605,8 +605,8 @@ impl PropertyInspector {
         if let Some(item) = selected_item.as_ref() {
             self.reconcile_states(item, window, cx);
         }
-        let animation_target = self.animation_selection.read(cx).target().cloned();
-        let invalid_animation_target = animation_target.as_ref().is_some_and(|target| {
+        let animation_address = self.animation_selection.read(cx).address().cloned();
+        let invalid_animation_address = animation_address.as_ref().is_some_and(|target| {
             let editor = editor.read(cx);
             let target_exists = editor
                 .item(target.item_id)
@@ -626,7 +626,7 @@ impl PropertyInspector {
             };
             !target_exists || selected_another_item
         });
-        if invalid_animation_target {
+        if invalid_animation_address {
             self.animation_selection
                 .update(cx, |selection, cx| selection.clear(cx));
         }

@@ -1,30 +1,16 @@
 use super::*;
-use std::ops::Deref;
-
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct AnimationTarget {
-    pub address: PropertyAddress,
-}
-
-impl Deref for AnimationTarget {
-    type Target = PropertyAddress;
-
-    fn deref(&self) -> &Self::Target {
-        &self.address
-    }
-}
 
 #[derive(Default)]
 pub(crate) struct AnimationSelection {
-    target: Option<AnimationTarget>,
+    address: Option<PropertyAddress>,
     // The focused interval follows the playhead while the curve is queried,
     // so it intentionally does not trigger a second render notification.
     focused_segment: Cell<Option<usize>>,
 }
 
 impl AnimationSelection {
-    pub(crate) fn target(&self) -> Option<&AnimationTarget> {
-        self.target.as_ref()
+    pub(crate) fn address(&self) -> Option<&PropertyAddress> {
+        self.address.as_ref()
     }
 
     pub(crate) fn focused_segment(&self) -> Option<usize> {
@@ -35,25 +21,25 @@ impl AnimationSelection {
         self.focused_segment.set(Some(segment));
     }
 
-    pub(crate) fn select(&mut self, target: AnimationTarget, cx: &mut Context<Self>) {
-        if self.target.as_ref() == Some(&target) {
+    pub(crate) fn select(&mut self, address: PropertyAddress, cx: &mut Context<Self>) {
+        if self.address.as_ref() == Some(&address) {
             return;
         }
-        self.target = Some(target);
+        self.address = Some(address);
         self.focused_segment.set(None);
         cx.notify();
     }
 
-    pub(crate) fn clear_if(&mut self, target: &AnimationTarget, cx: &mut Context<Self>) {
-        if self.target.as_ref() == Some(target) {
-            self.target = None;
+    pub(crate) fn clear_if(&mut self, address: &PropertyAddress, cx: &mut Context<Self>) {
+        if self.address.as_ref() == Some(address) {
+            self.address = None;
             self.focused_segment.set(None);
             cx.notify();
         }
     }
 
     pub(crate) fn clear(&mut self, cx: &mut Context<Self>) {
-        if self.target.take().is_some() {
+        if self.address.take().is_some() {
             self.focused_segment.set(None);
             cx.notify();
         }
