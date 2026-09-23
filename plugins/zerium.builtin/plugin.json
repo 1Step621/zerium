@@ -2317,13 +2317,19 @@
         {
           "type": "compute",
           "shader": {
-            "source": "distance_field.wesl"
+            "source": "glow_blur.wesl"
           },
           "constants": [
             {
-              "id": "phase",
+              "id": "direction_x",
               "value": {
-                "u32": 0
+                "f32": 1
+              }
+            },
+            {
+              "id": "direction_y",
+              "value": {
+                "f32": 0
               }
             }
           ]
@@ -2331,27 +2337,19 @@
         {
           "type": "compute",
           "shader": {
-            "source": "distance_field.wesl"
+            "source": "glow_blur.wesl"
           },
           "constants": [
             {
-              "id": "phase",
+              "id": "direction_x",
               "value": {
-                "u32": 1
+                "f32": 0
               }
-            }
-          ]
-        },
-        {
-          "type": "compute",
-          "shader": {
-            "source": "distance_field.wesl"
-          },
-          "constants": [
+            },
             {
-              "id": "phase",
+              "id": "direction_y",
               "value": {
-                "u32": 2
+                "f32": 1
               }
             }
           ]

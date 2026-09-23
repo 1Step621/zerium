@@ -71,13 +71,12 @@ fn fragment_main(input: ZeriumVertex) -> @location(0) vec4<f32> {
     let logical_radius = select(properties.width, properties.width * 0.5, properties.position == 1u);
     let radius = logical_radius * composition_scale;
 
-    // Evaluate both the source mask and the exact distance field on a 4x4
-    // subpixel grid. This preserves thin diagonal coverage after an item has
-    // been positioned, scaled, or rotated into the composition texture.
+    // Two samples per axis preserve diagonal coverage at the effect's 2x
+    // render scale without evaluating the 3x3 distance neighborhood 16 times.
     var result = vec4(0.0);
-    for (var sample_y = 0u; sample_y < 4u; sample_y += 1u) {
-        for (var sample_x = 0u; sample_x < 4u; sample_x += 1u) {
-            let offset = (vec2(f32(sample_x), f32(sample_y)) + vec2(0.5)) / 4.0
+    for (var sample_y = 0u; sample_y < 2u; sample_y += 1u) {
+        for (var sample_x = 0u; sample_x < 2u; sample_x += 1u) {
+            let offset = (vec2(f32(sample_x), f32(sample_y)) + vec2(0.5)) / 2.0
                 - vec2(0.5);
             let sample_position = vec2<f32>(position) + offset;
             let source = source_sample(sample_position, dimensions);
@@ -108,5 +107,5 @@ fn fragment_main(input: ZeriumVertex) -> @location(0) vec4<f32> {
             }
         }
     }
-    return result / 16.0;
+    return result / 4.0;
 }
