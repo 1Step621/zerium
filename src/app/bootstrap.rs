@@ -84,8 +84,7 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             plugins.clone(),
                         )
                     });
-                    let session =
-                        cx.new(|_| crate::application::project_session::ProjectSession::default());
+                    let session = cx.new(|_| crate::project_session::ProjectSession::default());
                     let notifications = cx.new(|_| crate::ui::session::UiNotifications::default());
                     let audio_playback = cx.new(|_| {
                         crate::engine::audio_playback::AudioPlaybackEngine::new(

@@ -14,12 +14,12 @@ use gpui::{
 };
 
 use crate::{
-    application::project_session::{ProjectActivity, ProjectSession, ProjectSessionId},
     domain::timeline::{
         Frame, FrameDuration, FrameRate, ItemId, LayerId, PropertyAddress, ResizeEdge, SceneId,
         TimelineEditError, TimelineEditor, TimelineItem, TimelineTime,
     },
     engine::media::MediaReaderRegistry,
+    project_session::{ProjectActivity, ProjectSession, ProjectSessionId},
 };
 
 use super::{

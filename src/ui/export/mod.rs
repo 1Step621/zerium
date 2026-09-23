@@ -8,15 +8,13 @@ use futures::StreamExt as _;
 use gpui::{Context, Entity, SharedString, Subscription, Task, Window, div, prelude::*, px};
 
 use crate::{
-    application::project_session::{
-        ProjectActivity, ProjectOperation, ProjectSession, ProjectSessionId,
-    },
     domain::timeline::{TimelineEditor, TimelineView},
     engine::{
         export::{ExportError, ExportProgress, ExportSettings, export_timeline},
         media::MediaReaderRegistry,
         rendering::RenderRuntime,
     },
+    project_session::{ProjectActivity, ProjectOperation, ProjectSession, ProjectSessionId},
     ui::session::UiNotifications,
 };
 

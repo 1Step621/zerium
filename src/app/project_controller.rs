@@ -9,12 +9,12 @@ use gpui::{App, Context, Entity, PathPromptOptions, Task, Window, div, prelude::
 
 use crate::{
     app::project_runtime::ProjectRuntime,
-    application::project_session::ProjectActivity,
     domain::{
         persistence::PROJECT_EXTENSION,
         timeline::{Frame, FrameRate, ProjectResolution},
     },
     engine::project_io,
+    project_session::ProjectActivity,
     ui::session::UiNotifications,
 };
 

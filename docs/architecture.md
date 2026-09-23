@@ -18,8 +18,9 @@ top-level UI and forwards actions. UI components may share domain addresses and
 application/runtime dependencies, but do not call sibling components for their
 presentation or behavior.
 
-`application::ProjectSession` is plain Rust state shared by app and UI. It
-tracks project generations and pending operations so stale load, save, import,
+`project_session::ProjectSession` is plain Rust state at the crate root, shared
+by app and UI without reversing their dependency direction. It tracks project
+generations and pending operations so stale load, save, import,
 and export work can be ignored after a project change. GPUI entities notify
 observers when they mutate the session. `app::ProjectRuntime` groups the editor,
 transport, animation selection, and session handles that must be reset together

@@ -7,11 +7,11 @@
 #![deny(unreachable_pub)]
 
 mod app;
-mod application;
 mod cli;
 mod domain;
 mod engine;
 mod plugin_loader;
+mod project_session;
 mod ui;
 
 pub fn run() -> Result<(), String> {

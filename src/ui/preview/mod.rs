@@ -16,7 +16,6 @@ mod editor_overlay;
 use editor_overlay::{PreviewEditorDrag, PreviewEditorDragState};
 
 use crate::{
-    application::project_session::{ProjectSession, ProjectSessionId},
     domain::timeline::{Frame, ItemId, LayerId, TimelineEditor, TimelineItem, TimelineTime},
     engine::{
         audio_meter::AudioLevelSampler,
@@ -30,6 +29,7 @@ use crate::{
             VideoPlaybackSnapshot,
         },
     },
+    project_session::{ProjectSession, ProjectSessionId},
     ui::{
         session::UiNotifications,
         time_grid,

@@ -20,8 +20,8 @@ use gpui::{
 };
 
 use crate::{
-    application::project_session::{ProjectSession, ProjectSessionId},
     domain::plugin::PluginRegistry,
+    project_session::{ProjectSession, ProjectSessionId},
     ui::session::UiNotifications,
 };
 

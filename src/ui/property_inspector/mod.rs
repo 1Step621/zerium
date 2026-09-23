@@ -27,7 +27,6 @@ use gpui::{
     SharedString, Subscription, Task, Window, div, prelude::*, px,
 };
 
-use crate::application::project_session::{ProjectActivity, ProjectSession, ProjectSessionId};
 use crate::domain::media::{MediaAsset, MediaKind};
 use crate::domain::plugin::{FileCapability, ItemSchema};
 use crate::domain::property::{
@@ -40,6 +39,7 @@ use crate::domain::timeline::{
     display_scene_expression,
 };
 use crate::engine::media::MediaReaderRegistry;
+use crate::project_session::{ProjectActivity, ProjectSession, ProjectSessionId};
 use crate::ui::TimelineEditorEntityExt as _;
 use crate::ui::animation_curve::AnimationSelection;
 use crate::ui::pane::pane_header;

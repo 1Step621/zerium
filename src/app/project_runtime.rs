@@ -5,7 +5,7 @@ use crate::{
     ui::{animation_curve::AnimationSelection, transport::TransportController},
 };
 
-use crate::application::project_session::{ProjectSession, ProjectSessionId};
+use crate::project_session::{ProjectSession, ProjectSessionId};
 
 /// Application-owned handles for state that moves together when a project is
 /// replaced. Persistent edits still flow through `TimelineEditor`.
