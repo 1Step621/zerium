@@ -27,12 +27,8 @@ The root contract is versioned independently from the plugin release:
     "label": "Shape",
     "category": "Example",
     "symbol": "■",
-    "capabilities": {
-      "visual": {
-        "type": "procedural",
-        "shader": { "source": "shape.wesl" }
-      }
-    }
+    "shader": { "source": "shape.wesl" },
+    "capabilities": []
   }]
 }
 ```
@@ -53,12 +49,9 @@ property/default compatibility, and cross-references.
 ## Rust interface boundary
 
 Manifest-backed structs expose behavior and immutable views rather than public
-storage fields. Callers use `ItemSchema::files`, `file`, `visual`, `audio`,
-`properties`, and the visual-kind helpers instead of walking the serialized
-`capabilities` shape. Effects similarly expose `properties`, `passes`, and
-`render_scale`. Shader source and entry-point fields are read through accessors.
-This keeps JSON layout changes inside the plugin domain.
-
+storage fields. Callers use `ItemSchema::shader`, `capabilities`, `files`, `file`,
+`audio`, and `properties`. Effects expose `capabilities`, `files`, `properties`,
+`passes`, and `render_scale`. The Rust API remains crate-private where possible.
 `PropertySchema` is read-only outside `domain`: UI and rendering code use its
 accessors, while timeline code retains the narrower internal access needed to
 project plugin properties into editable scene arguments. Item and effect
@@ -81,63 +74,67 @@ other Zerium runtime adapters are crate-private. The
 plugin module denies unreachable public items so private implementation helpers
 cannot accidentally become part of the Rust API.
 
-## Items
+## Item and effect inputs
 
-An item composes file, visual, and audio capabilities. The visual kinds describe
-what supplies pixels:
+An item declares its output `shader` at the top level. Its `capabilities` array
+contains named inputs to that shader. An effect has the same array, and each
+render, compute, or temporal pass can use those inputs. Array order fixes the
+GPU binding order; each `id` is unique within its item or effect and becomes
+the WESL symbol imported from `package::generated::capability_input`.
 
-- `procedural`: WESL generates the item directly.
-- `media`: WESL displays one or more decoded video/image inputs.
-- `text`: Zerium rasterizes text and supplies it as a generated texture input.
-- `render_result`: WESL receives an inclusive layer range as a texture input.
+- `shader` renders a separate item-like input from a WESL source. It sees the
+  owner's properties and does not receive the owner's capability array.
+- `media` decodes a video or image file and exposes its pixels as a texture.
+- `text` rasterizes text from referenced properties into a texture.
+- `render_result` composites an inclusive range of layers behind the owner.
+
+These input types use the same rendering rules for items and effects. A missing
+or unavailable media frame supplies a transparent texture in either case.
+Item and effect shader IDs retain separate namespaces so identically named
+schemas and capabilities cannot collide.
+
+Up to eight capabilities may be declared. Their IDs must be valid WGSL
+identifiers. The IDs are used directly, without a `slot_` prefix. All
+capability textures contain scene-linear, premultiplied color. For example:
 
 ```json
 {
   "id": "video",
   "label": "Video",
   "category": "Media",
-  "tags": ["movie", "clip"],
   "symbol": "▶",
-  "capabilities": {
-    "files": [{
-      "id": "source",
-      "label": "Source",
-      "media_type": "video",
-      "reader": "zerium.ffmpeg",
-      "extensions": ["mp4", "mov"]
-    }],
-    "visual": {
-      "type": "media",
-      "shader": { "source": "video.wesl" }
-    },
-    "audio": { "inputs": ["source"], "volume": "volume" }
-  },
-  "properties": [{
-    "id": "volume",
-    "label": "Volume",
-    "type": { "value": "f32" },
-    "default": { "f32": 1 },
-    "configurations": [{
-      "constraints": { "min": 0 }
-    }]
-  }]
+  "shader": { "source": "media.wesl" },
+  "capabilities": [{
+    "type": "media",
+    "id": "source",
+    "label": "Source",
+    "media_type": "video",
+    "reader": "zerium.ffmpeg",
+    "extensions": ["mp4", "mov"]
+  }],
+  "audio": { "inputs": ["source"], "volume": "volume" }
 }
 ```
 
-Audio explicitly names the file inputs consumed by the host mixer. Each ID must
-refer to a video or audio input. Like a temporal pass `sampling` block, the
-audio capability also names the `f32` item property read as linear gain in
-`volume`. A media visual likewise requires at least one
-video/image input. Every item whose `capabilities.editor.size` references a
-property gets the host's aspect-ratio lock control. The lock is editor state, starts
-disabled for new items, and is not part of the shader property ABI.
+The item shader can use `import package::generated::capability_input::{source,
+capability_sampler};` and sample `source` with `capability_sampler`.
+Effects use the same import path. Their passes also receive `effect_input`
+(the current image) and `effect_source` (the image captured at the start of a
+regular pass chain). Each effect instance owns its imported media assets; they
+are saved with the project.
 
-A text visual names every item property consumed by the host rasterizer:
+`audio` and `editor` remain top-level item roles. They do not add shader inputs.
+`audio.inputs` refers to video capabilities or to audio files declared in
+`audio.files`; the host mixer reads the `f32` gain property named by `volume`.
+A media file property referenced by `editor.size` can use the host's aspect-ratio
+lock, which stays in editor state and outside the shader ABI.
+
+A text capability names every property consumed by the host rasterizer:
 
 ```json
-"visual": {
+{
   "type": "text",
-  "shader": { "source": "text.wesl" },
+  "id": "title",
   "size": "size",
   "text": "text",
   "font_family": "font_family",
@@ -152,35 +149,31 @@ A text visual names every item property consumed by the host rasterizer:
 }
 ```
 
-The rasterizer resolves values through these references, so text properties can
-use any IDs as long as each referenced property has the expected storage
-type. Alignment references must be enums containing exactly `0`, `1`, and `2`.
+The referenced properties must have the expected types. Alignment properties
+must be enums containing exactly `0`, `1`, and `2`.
 
-A render-result visual names two `u32` properties containing offsets behind the
-item's layer. An offset of `1` means the layer immediately behind the item. The
-range is inclusive and may be entered in either order. Layers beyond the back of
-the composition contribute transparency. Inside a scene, offsets are measured
-within that scene. Both properties must constrain their values to the `1..=30`
-range. It also names a bool property that controls whether the referenced layers
-remain in the containing scene's normal output. The referenced layers still
-contribute to the texture supplied to the render-result shader.
+A `render_result` capability names two `u32` properties containing offsets
+behind the owner's layer. Offset `1` is the layer immediately behind it. The
+range is inclusive and may be entered in either order; out-of-range layers
+contribute transparency. Both properties must be constrained to `1..=30`.
+The referenced bool property `hide_original` determines whether those layers
+remain in their scene's normal output. Inside a scene, offsets are local to
+that scene.
 
 ```json
-"visual": {
+{
   "type": "render_result",
-  "shader": { "source": "render_result.wesl" },
+  "id": "behind",
   "start_offset": "start_offset",
   "end_offset": "end_offset",
   "hide_original": "hide_original"
 }
 ```
 
-The host composites the selected layers, supplies the result as `slot_0`, runs
-the item shader, and then applies effects attached to the render-result item.
-
-For each visual file input slot `<index>`, media WESL receives
-`slot_<index>`, `slot_<index>_size()`, and the shared
-`media_sampler`. Text and render-result visuals receive `slot_0`.
+The bundled [layer-mask effect](../plugins/zerium.builtin/plugin.json) samples
+`behind` and multiplies it by the owner's alpha. Its `invert_mask` setting
+uses the transparent part of the owner instead; it is off by default. Shader
+and media capabilities can be combined with it in one effect.
 
 ## Properties
 
@@ -226,7 +219,7 @@ Constraints are enforced for defaults, direct edits, array elements, loaded
 projects, and animation endpoints.
 
 Scalar types are `f32`, `i32`, `u32`, `bool`, `color`, `string`, and finite `enum` contracts. Color is one scalar, edited with a color picker even inside tuples and arrays. Numeric inputs address numeric scalars by their tuple index; RGBA components are not flattened into numeric input indices.
-Item-generic editor behaviors reference properties from the item capability, for
+Item-generic editor behaviors reference properties from the item `editor` block, for
 example `"editor": { "position": "position", "size": "size", "points":
 "points", "label": "text" }`. Position and size references require two-`f32`
 tuples. The points reference requires an array of two-`f32` tuples and also
@@ -384,15 +377,16 @@ each path segment must be a valid WGSL identifier. For example,
 `properties_<shader>.wesl` is generated from the manifest properties. Run
 `zerium plugin generate` in a plugin directory whenever its manifest or shader
 contract changes. The command writes the host interface modules, property
-modules, and media bindings under `generated/`. Shader imports are authored in
+modules, and per-source capability interfaces under `generated/`. Shader imports are authored in
 the shader source and are not rewritten by the generator.
-These generated modules are packaged with the plugin and used by both editor
-tooling and runtime rendering. Zerium links plugin WESL to in-memory WGSL once
+These generated modules are packaged with the plugin. At runtime,
+`package::generated::capability_input` is selected from the interface for the
+shader being compiled. Zerium links plugin WESL to in-memory WGSL once
 when loading the application and shares that result between preview and export;
 plugin authors do not generate or distribute WGSL. Zerium rejects generated
 files whose manifest fingerprint is stale. A source shared by several items or passes gets
 the property fields whose type and ABI location agree in every use. The source
-must use one shader kind and one media-input layout.
+must use one shader kind and one capability-input layout.
 
 ```sh
 zerium plugin generate
@@ -472,10 +466,10 @@ workgroup size is read from the shader's `@workgroup_size`; the manifest only co
 dispatch dimensions.
 
 Render and compute passes receive `effect_input`, the current pipeline
-input; `effect_source`, the image captured at the start of the current
-regular pass chain; and
-`effect_sampler`. Compute passes write with
-`store(position, color)`.
+input, and `effect_source`, the image captured at the start of the current
+regular pass chain. They also receive `effect_sampler`. Capability inputs are
+imported by ID from `package::generated::capability_input` with
+`capability_sampler`. Compute passes write with `store(position, color)`.
 
 A temporal pass must be first and may occur at most once. Its `sampling`
 declaration maps public properties to host-controlled subframe sampling, while

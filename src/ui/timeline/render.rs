@@ -772,16 +772,21 @@ impl Render for Timeline {
             let selected_items = editor.selected_items();
             let render_result_highlights = selected_items
                 .iter()
-                .filter_map(|item| {
-                    let source_layer = editor.item_layer(item.id)?;
-                    let settings = item.render_result_settings()?;
-                    let (top_layer, bottom_layer) = settings.layer_bounds(source_layer)?;
-                    Some(RenderResultHighlight {
-                        top_layer,
-                        bottom_layer,
-                        start: item.start,
-                        end: item.end_exclusive(),
-                    })
+                .flat_map(|item| {
+                    let Some(source_layer) = editor.item_layer(item.id) else {
+                        return Vec::new();
+                    };
+                    item.render_result_ranges()
+                        .filter_map(|settings| {
+                            let (top_layer, bottom_layer) = settings.layer_bounds(source_layer)?;
+                            Some(RenderResultHighlight {
+                                top_layer,
+                                bottom_layer,
+                                start: item.start,
+                                end: item.end_exclusive(),
+                            })
+                        })
+                        .collect::<Vec<_>>()
                 })
                 .collect();
             (

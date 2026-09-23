@@ -315,6 +315,7 @@ impl FrameRenderer {
                     label: Some("zerium-scene-node-composition"),
                     usage: wgpu::TextureUsages::RENDER_ATTACHMENT
                         | wgpu::TextureUsages::TEXTURE_BINDING
+                        | wgpu::TextureUsages::COPY_DST
                         | wgpu::TextureUsages::COPY_SRC,
                     ..effect_texture_descriptor
                 };
@@ -508,15 +509,12 @@ impl FrameRenderer {
         }
 
         if let Some(frame) = render_items.iter().find_map(|item| match &item.source {
-            RenderItemSource::Texture(input) => match input {
-                super::scene::RenderTextureInput::Frames(frames) => frames.iter().find(|frame| {
-                    frame.width == 0
-                        || frame.height == 0
-                        || frame.width > limits.max_texture_dimension_2d
-                        || frame.height > limits.max_texture_dimension_2d
-                }),
-                super::scene::RenderTextureInput::Rendered(_) => None,
-            },
+            RenderItemSource::Texture(frames) => frames.iter().find(|frame| {
+                frame.width == 0
+                    || frame.height == 0
+                    || frame.width > limits.max_texture_dimension_2d
+                    || frame.height > limits.max_texture_dimension_2d
+            }),
             RenderItemSource::Shader => None,
         }) {
             return Err(RenderError::backend(format!(
@@ -573,11 +571,7 @@ impl FrameRenderer {
             .map_err(|_| RenderError::backend("video texture cache lock poisoned"))?;
         let desired_frames = textures
             .iter()
-            .filter_map(|texture| match &texture.input {
-                EncodedTextureInput::Frames(frames) => Some(frames),
-                EncodedTextureInput::Rendered => None,
-            })
-            .flat_map(|frames| frames.iter())
+            .flat_map(|texture| texture.frames.iter())
             .collect::<Vec<_>>();
         let mut current_scene = Vec::with_capacity(textures.len());
         let mut resources = Vec::with_capacity(textures.len());
@@ -586,10 +580,8 @@ impl FrameRenderer {
                 .texture_pipelines
                 .get(&encoded.shader)
                 .ok_or_else(|| RenderError::backend("texture shader is not registered"))?;
-            let input_count = match &encoded.input {
-                EncodedTextureInput::Frames(frames) => frames.len(),
-                EncodedTextureInput::Rendered => 1,
-            };
+            let frames = &encoded.frames;
+            let input_count = frames.len();
             if input_count != pipeline.input_ids.len() {
                 return Err(RenderError::backend(format!(
                     "texture input slot count for shader '{}' does not match its plugin schema",
@@ -597,10 +589,6 @@ impl FrameRenderer {
                 )));
             }
             let mut uploaded_frames = Vec::with_capacity(input_count);
-            let frames = match &encoded.input {
-                EncodedTextureInput::Frames(frames) => frames.as_slice(),
-                EncodedTextureInput::Rendered => &[],
-            };
             for frame in frames {
                 let uploaded = cache
                     .previous_scene
@@ -646,16 +634,6 @@ impl FrameRenderer {
                     ],
                 })
                 .collect::<Vec<_>>();
-            if matches!(&encoded.input, EncodedTextureInput::Rendered) {
-                input_metadata.push(GpuTextureInput {
-                    size: [
-                        encoded.target_size.width as f32,
-                        encoded.target_size.height as f32,
-                        0.,
-                        0.,
-                    ],
-                });
-            }
             input_metadata.push(GpuTextureInput {
                 size: [
                     encoded.target_size.width as f32,
@@ -738,23 +716,20 @@ impl FrameRenderer {
             }));
             let sampler_binding = u32::try_from(2 + input_count)
                 .map_err(|_| RenderError::backend("too many texture inputs"))?;
-            let binding = match &encoded.input {
-                EncodedTextureInput::Frames(_) => TextureBinding::Static({
-                    bind_entries.push(wgpu::BindGroupEntry {
-                        binding: sampler_binding,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    });
-                    bind_entries.push(wgpu::BindGroupEntry {
-                        binding: sampler_binding + 1,
-                        resource: input_properties.as_entire_binding(),
-                    });
-                    self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("zerium-texture-item-bind-group"),
-                        layout: &pipeline.bind_group_layout,
-                        entries: &bind_entries,
-                    })
-                }),
-                EncodedTextureInput::Rendered => TextureBinding::Rendered,
+            let binding = {
+                bind_entries.push(wgpu::BindGroupEntry {
+                    binding: sampler_binding,
+                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                });
+                bind_entries.push(wgpu::BindGroupEntry {
+                    binding: sampler_binding + 1,
+                    resource: input_properties.as_entire_binding(),
+                });
+                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("zerium-texture-item-bind-group"),
+                    layout: &pipeline.bind_group_layout,
+                    entries: &bind_entries,
+                })
             };
             resources.push(TextureResource {
                 input_count,

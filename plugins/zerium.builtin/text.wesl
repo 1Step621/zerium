@@ -1,6 +1,6 @@
 import package::generated::item::{quad_corner, quad_uv, quad_position};
 import package::generated::properties_text::props;
-import package::generated::media_interface_text::{slot_0, media_sampler};
+import package::generated::capability_input::{text, capability_sampler};
 
 struct TextVertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -29,6 +29,6 @@ fn vertex_main(
 
 @fragment
 fn fragment_main(input: TextVertexOutput) -> @location(0) vec4<f32> {
-    let color = textureSample(slot_0, media_sampler, input.uv);
-    return vec4(color.rgb * color.a, color.a);
+    let color = textureSample(text, capability_sampler, input.uv);
+    return color;
 }

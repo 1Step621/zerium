@@ -32,9 +32,35 @@ impl RendererBuilder {
                     },
                 ],
             });
+        let mut capability_entries = (0..capability_input::MAX_INPUTS)
+            .map(|binding| wgpu::BindGroupLayoutEntry {
+                binding: binding as u32,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT | wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Texture {
+                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                    view_dimension: wgpu::TextureViewDimension::D2,
+                    multisampled: false,
+                },
+                count: None,
+            })
+            .collect::<Vec<_>>();
+        capability_entries.push(wgpu::BindGroupLayoutEntry {
+            binding: capability_input::SAMPLER_BINDING as u32,
+            visibility: wgpu::ShaderStages::VERTEX_FRAGMENT | wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+            count: None,
+        });
+        let capability_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("zerium-capability-input-layout"),
+                entries: &capability_entries,
+            });
         let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
             label: Some("zerium-frame-pipeline-layout"),
-            bind_group_layouts: &[Some(&item_bind_group_layout)],
+            bind_group_layouts: &[
+                Some(&item_bind_group_layout),
+                Some(&capability_bind_group_layout),
+            ],
             immediate_size: 0,
         });
         let effect_bind_group_layout =
@@ -238,13 +264,19 @@ impl RendererBuilder {
         let effect_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("zerium-effect-pipeline-layout"),
-                bind_group_layouts: &[Some(&effect_bind_group_layout)],
+                bind_group_layouts: &[
+                    Some(&effect_bind_group_layout),
+                    Some(&capability_bind_group_layout),
+                ],
                 immediate_size: 0,
             });
         let temporal_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("zerium-temporal-pipeline-layout"),
-                bind_group_layouts: &[Some(&temporal_bind_group_layout)],
+                bind_group_layouts: &[
+                    Some(&temporal_bind_group_layout),
+                    Some(&capability_bind_group_layout),
+                ],
                 immediate_size: 0,
             });
         let composite_pipeline_layout =
@@ -346,6 +378,7 @@ impl RendererBuilder {
                 pipeline_layout,
                 pipelines: HashMap::new(),
                 item_bind_group_layout,
+                capability_bind_group_layout,
                 effect_bind_group_layout,
                 temporal_bind_group_layout,
                 compute_bind_group_layout,
@@ -460,7 +493,10 @@ impl RendererDevice {
             .device
             .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("zerium-compute-pipeline-layout"),
-                bind_group_layouts: &[Some(&self.compute_bind_group_layout)],
+                bind_group_layouts: &[
+                    Some(&self.compute_bind_group_layout),
+                    Some(&self.capability_bind_group_layout),
+                ],
                 immediate_size: 0,
             });
         let pipeline = self

@@ -1,5 +1,5 @@
 import package::generated::item::quad_corner;
-import package::generated::media_interface_render_result::slot_0;
+import package::generated::capability_input::render_result;
 
 struct RenderResultVertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -15,10 +15,10 @@ fn vertex_main(
 
 @fragment
 fn fragment_main(input: RenderResultVertexOutput) -> @location(0) vec4<f32> {
-    let size = textureDimensions(slot_0);
+    let size = textureDimensions(render_result);
     let position = min(
         vec2<u32>(input.position.xy),
         size - vec2(1u),
     );
-    return textureLoad(slot_0, vec2<i32>(position), 0);
+    return textureLoad(render_result, vec2<i32>(position), 0);
 }

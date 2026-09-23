@@ -1,6 +1,23 @@
 use super::*;
 
 impl TimelineEditor {
+    pub(crate) fn set_effect_asset(
+        &mut self,
+        item_id: ItemId,
+        effect_id: EffectInstanceId,
+        imported: ImportedMedia,
+    ) -> Result<(), TimelineEditError> {
+        let before = self.history_snapshot();
+        if !self
+            .active_document_mut()
+            .set_effect_asset(item_id, effect_id, imported)
+        {
+            return Err(TimelineEditError::IncompatibleMedia);
+        }
+        self.finish_project_edit(Some(before), None);
+        Ok(())
+    }
+
     pub(crate) fn add_selected_effect(
         &mut self,
         plugin_id: &str,

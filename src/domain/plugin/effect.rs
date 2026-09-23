@@ -4,6 +4,7 @@ use serde::{Deserialize, Deserializer, de::Error as _};
 
 use super::PluginError;
 use super::abi::PropertyLayout;
+use super::capability::{Capability, FileCapability, validate_capabilities};
 use super::identifier::validate_wgsl_identifier;
 use super::shader::{ShaderKind, ShaderSchema, validate_shader_source};
 use super::validation::{validate_catalog_entry, validate_property_schemas};
@@ -21,6 +22,7 @@ pub(crate) struct EffectSchema {
     category: String,
     tags: Vec<String>,
     render_scale: u32,
+    capabilities: Vec<Capability>,
     properties: Vec<PropertySchema>,
     passes: Vec<EffectPassSchema>,
     property_abi: PropertyLayout,
@@ -36,6 +38,8 @@ struct EffectSchemaDefinition {
     tags: Vec<String>,
     #[serde(default = "default_effect_render_scale")]
     render_scale: u32,
+    #[serde(default)]
+    capabilities: Vec<Capability>,
     properties: Vec<PropertySchema>,
     passes: Vec<EffectPassSchema>,
 }
@@ -61,6 +65,7 @@ impl<'de> Deserialize<'de> for EffectSchema {
             category: definition.category,
             tags: definition.tags,
             render_scale: definition.render_scale,
+            capabilities: definition.capabilities,
             properties: definition.properties,
             passes: definition.passes,
             property_abi,
@@ -215,6 +220,14 @@ impl EffectSchema {
         &self.properties
     }
 
+    pub(crate) fn files(&self) -> impl Iterator<Item = &FileCapability> {
+        self.capabilities.iter().filter_map(Capability::media_file)
+    }
+
+    pub(crate) fn capabilities(&self) -> &[Capability] {
+        &self.capabilities
+    }
+
     pub(crate) fn property_layout(&self) -> &PropertyLayout {
         &self.property_abi
     }
@@ -232,6 +245,7 @@ impl EffectSchema {
             )));
         }
         validate_property_schemas("effect", &self.id, &self.properties)?;
+        validate_capabilities("effect", &self.id, &self.properties, &self.capabilities)?;
         if self.passes.is_empty() {
             return Err(PluginError::invalid_definition(format!(
                 "effect '{}' must define at least one pass",

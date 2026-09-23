@@ -8,12 +8,27 @@ use cosmic_text::{
     Weight, Wrap, fontdb,
 };
 
-use crate::domain::plugin::{ItemSchema, VisualCapability};
-use crate::domain::property::PropertyValue;
-use crate::domain::timeline::{ItemId, TimelineItem};
+use crate::domain::plugin::Capability;
+use crate::domain::property::{PropertyValue, PropertyValues};
+use crate::domain::timeline::{EffectInstanceId, ItemId, TimelineItem};
 use crate::engine::frame::RgbaFrame;
 
 use super::{RenderError, RenderSize};
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct TextSourceId {
+    pub item_id: ItemId,
+    pub effect_id: Option<EffectInstanceId>,
+    pub capability_index: usize,
+}
+
+pub(crate) struct TextFrameRequest<'a> {
+    pub id: TextSourceId,
+    pub capability: &'a Capability,
+    pub properties: &'a PropertyValues,
+    pub label: &'a str,
+    pub target_size: RenderSize,
+}
 
 #[derive(Clone, Debug, PartialEq)]
 struct TextSignature {
@@ -42,8 +57,8 @@ struct CachedTextFrame {
 pub(crate) struct TextFrameCache {
     font_system: FontSystem,
     swash_cache: SwashCache,
-    frames: HashMap<ItemId, CachedTextFrame>,
-    active: HashSet<ItemId>,
+    frames: HashMap<TextSourceId, CachedTextFrame>,
+    active: HashSet<TextSourceId>,
     byte_budget: usize,
     resident_bytes: usize,
     clock: u64,
@@ -68,11 +83,36 @@ impl TextFrameCache {
         }
     }
 
-    /// Pins only the text items participating in the current render graph.
+    /// Pins text sources on the active items and their effects.
     /// Call once before resolving a frame; unpinned entries remain reusable LRU entries.
-    pub(crate) fn retain_active(&mut self, item_ids: impl IntoIterator<Item = ItemId>) {
+    pub(crate) fn retain_active<'a>(&mut self, items: impl IntoIterator<Item = &'a TimelineItem>) {
         self.active.clear();
-        self.active.extend(item_ids);
+        for item in items {
+            if let Some(schema) = item.schema() {
+                for (capability_index, capability) in schema.capabilities().iter().enumerate() {
+                    if matches!(capability, Capability::Text { .. }) {
+                        self.active.insert(TextSourceId {
+                            item_id: item.id,
+                            effect_id: None,
+                            capability_index,
+                        });
+                    }
+                }
+            }
+            for effect in &item.effects {
+                for (capability_index, capability) in
+                    effect.schema().capabilities().iter().enumerate()
+                {
+                    if matches!(capability, Capability::Text { .. }) {
+                        self.active.insert(TextSourceId {
+                            item_id: item.id,
+                            effect_id: Some(effect.id),
+                            capability_index,
+                        });
+                    }
+                }
+            }
+        }
         self.evict_to_budget();
     }
 
@@ -102,14 +142,12 @@ impl TextFrameCache {
 
     pub(crate) fn frame_for(
         &mut self,
-        item: &TimelineItem,
-        schema: &ItemSchema,
-        target_size: RenderSize,
+        request: TextFrameRequest<'_>,
         composition_size: RenderSize,
     ) -> Result<Arc<RgbaFrame>, RenderError> {
-        let signature = Self::signature(item, schema, target_size, composition_size)?;
+        let signature = Self::signature(&request, composition_size)?;
         let tick = self.next_tick();
-        if let Some(cached) = self.frames.get_mut(&item.id)
+        if let Some(cached) = self.frames.get_mut(&request.id)
             && cached.signature == signature
         {
             cached.last_used = tick;
@@ -120,12 +158,12 @@ impl TextFrameCache {
         if bytes > self.byte_budget {
             return Ok(frame);
         }
-        if let Some(replaced) = self.frames.remove(&item.id) {
+        if let Some(replaced) = self.frames.remove(&request.id) {
             self.resident_bytes = self.resident_bytes.saturating_sub(replaced.bytes);
         }
         self.resident_bytes = self.resident_bytes.saturating_add(bytes);
         self.frames.insert(
-            item.id,
+            request.id,
             CachedTextFrame {
                 signature,
                 frame: frame.clone(),
@@ -135,37 +173,24 @@ impl TextFrameCache {
         );
         self.evict_to_budget();
         if self.resident_bytes > self.byte_budget
-            && let Some(uncached) = self.frames.remove(&item.id)
+            && let Some(uncached) = self.frames.remove(&request.id)
         {
             self.resident_bytes = self.resident_bytes.saturating_sub(uncached.bytes);
         }
         Ok(frame)
     }
 
-    fn named_property<'a>(
-        item: &'a TimelineItem,
-        schema: &ItemSchema,
-        id: &str,
-    ) -> Option<&'a PropertyValue> {
-        schema.property(id)?;
-        item.properties.property(id)
-    }
-
     fn signature(
-        item: &TimelineItem,
-        schema: &ItemSchema,
-        target_size: RenderSize,
+        request: &TextFrameRequest<'_>,
         composition_size: RenderSize,
     ) -> Result<TextSignature, RenderError> {
         let missing_binding = || {
-            let item_label = item
-                .intrinsic_label()
-                .unwrap_or_else(|| schema.label().to_owned());
             RenderError::backend(format!(
-                "text item '{item_label}' has no text property binding"
+                "text source '{}' has no text property binding",
+                request.label
             ))
         };
-        let Some(VisualCapability::Text {
+        let Some(Capability::Text {
             size,
             text,
             font_family,
@@ -178,16 +203,16 @@ impl TextFrameCache {
             horizontal_alignment,
             vertical_alignment,
             ..
-        }) = schema.visual()
+        }) = Some(request.capability)
         else {
             return Err(missing_binding());
         };
-        let string = |id: &str| match Self::named_property(item, schema, id) {
+        let string = |id: &str| match request.properties.property(id) {
             Some(PropertyValue::String(value)) => Some(value.clone()),
             _ => None,
         };
         let string_array = |id: &str| {
-            let PropertyValue::Array(values) = Self::named_property(item, schema, id)? else {
+            let PropertyValue::Array(values) = request.properties.property(id)? else {
                 return None;
             };
             values
@@ -198,31 +223,31 @@ impl TextFrameCache {
                 })
                 .collect::<Option<Vec<_>>>()
         };
-        let f32_value = |id: &str| match Self::named_property(item, schema, id) {
+        let f32_value = |id: &str| match request.properties.property(id) {
             Some(PropertyValue::F32(value)) => Some(*value),
             _ => None,
         };
-        let bool_value = |id: &str| match Self::named_property(item, schema, id) {
+        let bool_value = |id: &str| match request.properties.property(id) {
             Some(PropertyValue::Bool(value)) => Some(*value),
             _ => None,
         };
 
-        let vec4 = |id: &str| match Self::named_property(item, schema, id) {
+        let vec4 = |id: &str| match request.properties.property(id) {
             Some(PropertyValue::Color(value)) => Some(*value),
             _ => None,
         };
         let pair = |id: &str| {
-            let value = Self::named_property(item, schema, id)?;
+            let value = request.properties.property(id)?;
             Some([
                 value.scalar_at(Some(0))?.numeric_scalar()? as f32,
                 value.scalar_at(Some(1))?.numeric_scalar()? as f32,
             ])
         };
         let missing = || {
-            let item_label = item
-                .intrinsic_label()
-                .unwrap_or_else(|| schema.label().to_owned());
-            RenderError::backend(format!("text item '{item_label}' has invalid properties"))
+            RenderError::backend(format!(
+                "text source '{}' has invalid properties",
+                request.label
+            ))
         };
         Ok(TextSignature {
             content: string(text).ok_or_else(missing)?,
@@ -233,16 +258,16 @@ impl TextFrameCache {
             outline_color: vec4(outline_color).ok_or_else(missing)?,
             bold: bool_value(bold).ok_or_else(missing)?,
             italic: bool_value(italic).ok_or_else(missing)?,
-            horizontal_alignment: match Self::named_property(item, schema, horizontal_alignment) {
+            horizontal_alignment: match request.properties.property(horizontal_alignment) {
                 Some(PropertyValue::Enum(value)) => *value,
                 _ => return Err(missing()),
             },
-            vertical_alignment: match Self::named_property(item, schema, vertical_alignment) {
+            vertical_alignment: match request.properties.property(vertical_alignment) {
                 Some(PropertyValue::Enum(value)) => *value,
                 _ => return Err(missing()),
             },
             box_size: pair(size).ok_or_else(missing)?,
-            target_size,
+            target_size: request.target_size,
             composition_size,
         })
     }

@@ -397,7 +397,11 @@ impl ProjectItem {
             ),
             animations: capture_animations(&item.animations),
             aspect_ratio_locked: item.aspect_ratio_locked,
-            effects: item.effects.iter().map(ProjectEffect::capture).collect(),
+            effects: item
+                .effects
+                .iter()
+                .map(|effect| ProjectEffect::capture(effect, project_path))
+                .collect(),
         }
     }
 
@@ -489,12 +493,12 @@ impl ProjectItem {
                     effect.id
                 )));
             }
-            effects.push(effect.into_effect(plugins)?);
+            effects.push(effect.into_effect(project_path, plugins)?);
         }
         if !effects.is_empty()
             && plugin_schema
                 .as_ref()
-                .is_some_and(|schema| schema.visual().is_none())
+                .is_some_and(|schema| schema.shader().is_none())
         {
             return Err(ProjectError::invalid_data(
                 "映像を持たないアイテムにはエフェクトを設定できません",
@@ -542,16 +546,23 @@ struct ProjectEffect {
     plugin_id: String,
     effect_id: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    assets: BTreeMap<String, ProjectMediaAsset>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     properties: BTreeMap<String, PropertyValue>,
     animations: Vec<ProjectScalarAnimation>,
 }
 
 impl ProjectEffect {
-    fn capture(effect: &EffectInstance) -> Self {
+    fn capture(effect: &EffectInstance, project_path: &Path) -> Self {
         Self {
             id: effect.id.get(),
             plugin_id: effect.plugin_id.clone(),
             effect_id: effect.effect_id.clone(),
+            assets: effect
+                .assets
+                .iter()
+                .map(|(id, asset)| (id.clone(), ProjectMediaAsset::capture(asset, project_path)))
+                .collect(),
             properties: capture_property_overrides(
                 &effect.properties,
                 Some(effect.schema().properties()),
@@ -560,7 +571,11 @@ impl ProjectEffect {
         }
     }
 
-    fn into_effect(self, plugins: &PluginRegistry) -> Result<EffectInstance, ProjectError> {
+    fn into_effect(
+        self,
+        project_path: &Path,
+        plugins: &PluginRegistry,
+    ) -> Result<EffectInstance, ProjectError> {
         let schema = plugins
             .effect(&self.plugin_id, &self.effect_id)
             .ok_or_else(|| {
@@ -576,10 +591,29 @@ impl ProjectEffect {
             PropertyValues::from_properties(schema.properties()),
         )?;
         let animations = load_animations(schema.properties(), &properties, self.animations)?;
+        let mut assets = HashMap::new();
+        for (input_id, stored) in self.assets {
+            let file = schema
+                .files()
+                .find(|file| file.id() == input_id)
+                .ok_or_else(|| {
+                    ProjectError::invalid_data(format!(
+                        "エフェクトの入力 '{input_id}' が見つかりません"
+                    ))
+                })?;
+            let asset = stored.into_media(project_path)?;
+            if file.reader() != asset.reader_id || file.media_type() != asset.kind.media_type() {
+                return Err(ProjectError::invalid_data(format!(
+                    "エフェクトの入力 '{input_id}' とメディアが一致しません"
+                )));
+            }
+            assets.insert(input_id, asset);
+        }
         Ok(EffectInstance {
             id: EffectInstanceId::new(self.id),
             plugin_id: self.plugin_id,
             effect_id: self.effect_id,
+            assets,
             properties,
             animations,
             schema,

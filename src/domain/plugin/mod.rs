@@ -14,7 +14,7 @@ mod validation;
 
 pub(crate) use abi::{PropertyLayout, abi_size, scalar_abi_size, value_string_count};
 pub(crate) use bundle::Plugin;
-pub(crate) use capability::{FileCapability, MediaType, VisualCapability};
+pub(crate) use capability::{Capability, FileCapability, MAX_CAPABILITIES, MediaType};
 pub(crate) use effect::{
     ComputeDispatchDimension, EffectPassSchema, EffectSchema, PassConstantSchema, PassConstantValue,
 };

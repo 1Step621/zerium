@@ -97,11 +97,89 @@ impl RenderDepth {
 }
 
 impl FrameRenderer {
+    fn capability_bind_group(
+        &self,
+        inputs: &[&wgpu::TextureView],
+        fallback: &wgpu::TextureView,
+    ) -> wgpu::BindGroup {
+        let mut entries = (0..capability_input::MAX_INPUTS)
+            .map(|index| wgpu::BindGroupEntry {
+                binding: index as u32,
+                resource: wgpu::BindingResource::TextureView(
+                    inputs.get(index).copied().unwrap_or(fallback),
+                ),
+            })
+            .collect::<Vec<_>>();
+        entries.push(wgpu::BindGroupEntry {
+            binding: capability_input::SAMPLER_BINDING as u32,
+            resource: wgpu::BindingResource::Sampler(&self.sampler),
+        });
+        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("zerium-capability-inputs"),
+            layout: &self.capability_bind_group_layout,
+            entries: &entries,
+        })
+    }
+
+    fn encode_capability_nodes<'a>(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        context: &RenderNodeContext<'a>,
+        rendered_shared_nodes: &mut [bool],
+        capabilities: &[RenderNodeId],
+        depth: RenderDepth,
+    ) -> Result<Vec<&'a wgpu::TextureView>, RenderError> {
+        let resources = context.resources;
+        let child_depth = RenderDepth {
+            temporal: depth.temporal,
+            composition: depth.composition + capabilities.len(),
+        };
+        let mut views = Vec::with_capacity(capabilities.len());
+        for (index, capability) in capabilities.iter().enumerate() {
+            let source = self.encode_render_node(
+                encoder,
+                context,
+                rendered_shared_nodes,
+                *capability,
+                child_depth,
+            )?;
+            let held = resources
+                .compositions
+                .get(depth.composition + index)
+                .ok_or_else(|| {
+                    RenderError::backend("capability composition resource is missing")
+                })?;
+            encoder.copy_texture_to_texture(
+                wgpu::TexelCopyTextureInfo {
+                    texture: source.texture(resources)?,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::TexelCopyTextureInfo {
+                    texture: &held.texture,
+                    mip_level: 0,
+                    origin: wgpu::Origin3d::ZERO,
+                    aspect: wgpu::TextureAspect::All,
+                },
+                wgpu::Extent3d {
+                    width: resources.size.width,
+                    height: resources.size.height,
+                    depth_or_array_layers: 1,
+                },
+            );
+            views.push(&held.view);
+        }
+        Ok(views)
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn encode_item_pass(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         target_view: &wgpu::TextureView,
         bind_group: &wgpu::BindGroup,
+        capability_group: &wgpu::BindGroup,
         shader: &ItemShaderId,
         instances: Range<u32>,
         load: wgpu::LoadOp<wgpu::Color>,
@@ -126,6 +204,7 @@ impl FrameRenderer {
             .expect("scene shaders were validated before encoding");
         pass.set_pipeline(&pipeline.pipeline);
         pass.set_bind_group(0, bind_group, &[]);
+        pass.set_bind_group(1, capability_group, &[]);
         pass.draw(0..pipeline.vertex_count, instances);
     }
 
@@ -160,53 +239,11 @@ impl FrameRenderer {
         pass.draw(0..pipeline.vertex_count, 0..1);
     }
 
-    fn rendered_texture_bind_group(
-        &self,
-        texture: &TextureResource,
-        input: &wgpu::TextureView,
-        shader: &ItemShaderId,
-    ) -> Result<wgpu::BindGroup, RenderError> {
-        if texture.input_count != 1 || !matches!(&texture.binding, TextureBinding::Rendered) {
-            return Err(RenderError::backend(
-                "rendered texture resource has an invalid input shape",
-            ));
-        }
-        let pipeline = self
-            .texture_pipelines
-            .get(shader)
-            .ok_or_else(|| RenderError::backend("rendered texture shader is not registered"))?;
-        Ok(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("zerium-rendered-texture-bind-group"),
-            layout: &pipeline.bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: texture._item.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: texture._item_properties.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::TextureView(input),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: texture._input_properties.as_entire_binding(),
-                },
-            ],
-        }))
-    }
-
     fn effect_input_bind_group(
         &self,
         resources: &RenderResources,
         input: &wgpu::TextureView,
+        source: &wgpu::TextureView,
     ) -> wgpu::BindGroup {
         self.device.create_bind_group(&wgpu::BindGroupDescriptor {
             label: Some("zerium-dynamic-effect-input"),
@@ -234,7 +271,7 @@ impl FrameRenderer {
                 },
                 wgpu::BindGroupEntry {
                     binding: 4,
-                    resource: wgpu::BindingResource::TextureView(&resources.effect_source_view),
+                    resource: wgpu::BindingResource::TextureView(source),
                 },
             ],
         })
@@ -350,6 +387,7 @@ impl FrameRenderer {
         encoder: &mut wgpu::CommandEncoder,
         target_view: &wgpu::TextureView,
         input: &wgpu::BindGroup,
+        capability_group: &wgpu::BindGroup,
         shader: &EffectShaderId,
         instance_offset: u32,
     ) {
@@ -373,6 +411,7 @@ impl FrameRenderer {
             .expect("scene effect shaders were validated before encoding");
         pass.set_pipeline(&pipeline.pipeline);
         pass.set_bind_group(0, input, &[instance_offset]);
+        pass.set_bind_group(1, capability_group, &[]);
         pass.draw(0..pipeline.vertex_count, 0..1);
     }
 
@@ -431,6 +470,7 @@ impl FrameRenderer {
         encoder: &mut wgpu::CommandEncoder,
         target_view: &wgpu::TextureView,
         input: &wgpu::BindGroup,
+        capability_group: &wgpu::BindGroup,
         command: &TemporalReduceCommand,
         instance_offset: u32,
     ) {
@@ -454,6 +494,7 @@ impl FrameRenderer {
             .expect("temporal shaders were validated before encoding");
         pass.set_pipeline(&pipeline.pipeline);
         pass.set_bind_group(0, input, &[instance_offset]);
+        pass.set_bind_group(1, capability_group, &[]);
         pass.draw(0..pipeline.vertex_count, 0..1);
     }
 
@@ -462,6 +503,7 @@ impl FrameRenderer {
         encoder: &mut wgpu::CommandEncoder,
         resources: &RenderResources,
         input: &wgpu::BindGroup,
+        capability_group: &wgpu::BindGroup,
         pass_command: &EffectPassCommand,
     ) -> Result<(), RenderError> {
         let EffectPassCommandKind::Compute { dispatch } = pass_command.kind else {
@@ -488,6 +530,7 @@ impl FrameRenderer {
         });
         pass.set_pipeline(&pipeline.pipeline);
         pass.set_bind_group(0, input, &[instance_offset]);
+        pass.set_bind_group(1, capability_group, &[]);
         let extent = |dimension: ComputeDispatchDimension| match dimension {
             ComputeDispatchDimension::Width => resources.size.width,
             ComputeDispatchDimension::Height => resources.size.height,
@@ -511,7 +554,10 @@ impl FrameRenderer {
         passes: &[EffectPassCommand],
         stride: u32,
         mut output: RenderOutput,
+        capabilities: &[&wgpu::TextureView],
     ) -> Result<RenderOutput, RenderError> {
+        let capability_group =
+            self.capability_bind_group(capabilities, &resources.effect_source_view);
         for effect_pass in passes {
             if effect_pass.captures_source {
                 encoder.copy_texture_to_texture(
@@ -545,10 +591,12 @@ impl FrameRenderer {
             let effect_input = match output {
                 RenderOutput::EffectA => &resources.effect_input_a,
                 RenderOutput::EffectB => &resources.effect_input_b,
-                RenderOutput::Composition(_)
-                | RenderOutput::Temporal { .. }
-                | RenderOutput::Cached(_) => {
-                    dynamic_effect_input = self.effect_input_bind_group(resources, input_view);
+                _ => {
+                    dynamic_effect_input = self.effect_input_bind_group(
+                        resources,
+                        input_view,
+                        &resources.effect_source_view,
+                    );
                     &dynamic_effect_input
                 }
             };
@@ -557,6 +605,7 @@ impl FrameRenderer {
                     encoder,
                     target_view,
                     effect_input,
+                    &capability_group,
                     &effect_pass.shader,
                     instance_offset,
                 ),
@@ -575,7 +624,13 @@ impl FrameRenderer {
                             &dynamic_compute_input
                         }
                     };
-                    self.encode_compute_pass(encoder, resources, compute_input, effect_pass)?
+                    self.encode_compute_pass(
+                        encoder,
+                        resources,
+                        compute_input,
+                        &capability_group,
+                        effect_pass,
+                    )?
                 }
             }
             output = target;
@@ -662,25 +717,37 @@ impl FrameRenderer {
                             ..Default::default()
                         });
                     }
-                    RenderSourceCommand::Item { shader, instance } => self.encode_item_pass(
-                        encoder,
-                        &resources.effect_view_a,
-                        &resources.bind_group,
+                    RenderSourceCommand::Item {
                         shader,
-                        *instance..*instance + 1,
-                        wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    ),
+                        instance,
+                        capabilities,
+                    } => {
+                        let views = self.encode_capability_nodes(
+                            encoder,
+                            context,
+                            rendered_shared_nodes,
+                            capabilities,
+                            depth,
+                        )?;
+                        let capability_group =
+                            self.capability_bind_group(&views, &resources.effect_source_view);
+                        self.encode_item_pass(
+                            encoder,
+                            &resources.effect_view_a,
+                            &resources.bind_group,
+                            &capability_group,
+                            shader,
+                            *instance..*instance + 1,
+                            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        );
+                    }
                     RenderSourceCommand::Texture { index, shader } => {
                         let texture = textures.get(*index).ok_or_else(|| {
                             RenderError::backend(
                                 "temporal render source references a missing texture",
                             )
                         })?;
-                        let TextureBinding::Static(bind_group) = &texture.binding else {
-                            return Err(RenderError::backend(
-                                "decoded texture source has no static bind group",
-                            ));
-                        };
+                        let bind_group = &texture.binding;
                         self.encode_texture_pass(
                             encoder,
                             &resources.effect_view_a,
@@ -688,37 +755,6 @@ impl FrameRenderer {
                             shader,
                             wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                         );
-                    }
-                    RenderSourceCommand::RenderedTexture {
-                        input,
-                        index,
-                        shader,
-                    } => {
-                        let input = self.encode_render_node(
-                            encoder,
-                            context,
-                            rendered_shared_nodes,
-                            *input,
-                            depth,
-                        )?;
-                        let target = input.next_effect_target();
-                        let input_view = input.view(resources)?;
-                        let target_view = target.view(resources)?;
-                        let texture = textures.get(*index).ok_or_else(|| {
-                            RenderError::backend(
-                                "rendered source references a missing texture resource",
-                            )
-                        })?;
-                        let bind_group =
-                            self.rendered_texture_bind_group(texture, input_view, shader)?;
-                        self.encode_texture_pass(
-                            encoder,
-                            target_view,
-                            &bind_group,
-                            shader,
-                            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        );
-                        return Ok(target);
                     }
                 }
                 Ok(RenderOutput::EffectA)
@@ -751,14 +787,20 @@ impl FrameRenderer {
                         RenderNodeCommandKind::Source(RenderSourceCommand::Item {
                             shader,
                             instance,
-                        }) => self.encode_item_pass(
-                            encoder,
-                            &composition.view,
-                            &resources.bind_group,
-                            shader,
-                            *instance..*instance + 1,
-                            wgpu::LoadOp::Load,
-                        ),
+                            capabilities,
+                        }) if capabilities.is_empty() => {
+                            let capability_group =
+                                self.capability_bind_group(&[], &resources.effect_source_view);
+                            self.encode_item_pass(
+                                encoder,
+                                &composition.view,
+                                &resources.bind_group,
+                                &capability_group,
+                                shader,
+                                *instance..*instance + 1,
+                                wgpu::LoadOp::Load,
+                            );
+                        }
                         RenderNodeCommandKind::Source(RenderSourceCommand::Texture {
                             index,
                             shader,
@@ -768,11 +810,7 @@ impl FrameRenderer {
                                     "scene node references a missing texture input",
                                 )
                             })?;
-                            let TextureBinding::Static(bind_group) = &texture.binding else {
-                                return Err(RenderError::backend(
-                                    "decoded texture source has no static bind group",
-                                ));
-                            };
+                            let bind_group = &texture.binding;
                             self.encode_texture_pass(
                                 encoder,
                                 &composition.view,
@@ -781,9 +819,7 @@ impl FrameRenderer {
                                 wgpu::LoadOp::Load,
                             );
                         }
-                        RenderNodeCommandKind::Source(RenderSourceCommand::RenderedTexture {
-                            ..
-                        })
+                        RenderNodeCommandKind::Source(RenderSourceCommand::Item { .. })
                         | RenderNodeCommandKind::Composite { .. }
                         | RenderNodeCommandKind::Effect { .. }
                         | RenderNodeCommandKind::TemporalEffect { .. } => {
@@ -817,17 +853,44 @@ impl FrameRenderer {
                 }
                 Ok(RenderOutput::Composition(composition_depth))
             }
-            RenderNodeCommandKind::Effect { input, passes } => {
+            RenderNodeCommandKind::Effect {
+                input,
+                capabilities,
+                passes,
+            } => {
+                let held = self.encode_capability_nodes(
+                    encoder,
+                    context,
+                    rendered_shared_nodes,
+                    capabilities,
+                    depth,
+                )?;
                 let input = self.encode_render_node(
                     encoder,
                     context,
                     rendered_shared_nodes,
                     *input,
+                    RenderDepth {
+                        temporal: temporal_depth,
+                        composition: composition_depth + capabilities.len(),
+                    },
+                )?;
+                self.encode_effect_passes(encoder, resources, passes, stride, input, &held)
+            }
+            RenderNodeCommandKind::TemporalEffect {
+                samples,
+                capabilities,
+            } => {
+                let held = self.encode_capability_nodes(
+                    encoder,
+                    context,
+                    rendered_shared_nodes,
+                    capabilities,
                     depth,
                 )?;
-                self.encode_effect_passes(encoder, resources, passes, stride, input)
-            }
-            RenderNodeCommandKind::TemporalEffect { samples } => {
+                let child_composition_depth = composition_depth + capabilities.len();
+                let capability_group =
+                    self.capability_bind_group(&held, &resources.effect_source_view);
                 let temporal = resources.temporal.get(temporal_depth).ok_or_else(|| {
                     RenderError::backend("temporal render resource depth is insufficient")
                 })?;
@@ -854,7 +917,7 @@ impl FrameRenderer {
                         *sample,
                         RenderDepth {
                             temporal: temporal_depth + 1,
-                            composition: composition_depth,
+                            composition: child_composition_depth,
                         },
                     )?;
                     let target_view = if accumulation_is_a {
@@ -878,9 +941,7 @@ impl FrameRenderer {
                                 usize::from(!sample_is_a) * 2 + usize::from(!accumulation_is_a);
                             &temporal.inputs[input_index]
                         }
-                        RenderOutput::Composition(_)
-                        | RenderOutput::Temporal { .. }
-                        | RenderOutput::Cached(_) => {
+                        _ => {
                             dynamic_input = self.temporal_input_bind_group(
                                 resources,
                                 sample_output.view(resources)?,
@@ -893,6 +954,7 @@ impl FrameRenderer {
                         encoder,
                         target_view,
                         input,
+                        &capability_group,
                         reduce,
                         instance_offset,
                     );
@@ -966,10 +1028,13 @@ impl FrameRenderer {
                     let base_resources = resources_by_scale
                         .get(&1)
                         .expect("scale-one render resources are always created");
+                    let capability_group =
+                        self.capability_bind_group(&[], &base_resources.effect_source_view);
                     self.encode_item_pass(
                         encoder,
                         target_view,
                         &base_resources.bind_group,
+                        &capability_group,
                         &batch.shader,
                         batch.instances.clone(),
                         wgpu::LoadOp::Load,
@@ -979,11 +1044,7 @@ impl FrameRenderer {
                     let texture = textures.get(*index).ok_or_else(|| {
                         RenderError::backend("video render command references a missing frame")
                     })?;
-                    let TextureBinding::Static(bind_group) = &texture.binding else {
-                        return Err(RenderError::backend(
-                            "decoded texture source has no static bind group",
-                        ));
-                    };
+                    let bind_group = &texture.binding;
                     self.encode_texture_pass(
                         encoder,
                         target_view,

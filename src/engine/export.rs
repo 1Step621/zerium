@@ -12,7 +12,10 @@ use thiserror::Error;
 use crate::{
     domain::{
         media::{MediaAsset, MediaKind, VideoFrameRate},
-        timeline::{Frame, FrameRate, ItemId, TimelineSnapshot, TimelineTime, TimelineView},
+        timeline::{
+            EffectInstanceId, Frame, FrameRate, ItemId, TimelineSnapshot, TimelineTime,
+            TimelineView,
+        },
     },
     engine::{
         frame::RgbaFrame,
@@ -54,6 +57,7 @@ impl ExportError {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct TextureInputId {
     item_id: ItemId,
+    effect_id: Option<EffectInstanceId>,
     input_id: String,
 }
 
@@ -210,7 +214,7 @@ fn decode_scenes(
         let frame = Frame::new(frame_index);
         let render_time = TimelineTime::from_frame(frame);
         let active_items = timeline.active_items_at(frame);
-        text_frames.retain_active(active_items.iter().map(|(_, item)| item.id));
+        text_frames.retain_active(active_items.iter().map(|(_, item)| item));
         let result = RenderScene::from_timeline(
             &timeline,
             render_time,
@@ -220,6 +224,7 @@ fn decode_scenes(
                 decode_texture_frame(
                     &timeline,
                     request.item_id,
+                    request.effect_id,
                     request.input_id,
                     request.time,
                     request.target_size,
@@ -228,9 +233,7 @@ fn decode_scenes(
                     &cancelled,
                 )
             },
-            |item, schema, target_size| {
-                text_frames.frame_for(item, schema, target_size, composition_size)
-            },
+            |request| text_frames.frame_for(request, composition_size),
         )
         .map(|scene| (frame_index, scene));
         let failed = result.is_err();
@@ -319,6 +322,7 @@ fn encode_frames(
 fn decode_texture_frame(
     timeline: &dyn TimelineView,
     item_id: ItemId,
+    effect_id: Option<EffectInstanceId>,
     input_id: &str,
     time: TimelineTime,
     size: RenderSize,
@@ -333,7 +337,16 @@ fn decode_texture_frame(
     else {
         return Ok(None);
     };
-    let Some(asset) = item.assets.get(input_id) else {
+    let assets = match effect_id {
+        Some(effect_id) => {
+            let Some(effect) = item.effects.iter().find(|effect| effect.id == effect_id) else {
+                return Ok(None);
+            };
+            &effect.assets
+        }
+        None => &item.assets,
+    };
+    let Some(asset) = assets.get(input_id) else {
         return Ok(None);
     };
     if matches!(asset.kind, MediaKind::Audio { .. }) {
@@ -341,6 +354,7 @@ fn decode_texture_frame(
     }
     let id = TextureInputId {
         item_id,
+        effect_id,
         input_id: input_id.to_owned(),
     };
     let decoder = match decoders.entry(id) {

@@ -1,3 +1,4 @@
+pub(crate) mod capability_input;
 mod encoded_scene;
 mod encoder;
 mod pipelines;
@@ -18,14 +19,15 @@ use thiserror::Error;
 
 mod text;
 mod wesl;
-pub(crate) use text::TextFrameCache;
+pub(crate) use text::{TextFrameCache, TextFrameRequest, TextSourceId};
 
 use crate::{
     domain::{
-        plugin::{ComputeDispatchDimension, EffectPassSchema, ItemSchema, VisualCapability},
+        plugin::{Capability, ComputeDispatchDimension, EffectPassSchema, ItemSchema},
         timeline::{
-            EffectInstance, EvaluatedSceneNode, EvaluatedSceneNodeKind, ItemId, LayerId,
-            ProjectResolution, RenderResultSettings, TimelineItem, TimelineTime, TimelineView,
+            EffectInstance, EffectInstanceId, EvaluatedSceneNode, EvaluatedSceneNodeKind, ItemId,
+            LayerId, ProjectResolution, RenderResultSettings, TimelineItem, TimelineTime,
+            TimelineView,
         },
     },
     engine::frame::RgbaFrame,
@@ -67,6 +69,7 @@ pub(crate) struct RendererDevice {
     pipeline_layout: wgpu::PipelineLayout,
     pipelines: HashMap<ItemShaderId, RasterPipeline>,
     item_bind_group_layout: wgpu::BindGroupLayout,
+    capability_bind_group_layout: wgpu::BindGroupLayout,
     effect_bind_group_layout: wgpu::BindGroupLayout,
     temporal_bind_group_layout: wgpu::BindGroupLayout,
     compute_bind_group_layout: wgpu::BindGroupLayout,
@@ -141,12 +144,7 @@ struct TextureResource {
     _input_properties: wgpu::Buffer,
     _item: wgpu::Buffer,
     _item_properties: wgpu::Buffer,
-    binding: TextureBinding,
-}
-
-enum TextureBinding {
-    Static(wgpu::BindGroup),
-    Rendered,
+    binding: wgpu::BindGroup,
 }
 
 struct UploadedVideoFrame {

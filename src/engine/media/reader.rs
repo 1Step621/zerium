@@ -140,24 +140,31 @@ pub(crate) trait MediaReader: Send + Sync {
     }
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FileSourceKind {
+    Item,
+    Effect,
+}
+
 #[derive(Clone)]
-struct RegisteredFileItem {
+struct RegisteredFileSource {
     plugin_id: String,
-    item_id: String,
-    item_label: String,
+    source_id: String,
+    source_label: String,
+    kind: FileSourceKind,
     input: crate::domain::plugin::FileCapability,
 }
 
 pub(crate) struct MediaReaderRegistry {
     readers: HashMap<String, Arc<dyn MediaReader>>,
-    file_items: Vec<RegisteredFileItem>,
+    file_sources: Vec<RegisteredFileSource>,
 }
 
 impl MediaReaderRegistry {
     pub(crate) fn new() -> Self {
         Self {
             readers: HashMap::new(),
-            file_items: Vec::new(),
+            file_sources: Vec::new(),
         }
     }
 
@@ -182,9 +189,9 @@ impl MediaReaderRegistry {
     pub(crate) fn register_plugin(&mut self, manifest: &PluginManifest) -> Result<(), MediaError> {
         for item in manifest.items() {
             for input in item.files() {
-                if self.file_items.iter().any(|registered| {
+                if self.file_sources.iter().any(|registered| {
                     registered.plugin_id == manifest.id()
-                        && registered.item_id == item.id()
+                        && registered.source_id == item.id()
                         && registered.input.id() == input.id()
                 }) {
                     return Err(MediaError::external(format!(
@@ -194,10 +201,22 @@ impl MediaReaderRegistry {
                         input.id()
                     )));
                 }
-                self.file_items.push(RegisteredFileItem {
+                self.file_sources.push(RegisteredFileSource {
                     plugin_id: manifest.id().to_owned(),
-                    item_id: item.id().to_owned(),
-                    item_label: item.label().to_owned(),
+                    source_id: item.id().to_owned(),
+                    source_label: item.label().to_owned(),
+                    kind: FileSourceKind::Item,
+                    input: input.clone(),
+                });
+            }
+        }
+        for effect in manifest.effects() {
+            for input in effect.files() {
+                self.file_sources.push(RegisteredFileSource {
+                    plugin_id: manifest.id().to_owned(),
+                    source_id: effect.id().to_owned(),
+                    source_label: effect.label().to_owned(),
+                    kind: FileSourceKind::Effect,
                     input: input.clone(),
                 });
             }
@@ -211,6 +230,27 @@ impl MediaReaderRegistry {
         plugin_id: &str,
         item_id: &str,
         input_id: &str,
+    ) -> Result<ImportedMedia, MediaError> {
+        self.probe_registered(path, plugin_id, item_id, input_id, FileSourceKind::Item)
+    }
+
+    pub(crate) fn probe_for_effect(
+        &self,
+        path: impl AsRef<Path>,
+        plugin_id: &str,
+        effect_id: &str,
+        input_id: &str,
+    ) -> Result<ImportedMedia, MediaError> {
+        self.probe_registered(path, plugin_id, effect_id, input_id, FileSourceKind::Effect)
+    }
+
+    fn probe_registered(
+        &self,
+        path: impl AsRef<Path>,
+        plugin_id: &str,
+        source_id: &str,
+        input_id: &str,
+        kind: FileSourceKind,
     ) -> Result<ImportedMedia, MediaError> {
         let path = path.as_ref();
         let metadata = fs::metadata(path).map_err(|error| {
@@ -226,16 +266,17 @@ impl MediaReaderRegistry {
             )));
         }
         let definition = self
-            .file_items
+            .file_sources
             .iter()
             .find(|definition| {
                 definition.plugin_id == plugin_id
-                    && definition.item_id == item_id
+                    && definition.source_id == source_id
+                    && definition.kind == kind
                     && definition.input.id() == input_id
             })
             .ok_or_else(|| {
                 MediaError::invalid_input(format!(
-                    "ファイル対応アイテム'{plugin_id}:{item_id}'が登録されていません"
+                    "ファイル入力'{plugin_id}:{source_id}:{input_id}'が登録されていません"
                 ))
             })?;
         let file = &definition.input;
@@ -250,9 +291,9 @@ impl MediaReaderRegistry {
                 })
         {
             return Err(MediaError::external(format!(
-                "'{}' はアイテム'{}'で対応していないファイル形式です",
+                "'{}' は'{}'で対応していないファイル形式です",
                 path.display(),
-                definition.item_label
+                definition.source_label
             )));
         }
         let reader = self.readers.get(file.reader()).ok_or_else(|| {
@@ -262,15 +303,12 @@ impl MediaReaderRegistry {
             ))
         })?;
         let probe = reader.probe(path, file.media_type())?.ok_or_else(|| {
-            MediaError::external(format!(
-                "'{}'はこのアイテムで読み込めません",
-                path.display()
-            ))
+            MediaError::external(format!("'{}'はこの入力で読み込めません", path.display()))
         })?;
         if probe.kind.media_type() != file.media_type() {
             return Err(MediaError::external(format!(
-                "選択したファイルの種類がアイテム'{}'と一致しません",
-                definition.item_label
+                "選択したファイルの種類が'{}'と一致しません",
+                definition.source_label
             )));
         }
         let name = path
@@ -280,7 +318,7 @@ impl MediaReaderRegistry {
             .to_owned();
         Ok(ImportedMedia {
             plugin_id: definition.plugin_id.clone(),
-            item_id: definition.item_id.clone(),
+            source_id: definition.source_id.clone(),
             input_id: definition.input.id().to_owned(),
             asset: MediaAsset {
                 reader_id: file.reader().to_owned(),

@@ -190,7 +190,7 @@ impl MediaAsset {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ImportedMedia {
     pub plugin_id: String,
-    pub item_id: String,
+    pub source_id: String,
     pub input_id: String,
     pub asset: MediaAsset,
 }

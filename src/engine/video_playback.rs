@@ -12,8 +12,10 @@ use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 use crate::{
     domain::{
         media::{MediaAsset, MediaKind, MediaSourceId},
-        plugin::VisualCapability,
-        timeline::{Frame, FrameRate, ItemId, LayerId, TimelineItem, TimelineTime},
+        plugin::Capability,
+        timeline::{
+            EffectInstanceId, Frame, FrameRate, ItemId, LayerId, TimelineItem, TimelineTime,
+        },
     },
     engine::{
         cache::{BudgetedTimestampCache, TimestampCacheHit},
@@ -205,6 +207,7 @@ struct VideoProxyJob {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct VideoInputId {
     pub(crate) item_id: ItemId,
+    pub(crate) effect_id: Option<EffectInstanceId>,
     pub(crate) input_id: String,
 }
 
@@ -905,45 +908,53 @@ impl VideoPlaybackEngine {
         timeline_rate: FrameRate,
         playback_seconds: Option<f64>,
     ) -> Vec<VideoDecodeRequest> {
-        active_items
-            .iter()
-            .filter_map(|(_, item)| {
-                let schema = item.schema()?;
-                if !matches!(schema.visual(), Some(VisualCapability::Media { .. })) {
-                    return Some(Vec::new());
+        let mut requests = Vec::new();
+        for (_, item) in active_items {
+            let local_frame = Frame::new(playhead.get().saturating_sub(item.start.get()));
+            let local_seconds = if let Some(playback_seconds) = playback_seconds {
+                playback_seconds - timeline_rate.frame_to_seconds(item.start)
+            } else {
+                timeline_rate.frame_to_seconds(local_frame)
+            };
+            let mut push_assets = |effect_id, assets: &HashMap<String, MediaAsset>| {
+                for (input_id, asset) in assets {
+                    if matches!(asset.kind, MediaKind::Audio { .. }) {
+                        continue;
+                    }
+                    let asset_time =
+                        Duration::try_from_secs_f64(asset.looped_seconds(local_seconds))
+                            .unwrap_or_default();
+                    requests.push(VideoDecodeRequest {
+                        input: VideoInputId {
+                            item_id: item.id,
+                            effect_id,
+                            input_id: input_id.clone(),
+                        },
+                        asset_time,
+                        asset: asset.clone(),
+                    });
                 }
-                let local_frame = Frame::new(playhead.get().saturating_sub(item.start.get()));
-                let local_seconds = if let Some(playback_seconds) = playback_seconds {
-                    let item_start_seconds = timeline_rate.frame_to_seconds(item.start);
-                    playback_seconds - item_start_seconds
-                } else {
-                    timeline_rate.frame_to_seconds(local_frame)
-                };
-                Some(
-                    item.assets
-                        .iter()
-                        .filter_map(|(input_id, asset)| {
-                            match asset.kind {
-                                MediaKind::Video { .. } | MediaKind::Image { .. } => {}
-                                MediaKind::Audio { .. } => return None,
-                            }
-                            let asset_time =
-                                Duration::try_from_secs_f64(asset.looped_seconds(local_seconds))
-                                    .unwrap_or_default();
-                            Some(VideoDecodeRequest {
-                                input: VideoInputId {
-                                    item_id: item.id,
-                                    input_id: input_id.clone(),
-                                },
-                                asset_time,
-                                asset: asset.clone(),
-                            })
-                        })
-                        .collect::<Vec<_>>(),
-                )
-            })
-            .flatten()
-            .collect()
+            };
+            if item.schema().is_some_and(|schema| {
+                schema
+                    .capabilities()
+                    .iter()
+                    .any(|cap| matches!(cap, Capability::Media { .. }))
+            }) {
+                push_assets(None, &item.assets);
+            }
+            for effect in &item.effects {
+                if effect
+                    .schema()
+                    .capabilities()
+                    .iter()
+                    .any(|cap| matches!(cap, Capability::Media { .. }))
+                {
+                    push_assets(Some(effect.id), &effect.assets);
+                }
+            }
+        }
+        requests
     }
 
     fn idle_source(

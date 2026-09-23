@@ -100,6 +100,14 @@ current validated defaults and applies those overrides. Scene instances keep
 their sparse argument overrides. The same checked item representation is used
 for project files and the timeline clipboard.
 
+Item and effect schemas share an ordered array of named shader inputs.
+`shader`, `media`, `text`, and `render_result` can each produce a scene-linear
+texture, and both item shaders and effect passes import them by ID from the
+same generated capability module. The item's output shader is separate from
+its inputs. Each effect instance owns its imported file assets. Item-only
+`audio` and `editor` declarations stay outside shader capabilities. Rendering
+resolves capability nodes before the owner shader or pass and binds them in
+manifest order.
 `persistence::project` and `persistence::clipboard` deserialize untrusted data,
 validate it against the current domain contracts, and then construct domain
 state. Filesystem access and atomic replacement stay in `engine::project_io`.

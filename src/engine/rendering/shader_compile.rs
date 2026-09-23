@@ -1,77 +1,63 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use super::{
     RenderError,
     shader::{
         CompiledEffectShader, CompiledPluginShaders, ComputeShaderDescriptor,
         EffectShaderDescriptor, EffectShaderId, ItemShaderDescriptor, ItemShaderId,
-        TextureShaderDescriptor,
+        PluginShaderOwnerKind, TextureShaderDescriptor,
     },
     wesl,
 };
 use crate::domain::plugin::{
-    EffectPassSchema, PassConstantSchema, Plugin, PluginRegistry, VisualCapability,
+    Capability, EffectPassSchema, PassConstantSchema, PluginRegistry, ShaderSchema,
 };
 
 pub(crate) fn compile_plugins(
     plugins: &PluginRegistry,
 ) -> Result<Arc<CompiledPluginShaders>, RenderError> {
     let mut compiled = CompiledPluginShaders::default();
-    let mut item_sources = HashMap::<(String, String), Arc<str>>::new();
-
     for (plugin_id, schema) in plugins.items() {
-        let Some(visual) = schema.visual() else {
-            continue;
-        };
-        let shader = visual.shader();
-        let source = compile_item_source(plugins, &mut item_sources, plugin_id, shader.source())?;
-        match visual {
-            VisualCapability::Procedural { vertex_count, .. } => {
-                let id = ItemShaderId::plugin_item(plugin_id, schema.id());
-                validate_render_shader(
-                    &id,
-                    &source,
-                    shader.vertex_entry(),
-                    shader.fragment_entry(),
-                )?;
-                compiled.items.push(ItemShaderDescriptor {
-                    id,
-                    label: shader.source().to_owned(),
-                    wgsl: source,
-                    vertex_entry: shader.vertex_entry().to_owned(),
-                    fragment_entry: shader.fragment_entry().to_owned(),
-                    vertex_count: *vertex_count,
-                });
-            }
-            VisualCapability::Media { vertex_count, .. }
-            | VisualCapability::Text { vertex_count, .. }
-            | VisualCapability::RenderResult { vertex_count, .. } => {
-                let id = ItemShaderId::plugin_item(plugin_id, schema.id());
-                validate_render_shader(
-                    &id,
-                    &source,
-                    shader.vertex_entry(),
-                    shader.fragment_entry(),
-                )?;
-                compiled.textures.push(TextureShaderDescriptor {
-                    id,
-                    label: shader.source().to_owned(),
-                    wgsl: source,
-                    vertex_entry: shader.vertex_entry().to_owned(),
-                    fragment_entry: shader.fragment_entry().to_owned(),
-                    vertex_count: *vertex_count,
-                    input_ids: schema.texture_input_ids(),
-                });
-            }
+        if let Some(shader) = schema.shader() {
+            let id = ItemShaderId::plugin_item(plugin_id, schema.id());
+            compiled.items.push(compile_item_shader(
+                plugins,
+                plugin_id,
+                shader,
+                id,
+                schema.vertex_count(),
+                schema.capabilities(),
+            )?);
         }
+        compile_capability_shaders(
+            &mut compiled.items,
+            plugins,
+            plugin_id,
+            PluginShaderOwnerKind::Item,
+            schema.id(),
+            schema.capabilities(),
+        )?;
     }
-
     for (plugin_id, schema) in plugins.effects() {
+        compile_capability_shaders(
+            &mut compiled.items,
+            plugins,
+            plugin_id,
+            PluginShaderOwnerKind::Effect,
+            schema.id(),
+            schema.capabilities(),
+        )?;
+        let interface = super::capability_input::interface(schema.capabilities());
         for (pass_index, pass) in schema.passes().iter().enumerate() {
             let id = EffectShaderId::plugin_pass(plugin_id, schema.id(), pass_index);
-            let source: Arc<str> =
-                compile_plugin_shader(plugins, plugin_id, pass.shader_source(), pass.constants())?
-                    .into();
+            let source: Arc<str> = compile_plugin_shader(
+                plugins,
+                plugin_id,
+                pass.shader_source(),
+                pass.constants(),
+                &interface,
+            )?
+            .into();
             let label = format!("{} pass {pass_index}", schema.id());
             let effect = match pass {
                 EffectPassSchema::Render { shader, .. } => {
@@ -117,23 +103,65 @@ pub(crate) fn compile_plugins(
             compiled.effects.push(effect);
         }
     }
-
+    compiled.textures.push(TextureShaderDescriptor {
+        id: ItemShaderId::host_capability_frame(),
+        label: "zerium capability frame".to_owned(),
+        wgsl: include_str!("capability_frame.wgsl").into(),
+        vertex_entry: "vertex_main".to_owned(),
+        fragment_entry: "fragment_main".to_owned(),
+        vertex_count: 3,
+        input_ids: vec!["source".to_owned()],
+    });
     Ok(Arc::new(compiled))
 }
 
-fn compile_item_source(
+fn compile_capability_shaders(
+    compiled: &mut Vec<ItemShaderDescriptor>,
     plugins: &PluginRegistry,
-    cache: &mut HashMap<(String, String), Arc<str>>,
     plugin_id: &str,
-    source_name: &str,
-) -> Result<Arc<str>, RenderError> {
-    let key = (plugin_id.to_owned(), source_name.to_owned());
-    if let Some(source) = cache.get(&key) {
-        return Ok(source.clone());
+    owner_kind: PluginShaderOwnerKind,
+    owner_id: &str,
+    capabilities: &[Capability],
+) -> Result<(), RenderError> {
+    for capability in capabilities {
+        if let Some(shader) = capability.shader() {
+            let id =
+                ItemShaderId::plugin_capability(plugin_id, owner_kind, owner_id, capability.id());
+            compiled.push(compile_item_shader(
+                plugins,
+                plugin_id,
+                shader,
+                id,
+                capability
+                    .vertex_count()
+                    .expect("shader capability has a vertex count"),
+                &[],
+            )?);
+        }
     }
-    let source: Arc<str> = compile_plugin_shader(plugins, plugin_id, source_name, &[])?.into();
-    cache.insert(key, source.clone());
-    Ok(source)
+    Ok(())
+}
+
+fn compile_item_shader(
+    plugins: &PluginRegistry,
+    plugin_id: &str,
+    shader: &ShaderSchema,
+    id: ItemShaderId,
+    vertex_count: u32,
+    capabilities: &[Capability],
+) -> Result<ItemShaderDescriptor, RenderError> {
+    let interface = super::capability_input::interface(capabilities);
+    let source: Arc<str> =
+        compile_plugin_shader(plugins, plugin_id, shader.source(), &[], &interface)?.into();
+    validate_render_shader(&id, &source, shader.vertex_entry(), shader.fragment_entry())?;
+    Ok(ItemShaderDescriptor {
+        id,
+        label: shader.source().to_owned(),
+        wgsl: source,
+        vertex_entry: shader.vertex_entry().to_owned(),
+        fragment_entry: shader.fragment_entry().to_owned(),
+        vertex_count,
+    })
 }
 
 fn compile_plugin_shader(
@@ -141,25 +169,23 @@ fn compile_plugin_shader(
     plugin_id: &str,
     source_name: &str,
     constants: &[PassConstantSchema],
+    capability_interface: &str,
 ) -> Result<String, RenderError> {
     let plugin = plugins
         .plugin(plugin_id)
         .ok_or_else(|| RenderError::backend(format!("plugin '{plugin_id}' was not loaded")))?;
-    compile_shader(plugin, source_name, constants)
-}
-
-fn compile_shader(
-    plugin: &Plugin,
-    source_name: &str,
-    constants: &[PassConstantSchema],
-) -> Result<String, RenderError> {
     let source = plugin.shader_source(source_name).ok_or_else(|| {
         RenderError::backend(format!(
-            "plugin '{}' shader source '{source_name}' was not loaded",
-            plugin.manifest().id()
+            "plugin '{plugin_id}' shader source '{source_name}' was not loaded"
         ))
     })?;
-    wesl::compile(plugin.wesl_modules(), source_name, source, constants)
+    wesl::compile(
+        plugin.wesl_modules(),
+        source_name,
+        source,
+        constants,
+        capability_interface,
+    )
 }
 
 fn parse_and_validate_shader(

@@ -9,17 +9,13 @@
       "category": "図形",
       "tags": ["矩形", "長方形", "square", "box"],
       "symbol": "■",
-      "capabilities": {
-        "visual": {
-          "type": "procedural",
-          "shader": {
-            "source": "rectangle.wesl"
-          }
-        },
-        "editor": {
-          "position": "position",
-          "size": "size"
-        }
+      "shader": {
+        "source": "rectangle.wesl"
+      },
+      "capabilities": [],
+      "editor": {
+        "position": "position",
+        "size": "size"
       },
       "properties": [
         {
@@ -149,17 +145,13 @@
       "category": "図形",
       "tags": ["さんかく", "triangle"],
       "symbol": "▲",
-      "capabilities": {
-        "visual": {
-          "type": "procedural",
-          "shader": {
-            "source": "triangle.wesl"
-          }
-        },
-        "editor": {
-          "position": "position",
-          "size": "size"
-        }
+      "shader": {
+        "source": "triangle.wesl"
+      },
+      "capabilities": [],
+      "editor": {
+        "position": "position",
+        "size": "size"
       },
       "properties": [
         {
@@ -290,16 +282,12 @@
       "category": "図形",
       "tags": ["円", "丸", "circle", "oval"],
       "symbol": "●",
-      "capabilities": {
-        "visual": {
-          "type": "procedural",
-          "shader": {
-            "source": "ellipse.wesl"
-          }
-        },
-        "editor": {
-          "position": "position"
-        }
+      "shader": {
+        "source": "ellipse.wesl"
+      },
+      "capabilities": [],
+      "editor": {
+        "position": "position"
       },
       "properties": [
         {
@@ -407,18 +395,14 @@
       "category": "図形",
       "tags": ["ポリゴン", "polygon"],
       "symbol": "⬟",
-      "capabilities": {
-        "visual": {
-          "type": "procedural",
-          "shader": {
-            "source": "polygon.wesl"
-          }
-        },
-        "editor": {
-          "position": "position",
-          "size": "size",
-          "points": "points"
-        }
+      "shader": {
+        "source": "polygon.wesl"
+      },
+      "capabilities": [],
+      "editor": {
+        "position": "position",
+        "size": "size",
+        "points": "points"
       },
       "properties": [
         {
@@ -606,17 +590,13 @@
       "category": "図形",
       "tags": ["線", "line"],
       "symbol": "╱",
-      "capabilities": {
-        "visual": {
-          "type": "procedural",
-          "shader": {
-            "source": "line.wesl"
-          }
-        },
-        "editor": {
-          "position": "position",
-          "size": "size"
-        }
+      "shader": {
+        "source": "line.wesl"
+      },
+      "capabilities": [],
+      "editor": {
+        "position": "position",
+        "size": "size"
       },
       "properties": [
         {
@@ -758,17 +738,13 @@
       "category": "図形",
       "tags": ["スター", "star"],
       "symbol": "★",
-      "capabilities": {
-        "visual": {
-          "type": "procedural",
-          "shader": {
-            "source": "star.wesl"
-          }
-        },
-        "editor": {
-          "position": "position",
-          "size": "size"
-        }
+      "shader": {
+        "source": "star.wesl"
+      },
+      "capabilities": [],
+      "editor": {
+        "position": "position",
+        "size": "size"
       },
       "properties": [
         {
@@ -943,12 +919,13 @@
       "category": "テキスト",
       "tags": ["文字", "字幕", "title", "caption"],
       "symbol": "T",
-      "capabilities": {
-        "visual": {
+      "shader": {
+        "source": "text.wesl"
+      },
+      "capabilities": [
+        {
           "type": "text",
-          "shader": {
-            "source": "text.wesl"
-          },
+          "id": "text",
           "size": "size",
           "text": "text",
           "font_family": "font_family",
@@ -960,12 +937,12 @@
           "italic": "italic",
           "horizontal_alignment": "horizontal_alignment",
           "vertical_alignment": "vertical_alignment"
-        },
-        "editor": {
-          "position": "position",
-          "size": "size",
-          "label": "text"
         }
+      ],
+      "editor": {
+        "position": "position",
+        "size": "size",
+        "label": "text"
       },
       "properties": [
         {
@@ -1237,30 +1214,26 @@
       "category": "メディア",
       "tags": ["映像", "movie", "clip"],
       "symbol": "▶",
-      "capabilities": {
-        "files": [
-          {
-            "id": "source",
-            "label": "動画",
-            "reader": "zerium.ffmpeg",
-            "media_type": "video",
-            "extensions": ["mp4", "mov", "mkv", "webm", "avi", "m4v", "gif"]
-          }
-        ],
-        "visual": {
+      "shader": {
+        "source": "media.wesl"
+      },
+      "capabilities": [
+        {
           "type": "media",
-          "shader": {
-            "source": "media.wesl"
-          }
-        },
-        "audio": {
-          "inputs": ["source"],
-          "volume": "volume"
-        },
-        "editor": {
-          "position": "position",
-          "size": "size"
+          "id": "source",
+          "label": "動画",
+          "reader": "zerium.ffmpeg",
+          "media_type": "video",
+          "extensions": ["mp4", "mov", "mkv", "webm", "avi", "m4v", "gif"]
         }
+      ],
+      "audio": {
+        "inputs": ["source"],
+        "volume": "volume"
+      },
+      "editor": {
+        "position": "position",
+        "size": "size"
       },
       "properties": [
         {
@@ -1375,26 +1348,22 @@
       "category": "メディア",
       "tags": ["静止画", "写真", "photo", "picture"],
       "symbol": "▧",
-      "capabilities": {
-        "files": [
-          {
-            "id": "source",
-            "label": "画像",
-            "reader": "zerium.ffmpeg",
-            "media_type": "image",
-            "extensions": ["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"]
-          }
-        ],
-        "visual": {
+      "shader": {
+        "source": "media.wesl"
+      },
+      "capabilities": [
+        {
           "type": "media",
-          "shader": {
-            "source": "media.wesl"
-          }
-        },
-        "editor": {
-          "position": "position",
-          "size": "size"
+          "id": "source",
+          "label": "画像",
+          "reader": "zerium.ffmpeg",
+          "media_type": "image",
+          "extensions": ["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"]
         }
+      ],
+      "editor": {
+        "position": "position",
+        "size": "size"
       },
       "properties": [
         {
@@ -1487,7 +1456,8 @@
       "category": "メディア",
       "tags": ["音楽", "サウンド", "music", "sound"],
       "symbol": "♪",
-      "capabilities": {
+      "capabilities": [],
+      "audio": {
         "files": [
           {
             "id": "source",
@@ -1497,10 +1467,8 @@
             "extensions": ["wav", "mp3", "m4a", "aac", "flac", "ogg", "opus"]
           }
         ],
-        "audio": {
-          "inputs": ["source"],
-          "volume": "volume"
-        }
+        "inputs": ["source"],
+        "volume": "volume"
       },
       "properties": [
         {
@@ -1533,17 +1501,18 @@
       "category": "合成",
       "tags": ["レイヤー", "範囲", "render", "composite"],
       "symbol": "▣",
-      "capabilities": {
-        "visual": {
+      "shader": {
+        "source": "render_result.wesl"
+      },
+      "capabilities": [
+        {
           "type": "render_result",
-          "shader": {
-            "source": "render_result.wesl"
-          },
+          "id": "render_result",
           "start_offset": "start_offset",
           "end_offset": "end_offset",
           "hide_original": "hide_original"
         }
-      },
+      ],
       "properties": [
         {
           "id": "start_offset",
@@ -1602,6 +1571,95 @@
     }
   ],
   "effects": [
+    {
+      "id": "layer_mask",
+      "label": "レイヤーマスク",
+      "category": "合成",
+      "tags": ["切り抜き", "アルファ", "範囲", "mask", "layers"],
+      "capabilities": [
+        {
+          "start_offset": "start_offset",
+          "end_offset": "end_offset",
+          "hide_original": "hide_original",
+          "id": "behind",
+          "type": "render_result"
+        }
+      ],
+      "passes": [
+        {
+          "type": "render",
+          "shader": {
+            "source": "layer_mask.wesl"
+          }
+        }
+      ],
+      "properties": [
+        {
+          "id": "start_offset",
+          "type": {
+            "value": "u32"
+          },
+          "default": {
+            "u32": 1
+          },
+          "label": "開始オフセット",
+          "configurations": [
+            {
+              "constraints": {
+                "min": 1,
+                "max": 30
+              },
+              "ui": {
+                "step": 1
+              }
+            }
+          ]
+        },
+        {
+          "id": "end_offset",
+          "type": {
+            "value": "u32"
+          },
+          "default": {
+            "u32": 1
+          },
+          "label": "終了オフセット",
+          "configurations": [
+            {
+              "constraints": {
+                "min": 1,
+                "max": 30
+              },
+              "ui": {
+                "step": 1
+              }
+            }
+          ]
+        },
+        {
+          "id": "hide_original",
+          "type": {
+            "value": "bool"
+          },
+          "default": {
+            "bool": true
+          },
+          "label": "原本を隠す",
+          "configurations": [{}]
+        },
+        {
+          "id": "invert_mask",
+          "type": {
+            "value": "bool"
+          },
+          "default": {
+            "bool": false
+          },
+          "label": "マスクを反転",
+          "configurations": [{}]
+        }
+      ]
+    },
     {
       "id": "translate",
       "label": "移動",
@@ -2071,6 +2129,36 @@
       "tags": ["グラデ", "gradient", "fill"],
       "passes": [
         {
+          "type": "compute",
+          "shader": {
+            "source": "linear_gradient_bounds.wesl"
+          },
+          "dispatch": ["one", "height", "one"],
+          "constants": [
+            {
+              "id": "phase",
+              "value": {
+                "u32": 0
+              }
+            }
+          ]
+        },
+        {
+          "type": "compute",
+          "shader": {
+            "source": "linear_gradient_bounds.wesl"
+          },
+          "dispatch": ["one", "one", "one"],
+          "constants": [
+            {
+              "id": "phase",
+              "value": {
+                "u32": 1
+              }
+            }
+          ]
+        },
+        {
           "type": "render",
           "shader": {
             "source": "linear_gradient.wesl"
@@ -2234,7 +2322,9 @@
           "constants": [
             {
               "id": "phase",
-              "value": { "u32": 0 }
+              "value": {
+                "u32": 0
+              }
             }
           ]
         },
@@ -2246,7 +2336,9 @@
           "constants": [
             {
               "id": "phase",
-              "value": { "u32": 1 }
+              "value": {
+                "u32": 1
+              }
             }
           ]
         },
@@ -2258,7 +2350,9 @@
           "constants": [
             {
               "id": "phase",
-              "value": { "u32": 2 }
+              "value": {
+                "u32": 2
+              }
             }
           ]
         },
@@ -2348,7 +2442,9 @@
           "constants": [
             {
               "id": "phase",
-              "value": { "u32": 0 }
+              "value": {
+                "u32": 0
+              }
             }
           ]
         },
@@ -2360,7 +2456,9 @@
           "constants": [
             {
               "id": "phase",
-              "value": { "u32": 1 }
+              "value": {
+                "u32": 1
+              }
             }
           ]
         },
@@ -2372,7 +2470,9 @@
           "constants": [
             {
               "id": "phase",
-              "value": { "u32": 2 }
+              "value": {
+                "u32": 2
+              }
             }
           ]
         },
@@ -2606,15 +2706,21 @@
           "constants": [
             {
               "id": "direction_x",
-              "value": { "f32": 1 }
+              "value": {
+                "f32": 1
+              }
             },
             {
               "id": "direction_y",
-              "value": { "f32": 0 }
+              "value": {
+                "f32": 0
+              }
             },
             {
               "id": "radius_scale",
-              "value": { "f32": 0.70710678 }
+              "value": {
+                "f32": 0.70710678
+              }
             }
           ]
         },
@@ -2626,15 +2732,21 @@
           "constants": [
             {
               "id": "direction_x",
-              "value": { "f32": 0 }
+              "value": {
+                "f32": 0
+              }
             },
             {
               "id": "direction_y",
-              "value": { "f32": 1 }
+              "value": {
+                "f32": 1
+              }
             },
             {
               "id": "radius_scale",
-              "value": { "f32": 0.70710678 }
+              "value": {
+                "f32": 0.70710678
+              }
             }
           ]
         },
@@ -2646,15 +2758,21 @@
           "constants": [
             {
               "id": "direction_x",
-              "value": { "f32": 1 }
+              "value": {
+                "f32": 1
+              }
             },
             {
               "id": "direction_y",
-              "value": { "f32": 0 }
+              "value": {
+                "f32": 0
+              }
             },
             {
               "id": "radius_scale",
-              "value": { "f32": 0.70710678 }
+              "value": {
+                "f32": 0.70710678
+              }
             }
           ]
         },
@@ -2666,15 +2784,21 @@
           "constants": [
             {
               "id": "direction_x",
-              "value": { "f32": 0 }
+              "value": {
+                "f32": 0
+              }
             },
             {
               "id": "direction_y",
-              "value": { "f32": 1 }
+              "value": {
+                "f32": 1
+              }
             },
             {
               "id": "radius_scale",
-              "value": { "f32": 0.70710678 }
+              "value": {
+                "f32": 0.70710678
+              }
             }
           ]
         }

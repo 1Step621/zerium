@@ -1,6 +1,7 @@
 use std::{collections::BTreeMap, fs, path::Path};
 
-use crate::domain::plugin::{PluginManifest, ShaderKind, VisualCapability};
+use crate::domain::plugin::{Capability, PluginManifest, ShaderKind};
+use crate::engine::rendering::capability_input;
 
 mod property;
 
@@ -11,7 +12,7 @@ const UTIL_INTERFACE: &str = include_str!("wesl/util.wesl");
 struct ShaderContract {
     kind: ShaderKind,
     properties: property::Layout,
-    media_interface: Option<String>,
+    capability_interface: String,
 }
 
 pub(crate) fn generate(path: Option<&Path>) -> Result<(), String> {
@@ -37,35 +38,31 @@ pub(crate) fn generate(path: Option<&Path>) -> Result<(), String> {
 
     let mut contracts = BTreeMap::<String, ShaderContract>::new();
     for schema in manifest.items() {
-        let Some(visual) = schema.visual() else {
-            continue;
-        };
-        let shader = visual.shader();
-        insert_contract(
-            &mut contracts,
-            shader.source(),
-            ShaderContract {
-                kind: ShaderKind::Item,
-                properties: property::Layout::from_abi(schema.property_layout()),
-                media_interface: matches!(
-                    visual,
-                    VisualCapability::Media { .. }
-                        | VisualCapability::Text { .. }
-                        | VisualCapability::RenderResult { .. }
-                )
-                .then(|| texture_media_interface(&schema.texture_input_ids())),
-            },
-        )?;
+        let layout = property::Layout::from_abi(schema.property_layout());
+        if let Some(shader) = schema.shader() {
+            insert_contract(
+                &mut contracts,
+                shader.source(),
+                ShaderContract {
+                    kind: ShaderKind::Item,
+                    properties: layout.clone(),
+                    capability_interface: capability_input::interface(schema.capabilities()),
+                },
+            )?;
+        }
+        insert_capability_shader_contracts(&mut contracts, schema.capabilities(), &layout)?;
     }
     for schema in manifest.effects() {
+        let layout = property::Layout::from_abi(schema.property_layout());
+        insert_capability_shader_contracts(&mut contracts, schema.capabilities(), &layout)?;
         for pass in schema.passes() {
             insert_contract(
                 &mut contracts,
                 pass.shader_source(),
                 ShaderContract {
                     kind: pass.shader_kind(),
-                    properties: property::Layout::from_abi(schema.property_layout()),
-                    media_interface: None,
+                    properties: layout.clone(),
+                    capability_interface: capability_input::interface(schema.capabilities()),
                 },
             )?;
         }
@@ -88,6 +85,27 @@ pub(crate) fn generate(path: Option<&Path>) -> Result<(), String> {
         "generated WESL modules in {}",
         root.join(GENERATED_DIR).display()
     );
+    Ok(())
+}
+
+fn insert_capability_shader_contracts(
+    contracts: &mut BTreeMap<String, ShaderContract>,
+    capabilities: &[Capability],
+    layout: &property::Layout,
+) -> Result<(), String> {
+    for capability in capabilities {
+        if let Some(shader) = capability.shader() {
+            insert_contract(
+                contracts,
+                shader.source(),
+                ShaderContract {
+                    kind: ShaderKind::Item,
+                    properties: layout.clone(),
+                    capability_interface: capability_input::interface(&[]),
+                },
+            )?;
+        }
+    }
     Ok(())
 }
 
@@ -119,15 +137,11 @@ fn write_generated(
             &format!("properties_{module}.wesl"),
             &(host + &property_interface),
         )?;
-        let media_module = contract
-            .media_interface
-            .as_ref()
-            .map(|_| format!("media_interface_{module}"));
-        if let Some(media_module) = &media_module {
+        if contract.capability_interface.contains("texture_2d<f32>") {
             write(
                 generated,
-                &format!("{media_module}.wesl"),
-                contract.media_interface.as_deref().unwrap(),
+                &format!("capability_input_{module}.wesl"),
+                &contract.capability_interface,
             )?;
         }
     }
@@ -171,7 +185,9 @@ fn insert_contract(
     contract: ShaderContract,
 ) -> Result<(), String> {
     if let Some(existing) = contracts.get_mut(source) {
-        if existing.kind != contract.kind || existing.media_interface != contract.media_interface {
+        if existing.kind != contract.kind
+            || existing.capability_interface != contract.capability_interface
+        {
             return Err(format!(
                 "shader source '{source}' is used with incompatible shader contracts"
             ));
@@ -240,26 +256,4 @@ fn source_module_name(source: &str) -> String {
         }
     }
     name
-}
-
-fn texture_media_interface(input_ids: &[String]) -> String {
-    let sampler_binding = 2 + input_ids.len();
-    let metadata_binding = sampler_binding + 1;
-    let mut source = format!(
-        "struct ZeriumMedia {{\n    source_sizes: array<vec4<f32>, {}>,\n    target_size: vec2<f32>,\n    padding: vec2<f32>,\n}};\n\n",
-        input_ids.len()
-    );
-    for index in 0..input_ids.len() {
-        source.push_str(&format!(
-            "@group(0) @binding({})\nvar slot_{}: texture_2d<f32>;\n\nfn slot_{}_size() -> vec2<f32> {{\n    return media_inputs.source_sizes[{}].xy;\n}}\n\n",
-            index + 2,
-            index,
-            index,
-            index
-        ));
-    }
-    source.push_str(&format!(
-        "@group(0) @binding({sampler_binding})\nvar media_sampler: sampler;\n\n@group(0) @binding({metadata_binding})\nvar<uniform> media_inputs: ZeriumMedia;\n"
-    ));
-    source
 }

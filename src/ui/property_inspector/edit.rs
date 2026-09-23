@@ -632,6 +632,7 @@ impl PropertyInspector {
 
     pub(super) fn choose_file(
         &mut self,
+        effect_id: Option<EffectInstanceId>,
         input_id: String,
         _: &gpui::ClickEvent,
         _: &mut Window,
@@ -643,16 +644,30 @@ impl PropertyInspector {
         let Some(item) = self.editor.read(cx).selected_item() else {
             return;
         };
-        let Some(schema) = item.schema() else {
-            return;
-        };
-        if schema.file(&input_id).is_none() {
-            return;
-        }
-
         let item_id = item.id;
-        let expected_plugin_id = item.plugin_id().unwrap_or_default().to_owned();
-        let expected_item_id = item.item_id().unwrap_or_default().to_owned();
+        let (expected_plugin_id, expected_source_id) = match effect_id {
+            Some(effect_id) => {
+                let Some(effect) = item.effects.iter().find(|effect| effect.id == effect_id) else {
+                    return;
+                };
+                if !effect.schema().files().any(|file| file.id() == input_id) {
+                    return;
+                }
+                (effect.plugin_id.clone(), effect.effect_id.clone())
+            }
+            None => {
+                let Some(schema) = item.schema() else {
+                    return;
+                };
+                if schema.file(&input_id).is_none() {
+                    return;
+                }
+                (
+                    item.plugin_id().unwrap_or_default().to_owned(),
+                    item.item_id().unwrap_or_default().to_owned(),
+                )
+            }
+        };
         let expected_input_id = input_id;
         let receiver = cx.prompt_for_paths(PathPromptOptions {
             files: true,
@@ -732,16 +747,24 @@ impl PropertyInspector {
                 return;
             };
             let probe_plugin_id = expected_plugin_id.clone();
-            let probe_item_id = expected_item_id.clone();
+            let probe_source_id = expected_source_id.clone();
             let probe_input_id = expected_input_id.clone();
             let result = cx
                 .background_spawn(async move {
-                    media_readers.probe_for_item(
-                        path,
-                        &probe_plugin_id,
-                        &probe_item_id,
-                        &probe_input_id,
-                    )
+                    match effect_id {
+                        Some(_) => media_readers.probe_for_effect(
+                            path,
+                            &probe_plugin_id,
+                            &probe_source_id,
+                            &probe_input_id,
+                        ),
+                        None => media_readers.probe_for_item(
+                            path,
+                            &probe_plugin_id,
+                            &probe_source_id,
+                            &probe_input_id,
+                        ),
+                    }
                 })
                 .await;
             if !session.update(cx, |session, _| session.operation_is_current(operation)) {
@@ -753,11 +776,16 @@ impl PropertyInspector {
                     match result {
                         Ok(imported)
                             if imported.plugin_id == expected_plugin_id
-                                && imported.item_id == expected_item_id
+                                && imported.source_id == expected_source_id
                                 && imported.input_id == expected_input_id =>
                         {
                             let result = editor.update(cx, |editor, cx| {
-                                let result = editor.set_item_asset(item_id, imported);
+                                let result = match effect_id {
+                                    Some(effect_id) => {
+                                        editor.set_effect_asset(item_id, effect_id, imported)
+                                    }
+                                    None => editor.set_item_asset(item_id, imported),
+                                };
                                 if result.is_ok() {
                                     cx.notify();
                                 }

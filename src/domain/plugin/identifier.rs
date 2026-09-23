@@ -33,19 +33,3 @@ pub(super) fn validate_wgsl_identifier(kind: &str, id: &str) -> Result<(), Plugi
     }
     Ok(())
 }
-
-/// Validates a fragment appended after a media binding prefix.
-///
-/// Unlike a complete identifier, a suffix may start with a digit because it is
-/// appended after a valid media binding prefix.
-pub(super) fn validate_media_binding_suffix(kind: &str, id: &str) -> Result<(), PluginError> {
-    let valid = !id.is_empty()
-        && id
-            .bytes()
-            .all(|byte| byte == b'_' || byte.is_ascii_alphanumeric());
-    valid.then_some(()).ok_or_else(|| {
-        PluginError::invalid_definition(format!(
-            "{kind} ID '{id}' must contain only ASCII letters, digits, or '_'"
-        ))
-    })
-}

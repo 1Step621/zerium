@@ -22,7 +22,7 @@ impl TimelineEditor {
             .item(id)
             .ok_or(TimelineEditError::ItemNotFound(id))?;
         let compatible = item.plugin_id() == Some(imported.plugin_id.as_str())
-            && item.item_id() == Some(imported.item_id.as_str())
+            && item.item_id() == Some(imported.source_id.as_str())
             && item
                 .schema()
                 .and_then(|schema| schema.file(&imported.input_id))

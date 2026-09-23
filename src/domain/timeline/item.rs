@@ -2,7 +2,7 @@ use std::{collections::HashMap, sync::Arc};
 
 use crate::domain::animation::{ScalarAnimationAddress, ScalarAnimations, ScalarTrack};
 use crate::domain::media::MediaAsset;
-use crate::domain::plugin::{EffectSchema, ItemSchema, VisualCapability};
+use crate::domain::plugin::{Capability, EffectSchema, ItemSchema};
 use crate::domain::property::{PropertyElementId, PropertyValue, PropertyValues};
 
 use super::{
@@ -12,7 +12,7 @@ use super::{
 
 const MAX_ITEM_LABEL_CHARS: usize = 40;
 
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) struct RenderResultSettings {
     pub start_offset: u64,
     pub end_offset: u64,
@@ -20,6 +20,30 @@ pub(crate) struct RenderResultSettings {
 }
 
 impl RenderResultSettings {
+    pub(crate) fn from_properties(
+        properties: &PropertyValues,
+        start_offset: &str,
+        end_offset: &str,
+        hide_original: &str,
+    ) -> Option<Self> {
+        let PropertyValue::U32(start) = properties.property(start_offset)? else {
+            return None;
+        };
+        let PropertyValue::U32(end) = properties.property(end_offset)? else {
+            return None;
+        };
+        let PropertyValue::Bool(hide_original) = properties.property(hide_original)? else {
+            return None;
+        };
+        let start = u64::from(*start);
+        let end = u64::from(*end);
+        Some(Self {
+            start_offset: start.min(end),
+            end_offset: start.max(end),
+            hide_original: *hide_original,
+        })
+    }
+
     pub(crate) fn includes(self, source: LayerId, candidate: LayerId) -> bool {
         let Some(offset) = source.get().checked_sub(candidate.get()) else {
             return false;
@@ -32,6 +56,22 @@ impl RenderResultSettings {
         let bottom = source.get().checked_sub(self.start_offset)?;
         Some((LayerId::new(top), LayerId::new(bottom)))
     }
+}
+
+fn render_result_settings_for(
+    capability: &Capability,
+    properties: &PropertyValues,
+) -> Option<RenderResultSettings> {
+    let Capability::RenderResult {
+        start_offset,
+        end_offset,
+        hide_original,
+        ..
+    } = capability
+    else {
+        return None;
+    };
+    RenderResultSettings::from_properties(properties, start_offset, end_offset, hide_original)
 }
 
 fn concise_label(value: &str) -> Option<String> {
@@ -128,6 +168,7 @@ pub(crate) struct EffectInstance {
     pub id: EffectInstanceId,
     pub plugin_id: String,
     pub effect_id: String,
+    pub assets: HashMap<String, MediaAsset>,
     pub properties: PropertyValues,
     pub animations: ScalarAnimations,
     pub(crate) schema: Arc<EffectSchema>,
@@ -136,6 +177,13 @@ pub(crate) struct EffectInstance {
 impl EffectInstance {
     pub(crate) fn schema(&self) -> &EffectSchema {
         &self.schema
+    }
+
+    pub(crate) fn render_result_settings(&self) -> impl Iterator<Item = RenderResultSettings> + '_ {
+        self.schema()
+            .capabilities()
+            .iter()
+            .filter_map(|capability| render_result_settings_for(capability, &self.properties))
     }
 }
 
@@ -218,7 +266,6 @@ impl TimelineItem {
 
         let asset_labels = schema
             .files()
-            .iter()
             .filter_map(|file| self.assets.get(file.id()))
             .filter_map(asset_label)
             .collect::<Vec<_>>();
@@ -251,37 +298,21 @@ impl TimelineItem {
         }
     }
 
-    pub(crate) fn render_result_settings(&self) -> Option<RenderResultSettings> {
-        let VisualCapability::RenderResult {
-            start_offset,
-            end_offset,
-            hide_original,
-            ..
-        } = self.schema()?.visual()?
-        else {
-            return None;
-        };
-        let PropertyValue::U32(start) = self.properties.property(start_offset)? else {
-            return None;
-        };
-        let PropertyValue::U32(end) = self.properties.property(end_offset)? else {
-            return None;
-        };
-        let PropertyValue::Bool(hide_original) = self.properties.property(hide_original)? else {
-            return None;
-        };
-        let start = u64::from(*start);
-        let end = u64::from(*end);
-        Some(RenderResultSettings {
-            start_offset: start.min(end),
-            end_offset: start.max(end),
-            hide_original: *hide_original,
-        })
+    pub(crate) fn render_result_ranges(&self) -> impl Iterator<Item = RenderResultSettings> + '_ {
+        self.schema()
+            .into_iter()
+            .flat_map(|schema| schema.capabilities())
+            .filter_map(|capability| render_result_settings_for(capability, &self.properties))
+            .chain(
+                self.effects
+                    .iter()
+                    .flat_map(EffectInstance::render_result_settings),
+            )
     }
 
     pub(super) fn current_aspect_ratio(&self, schema: &ItemSchema) -> Option<f32> {
         let current_size = size_values(&self.properties, schema);
-        let source_size = schema.files().iter().find_map(|file| {
+        let source_size = schema.files().find_map(|file| {
             self.assets
                 .get(file.id())?
                 .kind

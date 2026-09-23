@@ -525,7 +525,7 @@ impl TimelineDocument {
             return false;
         };
         if item.plugin_id() != Some(imported.plugin_id.as_str())
-            || item.item_id() != Some(imported.item_id.as_str())
+            || item.item_id() != Some(imported.source_id.as_str())
         {
             return false;
         }
@@ -584,6 +584,40 @@ impl TimelineDocument {
         item.assets.insert(imported.input_id, imported.asset);
         #[cfg(debug_assertions)]
         self.assert_consistent();
+        true
+    }
+
+    pub(crate) fn set_effect_asset(
+        &mut self,
+        item_id: ItemId,
+        effect_id: EffectInstanceId,
+        imported: ImportedMedia,
+    ) -> bool {
+        if imported.asset.validate().is_err() {
+            return false;
+        }
+        let Some(item) = self.items.get_mut(&item_id).map(Arc::make_mut) else {
+            return false;
+        };
+        let Some(effect) = item
+            .effects
+            .iter_mut()
+            .find(|effect| effect.id == effect_id)
+        else {
+            return false;
+        };
+        if effect.plugin_id != imported.plugin_id || effect.effect_id != imported.source_id {
+            return false;
+        }
+        let compatible = effect.schema().files().any(|file| {
+            file.id() == imported.input_id
+                && file.reader() == imported.asset.reader_id
+                && file.media_type() == imported.asset.kind.media_type()
+        });
+        if !compatible {
+            return false;
+        }
+        effect.assets.insert(imported.input_id, imported.asset);
         true
     }
 
@@ -698,7 +732,7 @@ impl TimelineDocument {
             let Some(item_schema) = item.schema() else {
                 return false;
             };
-            if item_schema.visual().is_none() {
+            if item_schema.shader().is_none() {
                 return false;
             }
         }
@@ -706,6 +740,7 @@ impl TimelineDocument {
             id: instance_id,
             plugin_id: plugin_id.to_owned(),
             effect_id: effect_id.to_owned(),
+            assets: HashMap::new(),
             properties,
             animations: ScalarAnimations::default(),
             schema,

@@ -258,6 +258,7 @@ impl Preview {
                 let time_bits = request.time.frames().to_bits();
                 let input = VideoInputId {
                     item_id: request.item_id,
+                    effect_id: request.effect_id,
                     input_id: request.input_id.to_owned(),
                 };
                 if !recorded.contains_key(&(time_bits, input.clone())) {
@@ -300,7 +301,7 @@ impl Preview {
                     .get(&(time_bits, input.clone()))
                     .and_then(|requested| playback.present_recorded_frame(&input, requested)))
             },
-            |item, schema, size| text_frames.frame_for(item, schema, size, composition_size),
+            |request| text_frames.frame_for(request, composition_size),
         )?;
         let snapshot = playback.finish_frame_demand();
         Ok((scene, snapshot))
@@ -339,7 +340,7 @@ impl Preview {
             )
         };
         self.text_frames
-            .retain_active(active_items.iter().map(|(_, item)| item.id));
+            .retain_active(active_items.iter().map(|(_, item)| item));
         let (scene, playback) = match self.prepare_scene(render_time, size, cx) {
             Ok(prepared) => prepared,
             Err(error) => {

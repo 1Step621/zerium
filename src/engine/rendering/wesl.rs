@@ -14,6 +14,7 @@ pub(super) fn compile(
     source_name: &str,
     source: &str,
     constants: &[PassConstantSchema],
+    capability_interface: &str,
 ) -> Result<String, RenderError> {
     let mut resolver = VirtualResolver::new();
     for (module, module_source) in modules {
@@ -23,6 +24,11 @@ pub(super) fn compile(
             module_source,
         )?;
     }
+    add_module(
+        &mut resolver,
+        "package::generated::capability_input",
+        capability_interface,
+    )?;
     let source_path = shader_module_path(source_name)?;
     add_module(&mut resolver, &source_path, source)?;
 

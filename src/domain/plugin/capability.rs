@@ -1,4 +1,4 @@
-//! Host capabilities declared by item schemas.
+//! Named shader inputs shared by items and effects, plus item-only roles.
 
 use crate::domain::property::PropertyValueType;
 use std::collections::HashSet;
@@ -6,12 +6,52 @@ use std::collections::HashSet;
 use serde::Deserialize;
 
 use super::PluginError;
-use super::identifier::{validate_logical_id, validate_media_binding_suffix};
+use super::identifier::{validate_logical_id, validate_wgsl_identifier};
 use super::item::ItemSchema;
 use super::shader::ShaderSchema;
-use crate::domain::property::{PropertyType, ScalarPropertyType};
+use crate::domain::property::{PropertySchema, PropertyType, ScalarPropertyType};
 
-const MAX_RENDER_RESULT_OFFSET: u32 = 30;
+pub(super) const MAX_RENDER_RESULT_OFFSET: u32 = 30;
+
+pub(super) fn validate_render_result_properties(
+    owner_kind: &str,
+    owner_id: &str,
+    properties: &[PropertySchema],
+    start_offset: &str,
+    end_offset: &str,
+    hide_original: &str,
+) -> Result<(), PluginError> {
+    let property = |id: &str| properties.iter().find(|property| property.id() == id);
+    for id in [start_offset, end_offset] {
+        let valid = property(id).is_some_and(|property| {
+            property.ty()
+                == &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::U32))
+                && property
+                    .configuration_constraints(None)
+                    .min
+                    .is_some_and(|min| min >= 1.)
+                && property
+                    .configuration_constraints(None)
+                    .max
+                    .is_some_and(|max| max <= f64::from(MAX_RENDER_RESULT_OFFSET))
+        });
+        if !valid {
+            return Err(PluginError::invalid_definition(format!(
+                "{owner_kind} '{owner_id}' render_result property '{id}' must be u32 constrained to 1..={MAX_RENDER_RESULT_OFFSET}",
+            )));
+        }
+    }
+    if property(hide_original).map(PropertySchema::ty)
+        != Some(&PropertyType::Value(PropertyValueType::Scalar(
+            ScalarPropertyType::Bool,
+        )))
+    {
+        return Err(PluginError::invalid_definition(format!(
+            "{owner_kind} '{owner_id}' render_result hide_original property '{hide_original}' must be bool",
+        )));
+    }
+    Ok(())
+}
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash)]
 #[serde(rename_all = "snake_case")]
@@ -53,19 +93,12 @@ impl FileCapability {
         &self.extensions
     }
 
-    pub(super) fn media_binding_symbols(&self) -> [String; 2] {
-        [
-            format!("slot_{}", self.id),
-            format!("slot_{}_size", self.id),
-        ]
-    }
-
-    pub(super) fn validate(&self, item_id: &str) -> Result<(), PluginError> {
-        validate_media_binding_suffix("file input", &self.id)?;
+    pub(super) fn validate(&self, owner_kind: &str, owner_id: &str) -> Result<(), PluginError> {
+        validate_wgsl_identifier("file input", &self.id)?;
         if self.label.trim().is_empty() {
             return Err(PluginError::invalid_definition(format!(
-                "item '{}' file input '{}' has an empty label",
-                item_id, self.id
+                "{owner_kind} '{owner_id}' file input '{}' has an empty label",
+                self.id
             )));
         }
         validate_logical_id("media reader", &self.reader)?;
@@ -77,14 +110,14 @@ impl FileCapability {
                     .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit());
             if !valid {
                 return Err(PluginError::invalid_definition(format!(
-                    "item '{}' has invalid file extension '{}'",
-                    item_id, extension
+                    "{owner_kind} '{owner_id}' has invalid file extension '{}'",
+                    extension
                 )));
             }
             if !extensions.insert(extension) {
                 return Err(PluginError::invalid_definition(format!(
-                    "item '{}' has duplicate file extension '{}'",
-                    item_id, extension
+                    "{owner_kind} '{owner_id}' has duplicate file extension '{}'",
+                    extension
                 )));
             }
         }
@@ -92,28 +125,23 @@ impl FileCapability {
     }
 }
 
-/// Text deliberately carries its property references inline so manifests
-/// stay flat; capabilities are shared by `Arc`, not moved per frame.
+/// One named texture input produced for an item or effect shader.
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
-pub(crate) enum VisualCapability {
-    Procedural {
+pub(crate) enum Capability {
+    Shader {
+        id: String,
         shader: ShaderSchema,
         #[serde(default = "default_item_vertex_count")]
         vertex_count: u32,
     },
     Media {
-        shader: ShaderSchema,
-        #[serde(default = "default_item_vertex_count")]
-        vertex_count: u32,
+        #[serde(flatten)]
+        file: FileCapability,
     },
-    /// Host rasterizer inputs, each naming an item property by ID like
-    /// [`TemporalSamplingSchema`](super::TemporalSamplingSchema) references its sampling properties.
     Text {
-        shader: ShaderSchema,
-        #[serde(default = "default_item_vertex_count")]
-        vertex_count: u32,
+        id: String,
         size: String,
         text: String,
         font_family: String,
@@ -126,53 +154,96 @@ pub(crate) enum VisualCapability {
         horizontal_alignment: String,
         vertical_alignment: String,
     },
-    /// Composites an inclusive range measured backward from the item's layer.
     RenderResult {
-        shader: ShaderSchema,
-        #[serde(default = "default_item_vertex_count")]
-        vertex_count: u32,
+        id: String,
         start_offset: String,
         end_offset: String,
         hide_original: String,
     },
 }
 
-impl VisualCapability {
-    pub(super) fn validate(&self, item: &ItemSchema) -> Result<(), PluginError> {
-        self.shader().validate("item", item.id())?;
-        let vertex_count = match self {
-            Self::Procedural { vertex_count, .. }
-            | Self::Media { vertex_count, .. }
-            | Self::Text { vertex_count, .. }
-            | Self::RenderResult { vertex_count, .. } => *vertex_count,
-        };
-        if vertex_count == 0 {
+impl Capability {
+    pub(crate) fn id(&self) -> &str {
+        match self {
+            Self::Shader { id, .. } | Self::Text { id, .. } | Self::RenderResult { id, .. } => id,
+            Self::Media { file } => file.id(),
+        }
+    }
+
+    pub(crate) fn shader(&self) -> Option<&ShaderSchema> {
+        match self {
+            Self::Shader { shader, .. } => Some(shader),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn vertex_count(&self) -> Option<u32> {
+        match self {
+            Self::Shader { vertex_count, .. } => Some(*vertex_count),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn media_file(&self) -> Option<&FileCapability> {
+        match self {
+            Self::Media { file } => Some(file),
+            _ => None,
+        }
+    }
+
+    pub(super) fn validate(
+        &self,
+        owner_kind: &str,
+        owner_id: &str,
+        properties: &[PropertySchema],
+    ) -> Result<(), PluginError> {
+        validate_wgsl_identifier("capability", self.id())?;
+        if self.id() == "capability_sampler" {
             return Err(PluginError::invalid_definition(format!(
-                "item '{}' vertex count must be non-zero",
-                item.id()
+                "{owner_kind} '{owner_id}' capability ID 'capability_sampler' is reserved"
             )));
         }
-        if matches!(self, Self::Media { .. }) && item.texture_inputs().next().is_none() {
-            return Err(PluginError::invalid_definition(format!(
-                "texture item '{}' must define the file capability",
-                item.id()
-            )));
+        match self {
+            Self::Shader {
+                shader,
+                vertex_count,
+                ..
+            } => {
+                shader.validate(owner_kind, owner_id)?;
+                if *vertex_count == 0 {
+                    return Err(PluginError::invalid_definition(format!(
+                        "{owner_kind} '{owner_id}' capability '{}' vertex count must be non-zero",
+                        self.id()
+                    )));
+                }
+            }
+            Self::Media { file } => {
+                if file.media_type() == MediaType::Audio {
+                    return Err(PluginError::invalid_definition(format!(
+                        "{owner_kind} '{owner_id}' media capability '{}' cannot be audio",
+                        self.id()
+                    )));
+                }
+                file.validate(owner_kind, owner_id)?;
+            }
+            _ => {}
         }
         let mistyped = |property_id: &str, expected: &str| {
             PluginError::invalid_definition(format!(
-                "item '{}' visual property '{}' has the wrong type; expected {expected}",
-                item.id(),
+                "{owner_kind} '{owner_id}' capability property '{}' has the wrong type; expected {expected}",
                 property_id
             ))
         };
         let property = |property_id: &str| {
-            item.property(property_id).ok_or_else(|| {
-                PluginError::invalid_definition(format!(
-                    "item '{}' visual capability references missing property '{}'",
-                    item.id(),
-                    property_id
-                ))
-            })
+            properties
+                .iter()
+                .find(|property| property.id() == property_id)
+                .ok_or_else(|| {
+                    PluginError::invalid_definition(format!(
+                        "{owner_kind} '{owner_id}' capability references missing property '{}'",
+                        property_id
+                    ))
+                })
         };
         let tuple_f32_pair = |property_id: &str| {
             let property = property(property_id)?;
@@ -192,21 +263,6 @@ impl VisualCapability {
             let property = property(property_id)?;
             if property.ty != PropertyType::Value(PropertyValueType::Scalar(ty.clone())) {
                 return Err(mistyped(property_id, &format!("a {ty:?} type")));
-            }
-            Ok(())
-        };
-        let layer_offset = |property_id: &str| {
-            scalar(property_id, ScalarPropertyType::U32)?;
-            let constraints = property(property_id)?.configuration_constraints(None);
-            if constraints.min.is_none_or(|min| min < 1.)
-                || constraints
-                    .max
-                    .is_none_or(|max| max > f64::from(MAX_RENDER_RESULT_OFFSET))
-            {
-                return Err(mistyped(
-                    property_id,
-                    &format!("a u32 constrained to 1..={MAX_RENDER_RESULT_OFFSET}"),
-                ));
             }
             Ok(())
         };
@@ -271,22 +327,18 @@ impl VisualCapability {
                 hide_original,
                 ..
             } => {
-                layer_offset(start_offset)?;
-                layer_offset(end_offset)?;
-                scalar(hide_original, ScalarPropertyType::Bool)?;
+                validate_render_result_properties(
+                    owner_kind,
+                    owner_id,
+                    properties,
+                    start_offset,
+                    end_offset,
+                    hide_original,
+                )?;
             }
-            Self::Procedural { .. } | Self::Media { .. } => {}
+            Self::Shader { .. } | Self::Media { .. } => {}
         }
         Ok(())
-    }
-
-    pub(crate) fn shader(&self) -> &ShaderSchema {
-        match self {
-            Self::Procedural { shader, .. }
-            | Self::Media { shader, .. }
-            | Self::Text { shader, .. }
-            | Self::RenderResult { shader, .. } => shader,
-        }
     }
 }
 
@@ -294,6 +346,8 @@ impl VisualCapability {
 #[serde(deny_unknown_fields)]
 pub(crate) struct AudioCapability {
     inputs: Vec<String>,
+    #[serde(default)]
+    files: Vec<FileCapability>,
     /// Item property read by the host mixer as linear audio gain,
     /// referenced by ID like [`TemporalSamplingSchema`](super::TemporalSamplingSchema) references its
     /// sampling properties.
@@ -303,6 +357,10 @@ pub(crate) struct AudioCapability {
 impl AudioCapability {
     pub(crate) fn inputs(&self) -> &[String] {
         &self.inputs
+    }
+
+    pub(crate) fn files(&self) -> &[FileCapability] {
+        &self.files
     }
 
     pub(crate) fn volume_property(&self) -> &str {
@@ -401,16 +459,57 @@ impl EditorCapability {
     }
 }
 
-#[derive(Clone, Debug, Default, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub(super) struct ItemCapabilities {
-    #[serde(default)]
-    pub(super) files: Vec<FileCapability>,
-    pub(super) visual: Option<VisualCapability>,
-    pub(super) audio: Option<AudioCapability>,
-    pub(super) editor: Option<EditorCapability>,
+pub(crate) const MAX_CAPABILITIES: usize = 8;
+
+pub(super) fn validate_capabilities(
+    owner_kind: &str,
+    owner_id: &str,
+    properties: &[PropertySchema],
+    capabilities: &[Capability],
+) -> Result<(), PluginError> {
+    if capabilities.len() > MAX_CAPABILITIES {
+        return Err(PluginError::invalid_definition(format!(
+            "{owner_kind} '{owner_id}' exceeds {MAX_CAPABILITIES} shader capabilities"
+        )));
+    }
+    let mut ids = HashSet::new();
+    for capability in capabilities {
+        capability.validate(owner_kind, owner_id, properties)?;
+        if !ids.insert(capability.id()) {
+            return Err(PluginError::invalid_definition(format!(
+                "{owner_kind} '{owner_id}' has duplicate capability ID '{}'",
+                capability.id()
+            )));
+        }
+    }
+    Ok(())
 }
 
 const fn default_item_vertex_count() -> u32 {
     6
+}
+
+#[cfg(test)]
+mod tests {
+    use super::Capability;
+
+    #[test]
+    fn media_capability_preserves_flat_manifest_contract() {
+        let source = r#"{
+            "type": "media",
+            "id": "source",
+            "label": "Source",
+            "media_type": "video",
+            "reader": "ffmpeg",
+            "extensions": ["mp4"]
+        }"#;
+        let capability: Capability = serde_json::from_str(source).unwrap();
+        let file = capability.media_file().unwrap();
+        assert_eq!(file.id(), "source");
+        assert_eq!(file.reader(), "ffmpeg");
+        assert_eq!(file.extensions(), ["mp4"]);
+
+        let unknown_field = source.replace("\"reader\"", "\"unexpected\": true, \"reader\"");
+        assert!(serde_json::from_str::<Capability>(&unknown_field).is_err());
+    }
 }

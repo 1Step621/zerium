@@ -149,7 +149,7 @@ impl PropertyInspector {
             item.effects.clone()
         };
         let has_visual = schema
-            .is_some_and(|schema| schema.visual().is_some() && (!multiple || !effects.is_empty()))
+            .is_some_and(|schema| schema.shader().is_some() && (!multiple || !effects.is_empty()))
             || (item.scene_id().is_some() && !multiple);
         let file_inputs = (!multiple)
             .then_some(schema)
@@ -157,7 +157,6 @@ impl PropertyInspector {
             .map(|schema| {
                 schema
                     .files()
-                    .iter()
                     .map(|input| (input.clone(), item.media(input.id()).cloned()))
                     .collect()
             })
@@ -300,7 +299,7 @@ impl PropertyInspector {
             .file_inputs
             .iter()
             .cloned()
-            .map(|file| self.file_input_element(file, &render))
+            .map(|file| self.file_input_element(None, file, &render))
             .collect::<Vec<_>>();
         div()
             .size_full()
@@ -499,6 +498,7 @@ impl PropertyInspector {
 
     fn file_input_element(
         &self,
+        effect_id: Option<EffectInstanceId>,
         (input, media): (FileCapability, Option<MediaAsset>),
         render: &RenderCtx<'_>,
     ) -> gpui::AnyElement {
@@ -528,20 +528,23 @@ impl PropertyInspector {
                     .flex_col()
                     .gap_1()
                     .child(
-                        Button::new(SharedString::from(format!("select-item-file-{input_id}")))
-                            .small()
-                            .label(button_label)
-                            .disabled(self.loading_file)
-                            .on_click(move |event, window, cx| {
-                                inspector.update(cx, |inspector, cx| {
-                                    inspector.choose_file(
-                                        choose_input_id.clone(),
-                                        event,
-                                        window,
-                                        cx,
-                                    );
-                                });
-                            }),
+                        Button::new(SharedString::from(format!(
+                            "select-file-{effect_id:?}-{input_id}"
+                        )))
+                        .small()
+                        .label(button_label)
+                        .disabled(self.loading_file)
+                        .on_click(move |event, window, cx| {
+                            inspector.update(cx, |inspector, cx| {
+                                inspector.choose_file(
+                                    effect_id,
+                                    choose_input_id.clone(),
+                                    event,
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }),
                     )
                     .when_some(details, |this, details| {
                         this.child(
@@ -610,6 +613,28 @@ impl PropertyInspector {
             .into_iter()
             .filter_map(|control| Self::control_element(control, None, render))
             .collect::<Vec<_>>();
+        let files = if view.multiple {
+            Vec::new()
+        } else {
+            view.item
+                .effects
+                .iter()
+                .find(|instance| instance.id == effect_id)
+                .map(|instance| {
+                    instance
+                        .schema()
+                        .files()
+                        .map(|input| {
+                            self.file_input_element(
+                                Some(effect_id),
+                                (input.clone(), instance.assets.get(input.id()).cloned()),
+                                render,
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                })
+                .unwrap_or_default()
+        };
 
         div()
             .w_full()
@@ -629,6 +654,7 @@ impl PropertyInspector {
                 render,
             ))
             .children(controls)
+            .children(files)
             .into_any_element()
     }
 

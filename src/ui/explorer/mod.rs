@@ -211,7 +211,7 @@ impl Explorer {
     fn import_target(&self, path: &Path) -> Option<FileImportTarget> {
         let extension = path.extension()?.to_str()?;
         self.plugins.items().find_map(|(plugin_id, item)| {
-            item.files().iter().find_map(|input| {
+            item.files().find_map(|input| {
                 (input.extensions().is_empty()
                     || input
                         .extensions()

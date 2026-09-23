@@ -8,8 +8,9 @@ use serde::{Deserialize, Deserializer, de::Error as _};
 use super::PluginError;
 use super::abi::PropertyLayout;
 use super::capability::{
-    AudioCapability, FileCapability, ItemCapabilities, MediaType, VisualCapability,
+    AudioCapability, Capability, EditorCapability, FileCapability, MediaType, validate_capabilities,
 };
+use super::shader::ShaderSchema;
 use super::validation::{validate_catalog_entry, validate_property_schemas};
 use crate::domain::property::{PropertySchema, PropertyType, ScalarPropertyType};
 
@@ -20,7 +21,11 @@ pub(crate) struct ItemSchema {
     category: String,
     tags: Vec<String>,
     symbol: String,
-    capabilities: ItemCapabilities,
+    shader: Option<ShaderSchema>,
+    vertex_count: u32,
+    capabilities: Vec<Capability>,
+    audio: Option<AudioCapability>,
+    editor: Option<EditorCapability>,
     properties: Vec<PropertySchema>,
     property_abi: PropertyLayout,
 }
@@ -35,7 +40,13 @@ struct ItemSchemaDefinition {
     tags: Vec<String>,
     symbol: String,
     #[serde(default)]
-    capabilities: ItemCapabilities,
+    shader: Option<ShaderSchema>,
+    #[serde(default = "default_vertex_count")]
+    vertex_count: u32,
+    #[serde(default)]
+    capabilities: Vec<Capability>,
+    audio: Option<AudioCapability>,
+    editor: Option<EditorCapability>,
     #[serde(default)]
     properties: Vec<PropertySchema>,
 }
@@ -61,7 +72,11 @@ impl<'de> Deserialize<'de> for ItemSchema {
             category: definition.category,
             tags: definition.tags,
             symbol: definition.symbol,
+            shader: definition.shader,
+            vertex_count: definition.vertex_count,
             capabilities: definition.capabilities,
+            audio: definition.audio,
+            editor: definition.editor,
             properties: definition.properties,
             property_abi,
         };
@@ -71,6 +86,18 @@ impl<'de> Deserialize<'de> for ItemSchema {
 }
 
 impl ItemSchema {
+    pub(crate) fn shader(&self) -> Option<&ShaderSchema> {
+        self.shader.as_ref()
+    }
+
+    pub(crate) const fn vertex_count(&self) -> u32 {
+        self.vertex_count
+    }
+
+    pub(crate) fn capabilities(&self) -> &[Capability] {
+        &self.capabilities
+    }
+
     pub(crate) fn id(&self) -> &str {
         &self.id
     }
@@ -99,37 +126,19 @@ impl ItemSchema {
         &self.property_abi
     }
 
-    pub(crate) fn files(&self) -> &[FileCapability] {
-        &self.capabilities.files
-    }
-
-    pub(crate) fn visual(&self) -> Option<&VisualCapability> {
-        self.capabilities.visual.as_ref()
-    }
-
-    pub(crate) fn texture_inputs(&self) -> impl Iterator<Item = &FileCapability> {
-        self.files()
+    pub(crate) fn files(&self) -> impl Iterator<Item = &FileCapability> {
+        self.capabilities
             .iter()
-            .filter(|file| matches!(file.media_type(), MediaType::Video | MediaType::Image))
-    }
-
-    pub(crate) fn texture_input_ids(&self) -> Vec<String> {
-        match self.visual() {
-            Some(VisualCapability::Text { .. }) => vec!["text".to_owned()],
-            Some(VisualCapability::RenderResult { .. }) => vec!["render_result".to_owned()],
-            _ => self
-                .texture_inputs()
-                .map(|input| input.id().to_owned())
-                .collect(),
-        }
+            .filter_map(Capability::media_file)
+            .chain(self.audio.iter().flat_map(AudioCapability::files))
     }
 
     pub(crate) fn audio(&self) -> Option<&AudioCapability> {
-        self.capabilities.audio.as_ref()
+        self.audio.as_ref()
     }
 
     pub(crate) fn file(&self, id: &str) -> Option<&FileCapability> {
-        self.files().iter().find(|file| file.id() == id)
+        self.files().find(|file| file.id() == id)
     }
 
     pub(super) fn validate(&self) -> Result<(), PluginError> {
@@ -140,32 +149,36 @@ impl ItemSchema {
                 self.id
             )));
         }
-        if self.capabilities == ItemCapabilities::default() {
+        if self.shader.is_none() && self.audio.is_none() && self.editor.is_none() {
             return Err(PluginError::invalid_definition(format!(
-                "item '{}' must define at least one capability",
+                "item '{}' must define a shader, audio role, or editor role",
                 self.id
             )));
         }
+        if let Some(shader) = &self.shader {
+            shader.validate("item", &self.id)?;
+            if self.vertex_count == 0 {
+                return Err(PluginError::invalid_definition(format!(
+                    "item '{}' vertex count must be non-zero",
+                    self.id
+                )));
+            }
+        } else if !self.capabilities.is_empty() {
+            return Err(PluginError::invalid_definition(format!(
+                "item '{}' has capabilities without a shader",
+                self.id
+            )));
+        }
+        validate_capabilities("item", &self.id, &self.properties, &self.capabilities)?;
         let mut file_ids = HashSet::new();
-        let mut media_symbols =
-            HashSet::from(["media_inputs".to_owned(), "media_sampler".to_owned()]);
         for file in self.files() {
-            file.validate(&self.id)?;
+            file.validate("item", &self.id)?;
             if !file_ids.insert(file.id()) {
                 return Err(PluginError::invalid_definition(format!(
                     "item '{}' has duplicate file input '{}'",
                     self.id,
                     file.id()
                 )));
-            }
-            for symbol in file.media_binding_symbols() {
-                if !media_symbols.insert(symbol.clone()) {
-                    return Err(PluginError::invalid_definition(format!(
-                        "item '{}' file input '{}' conflicts with media shader symbol '{symbol}'",
-                        self.id,
-                        file.id()
-                    )));
-                }
             }
         }
         if let Some(audio) = self.audio() {
@@ -212,22 +225,6 @@ impl ItemSchema {
         }
         for file in self.files() {
             match file.media_type() {
-                MediaType::Video
-                    if !matches!(self.visual(), Some(VisualCapability::Media { .. })) =>
-                {
-                    return Err(PluginError::invalid_definition(format!(
-                        "video item '{}' must define a texture visual capability",
-                        self.id
-                    )));
-                }
-                MediaType::Image
-                    if !matches!(self.visual(), Some(VisualCapability::Media { .. })) =>
-                {
-                    return Err(PluginError::invalid_definition(format!(
-                        "image item '{}' must define a texture visual capability",
-                        self.id
-                    )));
-                }
                 MediaType::Audio
                     if !self.audio().is_some_and(|audio| audio.consumes(file.id())) =>
                 {
@@ -241,11 +238,8 @@ impl ItemSchema {
         }
 
         validate_property_schemas("item", &self.id, &self.properties)?;
-        if let Some(editor) = &self.capabilities.editor {
+        if let Some(editor) = &self.editor {
             editor.validate(self)?;
-        }
-        if let Some(visual) = self.visual() {
-            visual.validate(self)?;
         }
         Ok(())
     }
@@ -255,8 +249,7 @@ impl ItemSchema {
     }
 
     pub(crate) fn size_property(&self) -> Option<&PropertySchema> {
-        self.capabilities
-            .editor
+        self.editor
             .as_ref()?
             .size
             .as_deref()
@@ -264,8 +257,7 @@ impl ItemSchema {
     }
 
     pub(crate) fn position_property(&self) -> Option<&PropertySchema> {
-        self.capabilities
-            .editor
+        self.editor
             .as_ref()?
             .position
             .as_deref()
@@ -273,8 +265,7 @@ impl ItemSchema {
     }
 
     pub(crate) fn points_property(&self) -> Option<&PropertySchema> {
-        self.capabilities
-            .editor
+        self.editor
             .as_ref()?
             .points
             .as_deref()
@@ -282,8 +273,7 @@ impl ItemSchema {
     }
 
     pub(crate) fn label_property(&self) -> Option<&PropertySchema> {
-        self.capabilities
-            .editor
+        self.editor
             .as_ref()?
             .label
             .as_deref()
@@ -295,12 +285,15 @@ impl ItemSchema {
     }
 
     pub(crate) fn is_size_property(&self, property_id: &str) -> bool {
-        self.capabilities
-            .editor
+        self.editor
             .as_ref()
             .and_then(|editor| editor.size.as_deref())
             == Some(property_id)
     }
+}
+
+const fn default_vertex_count() -> u32 {
+    6
 }
 
 impl super::PluginCatalogEntry for ItemSchema {
