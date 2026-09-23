@@ -3,11 +3,9 @@ use gpui::{Context, Entity};
 use crate::domain::timeline::TimelineEditor;
 
 pub(crate) mod animation_curve;
-mod animation_presentation;
-pub(crate) use animation_presentation::AnimationPresentation;
+mod animation_source;
 pub(crate) mod explorer;
 pub(crate) mod export;
-mod inspector_path;
 mod pane;
 pub(crate) mod preview;
 pub(crate) mod property_inspector;

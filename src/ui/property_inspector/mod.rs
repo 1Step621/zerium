@@ -2,14 +2,13 @@ mod control;
 mod edit;
 mod model;
 mod numeric;
+mod path;
 mod render;
 mod rows;
 mod scene_args;
 mod state;
-pub(super) use crate::ui::animation_presentation::{
-    NumberSpec, number_animation_source, number_spec,
-};
-use numeric::NumericInput;
+pub(super) use crate::ui::animation_source::number_animation_source;
+use numeric::{NumericInput, NumericInputSpec, numeric_input_spec};
 
 use std::collections::{HashMap, HashSet};
 
@@ -43,15 +42,15 @@ use crate::domain::timeline::{
 use crate::engine::media::MediaReaderRegistry;
 use crate::ui::TimelineEditorEntityExt as _;
 use crate::ui::animation_curve::AnimationSelection;
-use crate::ui::inspector_path::InspectorPath;
 use crate::ui::pane::pane_header;
 use crate::ui::search_picker::{SearchPicker, SearchPickerEntry};
 use crate::ui::session::UiNotifications;
+use path::InspectorPath;
 
 pub(super) type EffectPickerTarget = (String, String);
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(super) enum ControlId {
+enum ControlId {
     Property(InspectorPath),
     AnimationStop {
         property: InspectorPath,
@@ -84,51 +83,51 @@ pub(super) enum ControlId {
 }
 
 impl ControlId {
-    pub(super) fn property(path: &InspectorPath) -> Self {
+    fn property(path: &InspectorPath) -> Self {
         Self::Property(path.clone())
     }
 
-    pub(super) fn animation_stop(path: &InspectorPath, stop: usize) -> Self {
+    fn animation_stop(path: &InspectorPath, stop: usize) -> Self {
         Self::AnimationStop {
             property: path.clone(),
             stop,
         }
     }
 
-    pub(super) fn group(path: &InspectorPath) -> Self {
+    fn group(path: &InspectorPath) -> Self {
         Self::Group(path.clone())
     }
 
-    pub(super) fn scene_name(scene_id: SceneId) -> Self {
+    fn scene_name(scene_id: SceneId) -> Self {
         Self::SceneName(scene_id)
     }
 
-    pub(super) fn effect_group(effect_id: EffectInstanceId) -> Self {
+    fn effect_group(effect_id: EffectInstanceId) -> Self {
         Self::EffectGroup(effect_id)
     }
 
-    pub(super) fn scene_argument_name(scene_id: SceneId, argument_id: &str) -> Self {
+    fn scene_argument_name(scene_id: SceneId, argument_id: &str) -> Self {
         Self::SceneArgumentName {
             scene_id,
             argument_id: argument_id.to_owned(),
         }
     }
 
-    pub(super) fn scene_argument_expression(scene_id: SceneId, argument_id: &str) -> Self {
+    fn scene_argument_expression(scene_id: SceneId, argument_id: &str) -> Self {
         Self::SceneArgumentExpression {
             scene_id,
             argument_id: argument_id.to_owned(),
         }
     }
 
-    pub(super) fn scene_argument_default(scene_id: SceneId, argument_id: &str) -> Self {
+    fn scene_argument_default(scene_id: SceneId, argument_id: &str) -> Self {
         Self::SceneArgumentDefault {
             scene_id,
             argument_id: argument_id.to_owned(),
         }
     }
 
-    pub(super) fn scene_argument_setting(
+    fn scene_argument_setting(
         scene_id: SceneId,
         argument_id: &str,
         setting: SceneArgumentSetting,
@@ -140,7 +139,7 @@ impl ControlId {
         }
     }
 
-    pub(super) fn scene_argument_color(scene_id: SceneId, argument_id: &str) -> Self {
+    fn scene_argument_color(scene_id: SceneId, argument_id: &str) -> Self {
         Self::SceneArgumentColor {
             scene_id,
             argument_id: argument_id.to_owned(),
@@ -149,38 +148,39 @@ impl ControlId {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct PropertyTarget {
-    pub key: InspectorPath,
-    pub property_id: String,
-    pub effect_id: Option<EffectInstanceId>,
-    pub path: InspectorPath,
+struct PropertyTarget {
+    key: InspectorPath,
+    property_id: String,
+    effect_id: Option<EffectInstanceId>,
+    element_id: Option<PropertyElementId>,
+    scalar_index: Option<usize>,
 }
 
 impl PropertyTarget {
-    pub(super) fn address(&self, item_id: ItemId) -> PropertyAddress {
+    fn address(&self, item_id: ItemId) -> PropertyAddress {
         PropertyAddress {
             item_id,
             effect_id: self.effect_id,
             property_id: self.property_id.clone(),
-            element_id: self.path.element_id(),
-            scalar_index: self.path.scalar_index(),
+            element_id: self.element_id,
+            scalar_index: self.scalar_index,
         }
     }
 
-    pub(super) fn matches_address(&self, item_id: ItemId, address: &PropertyAddress) -> bool {
+    fn matches_address(&self, item_id: ItemId, address: &PropertyAddress) -> bool {
         address.item_id == item_id
             && address.effect_id == self.effect_id
             && address.property_id == self.property_id
-            && address.element_id == self.path.element_id()
-            && address.scalar_index == self.path.scalar_index()
+            && address.element_id == self.element_id
+            && address.scalar_index == self.scalar_index
     }
 
-    pub(super) fn animation_enabled(&self, item: &TimelineItem) -> bool {
+    fn animation_enabled(&self, item: &TimelineItem) -> bool {
         item.animation_track(
             self.effect_id,
             &self.property_id,
-            self.path.element_id(),
-            self.path.scalar_index(),
+            self.element_id,
+            self.scalar_index,
         )
         .is_some()
     }
@@ -227,7 +227,7 @@ impl AspectRatioLockState {
 }
 
 #[derive(Clone)]
-pub(super) struct PropertyBinding {
+struct PropertyBinding {
     pub item_id: ItemId,
     pub target: PropertyTarget,
 }
@@ -262,13 +262,13 @@ impl AnimationStopBinding {
 }
 
 #[derive(Clone)]
-pub(super) struct PropertyValueDrag {
+struct PropertyValueDrag {
     pub inspector_id: EntityId,
     pub input_id: ControlId,
 }
 
 #[derive(Clone)]
-pub(super) struct PropertyValueDragOrigin {
+struct PropertyValueDragOrigin {
     pub target: PropertyTarget,
     pub input_id: ControlId,
     pub animation_stop: Option<AnimationStopBinding>,

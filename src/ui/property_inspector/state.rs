@@ -81,7 +81,7 @@ impl PropertyInspector {
                 .and_then(|effect| effect.properties.property(&target.property_id)),
             None => item.properties.property(&target.property_id),
         };
-        let value = match target.path.element_id() {
+        let value = match target.element_id {
             Some(id) => match value? {
                 PropertyValue::Array(values) => {
                     values.iter().find(|row| row.element_id() == id)?.value()
@@ -90,7 +90,7 @@ impl PropertyInspector {
             },
             None => value?,
         }
-        .scalar_at(target.path.scalar_index())?;
+        .scalar_at(target.scalar_index)?;
         match value {
             PropertyValue::Color(color) => Some(*color),
             _ => None,

@@ -393,62 +393,6 @@ impl TimelineEditor {
         }
     }
 
-    pub(crate) fn add_scene_argument(
-        &mut self,
-        target: SceneBindingTarget,
-    ) -> Result<String, SceneArgumentEditError> {
-        let scene_id = self
-            .active_scene_id()
-            .ok_or(SceneArgumentEditError::NoActiveScene)?;
-        let scene = self
-            .project()
-            .scenes
-            .get(&scene_id)
-            .ok_or(SceneArgumentEditError::NoActiveScene)?;
-        if scene
-            .arguments
-            .iter()
-            .flat_map(|argument| &argument.bindings)
-            .any(|binding| binding == &target)
-        {
-            return Err(SceneArgumentEditError::TargetAlreadyBound);
-        }
-        let resolved = resolve_scene_binding(&self.project().scenes, scene, &target)
-            .ok_or(SceneArgumentEditError::TargetNotFound)?;
-        let item = scene
-            .document()
-            .item(target.item_id())
-            .ok_or(SceneArgumentEditError::TargetNotFound)?;
-        if target.conflicts_with_aspect_ratio_lock(item, item.aspect_ratio_locked) {
-            return Err(SceneArgumentEditError::IncompatibleContract);
-        }
-        if resolved.animated {
-            return Err(SceneArgumentEditError::TargetAnimated);
-        }
-        if !resolved.schema.is_scene_bindable(None) {
-            return Err(SceneArgumentEditError::TargetNotBindable);
-        }
-        let before = self.history_snapshot();
-        let scene = self
-            .project_mut()
-            .scenes
-            .get_mut(&scene_id)
-            .ok_or(SceneArgumentEditError::NoActiveScene)?;
-        let (argument_id, _) = scene.allocate_argument_id();
-        let label =
-            unique_scene_argument_name(&scene.arguments, resolved.schema.label(), &argument_id);
-        let schema = resolved
-            .schema
-            .for_scene_argument()
-            .ok_or(SceneArgumentEditError::IncompatibleContract)?
-            .with_scene_identity(argument_id.clone(), label);
-        scene
-            .arguments
-            .push(SceneArgument::input(schema, vec![target]));
-        self.finish_project_edit(Some(before), None);
-        Ok(argument_id)
-    }
-
     pub(crate) fn create_scene_argument(&mut self, preset: SceneArgumentPreset) -> Option<String> {
         let scene_id = self.active_scene_id()?;
         let before = self.history_snapshot();

@@ -3,7 +3,7 @@ use super::*;
 impl PropertyInspector {
     pub(super) fn number_full_row(
         common: &LeafControl,
-        spec: &NumberSpec,
+        spec: &NumericInputSpec,
         input: &Entity<InputState>,
         animation_enabled: bool,
         binding: Option<SceneFieldBinding>,
@@ -18,11 +18,9 @@ impl PropertyInspector {
             .is_some_and(|binding| binding.connected.is_some());
         let select_inspector = ctx.inspector.clone();
         let select_target = common.target.clone();
-        let select_spec = spec.clone();
         let animation_button = (common.animatable && !is_bound).then(|| {
             Self::number_animation_toggle(
                 &common.target,
-                spec,
                 animation_enabled,
                 if animation_enabled {
                     "アニメーションを解除".to_owned()
@@ -63,11 +61,7 @@ impl PropertyInspector {
                                 .when(!common.read_only, |this| {
                                     this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
                                         select_inspector.update(cx, |inspector, cx| {
-                                            inspector.select_number_animation(
-                                                &select_target,
-                                                &select_spec,
-                                                cx,
-                                            );
+                                            inspector.select_number_animation(&select_target, cx);
                                         });
                                     })
                                 })
@@ -81,7 +75,7 @@ impl PropertyInspector {
 
     pub(super) fn number_compact_row(
         common: &LeafControl,
-        spec: &NumberSpec,
+        spec: &NumericInputSpec,
         input: &Entity<InputState>,
         size_locked: bool,
         ctx: &RenderCtx,
@@ -98,13 +92,11 @@ impl PropertyInspector {
                 SharedString::from(format!("bind-scene-argument-{}", common.target.key)),
             )
         });
-        let disabled =
-            common.read_only || size_locked && common.target.path.scalar_index() == Some(1);
+        let disabled = common.read_only || size_locked && common.target.scalar_index == Some(1);
         let animation_visible = coordinate_animation_enabled;
         let animation_button = (common.animatable && !is_bound).then(|| {
             Self::coordinate_animation_toggle(
                 &common.target,
-                spec,
                 coordinate_animation_enabled,
                 disabled,
                 animation_visible,
@@ -114,7 +106,6 @@ impl PropertyInspector {
         let value_input = Self::number_editor(common, spec, input, disabled, ctx);
         let select_inspector = ctx.inspector.clone();
         let select_target = common.target.clone();
-        let select_spec = spec.clone();
         let row = div()
             .min_w_0()
             .w_full()
@@ -127,7 +118,7 @@ impl PropertyInspector {
             .when(!common.read_only, |this| {
                 this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
                     select_inspector.update(cx, |inspector, cx| {
-                        inspector.select_number_animation(&select_target, &select_spec, cx);
+                        inspector.select_number_animation(&select_target, cx);
                     });
                 })
             })

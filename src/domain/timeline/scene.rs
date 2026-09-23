@@ -398,12 +398,6 @@ impl PropertySchema {
         Some(next)
     }
 
-    pub(crate) fn with_scene_identity(mut self, id: String, label: String) -> Self {
-        self.id = id;
-        self.label = label;
-        self
-    }
-
     fn into_scene_expression(mut self) -> Option<Self> {
         if self.ty() != &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::F32)) {
             return None;

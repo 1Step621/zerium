@@ -30,7 +30,7 @@ pub(super) struct AnimationStopControl {
 #[derive(Clone)]
 pub(super) struct NumberControl {
     pub common: LeafControl,
-    pub spec: NumberSpec,
+    pub spec: NumericInputSpec,
 }
 
 #[derive(Clone)]
@@ -290,7 +290,7 @@ impl PropertyInspector {
         }
     }
 
-    pub(super) fn normalize_field_value(spec: &NumberSpec, value: f64) -> f64 {
+    pub(super) fn normalize_field_value(spec: &NumericInputSpec, value: f64) -> f64 {
         model::snap_to_step(value, spec.step).clamp(spec.min, spec.max)
     }
 
@@ -333,7 +333,8 @@ impl PropertyInspector {
                 key: key.clone(),
                 property_id: property.id().to_owned(),
                 effect_id,
-                path: InspectorPath::new(element_id, scalar_index),
+                element_id,
+                scalar_index,
             },
             label,
             scalar_label: property.configuration_label(scalar_index),
@@ -354,7 +355,6 @@ impl PropertyInspector {
         value: &PropertyValue,
         effect_id: Option<EffectInstanceId>,
         element: Option<(usize, PropertyElementId)>,
-        is_size: bool,
         resolution: &ControlResolution<'_>,
     ) -> Vec<Control> {
         if !property.is_visible() {
@@ -406,7 +406,7 @@ impl PropertyInspector {
                         _value,
                     ) => Control::Number(NumberControl {
                         common,
-                        spec: number_spec(property, scalar_index, is_size)?,
+                        spec: numeric_input_spec(property, scalar_index)?,
                     }),
                     (ScalarPropertyType::Color, PropertyValue::Color(_)) => {
                         Control::Color(ColorControl { common })
@@ -474,7 +474,6 @@ impl PropertyInspector {
             value,
             owner.effect_id(),
             None,
-            owner.is_size(property.id()),
             resolution,
         );
         if matches!(
@@ -528,7 +527,8 @@ impl PropertyInspector {
             key: key.clone(),
             property_id: property.id().to_owned(),
             effect_id: owner.effect_id(),
-            path: key.clone(),
+            element_id: None,
+            scalar_index: None,
         };
         let has_scene_binding = resolution.arguments.iter().any(|argument| {
             argument.bindings.iter().any(|binding| {
@@ -548,7 +548,6 @@ impl PropertyInspector {
                     element.value(),
                     owner.effect_id(),
                     Some((element_index, element.element_id())),
-                    false,
                     resolution,
                 );
                 Control::Group {
@@ -610,8 +609,7 @@ impl PropertyInspector {
         resolution: &ControlResolution<'_>,
     ) -> Vec<Control> {
         let key = InspectorPath::scene_property(scene_id.get(), property.id());
-        let controls =
-            Self::scalar_controls(key.clone(), property, value, None, None, false, resolution);
+        let controls = Self::scalar_controls(key.clone(), property, value, None, None, resolution);
         if matches!(
             property.ty(),
             PropertyType::Value(PropertyValueType::Tuple(_))
@@ -665,8 +663,8 @@ impl PropertyInspector {
                 resolution.item.id,
                 SceneBindingOwner::from_effect(common.target.effect_id),
                 common.target.property_id.clone(),
-                common.target.path.element_id(),
-                common.target.path.scalar_index(),
+                common.target.element_id,
+                common.target.scalar_index,
             ),
             &PropertyType::Value(PropertyValueType::Scalar(scalar_type)),
             resolution.arguments,
@@ -679,7 +677,7 @@ impl PropertyInspector {
                 selected
                     .properties
                     .property(&common.target.property_id)
-                    .and_then(|value| value.scalar_at(common.target.path.scalar_index()))
+                    .and_then(|value| value.scalar_at(common.target.scalar_index))
                     != Some(&PropertyValue::Bool(value))
             });
         }
@@ -735,7 +733,6 @@ impl PropertyInspector {
                 let animation_source = number_animation_source(
                     resolution.item,
                     &number.common.target.address(resolution.item.id),
-                    &number.spec,
                 );
                 let animation_enabled = animation_source.is_some();
                 Self::resolve_common(
@@ -750,9 +747,9 @@ impl PropertyInspector {
                         Self::animation_stop_controls(
                             resolution.item,
                             number.common.target.effect_id,
-                            &source.property_id,
-                            source.element_id,
-                            source.scalar_index,
+                            &source.address.property_id,
+                            source.address.element_id,
+                            source.address.scalar_index,
                             &number.common.target.key,
                             source.value_factor,
                             resolution.playhead,
@@ -788,8 +785,8 @@ impl PropertyInspector {
                         resolution.item,
                         color.common.target.effect_id,
                         &color.common.target.property_id,
-                        color.common.target.path.element_id(),
-                        color.common.target.path.scalar_index(),
+                        color.common.target.element_id,
+                        color.common.target.scalar_index,
                         &color.common.target.key,
                         1.,
                         resolution.playhead,
@@ -820,7 +817,10 @@ impl PropertyInspector {
             .iter()
             .filter(|argument| argument.schema.ty() == ty)
             .map(|argument| (argument.id.clone(), argument.label.clone()))
-            .collect();
+            .collect::<Vec<_>>();
+        if connected.is_none() && compatible.is_empty() {
+            return None;
+        }
         Some(SceneFieldBinding {
             target,
             connected,

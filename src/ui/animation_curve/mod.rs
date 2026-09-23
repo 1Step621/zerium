@@ -2,10 +2,12 @@ mod canvas;
 mod curve;
 mod editing;
 mod grid;
+mod presentation;
 mod render;
 mod selection;
 mod viewport;
 
+use presentation::AnimationPresentation;
 pub(crate) use selection::AnimationSelection;
 
 use std::cell::Cell;
@@ -31,7 +33,6 @@ use super::{
     time_grid,
     transport::{ScrubSource, TransportController},
 };
-use crate::ui::AnimationPresentation;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum CurvePoint {

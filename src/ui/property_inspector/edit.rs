@@ -25,22 +25,6 @@ impl PropertyInspector {
         })
     }
 
-    fn write_scalar(
-        editor: &mut TimelineEditor,
-        effect_id: Option<EffectInstanceId>,
-        property_id: &str,
-        path: InspectorPath,
-        value: PropertyValue,
-    ) -> bool {
-        editor.update_selected_scalar(
-            effect_id,
-            property_id,
-            path.element_id(),
-            path.scalar_index(),
-            value,
-        )
-    }
-
     /// The single domain write channel for every resolved scalar control.
     /// Parsing, clamping, and event filtering stay at the UI boundary; this
     /// method only applies the already validated value to the current
@@ -52,11 +36,11 @@ impl PropertyInspector {
         cx: &mut Context<Self>,
     ) -> bool {
         self.editor.update_if_changed(cx, |editor| {
-            Self::write_scalar(
-                editor,
+            editor.update_selected_scalar(
                 target.effect_id,
                 &target.property_id,
-                target.path.clone(),
+                target.element_id,
+                target.scalar_index,
                 value,
             )
         })
@@ -72,19 +56,17 @@ impl PropertyInspector {
                 .property(&target.property_id)?,
             None => item.properties.property(&target.property_id)?,
         };
-        match target.path.element_id() {
+        match target.element_id {
             Some(id) => match value {
                 PropertyValue::Array(values) => values
                     .iter()
                     .find(|element| element.element_id() == id)?
                     .value()
-                    .scalar_at(target.path.scalar_index())?
+                    .scalar_at(target.scalar_index)?
                     .numeric_scalar(),
                 _ => None,
             },
-            None => value
-                .scalar_at(target.path.scalar_index())?
-                .numeric_scalar(),
+            None => value.scalar_at(target.scalar_index)?.numeric_scalar(),
         }
     }
 
@@ -104,7 +86,7 @@ impl PropertyInspector {
                     .property(&target.property_id)?,
                 None => item.properties.property(&target.property_id)?,
             };
-            let current = match target.path.element_id() {
+            let current = match target.element_id {
                 Some(id) => match current {
                     PropertyValue::Array(values) => values
                         .iter()
@@ -115,7 +97,7 @@ impl PropertyInspector {
                 None => current,
             };
             current
-                .scalar_at(target.path.scalar_index())?
+                .scalar_at(target.scalar_index)?
                 .with_numeric_scalar(value)
         }) else {
             return false;
@@ -127,7 +109,7 @@ impl PropertyInspector {
     pub(super) fn apply_scalar_text(
         &mut self,
         target: &PropertyTarget,
-        spec: &NumberSpec,
+        spec: &NumericInputSpec,
         input: &Entity<InputState>,
         event: &InputEvent,
         window: &mut Window,
@@ -162,7 +144,7 @@ impl PropertyInspector {
     pub(super) fn apply_scalar_step(
         &mut self,
         target: &PropertyTarget,
-        spec: &NumberSpec,
+        spec: &NumericInputSpec,
         input: &Entity<InputState>,
         event: &NumberInputEvent,
         _window: &mut Window,
@@ -262,7 +244,7 @@ impl PropertyInspector {
     pub(super) fn apply_animation_stop_text(
         &mut self,
         binding: &AnimationStopBinding,
-        spec: &NumberSpec,
+        spec: &NumericInputSpec,
         input: &Entity<InputState>,
         event: &InputEvent,
         window: &mut Window,
@@ -293,7 +275,7 @@ impl PropertyInspector {
     pub(super) fn apply_animation_stop_step(
         &mut self,
         binding: &AnimationStopBinding,
-        spec: &NumberSpec,
+        spec: &NumericInputSpec,
         input: &Entity<InputState>,
         event: &NumberInputEvent,
         _window: &mut Window,
@@ -446,7 +428,7 @@ impl PropertyInspector {
     pub(super) fn prepare_value_drag(
         &mut self,
         target: &PropertyTarget,
-        spec: &NumberSpec,
+        spec: &NumericInputSpec,
         input_id: &ControlId,
         animation_stop: Option<AnimationStopBinding>,
         event: &MouseDownEvent,
@@ -485,27 +467,18 @@ impl PropertyInspector {
     pub(super) fn select_number_animation(
         &mut self,
         target: &PropertyTarget,
-        spec: &NumberSpec,
         cx: &mut Context<Self>,
     ) {
         let selected_items = self.editor.read(cx).selected_items();
-        let target = match selected_items.as_slice() {
+        let address = match selected_items.as_slice() {
             [item] => {
-                number_animation_source(item, &target.address(item.id), spec).map(|display| {
-                    PropertyAddress {
-                        item_id: item.id,
-                        effect_id: target.effect_id,
-                        property_id: display.property_id,
-                        element_id: display.element_id,
-                        scalar_index: display.scalar_index,
-                    }
-                })
+                number_animation_source(item, &target.address(item.id)).map(|source| source.address)
             }
             _ => None,
         };
         self.animation_selection
-            .update(cx, |selection, cx| match target {
-                Some(target) => selection.select(target, cx),
+            .update(cx, |selection, cx| match address {
+                Some(address) => selection.select(address, cx),
                 None => selection.clear(cx),
             });
     }
@@ -513,7 +486,6 @@ impl PropertyInspector {
     pub(super) fn set_number_animation_enabled(
         &mut self,
         target: &PropertyTarget,
-        spec: &NumberSpec,
         enabled: bool,
         _window: &mut Window,
         cx: &mut Context<Self>,
@@ -523,12 +495,12 @@ impl PropertyInspector {
         };
         let mut resolved = target.clone();
         if !enabled {
-            let Some(display) = number_animation_source(&item, &target.address(item.id), spec)
-            else {
+            let Some(display) = number_animation_source(&item, &target.address(item.id)) else {
                 return;
             };
-            resolved.property_id = display.property_id;
-            resolved.path = InspectorPath::new(display.element_id, display.scalar_index);
+            resolved.property_id = display.address.property_id;
+            resolved.element_id = display.address.element_id;
+            resolved.scalar_index = display.address.scalar_index;
         }
         self.set_animation_enabled(&resolved, enabled, _window, cx);
     }

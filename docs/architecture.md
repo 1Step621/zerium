@@ -74,9 +74,11 @@ animation module owns interpolation and track rules.
 
 `PropertyAddress` identifies an item, effect, property, array element, and
 scalar independently of inspector widget identity. `InspectorPath` remains a
-PropertyInspector-only key for row state. Shared animation presentation
-calculations accept a `PropertyAddress` in `ui::animation_presentation`, so the
-shared module does not depend on either PropertyInspector or AnimationCurve.
+PropertyInspector-only key for row state; the inspector keeps editable scalar
+coordinates separately. `ui::property_presentation` resolves numeric display
+rules, while `ui::animation_presentation` resolves animation labels and source
+addresses from a `PropertyAddress`. Neither shared module depends on an
+inspector or curve component.
 
 ## Plugins and persistence
 

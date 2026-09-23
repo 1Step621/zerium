@@ -195,28 +195,10 @@ impl PropertyInspector {
                     ));
                 }
 
-                let inspector = menu_inspector.clone();
-                let target = binding.target.clone();
-                binding.compatible.iter().fold(
-                    menu.item(PopupMenuItem::new("この値から新しい引数を作成").on_click(
-                        move |_, _, cx| {
-                            inspector.update(cx, |inspector, cx| {
-                                let result = inspector.editor.update(cx, |editor, cx| {
-                                    let result = editor.add_scene_argument(target.clone());
-                                    if result.is_ok() {
-                                        cx.notify();
-                                    }
-                                    result
-                                });
-                                if result.is_err() {
-                                    inspector.notifications.update(cx, |notifications, cx| {
-                                        notifications.push("シーン引数を作成できません", cx);
-                                    });
-                                }
-                            });
-                        },
-                    )),
-                    |menu, (argument_id, label)| {
+                binding
+                    .compatible
+                    .iter()
+                    .fold(menu, |menu, (argument_id, label)| {
                         let inspector = menu_inspector.clone();
                         let argument_id = argument_id.clone();
                         let target = binding.target.clone();
@@ -237,8 +219,7 @@ impl PropertyInspector {
                                 }
                             });
                         }))
-                    },
-                )
+                    })
             })
             .into_any_element()
     }
@@ -255,14 +236,12 @@ impl PropertyInspector {
 
     fn number_animation_toggle(
         target: &PropertyTarget,
-        spec: &NumberSpec,
         enabled: bool,
         tooltip: String,
         inspector: &Entity<Self>,
     ) -> Button {
         let inspector = inspector.clone();
         let target = target.clone();
-        let spec = spec.clone();
         Self::keyframe_base(
             SharedString::from(format!("toggle-animation-{}", target.key)),
             enabled,
@@ -270,14 +249,13 @@ impl PropertyInspector {
         )
         .on_click(move |_, window, cx| {
             inspector.update(cx, |inspector, cx| {
-                inspector.set_number_animation_enabled(&target, &spec, !enabled, window, cx);
+                inspector.set_number_animation_enabled(&target, !enabled, window, cx);
             });
         })
     }
 
     fn coordinate_animation_toggle(
         target: &PropertyTarget,
-        spec: &NumberSpec,
         enabled: bool,
         disabled: bool,
         visible: bool,
@@ -285,7 +263,6 @@ impl PropertyInspector {
     ) -> Button {
         let inspector = inspector.clone();
         let target = target.clone();
-        let spec = spec.clone();
         Self::keyframe_base(
             SharedString::from(format!("toggle-animation-{}", target.key)),
             visible,
@@ -302,7 +279,7 @@ impl PropertyInspector {
             button.on_click(move |_, window, cx| {
                 cx.stop_propagation();
                 inspector.update(cx, |inspector, cx| {
-                    inspector.set_number_animation_enabled(&target, &spec, !enabled, window, cx);
+                    inspector.set_number_animation_enabled(&target, !enabled, window, cx);
                 });
             })
         })
@@ -455,7 +432,8 @@ impl PropertyInspector {
                         .collect::<Vec<_>>();
                     let picker_inspector = ctx.inspector.clone();
                     let mut picker_target = group.target.clone();
-                    picker_target.path = InspectorPath::new(Some(row.element_id()), None);
+                    picker_target.element_id = Some(row.element_id());
+                    picker_target.scalar_index = None;
                     let label = if selected_font.is_empty() {
                         "フォントを選択".to_owned()
                     } else {
@@ -658,7 +636,7 @@ impl PropertyInspector {
         ctx: &RenderCtx,
     ) -> Option<(gpui::AnyElement, bool)> {
         match control {
-            Control::Number(number) if number.common.target.path.scalar_index().is_some() => {
+            Control::Number(number) if number.common.target.scalar_index.is_some() => {
                 let input = ctx.store.text(&number.common.id)?;
                 Some(Self::number_compact_row(
                     &number.common,
@@ -705,7 +683,7 @@ impl PropertyInspector {
     ) -> Option<(gpui::AnyElement, bool)> {
         let common = &number.common;
         let spec = &number.spec;
-        let component = common.target.path.scalar_index();
+        let component = common.target.scalar_index;
         let input = ctx.store.text(&common.id)?;
         let animation_enabled = common.animation_enabled;
         let binding = common.binding.clone();
@@ -726,7 +704,6 @@ impl PropertyInspector {
         let animation_button = (common.animatable && !component_is_bound).then(|| {
             Self::number_animation_toggle(
                 &common.target,
-                spec,
                 animation_enabled,
                 if animation_enabled {
                     "この座標のアニメーションを解除".to_owned()
@@ -738,7 +715,6 @@ impl PropertyInspector {
         });
         let select_inspector = ctx.inspector.clone();
         let select_target = common.target.clone();
-        let select_spec = spec.clone();
         let row = div()
             .min_w_0()
             .w_full()
@@ -754,7 +730,7 @@ impl PropertyInspector {
                         .flex_1()
                         .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                             select_inspector.update(cx, |inspector, cx| {
-                                inspector.select_number_animation(&select_target, &select_spec, cx);
+                                inspector.select_number_animation(&select_target, cx);
                             });
                         })
                         .child(value_input),

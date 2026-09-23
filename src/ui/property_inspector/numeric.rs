@@ -1,5 +1,56 @@
 use super::*;
 
+/// Numeric display rules used by PropertyInspector input controls.
+#[derive(Clone)]
+pub(super) struct NumericInputSpec {
+    pub suffix: String,
+    pub min: f64,
+    pub max: f64,
+    pub step: f64,
+    pub scalar_type: ScalarPropertyType,
+}
+
+pub(super) fn numeric_input_spec(
+    property: &PropertySchema,
+    scalar_index: Option<usize>,
+) -> Option<NumericInputSpec> {
+    if !property.is_visible() || !property.configuration_ui(scalar_index).is_visible() {
+        return None;
+    }
+    let value_type = match property.ty() {
+        PropertyType::Value(value_type)
+        | PropertyType::Array {
+            element_type: value_type,
+            ..
+        } => value_type,
+    };
+    let scalar_type = value_type.scalar_at(scalar_index)?.clone();
+    let (type_min, type_max) = match &scalar_type {
+        ScalarPropertyType::F32 => (f64::from(f32::MIN), f64::from(f32::MAX)),
+        ScalarPropertyType::I32 => (f64::from(i32::MIN), f64::from(i32::MAX)),
+        ScalarPropertyType::U32 => (0., f64::from(u32::MAX)),
+        _ => return None,
+    };
+    let constraints = property.configuration_constraints(scalar_index);
+    let ui = property.configuration_ui(scalar_index);
+    let min = constraints.min.unwrap_or(type_min).max(type_min);
+    let max = constraints.max.unwrap_or(type_max).min(type_max);
+    let step = f64::from(ui.step());
+    let (min, max, step) = match &scalar_type {
+        ScalarPropertyType::I32 | ScalarPropertyType::U32 => {
+            (min.ceil(), max.floor(), step.max(1.))
+        }
+        _ => (min, max, step),
+    };
+    Some(NumericInputSpec {
+        suffix: ui.unit().to_owned(),
+        min,
+        max,
+        step,
+        scalar_type,
+    })
+}
+
 #[derive(Clone)]
 pub(super) struct NumericInput {
     pub(super) scalar: ScalarPropertyType,

@@ -115,7 +115,7 @@ impl AnimationCurveEditor {
         if item.id != address.item_id {
             return None;
         }
-        let presentation = crate::ui::animation_presentation::calculate(editor, &item, &address)?;
+        let presentation = AnimationPresentation::for_address(editor, &item, &address)?;
         let track = item.animation_track(
             address.effect_id,
             &address.property_id,

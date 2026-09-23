@@ -74,7 +74,7 @@ impl PropertyInspector {
 
     pub(super) fn draggable_number_input(
         target: &PropertyTarget,
-        spec: &NumberSpec,
+        spec: &NumericInputSpec,
         input: &Entity<InputState>,
         presentation: DraggableNumberInput,
         disabled: bool,
@@ -177,7 +177,7 @@ impl PropertyInspector {
 
     pub(super) fn number_editor(
         common: &LeafControl,
-        spec: &NumberSpec,
+        spec: &NumericInputSpec,
         input: &Entity<InputState>,
         disabled: bool,
         ctx: &RenderCtx,
