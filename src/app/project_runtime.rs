@@ -5,7 +5,7 @@ use crate::{
     ui::{animation_curve::AnimationSelection, transport::TransportController},
 };
 
-use super::project_session::{ProjectSession, ProjectSessionId};
+use crate::application::project_session::{ProjectSession, ProjectSessionId};
 
 /// Application-owned handles for state that moves together when a project is
 /// replaced. Persistent edits still flow through `TimelineEditor`.
@@ -36,7 +36,11 @@ impl ProjectRuntime {
     }
 
     pub(crate) fn advance_session<T>(&self, cx: &mut Context<T>) -> ProjectSessionId {
-        self.session.update(cx, |session, cx| session.advance(cx))
+        self.session.update(cx, |session, cx| {
+            let id = session.advance();
+            cx.notify();
+            id
+        })
     }
 
     pub(crate) fn reset_transient_state<T>(&self, cx: &mut Context<T>) {

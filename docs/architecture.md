@@ -18,12 +18,13 @@ top-level UI and forwards actions. UI components may share domain addresses and
 application/runtime dependencies, but do not call sibling components for their
 presentation or behavior.
 
-`ProjectSession` belongs to `app` and tracks project generations and pending
-operations so stale load, save, import, and export work can be ignored after a
-project change. `ProjectRuntime` groups the editor, transport, animation
-selection, and session handles that must be reset together when a project is
-replaced. `ProjectController` handles project I/O and settings and delegates
-that replacement reset to the runtime group. Notifications remain UI state.
+`application::ProjectSession` is plain Rust state shared by app and UI. It
+tracks project generations and pending operations so stale load, save, import,
+and export work can be ignored after a project change. GPUI entities notify
+observers when they mutate the session. `app::ProjectRuntime` groups the editor,
+transport, animation selection, and session handles that must be reset together
+when a project is replaced. `app::ProjectController` handles project I/O and
+settings and delegates that replacement reset to the runtime group.
 
 ## Timeline
 
@@ -74,8 +75,8 @@ animation module owns interpolation and track rules.
 `PropertyAddress` identifies an item, effect, property, array element, and
 scalar independently of inspector widget identity. `InspectorPath` remains a
 PropertyInspector-only key for row state. Shared animation presentation
-calculations live in `ui::animation_presentation`, so the curve editor does not
-depend on PropertyInspector.
+calculations accept a `PropertyAddress` in `ui::animation_presentation`, so the
+shared module does not depend on either PropertyInspector or AnimationCurve.
 
 ## Plugins and persistence
 

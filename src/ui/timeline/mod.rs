@@ -14,7 +14,7 @@ use gpui::{
 };
 
 use crate::{
-    app::project_session::{ProjectActivity, ProjectSession, ProjectSessionId},
+    application::project_session::{ProjectActivity, ProjectSession, ProjectSessionId},
     domain::timeline::{
         Frame, FrameDuration, FrameRate, ItemId, LayerId, ResizeEdge, SceneId, TimelineEditError,
         TimelineEditor, TimelineItem, TimelineTime,

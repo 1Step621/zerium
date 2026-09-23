@@ -74,9 +74,8 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                     let plugins = crate::plugin_loader::plugins();
                     let plugin_shaders = crate::engine::rendering::compile_plugins(&plugins)
                         .expect("bundled plugin shaders must compile");
-                    let render_runtime = cx.new(|_| {
-                        crate::engine::rendering::RenderRuntime::new(plugin_shaders.clone())
-                    });
+                    let render_runtime =
+                        cx.new(|_| crate::engine::rendering::RenderRuntime::new(plugin_shaders));
                     let media_readers = crate::engine::media::bundled_media_readers(&plugins)
                         .expect("bundled media readers must be valid");
                     let editor = cx.new(|_| {
@@ -86,7 +85,7 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                         )
                     });
                     let session =
-                        cx.new(|_| crate::app::project_session::ProjectSession::default());
+                        cx.new(|_| crate::application::project_session::ProjectSession::default());
                     let notifications = cx.new(|_| crate::ui::session::UiNotifications::default());
                     let audio_playback = cx.new(|_| {
                         crate::engine::audio_playback::AudioPlaybackEngine::new(
@@ -121,7 +120,6 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                                 session.clone(),
                                 notifications.clone(),
                                 render_runtime.clone(),
-                                plugin_shaders,
                                 media_readers.clone(),
                             ),
                             window,
@@ -172,7 +170,10 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             animation_selection.clone(),
                             session.clone(),
                         );
-                        crate::ui::project::ProjectController::new(runtime, notifications.clone())
+                        crate::app::project_controller::ProjectController::new(
+                            runtime,
+                            notifications.clone(),
+                        )
                     });
                     if let Some(path) = initial_project {
                         project_controller.update(cx, |project, cx| {

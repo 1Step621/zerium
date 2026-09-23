@@ -16,14 +16,14 @@ mod editor_overlay;
 use editor_overlay::{PreviewEditorDrag, PreviewEditorDragState};
 
 use crate::{
-    app::project_session::{ProjectSession, ProjectSessionId},
+    application::project_session::{ProjectSession, ProjectSessionId},
     domain::timeline::{Frame, ItemId, LayerId, TimelineEditor, TimelineItem, TimelineTime},
     engine::{
         audio_meter::AudioLevelSampler,
         media::{MediaReaderRegistry, VideoDecodeSize},
         rendering::{
-            CompiledPluginShaders, FrameRenderer, RenderError, RenderQuality, RenderRuntime,
-            RenderScene, RenderSize, TextFrameCache,
+            FrameRenderer, RenderError, RenderQuality, RenderRuntime, RenderScene, RenderSize,
+            TextFrameCache,
         },
         video_playback::{
             RequestedVideoFrame, VideoInputId, VideoPlaybackEngine, VideoPlaybackMode,
@@ -43,7 +43,6 @@ pub(crate) struct PreviewDependencies {
     session: Entity<ProjectSession>,
     notifications: Entity<UiNotifications>,
     render_runtime: Entity<RenderRuntime>,
-    plugin_shaders: Arc<CompiledPluginShaders>,
     media_readers: Arc<MediaReaderRegistry>,
 }
 
@@ -54,7 +53,6 @@ impl PreviewDependencies {
         session: Entity<ProjectSession>,
         notifications: Entity<UiNotifications>,
         render_runtime: Entity<RenderRuntime>,
-        plugin_shaders: Arc<CompiledPluginShaders>,
         media_readers: Arc<MediaReaderRegistry>,
     ) -> Self {
         Self {
@@ -63,7 +61,6 @@ impl PreviewDependencies {
             session,
             notifications,
             render_runtime,
-            plugin_shaders,
             media_readers,
         }
     }
@@ -114,7 +111,6 @@ impl Preview {
             session,
             notifications,
             render_runtime,
-            plugin_shaders,
             media_readers,
         } = dependencies;
         let session_id = session.read(cx).id();
@@ -153,10 +149,9 @@ impl Preview {
             wgpu::TextureFormat::Rgba8UnormSrgb,
         );
         let (renderer, error): (Option<Arc<FrameRenderer>>, Option<SharedString>) = match &surface {
-            Some(surface) => match RenderRuntime::preview_renderer(
+            Some(surface) => match render_runtime.read(cx).create_preview_renderer(
                 Arc::new(surface.device().clone()),
                 Arc::new(surface.queue().clone()),
-                &plugin_shaders,
             ) {
                 Ok(renderer) => (Some(renderer), None),
                 Err(error) => (None, Some(error.to_string().into())),

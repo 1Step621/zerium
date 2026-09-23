@@ -84,8 +84,11 @@ impl Timeline {
         let editor = self.editor.clone();
         let media_readers = self.media_readers.clone();
         let session = self.session.clone();
-        let operation =
-            session.update(cx, |session, cx| session.begin(ProjectActivity::Import, cx));
+        let operation = session.update(cx, |session, cx| {
+            let operation = session.begin(ProjectActivity::Import);
+            cx.notify();
+            operation
+        });
         cx.spawn(async move |timeline, cx| {
             let results = cx
                 .background_spawn(async move {
@@ -174,7 +177,9 @@ impl Timeline {
                 })
                 .ok();
             session.update(cx, |session, cx| {
-                session.finish(operation, cx);
+                if session.finish(operation) {
+                    cx.notify();
+                }
             });
         })
         .detach();

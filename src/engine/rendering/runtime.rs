@@ -51,13 +51,13 @@ impl RenderRuntime {
         Ok(Arc::new(device.create_session()))
     }
 
-    pub(crate) fn preview_renderer(
+    pub(crate) fn create_preview_renderer(
+        &self,
         surface_device: Arc<wgpu::Device>,
         surface_queue: Arc<wgpu::Queue>,
-        plugin_shaders: &CompiledPluginShaders,
     ) -> Result<Arc<FrameRenderer>, RenderError> {
         let builder = RendererBuilder::new(surface_device, surface_queue)?
-            .register_plugins(plugin_shaders)?;
+            .register_plugins(&self.plugin_shaders)?;
         Ok(Arc::new(builder.build().create_session()))
     }
 }

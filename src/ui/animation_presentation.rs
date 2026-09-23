@@ -1,9 +1,6 @@
-use crate::{
-    domain::{
-        property::{PropertySchema, PropertyType, ScalarPropertyType},
-        timeline::{PropertyAddress, TimelineEditor, TimelineItem},
-    },
-    ui::animation_curve::AnimationTarget,
+use crate::domain::{
+    property::{PropertySchema, PropertyType, ScalarPropertyType},
+    timeline::{PropertyAddress, TimelineEditor, TimelineItem},
 };
 #[derive(Clone, Debug)]
 pub(crate) struct AnimationPresentation {
@@ -121,10 +118,10 @@ pub(crate) fn number_animation_source(
 pub(crate) fn calculate(
     editor: &TimelineEditor,
     item: &TimelineItem,
-    target: &AnimationTarget,
+    address: &PropertyAddress,
 ) -> Option<AnimationPresentation> {
-    let property = animation_property(editor, item, target)?;
-    let scalar_index = target.scalar_index;
+    let property = animation_property(editor, item, address)?;
+    let scalar_index = address.scalar_index;
     let value_type = match property.ty() {
         PropertyType::Value(value_type)
         | PropertyType::Array {
@@ -133,18 +130,18 @@ pub(crate) fn calculate(
         } => value_type,
     };
     let scalar_type = value_type.scalar_at(scalar_index)?.clone();
-    let element_index = target.element_id.and_then(|id| {
-        item.property_values(target.effect_id)?
-            .property(&target.property_id)?
+    let element_index = address.element_id.and_then(|id| {
+        item.property_values(address.effect_id)?
+            .property(&address.property_id)?
             .element_index(id)
     });
-    let label = animation_label(&property, target, element_index);
+    let label = animation_label(&property, address, element_index);
     if matches!(scalar_type, ScalarPropertyType::Color) {
         item.animation_track(
-            target.effect_id,
-            &target.property_id,
-            target.element_id,
-            target.scalar_index,
+            address.effect_id,
+            &address.property_id,
+            address.element_id,
+            address.scalar_index,
         )?;
         return Some(AnimationPresentation {
             label,
@@ -153,16 +150,16 @@ pub(crate) fn calculate(
             value_factor: 1.,
         });
     }
-    let is_size = target.effect_id.is_none()
+    let is_size = address.effect_id.is_none()
         && item.scene_id().is_none()
         && item
             .schema()
-            .is_some_and(|schema| schema.is_size_property(&target.property_id));
+            .is_some_and(|schema| schema.is_size_property(&address.property_id));
     let spec = number_spec(&property, scalar_index, is_size)?;
-    let display = number_animation_source(item, &target.address, &spec)?;
-    if display.property_id != target.property_id
-        || display.element_id != target.element_id
-        || display.scalar_index != target.scalar_index
+    let display = number_animation_source(item, address, &spec)?;
+    if display.property_id != address.property_id
+        || display.element_id != address.element_id
+        || display.scalar_index != address.scalar_index
     {
         return None;
     }
@@ -177,7 +174,7 @@ pub(crate) fn calculate(
 fn animation_property(
     editor: &TimelineEditor,
     item: &TimelineItem,
-    target: &AnimationTarget,
+    target: &PropertyAddress,
 ) -> Option<PropertySchema> {
     if let Some(scene_id) = item.scene_id()
         && let Some(property) = editor
@@ -202,7 +199,7 @@ fn animation_property(
 
 fn animation_label(
     property: &PropertySchema,
-    target: &AnimationTarget,
+    target: &PropertyAddress,
     element_index: Option<usize>,
 ) -> String {
     let label = element_index.map_or_else(

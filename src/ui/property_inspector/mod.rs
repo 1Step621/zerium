@@ -28,7 +28,7 @@ use gpui::{
     SharedString, Subscription, Task, Window, div, prelude::*, px,
 };
 
-use crate::app::project_session::{ProjectActivity, ProjectSession, ProjectSessionId};
+use crate::application::project_session::{ProjectActivity, ProjectSession, ProjectSessionId};
 use crate::domain::media::{MediaAsset, MediaKind};
 use crate::domain::plugin::{FileCapability, ItemSchema};
 use crate::domain::property::{

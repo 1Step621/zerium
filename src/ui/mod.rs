@@ -10,7 +10,6 @@ pub(crate) mod export;
 mod inspector_path;
 mod pane;
 pub(crate) mod preview;
-pub(crate) mod project;
 pub(crate) mod property_inspector;
 pub(crate) mod search_picker;
 pub(crate) mod session;

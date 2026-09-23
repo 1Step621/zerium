@@ -19,7 +19,7 @@ pub(super) struct Workspace {
     pub(super) preview: gpui::Entity<crate::ui::preview::Preview>,
     pub(super) property_inspector: gpui::Entity<crate::ui::property_inspector::PropertyInspector>,
     pub(super) animation_curve: gpui::Entity<crate::ui::animation_curve::AnimationCurveEditor>,
-    pub(super) project_controller: gpui::Entity<crate::ui::project::ProjectController>,
+    pub(super) project_controller: gpui::Entity<crate::app::project_controller::ProjectController>,
     pub(super) export_controller: gpui::Entity<crate::ui::export::ExportController>,
     pub(super) notifications: gpui::Entity<crate::ui::session::UiNotifications>,
     pub(super) forwarded_notifications: u64,

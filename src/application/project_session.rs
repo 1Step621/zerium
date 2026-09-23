@@ -1,7 +1,5 @@
 use std::collections::HashMap;
 
-use gpui::Context;
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ProjectSessionId(u64);
 
@@ -48,30 +46,14 @@ impl ProjectSession {
         self.id == id
     }
 
-    pub(crate) fn advance(&mut self, cx: &mut Context<Self>) -> ProjectSessionId {
-        let id = self.advance_state();
-        cx.notify();
-        id
-    }
-
-    fn advance_state(&mut self) -> ProjectSessionId {
+    pub(crate) fn advance(&mut self) -> ProjectSessionId {
         self.id = ProjectSessionId(self.next_session);
         self.next_session = self.next_session.saturating_add(1);
         self.operations.clear();
         self.id
     }
 
-    pub(crate) fn begin(
-        &mut self,
-        activity: ProjectActivity,
-        cx: &mut Context<Self>,
-    ) -> ProjectOperation {
-        let operation = self.begin_state(activity);
-        cx.notify();
-        operation
-    }
-
-    fn begin_state(&mut self, activity: ProjectActivity) -> ProjectOperation {
+    pub(crate) fn begin(&mut self, activity: ProjectActivity) -> ProjectOperation {
         let serial = self.next_operation;
         self.next_operation = self.next_operation.saturating_add(1);
         self.operations.insert(serial, activity);
@@ -87,15 +69,7 @@ impl ProjectSession {
             && self.operations.get(&operation.serial) == Some(&operation.activity)
     }
 
-    pub(crate) fn finish(&mut self, operation: ProjectOperation, cx: &mut Context<Self>) -> bool {
-        if !self.finish_state(operation) {
-            return false;
-        }
-        cx.notify();
-        true
-    }
-
-    fn finish_state(&mut self, operation: ProjectOperation) -> bool {
+    pub(crate) fn finish(&mut self, operation: ProjectOperation) -> bool {
         if !self.operation_is_current(operation) {
             return false;
         }

@@ -8,7 +8,8 @@ use ::ui::{
 use gpui::{App, Context, Entity, PathPromptOptions, Task, Window, div, prelude::*};
 
 use crate::{
-    app::{project_runtime::ProjectRuntime, project_session::ProjectActivity},
+    app::project_runtime::ProjectRuntime,
+    application::project_session::ProjectActivity,
     domain::{
         persistence::PROJECT_EXTENSION,
         timeline::{Frame, FrameRate, ProjectResolution},
@@ -72,7 +73,11 @@ impl ProjectController {
         cx.notify();
         let plugins = self.runtime.editor.read(cx).plugin_registry_arc();
         let session = self.runtime.session().clone();
-        let operation = session.update(cx, |session, cx| session.begin(ProjectActivity::Load, cx));
+        let operation = session.update(cx, |session, cx| {
+            let operation = session.begin(ProjectActivity::Load);
+            cx.notify();
+            operation
+        });
         self._io_task = cx.spawn(async move |controller, cx| {
             let input = path.clone();
             let result = cx
@@ -116,7 +121,9 @@ impl ProjectController {
                     .ok();
             }
             session.update(cx, |session, cx| {
-                session.finish(operation, cx);
+                if session.finish(operation) {
+                    cx.notify();
+                }
             });
         });
     }
@@ -411,7 +418,11 @@ impl ProjectController {
         let receiver = cx.prompt_for_new_path(&initial_directory, Some(suggested_name));
         self.busy = true;
         let session = self.runtime.session().clone();
-        let operation = session.update(cx, |session, cx| session.begin(ProjectActivity::Save, cx));
+        let operation = session.update(cx, |session, cx| {
+            let operation = session.begin(ProjectActivity::Save);
+            cx.notify();
+            operation
+        });
         cx.notify();
 
         self._dialog_task = cx.spawn(async move |controller, cx| {
@@ -421,7 +432,9 @@ impl ProjectController {
                     if session.update(cx, |session, _| session.operation_is_current(operation)) {
                         set_failed(&controller, format!("保存先を選択できません: {error}"), cx);
                         session.update(cx, |session, cx| {
-                            session.finish(operation, cx);
+                            if session.finish(operation) {
+                                cx.notify();
+                            }
                         });
                     }
                     return;
@@ -434,7 +447,9 @@ impl ProjectController {
                             cx,
                         );
                         session.update(cx, |session, cx| {
-                            session.finish(operation, cx);
+                            if session.finish(operation) {
+                                cx.notify();
+                            }
                         });
                     }
                     return;
@@ -446,7 +461,9 @@ impl ProjectController {
             let Some(mut path) = selected else {
                 set_idle(&controller, cx);
                 session.update(cx, |session, cx| {
-                    session.finish(operation, cx);
+                    if session.finish(operation) {
+                        cx.notify();
+                    }
                 });
                 return;
             };
@@ -454,7 +471,9 @@ impl ProjectController {
                 path.set_extension(PROJECT_EXTENSION);
             }
             session.update(cx, |session, cx| {
-                session.finish(operation, cx);
+                if session.finish(operation) {
+                    cx.notify();
+                }
             });
             controller
                 .update(cx, |controller, cx| controller.save_to(path, cx))
@@ -469,7 +488,11 @@ impl ProjectController {
         cx.notify();
 
         let session = self.runtime.session().clone();
-        let operation = session.update(cx, |session, cx| session.begin(ProjectActivity::Save, cx));
+        let operation = session.update(cx, |session, cx| {
+            let operation = session.begin(ProjectActivity::Save);
+            cx.notify();
+            operation
+        });
         self._io_task = cx.spawn(async move |controller, cx| {
             let output = path.clone();
             let result = cx
@@ -508,7 +531,9 @@ impl ProjectController {
                 })
                 .ok();
             session.update(cx, |session, cx| {
-                session.finish(operation, cx);
+                if session.finish(operation) {
+                    cx.notify();
+                }
             });
         });
     }

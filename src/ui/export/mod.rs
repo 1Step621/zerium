@@ -8,7 +8,9 @@ use futures::StreamExt as _;
 use gpui::{Context, Entity, SharedString, Subscription, Task, Window, div, prelude::*, px};
 
 use crate::{
-    app::project_session::{ProjectActivity, ProjectOperation, ProjectSession, ProjectSessionId},
+    application::project_session::{
+        ProjectActivity, ProjectOperation, ProjectSession, ProjectSessionId,
+    },
     domain::timeline::{TimelineEditor, TimelineView},
     engine::{
         export::{ExportError, ExportProgress, ExportSettings, export_timeline},
@@ -169,8 +171,11 @@ impl ExportController {
         let receiver = cx.prompt_for_new_path(&initial_directory, Some("zerium-export.mp4"));
         let session = self.session.clone();
         let notifications = self.notifications.clone();
-        let operation =
-            session.update(cx, |session, cx| session.begin(ProjectActivity::Export, cx));
+        let operation = session.update(cx, |session, cx| {
+            let operation = session.begin(ProjectActivity::Export);
+            cx.notify();
+            operation
+        });
         self.state = ExportState::ChoosingPath;
         cx.notify();
 
@@ -207,7 +212,9 @@ impl ExportController {
                         cx.notify();
                     });
                     session.update(cx, |session, cx| {
-                        session.finish(operation, cx);
+                        if session.finish(operation) {
+                            cx.notify();
+                        }
                     });
                 }
                 return;
@@ -310,7 +317,9 @@ impl ExportController {
                 }
             }
             session.update(cx, |session, cx| {
-                session.finish(operation, cx);
+                if session.finish(operation) {
+                    cx.notify();
+                }
             });
         });
     }
@@ -343,7 +352,9 @@ fn fail_operation(
         notifications.push(format!("書き出し失敗: {error}"), cx);
     });
     session.update(cx, |session, cx| {
-        session.finish(operation, cx);
+        if session.finish(operation) {
+            cx.notify();
+        }
     });
 }
 

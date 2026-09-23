@@ -7,6 +7,7 @@
 #![deny(unreachable_pub)]
 
 mod app;
+mod application;
 mod cli;
 mod domain;
 mod engine;

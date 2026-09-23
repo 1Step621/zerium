@@ -695,7 +695,11 @@ impl PropertyInspector {
         let editor = self.editor.clone();
         let media_readers = self.media_readers.clone();
         let session = self.session.clone();
-        let operation = session.update(cx, |session, cx| session.begin(ProjectActivity::Probe, cx));
+        let operation = session.update(cx, |session, cx| {
+            let operation = session.begin(ProjectActivity::Probe);
+            cx.notify();
+            operation
+        });
         self._file_task = cx.spawn(async move |inspector, cx| {
             let path = match receiver.await {
                 Ok(Ok(Some(paths))) => paths.into_iter().next(),
@@ -713,7 +717,9 @@ impl PropertyInspector {
                         });
                     }
                     session.update(cx, |session, cx| {
-                        session.finish(operation, cx);
+                        if session.finish(operation) {
+                            cx.notify();
+                        }
                     });
                     return;
                 }
@@ -731,7 +737,9 @@ impl PropertyInspector {
                         });
                     }
                     session.update(cx, |session, cx| {
-                        session.finish(operation, cx);
+                        if session.finish(operation) {
+                            cx.notify();
+                        }
                     });
                     return;
                 }
@@ -747,7 +755,9 @@ impl PropertyInspector {
                     });
                 }
                 session.update(cx, |session, cx| {
-                    session.finish(operation, cx);
+                    if session.finish(operation) {
+                        cx.notify();
+                    }
                 });
                 return;
             };
@@ -802,7 +812,9 @@ impl PropertyInspector {
                 });
             }
             session.update(cx, |session, cx| {
-                session.finish(operation, cx);
+                if session.finish(operation) {
+                    cx.notify();
+                }
             });
         });
         cx.notify();
