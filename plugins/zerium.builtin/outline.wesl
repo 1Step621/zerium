@@ -63,8 +63,14 @@ fn fragment_main(input: ZeriumVertex) -> @location(0) vec4<f32> {
         vec2(0),
         dimensions - vec2(1),
     );
+    let source_pixel = textureLoad(effect_source, position, 0);
     if properties.width <= 0.0 {
-        return textureLoad(effect_source, position, 0);
+        return source_pixel;
+    }
+    // The bounded distance transform stores no site away from the stroke.
+    // Most of the full-frame pixels can reuse the source without subpixel work.
+    if decode_site(textureLoad(effect_input, position, 0)).x < 0 {
+        return source_pixel;
     }
 
     let composition_scale = context().composition_scale;
