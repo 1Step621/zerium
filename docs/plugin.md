@@ -115,8 +115,8 @@ what supplies pixels:
   "properties": [{
     "id": "volume",
     "label": "Volume",
-    "type": "f32",
-    "default": 1,
+    "type": { "value": "f32" },
+    "default": { "f32": 1 },
     "configurations": [{
       "constraints": { "min": 0 }
     }]
@@ -191,8 +191,8 @@ and animated independently, but are not modeled as separate property lanes.
 {
   "id": "position",
   "label": "Position",
-  "type": {"tuple": ["f32", "f32"]},
-  "default": [0, 0],
+  "type": {"value": ["f32", "f32"]},
+  "default": {"tuple": [{"f32": 0}, {"f32": 0}]},
   "configurations": [
     {
       "animatable": true,
@@ -208,8 +208,9 @@ and animated independently, but are not modeled as separate property lanes.
 }
 ```
 
-`default` lives next to `type` and always mirrors the value shape: one
-scalar, one tuple, or one array of elements. Each `configurations` entry
+`type` and `default` each use a single key for their variant. A scalar type is
+`{"value":"f32"}` and its default is `{"f32":0}`; tuples and arrays use
+`tuple` and `array` default values. Each `configurations` entry
 describes one scalar position instead: its `scene_bindable` permission,
 `editable`/`animatable` flags, `constraints`, and `ui` hints.
 `scene_bindable` defaults to true and is checked per scalar, so tuple
@@ -242,8 +243,8 @@ fonts:
 
 ```json
 {
-  "type": {"array": {"type": "string", "max_items": 1024}},
-  "default": [],
+  "type": {"array": {"element_type": "string", "max_items": 1024}},
+  "default": {"array": []},
   "configurations": [{
     "ui": { "editor": "font_family" }
   }]
@@ -252,7 +253,8 @@ fonts:
 
 Array configurations describe the scalar positions of one element template
 and apply to every element. The property-level `default` holds the initial
-elements; an empty list means the array starts empty.
+elements; an empty list means the array starts empty. Each non-empty array
+element has a stable positive `id` and a tagged `value`.
 
 Without `ui.editor`, entries can be added, edited, reordered, and removed as
 ordinary strings. Empty and duplicate strings are valid list values. With
@@ -265,18 +267,25 @@ Tuples contain 2–64 arbitrary scalars, including colors, strings, and enums. T
 nested tuples and arrays:
 
 ```json
-{ "type": { "tuple": ["f32", "bool", "string", {"enum": [2, 7]}] }, "default": [0, true, "Label", 7] }
+{
+  "type": {"value": ["f32", "bool", "string", {"enum": [2, 7]}]},
+  "default": {"tuple": [{"f32": 0}, {"bool": true}, {"string": "Label"}, {"enum": 7}]}
+}
 ```
 
-Array definitions keep `type`, `min_items`, and `max_items` inside the `array`
+Array definitions keep `element_type`, `min_items`, and `max_items` inside the `array`
 object. `min_items` defaults to zero; `max_items` is required.
 Arrays contain a scalar or tuple value type, so arrays of tuples are valid
 without allowing nested arrays:
 
 ```json
 {
-  "type": {"array": {"type": {"tuple": ["f32", "f32"]}, "min_items": 3, "max_items": 1024}},
-  "default": [[0, 0], [100, 0], [50, 100]]
+  "type": {"array": {"element_type": ["f32", "f32"], "min_items": 3, "max_items": 1024}},
+  "default": {"array": [
+    {"id": 1, "value": {"tuple": [{"f32": 0}, {"f32": 0}]}},
+    {"id": 2, "value": {"tuple": [{"f32": 100}, {"f32": 0}]}},
+    {"id": 3, "value": {"tuple": [{"f32": 50}, {"f32": 100}]}}
+  ]}
 }
 ```
 
@@ -284,8 +293,8 @@ Finite choices are types, not UI options:
 
 ```json
 {
-  "type": { "enum": [0, 1] },
-  "default": 0,
+  "type": { "value": { "enum": [0, 1] } },
+  "default": { "enum": 0 },
   "configurations": [{
     "ui": { "enum_variants": { "0": "Outside", "1": "Inside" } }
   }]
@@ -322,8 +331,10 @@ an array of tuples.
 {
   "id": "entry",
   "label": "Entry",
-  "type": {"tuple": ["f32", {"enum": [2, 7]}, "string", "color"]},
-  "default": [1, 2, "Caption", [1, 1, 1, 1]],
+  "type": {"value": ["f32", {"enum": [2, 7]}, "string", "color"]},
+  "default": {"tuple": [
+    {"f32": 1}, {"enum": 2}, {"string": "Caption"}, {"color": [1, 1, 1, 1]}
+  ]},
   "configurations": [
     {
       "animatable": true,
@@ -435,8 +446,8 @@ top-level shader and no implicit render pass.
   "properties": [{
     "id": "radius",
     "label": "Radius",
-    "type": "f32",
-    "default": 8,
+    "type": { "value": "f32" },
+    "default": { "f32": 8 },
     "configurations": [{
       "animatable": true
     }]
@@ -446,8 +457,8 @@ top-level shader and no implicit render pass.
     "shader": { "source": "blur.wesl" },
     "dispatch": ["width", "height", "one"],
     "constants": [
-      { "id": "direction_x", "type": "f32", "value": 1 },
-      { "id": "direction_y", "type": "f32", "value": 0 }
+      { "id": "direction_x", "value": { "f32": 1 } },
+      { "id": "direction_y", "value": { "f32": 0 } }
     ]
   }]
 }
@@ -474,7 +485,6 @@ its reducer owns the weighting algorithm:
 {
   "type": "temporal",
   "sampling": {
-    "type": "shutter",
     "sample_count": "samples",
     "angle": "shutter_angle",
     "phase": "phase"

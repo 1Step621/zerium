@@ -1,4 +1,5 @@
 use super::control::{Control, ElementGroup, ElementKind, LeafControl, NumberControl, NumberSpec};
+use super::edit::ArrayEdit;
 use super::state::ControlStore;
 use super::*;
 
@@ -1367,6 +1368,46 @@ impl PropertyInspector {
             .into_any_element()
     }
 
+    fn array_edit_button(
+        group: &ElementGroup,
+        item_id: ItemId,
+        element_index: usize,
+        disabled: bool,
+        edit: ArrayEdit,
+        ctx: &RenderCtx,
+    ) -> Button {
+        let (suffix, icon, tooltip) = match edit {
+            ArrayEdit::MoveUp(_) => ("up", IconName::ChevronUp, "上へ移動"),
+            ArrayEdit::MoveDown(_) => ("down", IconName::ChevronDown, "下へ移動"),
+            ArrayEdit::Remove(_) => ("remove", IconName::Delete, "削除"),
+        };
+        let editor = ctx.editor.clone();
+        let effect_id = group.target.effect_id;
+        let property_id = group.target.property_id.clone();
+        Button::new(SharedString::from(format!(
+            "array-{}-{}-{element_index}-{suffix}",
+            item_id.get(),
+            property_id
+        )))
+        .small()
+        .compact()
+        .ghost()
+        .icon(icon)
+        .tooltip(tooltip)
+        .disabled(disabled)
+        .on_click(move |_, _, cx| {
+            editor.update(cx, |editor, cx| {
+                if editor
+                    .selected_item()
+                    .is_some_and(|item| item.id == item_id)
+                    && Self::edit_selected_array(editor, effect_id, &property_id, edit)
+                {
+                    cx.notify();
+                }
+            });
+        })
+    }
+
     pub(super) fn elements_section(
         group: &ElementGroup,
         children: &[Control],
@@ -1375,7 +1416,6 @@ impl PropertyInspector {
         allow_structure_edit: bool,
     ) -> gpui::AnyElement {
         let item_id = ctx.item_id;
-        let owner = SceneBindingOwner::from_effect(group.target.effect_id);
         let property_label = group.property.label().to_owned();
         let rows_are_tuples = matches!(
             group.property.ty(),
@@ -1424,7 +1464,7 @@ impl PropertyInspector {
                     let row = if rows_are_tuples {
                         Self::scalar_compact_row(control, ctx, false)
                     } else {
-                        Self::element_scalar(control, group, element_index, owner, ctx)
+                        Self::element_scalar(control, group, element_index, ctx)
                     };
                     if let Some((row, bound)) = row {
                         row_has_binding |= bound;
@@ -1508,112 +1548,33 @@ impl PropertyInspector {
                 }
             }
 
-            let move_up_editor = ctx.editor.clone();
-            let move_up_property_id = group.target.property_id.clone();
-            let move_up_effect_id = group.target.effect_id;
-            let mut moved_up = group.elements.clone();
-            if element_index > 0 {
-                moved_up.swap(element_index, element_index - 1);
-            }
-            let move_up_button = Button::new(SharedString::from(format!(
-                "array-{}-{}-{element_index}-up",
-                item_id.get(),
-                group.target.property_id
-            )))
-            .small()
-            .compact()
-            .ghost()
-            .icon(IconName::ChevronUp)
-            .tooltip("上へ移動")
-            .disabled(element_index == 0 || rows_have_scene_binding)
-            .on_click(move |_, _, cx| {
-                move_up_editor.update(cx, |editor, cx| {
-                    if editor
-                        .selected_item()
-                        .is_some_and(|item| item.id == item_id)
-                        && Self::update_elements(
-                            editor,
-                            move_up_effect_id,
-                            &move_up_property_id,
-                            PropertyValue::Array(moved_up.clone()),
-                        )
-                    {
-                        cx.notify();
-                    }
-                });
-            });
-
-            let move_down_editor = ctx.editor.clone();
-            let move_down_property_id = group.target.property_id.clone();
-            let move_down_effect_id = group.target.effect_id;
-            let mut moved_down = group.elements.clone();
-            if element_index + 1 < moved_down.len() {
-                moved_down.swap(element_index, element_index + 1);
-            }
-            let move_down_button = Button::new(SharedString::from(format!(
-                "array-{}-{}-{element_index}-down",
-                item_id.get(),
-                group.target.property_id
-            )))
-            .small()
-            .compact()
-            .ghost()
-            .icon(IconName::ChevronDown)
-            .tooltip("下へ移動")
-            .disabled(element_index + 1 == group.elements.len() || rows_have_scene_binding)
-            .on_click(move |_, _, cx| {
-                move_down_editor.update(cx, |editor, cx| {
-                    if editor
-                        .selected_item()
-                        .is_some_and(|item| item.id == item_id)
-                        && Self::update_elements(
-                            editor,
-                            move_down_effect_id,
-                            &move_down_property_id,
-                            PropertyValue::Array(moved_down.clone()),
-                        )
-                    {
-                        cx.notify();
-                    }
-                });
-            });
-
-            let remove_editor = ctx.editor.clone();
-            let remove_property_id = group.target.property_id.clone();
-            let remove_effect_id = group.target.effect_id;
-            let mut remaining = group.elements.clone();
-            remaining.remove(element_index);
-            let remove_button = Button::new(SharedString::from(format!(
-                "array-{}-{}-{element_index}-remove",
-                item_id.get(),
-                group.target.property_id
-            )))
-            .small()
-            .compact()
-            .ghost()
-            .icon(IconName::Delete)
-            .tooltip("削除")
-            .disabled(
+            let element_id = row.element_id();
+            let move_up_button = Self::array_edit_button(
+                group,
+                item_id,
+                element_index,
+                element_index == 0 || rows_have_scene_binding,
+                ArrayEdit::MoveUp(element_id),
+                ctx,
+            );
+            let move_down_button = Self::array_edit_button(
+                group,
+                item_id,
+                element_index,
+                element_index + 1 == group.elements.len() || rows_have_scene_binding,
+                ArrayEdit::MoveDown(element_id),
+                ctx,
+            );
+            let remove_button = Self::array_edit_button(
+                group,
+                item_id,
+                element_index,
                 group.elements.len() <= group.min_items as usize
                     || row_has_binding
                     || rows_have_scene_binding,
-            )
-            .on_click(move |_, _, cx| {
-                remove_editor.update(cx, |editor, cx| {
-                    if editor
-                        .selected_item()
-                        .is_some_and(|item| item.id == item_id)
-                        && Self::update_elements(
-                            editor,
-                            remove_effect_id,
-                            &remove_property_id,
-                            PropertyValue::Array(remaining.clone()),
-                        )
-                    {
-                        cx.notify();
-                    }
-                });
-            });
+                ArrayEdit::Remove(element_id),
+                ctx,
+            );
             let structure_buttons = div()
                 .flex_none()
                 .flex()
@@ -1731,7 +1692,6 @@ impl PropertyInspector {
         control: &Control,
         group: &ElementGroup,
         element_index: usize,
-        owner: SceneBindingOwner,
         ctx: &RenderCtx,
     ) -> Option<(gpui::AnyElement, bool)> {
         match control {
@@ -1745,9 +1705,7 @@ impl PropertyInspector {
                     ctx,
                 ))
             }
-            Control::Number(number) => {
-                Self::element_number(number, group, element_index, owner, ctx)
-            }
+            Control::Number(number) => Self::element_number(number, group, element_index, ctx),
             Control::Color(color) => {
                 let picker = ctx.store.color(&color.common.id)?;
                 let bound = color
@@ -1780,10 +1738,8 @@ impl PropertyInspector {
         number: &NumberControl,
         group: &ElementGroup,
         element_index: usize,
-        owner: SceneBindingOwner,
         ctx: &RenderCtx,
     ) -> Option<(gpui::AnyElement, bool)> {
-        let _ = owner;
         let common = &number.common;
         let spec = &number.spec;
         let component = common.target.path.scalar_index();

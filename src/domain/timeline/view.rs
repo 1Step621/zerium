@@ -1,11 +1,12 @@
+use std::sync::Arc;
+
 use super::{
-    document::TimelineDocument,
-    editor::TimelineEditor,
+    editor::{TimelineEditor, TimelineProjectState},
     evaluation::{
         EvaluatedSceneNode, document_items, evaluated_document_graph_at_time,
         evaluated_document_items_at_time, evaluated_visible_document_graph_at_time,
     },
-    ids::{ItemId, LayerId, ProjectId, SceneId},
+    ids::{ItemId, LayerId, ProjectId},
     item::TimelineItem,
     scene::SceneDefinition,
     settings::ProjectResolution,
@@ -19,12 +20,9 @@ use super::{
 /// read model, which contains only the state a background consumer can use.
 #[derive(Clone)]
 pub(crate) struct TimelineSnapshot {
-    document: TimelineDocument,
-    scenes: std::collections::HashMap<SceneId, SceneDefinition>,
-    project_id: ProjectId,
-    resolution: ProjectResolution,
-    playhead: Frame,
-    project_revision: u64,
+    pub(super) project: Arc<TimelineProjectState>,
+    pub(super) playhead: Frame,
+    pub(super) project_revision: u64,
 }
 
 /// Read-only timeline contract shared by the live editor and detached
@@ -44,56 +42,38 @@ pub(crate) trait TimelineView {
 }
 
 impl TimelineSnapshot {
-    pub(super) fn new(
-        document: TimelineDocument,
-        scenes: std::collections::HashMap<SceneId, SceneDefinition>,
-        project_id: ProjectId,
-        resolution: ProjectResolution,
-        playhead: Frame,
-        project_revision: u64,
-    ) -> Self {
-        Self {
-            document,
-            scenes,
-            project_id,
-            resolution,
-            playhead,
-            project_revision,
-        }
-    }
-
     pub(crate) fn project_revision(&self) -> u64 {
         self.project_revision
     }
 
     pub(crate) fn project_id(&self) -> ProjectId {
-        self.project_id
+        self.project.id
     }
 
     pub(crate) fn resolution(&self) -> ProjectResolution {
-        self.resolution
+        self.project.resolution
     }
 
     pub(crate) fn items(&self) -> impl Iterator<Item = &TimelineItem> {
-        self.document.items()
+        self.project.document.items()
     }
 
     pub(crate) fn item_layer(&self, id: ItemId) -> Option<LayerId> {
-        self.document.item_layer(id)
+        self.project.document.item_layer(id)
     }
 
     pub(crate) fn scenes(&self) -> impl Iterator<Item = &SceneDefinition> {
-        self.scenes.values()
+        self.project.scenes.values()
     }
 }
 
 impl TimelineView for TimelineSnapshot {
     fn resolution(&self) -> ProjectResolution {
-        self.resolution
+        self.project.resolution
     }
 
     fn frame_rate(&self) -> FrameRate {
-        self.document.frame_rate()
+        self.project.document.frame_rate()
     }
 
     fn playhead(&self) -> Frame {
@@ -101,19 +81,20 @@ impl TimelineView for TimelineSnapshot {
     }
 
     fn active_items_at_time(&self, time: TimelineTime) -> Vec<(LayerId, TimelineItem)> {
-        evaluated_document_items_at_time(&self.document, &self.scenes, time)
+        evaluated_document_items_at_time(&self.project.document, &self.project.scenes, time)
     }
 
     fn active_scene_graph_at_time(&self, time: TimelineTime) -> Vec<EvaluatedSceneNode> {
-        evaluated_document_graph_at_time(&self.document, &self.scenes, time)
+        evaluated_document_graph_at_time(&self.project.document, &self.project.scenes, time)
     }
 
     fn visible_items(&self) -> Vec<TimelineItem> {
-        document_items(&self.document, &self.scenes)
+        document_items(&self.project.document, &self.project.scenes)
     }
 
     fn end_frame_exclusive(&self) -> Frame {
-        self.document
+        self.project
+            .document
             .items()
             .map(TimelineItem::end_exclusive)
             .max()

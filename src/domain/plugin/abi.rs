@@ -3,7 +3,8 @@ use std::mem::size_of;
 use super::PluginError;
 use super::identifier::validate_wgsl_identifier;
 use crate::domain::property::{
-    MAX_STRING_BYTES, PropertyType, PropertyValue, PropertyValueType, ScalarPropertyType,
+    MAX_STRING_BYTES, PropertySchema, PropertyType, PropertyValue, PropertyValueType,
+    PropertyValues, ScalarPropertyType,
 };
 
 /// Property blocks are copied for every rendered instance/pass. Large data belongs in a separate
@@ -73,12 +74,21 @@ impl PropertyLayout {
             .map(|field| (field.id.as_ref(), &field.ty, field.offset))
     }
 
-    pub(super) fn pack<'a>(
+    pub(crate) fn pack(
         &self,
         owner_kind: &str,
         owner_id: &str,
-        mut value_for: impl FnMut(&str, &PropertyType) -> Result<&'a PropertyValue, PluginError>,
+        properties: &[PropertySchema],
+        values: &PropertyValues,
     ) -> Result<Vec<u8>, PluginError> {
+        values.validate_for(owner_kind, owner_id, properties)?;
+        let mut value_for = |id: &str, _: &PropertyType| {
+            values.property(id).ok_or_else(|| {
+                PluginError::invalid_definition(format!(
+                    "{owner_kind} '{owner_id}' is missing property '{id}'"
+                ))
+            })
+        };
         let actual_size = self.actual_size(owner_kind, owner_id, &mut value_for)?;
         if actual_size > MAX_PROPERTY_BLOCK_BYTES || actual_size > self.worst_case_size {
             return Err(property_budget_error(owner_kind, owner_id));

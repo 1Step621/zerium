@@ -39,7 +39,7 @@ impl PropertyElement {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(tag = "type", content = "value", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum PropertyValue {
     F32(f32),
     I32(i32),
@@ -134,44 +134,14 @@ impl PropertyValue {
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct PropertyValues {
-    owner: Option<(String, String)>,
-    schemas: HashMap<String, PropertySchema>,
     values: HashMap<String, PropertyValue>,
 }
 
 impl PropertyValues {
-    pub(crate) fn empty() -> Self {
-        Self {
-            owner: None,
-            schemas: HashMap::new(),
-            values: HashMap::new(),
-        }
-    }
-
     pub(crate) fn from_properties(properties: &[PropertySchema]) -> Self {
-        Self::from_owner(None, properties)
-    }
-
-    pub(in crate::domain) fn for_owner(
-        owner_kind: &str,
-        owner_id: &str,
-        properties: &[PropertySchema],
-    ) -> Self {
-        Self::from_owner(
-            Some((owner_kind.to_owned(), owner_id.to_owned())),
-            properties,
-        )
-    }
-
-    fn from_owner(owner: Option<(String, String)>, properties: &[PropertySchema]) -> Self {
         Self {
-            owner,
-            schemas: properties
-                .iter()
-                .map(|property| (property.id.clone(), property.clone()))
-                .collect(),
             values: properties
                 .iter()
                 .map(|property| (property.id.clone(), property.default_value().clone()))
@@ -188,10 +158,6 @@ impl PropertyValues {
     }
 
     pub(crate) fn remove(&mut self, id: &str) -> Option<PropertyValue> {
-        if self.owner.is_some() {
-            return None;
-        }
-        self.schemas.remove(id);
         self.values.remove(id)
     }
 
@@ -204,13 +170,6 @@ impl PropertyValues {
         property: &PropertySchema,
         value: PropertyValue,
     ) -> Result<bool, PropertyError> {
-        let existing_schema = self.schemas.get(&property.id);
-        if self.owner.is_some() && existing_schema.is_none_or(|schema| schema != property) {
-            return Err(PropertyError::invalid_definition(format!(
-                "property '{}' belongs to a different schema contract",
-                property.id
-            )));
-        }
         if !property.accepts_value(&value) {
             return Err(PropertyError::invalid_definition(format!(
                 "property '{}' value violates its schema contract",
@@ -220,7 +179,6 @@ impl PropertyValues {
         if self.property(&property.id) == Some(&value) {
             return Ok(false);
         }
-        self.schemas.insert(property.id.clone(), property.clone());
         self.values.insert(property.id.clone(), value);
         Ok(true)
     }
@@ -231,15 +189,6 @@ impl PropertyValues {
         owner_id: &str,
         properties: &[PropertySchema],
     ) -> Result<(), PropertyError> {
-        if self
-            .owner
-            .as_ref()
-            .is_some_and(|(kind, id)| kind.as_str() != owner_kind || id.as_str() != owner_id)
-        {
-            return Err(PropertyError::invalid_definition(format!(
-                "property values belong to a different owner than {owner_kind} '{owner_id}'"
-            )));
-        }
         if self.values.len() != properties.len() {
             return Err(PropertyError::invalid_definition(format!(
                 "{owner_kind} '{owner_id}' property set is incomplete"
@@ -252,7 +201,7 @@ impl PropertyValues {
                     property.id()
                 ))
             })?;
-            if self.schemas.get(property.id()) != Some(property) || !property.accepts_value(value) {
+            if !property.accepts_value(value) {
                 return Err(PropertyError::invalid_definition(format!(
                     "{owner_kind} '{owner_id}' property '{}' does not match its schema contract",
                     property.id()

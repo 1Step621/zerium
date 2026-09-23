@@ -326,10 +326,6 @@
         "$ref": "#/$defs/scalarType"
       }
     },
-    "passConstantType": {
-      "description": "Scalar types supported by WESL constant injection.",
-      "enum": ["f32", "i32", "u32", "bool"]
-    },
     "arrayValueType": {
       "oneOf": [
         {
@@ -357,53 +353,44 @@
         }
       }
     },
-    "arrayType": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["kind", "value"],
-      "properties": {
-        "kind": {
-          "const": "array"
-        },
-        "value": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["element_type", "max_items"],
-          "properties": {
-            "element_type": {
-              "$ref": "#/$defs/arrayValueType"
-            },
-            "min_items": {
-              "type": "integer",
-              "minimum": 0,
-              "maximum": 1000000
-            },
-            "max_items": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 1000000
-            }
-          }
-        }
-      }
-    },
     "propertyType": {
       "oneOf": [
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "value"],
+          "required": ["value"],
           "properties": {
-            "kind": {
-              "const": "value"
-            },
             "value": {
               "$ref": "#/$defs/arrayValueType"
             }
           }
         },
         {
-          "$ref": "#/$defs/arrayType"
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["array"],
+          "properties": {
+            "array": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["element_type", "max_items"],
+              "properties": {
+                "element_type": {
+                  "$ref": "#/$defs/arrayValueType"
+                },
+                "min_items": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 1000000
+                },
+                "max_items": {
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000000
+                }
+              }
+            }
+          }
         }
       ]
     },
@@ -476,90 +463,52 @@
     "passConstant": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "type", "value"],
+      "required": ["id", "value"],
       "properties": {
         "id": {
           "$ref": "#/$defs/wgslId"
         },
-        "type": {
-          "$ref": "#/$defs/passConstantType"
-        },
-        "value": true
-      },
-      "allOf": [
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "f32"
+        "value": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["f32"],
+              "properties": { "f32": { "type": "number" } }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["i32"],
+              "properties": {
+                "i32": {
+                  "type": "integer",
+                  "minimum": -2147483648,
+                  "maximum": 2147483647
+                }
               }
             },
-            "required": ["type"]
-          },
-          "then": {
-            "properties": {
-              "value": {
-                "type": "number"
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "i32"
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["u32"],
+              "properties": {
+                "u32": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                }
               }
             },
-            "required": ["type"]
-          },
-          "then": {
-            "properties": {
-              "value": {
-                "type": "integer",
-                "minimum": -2147483648,
-                "maximum": 2147483647
-              }
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["bool"],
+              "properties": { "bool": { "type": "boolean" } }
             }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "u32"
-              }
-            },
-            "required": ["type"]
-          },
-          "then": {
-            "properties": {
-              "value": {
-                "type": "integer",
-                "minimum": 0,
-                "maximum": 4294967295
-              }
-            }
-          }
-        },
-        {
-          "if": {
-            "properties": {
-              "type": {
-                "const": "bool"
-              }
-            },
-            "required": ["type"]
-          },
-          "then": {
-            "properties": {
-              "value": {
-                "type": "boolean"
-              }
-            }
-          }
+          ]
         }
-      ]
+      }
     },
     "renderPass": {
       "type": "object",
@@ -629,11 +578,8 @@
         "sampling": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["type", "sample_count", "angle"],
+          "required": ["sample_count", "angle"],
           "properties": {
-            "type": {
-              "const": "shutter"
-            },
             "sample_count": {
               "$ref": "#/$defs/wgslId"
             },
@@ -794,23 +740,10 @@
     },
     "propertyValue": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["type", "value"],
-      "properties": {
-        "type": {
-          "enum": [
-            "f32",
-            "i32",
-            "u32",
-            "enum",
-            "bool",
-            "tuple",
-            "color",
-            "string",
-            "array"
-          ]
-        },
-        "value": true
+      "minProperties": 1,
+      "maxProperties": 1,
+      "propertyNames": {
+        "enum": ["f32", "i32", "u32", "enum", "bool", "tuple", "color", "string", "array"]
       }
     }
   }

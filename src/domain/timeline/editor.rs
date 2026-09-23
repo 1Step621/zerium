@@ -213,14 +213,11 @@ impl TimelineEditor {
     }
 
     pub(crate) fn snapshot(&self) -> TimelineSnapshot {
-        TimelineSnapshot::new(
-            self.project().document.clone(),
-            self.project().scenes.clone(),
-            self.project().id,
-            self.project().resolution,
-            self.playhead,
-            self.project_revision,
-        )
+        TimelineSnapshot {
+            project: self.project.clone(),
+            playhead: self.playhead,
+            project_revision: self.project_revision,
+        }
     }
 
     pub(super) fn history_snapshot(&self) -> HistorySnapshot {

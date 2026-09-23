@@ -231,7 +231,7 @@ impl PropertyInspector {
                     scene_id,
                     id: argument.schema.id().to_owned(),
                     label,
-                    schema: argument.schema.property().clone(),
+                    schema: argument.schema.clone(),
                     binding_count: argument.bindings.len(),
                     bindings: argument.bindings.clone(),
                     expression,

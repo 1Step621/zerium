@@ -1,5 +1,8 @@
+use serde::{Deserialize, Serialize};
+
 /// Stable identity of an item within a project.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
 pub(crate) struct ItemId(pub(crate) u64);
 
 impl ItemId {
@@ -70,7 +73,8 @@ impl LayerId {
 }
 
 /// Project-wide stable identity of one effect instance in an item's stack.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash, Serialize)]
+#[serde(transparent)]
 pub(crate) struct EffectInstanceId(pub(super) u64);
 
 impl EffectInstanceId {

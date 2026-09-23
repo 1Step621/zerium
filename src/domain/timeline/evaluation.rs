@@ -60,7 +60,7 @@ pub(super) fn evaluated_scene_argument_values(
 ) -> HashMap<String, PropertyValue> {
     let schemas = scene
         .input_arguments()
-        .map(|argument| argument.schema.property().clone())
+        .map(|argument| argument.schema.clone())
         .collect::<Vec<_>>();
     let values = instance.animations.evaluated_values(
         &instance.properties,

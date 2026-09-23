@@ -1,10 +1,12 @@
 use std::{path::PathBuf, time::Duration};
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::domain::plugin::MediaType;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum MediaKind {
     Video {
         width: u32,
@@ -27,7 +29,8 @@ pub(crate) enum MediaKind {
 ///
 /// This belongs to the media asset rather than the timeline: a timeline frame
 /// is mapped to a native video frame by time before decoding or caching it.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash, Serialize)]
+#[serde(try_from = "[u32; 2]", into = "[u32; 2]")]
 pub(crate) struct VideoFrameRate {
     numerator: u32,
     denominator: u32,
@@ -58,6 +61,20 @@ impl VideoFrameRate {
 
     pub(crate) const fn denominator(self) -> u32 {
         self.denominator
+    }
+}
+
+impl TryFrom<[u32; 2]> for VideoFrameRate {
+    type Error = &'static str;
+
+    fn try_from([numerator, denominator]: [u32; 2]) -> Result<Self, Self::Error> {
+        Self::new(numerator, denominator).ok_or("video frame rate must be positive")
+    }
+}
+
+impl From<VideoFrameRate> for [u32; 2] {
+    fn from(frame_rate: VideoFrameRate) -> Self {
+        [frame_rate.numerator, frame_rate.denominator]
     }
 }
 

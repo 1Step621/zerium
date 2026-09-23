@@ -548,7 +548,7 @@ impl RendererDevice {
         }
         self.temporal_pipelines.insert(
             id,
-            EffectPipeline {
+            RasterPipeline {
                 pipeline,
                 vertex_count: 3,
             },
@@ -751,7 +751,7 @@ impl RendererDevice {
         }
         self.pipelines.insert(
             descriptor.id,
-            ItemPipeline {
+            RasterPipeline {
                 pipeline,
                 vertex_count: descriptor.vertex_count,
             },
@@ -815,7 +815,7 @@ impl RendererDevice {
         }
         self.effect_pipelines.insert(
             descriptor.id,
-            EffectPipeline {
+            RasterPipeline {
                 pipeline,
                 vertex_count: 3,
             },

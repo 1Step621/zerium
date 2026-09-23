@@ -22,7 +22,7 @@ pub(crate) use ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId};
 pub(crate) use item::{EffectInstance, RenderResultSettings, TimelineItem, TimelineItemKind};
 pub(crate) use scene::SceneDefinition;
 pub(crate) use scene::{
-    SceneArgument, SceneArgumentPreset, SceneArgumentSchema, SceneBindingOwner, SceneBindingTarget,
+    SceneArgument, SceneArgumentPreset, SceneBindingOwner, SceneBindingTarget,
     display_scene_expression, resolve_scene_binding, scene_argument_expressions_valid,
 };
 pub(crate) use settings::ProjectResolution;

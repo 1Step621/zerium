@@ -6,7 +6,7 @@ use std::{
 use crate::domain::animation::{ScalarAnimationAddress, ScalarAnimations};
 use crate::domain::media::ImportedMedia;
 use crate::domain::plugin::{EffectSchema, ItemSchema};
-use crate::domain::property::PropertyValue;
+use crate::domain::property::{PropertyValue, PropertyValues};
 
 use super::{
     ids::{EffectInstanceId, ItemId, LayerId},
@@ -373,7 +373,7 @@ impl TimelineDocument {
         item_id: &str,
         schema: Arc<ItemSchema>,
     ) -> Option<ItemId> {
-        let properties = schema.default_property_values();
+        let properties = PropertyValues::from_properties(schema.properties());
         let duration =
             FrameDuration::new_saturating(self.frame_rate.seconds_to_frame(DEFAULT_ITEM_SECONDS).0);
         let plugin_id = plugin_id.to_owned();
@@ -690,7 +690,7 @@ impl TimelineDocument {
         effect_id: &str,
         schema: Arc<EffectSchema>,
     ) -> bool {
-        let properties = schema.default_property_values();
+        let properties = PropertyValues::from_properties(schema.properties());
         let Some(item) = self.items.get_mut(&id).map(Arc::make_mut) else {
             return false;
         };

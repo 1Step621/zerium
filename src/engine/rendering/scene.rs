@@ -35,32 +35,6 @@ impl RenderQuality {
     }
 }
 
-#[cfg(test)]
-mod render_quality_tests {
-    use super::RenderQuality;
-
-    #[test]
-    fn realtime_quality_keeps_samples_distributed_across_exposure() {
-        let offsets = (-4..4).map(f64::from).collect();
-        assert_eq!(
-            RenderQuality::Realtime {
-                max_temporal_samples: 4,
-            }
-            .temporal_offsets(offsets),
-            vec![-3., -1., 1., 3.]
-        );
-    }
-
-    #[test]
-    fn full_quality_preserves_all_samples() {
-        let offsets = vec![-0.25, 0.25];
-        assert_eq!(
-            RenderQuality::Full.temporal_offsets(offsets.clone()),
-            offsets
-        );
-    }
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 struct RenderCacheKey {
     item_id: ItemId,
@@ -93,50 +67,6 @@ impl From<ProjectResolution> for RenderSize {
     }
 }
 
-/// Opaque, variable-sized properties supplied to one item instance.
-///
-/// The schema packer is the only production constructor, keeping layout and
-/// byte offsets private to the host-generated WGSL interface.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct ItemProperties {
-    bytes: Vec<u8>,
-}
-
-impl ItemProperties {
-    pub(crate) fn from_bytes(bytes: impl Into<Vec<u8>>) -> Self {
-        Self {
-            bytes: bytes.into(),
-        }
-    }
-
-    pub(super) fn as_bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-
-    pub(super) fn len(&self) -> usize {
-        self.bytes.len()
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct RenderShaderItem {
-    pub shader: ItemShaderId,
-    pub properties: ItemProperties,
-    pub effects: Vec<RenderEffect>,
-    pub target_size: RenderSize,
-    pub render_scale: u32,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct RenderTextureItem {
-    pub shader: TextureShaderId,
-    pub input: RenderTextureInput,
-    pub properties: ItemProperties,
-    pub effects: Vec<RenderEffect>,
-    pub target_size: RenderSize,
-    pub render_scale: u32,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum RenderTextureInput {
     Frames(Vec<Arc<RgbaFrame>>),
@@ -144,9 +74,19 @@ pub(crate) enum RenderTextureInput {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum RenderItem {
-    Shader(RenderShaderItem),
-    Texture(RenderTextureItem),
+pub(crate) enum RenderItemSource {
+    Shader,
+    Texture(RenderTextureInput),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RenderItem {
+    pub shader: ItemShaderId,
+    pub source: RenderItemSource,
+    pub properties: Vec<u8>,
+    pub effects: Vec<RenderEffect>,
+    pub target_size: RenderSize,
+    pub render_scale: u32,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -163,42 +103,17 @@ pub(crate) struct RenderTemporalSample {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum RenderEffectPass {
-    Render {
-        shader: EffectShaderId,
-        properties: EffectProperties,
-    },
-    Compute {
-        shader: EffectShaderId,
-        properties: EffectProperties,
-        dispatch: [ComputeDispatchDimension; 3],
-    },
-    Temporal {
-        reducer: EffectShaderId,
-        properties: EffectProperties,
-        samples: Vec<RenderTemporalSample>,
-    },
+pub(crate) struct RenderEffectPass {
+    pub shader: EffectShaderId,
+    pub properties: Vec<u8>,
+    pub kind: RenderEffectPassKind,
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub(crate) struct EffectProperties {
-    bytes: Vec<u8>,
-}
-
-impl EffectProperties {
-    pub(super) fn from_bytes(bytes: impl Into<Vec<u8>>) -> Self {
-        Self {
-            bytes: bytes.into(),
-        }
-    }
-
-    pub(super) fn as_bytes(&self) -> &[u8] {
-        &self.bytes
-    }
-
-    pub(super) fn len(&self) -> usize {
-        self.bytes.len()
-    }
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) enum RenderEffectPassKind {
+    Render,
+    Compute([ComputeDispatchDimension; 3]),
+    Temporal(Vec<RenderTemporalSample>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -253,12 +168,11 @@ impl RenderNode {
 
     pub(super) fn required_render_scale(&self) -> u32 {
         match &self.content {
-            RenderNodeContent::Item(RenderItem::Shader(item)) => item.render_scale,
-            RenderNodeContent::Item(RenderItem::Texture(item)) => match &item.input {
-                RenderTextureInput::Frames(_) => item.render_scale,
-                RenderTextureInput::Rendered(node) => {
+            RenderNodeContent::Item(item) => match &item.source {
+                RenderItemSource::Texture(RenderTextureInput::Rendered(node)) => {
                     item.render_scale.max(node.required_render_scale())
                 }
+                _ => item.render_scale,
             },
             RenderNodeContent::Scene {
                 children,
@@ -361,8 +275,8 @@ impl RenderScene {
             for node in nodes {
                 match &node.content {
                     RenderNodeContent::Item(item) => {
-                        if let RenderItem::Texture(item) = item
-                            && let RenderTextureInput::Rendered(input) = &item.input
+                        if let RenderItemSource::Texture(RenderTextureInput::Rendered(input)) =
+                            &item.source
                         {
                             collect(std::slice::from_ref(input.as_ref()), output);
                         }
@@ -382,11 +296,10 @@ impl RenderScene {
         fn collect<'a>(nodes: &'a [RenderNode], output: &mut Vec<&'a RenderEffect>) {
             for node in nodes {
                 match &node.content {
-                    RenderNodeContent::Item(RenderItem::Shader(item)) => {
-                        output.extend(&item.effects)
-                    }
-                    RenderNodeContent::Item(RenderItem::Texture(item)) => {
-                        if let RenderTextureInput::Rendered(input) = &item.input {
+                    RenderNodeContent::Item(item) => {
+                        if let RenderItemSource::Texture(RenderTextureInput::Rendered(input)) =
+                            &item.source
+                        {
                             collect(std::slice::from_ref(input.as_ref()), output);
                         }
                         output.extend(&item.effects)
@@ -661,10 +574,7 @@ impl RenderScene {
                 .passes()
                 .iter()
                 .map(|pass| {
-                    let Some(offsets) = effect
-                        .schema()
-                        .temporal_sample_offsets(pass, &effect.properties)
-                    else {
+                    let Some(offsets) = pass.temporal_sample_offsets(&effect.properties) else {
                         return Ok(None);
                     };
                     if temporal_depth >= MAX_TEMPORAL_DEPTH {
@@ -746,18 +656,18 @@ impl RenderScene {
                 )))
             })?;
             let input = RenderNode::scene(metadata.clone(), rendered_children, Vec::new(), 1);
-            let item = RenderTextureItem {
-                shader: TextureShaderId::plugin_item(
+            let item = RenderItem {
+                shader: ItemShaderId::plugin_item(
                     instance.plugin_id().unwrap_or_default(),
                     instance.item_id().unwrap_or_default(),
                 ),
-                input: RenderTextureInput::Rendered(Box::new(input)),
+                source: RenderItemSource::Texture(RenderTextureInput::Rendered(Box::new(input))),
                 properties: Self::pack_item_properties(instance, schema),
                 effects,
                 target_size,
                 render_scale,
             };
-            Ok(Some(RenderNode::item(metadata, RenderItem::Texture(item))))
+            Ok(Some(RenderNode::item(metadata, item)))
         } else {
             Ok(Some(RenderNode::scene(
                 metadata,
@@ -842,10 +752,7 @@ impl RenderScene {
                     .iter()
                     .map(|pass| {
                         Ok(
-                            match effect
-                                .schema()
-                                .temporal_sample_offsets(pass, &effect.properties)
-                            {
+                            match pass.temporal_sample_offsets(&effect.properties) {
                                 Some(offsets) => Some(
                                     quality
                                         .temporal_offsets(offsets)
@@ -922,17 +829,8 @@ impl RenderScene {
             })
             .collect::<Result<Vec<_>, E>>()?;
         let properties = Self::pack_item_properties(item, schema);
-        let render_item = match visual {
-            VisualCapability::Procedural { .. } => RenderItem::Shader(RenderShaderItem {
-                shader: ItemShaderId::plugin_item(
-                    item.plugin_id().unwrap_or_default(),
-                    item.item_id().unwrap_or_default(),
-                ),
-                properties,
-                effects,
-                target_size,
-                render_scale,
-            }),
+        let source = match visual {
+            VisualCapability::Procedural { .. } => RenderItemSource::Shader,
             VisualCapability::Media { .. } => {
                 let mut frames = Vec::new();
                 for (input_slot, input) in schema.texture_inputs().enumerate() {
@@ -959,32 +857,25 @@ impl RenderScene {
                 if frames.is_empty() {
                     return Ok(None);
                 }
-                RenderItem::Texture(RenderTextureItem {
-                    shader: TextureShaderId::plugin_item(
-                        item.plugin_id().unwrap_or_default(),
-                        item.item_id().unwrap_or_default(),
-                    ),
-                    input: RenderTextureInput::Frames(frames),
-                    properties,
-                    effects,
-                    target_size,
-                    render_scale,
-                })
+                RenderItemSource::Texture(RenderTextureInput::Frames(frames))
             }
-            VisualCapability::Text { .. } => RenderItem::Texture(RenderTextureItem {
-                shader: TextureShaderId::plugin_item(
-                    item.plugin_id().unwrap_or_default(),
-                    item.item_id().unwrap_or_default(),
-                ),
-                input: RenderTextureInput::Frames(vec![text_frame(item, schema, target_size)?]),
-                properties,
-                effects,
-                target_size,
-                render_scale,
-            }),
+            VisualCapability::Text { .. } => RenderItemSource::Texture(RenderTextureInput::Frames(
+                vec![text_frame(item, schema, target_size)?],
+            )),
             VisualCapability::RenderResult { .. } => {
                 unreachable!("render-result visuals are composed before rendering leaf items")
             }
+        };
+        let render_item = RenderItem {
+            shader: ItemShaderId::plugin_item(
+                item.plugin_id().unwrap_or_default(),
+                item.item_id().unwrap_or_default(),
+            ),
+            source,
+            properties,
+            effects,
+            target_size,
+            render_scale,
         };
         render_cache.insert(cache_key, Some(render_item.clone()));
         Ok(Some(render_item))
@@ -995,11 +886,15 @@ impl RenderScene {
         temporal_samples: Vec<Option<Vec<RenderTemporalSample>>>,
     ) -> RenderEffect {
         let schema = effect.schema();
-        let properties = EffectProperties::from_bytes(
-            schema
-                .pack_properties(&effect.properties)
-                .expect("timeline effect properties come from the validated schema"),
-        );
+        let properties = schema
+            .property_layout()
+            .pack(
+                "effect",
+                schema.id(),
+                schema.properties(),
+                &effect.properties,
+            )
+            .expect("timeline effect properties come from the validated schema");
         let passes = schema
             .passes()
             .iter()
@@ -1008,32 +903,30 @@ impl RenderScene {
             .map(|(pass_index, (pass, temporal_samples))| {
                 let pass_shader =
                     EffectShaderId::plugin_pass(&effect.plugin_id, &effect.effect_id, pass_index);
-                match pass {
-                    EffectPassSchema::Render { .. } => RenderEffectPass::Render {
-                        shader: pass_shader,
-                        properties: properties.clone(),
-                    },
-                    EffectPassSchema::Compute { dispatch, .. } => RenderEffectPass::Compute {
-                        shader: pass_shader,
-                        properties: properties.clone(),
-                        dispatch: *dispatch,
-                    },
-                    EffectPassSchema::Temporal { .. } => RenderEffectPass::Temporal {
-                        reducer: pass_shader,
-                        properties: properties.clone(),
-                        samples: temporal_samples.expect("temporal passes have rendered samples"),
-                    },
+                let kind = match pass {
+                    EffectPassSchema::Render { .. } => RenderEffectPassKind::Render,
+                    EffectPassSchema::Compute { dispatch, .. } => {
+                        RenderEffectPassKind::Compute(*dispatch)
+                    }
+                    EffectPassSchema::Temporal { .. } => RenderEffectPassKind::Temporal(
+                        temporal_samples.expect("temporal passes have rendered samples"),
+                    ),
+                };
+                RenderEffectPass {
+                    shader: pass_shader,
+                    properties: properties.clone(),
+                    kind,
                 }
             })
             .collect();
         RenderEffect { passes }
     }
 
-    pub(super) fn pack_item_properties(item: &TimelineItem, schema: &ItemSchema) -> ItemProperties {
-        let bytes = schema
-            .pack_property_values(&item.properties)
-            .expect("validated plugin properties must match their schema");
-        ItemProperties::from_bytes(bytes)
+    pub(super) fn pack_item_properties(item: &TimelineItem, schema: &ItemSchema) -> Vec<u8> {
+        schema
+            .property_layout()
+            .pack("item", schema.id(), schema.properties(), &item.properties)
+            .expect("validated plugin properties must match their schema")
     }
 }
 

@@ -44,14 +44,14 @@ const YUV_CONVERT: &str = include_str!("yuv.wgsl");
 
 pub(crate) use readback::ExportFramePipeline;
 pub(crate) use scene::{
-    ItemProperties, RenderEffect, RenderEffectPass, RenderItem, RenderNode, RenderNodeContent,
-    RenderNodeMetadata, RenderQuality, RenderScene, RenderTemporalSample,
+    RenderEffect, RenderEffectPassKind, RenderItem, RenderItemSource, RenderNode,
+    RenderNodeContent, RenderNodeMetadata, RenderQuality, RenderScene, RenderTemporalSample,
 };
 pub(crate) use scene::{RenderError, RenderSize};
 pub(crate) use shader::CompiledPluginShaders;
 use shader::{
     CompiledEffectShader, ComputeShaderDescriptor, EffectShaderDescriptor, EffectShaderId,
-    ItemShaderDescriptor, ItemShaderId, TextureShaderDescriptor, TextureShaderId,
+    ItemShaderDescriptor, ItemShaderId, TextureShaderDescriptor,
 };
 pub(crate) use shader_compile::compile_plugins;
 
@@ -63,7 +63,7 @@ pub(crate) struct RendererDevice {
     device: Arc<wgpu::Device>,
     queue: Arc<wgpu::Queue>,
     pipeline_layout: wgpu::PipelineLayout,
-    pipelines: HashMap<ItemShaderId, ItemPipeline>,
+    pipelines: HashMap<ItemShaderId, RasterPipeline>,
     item_bind_group_layout: wgpu::BindGroupLayout,
     effect_bind_group_layout: wgpu::BindGroupLayout,
     temporal_bind_group_layout: wgpu::BindGroupLayout,
@@ -71,12 +71,12 @@ pub(crate) struct RendererDevice {
     effect_pipeline_layout: wgpu::PipelineLayout,
     temporal_pipeline_layout: wgpu::PipelineLayout,
     composite_bind_group_layout: wgpu::BindGroupLayout,
-    effect_pipelines: HashMap<EffectShaderId, EffectPipeline>,
-    temporal_pipelines: HashMap<EffectShaderId, EffectPipeline>,
+    effect_pipelines: HashMap<EffectShaderId, RasterPipeline>,
+    temporal_pipelines: HashMap<EffectShaderId, RasterPipeline>,
     compute_pipelines: HashMap<EffectShaderId, ComputePipeline>,
     composite_pipeline: wgpu::RenderPipeline,
     output_pipeline: wgpu::RenderPipeline,
-    texture_pipelines: HashMap<TextureShaderId, TexturePipeline>,
+    texture_pipelines: HashMap<ItemShaderId, TexturePipeline>,
     sampler: wgpu::Sampler,
 }
 
@@ -116,12 +116,7 @@ impl Deref for FrameRenderer {
     }
 }
 
-struct ItemPipeline {
-    pipeline: wgpu::RenderPipeline,
-    vertex_count: u32,
-}
-
-struct EffectPipeline {
+struct RasterPipeline {
     pipeline: wgpu::RenderPipeline,
     vertex_count: u32,
 }

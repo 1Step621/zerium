@@ -1,6 +1,6 @@
 //! Timeline clipboard encoding using the same checked item representation as project files.
 use super::ProjectError;
-use super::project::{ProjectItem, ProjectSceneBinding, load_items, validate_no_overlaps};
+use super::project::{ProjectItem, load_items, validate_no_overlaps};
 use crate::domain::timeline::{
     LayerId, ProjectId, SceneBindingTarget, SceneId, TimelineEditor, TimelineItem,
 };
@@ -34,13 +34,7 @@ pub(crate) fn encode_timeline_clipboard(
             .iter()
             .map(|(layer, item)| ProjectItem::capture(item, *layer, Path::new("")))
             .collect(),
-        scene_bindings: scene_bindings
-            .iter()
-            .map(|(argument_id, binding)| TimelineClipboardSceneBinding {
-                argument_id: argument_id.clone(),
-                binding: ProjectSceneBinding::capture(binding),
-            })
-            .collect(),
+        scene_bindings: scene_bindings.to_vec(),
     };
     serde_json::to_string(&file).map_err(|error| {
         ProjectError::encode(format!("コピー内容を変換できません: {error}"), error)
@@ -77,7 +71,7 @@ pub(crate) fn decode_timeline_clipboard(
                 scene.id,
                 scene
                     .input_arguments()
-                    .map(|argument| argument.schema.property().clone())
+                    .map(|argument| argument.schema.clone())
                     .collect::<Vec<_>>(),
             )
         })
@@ -96,12 +90,7 @@ pub(crate) fn decode_timeline_clipboard(
         .map(|(_, item)| item.id)
         .collect::<HashSet<_>>();
     let mut scene_bindings = Vec::with_capacity(file.scene_bindings.len());
-    for binding in file.scene_bindings {
-        let TimelineClipboardSceneBinding {
-            argument_id,
-            binding,
-        } = binding;
-        let binding = binding.into_domain();
+    for (argument_id, binding) in file.scene_bindings {
         if !item_ids.contains(&binding.item_id()) {
             return Err(ProjectError::invalid_data(
                 "コピーされたシーン引数接続の対象がありません",
@@ -123,12 +112,5 @@ struct TimelineClipboardFile {
     format_version: u32,
     source_scene: Option<[u64; 3]>,
     items: Vec<ProjectItem>,
-    scene_bindings: Vec<TimelineClipboardSceneBinding>,
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct TimelineClipboardSceneBinding {
-    argument_id: String,
-    binding: ProjectSceneBinding,
+    scene_bindings: Vec<(String, SceneBindingTarget)>,
 }

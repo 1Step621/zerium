@@ -446,52 +446,44 @@ impl FrameRenderer {
         let render_effects = scene.render_effects();
         let item_count = render_items
             .iter()
-            .filter(|item| matches!(item, RenderItem::Shader(_)))
+            .filter(|item| matches!(item.source, RenderItemSource::Shader))
             .count();
         if item_count > u32::MAX as usize {
             return Err(RenderError::backend("too many visible items in one frame"));
         }
-        if let Some(item) = render_items
-            .iter()
-            .filter_map(|item| match item {
-                RenderItem::Shader(item) => Some(item),
-                RenderItem::Texture(_) => None,
-            })
-            .find(|item| !self.pipelines.contains_key(&item.shader))
-        {
+        if let Some(item) = render_items.iter().find(|item| {
+            matches!(item.source, RenderItemSource::Shader)
+                && !self.pipelines.contains_key(&item.shader)
+        }) {
             return Err(RenderError::backend(format!(
                 "item shader '{}' is not registered",
                 item.shader
             )));
         }
         for pass in render_effects.iter().flat_map(|effect| &effect.passes) {
-            let (shader, registered) = match pass {
-                RenderEffectPass::Render { shader, .. } => {
-                    (shader, self.effect_pipelines.contains_key(shader))
+            let registered = match &pass.kind {
+                RenderEffectPassKind::Render => self.effect_pipelines.contains_key(&pass.shader),
+                RenderEffectPassKind::Compute(_) => {
+                    self.compute_pipelines.contains_key(&pass.shader)
                 }
-                RenderEffectPass::Compute { shader, .. } => {
-                    (shader, self.compute_pipelines.contains_key(shader))
-                }
-                RenderEffectPass::Temporal { reducer, .. } => {
-                    (reducer, self.temporal_pipelines.contains_key(reducer))
+                RenderEffectPassKind::Temporal(_) => {
+                    self.temporal_pipelines.contains_key(&pass.shader)
                 }
             };
             if !registered {
                 return Err(RenderError::backend(format!(
                     "effect shader '{}' is not registered",
-                    shader
+                    pass.shader
                 )));
             }
         }
-        if let Some(video) = render_items.iter().find_map(|item| match item {
-            RenderItem::Texture(video) if !self.texture_pipelines.contains_key(&video.shader) => {
-                Some(video)
-            }
-            _ => None,
+        if let Some(item) = render_items.iter().find(|item| {
+            matches!(item.source, RenderItemSource::Texture(_))
+                && !self.texture_pipelines.contains_key(&item.shader)
         }) {
             return Err(RenderError::backend(format!(
                 "texture item shader '{}' is not registered",
-                video.shader
+                item.shader
             )));
         }
         let limits = self.device.limits();
@@ -515,8 +507,8 @@ impl FrameRenderer {
             ));
         }
 
-        if let Some(frame) = render_items.iter().find_map(|item| match item {
-            RenderItem::Texture(video) => match &video.input {
+        if let Some(frame) = render_items.iter().find_map(|item| match &item.source {
+            RenderItemSource::Texture(input) => match input {
                 super::scene::RenderTextureInput::Frames(frames) => frames.iter().find(|frame| {
                     frame.width == 0
                         || frame.height == 0
@@ -525,7 +517,7 @@ impl FrameRenderer {
                 }),
                 super::scene::RenderTextureInput::Rendered(_) => None,
             },
-            RenderItem::Shader(_) => None,
+            RenderItemSource::Shader => None,
         }) {
             return Err(RenderError::backend(format!(
                 "video frame size {}x{} exceeds GPU limits",
@@ -706,9 +698,9 @@ impl FrameRenderer {
             let item = scratch.item;
             self.queue
                 .write_buffer(&input_properties, 0, bytemuck::cast_slice(&input_metadata));
-            if !encoded.properties.as_bytes().is_empty() {
+            if !encoded.properties.is_empty() {
                 self.queue
-                    .write_buffer(&item_properties, 0, encoded.properties.as_bytes());
+                    .write_buffer(&item_properties, 0, &encoded.properties);
             }
             self.queue.write_buffer(
                 &item,

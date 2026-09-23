@@ -24,10 +24,10 @@ use super::{
     ids::{EffectInstanceId, ItemId, LayerId, SceneId},
     item::TimelineItem,
     scene::{
-        SceneArgument, SceneArgumentPreset, SceneArgumentSchema, SceneBindingOwner,
-        SceneBindingTarget, SceneDefinition, apply_scene_binding_to_item,
-        materialize_scene_instance_properties, resolve_property_schema, resolve_scene_binding,
-        scene_argument_expressions_valid, set_scene_instance_override, unique_scene_argument_name,
+        SceneArgument, SceneArgumentPreset, SceneBindingOwner, SceneBindingTarget, SceneDefinition,
+        apply_scene_binding_to_item, materialize_scene_instance_properties,
+        resolve_property_schema, resolve_scene_binding, scene_argument_expressions_valid,
+        set_scene_instance_override, unique_scene_argument_name,
     },
     settings::ProjectResolution,
     time::{Frame, FrameDuration, FrameRate},
@@ -563,9 +563,11 @@ impl TimelineEditor {
         let (argument_id, _) = scene.allocate_argument_id();
         let label =
             unique_scene_argument_name(&scene.arguments, resolved.schema.label(), &argument_id);
-        let schema = SceneArgumentSchema::from_property(resolved.schema)
+        let schema = resolved
+            .schema
+            .for_scene_argument()
             .ok_or(SceneArgumentEditError::IncompatibleContract)?
-            .with_identity(argument_id.clone(), label);
+            .with_scene_identity(argument_id.clone(), label);
         scene
             .arguments
             .push(SceneArgument::input(schema, vec![target]));
@@ -600,7 +602,8 @@ impl TimelineEditor {
                 ..Default::default()
             }],
         };
-        let schema = SceneArgumentSchema::from_property(schema)
+        let schema = schema
+            .for_scene_argument()
             .expect("supported scene argument types must produce a scalar schema");
         scene
             .arguments
@@ -634,7 +637,8 @@ impl TimelineEditor {
                 ..Default::default()
             }],
         };
-        let schema = SceneArgumentSchema::from_property(schema)
+        let schema = schema
+            .for_scene_argument()
             .expect("expression scene arguments have a supported scalar schema");
         scene.arguments.push(
             SceneArgument::computed(schema, Vec::new(), expression)
@@ -729,7 +733,7 @@ impl TimelineEditor {
         if argument.schema.label() == label {
             return false;
         }
-        argument.schema.rename(label.to_owned());
+        argument.schema.label = label.to_owned();
         if !scene_argument_expressions_valid(&arguments) {
             return false;
         }
@@ -797,7 +801,7 @@ impl TimelineEditor {
         else {
             return false;
         };
-        let Some(next_schema) = argument.schema.with_numeric_settings(settings) else {
+        let Some(next_schema) = argument.schema.with_scene_numeric_settings(settings) else {
             return false;
         };
         if next_schema == argument.schema {
@@ -843,7 +847,7 @@ impl TimelineEditor {
             return false;
         };
         let bindings = argument.bindings.clone();
-        let Some(next_schema) = argument.schema.with_default(&value) else {
+        let Some(next_schema) = argument.schema.with_scene_default(&value) else {
             return false;
         };
         if next_schema == argument.schema {

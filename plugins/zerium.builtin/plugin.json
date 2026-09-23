@@ -25,19 +25,15 @@
         {
           "id": "position",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               },
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               }
             ]
           },
@@ -70,19 +66,15 @@
         {
           "id": "size",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 320
+                "f32": 320
               },
               {
-                "type": "f32",
-                "value": 180
+                "f32": 180
               }
             ]
           },
@@ -115,12 +107,10 @@
         {
           "id": "color",
           "type": {
-            "kind": "value",
             "value": "color"
           },
           "default": {
-            "type": "color",
-            "value": [1, 0.28, 0.035, 1]
+            "color": [1, 0.28, 0.035, 1]
           },
           "label": "色",
           "configurations": [
@@ -132,12 +122,10 @@
         {
           "id": "corner_radius",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 0
+            "f32": 0
           },
           "label": "角丸",
           "configurations": [
@@ -177,19 +165,15 @@
         {
           "id": "position",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               },
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               }
             ]
           },
@@ -222,19 +206,15 @@
         {
           "id": "size",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 240
+                "f32": 240
               },
               {
-                "type": "f32",
-                "value": 200
+                "f32": 200
               }
             ]
           },
@@ -267,12 +247,10 @@
         {
           "id": "color",
           "type": {
-            "kind": "value",
             "value": "color"
           },
           "default": {
-            "type": "color",
-            "value": [1, 0.52, 0.06, 1]
+            "color": [1, 0.52, 0.06, 1]
           },
           "label": "色",
           "configurations": [
@@ -284,12 +262,10 @@
         {
           "id": "apex_position",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 50
+            "f32": 50
           },
           "label": "頂点位置",
           "configurations": [
@@ -329,19 +305,15 @@
         {
           "id": "position",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               },
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               }
             ]
           },
@@ -374,19 +346,15 @@
         {
           "id": "radius",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 120
+                "f32": 120
               },
               {
-                "type": "f32",
-                "value": 80
+                "f32": 80
               }
             ]
           },
@@ -419,12 +387,10 @@
         {
           "id": "color",
           "type": {
-            "kind": "value",
             "value": "color"
           },
           "default": {
-            "type": "color",
-            "value": [0.92, 0.18, 0.025, 1]
+            "color": [0.92, 0.18, 0.025, 1]
           },
           "label": "色",
           "configurations": [
@@ -458,19 +424,15 @@
         {
           "id": "position",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               },
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               }
             ]
           },
@@ -503,19 +465,15 @@
         {
           "id": "size",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 320
+                "f32": 320
               },
               {
-                "type": "f32",
-                "value": 240
+                "f32": 240
               }
             ]
           },
@@ -548,28 +506,23 @@
         {
           "id": "points",
           "type": {
-            "kind": "array",
-            "value": {
+            "array": {
               "element_type": ["f32", "f32"],
               "max_items": 1024,
               "min_items": 3
             }
           },
           "default": {
-            "type": "array",
-            "value": [
+            "array": [
               {
                 "id": 1,
                 "value": {
-                  "type": "tuple",
-                  "value": [
+                  "tuple": [
                     {
-                      "type": "f32",
-                      "value": 50
+                      "f32": 50
                     },
                     {
-                      "type": "f32",
-                      "value": 0
+                      "f32": 0
                     }
                   ]
                 }
@@ -577,15 +530,12 @@
               {
                 "id": 2,
                 "value": {
-                  "type": "tuple",
-                  "value": [
+                  "tuple": [
                     {
-                      "type": "f32",
-                      "value": 100
+                      "f32": 100
                     },
                     {
-                      "type": "f32",
-                      "value": 100
+                      "f32": 100
                     }
                   ]
                 }
@@ -593,15 +543,12 @@
               {
                 "id": 3,
                 "value": {
-                  "type": "tuple",
-                  "value": [
+                  "tuple": [
                     {
-                      "type": "f32",
-                      "value": 0
+                      "f32": 0
                     },
                     {
-                      "type": "f32",
-                      "value": 100
+                      "f32": 100
                     }
                   ]
                 }
@@ -639,12 +586,10 @@
         {
           "id": "color",
           "type": {
-            "kind": "value",
             "value": "color"
           },
           "default": {
-            "type": "color",
-            "value": [1, 0.52, 0.06, 1]
+            "color": [1, 0.52, 0.06, 1]
           },
           "label": "色",
           "configurations": [
@@ -677,19 +622,15 @@
         {
           "id": "position",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               },
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               }
             ]
           },
@@ -722,19 +663,15 @@
         {
           "id": "size",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 400
+                "f32": 400
               },
               {
-                "type": "f32",
-                "value": 12
+                "f32": 12
               }
             ]
           },
@@ -767,12 +704,10 @@
         {
           "id": "angle",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 0
+            "f32": 0
           },
           "label": "角度",
           "configurations": [
@@ -792,12 +727,10 @@
         {
           "id": "color",
           "type": {
-            "kind": "value",
             "value": "color"
           },
           "default": {
-            "type": "color",
-            "value": [1, 1, 1, 1]
+            "color": [1, 1, 1, 1]
           },
           "label": "色",
           "configurations": [
@@ -809,12 +742,10 @@
         {
           "id": "round_ends",
           "type": {
-            "kind": "value",
             "value": "bool"
           },
           "default": {
-            "type": "bool",
-            "value": true
+            "bool": true
           },
           "label": "端を丸める",
           "configurations": [{}]
@@ -843,19 +774,15 @@
         {
           "id": "position",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               },
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               }
             ]
           },
@@ -888,19 +815,15 @@
         {
           "id": "size",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 240
+                "f32": 240
               },
               {
-                "type": "f32",
-                "value": 240
+                "f32": 240
               }
             ]
           },
@@ -933,12 +856,10 @@
         {
           "id": "points",
           "type": {
-            "kind": "value",
             "value": "u32"
           },
           "default": {
-            "type": "u32",
-            "value": 5
+            "u32": 5
           },
           "label": "頂点数",
           "configurations": [
@@ -956,12 +877,10 @@
         {
           "id": "inner_radius",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 45
+            "f32": 45
           },
           "label": "内側半径",
           "configurations": [
@@ -981,12 +900,10 @@
         {
           "id": "rotation",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 0
+            "f32": 0
           },
           "label": "回転",
           "configurations": [
@@ -1006,12 +923,10 @@
         {
           "id": "color",
           "type": {
-            "kind": "value",
             "value": "color"
           },
           "default": {
-            "type": "color",
-            "value": [1, 0.74, 0.04, 1]
+            "color": [1, 0.74, 0.04, 1]
           },
           "label": "色",
           "configurations": [
@@ -1056,19 +971,15 @@
         {
           "id": "position",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               },
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               }
             ]
           },
@@ -1101,19 +1012,15 @@
         {
           "id": "size",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 640
+                "f32": 640
               },
               {
-                "type": "f32",
-                "value": 240
+                "f32": 240
               }
             ]
           },
@@ -1146,12 +1053,10 @@
         {
           "id": "text",
           "type": {
-            "kind": "value",
             "value": "string"
           },
           "default": {
-            "type": "string",
-            "value": "テキスト"
+            "string": "テキスト"
           },
           "label": "テキスト",
           "configurations": [
@@ -1165,15 +1070,13 @@
         {
           "id": "font_family",
           "type": {
-            "kind": "array",
-            "value": {
+            "array": {
               "element_type": "string",
               "max_items": 1024
             }
           },
           "default": {
-            "type": "array",
-            "value": []
+            "array": []
           },
           "label": "フォント",
           "configurations": [
@@ -1187,12 +1090,10 @@
         {
           "id": "font_size",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 64
+            "f32": 64
           },
           "label": "文字サイズ",
           "configurations": [
@@ -1211,12 +1112,10 @@
         {
           "id": "color",
           "type": {
-            "kind": "value",
             "value": "color"
           },
           "default": {
-            "type": "color",
-            "value": [1, 1, 1, 1]
+            "color": [1, 1, 1, 1]
           },
           "label": "色",
           "configurations": [
@@ -1228,12 +1127,10 @@
         {
           "id": "outline_width",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 0
+            "f32": 0
           },
           "label": "枠線",
           "configurations": [
@@ -1252,12 +1149,10 @@
         {
           "id": "outline_color",
           "type": {
-            "kind": "value",
             "value": "color"
           },
           "default": {
-            "type": "color",
-            "value": [1, 1, 1, 1]
+            "color": [1, 1, 1, 1]
           },
           "label": "枠線色",
           "configurations": [
@@ -1269,14 +1164,12 @@
         {
           "id": "horizontal_alignment",
           "type": {
-            "kind": "value",
             "value": {
               "enum": [0, 1, 2]
             }
           },
           "default": {
-            "type": "enum",
-            "value": 1
+            "enum": 1
           },
           "label": "左右揃え",
           "configurations": [
@@ -1294,14 +1187,12 @@
         {
           "id": "vertical_alignment",
           "type": {
-            "kind": "value",
             "value": {
               "enum": [0, 1, 2]
             }
           },
           "default": {
-            "type": "enum",
-            "value": 1
+            "enum": 1
           },
           "label": "上下揃え",
           "configurations": [
@@ -1319,12 +1210,10 @@
         {
           "id": "bold",
           "type": {
-            "kind": "value",
             "value": "bool"
           },
           "default": {
-            "type": "bool",
-            "value": false
+            "bool": false
           },
           "label": "太字",
           "configurations": [{}]
@@ -1332,12 +1221,10 @@
         {
           "id": "italic",
           "type": {
-            "kind": "value",
             "value": "bool"
           },
           "default": {
-            "type": "bool",
-            "value": false
+            "bool": false
           },
           "label": "イタリック",
           "configurations": [{}]
@@ -1379,19 +1266,15 @@
         {
           "id": "position",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               },
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               }
             ]
           },
@@ -1424,19 +1307,15 @@
         {
           "id": "size",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 960
+                "f32": 960
               },
               {
-                "type": "f32",
-                "value": 540
+                "f32": 540
               }
             ]
           },
@@ -1469,12 +1348,10 @@
         {
           "id": "volume",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 1
+            "f32": 1
           },
           "label": "音量",
           "configurations": [
@@ -1523,19 +1400,15 @@
         {
           "id": "position",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               },
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               }
             ]
           },
@@ -1568,19 +1441,15 @@
         {
           "id": "size",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 960
+                "f32": 960
               },
               {
-                "type": "f32",
-                "value": 540
+                "f32": 540
               }
             ]
           },
@@ -1637,12 +1506,10 @@
         {
           "id": "volume",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 1
+            "f32": 1
           },
           "label": "音量",
           "configurations": [
@@ -1681,12 +1548,10 @@
         {
           "id": "start_offset",
           "type": {
-            "kind": "value",
             "value": "u32"
           },
           "default": {
-            "type": "u32",
-            "value": 1
+            "u32": 1
           },
           "label": "開始オフセット",
           "configurations": [
@@ -1704,12 +1569,10 @@
         {
           "id": "end_offset",
           "type": {
-            "kind": "value",
             "value": "u32"
           },
           "default": {
-            "type": "u32",
-            "value": 1
+            "u32": 1
           },
           "label": "終了オフセット",
           "configurations": [
@@ -1727,12 +1590,10 @@
         {
           "id": "hide_original",
           "type": {
-            "kind": "value",
             "value": "bool"
           },
           "default": {
-            "type": "bool",
-            "value": false
+            "bool": false
           },
           "label": "原本を隠す",
           "configurations": [{}]
@@ -1758,19 +1619,15 @@
         {
           "id": "offset",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               },
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               }
             ]
           },
@@ -1819,12 +1676,10 @@
         {
           "id": "angle",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 0
+            "f32": 0
           },
           "label": "角度",
           "configurations": [
@@ -1844,19 +1699,15 @@
         {
           "id": "center",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               },
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               }
             ]
           },
@@ -1905,23 +1756,18 @@
         {
           "id": "rotation",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               },
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               },
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               }
             ]
           },
@@ -1968,12 +1814,10 @@
         {
           "id": "perspective",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 1000
+            "f32": 1000
           },
           "label": "遠近感",
           "configurations": [
@@ -1993,19 +1837,15 @@
         {
           "id": "center",
           "type": {
-            "kind": "value",
             "value": ["f32", "f32"]
           },
           "default": {
-            "type": "tuple",
-            "value": [
+            "tuple": [
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               },
               {
-                "type": "f32",
-                "value": 0
+                "f32": 0
               }
             ]
           },
@@ -2054,12 +1894,10 @@
         {
           "id": "brightness",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 0
+            "f32": 0
           },
           "label": "明るさ",
           "configurations": [
@@ -2078,12 +1916,10 @@
         {
           "id": "contrast",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 1
+            "f32": 1
           },
           "label": "コントラスト",
           "configurations": [
@@ -2102,12 +1938,10 @@
         {
           "id": "saturation",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 1
+            "f32": 1
           },
           "label": "彩度",
           "configurations": [
@@ -2126,12 +1960,10 @@
         {
           "id": "temperature",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 0
+            "f32": 0
           },
           "label": "色温度",
           "configurations": [
@@ -2150,12 +1982,10 @@
         {
           "id": "tint",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 0
+            "f32": 0
           },
           "label": "色かぶり",
           "configurations": [
@@ -2174,12 +2004,10 @@
         {
           "id": "gamma",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 1
+            "f32": 1
           },
           "label": "ガンマ",
           "configurations": [
@@ -2214,12 +2042,10 @@
         {
           "id": "opacity",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 100
+            "f32": 100
           },
           "label": "不透明度",
           "configurations": [
@@ -2255,12 +2081,10 @@
         {
           "id": "start_color",
           "type": {
-            "kind": "value",
             "value": "color"
           },
           "default": {
-            "type": "color",
-            "value": [0.08, 0.12, 0.28, 1]
+            "color": [0.08, 0.12, 0.28, 1]
           },
           "label": "開始色",
           "configurations": [
@@ -2272,12 +2096,10 @@
         {
           "id": "end_color",
           "type": {
-            "kind": "value",
             "value": "color"
           },
           "default": {
-            "type": "color",
-            "value": [0.92, 0.18, 0.32, 1]
+            "color": [0.92, 0.18, 0.32, 1]
           },
           "label": "終了色",
           "configurations": [
@@ -2289,12 +2111,10 @@
         {
           "id": "angle",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 0
+            "f32": 0
           },
           "label": "角度",
           "configurations": [
@@ -2323,12 +2143,10 @@
         {
           "id": "width",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 20
+            "f32": 20
           },
           "label": "半径",
           "configurations": [
@@ -2348,12 +2166,10 @@
         {
           "id": "intensity",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 100
+            "f32": 100
           },
           "label": "強さ",
           "configurations": [
@@ -2373,12 +2189,10 @@
         {
           "id": "spread",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 20
+            "f32": 20
           },
           "label": "広がり",
           "configurations": [
@@ -2398,12 +2212,10 @@
         {
           "id": "color",
           "type": {
-            "kind": "value",
             "value": "color"
           },
           "default": {
-            "type": "color",
-            "value": [0.1, 0.55, 1, 1]
+            "color": [0.1, 0.55, 1, 1]
           },
           "label": "色",
           "configurations": [
@@ -2422,8 +2234,7 @@
           "constants": [
             {
               "id": "phase",
-              "type": "u32",
-              "value": 0
+              "value": { "u32": 0 }
             }
           ]
         },
@@ -2435,8 +2246,7 @@
           "constants": [
             {
               "id": "phase",
-              "type": "u32",
-              "value": 1
+              "value": { "u32": 1 }
             }
           ]
         },
@@ -2448,8 +2258,7 @@
           "constants": [
             {
               "id": "phase",
-              "type": "u32",
-              "value": 2
+              "value": { "u32": 2 }
             }
           ]
         },
@@ -2471,12 +2280,10 @@
         {
           "id": "width",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 4
+            "f32": 4
           },
           "label": "太さ",
           "configurations": [
@@ -2496,14 +2303,12 @@
         {
           "id": "position",
           "type": {
-            "kind": "value",
             "value": {
               "enum": [0, 1, 2]
             }
           },
           "default": {
-            "type": "enum",
-            "value": 0
+            "enum": 0
           },
           "label": "位置",
           "configurations": [
@@ -2521,12 +2326,10 @@
         {
           "id": "color",
           "type": {
-            "kind": "value",
             "value": "color"
           },
           "default": {
-            "type": "color",
-            "value": [1, 1, 1, 1]
+            "color": [1, 1, 1, 1]
           },
           "label": "色",
           "configurations": [
@@ -2545,8 +2348,7 @@
           "constants": [
             {
               "id": "phase",
-              "type": "u32",
-              "value": 0
+              "value": { "u32": 0 }
             }
           ]
         },
@@ -2558,8 +2360,7 @@
           "constants": [
             {
               "id": "phase",
-              "type": "u32",
-              "value": 1
+              "value": { "u32": 1 }
             }
           ]
         },
@@ -2571,8 +2372,7 @@
           "constants": [
             {
               "id": "phase",
-              "type": "u32",
-              "value": 2
+              "value": { "u32": 2 }
             }
           ]
         },
@@ -2601,12 +2401,10 @@
         {
           "id": "amount",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 0.45
+            "f32": 0.45
           },
           "label": "強さ",
           "configurations": [
@@ -2625,12 +2423,10 @@
         {
           "id": "softness",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 0.5
+            "f32": 0.5
           },
           "label": "ぼかし",
           "configurations": [
@@ -2649,12 +2445,10 @@
         {
           "id": "roundness",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 1
+            "f32": 1
           },
           "label": "丸み",
           "configurations": [
@@ -2689,12 +2483,10 @@
         {
           "id": "block_size",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 12
+            "f32": 12
           },
           "label": "ブロック幅",
           "configurations": [
@@ -2730,12 +2522,10 @@
         {
           "id": "amount",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 4
+            "f32": 4
           },
           "label": "ずれ",
           "configurations": [
@@ -2755,12 +2545,10 @@
         {
           "id": "angle",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 0
+            "f32": 0
           },
           "label": "角度",
           "configurations": [
@@ -2788,12 +2576,10 @@
         {
           "id": "radius",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 12
+            "f32": 12
           },
           "label": "半径",
           "configurations": [
@@ -2820,18 +2606,15 @@
           "constants": [
             {
               "id": "direction_x",
-              "type": "f32",
-              "value": 1
+              "value": { "f32": 1 }
             },
             {
               "id": "direction_y",
-              "type": "f32",
-              "value": 0
+              "value": { "f32": 0 }
             },
             {
               "id": "radius_scale",
-              "type": "f32",
-              "value": 0.70710678
+              "value": { "f32": 0.70710678 }
             }
           ]
         },
@@ -2843,18 +2626,15 @@
           "constants": [
             {
               "id": "direction_x",
-              "type": "f32",
-              "value": 0
+              "value": { "f32": 0 }
             },
             {
               "id": "direction_y",
-              "type": "f32",
-              "value": 1
+              "value": { "f32": 1 }
             },
             {
               "id": "radius_scale",
-              "type": "f32",
-              "value": 0.70710678
+              "value": { "f32": 0.70710678 }
             }
           ]
         },
@@ -2866,18 +2646,15 @@
           "constants": [
             {
               "id": "direction_x",
-              "type": "f32",
-              "value": 1
+              "value": { "f32": 1 }
             },
             {
               "id": "direction_y",
-              "type": "f32",
-              "value": 0
+              "value": { "f32": 0 }
             },
             {
               "id": "radius_scale",
-              "type": "f32",
-              "value": 0.70710678
+              "value": { "f32": 0.70710678 }
             }
           ]
         },
@@ -2889,18 +2666,15 @@
           "constants": [
             {
               "id": "direction_x",
-              "type": "f32",
-              "value": 0
+              "value": { "f32": 0 }
             },
             {
               "id": "direction_y",
-              "type": "f32",
-              "value": 1
+              "value": { "f32": 1 }
             },
             {
               "id": "radius_scale",
-              "type": "f32",
-              "value": 0.70710678
+              "value": { "f32": 0.70710678 }
             }
           ]
         }
@@ -2915,12 +2689,10 @@
         {
           "id": "samples",
           "type": {
-            "kind": "value",
             "value": "u32"
           },
           "default": {
-            "type": "u32",
-            "value": 8
+            "u32": 8
           },
           "label": "サンプル数",
           "configurations": [
@@ -2938,12 +2710,10 @@
         {
           "id": "shutter_angle",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 180
+            "f32": 180
           },
           "label": "シャッター角度",
           "configurations": [
@@ -2963,12 +2733,10 @@
         {
           "id": "shutter_phase",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 0
+            "f32": 0
           },
           "label": "シャッター位相",
           "configurations": [
@@ -2989,7 +2757,6 @@
         {
           "type": "temporal",
           "sampling": {
-            "type": "shutter",
             "sample_count": "samples",
             "angle": "shutter_angle",
             "phase": "shutter_phase"
@@ -3009,12 +2776,10 @@
         {
           "id": "block_size",
           "type": {
-            "kind": "value",
             "value": "u32"
           },
           "default": {
-            "type": "u32",
-            "value": 64
+            "u32": 64
           },
           "label": "ブロック幅",
           "configurations": [
@@ -3033,12 +2798,10 @@
         {
           "id": "threshold",
           "type": {
-            "kind": "value",
             "value": "f32"
           },
           "default": {
-            "type": "f32",
-            "value": 0.25
+            "f32": 0.25
           },
           "label": "しきい値",
           "configurations": [
@@ -3057,12 +2820,10 @@
         {
           "id": "vertical",
           "type": {
-            "kind": "value",
             "value": "bool"
           },
           "default": {
-            "type": "bool",
-            "value": false
+            "bool": false
           },
           "label": "縦方向",
           "configurations": [{}]
@@ -3070,12 +2831,10 @@
         {
           "id": "descending",
           "type": {
-            "kind": "value",
             "value": "bool"
           },
           "default": {
-            "type": "bool",
-            "value": false
+            "bool": false
           },
           "label": "明るい順",
           "configurations": [{}]

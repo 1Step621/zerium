@@ -175,8 +175,8 @@ impl PropertyInspector {
                 continue;
             }
 
-            if let Some(number) = NumericInput::for_schema(argument.schema.property()) {
-                let Some(values) = numeric_settings(&number, argument.schema.property()) else {
+            if let Some(number) = NumericInput::for_schema(&argument.schema) {
+                let Some(values) = numeric_settings(&number, &argument.schema) else {
                     continue;
                 };
                 for (setting, value) in [
@@ -381,7 +381,7 @@ impl PropertyInspector {
                     .iter()
                     .find(|argument| argument.schema.id() == argument_id)
             })
-            .and_then(|argument| NumericInput::for_schema(argument.schema.property()))
+            .and_then(|argument| NumericInput::for_schema(&argument.schema))
         else {
             return;
         };
@@ -450,7 +450,7 @@ impl PropertyInspector {
                     .iter()
                     .find(|argument| argument.schema.id() == argument_id)
             })
-            .and_then(|argument| NumericInput::for_schema(argument.schema.property()))
+            .and_then(|argument| NumericInput::for_schema(&argument.schema))
         else {
             return;
         };
@@ -550,7 +550,7 @@ impl PropertyInspector {
                     .iter()
                     .find(|argument| argument.schema.id() == drag.argument_id)
             })
-            .and_then(|argument| NumericInput::for_schema(argument.schema.property()))
+            .and_then(|argument| NumericInput::for_schema(&argument.schema))
         else {
             return;
         };

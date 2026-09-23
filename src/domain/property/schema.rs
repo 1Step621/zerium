@@ -46,14 +46,6 @@ impl PropertyConfiguration {
         !self.animatable || ty.is_interpolatable()
     }
 
-    fn accepts(&self, value: &PropertyValue) -> bool {
-        self.constraints.allows(value)
-    }
-
-    fn constrain(&self, value: &PropertyValue) -> Option<PropertyValue> {
-        self.constraints.clamp_value(value)
-    }
-
     fn validate(
         &self,
         owner_kind: &str,
@@ -169,7 +161,7 @@ impl PropertySchema {
             return None;
         }
         let mut map = |configuration: &PropertyConfiguration, value: &PropertyValue| {
-            configuration.constrain(value)
+            configuration.constraints.clamp_value(value)
         };
         let constrained = self.map_values(value, &mut map)?;
         self.accepts_value(&constrained).then_some(constrained)
@@ -177,7 +169,10 @@ impl PropertySchema {
 
     fn accepts_constraints(&self, value: &PropertyValue) -> bool {
         let mut map = |configuration: &PropertyConfiguration, value: &PropertyValue| {
-            configuration.accepts(value).then(|| value.clone())
+            configuration
+                .constraints
+                .allows(value)
+                .then(|| value.clone())
         };
         self.map_values(value, &mut map).is_some()
     }

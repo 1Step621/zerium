@@ -74,10 +74,6 @@ struct InFlightVideoDecodes {
 }
 
 impl InFlightVideoDecodes {
-    fn get(&self, input: &VideoInputId) -> Option<&InFlightVideoDecode> {
-        self.active.get(input)
-    }
-
     fn spawn(
         &mut self,
         input: VideoInputId,
@@ -132,10 +128,6 @@ impl InFlightVideoDecodes {
         } else {
             false
         }
-    }
-
-    fn remove(&mut self, input: &VideoInputId) {
-        self.active.remove(input);
     }
 
     fn cancel_orphans(&mut self, active_inputs: &HashSet<VideoInputId>) {
@@ -1098,7 +1090,7 @@ impl VideoPlaybackEngine {
                 return true;
             }
             let _ = worker.requests.send(VideoWorkerDirective::Shutdown);
-            self.in_flight.remove(input);
+            self.in_flight.active.remove(input);
             false
         });
     }
@@ -1107,7 +1099,7 @@ impl VideoPlaybackEngine {
         let Some(requests) = self.requested_frames.get(input) else {
             return;
         };
-        if let Some(active) = self.in_flight.get(input) {
+        if let Some(active) = self.in_flight.active.get(input) {
             active.retain_for_requests(requests, self.decode_mode);
         }
         let Some(requested) = requests
@@ -1127,6 +1119,7 @@ impl VideoPlaybackEngine {
         };
         if self
             .in_flight
+            .active
             .get(input)
             .is_some_and(|active| active.serves(&requested, self.decode_mode))
         {
@@ -1154,12 +1147,12 @@ impl VideoPlaybackEngine {
             frame_count,
         );
         if !self.ensure_worker(input) {
-            self.in_flight.remove(input);
+            self.in_flight.active.remove(input);
             self.failed_frames.insert((sequence, presentation_time));
             return;
         }
         let Some(worker) = self.workers.get(input) else {
-            self.in_flight.remove(input);
+            self.in_flight.active.remove(input);
             return;
         };
         if worker
@@ -1176,7 +1169,7 @@ impl VideoPlaybackEngine {
             .is_err()
         {
             self.workers.remove(input);
-            self.in_flight.remove(input);
+            self.in_flight.active.remove(input);
         }
     }
 

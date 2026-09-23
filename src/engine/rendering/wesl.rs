@@ -53,11 +53,11 @@ fn shader_module_path(source_name: &str) -> Result<String, RenderError> {
 
 fn add_constants(resolver: &mut StandardResolver, constants: &[PassConstantSchema]) {
     for constant in constants {
-        match constant.value() {
-            PassConstantValue::F32(value) => resolver.add_constant(constant.id(), value),
-            PassConstantValue::I32(value) => resolver.add_constant(constant.id(), value),
-            PassConstantValue::U32(value) => resolver.add_constant(constant.id(), value),
-            PassConstantValue::Bool(value) => resolver.add_constant(constant.id(), value),
+        match constant.value {
+            PassConstantValue::F32(value) => resolver.add_constant(&constant.id, value),
+            PassConstantValue::I32(value) => resolver.add_constant(&constant.id, value),
+            PassConstantValue::U32(value) => resolver.add_constant(&constant.id, value),
+            PassConstantValue::Bool(value) => resolver.add_constant(&constant.id, value),
         }
     }
 }

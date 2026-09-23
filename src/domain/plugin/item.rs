@@ -11,7 +11,7 @@ use super::capability::{
     AudioCapability, FileCapability, ItemCapabilities, MediaType, VisualCapability,
 };
 use super::validation::{validate_catalog_entry, validate_property_schemas};
-use crate::domain::property::{PropertySchema, PropertyType, PropertyValues, ScalarPropertyType};
+use crate::domain::property::{PropertySchema, PropertyType, ScalarPropertyType};
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ItemSchema {
@@ -100,11 +100,11 @@ impl ItemSchema {
     }
 
     pub(crate) fn files(&self) -> &[FileCapability] {
-        self.capabilities.files()
+        &self.capabilities.files
     }
 
     pub(crate) fn visual(&self) -> Option<&VisualCapability> {
-        self.capabilities.visual()
+        self.capabilities.visual.as_ref()
     }
 
     pub(crate) fn texture_inputs(&self) -> impl Iterator<Item = &FileCapability> {
@@ -125,7 +125,7 @@ impl ItemSchema {
     }
 
     pub(crate) fn audio(&self) -> Option<&AudioCapability> {
-        self.capabilities.audio()
+        self.capabilities.audio.as_ref()
     }
 
     pub(crate) fn file(&self, id: &str) -> Option<&FileCapability> {
@@ -241,7 +241,7 @@ impl ItemSchema {
         }
 
         validate_property_schemas("item", &self.id, &self.properties)?;
-        if let Some(editor) = self.capabilities.editor() {
+        if let Some(editor) = &self.capabilities.editor {
             editor.validate(self)?;
         }
         if let Some(visual) = self.visual() {
@@ -256,29 +256,37 @@ impl ItemSchema {
 
     pub(crate) fn size_property(&self) -> Option<&PropertySchema> {
         self.capabilities
-            .editor()?
-            .size_property()
+            .editor
+            .as_ref()?
+            .size
+            .as_deref()
             .and_then(|id| self.property(id))
     }
 
     pub(crate) fn position_property(&self) -> Option<&PropertySchema> {
         self.capabilities
-            .editor()?
-            .position_property()
+            .editor
+            .as_ref()?
+            .position
+            .as_deref()
             .and_then(|id| self.property(id))
     }
 
     pub(crate) fn points_property(&self) -> Option<&PropertySchema> {
         self.capabilities
-            .editor()?
-            .points_property()
+            .editor
+            .as_ref()?
+            .points
+            .as_deref()
             .and_then(|id| self.property(id))
     }
 
     pub(crate) fn label_property(&self) -> Option<&PropertySchema> {
         self.capabilities
-            .editor()?
-            .label_property()
+            .editor
+            .as_ref()?
+            .label
+            .as_deref()
             .and_then(|id| self.property(id))
     }
 
@@ -288,28 +296,10 @@ impl ItemSchema {
 
     pub(crate) fn is_size_property(&self, property_id: &str) -> bool {
         self.capabilities
-            .editor()
-            .and_then(|editor| editor.size_property())
+            .editor
+            .as_ref()
+            .and_then(|editor| editor.size.as_deref())
             == Some(property_id)
-    }
-
-    pub(crate) fn default_property_values(&self) -> PropertyValues {
-        PropertyValues::for_owner("item", &self.id, &self.properties)
-    }
-
-    pub(crate) fn pack_property_values(
-        &self,
-        values: &PropertyValues,
-    ) -> Result<Vec<u8>, PluginError> {
-        values.validate_for("item", &self.id, &self.properties)?;
-        self.property_abi.pack("item", &self.id, |id, _| {
-            values.property(id).ok_or_else(|| {
-                PluginError::invalid_definition(format!(
-                    "item '{}' is missing property '{id}'",
-                    self.id
-                ))
-            })
-        })
     }
 }
 

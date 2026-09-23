@@ -25,16 +25,8 @@ impl EnumPropertyType {
         })
     }
 
-    pub(super) fn into_values(self) -> Box<[u32]> {
-        self.values
-    }
-
     pub(crate) fn values(&self) -> &[u32] {
         &self.values
-    }
-
-    pub(super) fn contains(&self, value: u32) -> bool {
-        self.values.contains(&value)
     }
 }
 
@@ -48,7 +40,7 @@ impl TryFrom<Vec<u32>> for EnumPropertyType {
 
 impl From<EnumPropertyType> for Vec<u32> {
     fn from(value: EnumPropertyType) -> Self {
-        value.into_values().into()
+        value.values.into()
     }
 }
 
@@ -79,7 +71,7 @@ impl ScalarPropertyType {
             (Self::Color, PropertyValue::Color(values)) => {
                 values.iter().all(|value| value.is_finite())
             }
-            (Self::Enum(ty), PropertyValue::Enum(value)) => ty.contains(*value),
+            (Self::Enum(ty), PropertyValue::Enum(value)) => ty.values().contains(value),
             _ => false,
         }
     }
@@ -92,10 +84,6 @@ pub(crate) struct TuplePropertyType {
 }
 
 impl TuplePropertyType {
-    pub(super) fn into_scalars(self) -> Box<[ScalarPropertyType]> {
-        self.scalars
-    }
-
     pub(crate) fn new(scalars: impl Into<Box<[ScalarPropertyType]>>) -> Option<Self> {
         let scalars = scalars.into();
         (2..=MAX_TUPLE_ELEMENTS)
@@ -105,10 +93,6 @@ impl TuplePropertyType {
 
     pub(crate) fn scalars(&self) -> &[ScalarPropertyType] {
         &self.scalars
-    }
-
-    pub(crate) fn scalar_count(&self) -> usize {
-        self.scalars.len()
     }
 }
 
@@ -124,7 +108,7 @@ impl TryFrom<Vec<ScalarPropertyType>> for TuplePropertyType {
 
 impl From<TuplePropertyType> for Vec<ScalarPropertyType> {
     fn from(value: TuplePropertyType) -> Self {
-        value.into_scalars().into()
+        value.scalars.into()
     }
 }
 
@@ -143,7 +127,7 @@ impl PropertyValueType {
                 let PropertyValue::Tuple(values) = value else {
                     return false;
                 };
-                values.len() == tuple.scalar_count()
+                values.len() == tuple.scalars().len()
                     && values
                         .iter()
                         .zip(tuple.scalars())
@@ -175,7 +159,7 @@ impl PropertyValueType {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(tag = "kind", content = "value", rename_all = "snake_case")]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum PropertyType {
     Value(PropertyValueType),
     Array {

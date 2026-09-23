@@ -1,5 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
+use serde::{Deserialize, Serialize};
+
 use crate::domain::animation::{ScalarAnimationAddress, ScalarAnimations};
 use crate::domain::property::materialized_property_values;
 use crate::domain::property::{
@@ -15,13 +17,14 @@ use super::{
     time::{Frame, FrameDuration, FrameRate},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) enum PropertyOwner {
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SceneBindingOwner {
     Item,
     Effect(EffectInstanceId),
 }
 
-impl PropertyOwner {
+impl SceneBindingOwner {
     pub(crate) fn from_effect(effect_id: Option<EffectInstanceId>) -> Self {
         effect_id.map_or(Self::Item, Self::Effect)
     }
@@ -34,13 +37,15 @@ impl PropertyOwner {
     }
 }
 
-pub(crate) type SceneBindingOwner = PropertyOwner;
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash, Serialize)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct SceneBindingTarget {
     item_id: ItemId,
-    owner: PropertyOwner,
+    owner: SceneBindingOwner,
     property_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     element_id: Option<PropertyElementId>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
     scalar_index: Option<usize>,
 }
 
@@ -233,24 +238,24 @@ pub(crate) struct ResolvedSceneBinding {
 pub(crate) fn resolve_property_schema<'a>(
     scenes: &'a HashMap<SceneId, SceneDefinition>,
     item: &'a TimelineItem,
-    owner: PropertyOwner,
+    owner: SceneBindingOwner,
     property_id: &str,
 ) -> Option<&'a PropertySchema> {
     match owner {
-        PropertyOwner::Effect(effect_id) => item
+        SceneBindingOwner::Effect(effect_id) => item
             .effects
             .iter()
             .find(|effect| effect.id == effect_id)?
             .schema()
             .property(property_id),
-        PropertyOwner::Item => item
+        SceneBindingOwner::Item => item
             .schema()
             .and_then(|schema| schema.property(property_id))
             .or_else(|| {
                 scenes
                     .get(&item.scene_id()?)?
                     .input_argument(property_id)
-                    .map(|argument| argument.schema.property())
+                    .map(|argument| &argument.schema)
             }),
     }
 }
@@ -332,11 +337,6 @@ pub(crate) fn apply_scene_binding_to_item(
     }
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct SceneArgumentSchema {
-    property: PropertySchema,
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum SceneArgumentPreset {
     Number,
@@ -360,88 +360,57 @@ impl SceneArgumentPreset {
     }
 }
 
-impl SceneArgumentSchema {
-    pub(crate) fn from_property(mut property: PropertySchema) -> Option<Self> {
-        if !matches!(
-            property.ty,
-            PropertyType::Value(PropertyValueType::Scalar(_))
-        ) {
+impl PropertySchema {
+    pub(crate) fn for_scene_argument(mut self) -> Option<Self> {
+        if !matches!(self.ty, PropertyType::Value(PropertyValueType::Scalar(_))) {
             return None;
         }
-        let default = property.default_value().clone();
-        property.default = property.constrained_value(&default)?;
+        let default = self.default_value().clone();
+        self.default = self.constrained_value(&default)?;
         // A scene argument is its own editable input contract. The source
         // property's editability only controls direct edits on the bound
         // plugin property.
-        property.configuration_mut(None).editable = true;
-        for configuration in &mut property.configurations {
+        self.configuration_mut(None).editable = true;
+        for configuration in &mut self.configurations {
             configuration.scene_bindable = true;
         }
-        Some(Self { property })
+        Some(self)
     }
 
-    pub(crate) fn property(&self) -> &PropertySchema {
-        &self.property
-    }
-
-    pub(crate) fn id(&self) -> &str {
-        self.property.id()
-    }
-
-    pub(crate) fn label(&self) -> &str {
-        self.property.label()
-    }
-
-    pub(crate) fn ty(&self) -> &PropertyType {
-        self.property.ty()
-    }
-
-    pub(crate) fn default_value(&self) -> &PropertyValue {
-        self.property.default_value()
-    }
-
-    pub(crate) fn constrained_value(&self, value: &PropertyValue) -> Option<PropertyValue> {
-        self.property.constrained_value(value)
-    }
-
-    pub(crate) fn rename(&mut self, label: String) {
-        self.property.label = label;
-    }
-
-    pub(crate) fn with_default(&self, value: &PropertyValue) -> Option<Self> {
-        let default = self.property.constrained_value(value)?;
+    pub(crate) fn with_scene_default(&self, value: &PropertyValue) -> Option<Self> {
+        let default = self.constrained_value(value)?;
         let mut next = self.clone();
-        next.property.default = default;
+        next.default = default;
         Some(next)
     }
 
-    pub(crate) fn with_numeric_settings(
+    pub(crate) fn with_scene_numeric_settings(
         &self,
         settings: crate::domain::property::NumericSettings,
     ) -> Option<Self> {
         let (default, constraints) = settings.into_parts();
-        if !self.property.ty().allows(&default) {
+        if !self.ty().allows(&default) {
             return None;
         }
         let mut next = self.clone();
-        next.property.default = default;
-        next.property.configuration_mut(None).constraints = constraints;
+        next.default = default;
+        next.configuration_mut(None).constraints = constraints;
         Some(next)
     }
 
-    pub(crate) fn with_identity(mut self, id: String, label: String) -> Self {
-        self.property.id = id;
-        self.property.label = label;
+    pub(crate) fn with_scene_identity(mut self, id: String, label: String) -> Self {
+        self.id = id;
+        self.label = label;
         self
     }
 
-    fn into_expression(mut self) -> Option<Self> {
+    fn into_scene_expression(mut self) -> Option<Self> {
         if self.ty() != &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::F32)) {
             return None;
         }
-        self.property.configuration_mut(None).editable = false;
-        self.property.configuration_mut(None).animatable = false;
-        for configuration in &mut self.property.configurations {
+        self.configuration_mut(None).editable = false;
+        self.configuration_mut(None).animatable = false;
+        for configuration in &mut self.configurations {
             configuration.scene_bindable = false;
         }
         Some(self)
@@ -450,13 +419,13 @@ impl SceneArgumentSchema {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SceneArgument {
-    pub(crate) schema: SceneArgumentSchema,
+    pub(crate) schema: PropertySchema,
     pub(crate) bindings: Vec<SceneBindingTarget>,
     expression: Option<expression::CompiledExpression>,
 }
 
 impl SceneArgument {
-    pub(crate) fn input(schema: SceneArgumentSchema, bindings: Vec<SceneBindingTarget>) -> Self {
+    pub(crate) fn input(schema: PropertySchema, bindings: Vec<SceneBindingTarget>) -> Self {
         Self {
             schema,
             bindings,
@@ -465,12 +434,12 @@ impl SceneArgument {
     }
 
     pub(crate) fn computed(
-        schema: SceneArgumentSchema,
+        schema: PropertySchema,
         bindings: Vec<SceneBindingTarget>,
         expression: String,
     ) -> Option<Self> {
         Some(Self {
-            schema: schema.into_expression()?,
+            schema: schema.into_scene_expression()?,
             bindings,
             expression: Some(expression::CompiledExpression::compile(expression)?),
         })
@@ -749,7 +718,7 @@ impl SceneDefinition {
         duration: FrameDuration,
     ) -> Option<TimelineItem> {
         debug_assert_eq!(duration, self.duration());
-        let properties = PropertyValues::empty();
+        let properties = PropertyValues::default();
         Some(TimelineItem {
             id,
             start,
@@ -812,7 +781,7 @@ pub(crate) fn materialize_scene_instance_properties(
     let scene = scenes.get(&item.scene_id()?)?;
     let schemas = scene
         .input_arguments()
-        .map(|argument| argument.schema.property().clone())
+        .map(|argument| argument.schema.clone())
         .collect::<Vec<_>>();
     Some(materialized_property_values(&item.properties, &schemas))
 }
@@ -834,4 +803,35 @@ pub(crate) fn display_scene_expression(arguments: &[SceneArgument], source: &str
         .filter(|(_, label)| counts.get(label.as_str()) == Some(&1))
         .collect();
     expression::rewrite_variables(source, &replacements).unwrap_or_else(|| source.to_owned())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn scene_binding_round_trips_in_project_format() {
+        let binding = SceneBindingTarget::new(
+            ItemId(12),
+            SceneBindingOwner::Effect(EffectInstanceId::new(7)),
+            "gain",
+            None,
+            Some(1),
+        );
+        let encoded = serde_json::to_value(&binding).unwrap();
+
+        assert_eq!(
+            encoded,
+            serde_json::json!({
+                "item_id": 12,
+                "owner": {"effect": 7},
+                "property_id": "gain",
+                "scalar_index": 1
+            })
+        );
+        assert_eq!(
+            serde_json::from_value::<SceneBindingTarget>(encoded).unwrap(),
+            binding
+        );
+    }
 }

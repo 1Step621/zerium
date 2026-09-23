@@ -1,7 +1,6 @@
 //! Effect schemas, render passes, and temporal sampling.
 
 use serde::{Deserialize, Deserializer, de::Error as _};
-use serde_json::Value;
 
 use super::PluginError;
 use super::abi::PropertyLayout;
@@ -118,25 +117,24 @@ impl EffectPassSchema {
             Self::Temporal { reducer, .. } => reducer.source(),
         }
     }
+
+    pub(crate) fn temporal_sample_offsets(&self, values: &PropertyValues) -> Option<Vec<f64>> {
+        let Self::Temporal { sampling, .. } = self else {
+            return None;
+        };
+        sampling.sample_offsets(values)
+    }
 }
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
 pub(crate) struct PassConstantSchema {
-    id: String,
-    value: PassConstantValue,
+    pub(crate) id: String,
+    pub(crate) value: PassConstantValue,
 }
 
-impl PassConstantSchema {
-    pub(crate) fn id(&self) -> &str {
-        &self.id
-    }
-
-    pub(crate) const fn value(&self) -> PassConstantValue {
-        self.value
-    }
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum PassConstantValue {
     F32(f32),
     I32(i32),
@@ -144,64 +142,13 @@ pub(crate) enum PassConstantValue {
     Bool(bool),
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-enum PassConstantType {
-    F32,
-    I32,
-    U32,
-    Bool,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct PassConstantSchemaDefinition {
-    id: String,
-    #[serde(rename = "type")]
-    ty: PassConstantType,
-    value: Value,
-}
-
-impl<'de> Deserialize<'de> for PassConstantSchema {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: serde::Deserializer<'de>,
-    {
-        use serde::de::Error as _;
-
-        let definition = PassConstantSchemaDefinition::deserialize(deserializer)?;
-        let value = match definition.ty {
-            PassConstantType::F32 => serde_json::from_value::<f32>(definition.value)
-                .ok()
-                .filter(|value| value.is_finite())
-                .map(PassConstantValue::F32),
-            PassConstantType::I32 => serde_json::from_value(definition.value)
-                .ok()
-                .map(PassConstantValue::I32),
-            PassConstantType::U32 => serde_json::from_value(definition.value)
-                .ok()
-                .map(PassConstantValue::U32),
-            PassConstantType::Bool => serde_json::from_value(definition.value)
-                .ok()
-                .map(PassConstantValue::Bool),
-        }
-        .ok_or_else(|| D::Error::custom("effect pass constant value does not match its type"))?;
-        Ok(Self {
-            id: definition.id,
-            value,
-        })
-    }
-}
-
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
-pub(crate) enum TemporalSamplingSchema {
-    Shutter {
-        sample_count: String,
-        angle: String,
-        #[serde(default)]
-        phase: Option<String>,
-    },
+#[serde(deny_unknown_fields)]
+pub(crate) struct TemporalSamplingSchema {
+    sample_count: String,
+    angle: String,
+    #[serde(default)]
+    phase: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -294,12 +241,17 @@ impl EffectSchema {
         for (pass_index, pass) in self.passes.iter().enumerate() {
             let mut constant_ids = std::collections::HashSet::new();
             for constant in pass.constants() {
-                validate_wgsl_identifier("pass constant", constant.id())?;
-                if !constant_ids.insert(constant.id()) {
+                validate_wgsl_identifier("pass constant", &constant.id)?;
+                if matches!(constant.value, PassConstantValue::F32(value) if !value.is_finite()) {
+                    return Err(PluginError::invalid_definition(format!(
+                        "effect '{}' pass {pass_index} constant '{}' must be finite",
+                        self.id, constant.id
+                    )));
+                }
+                if !constant_ids.insert(&constant.id) {
                     return Err(PluginError::invalid_definition(format!(
                         "effect '{}' pass {pass_index} has duplicate constant ID '{}'",
-                        self.id,
-                        constant.id()
+                        self.id, constant.id
                     )));
                 }
             }
@@ -325,50 +277,11 @@ impl EffectSchema {
                 }
             }
         }
-        if self
-            .passes
-            .iter()
-            .filter(|pass| matches!(pass, EffectPassSchema::Temporal { .. }))
-            .count()
-            > 1
-        {
-            return Err(PluginError::invalid_definition(format!(
-                "effect '{}' may define only one temporal pass",
-                self.id
-            )));
-        }
         Ok(())
     }
 
     pub(crate) fn property(&self, id: &str) -> Option<&PropertySchema> {
         self.properties.iter().find(|property| property.id == id)
-    }
-
-    pub(crate) fn default_property_values(&self) -> PropertyValues {
-        PropertyValues::for_owner("effect", &self.id, &self.properties)
-    }
-
-    pub(crate) fn temporal_sample_offsets(
-        &self,
-        pass: &EffectPassSchema,
-        values: &PropertyValues,
-    ) -> Option<Vec<f64>> {
-        let EffectPassSchema::Temporal { sampling, .. } = pass else {
-            return None;
-        };
-        sampling.sample_offsets(values)
-    }
-
-    pub(crate) fn pack_properties(&self, values: &PropertyValues) -> Result<Vec<u8>, PluginError> {
-        values.validate_for("effect", &self.id, &self.properties)?;
-        self.property_abi.pack("effect", &self.id, |id, _| {
-            values.property(id).ok_or_else(|| {
-                PluginError::invalid_definition(format!(
-                    "effect '{}' is missing property '{id}'",
-                    self.id
-                ))
-            })
-        })
     }
 }
 
@@ -392,7 +305,7 @@ impl super::PluginCatalogEntry for EffectSchema {
 
 impl TemporalSamplingSchema {
     fn validate(&self, effect: &EffectSchema) -> Result<(), PluginError> {
-        let Self::Shutter {
+        let Self {
             sample_count,
             angle,
             phase,
@@ -480,7 +393,7 @@ impl TemporalSamplingSchema {
     }
 
     fn sample_offsets(&self, values: &PropertyValues) -> Option<Vec<f64>> {
-        let Self::Shutter {
+        let Self {
             sample_count,
             angle,
             phase,

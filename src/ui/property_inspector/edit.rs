@@ -1,6 +1,21 @@
 use super::*;
 use crate::ui::property_inspector::control::NumberSpec;
 
+#[derive(Clone, Copy)]
+pub(super) enum ArrayEdit {
+    MoveUp(PropertyElementId),
+    MoveDown(PropertyElementId),
+    Remove(PropertyElementId),
+}
+
+impl ArrayEdit {
+    fn element_id(self) -> PropertyElementId {
+        match self {
+            Self::MoveUp(id) | Self::MoveDown(id) | Self::Remove(id) => id,
+        }
+    }
+}
+
 impl PropertyInspector {
     fn selected_item_at_playhead(&self, cx: &App) -> Option<TimelineItem> {
         let editor = self.editor.read(cx);
@@ -644,7 +659,7 @@ impl PropertyInspector {
                 .arguments
                 .iter()
                 .find(|argument| argument.schema.id() == target.property_id)
-                .map(|argument| argument.schema.property().clone())
+                .map(|argument| argument.schema.clone())
         {
             return Some(property);
         }
@@ -768,27 +783,61 @@ impl PropertyInspector {
         }
     }
 
+    pub(super) fn edit_selected_array(
+        editor: &mut TimelineEditor,
+        effect_id: Option<EffectInstanceId>,
+        property_id: &str,
+        edit: ArrayEdit,
+    ) -> bool {
+        let Some(PropertyValue::Array(mut elements)) =
+            Self::selected_property_value(editor, effect_id, property_id)
+        else {
+            return false;
+        };
+        let Some(index) = elements
+            .iter()
+            .position(|element| element.element_id() == edit.element_id())
+        else {
+            return false;
+        };
+        match edit {
+            ArrayEdit::MoveUp(_) if index > 0 => elements.swap(index, index - 1),
+            ArrayEdit::MoveDown(_) if index + 1 < elements.len() => elements.swap(index, index + 1),
+            ArrayEdit::Remove(_) => {
+                elements.remove(index);
+            }
+            _ => return false,
+        }
+        Self::update_elements(
+            editor,
+            effect_id,
+            property_id,
+            PropertyValue::Array(elements),
+        )
+    }
+
+    fn selected_property_value(
+        editor: &TimelineEditor,
+        effect_id: Option<EffectInstanceId>,
+        property_id: &str,
+    ) -> Option<PropertyValue> {
+        editor
+            .selected_item()?
+            .property_values(effect_id)?
+            .property(property_id)
+            .cloned()
+    }
+
     pub(super) fn push_element(
         editor: &mut TimelineEditor,
         effect_id: Option<EffectInstanceId>,
         property_id: &str,
         value: PropertyValue,
     ) -> bool {
-        let Some(item) = editor.selected_item() else {
+        let Some(mut updated) = Self::selected_property_value(editor, effect_id, property_id)
+        else {
             return false;
         };
-        let current = match effect_id {
-            Some(effect_id) => item
-                .effects
-                .iter()
-                .find(|effect| effect.id == effect_id)
-                .and_then(|effect| effect.properties.property(property_id)),
-            None => item.properties.property(property_id),
-        };
-        let Some(current) = current.cloned() else {
-            return false;
-        };
-        let mut updated = current;
         if !updated.push_element(value) {
             return false;
         }

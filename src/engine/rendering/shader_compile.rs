@@ -5,7 +5,7 @@ use super::{
     shader::{
         CompiledEffectShader, CompiledPluginShaders, ComputeShaderDescriptor,
         EffectShaderDescriptor, EffectShaderId, ItemShaderDescriptor, ItemShaderId,
-        TextureShaderDescriptor, TextureShaderId,
+        TextureShaderDescriptor,
     },
     wesl,
 };
@@ -46,7 +46,7 @@ pub(crate) fn compile_plugins(
             VisualCapability::Media { vertex_count, .. }
             | VisualCapability::Text { vertex_count, .. }
             | VisualCapability::RenderResult { vertex_count, .. } => {
-                let id = TextureShaderId::plugin_item(plugin_id, schema.id());
+                let id = ItemShaderId::plugin_item(plugin_id, schema.id());
                 validate_render_shader(
                     &id,
                     &source,

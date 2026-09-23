@@ -178,7 +178,7 @@ impl VisualCapability {
             let property = property(property_id)?;
             match &property.ty {
                 PropertyType::Value(PropertyValueType::Tuple(tuple))
-                    if tuple.scalar_count() == 2
+                    if tuple.scalars().len() == 2
                         && tuple.scalars().iter().all(|scalar_type| {
                             *scalar_type == crate::domain::property::ScalarPropertyType::F32
                         }) =>
@@ -317,10 +317,10 @@ impl AudioCapability {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(super) struct EditorCapability {
-    position: Option<String>,
-    size: Option<String>,
-    points: Option<String>,
-    label: Option<String>,
+    pub(super) position: Option<String>,
+    pub(super) size: Option<String>,
+    pub(super) points: Option<String>,
+    pub(super) label: Option<String>,
 }
 
 impl EditorCapability {
@@ -330,22 +330,6 @@ impl EditorCapability {
             PropertyValueType::Tuple(tuple)
                 if tuple.scalars() == [ScalarPropertyType::F32, ScalarPropertyType::F32]
         )
-    }
-
-    pub(super) fn position_property(&self) -> Option<&str> {
-        self.position.as_deref()
-    }
-
-    pub(super) fn size_property(&self) -> Option<&str> {
-        self.size.as_deref()
-    }
-
-    pub(super) fn points_property(&self) -> Option<&str> {
-        self.points.as_deref()
-    }
-
-    pub(super) fn label_property(&self) -> Option<&str> {
-        self.label.as_deref()
     }
 
     pub(super) fn validate(&self, item: &ItemSchema) -> Result<(), PluginError> {
@@ -360,8 +344,8 @@ impl EditorCapability {
             )));
         }
         for (kind, property_id) in [
-            ("position", self.position_property()),
-            ("size", self.size_property()),
+            ("position", self.position.as_deref()),
+            ("size", self.size.as_deref()),
         ] {
             let Some(property_id) = property_id else {
                 continue;
@@ -376,7 +360,7 @@ impl EditorCapability {
                 )));
             }
         }
-        if let Some(property_id) = self.points_property() {
+        if let Some(property_id) = self.points.as_deref() {
             let valid = item.property(property_id).is_some_and(|property| {
                 matches!(
                     property.ty(),
@@ -394,14 +378,14 @@ impl EditorCapability {
                     property_id
                 )));
             }
-            if self.position_property().is_none() || self.size_property().is_none() {
+            if self.position.is_none() || self.size.is_none() {
                 return Err(PluginError::invalid_definition(format!(
                     "item '{}' editor points property requires position and size properties",
                     item.id()
                 )));
             }
         }
-        if let Some(property_id) = self.label_property()
+        if let Some(property_id) = self.label.as_deref()
             && item.property(property_id).map(|property| property.ty())
                 != Some(&PropertyType::Value(PropertyValueType::Scalar(
                     ScalarPropertyType::String,
@@ -421,28 +405,10 @@ impl EditorCapability {
 #[serde(deny_unknown_fields)]
 pub(super) struct ItemCapabilities {
     #[serde(default)]
-    files: Vec<FileCapability>,
-    visual: Option<VisualCapability>,
-    audio: Option<AudioCapability>,
-    editor: Option<EditorCapability>,
-}
-
-impl ItemCapabilities {
-    pub(super) fn files(&self) -> &[FileCapability] {
-        &self.files
-    }
-
-    pub(super) fn visual(&self) -> Option<&VisualCapability> {
-        self.visual.as_ref()
-    }
-
-    pub(super) fn audio(&self) -> Option<&AudioCapability> {
-        self.audio.as_ref()
-    }
-
-    pub(super) fn editor(&self) -> Option<&EditorCapability> {
-        self.editor.as_ref()
-    }
+    pub(super) files: Vec<FileCapability>,
+    pub(super) visual: Option<VisualCapability>,
+    pub(super) audio: Option<AudioCapability>,
+    pub(super) editor: Option<EditorCapability>,
 }
 
 const fn default_item_vertex_count() -> u32 {

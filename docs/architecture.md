@@ -66,6 +66,14 @@ The plugin boundary has three responsibilities:
 The plugin ABI exposes ordered values and generated shader data; internal stable
 array IDs are not exposed to plugins.
 
+Plugin item and effect schemas own the property contracts. `PropertyValues`
+stores only current values; edits and loading validate them against the owning
+schema. Project files record
+property values that differ from the plugin defaults; loading starts from the
+current validated defaults and applies those overrides. Scene instances keep
+their sparse argument overrides. The same checked item representation is used
+for project files and the timeline clipboard.
+
 `persistence::project` and `persistence::clipboard` deserialize untrusted data,
 validate it against the current domain contracts, and then construct domain
 state. Filesystem access and atomic replacement stay in `engine::project_io`.

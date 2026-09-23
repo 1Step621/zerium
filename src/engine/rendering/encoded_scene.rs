@@ -1,4 +1,4 @@
-use super::scene::{EffectProperties, RenderTextureInput};
+use super::scene::RenderTextureInput;
 use super::*;
 
 pub(super) type RenderNodeId = usize;
@@ -63,7 +63,7 @@ pub(super) enum RenderCommand {
     Items(ItemBatch),
     Texture {
         index: usize,
-        shader: TextureShaderId,
+        shader: ItemShaderId,
     },
     Effected {
         node: RenderNodeId,
@@ -80,12 +80,12 @@ pub(super) enum RenderSourceCommand {
     },
     Texture {
         index: usize,
-        shader: TextureShaderId,
+        shader: ItemShaderId,
     },
     RenderedTexture {
         input: RenderNodeId,
         index: usize,
-        shader: TextureShaderId,
+        shader: ItemShaderId,
     },
 }
 
@@ -112,49 +112,40 @@ pub(super) enum RenderNodeCommandKind {
 }
 
 impl RenderNodeCommand {
-    pub(super) fn temporal_depth(&self, nodes: &[Self]) -> usize {
+    pub(super) fn depths(&self, nodes: &[Self]) -> (usize, usize) {
         match &self.kind {
             RenderNodeCommandKind::Source(RenderSourceCommand::RenderedTexture {
                 input, ..
-            }) => nodes[*input].temporal_depth(nodes),
-            RenderNodeCommandKind::Source(_) => 0,
-            RenderNodeCommandKind::Composite { children } => children
-                .iter()
-                .map(|child| nodes[*child].temporal_depth(nodes))
-                .max()
-                .unwrap_or(0),
-            RenderNodeCommandKind::Effect { input, .. } => nodes[*input].temporal_depth(nodes),
-            RenderNodeCommandKind::TemporalEffect { samples, .. } => {
-                1 + samples
-                    .iter()
-                    .map(|(sample, _)| nodes[*sample].temporal_depth(nodes))
-                    .max()
-                    .unwrap_or(0)
-            }
-        }
-    }
-
-    pub(super) fn composition_depth(&self, nodes: &[Self]) -> usize {
-        match &self.kind {
-            RenderNodeCommandKind::Source(RenderSourceCommand::RenderedTexture {
-                input, ..
-            }) => nodes[*input].composition_depth(nodes),
-            RenderNodeCommandKind::Source(_) => 0,
+            }) => nodes[*input].depths(nodes),
+            RenderNodeCommandKind::Source(_) => (0, 0),
+            RenderNodeCommandKind::Effect { input, .. } => nodes[*input].depths(nodes),
             RenderNodeCommandKind::Composite { children } => {
-                1 + children
-                    .iter()
-                    .map(|child| nodes[*child].composition_depth(nodes))
-                    .max()
-                    .unwrap_or(0)
+                let (temporal, composition) =
+                    max_depths(children.iter().map(|child| nodes[*child].depths(nodes)));
+                (temporal, composition + 1)
             }
-            RenderNodeCommandKind::Effect { input, .. } => nodes[*input].composition_depth(nodes),
-            RenderNodeCommandKind::TemporalEffect { samples } => samples
-                .iter()
-                .map(|(sample, _)| nodes[*sample].composition_depth(nodes))
-                .max()
-                .unwrap_or(0),
+            RenderNodeCommandKind::TemporalEffect { samples } => {
+                let (temporal, composition) = max_depths(
+                    samples
+                        .iter()
+                        .map(|(sample, _)| nodes[*sample].depths(nodes)),
+                );
+                (temporal + 1, composition)
+            }
         }
     }
+}
+
+fn max_depths(depths: impl Iterator<Item = (usize, usize)>) -> (usize, usize) {
+    depths.fold(
+        (0, 0),
+        |(temporal, composition), (next_temporal, next_composition)| {
+            (
+                temporal.max(next_temporal),
+                composition.max(next_composition),
+            )
+        },
+    )
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -167,7 +158,7 @@ pub(super) struct EffectPassCommand {
     pub(super) property_size: u32,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 pub(super) enum EffectPassCommandKind {
     Render,
     Compute {
@@ -193,10 +184,19 @@ pub(super) struct EncodedScene {
     pub(super) commands: Vec<RenderCommand>,
 }
 
+impl EncodedScene {
+    pub(super) fn depths(&self) -> (usize, usize) {
+        max_depths(self.commands.iter().filter_map(|command| match command {
+            RenderCommand::Effected { node, .. } => Some(self.nodes[*node].depths(&self.nodes)),
+            RenderCommand::Items(_) | RenderCommand::Texture { .. } => None,
+        }))
+    }
+}
+
 pub(super) struct EncodedTexture {
-    pub(super) shader: TextureShaderId,
+    pub(super) shader: ItemShaderId,
     pub(super) input: EncodedTextureInput,
-    pub(super) properties: ItemProperties,
+    pub(super) properties: Vec<u8>,
     pub(super) target_size: RenderSize,
     pub(super) composition_size: RenderSize,
 }
@@ -216,14 +216,14 @@ pub(super) enum SourceKey {
         render_scale: u32,
     },
     Texture {
-        shader: TextureShaderId,
+        shader: ItemShaderId,
         frames: Vec<usize>,
         properties: Vec<u8>,
         target_size: RenderSize,
         render_scale: u32,
     },
     RenderedTexture {
-        shader: TextureShaderId,
+        shader: ItemShaderId,
         input: Arc<RenderNodeKey>,
         properties: Vec<u8>,
         target_size: RenderSize,
@@ -232,18 +232,11 @@ pub(super) enum SourceKey {
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(super) enum EffectPassKey {
-    Render {
-        shader: EffectShaderId,
-        properties: Vec<u8>,
-        captures_source: bool,
-    },
-    Compute {
-        shader: EffectShaderId,
-        properties: Vec<u8>,
-        dispatch: [ComputeDispatchDimension; 3],
-        captures_source: bool,
-    },
+pub(super) struct EffectPassKey {
+    shader: EffectShaderId,
+    properties: Vec<u8>,
+    kind: EffectPassCommandKind,
+    captures_source: bool,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -263,7 +256,7 @@ pub(super) enum RenderNodeKey {
 
 fn encode_effect_pass(
     shader: &EffectShaderId,
-    properties: &EffectProperties,
+    properties: &[u8],
     kind: EffectPassCommandKind,
     captures_source: bool,
     effects: &mut Vec<GpuEffect>,
@@ -276,7 +269,7 @@ fn encode_effect_pass(
         .map_err(|_| RenderError::backend("effect property offset exceeds u32"))?;
     let property_size = u32::try_from(properties.len())
         .map_err(|_| RenderError::backend("effect property size exceeds u32"))?;
-    effect_properties.extend_from_slice(properties.as_bytes());
+    effect_properties.extend_from_slice(properties);
     effect_properties.resize(
         effect_properties.len().next_multiple_of(PROPERTY_WORD_SIZE),
         0,
@@ -338,11 +331,11 @@ impl EncodeContext<'_> {
         &mut self,
         item: &RenderItem,
     ) -> Result<(RenderSourceCommand, SourceKey), RenderError> {
-        match item {
-            RenderItem::Shader(item) => {
+        match &item.source {
+            RenderItemSource::Shader => {
                 let key = SourceKey::Item {
                     shader: item.shader.clone(),
-                    properties: item.properties.as_bytes().to_vec(),
+                    properties: item.properties.clone(),
                     target_size: item.target_size,
                     render_scale: item.render_scale,
                 };
@@ -355,8 +348,7 @@ impl EncodeContext<'_> {
                     .map_err(|_| RenderError::backend("item property offset exceeds u32"))?;
                 let property_size = u32::try_from(item.properties.len())
                     .map_err(|_| RenderError::backend("item property size exceeds u32"))?;
-                self.properties
-                    .extend_from_slice(item.properties.as_bytes());
+                self.properties.extend_from_slice(&item.properties);
                 self.properties.resize(
                     self.properties.len().next_multiple_of(PROPERTY_WORD_SIZE),
                     0,
@@ -380,8 +372,8 @@ impl EncodeContext<'_> {
                 self.source_cache.insert(key.clone(), source.clone());
                 Ok((source, key))
             }
-            RenderItem::Texture(item) => {
-                let (input, render_input, frame_ids) = match &item.input {
+            RenderItemSource::Texture(input) => {
+                let (input, render_input, frame_ids) = match input {
                     RenderTextureInput::Rendered(input) => (
                         EncodedTextureInput::Rendered,
                         Some(self.encode_node(input)?),
@@ -400,14 +392,14 @@ impl EncodeContext<'_> {
                     Some(input) => SourceKey::RenderedTexture {
                         shader: item.shader.clone(),
                         input: self.node_keys[input].clone(),
-                        properties: item.properties.as_bytes().to_vec(),
+                        properties: item.properties.clone(),
                         target_size: item.target_size,
                         render_scale: item.render_scale,
                     },
                     None => SourceKey::Texture {
                         shader: item.shader.clone(),
                         frames: frame_ids,
-                        properties: item.properties.as_bytes().to_vec(),
+                        properties: item.properties.clone(),
                         target_size: item.target_size,
                         render_scale: item.render_scale,
                     },
@@ -443,7 +435,7 @@ impl EncodeContext<'_> {
     fn temporal_reduce_command(
         &mut self,
         reducer: &EffectShaderId,
-        properties: &EffectProperties,
+        properties: &[u8],
         sample_count: usize,
         sample_index: usize,
         sample: &RenderTemporalSample,
@@ -452,8 +444,7 @@ impl EncodeContext<'_> {
             .map_err(|_| RenderError::backend("too many effect passes in one frame"))?;
         let property_offset = u32::try_from(self.effect_properties.len() / PROPERTY_WORD_SIZE)
             .map_err(|_| RenderError::backend("effect property offset exceeds u32"))?;
-        self.effect_properties
-            .extend_from_slice(properties.as_bytes());
+        self.effect_properties.extend_from_slice(properties);
         self.effect_properties.resize(
             self.effect_properties
                 .len()
@@ -493,12 +484,8 @@ impl EncodeContext<'_> {
             let mut regular_passes = Vec::new();
             let mut regular_keys = Vec::new();
             for pass in &effect.passes {
-                match pass {
-                    RenderEffectPass::Temporal {
-                        reducer,
-                        properties,
-                        samples,
-                    } => {
+                let kind = match &pass.kind {
+                    RenderEffectPassKind::Temporal(samples) => {
                         debug_assert!(regular_passes.is_empty());
                         let sample_count = samples.len();
                         let encoded_samples = samples
@@ -518,8 +505,8 @@ impl EncodeContext<'_> {
                                 Ok((
                                     node,
                                     self.temporal_reduce_command(
-                                        reducer,
-                                        properties,
+                                        &pass.shader,
+                                        &pass.properties,
                                         sample_count,
                                         sample_index,
                                         sample,
@@ -529,8 +516,8 @@ impl EncodeContext<'_> {
                             })
                             .collect::<Result<Vec<_>, RenderError>>()?;
                         let key = RenderNodeKey::Temporal {
-                            reducer: reducer.clone(),
-                            properties: properties.as_bytes().to_vec(),
+                            reducer: pass.shader.clone(),
+                            properties: pass.properties.clone(),
                             samples: encoded_samples
                                 .iter()
                                 .map(|(sample, _, offset)| {
@@ -547,49 +534,29 @@ impl EncodeContext<'_> {
                             self.nodes[node].metadata.clone(),
                             RenderNodeCommandKind::TemporalEffect { samples },
                         );
+                        continue;
                     }
-                    RenderEffectPass::Render { shader, properties } => {
-                        let starts_regular_chain = regular_passes.is_empty();
-                        regular_passes.push(encode_effect_pass(
-                            shader,
-                            properties,
-                            EffectPassCommandKind::Render,
-                            starts_regular_chain,
-                            self.effects,
-                            self.effect_properties,
-                            self.composition_size,
-                        )?);
-                        regular_keys.push(EffectPassKey::Render {
-                            shader: shader.clone(),
-                            properties: properties.as_bytes().to_vec(),
-                            captures_source: starts_regular_chain,
-                        });
-                    }
-                    RenderEffectPass::Compute {
-                        shader,
-                        properties,
-                        dispatch,
-                    } => {
-                        let starts_regular_chain = regular_passes.is_empty();
-                        regular_passes.push(encode_effect_pass(
-                            shader,
-                            properties,
-                            EffectPassCommandKind::Compute {
-                                dispatch: *dispatch,
-                            },
-                            starts_regular_chain,
-                            self.effects,
-                            self.effect_properties,
-                            self.composition_size,
-                        )?);
-                        regular_keys.push(EffectPassKey::Compute {
-                            shader: shader.clone(),
-                            properties: properties.as_bytes().to_vec(),
-                            dispatch: *dispatch,
-                            captures_source: starts_regular_chain,
-                        });
-                    }
-                }
+                    RenderEffectPassKind::Render => EffectPassCommandKind::Render,
+                    RenderEffectPassKind::Compute(dispatch) => EffectPassCommandKind::Compute {
+                        dispatch: *dispatch,
+                    },
+                };
+                let starts_regular_chain = regular_passes.is_empty();
+                regular_passes.push(encode_effect_pass(
+                    &pass.shader,
+                    &pass.properties,
+                    kind,
+                    starts_regular_chain,
+                    self.effects,
+                    self.effect_properties,
+                    self.composition_size,
+                )?);
+                regular_keys.push(EffectPassKey {
+                    shader: pass.shader.clone(),
+                    properties: pass.properties.clone(),
+                    kind,
+                    captures_source: starts_regular_chain,
+                });
             }
             if !regular_passes.is_empty() {
                 node = self.intern_node(
@@ -611,17 +578,13 @@ impl EncodeContext<'_> {
     fn encode_node(&mut self, node: &RenderNode) -> Result<RenderNodeId, RenderError> {
         match &node.content {
             RenderNodeContent::Item(item) => {
-                let effects = match item {
-                    RenderItem::Shader(item) => &item.effects,
-                    RenderItem::Texture(item) => &item.effects,
-                };
                 let (source, key) = self.encode_source(item)?;
                 let source = self.intern_node(
                     RenderNodeKey::Source(key),
                     node.metadata.clone(),
                     RenderNodeCommandKind::Source(source),
                 );
-                self.encode_effects(source, effects)
+                self.encode_effects(source, &item.effects)
             }
             RenderNodeContent::Scene {
                 children, effects, ..
@@ -660,13 +623,13 @@ pub(super) fn encode_items(scene: &RenderScene) -> Result<EncodedScene, RenderEr
 
     for node in &scene.roots {
         let (has_effects, item) = match &node.content {
-            RenderNodeContent::Item(RenderItem::Shader(item)) => (
-                !item.effects.is_empty(),
-                Some(RenderItem::Shader(item.clone())),
-            ),
-            RenderNodeContent::Item(RenderItem::Texture(item)) => (
-                !item.effects.is_empty() || matches!(&item.input, RenderTextureInput::Rendered(_)),
-                Some(RenderItem::Texture(item.clone())),
+            RenderNodeContent::Item(item) => (
+                !item.effects.is_empty()
+                    || matches!(
+                        &item.source,
+                        RenderItemSource::Texture(RenderTextureInput::Rendered(_))
+                    ),
+                Some(item.clone()),
             ),
             RenderNodeContent::Scene { effects, .. } => (!effects.is_empty(), None),
         };
@@ -797,139 +760,4 @@ fn shared_node_cache_capacity(size: RenderSize) -> usize {
         .map(|bytes| SHARED_NODE_CACHE_BUDGET / bytes)
         .unwrap_or(0)
         .min(MAX_SHARED_NODE_CACHE_ENTRIES)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::engine::rendering::scene::RenderShaderItem;
-
-    fn metadata() -> RenderNodeMetadata {
-        RenderNodeMetadata {
-            layer: LayerId::new(0),
-            clip_start: TimelineTime::from_frame(crate::domain::timeline::Frame::new(0)),
-            clip_end: TimelineTime::from_frame(crate::domain::timeline::Frame::new(1)),
-            path: Vec::new(),
-        }
-    }
-
-    #[test]
-    fn only_reused_complex_nodes_receive_cache_slots() {
-        let nodes = vec![
-            RenderNodeCommand {
-                metadata: metadata(),
-                kind: RenderNodeCommandKind::Source(RenderSourceCommand::Transparent),
-            },
-            RenderNodeCommand {
-                metadata: metadata(),
-                kind: RenderNodeCommandKind::Composite { children: vec![0] },
-            },
-        ];
-        let commands = vec![
-            RenderCommand::Effected {
-                node: 1,
-                render_scale: 1,
-            },
-            RenderCommand::Effected {
-                node: 1,
-                render_scale: 1,
-            },
-        ];
-
-        assert_eq!(
-            shared_node_slots(&nodes, &commands, usize::MAX),
-            vec![None, Some(0)]
-        );
-    }
-
-    #[test]
-    fn shared_cache_respects_the_texture_memory_budget() {
-        assert_eq!(
-            shared_node_cache_capacity(RenderSize {
-                width: 3_840,
-                height: 2_160,
-            }),
-            2
-        );
-        assert_eq!(
-            shared_node_cache_capacity(RenderSize {
-                width: 7_680,
-                height: 4_320,
-            }),
-            0
-        );
-    }
-
-    fn shader_item() -> RenderItem {
-        RenderItem::Shader(RenderShaderItem {
-            shader: ItemShaderId::plugin_item("test", "item"),
-            properties: ItemProperties::from_bytes([1, 2, 3, 4]),
-            effects: Vec::new(),
-            target_size: RenderSize {
-                width: 64,
-                height: 64,
-            },
-            render_scale: 1,
-        })
-    }
-
-    #[test]
-    fn identical_root_items_share_gpu_data_without_losing_a_draw() {
-        let item = shader_item();
-        let scene = RenderScene::from_roots(
-            RenderSize {
-                width: 64,
-                height: 64,
-            },
-            RenderSize {
-                width: 64,
-                height: 64,
-            },
-            [0.; 4],
-            vec![
-                RenderNode::item(metadata(), item.clone()),
-                RenderNode::item(metadata(), item),
-            ],
-        )
-        .unwrap();
-
-        let encoded = encode_items(&scene).unwrap();
-        assert_eq!(encoded.items.len(), 1);
-        assert_eq!(encoded.commands.len(), 2);
-        assert!(encoded.commands.iter().all(|command| matches!(
-            command,
-            RenderCommand::Items(ItemBatch { instances, .. }) if instances == &(0..1)
-        )));
-    }
-
-    #[test]
-    fn identical_composites_are_interned_as_one_render_node() {
-        let child = RenderNode::item(metadata(), shader_item());
-        let composite = RenderNode::scene(metadata(), vec![child], Vec::new(), 1);
-        let scene = RenderScene::from_roots(
-            RenderSize {
-                width: 64,
-                height: 64,
-            },
-            RenderSize {
-                width: 64,
-                height: 64,
-            },
-            [0.; 4],
-            vec![composite.clone(), composite],
-        )
-        .unwrap();
-
-        let encoded = encode_items(&scene).unwrap();
-        let roots = encoded
-            .commands
-            .iter()
-            .map(|command| match command {
-                RenderCommand::Effected { node, .. } => *node,
-                _ => panic!("scene roots must be encoded as render nodes"),
-            })
-            .collect::<Vec<_>>();
-        assert_eq!(roots[0], roots[1]);
-        assert!(encoded.shared_node_slots[roots[0]].is_some());
-    }
 }

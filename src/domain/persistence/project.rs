@@ -9,7 +9,7 @@ use std::{
 use serde::{Deserialize, Serialize};
 
 use crate::domain::animation::{ScalarAnimationAddress, ScalarAnimations, ScalarTrack};
-use crate::domain::media::{MediaAsset, MediaKind, VideoFrameRate};
+use crate::domain::media::{MediaAsset, MediaKind};
 use crate::domain::plugin::PluginRegistry;
 use crate::domain::property::materialized_property_values;
 use crate::domain::property::{
@@ -17,9 +17,9 @@ use crate::domain::property::{
 };
 use crate::domain::timeline::{
     EffectInstance, EffectInstanceId, Frame, FrameDuration, FrameRate, ItemId, LayerId, ProjectId,
-    ProjectResolution, SceneArgument, SceneArgumentSchema, SceneBindingOwner, SceneBindingTarget,
-    SceneDefinition, SceneId, TimelineDocument, TimelineEditor, TimelineItem, TimelineItemKind,
-    TimelineSnapshot, TimelineView, resolve_scene_binding, scene_argument_expressions_valid,
+    ProjectResolution, SceneArgument, SceneBindingTarget, SceneDefinition, SceneId,
+    TimelineDocument, TimelineEditor, TimelineItem, TimelineItemKind, TimelineSnapshot,
+    TimelineView, resolve_scene_binding, scene_argument_expressions_valid,
 };
 
 pub(crate) const PROJECT_EXTENSION: &str = "zero";
@@ -155,7 +155,7 @@ impl ProjectFile {
                             scene.name, argument.schema.id
                         ))
                     })?;
-                if SceneArgumentSchema::from_property(argument.schema.clone()).is_none() {
+                if argument.schema.clone().for_scene_argument().is_none() {
                     return Err(ProjectError::invalid_data(format!(
                         "シーン '{}' の引数 '{}' は対応するスカラー型ではありません",
                         scene.name, argument.schema.id
@@ -267,6 +267,21 @@ pub(super) fn load_items(
         .collect()
 }
 
+fn capture_property_overrides(
+    values: &PropertyValues,
+    schema: Option<&[PropertySchema]>,
+) -> BTreeMap<String, PropertyValue> {
+    values
+        .iter()
+        .filter(|(id, value)| {
+            schema
+                .and_then(|schema| schema.iter().find(|property| property.id() == *id))
+                .is_none_or(|property| property.default_value() != *value)
+        })
+        .map(|(id, value)| (id.to_owned(), value.clone()))
+        .collect()
+}
+
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectScene {
@@ -295,7 +310,7 @@ impl ProjectScene {
 #[serde(deny_unknown_fields)]
 struct ProjectSceneArgument {
     schema: PropertySchema,
-    bindings: Vec<ProjectSceneBinding>,
+    bindings: Vec<SceneBindingTarget>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     expression: Option<String>,
 }
@@ -303,77 +318,22 @@ struct ProjectSceneArgument {
 impl ProjectSceneArgument {
     fn capture(argument: &SceneArgument) -> Self {
         Self {
-            schema: argument.schema.property().clone(),
-            bindings: argument
-                .bindings
-                .iter()
-                .map(ProjectSceneBinding::capture)
-                .collect(),
+            schema: argument.schema.clone(),
+            bindings: argument.bindings.clone(),
             expression: argument.expression().map(str::to_owned),
         }
     }
 
     fn into_domain(self) -> Result<SceneArgument, ProjectError> {
-        let schema = SceneArgumentSchema::from_property(self.schema).ok_or_else(|| {
+        let schema = self.schema.for_scene_argument().ok_or_else(|| {
             ProjectError::invalid_data("シーン引数は対応するスカラー型ではありません")
         })?;
-        let bindings = self
-            .bindings
-            .into_iter()
-            .map(ProjectSceneBinding::into_domain)
-            .collect();
         match self.expression {
-            Some(expression) => {
-                SceneArgument::computed(schema, bindings, expression).ok_or_else(|| {
+            Some(expression) => SceneArgument::computed(schema, self.bindings, expression)
+                .ok_or_else(|| {
                     ProjectError::invalid_data("式シーン引数は数値型である必要があります")
-                })
-            }
-            None => Ok(SceneArgument::input(schema, bindings)),
-        }
-    }
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
-pub(super) enum ProjectSceneBinding {
-    Property {
-        item_id: u64,
-        effect_id: Option<u64>,
-        property_id: String,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        element_id: Option<PropertyElementId>,
-        #[serde(default, skip_serializing_if = "Option::is_none")]
-        scalar_index: Option<usize>,
-    },
-}
-
-impl ProjectSceneBinding {
-    pub(super) fn capture(binding: &SceneBindingTarget) -> Self {
-        let effect_id = binding.owner().effect_id().map(EffectInstanceId::get);
-        Self::Property {
-            item_id: binding.item_id().get(),
-            effect_id,
-            property_id: binding.property_id().to_owned(),
-            element_id: binding.element_id(),
-            scalar_index: binding.scalar_index(),
-        }
-    }
-
-    pub(super) fn into_domain(self) -> SceneBindingTarget {
-        match self {
-            Self::Property {
-                item_id,
-                effect_id,
-                property_id,
-                element_id,
-                scalar_index,
-            } => SceneBindingTarget::new(
-                ItemId(item_id),
-                SceneBindingOwner::from_effect(effect_id.map(EffectInstanceId::new)),
-                property_id,
-                element_id,
-                scalar_index,
-            ),
+                }),
+            None => Ok(SceneArgument::input(schema, self.bindings)),
         }
     }
 }
@@ -387,6 +347,7 @@ pub(super) struct ProjectItem {
     duration: u64,
     kind: ProjectItemKind,
     assets: BTreeMap<String, ProjectMediaAsset>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     properties: BTreeMap<String, PropertyValue>,
     animations: Vec<ProjectScalarAnimation>,
     aspect_ratio_locked: bool,
@@ -430,11 +391,10 @@ impl ProjectItem {
                 .iter()
                 .map(|(id, asset)| (id.clone(), ProjectMediaAsset::capture(asset, project_path)))
                 .collect(),
-            properties: item
-                .properties
-                .iter()
-                .map(|(id, value)| (id.to_owned(), value.clone()))
-                .collect(),
+            properties: capture_property_overrides(
+                &item.properties,
+                item.schema().map(|schema| schema.properties()),
+            ),
             animations: capture_animations(&item.animations),
             aspect_ratio_locked: item.aspect_ratio_locked,
             effects: item.effects.iter().map(ProjectEffect::capture).collect(),
@@ -485,11 +445,21 @@ impl ProjectItem {
                 .properties(),
         };
         let scene_instance = matches!(&self.kind, ProjectItemKind::Scene { .. });
-        let properties = if scene_instance {
-            load_property_overrides(property_schema, self.properties, "シーンインスタンス")?
+        let initial = if scene_instance {
+            PropertyValues::default()
         } else {
-            load_properties(property_schema, self.properties, "アイテム")?
+            PropertyValues::from_properties(property_schema)
         };
+        let properties = load_properties(
+            property_schema,
+            self.properties,
+            if scene_instance {
+                "シーンインスタンス"
+            } else {
+                "アイテム"
+            },
+            initial,
+        )?;
         let animation_base = materialized_property_values(&properties, property_schema);
         let animations = load_animations(property_schema, &animation_base, self.animations)?;
 
@@ -571,6 +541,7 @@ struct ProjectEffect {
     id: u64,
     plugin_id: String,
     effect_id: String,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     properties: BTreeMap<String, PropertyValue>,
     animations: Vec<ProjectScalarAnimation>,
 }
@@ -581,11 +552,10 @@ impl ProjectEffect {
             id: effect.id.get(),
             plugin_id: effect.plugin_id.clone(),
             effect_id: effect.effect_id.clone(),
-            properties: effect
-                .properties
-                .iter()
-                .map(|(id, value)| (id.to_owned(), value.clone()))
-                .collect(),
+            properties: capture_property_overrides(
+                &effect.properties,
+                Some(effect.schema().properties()),
+            ),
             animations: capture_animations(&effect.animations),
         }
     }
@@ -599,7 +569,12 @@ impl ProjectEffect {
                     self.plugin_id, self.effect_id
                 ))
             })?;
-        let properties = load_properties(schema.properties(), self.properties, "エフェクト")?;
+        let properties = load_properties(
+            schema.properties(),
+            self.properties,
+            "エフェクト",
+            PropertyValues::from_properties(schema.properties()),
+        )?;
         let animations = load_animations(schema.properties(), &properties, self.animations)?;
         Ok(EffectInstance {
             id: EffectInstanceId::new(self.id),
@@ -707,12 +682,12 @@ fn validate_project_track(
     Ok(())
 }
 
-fn load_property_overrides(
+fn load_properties(
     schema: &[PropertySchema],
     values: BTreeMap<String, PropertyValue>,
     owner: &str,
+    mut loaded: PropertyValues,
 ) -> Result<PropertyValues, ProjectError> {
-    let mut loaded = PropertyValues::empty();
     for (id, value) in values {
         let property = schema
             .iter()
@@ -720,40 +695,11 @@ fn load_property_overrides(
             .ok_or_else(|| {
                 ProjectError::invalid_data(format!("{owner}に不明なパラメータ '{id}' があります"))
             })?;
-        if !property.accepts_value(&value) {
-            return Err(ProjectError::invalid_data(format!(
-                "{owner}パラメータ '{id}' が不正です"
-            )));
+        if &value == property.default_value() {
+            continue;
         }
-        if &value != property.default_value() {
-            loaded.set(property, value).map_err(|error| {
-                ProjectError::invalid_data(format!("{owner}パラメータ '{id}' が不正です: {error}"))
-            })?;
-        }
-    }
-    Ok(loaded)
-}
-
-fn load_properties(
-    schema: &[PropertySchema],
-    values: BTreeMap<String, PropertyValue>,
-    owner: &str,
-) -> Result<PropertyValues, ProjectError> {
-    if values.len() != schema.len() {
-        return Err(ProjectError::invalid_data(format!(
-            "{owner}のパラメータ数がプラグイン定義と一致しません"
-        )));
-    }
-    let mut loaded = PropertyValues::empty();
-    for property in schema {
-        let value = values.get(&property.id).cloned().ok_or_else(|| {
-            ProjectError::invalid_data(format!("{owner}パラメータ '{}' がありません", property.id))
-        })?;
         loaded.set(property, value).map_err(|error| {
-            ProjectError::invalid_data(format!(
-                "{owner}パラメータ '{}' が不正です: {error}",
-                property.id
-            ))
+            ProjectError::invalid_data(format!("{owner}パラメータ '{id}' が不正です: {error}"))
         })?;
     }
     Ok(loaded)
@@ -767,7 +713,7 @@ struct ProjectMediaAsset {
     name: String,
     duration_seconds: u64,
     duration_nanoseconds: u32,
-    kind: ProjectMediaKind,
+    kind: MediaKind,
 }
 
 impl ProjectMediaAsset {
@@ -779,7 +725,7 @@ impl ProjectMediaAsset {
             name: asset.name.clone(),
             duration_seconds: asset.duration.as_secs(),
             duration_nanoseconds: asset.duration.subsec_nanos(),
-            kind: ProjectMediaKind::capture(&asset.kind),
+            kind: asset.kind.clone(),
         }
     }
 
@@ -792,109 +738,12 @@ impl ProjectMediaAsset {
             path: resolve_path(&self.path, project_path),
             name: self.name,
             duration: Duration::new(self.duration_seconds, self.duration_nanoseconds),
-            kind: self.kind.into_media()?,
+            kind: self.kind,
         };
         asset.validate().map_err(|error| {
             ProjectError::invalid_data(format!("メディア情報が不正です: {error}"))
         })?;
         Ok(asset)
-    }
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
-enum ProjectMediaKind {
-    Video {
-        width: u32,
-        height: u32,
-        frame_rate_numerator: u32,
-        frame_rate_denominator: u32,
-        frame_count: u64,
-        has_audio: bool,
-    },
-    Audio {
-        channels: Option<u32>,
-        sample_rate: Option<u32>,
-    },
-    Image {
-        width: u32,
-        height: u32,
-    },
-}
-
-impl ProjectMediaKind {
-    fn capture(kind: &MediaKind) -> Self {
-        match kind {
-            MediaKind::Video {
-                width,
-                height,
-                frame_rate,
-                frame_count,
-                has_audio,
-            } => Self::Video {
-                width: *width,
-                height: *height,
-                frame_rate_numerator: frame_rate.numerator(),
-                frame_rate_denominator: frame_rate.denominator(),
-                frame_count: *frame_count,
-                has_audio: *has_audio,
-            },
-            MediaKind::Audio {
-                channels,
-                sample_rate,
-            } => Self::Audio {
-                channels: *channels,
-                sample_rate: *sample_rate,
-            },
-            MediaKind::Image { width, height } => Self::Image {
-                width: *width,
-                height: *height,
-            },
-        }
-    }
-
-    fn into_media(self) -> Result<MediaKind, ProjectError> {
-        match self {
-            Self::Video {
-                width,
-                height,
-                frame_rate_numerator,
-                frame_rate_denominator,
-                frame_count,
-                has_audio,
-            } => {
-                if width == 0 || height == 0 || frame_count == 0 {
-                    return Err(ProjectError::invalid_data("動画情報が不正です"));
-                }
-                let frame_rate = VideoFrameRate::new(frame_rate_numerator, frame_rate_denominator)
-                    .ok_or_else(|| ProjectError::invalid_data("動画のフレームレートが不正です"))?;
-                Ok(MediaKind::Video {
-                    width,
-                    height,
-                    frame_rate,
-                    frame_count,
-                    has_audio,
-                })
-            }
-            Self::Audio {
-                channels,
-                sample_rate,
-            } => {
-                if channels == Some(0) || sample_rate == Some(0) {
-                    return Err(ProjectError::invalid_data("音声情報が不正です"));
-                }
-                Ok(MediaKind::Audio {
-                    channels,
-                    sample_rate,
-                })
-            }
-            Self::Image { width, height } => {
-                if width == 0 || height == 0 {
-                    return Err(ProjectError::invalid_data("画像情報が不正です"));
-                }
-                Ok(MediaKind::Image { width, height })
-            }
-        }
     }
 }
 

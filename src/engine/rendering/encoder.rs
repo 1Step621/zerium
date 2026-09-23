@@ -134,7 +134,7 @@ impl FrameRenderer {
         encoder: &mut wgpu::CommandEncoder,
         target_view: &wgpu::TextureView,
         bind_group: &wgpu::BindGroup,
-        shader: &TextureShaderId,
+        shader: &ItemShaderId,
         load: wgpu::LoadOp<wgpu::Color>,
     ) {
         let color_attachments = [Some(wgpu::RenderPassColorAttachment {
@@ -164,7 +164,7 @@ impl FrameRenderer {
         &self,
         texture: &TextureResource,
         input: &wgpu::TextureView,
-        shader: &TextureShaderId,
+        shader: &ItemShaderId,
     ) -> Result<wgpu::BindGroup, RenderError> {
         if texture.input_count != 1 || !matches!(&texture.binding, TextureBinding::Rendered) {
             return Err(RenderError::backend(
@@ -1062,28 +1062,7 @@ impl FrameRenderer {
         self.validate_scene(scene)?;
         let encoded = encode_items(scene)?;
         let effect_pass_count = encoded.effects.len();
-        let temporal_depth = encoded
-            .commands
-            .iter()
-            .filter_map(|command| match command {
-                RenderCommand::Effected { node, .. } => {
-                    Some(encoded.nodes[*node].temporal_depth(&encoded.nodes))
-                }
-                RenderCommand::Items(_) | RenderCommand::Texture { .. } => None,
-            })
-            .max()
-            .unwrap_or(0);
-        let composition_depth = encoded
-            .commands
-            .iter()
-            .filter_map(|command| match command {
-                RenderCommand::Effected { node, .. } => {
-                    Some(encoded.nodes[*node].composition_depth(&encoded.nodes))
-                }
-                RenderCommand::Items(_) | RenderCommand::Texture { .. } => None,
-            })
-            .max()
-            .unwrap_or(0);
+        let (temporal_depth, composition_depth) = encoded.depths();
         let shared_node_count = encoded.shared_node_slots.iter().flatten().count();
         let texture_resources = self.create_texture_resources(&encoded.textures)?;
         let mut resources = self

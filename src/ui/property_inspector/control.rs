@@ -697,12 +697,7 @@ impl PropertyInspector {
                 values
                     .get(argument.schema.id())
                     .map(|value| {
-                        Self::scene_value_controls(
-                            scene_id,
-                            argument.schema.property(),
-                            value,
-                            resolution,
-                        )
+                        Self::scene_value_controls(scene_id, &argument.schema, value, resolution)
                     })
                     .unwrap_or_default()
             })
