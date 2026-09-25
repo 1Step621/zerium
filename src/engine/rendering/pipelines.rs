@@ -229,6 +229,65 @@ impl RendererBuilder {
                     },
                 ],
             });
+        let effect_bounds_source_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("zerium-effect-bounds-source-layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Storage { read_only: false },
+                            has_dynamic_offset: false,
+                            min_binding_size: NonZeroU64::new(16),
+                        },
+                        count: None,
+                    },
+                ],
+            });
+        let effect_bounds_read_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("zerium-effect-bounds-read-layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::COMPUTE | wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Buffer {
+                        ty: wgpu::BufferBindingType::Storage { read_only: true },
+                        has_dynamic_offset: false,
+                        min_binding_size: NonZeroU64::new(16),
+                    },
+                    count: None,
+                }],
+            });
+        let effect_bounds_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("zerium-effect-bounds"),
+            source: wgpu::ShaderSource::Wgsl(EFFECT_BOUNDS.into()),
+        });
+        let effect_bounds_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("zerium-effect-bounds-pipeline-layout"),
+                bind_group_layouts: &[Some(&effect_bounds_source_layout)],
+                immediate_size: 0,
+            });
+        let effect_bounds_pipeline =
+            device.create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
+                label: Some("zerium-effect-bounds-pipeline"),
+                layout: Some(&effect_bounds_pipeline_layout),
+                module: &effect_bounds_module,
+                entry_point: Some("main"),
+                compilation_options: Default::default(),
+                cache: None,
+            });
         let composite_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("zerium-composite-bind-group-layout"),
@@ -267,6 +326,7 @@ impl RendererBuilder {
                 bind_group_layouts: &[
                     Some(&effect_bind_group_layout),
                     Some(&capability_bind_group_layout),
+                    Some(&effect_bounds_read_layout),
                 ],
                 immediate_size: 0,
             });
@@ -276,6 +336,7 @@ impl RendererBuilder {
                 bind_group_layouts: &[
                     Some(&temporal_bind_group_layout),
                     Some(&capability_bind_group_layout),
+                    Some(&effect_bounds_read_layout),
                 ],
                 immediate_size: 0,
             });
@@ -382,6 +443,9 @@ impl RendererBuilder {
                 effect_bind_group_layout,
                 temporal_bind_group_layout,
                 compute_bind_group_layout,
+                effect_bounds_source_layout,
+                effect_bounds_read_layout,
+                effect_bounds_pipeline,
                 effect_pipeline_layout,
                 temporal_pipeline_layout,
                 composite_bind_group_layout,
@@ -496,6 +560,7 @@ impl RendererDevice {
                 bind_group_layouts: &[
                     Some(&self.compute_bind_group_layout),
                     Some(&self.capability_bind_group_layout),
+                    Some(&self.effect_bounds_read_layout),
                 ],
                 immediate_size: 0,
             });
@@ -535,6 +600,7 @@ impl RendererDevice {
             wgsl,
             vertex_entry,
             fragment_entry,
+            ..
         } = descriptor;
         if self.temporal_pipelines.contains_key(&id) {
             return Err(RenderError::backend(format!(

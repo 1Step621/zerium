@@ -525,6 +525,10 @@
           "minimum": 1,
           "maximum": 4
         },
+        "uses_effect_bounds": {
+          "type": "boolean",
+          "default": false
+        },
         "capabilities": {
           "$ref": "#/$defs/capabilities"
         },

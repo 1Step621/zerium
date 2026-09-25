@@ -1,5 +1,6 @@
 import package::generated::compute::{effect_input, effect_sampler, context, store};
 import package::generated::properties_gaussian_blur::props;
+import package::generated::effect_bounds::contains;
 import constants::{direction_x, direction_y, radius_scale};
 
 // Each axis is blurred twice at radius / sqrt(2). Convolving the two passes
@@ -37,6 +38,14 @@ fn compute_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             global_id.xy,
             textureSampleLevel(effect_input, effect_sampler, uv, 0.0),
         );
+        return;
+    }
+
+    // Four passes each use the same radius scale, so their combined reach is
+    // four times the radius used by this pass.
+    let reach = properties.radius * radius_scale * context().composition_scale * 4.0 + 4.0;
+    if !contains(global_id.xy, output_size, reach) {
+        store(global_id.xy, vec4(0.0));
         return;
     }
 

@@ -2128,37 +2128,8 @@
       "label": "線形グラデーション",
       "category": "塗り",
       "tags": ["グラデ", "gradient", "fill"],
+      "uses_effect_bounds": true,
       "passes": [
-        {
-          "type": "compute",
-          "shader": {
-            "module": "linear_gradient_bounds"
-          },
-          "dispatch": ["one", "height", "one"],
-          "constants": [
-            {
-              "id": "phase",
-              "value": {
-                "u32": 0
-              }
-            }
-          ]
-        },
-        {
-          "type": "compute",
-          "shader": {
-            "module": "linear_gradient_bounds"
-          },
-          "dispatch": ["one", "one", "one"],
-          "constants": [
-            {
-              "id": "phase",
-              "value": {
-                "u32": 1
-              }
-            }
-          ]
-        },
         {
           "type": "render",
           "shader": {
@@ -2227,6 +2198,7 @@
       "label": "光彩",
       "category": "スタイル",
       "tags": ["発光", "ネオン", "bloom", "neon"],
+      "uses_effect_bounds": true,
       "render_scale": 2,
       "properties": [
         {
@@ -2432,6 +2404,7 @@
       "label": "枠線",
       "category": "スタイル",
       "tags": ["縁取り", "ストローク", "border", "stroke"],
+      "uses_effect_bounds": true,
       "render_scale": 2,
       "properties": [
         {
@@ -2500,7 +2473,7 @@
         {
           "type": "compute",
           "shader": {
-            "module": "distance_field"
+            "module": "outline_distance_field"
           },
           "constants": [
             {
@@ -2514,7 +2487,7 @@
         {
           "type": "compute",
           "shader": {
-            "module": "distance_field"
+            "module": "outline_distance_field"
           },
           "constants": [
             {
@@ -2528,7 +2501,7 @@
         {
           "type": "compute",
           "shader": {
-            "module": "distance_field"
+            "module": "outline_distance_field"
           },
           "constants": [
             {
@@ -2735,6 +2708,7 @@
       "label": "ガウスぼかし",
       "category": "フィルター",
       "tags": ["ぼかし", "ブラー", "soft focus", "blur"],
+      "uses_effect_bounds": true,
       "properties": [
         {
           "id": "radius",
@@ -2961,29 +2935,8 @@
       "label": "ピクセルソート",
       "category": "フィルター",
       "tags": ["グリッチ", "並べ替え", "glitch", "sort"],
+      "uses_effect_bounds": true,
       "properties": [
-        {
-          "id": "block_size",
-          "type": {
-            "value": "u32"
-          },
-          "default": {
-            "u32": 64
-          },
-          "label": "ブロック幅",
-          "configurations": [
-            {
-              "constraints": {
-                "min": 2,
-                "max": 256
-              },
-              "ui": {
-                "unit": "px",
-                "step": 1
-              }
-            }
-          ]
-        },
         {
           "id": "threshold",
           "type": {

@@ -202,6 +202,7 @@ pub(crate) struct RenderItem {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RenderEffect {
+    pub uses_effect_bounds: bool,
     pub passes: Vec<RenderEffectPass>,
     pub inputs: Vec<RenderNode>,
 }
@@ -1094,6 +1095,7 @@ impl RenderScene {
             })
             .collect();
         RenderEffect {
+            uses_effect_bounds: schema.uses_effect_bounds(),
             passes,
             inputs: Vec::new(),
         }

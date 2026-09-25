@@ -44,6 +44,7 @@ const VIDEO_FRAME_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormS
 const PROPERTY_WORD_SIZE: usize = size_of::<u32>();
 const COMPOSITE: &str = include_str!("composite.wgsl");
 const YUV_CONVERT: &str = include_str!("yuv.wgsl");
+const EFFECT_BOUNDS: &str = include_str!("effect_bounds.wgsl");
 
 pub(crate) use readback::ExportFramePipeline;
 pub(crate) use runtime::RenderRuntime;
@@ -73,6 +74,9 @@ pub(crate) struct RendererDevice {
     effect_bind_group_layout: wgpu::BindGroupLayout,
     temporal_bind_group_layout: wgpu::BindGroupLayout,
     compute_bind_group_layout: wgpu::BindGroupLayout,
+    effect_bounds_source_layout: wgpu::BindGroupLayout,
+    effect_bounds_read_layout: wgpu::BindGroupLayout,
+    effect_bounds_pipeline: wgpu::ComputePipeline,
     effect_pipeline_layout: wgpu::PipelineLayout,
     temporal_pipeline_layout: wgpu::PipelineLayout,
     composite_bind_group_layout: wgpu::BindGroupLayout,
@@ -190,6 +194,8 @@ struct RenderResources {
     compute_info_stride: u64,
     compute_info_buffer: wgpu::Buffer,
     compute_inputs: [wgpu::BindGroup; 2],
+    effect_bounds_buffer: wgpu::Buffer,
+    effect_bounds_read: wgpu::BindGroup,
     _composite_info_buffer: wgpu::Buffer,
     _composition_info_buffer: wgpu::Buffer,
     scene_view: wgpu::TextureView,

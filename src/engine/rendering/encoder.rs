@@ -89,6 +89,18 @@ struct RenderNodeContext<'a> {
     stride: u32,
 }
 
+struct EffectPassBindings<'a> {
+    input: &'a wgpu::BindGroup,
+    capabilities: &'a wgpu::BindGroup,
+    bounds: &'a wgpu::BindGroup,
+}
+
+struct EffectPassContext<'a> {
+    stride: u32,
+    capabilities: &'a [&'a wgpu::TextureView],
+    uses_effect_bounds: bool,
+}
+
 impl RenderDepth {
     const ROOT: Self = Self {
         temporal: 0,
@@ -382,12 +394,11 @@ impl FrameRenderer {
         })
     }
 
-    pub(super) fn encode_effect_pass(
+    fn encode_effect_pass(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         target_view: &wgpu::TextureView,
-        input: &wgpu::BindGroup,
-        capability_group: &wgpu::BindGroup,
+        bindings: EffectPassBindings<'_>,
         shader: &EffectShaderId,
         instance_offset: u32,
     ) {
@@ -410,8 +421,9 @@ impl FrameRenderer {
             .get(shader)
             .expect("scene effect shaders were validated before encoding");
         pass.set_pipeline(&pipeline.pipeline);
-        pass.set_bind_group(0, input, &[instance_offset]);
-        pass.set_bind_group(1, capability_group, &[]);
+        pass.set_bind_group(0, bindings.input, &[instance_offset]);
+        pass.set_bind_group(1, bindings.capabilities, &[]);
+        pass.set_bind_group(2, bindings.bounds, &[]);
         pass.draw(0..pipeline.vertex_count, 0..1);
     }
 
@@ -469,8 +481,7 @@ impl FrameRenderer {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         target_view: &wgpu::TextureView,
-        input: &wgpu::BindGroup,
-        capability_group: &wgpu::BindGroup,
+        bindings: EffectPassBindings<'_>,
         command: &TemporalReduceCommand,
         instance_offset: u32,
     ) {
@@ -493,8 +504,9 @@ impl FrameRenderer {
             .get(&command.reducer)
             .expect("temporal shaders were validated before encoding");
         pass.set_pipeline(&pipeline.pipeline);
-        pass.set_bind_group(0, input, &[instance_offset]);
-        pass.set_bind_group(1, capability_group, &[]);
+        pass.set_bind_group(0, bindings.input, &[instance_offset]);
+        pass.set_bind_group(1, bindings.capabilities, &[]);
+        pass.set_bind_group(2, bindings.bounds, &[]);
         pass.draw(0..pipeline.vertex_count, 0..1);
     }
 
@@ -531,6 +543,7 @@ impl FrameRenderer {
         pass.set_pipeline(&pipeline.pipeline);
         pass.set_bind_group(0, input, &[instance_offset]);
         pass.set_bind_group(1, capability_group, &[]);
+        pass.set_bind_group(2, &resources.effect_bounds_read, &[]);
         let extent = |dimension: ComputeDispatchDimension| match dimension {
             ComputeDispatchDimension::Width => resources.size.width,
             ComputeDispatchDimension::Height => resources.size.height,
@@ -552,12 +565,14 @@ impl FrameRenderer {
         encoder: &mut wgpu::CommandEncoder,
         resources: &RenderResources,
         passes: &[EffectPassCommand],
-        stride: u32,
         mut output: RenderOutput,
-        capabilities: &[&wgpu::TextureView],
+        context: EffectPassContext<'_>,
     ) -> Result<RenderOutput, RenderError> {
+        if context.uses_effect_bounds {
+            self.encode_effect_bounds(encoder, resources, output.view(resources)?);
+        }
         let capability_group =
-            self.capability_bind_group(capabilities, &resources.effect_source_view);
+            self.capability_bind_group(context.capabilities, &resources.effect_source_view);
         for effect_pass in passes {
             if effect_pass.captures_source {
                 encoder.copy_texture_to_texture(
@@ -582,7 +597,7 @@ impl FrameRenderer {
             }
             let instance_offset = effect_pass
                 .instance
-                .checked_mul(stride)
+                .checked_mul(context.stride)
                 .ok_or_else(|| RenderError::backend("effect instance offset exceeds u32"))?;
             let target = output.next_effect_target();
             let input_view = output.view(resources)?;
@@ -604,8 +619,11 @@ impl FrameRenderer {
                 EffectPassCommandKind::Render => self.encode_effect_pass(
                     encoder,
                     target_view,
-                    effect_input,
-                    &capability_group,
+                    EffectPassBindings {
+                        input: effect_input,
+                        capabilities: &capability_group,
+                        bounds: &resources.effect_bounds_read,
+                    },
                     &effect_pass.shader,
                     instance_offset,
                 ),
@@ -636,6 +654,42 @@ impl FrameRenderer {
             output = target;
         }
         Ok(output)
+    }
+
+    fn encode_effect_bounds(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        resources: &RenderResources,
+        source: &wgpu::TextureView,
+    ) {
+        encoder.clear_buffer(&resources.effect_bounds_buffer, 0, None);
+        let source_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("zerium-effect-bounds-source"),
+            layout: &self.effect_bounds_source_layout,
+            entries: &[
+                wgpu::BindGroupEntry {
+                    binding: 0,
+                    resource: wgpu::BindingResource::TextureView(source),
+                },
+                wgpu::BindGroupEntry {
+                    binding: 1,
+                    resource: resources.effect_bounds_buffer.as_entire_binding(),
+                },
+            ],
+        });
+        {
+            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                label: Some("zerium-effect-bounds-pass"),
+                timestamp_writes: None,
+            });
+            pass.set_pipeline(&self.effect_bounds_pipeline);
+            pass.set_bind_group(0, &source_group, &[]);
+            pass.dispatch_workgroups(
+                resources.size.width.div_ceil(32),
+                resources.size.height.div_ceil(32),
+                1,
+            );
+        }
     }
 
     fn encode_render_node(
@@ -856,6 +910,7 @@ impl FrameRenderer {
             RenderNodeCommandKind::Effect {
                 input,
                 capabilities,
+                uses_effect_bounds,
                 passes,
             } => {
                 let held = self.encode_capability_nodes(
@@ -875,11 +930,22 @@ impl FrameRenderer {
                         composition: composition_depth + capabilities.len(),
                     },
                 )?;
-                self.encode_effect_passes(encoder, resources, passes, stride, input, &held)
+                self.encode_effect_passes(
+                    encoder,
+                    resources,
+                    passes,
+                    input,
+                    EffectPassContext {
+                        stride,
+                        capabilities: &held,
+                        uses_effect_bounds: *uses_effect_bounds,
+                    },
+                )
             }
             RenderNodeCommandKind::TemporalEffect {
                 samples,
                 capabilities,
+                uses_effect_bounds,
             } => {
                 let held = self.encode_capability_nodes(
                     encoder,
@@ -920,6 +986,13 @@ impl FrameRenderer {
                             composition: child_composition_depth,
                         },
                     )?;
+                    if *uses_effect_bounds {
+                        self.encode_effect_bounds(
+                            encoder,
+                            resources,
+                            sample_output.view(resources)?,
+                        );
+                    }
                     let target_view = if accumulation_is_a {
                         &temporal.view_b
                     } else {
@@ -953,8 +1026,11 @@ impl FrameRenderer {
                     self.encode_temporal_reduce_pass(
                         encoder,
                         target_view,
-                        input,
-                        &capability_group,
+                        EffectPassBindings {
+                            input,
+                            capabilities: &capability_group,
+                            bounds: &resources.effect_bounds_read,
+                        },
                         reduce,
                         instance_offset,
                     );

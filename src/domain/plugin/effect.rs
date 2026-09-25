@@ -22,6 +22,7 @@ pub(crate) struct EffectSchema {
     category: String,
     tags: Vec<String>,
     render_scale: u32,
+    uses_effect_bounds: bool,
     capabilities: Vec<Capability>,
     properties: Vec<PropertySchema>,
     passes: Vec<EffectPassSchema>,
@@ -38,6 +39,8 @@ struct EffectSchemaDefinition {
     tags: Vec<String>,
     #[serde(default = "default_effect_render_scale")]
     render_scale: u32,
+    #[serde(default)]
+    uses_effect_bounds: bool,
     #[serde(default)]
     capabilities: Vec<Capability>,
     properties: Vec<PropertySchema>,
@@ -65,6 +68,7 @@ impl<'de> Deserialize<'de> for EffectSchema {
             category: definition.category,
             tags: definition.tags,
             render_scale: definition.render_scale,
+            uses_effect_bounds: definition.uses_effect_bounds,
             capabilities: definition.capabilities,
             properties: definition.properties,
             passes: definition.passes,
@@ -219,6 +223,10 @@ impl EffectSchema {
 
     pub(crate) const fn render_scale(&self) -> u32 {
         self.render_scale
+    }
+
+    pub(crate) const fn uses_effect_bounds(&self) -> bool {
+        self.uses_effect_bounds
     }
 
     pub(crate) fn properties(&self) -> &[PropertySchema] {

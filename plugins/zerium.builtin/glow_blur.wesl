@@ -1,5 +1,6 @@
 import package::generated::compute::{effect_input, effect_sampler, context, store};
 import package::generated::properties_glow_blur::props;
+import package::generated::effect_bounds::contains;
 import constants::{direction_x, direction_y, radius_scale};
 
 // Like gaussian_blur.wesl, blur each axis twice. Different radii stagger the
@@ -24,6 +25,14 @@ fn compute_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     let properties = props();
     if properties.width <= 0.0 || properties.intensity <= 0.0 {
+        store(global_id.xy, vec4(0.0));
+        return;
+    }
+
+    // The two horizontal and two vertical kernels each reach at most their
+    // radius. Include bilinear sampling and rounding at every pass.
+    let reach = properties.width * context().composition_scale * 1.39384685 + 4.0;
+    if !contains(global_id.xy, output_size, reach) {
         store(global_id.xy, vec4(0.0));
         return;
     }

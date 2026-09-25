@@ -2,7 +2,6 @@ import package::generated::compute::{ZeriumRawProps, effect_props, read_u32, rea
 
 struct ZeriumProps {
     _raw: ZeriumRawProps,
-    block_size: u32,
     threshold: f32,
     vertical: bool,
     descending: bool,
@@ -10,5 +9,5 @@ struct ZeriumProps {
 
 fn props() -> ZeriumProps {
     let raw = effect_props();
-    return ZeriumProps(raw, read_u32(raw, 0u), read_f32(raw, 4u), read_bool(raw, 8u), read_bool(raw, 12u));
+    return ZeriumProps(raw, read_f32(raw, 0u), read_bool(raw, 4u), read_bool(raw, 8u));
 }

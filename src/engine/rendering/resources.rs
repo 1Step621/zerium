@@ -267,6 +267,20 @@ impl FrameRenderer {
                 &effect_view_a,
             ),
         ];
+        let effect_bounds_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("zerium-effect-bounds-buffer"),
+            size: 16,
+            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        let effect_bounds_read = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            label: Some("zerium-effect-bounds-read"),
+            layout: &self.effect_bounds_read_layout,
+            entries: &[wgpu::BindGroupEntry {
+                binding: 0,
+                resource: effect_bounds_buffer.as_entire_binding(),
+            }],
+        });
         let composite_input = |label, view: &wgpu::TextureView, info: &wgpu::Buffer| {
             self.device.create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some(label),
@@ -414,6 +428,8 @@ impl FrameRenderer {
             compute_info_stride,
             compute_info_buffer,
             compute_inputs,
+            effect_bounds_buffer,
+            effect_bounds_read,
             _composite_info_buffer: composite_info_buffer,
             _composition_info_buffer: composition_info_buffer,
             scene_view,

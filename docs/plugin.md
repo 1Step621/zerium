@@ -435,6 +435,7 @@ top-level shader and no implicit render pass.
   "id": "blur",
   "label": "Blur",
   "category": "Blur",
+  "uses_effect_bounds": true,
   "properties": [{
     "id": "radius",
     "label": "Radius",
@@ -462,6 +463,13 @@ WESL's `constants` virtual module. Import them explicitly in the shader, for exa
 each pass and never enter the property buffer or inspector state. Compute
 workgroup size is read from the shader's `@workgroup_size`; the manifest only controls
 dispatch dimensions.
+
+Every effect render, compute, and temporal shader has the generated
+`package::generated::effect_bounds` binding available. Set
+`uses_effect_bounds` on the effect when its shaders need the input alpha bounds;
+the renderer computes those bounds before the effect. Temporal reducers receive
+bounds for each sampled frame. The flag is effect-level and applies to all of
+its passes.
 
 Render and compute passes receive `effect_input`, the current pipeline
 input, and `effect_source`, the image captured at the start of the current

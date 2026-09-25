@@ -99,12 +99,14 @@ pub(super) enum RenderNodeCommandKind {
     Effect {
         input: RenderNodeId,
         capabilities: Vec<RenderNodeId>,
+        uses_effect_bounds: bool,
         passes: Vec<EffectPassCommand>,
     },
     TemporalEffect {
         // Every branch includes the effects preceding this temporal effect.
         samples: Vec<(RenderNodeId, TemporalReduceCommand)>,
         capabilities: Vec<RenderNodeId>,
+        uses_effect_bounds: bool,
     },
 }
 
@@ -136,6 +138,7 @@ impl RenderNodeCommand {
             RenderNodeCommandKind::TemporalEffect {
                 samples,
                 capabilities,
+                ..
             } => {
                 let (temporal, composition) = max_depths(
                     samples
@@ -248,6 +251,7 @@ pub(super) enum RenderNodeKey {
     Effect {
         input: Arc<RenderNodeKey>,
         capabilities: Vec<Arc<RenderNodeKey>>,
+        uses_effect_bounds: bool,
         passes: Vec<EffectPassKey>,
     },
     Temporal {
@@ -255,6 +259,7 @@ pub(super) enum RenderNodeKey {
         properties: Vec<u8>,
         samples: Vec<(Arc<RenderNodeKey>, u32)>,
         capabilities: Vec<Arc<RenderNodeKey>>,
+        uses_effect_bounds: bool,
     },
 }
 
@@ -472,6 +477,7 @@ impl EncodeContext<'_> {
                 .iter()
                 .map(|input| self.encode_node(input))
                 .collect::<Result<Vec<_>, _>>()?;
+            let uses_effect_bounds = effect.uses_effect_bounds;
             let mut regular_passes = Vec::new();
             let mut regular_keys = Vec::new();
             for pass in &effect.passes {
@@ -519,6 +525,7 @@ impl EncodeContext<'_> {
                                 .iter()
                                 .map(|id| self.node_keys[*id].clone())
                                 .collect(),
+                            uses_effect_bounds,
                         };
                         let samples = encoded_samples
                             .into_iter()
@@ -530,6 +537,7 @@ impl EncodeContext<'_> {
                             RenderNodeCommandKind::TemporalEffect {
                                 samples,
                                 capabilities: capabilities.clone(),
+                                uses_effect_bounds,
                             },
                         );
                         continue;
@@ -564,12 +572,14 @@ impl EncodeContext<'_> {
                             .iter()
                             .map(|id| self.node_keys[*id].clone())
                             .collect(),
+                        uses_effect_bounds,
                         passes: regular_keys,
                     },
                     self.nodes[node].metadata.clone(),
                     RenderNodeCommandKind::Effect {
                         input: node,
                         capabilities,
+                        uses_effect_bounds,
                         passes: regular_passes,
                     },
                 );
@@ -729,6 +739,7 @@ fn shared_node_slots(
             RenderNodeCommandKind::TemporalEffect {
                 samples,
                 capabilities,
+                ..
             } => {
                 for (sample, _) in samples {
                     references[*sample] += 1;

@@ -1,5 +1,6 @@
 import package::generated::compute::{effect_input, effect_source, context, store};
-import package::generated::properties_distance_field::{ZeriumProps, props};
+import package::generated::properties_outline_distance_field::{ZeriumProps, props};
+import package::generated::effect_bounds::contains;
 import constants::phase;
 
 fn encode_site(site: vec2<u32>) -> vec4<f32> {
@@ -76,6 +77,11 @@ fn compute_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let position = vec2<i32>(global_id.xy);
     let size = vec2<i32>(output_size);
     let properties = props();
+
+    if !contains(global_id.xy, output_size, f32(search_radius(properties)) + 2.0) {
+        store(global_id.xy, vec4(0.0));
+        return;
+    }
 
     if phase == 0u {
         if is_boundary(position, size) {
