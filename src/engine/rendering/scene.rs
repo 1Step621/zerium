@@ -305,19 +305,19 @@ impl RenderScene {
         })
     }
 
-    fn is_included_by_nested_render_result(
+    fn is_hidden_by_nested_render_result(
         node: &EvaluatedSceneNode,
         scope: &[EvaluatedSceneNode],
-        containing: RenderResultSettings,
+        containing_range: RenderResultSettings,
         source_layer: LayerId,
     ) -> bool {
         scope.iter().any(|render_result| {
             render_result.local_layer != node.local_layer
-                && containing.includes(source_layer, render_result.local_layer)
-                && render_result
-                    .item()
-                    .render_result_ranges()
-                    .any(|settings| settings.includes(render_result.local_layer, node.local_layer))
+                && containing_range.includes(source_layer, render_result.local_layer)
+                && render_result.item().render_result_ranges().any(|settings| {
+                    settings.hide_original
+                        && settings.includes(render_result.local_layer, node.local_layer)
+                })
         })
     }
 
@@ -562,7 +562,7 @@ impl RenderScene {
                     let mut children = Vec::new();
                     for candidate in scope {
                         if !settings.includes(node.local_layer, candidate.local_layer)
-                            || Self::is_included_by_nested_render_result(
+                            || Self::is_hidden_by_nested_render_result(
                                 candidate,
                                 scope,
                                 settings,
