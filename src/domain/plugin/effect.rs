@@ -6,7 +6,7 @@ use super::PluginError;
 use super::abi::PropertyLayout;
 use super::capability::{Capability, FileCapability, validate_capabilities};
 use super::identifier::validate_wgsl_identifier;
-use super::shader::{ShaderKind, ShaderSchema, validate_shader_source};
+use super::shader::{ShaderKind, ShaderSchema, validate_shader_module};
 use super::validation::{validate_catalog_entry, validate_property_schemas};
 use crate::domain::property::{
     PropertySchema, PropertyType, PropertyValue, PropertyValueType, PropertyValues,
@@ -115,11 +115,11 @@ impl EffectPassSchema {
         }
     }
 
-    pub(crate) fn shader_source(&self) -> &str {
+    pub(crate) fn shader_module(&self) -> &str {
         match self {
-            Self::Render { shader, .. } => shader.source(),
-            Self::Compute { shader, .. } => &shader.source,
-            Self::Temporal { reducer, .. } => reducer.source(),
+            Self::Render { shader, .. } => shader.module(),
+            Self::Compute { shader, .. } => &shader.module,
+            Self::Temporal { reducer, .. } => reducer.module(),
         }
     }
 
@@ -159,7 +159,7 @@ pub(crate) struct TemporalSamplingSchema {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ComputeShaderSchema {
-    source: String,
+    module: String,
     #[serde(default = "default_compute_entry")]
     entry: String,
 }
@@ -274,7 +274,7 @@ impl EffectSchema {
                     shader.validate("render effect pass", &self.id)?;
                 }
                 EffectPassSchema::Compute { shader, .. } => {
-                    validate_shader_source("compute effect pass", &self.id, &shader.source)?;
+                    validate_shader_module("compute effect pass", &self.id, &shader.module)?;
                     validate_wgsl_identifier("compute entry", &shader.entry)?;
                 }
                 EffectPassSchema::Temporal {

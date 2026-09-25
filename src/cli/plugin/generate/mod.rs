@@ -30,10 +30,9 @@ pub(crate) fn generate(path: Option<&Path>) -> Result<(), String> {
         .map_err(|error| format!("cannot read '{}': {error}", manifest_path.display()))?;
     let manifest =
         PluginManifest::from_json(&manifest_source).map_err(|error| error.to_string())?;
-    validate_source_modules(&manifest)?;
-    for source in manifest.shader_sources() {
-        fs::read_to_string(root.join(source))
-            .map_err(|error| format!("shader source '{source}' could not be read: {error}"))?;
+    for module in manifest.shader_modules() {
+        fs::read_to_string(root.join(format!("{module}.wesl")))
+            .map_err(|error| format!("shader module '{module}' could not be read: {error}"))?;
     }
 
     let mut contracts = BTreeMap::<String, ShaderContract>::new();
@@ -42,7 +41,7 @@ pub(crate) fn generate(path: Option<&Path>) -> Result<(), String> {
         if let Some(shader) = schema.shader() {
             insert_contract(
                 &mut contracts,
-                shader.source(),
+                shader.module(),
                 ShaderContract {
                     kind: ShaderKind::Item,
                     properties: layout.clone(),
@@ -58,7 +57,7 @@ pub(crate) fn generate(path: Option<&Path>) -> Result<(), String> {
         for pass in schema.passes() {
             insert_contract(
                 &mut contracts,
-                pass.shader_source(),
+                pass.shader_module(),
                 ShaderContract {
                     kind: pass.shader_kind(),
                     properties: layout.clone(),
@@ -97,7 +96,7 @@ fn insert_capability_shader_contracts(
         if let Some(shader) = capability.shader() {
             insert_contract(
                 contracts,
-                shader.source(),
+                shader.module(),
                 ShaderContract {
                     kind: ShaderKind::Item,
                     properties: layout.clone(),
@@ -124,8 +123,7 @@ fn write_generated(
         let source = host_interface(kind);
         write(generated, &format!("{}.wesl", kind.module_name()), &source)?;
     }
-    for (source_name, contract) in contracts {
-        let module = source_module_name(source_name);
+    for (module, contract) in contracts {
         let property_interface = contract.properties.interface(contract.kind);
         let host = format!(
             "import package::generated::{}::{{{}}};\n\n",
@@ -181,21 +179,21 @@ fn install_generated(root: &Path, staging: &Path) -> Result<(), String> {
 
 fn insert_contract(
     contracts: &mut BTreeMap<String, ShaderContract>,
-    source: &str,
+    module: &str,
     contract: ShaderContract,
 ) -> Result<(), String> {
-    if let Some(existing) = contracts.get_mut(source) {
+    if let Some(existing) = contracts.get_mut(module) {
         if existing.kind != contract.kind
             || existing.capability_interface != contract.capability_interface
         {
             return Err(format!(
-                "shader source '{source}' is used with incompatible shader contracts"
+                "shader module '{module}' is used with incompatible shader contracts"
             ));
         }
         existing.properties.retain_compatible(&contract.properties);
         return Ok(());
     }
-    contracts.insert(source.to_owned(), contract);
+    contracts.insert(module.to_owned(), contract);
     Ok(())
 }
 
@@ -221,39 +219,4 @@ const fn property_imports(kind: ShaderKind) -> &'static str {
             "ZeriumRawProps, effect_props, read_u32, read_i32, read_f32, read_bool"
         }
     }
-}
-
-fn validate_source_modules(manifest: &PluginManifest) -> Result<(), String> {
-    let mut source_modules = BTreeMap::<String, &str>::new();
-
-    for source in manifest.shader_sources() {
-        let source_module = source_module_name(source);
-        if let Some(existing) = source_modules.insert(source_module.clone(), source)
-            && existing != source
-        {
-            return Err(format!(
-                "shader sources '{existing}' and '{source}' map to the same generated module '{source_module}'"
-            ));
-        }
-    }
-    Ok(())
-}
-
-fn source_module_name(source: &str) -> String {
-    let stem = source
-        .strip_suffix(".wesl")
-        .expect("validated shader sources end in .wesl");
-    let mut name = String::with_capacity(stem.len());
-    if stem.as_bytes().first().is_some_and(u8::is_ascii_digit) {
-        name.push('_');
-    }
-    for byte in stem.bytes() {
-        if byte.is_ascii_alphanumeric() || byte == b'_' {
-            name.push(char::from(byte));
-        } else {
-            use std::fmt::Write as _;
-            write!(name, "_{byte:02x}").expect("writing to a String cannot fail");
-        }
-    }
-    name
 }

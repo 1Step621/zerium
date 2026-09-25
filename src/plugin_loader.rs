@@ -48,25 +48,17 @@ fn load_bundled_plugin(directory: &str) -> Result<Plugin, PluginError> {
     let manifest_source = bundled_text(&format!("{directory}/plugin.json"))?;
     let fingerprint = bundled_text(&format!("{directory}/generated/manifest.fingerprint"))?;
     let manifest = PluginManifest::from_json(&manifest_source)?;
-    let shader_sources = manifest
-        .shader_sources()
-        .map(|source| {
-            bundled_text(&format!("{directory}/{source}"))
-                .map(|contents| (source.to_owned(), contents))
-        })
-        .collect::<Result<BTreeMap<_, _>, _>>()?;
-    let generated_prefix = format!("{directory}/generated/");
-    let wesl_modules = BundledPluginAssets::iter()
+    let plugin_prefix = format!("{directory}/");
+    let modules = BundledPluginAssets::iter()
         .filter_map(|path| {
             let path = path.into_owned();
-            let module = path
-                .strip_prefix(&generated_prefix)?
-                .strip_suffix(".wesl")?;
-            if module.contains('/') {
-                None
+            let relative = path.strip_prefix(&plugin_prefix)?.strip_suffix(".wesl")?;
+            let module = if let Some(generated) = relative.strip_prefix("generated/") {
+                (!generated.contains('/')).then(|| format!("package::generated::{generated}"))?
             } else {
-                Some((module.to_owned(), path))
-            }
+                (!relative.contains('/')).then(|| format!("package::{relative}"))?
+            };
+            Some((module, path))
         })
         .map(|(module, path)| bundled_text(&path).map(|contents| (module, contents)))
         .collect::<Result<BTreeMap<_, _>, _>>()?;
@@ -74,8 +66,7 @@ fn load_bundled_plugin(directory: &str) -> Result<Plugin, PluginError> {
         manifest,
         &manifest_source,
         &fingerprint,
-        shader_sources,
-        wesl_modules,
+        modules,
         format!(
             "bundled plugin '{directory}' has stale generated WESL; run `zerium plugin generate`"
         ),
@@ -86,19 +77,25 @@ fn from_parts(
     manifest: PluginManifest,
     manifest_source: &str,
     fingerprint: &str,
-    shader_sources: BTreeMap<String, String>,
-    wesl_modules: BTreeMap<String, String>,
+    modules: BTreeMap<String, String>,
     stale_message: impl Into<String>,
 ) -> Result<Plugin, PluginError> {
     if fingerprint.trim() != manifest_fingerprint(manifest_source) {
         return Err(PluginError::invalid_definition(stale_message));
     }
-    if wesl_modules.is_empty() {
+    if !modules.contains_key("package::generated::util") {
         return Err(PluginError::missing_asset(
             "plugin has no generated WESL modules",
         ));
     }
-    Ok(Plugin::new(manifest, shader_sources, wesl_modules))
+    for module in manifest.shader_modules() {
+        if !modules.contains_key(&format!("package::{module}")) {
+            return Err(PluginError::missing_asset(format!(
+                "shader module '{module}' has no {module}.wesl file"
+            )));
+        }
+    }
+    Ok(Plugin::new(manifest, modules))
 }
 
 pub(crate) fn manifest_fingerprint(source: &str) -> String {
@@ -130,47 +127,44 @@ pub(crate) fn load_filesystem_plugin(root: &Path) -> Result<Plugin, PluginError>
         ))
     })?;
     let manifest = PluginManifest::from_json(&manifest_source)?;
-    let shader_sources = manifest
-        .shader_sources()
-        .map(|source| {
-            fs::read_to_string(root.join(source))
-                .map(|contents| (source.to_owned(), contents))
-                .map_err(|error| {
-                    PluginError::missing_asset(format!(
-                        "shader source '{source}' could not be read: {error}"
-                    ))
-                })
-        })
-        .collect::<Result<BTreeMap<_, _>, _>>()?;
     let generated = root.join("generated");
-    let mut wesl_modules = BTreeMap::new();
-    for entry in fs::read_dir(&generated).map_err(|error| {
-        PluginError::missing_asset(format!(
-            "cannot read generated WESL directory '{}': {error}",
-            generated.display()
-        ))
-    })? {
-        let path = entry
-            .map_err(|error| PluginError::missing_asset(error.to_string()))?
-            .path();
-        if path.extension().and_then(|extension| extension.to_str()) != Some("wesl") {
-            continue;
+    let mut modules = BTreeMap::new();
+    for (directory, namespace) in [
+        (root, "package::"),
+        (generated.as_path(), "package::generated::"),
+    ] {
+        for entry in fs::read_dir(directory).map_err(|error| {
+            PluginError::missing_asset(format!(
+                "cannot read WESL directory '{}': {error}",
+                directory.display()
+            ))
+        })? {
+            let path = entry
+                .map_err(|error| PluginError::missing_asset(error.to_string()))?
+                .path();
+            if path.extension().and_then(|extension| extension.to_str()) != Some("wesl") {
+                continue;
+            }
+            let name = path
+                .file_stem()
+                .and_then(|name| name.to_str())
+                .ok_or_else(|| {
+                    PluginError::missing_asset(format!(
+                        "WESL file '{}' has no valid module name",
+                        path.display()
+                    ))
+                })?;
+            let source = fs::read_to_string(&path).map_err(|error| {
+                PluginError::missing_asset(format!("cannot read '{}': {error}", path.display()))
+            })?;
+            modules.insert(format!("{namespace}{name}"), source);
         }
-        let module = path
-            .file_stem()
-            .and_then(|name| name.to_str())
-            .ok_or_else(|| PluginError::missing_asset("generated WESL module has no valid name"))?;
-        let source = fs::read_to_string(&path).map_err(|error| {
-            PluginError::missing_asset(format!("cannot read '{}': {error}", path.display()))
-        })?;
-        wesl_modules.insert(module.to_owned(), source);
     }
     from_parts(
         manifest,
         &manifest_source,
         &fingerprint,
-        shader_sources,
-        wesl_modules,
+        modules,
         "generated WESL is stale; run `zerium plugin generate`",
     )
 }

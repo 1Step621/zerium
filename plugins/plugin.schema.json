@@ -66,17 +66,20 @@
       "type": "string",
       "pattern": "^[A-Za-z0-9_]+$"
     },
-    "shaderSource": {
+    "shaderModule": {
       "type": "string",
-      "pattern": "^(?:[A-Za-z0-9_-][A-Za-z0-9._-]*/)*[A-Za-z0-9_-][A-Za-z0-9._-]*\\.wesl$"
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
+      "not": {
+        "pattern": "^(?:_|__.*|generated)$"
+      }
     },
     "shader": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source"],
+      "required": ["module"],
       "properties": {
-        "source": {
-          "$ref": "#/$defs/shaderSource"
+        "module": {
+          "$ref": "#/$defs/shaderModule"
         },
         "vertex_entry": {
           "$ref": "#/$defs/wgslId"
@@ -89,10 +92,10 @@
     "computeShader": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["source"],
+      "required": ["module"],
       "properties": {
-        "source": {
-          "$ref": "#/$defs/shaderSource"
+        "module": {
+          "$ref": "#/$defs/shaderModule"
         },
         "entry": {
           "$ref": "#/$defs/wgslId"

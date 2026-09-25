@@ -10,7 +10,7 @@
       "tags": ["矩形", "長方形", "square", "box"],
       "symbol": "■",
       "shader": {
-        "source": "rectangle.wesl"
+        "module": "rectangle"
       },
       "capabilities": [],
       "editor": {
@@ -146,7 +146,7 @@
       "tags": ["さんかく", "triangle"],
       "symbol": "▲",
       "shader": {
-        "source": "triangle.wesl"
+        "module": "triangle"
       },
       "capabilities": [],
       "editor": {
@@ -283,7 +283,7 @@
       "tags": ["円", "丸", "circle", "oval"],
       "symbol": "●",
       "shader": {
-        "source": "ellipse.wesl"
+        "module": "ellipse"
       },
       "capabilities": [],
       "editor": {
@@ -396,7 +396,7 @@
       "tags": ["ポリゴン", "polygon"],
       "symbol": "⬟",
       "shader": {
-        "source": "polygon.wesl"
+        "module": "polygon"
       },
       "capabilities": [],
       "editor": {
@@ -591,7 +591,7 @@
       "tags": ["線", "line"],
       "symbol": "╱",
       "shader": {
-        "source": "line.wesl"
+        "module": "line"
       },
       "capabilities": [],
       "editor": {
@@ -739,7 +739,7 @@
       "tags": ["スター", "star"],
       "symbol": "★",
       "shader": {
-        "source": "star.wesl"
+        "module": "star"
       },
       "capabilities": [],
       "editor": {
@@ -920,7 +920,7 @@
       "tags": ["文字", "字幕", "title", "caption"],
       "symbol": "T",
       "shader": {
-        "source": "text.wesl"
+        "module": "text"
       },
       "capabilities": [
         {
@@ -1215,7 +1215,7 @@
       "tags": ["映像", "movie", "clip"],
       "symbol": "▶",
       "shader": {
-        "source": "media.wesl"
+        "module": "media"
       },
       "capabilities": [
         {
@@ -1349,7 +1349,7 @@
       "tags": ["静止画", "写真", "photo", "picture"],
       "symbol": "▧",
       "shader": {
-        "source": "media.wesl"
+        "module": "media"
       },
       "capabilities": [
         {
@@ -1502,7 +1502,7 @@
       "tags": ["レイヤー", "範囲", "render", "composite"],
       "symbol": "▣",
       "shader": {
-        "source": "render_result.wesl"
+        "module": "render_result"
       },
       "capabilities": [
         {
@@ -1589,7 +1589,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "layer_mask.wesl"
+            "module": "layer_mask"
           }
         }
       ],
@@ -1669,7 +1669,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "translate.wesl"
+            "module": "translate"
           }
         }
       ],
@@ -1726,7 +1726,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "rotate_2d.wesl"
+            "module": "rotate_2d"
           }
         }
       ],
@@ -1806,7 +1806,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "rotate_3d.wesl"
+            "module": "rotate_3d"
           }
         }
       ],
@@ -1944,7 +1944,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "color_adjustment.wesl"
+            "module": "color_adjustment"
           }
         }
       ],
@@ -2092,7 +2092,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "opacity.wesl"
+            "module": "opacity"
           }
         }
       ],
@@ -2131,7 +2131,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "linear_gradient_bounds.wesl"
+            "module": "linear_gradient_bounds"
           },
           "dispatch": ["one", "height", "one"],
           "constants": [
@@ -2146,7 +2146,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "linear_gradient_bounds.wesl"
+            "module": "linear_gradient_bounds"
           },
           "dispatch": ["one", "one", "one"],
           "constants": [
@@ -2161,7 +2161,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "linear_gradient.wesl"
+            "module": "linear_gradient"
           }
         }
       ],
@@ -2317,7 +2317,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "glow_blur.wesl"
+            "module": "glow_blur"
           },
           "constants": [
             {
@@ -2343,7 +2343,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "glow_blur.wesl"
+            "module": "glow_blur"
           },
           "constants": [
             {
@@ -2369,7 +2369,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "glow_blur.wesl"
+            "module": "glow_blur"
           },
           "constants": [
             {
@@ -2395,7 +2395,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "glow_blur.wesl"
+            "module": "glow_blur"
           },
           "constants": [
             {
@@ -2421,7 +2421,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "glow.wesl"
+            "module": "glow"
           }
         }
       ]
@@ -2499,7 +2499,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "distance_field.wesl"
+            "module": "distance_field"
           },
           "constants": [
             {
@@ -2513,7 +2513,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "distance_field.wesl"
+            "module": "distance_field"
           },
           "constants": [
             {
@@ -2527,7 +2527,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "distance_field.wesl"
+            "module": "distance_field"
           },
           "constants": [
             {
@@ -2541,7 +2541,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "outline.wesl"
+            "module": "outline"
           }
         }
       ]
@@ -2555,7 +2555,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "vignette.wesl"
+            "module": "vignette"
           }
         }
       ],
@@ -2637,7 +2637,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "pixelate.wesl"
+            "module": "pixelate"
           }
         }
       ],
@@ -2676,7 +2676,7 @@
         {
           "type": "render",
           "shader": {
-            "source": "chromatic_aberration.wesl"
+            "module": "chromatic_aberration"
           }
         }
       ],
@@ -2763,7 +2763,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "gaussian_blur.wesl"
+            "module": "gaussian_blur"
           },
           "constants": [
             {
@@ -2789,7 +2789,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "gaussian_blur.wesl"
+            "module": "gaussian_blur"
           },
           "constants": [
             {
@@ -2815,7 +2815,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "gaussian_blur.wesl"
+            "module": "gaussian_blur"
           },
           "constants": [
             {
@@ -2841,7 +2841,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "gaussian_blur.wesl"
+            "module": "gaussian_blur"
           },
           "constants": [
             {
@@ -2948,7 +2948,7 @@
             "phase": "shutter_phase"
           },
           "reducer": {
-            "source": "motion_blur.wesl"
+            "module": "motion_blur"
           }
         }
       ]
@@ -3030,7 +3030,7 @@
         {
           "type": "compute",
           "shader": {
-            "source": "pixel_sort.wesl"
+            "module": "pixel_sort"
           },
           "dispatch": ["width", "height", "one"]
         }

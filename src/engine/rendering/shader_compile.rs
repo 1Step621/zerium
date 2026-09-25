@@ -53,7 +53,7 @@ pub(crate) fn compile_plugins(
             let source: Arc<str> = compile_plugin_shader(
                 plugins,
                 plugin_id,
-                pass.shader_source(),
+                pass.shader_module(),
                 pass.constants(),
                 &interface,
             )?
@@ -152,11 +152,11 @@ fn compile_item_shader(
 ) -> Result<ItemShaderDescriptor, RenderError> {
     let interface = super::capability_input::interface(capabilities);
     let source: Arc<str> =
-        compile_plugin_shader(plugins, plugin_id, shader.source(), &[], &interface)?.into();
+        compile_plugin_shader(plugins, plugin_id, shader.module(), &[], &interface)?.into();
     validate_render_shader(&id, &source, shader.vertex_entry(), shader.fragment_entry())?;
     Ok(ItemShaderDescriptor {
         id,
-        label: shader.source().to_owned(),
+        label: shader.module().to_owned(),
         wgsl: source,
         vertex_entry: shader.vertex_entry().to_owned(),
         fragment_entry: shader.fragment_entry().to_owned(),
@@ -167,25 +167,14 @@ fn compile_item_shader(
 fn compile_plugin_shader(
     plugins: &PluginRegistry,
     plugin_id: &str,
-    source_name: &str,
+    module: &str,
     constants: &[PassConstantSchema],
     capability_interface: &str,
 ) -> Result<String, RenderError> {
     let plugin = plugins
         .plugin(plugin_id)
         .ok_or_else(|| RenderError::backend(format!("plugin '{plugin_id}' was not loaded")))?;
-    let source = plugin.shader_source(source_name).ok_or_else(|| {
-        RenderError::backend(format!(
-            "plugin '{plugin_id}' shader source '{source_name}' was not loaded"
-        ))
-    })?;
-    wesl::compile(
-        plugin.wesl_modules(),
-        source_name,
-        source,
-        constants,
-        capability_interface,
-    )
+    wesl::compile(plugin.modules(), module, constants, capability_interface)
 }
 
 fn parse_and_validate_shader(

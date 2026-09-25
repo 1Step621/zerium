@@ -26,7 +26,7 @@ impl ShaderKind {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub(crate) struct ShaderSchema {
-    source: String,
+    module: String,
     #[serde(default = "default_vertex_entry")]
     vertex_entry: String,
     #[serde(default = "default_fragment_entry")]
@@ -34,8 +34,8 @@ pub(crate) struct ShaderSchema {
 }
 
 impl ShaderSchema {
-    pub(crate) fn source(&self) -> &str {
-        &self.source
+    pub(crate) fn module(&self) -> &str {
+        &self.module
     }
 
     pub(crate) fn vertex_entry(&self) -> &str {
@@ -47,33 +47,24 @@ impl ShaderSchema {
     }
 
     pub(super) fn validate(&self, owner_kind: &str, owner_id: &str) -> Result<(), PluginError> {
-        validate_shader_source(owner_kind, owner_id, &self.source)?;
+        validate_shader_module(owner_kind, owner_id, &self.module)?;
         validate_wgsl_identifier("vertex entry point", &self.vertex_entry)?;
         validate_wgsl_identifier("fragment entry point", &self.fragment_entry)?;
         Ok(())
     }
 }
 
-pub(super) fn validate_shader_source(
+pub(super) fn validate_shader_module(
     owner_kind: &str,
     owner_id: &str,
-    source: &str,
+    module: &str,
 ) -> Result<(), PluginError> {
-    let Some(module_name) = source.strip_suffix(".wesl") else {
+    if module == "generated" {
         return Err(PluginError::invalid_definition(format!(
-            "{owner_kind} '{owner_id}' has an invalid shader source path"
-        )));
-    };
-    if source.contains('\\')
-        || module_name
-            .split('/')
-            .any(|segment| validate_wgsl_identifier("shader module", segment).is_err())
-    {
-        return Err(PluginError::invalid_definition(format!(
-            "{owner_kind} '{owner_id}' has an invalid shader source path"
+            "{owner_kind} '{owner_id}' uses reserved shader module 'generated'"
         )));
     }
-    Ok(())
+    validate_wgsl_identifier("shader module", module)
 }
 
 fn default_vertex_entry() -> String {

@@ -87,24 +87,24 @@ impl PluginManifest {
         &self.effects
     }
 
-    pub(crate) fn shader_sources(&self) -> impl Iterator<Item = &str> {
-        let item_sources =
+    pub(crate) fn shader_modules(&self) -> impl Iterator<Item = &str> {
+        let item_modules =
             self.items.iter().flat_map(|schema| {
                 schema
                     .shader()
-                    .map(super::ShaderSchema::source)
+                    .map(super::ShaderSchema::module)
                     .into_iter()
                     .chain(schema.capabilities().iter().filter_map(|capability| {
-                        capability.shader().map(super::ShaderSchema::source)
+                        capability.shader().map(super::ShaderSchema::module)
                     }))
             });
-        let effect_sources = self.effects.iter().flat_map(|effect| {
+        let effect_modules = self.effects.iter().flat_map(|effect| {
             effect
                 .capabilities()
                 .iter()
-                .filter_map(|capability| capability.shader().map(super::ShaderSchema::source))
-                .chain(effect.passes().iter().map(|pass| pass.shader_source()))
+                .filter_map(|capability| capability.shader().map(super::ShaderSchema::module))
+                .chain(effect.passes().iter().map(|pass| pass.shader_module()))
         });
-        item_sources.chain(effect_sources)
+        item_modules.chain(effect_modules)
     }
 }

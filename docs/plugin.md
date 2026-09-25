@@ -1,7 +1,8 @@
 # Plugin API v1
 
-A plugin is one directory containing `plugin.json` and every WESL shader file that the
-manifest references. Zerium validates the complete bundle before registering
+A plugin is one directory containing `plugin.json` and WESL modules. Each shader's
+`module` is a module ID, resolved to `<module>.wesl` in the plugin root.
+Zerium validates the complete bundle before registering
 it. Missing shader or generated files, invalid schemas, and shader/API mismatches
 are errors.
 
@@ -27,7 +28,7 @@ The root contract is versioned independently from the plugin release:
     "label": "Shape",
     "category": "Example",
     "symbol": "■",
-    "shader": { "source": "shape.wesl" },
+    "shader": { "module": "shape" },
     "capabilities": []
   }]
 }
@@ -82,7 +83,7 @@ render, compute, or temporal pass can use those inputs. Array order fixes the
 GPU binding order; each `id` is unique within its item or effect and becomes
 the WESL symbol imported from `package::generated::capability_input`.
 
-- `shader` renders a separate item-like input from a WESL source. It sees the
+- `shader` renders a separate item-like input from a WESL module. It sees the
   owner's properties and does not receive the owner's capability array.
 - `media` decodes a video or image file and exposes its pixels as a texture.
 - `text` rasterizes text from referenced properties into a texture.
@@ -103,7 +104,7 @@ capability textures contain scene-linear, premultiplied color. For example:
   "label": "Video",
   "category": "Media",
   "symbol": "▶",
-  "shader": { "source": "media.wesl" },
+  "shader": { "module": "media" },
   "capabilities": [{
     "type": "media",
     "id": "source",
@@ -362,7 +363,7 @@ when provided it must label every member exactly once.
 
 ## Generated WESL API
 
-Shader sources are WESL modules. The host API is imported explicitly so editor
+Shader sources name WESL modules. The host API is imported explicitly so editor
 tools can resolve it without seeing Zerium's Rust-side source concatenation:
 
 ```wesl
@@ -370,22 +371,22 @@ import package::generated::item::{context, quad_corner};
 import package::generated::properties_shape::{ZeriumProps, props};
 ```
 
-The path without `.wesl` is also the module path used by runtime compilation;
-each path segment must be a valid WGSL identifier. For example,
-`shapes/ellipse.wesl` is compiled as `package::shapes::ellipse`.
+The `module` value is a single WGSL identifier. For example, `"module": "shape"`
+loads `shape.wesl` as `package::shape`. Other root-level `.wesl` files may be
+imported as helper modules; `generated` is reserved for host-provided modules.
 
 `properties_<shader>.wesl` is generated from the manifest properties. Run
 `zerium plugin generate` in a plugin directory whenever its manifest or shader
 contract changes. The command writes the host interface modules, property
-modules, and per-source capability interfaces under `generated/`. Shader imports are authored in
-the shader source and are not rewritten by the generator.
+modules, and per-module capability interfaces under `generated/`. Shader imports
+are authored in the WESL files and are not rewritten by the generator.
 These generated modules are packaged with the plugin. At runtime,
 `package::generated::capability_input` is selected from the interface for the
 shader being compiled. Zerium links plugin WESL to in-memory WGSL once
 when loading the application and shares that result between preview and export;
 plugin authors do not generate or distribute WGSL. Zerium rejects generated
-files whose manifest fingerprint is stale. A source shared by several items or passes gets
-the property fields whose type and ABI location agree in every use. The source
+files whose manifest fingerprint is stale. A module shared by several items or
+passes gets the property fields whose type and ABI location agree in every use. It
 must use one shader kind and one capability-input layout.
 
 ```sh
@@ -400,7 +401,7 @@ linking and WGSL validation used by the renderer:
 zerium plugin validate path/to/plugin
 ```
 
-The generated property module exposes a typed struct for each shader source.
+The generated property module exposes a typed struct for each shader module.
 All shader kinds use the same loader name:
 
 ```wesl
@@ -448,7 +449,7 @@ top-level shader and no implicit render pass.
   }],
   "passes": [{
     "type": "compute",
-    "shader": { "source": "blur.wesl" },
+    "shader": { "module": "blur" },
     "dispatch": ["width", "height", "one"],
     "constants": [
       { "id": "direction_x", "value": { "f32": 1 } },
@@ -483,7 +484,7 @@ its reducer owns the weighting algorithm:
     "angle": "shutter_angle",
     "phase": "phase"
   },
-  "reducer": { "source": "motion_blur_accumulate.wesl" }
+  "reducer": { "module": "motion_blur_accumulate" }
 }
 ```
 
@@ -497,6 +498,6 @@ Reducer WESL receives `temporal_sample`,
 texture normally.
 
 Shader identities are derived internally from plugin ID, item/effect ID, and
-pass index. Plugins declare source paths and entry points, not global pipeline
+pass index. Plugins declare module IDs and entry points, not global pipeline
 IDs. Render entry points default to `vertex_main` and `fragment_main`; compute
 defaults to `compute_main`.
