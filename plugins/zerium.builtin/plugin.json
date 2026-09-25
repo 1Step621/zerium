@@ -2331,6 +2331,12 @@
               "value": {
                 "f32": 0
               }
+            },
+            {
+              "id": "radius_scale",
+              "value": {
+                "f32": 0.57735027
+              }
             }
           ]
         },
@@ -2350,6 +2356,64 @@
               "id": "direction_y",
               "value": {
                 "f32": 1
+              }
+            },
+            {
+              "id": "radius_scale",
+              "value": {
+                "f32": 0.57735027
+              }
+            }
+          ]
+        },
+        {
+          "type": "compute",
+          "shader": {
+            "source": "glow_blur.wesl"
+          },
+          "constants": [
+            {
+              "id": "direction_x",
+              "value": {
+                "f32": 1
+              }
+            },
+            {
+              "id": "direction_y",
+              "value": {
+                "f32": 0
+              }
+            },
+            {
+              "id": "radius_scale",
+              "value": {
+                "f32": 0.81649658
+              }
+            }
+          ]
+        },
+        {
+          "type": "compute",
+          "shader": {
+            "source": "glow_blur.wesl"
+          },
+          "constants": [
+            {
+              "id": "direction_x",
+              "value": {
+                "f32": 0
+              }
+            },
+            {
+              "id": "direction_y",
+              "value": {
+                "f32": 1
+              }
+            },
+            {
+              "id": "radius_scale",
+              "value": {
+                "f32": 0.81649658
               }
             }
           ]

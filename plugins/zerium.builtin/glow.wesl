@@ -23,13 +23,17 @@ fn fragment_main(input: ZeriumVertex) -> @location(0) vec4<f32> {
 
     let blurred_alpha = textureLoad(effect_input, position, 0).a;
     let spread = clamp(properties.spread / 100.0, 0.0, 1.0);
-    let coverage = pow(clamp(blurred_alpha * 2.0, 0.0, 1.0), 1.0 - 0.75 * spread);
-    let glow_alpha = clamp(
-        coverage * (properties.intensity / 100.0) * properties.color.a
-            * (1.0 - source.a),
-        0.0,
-        1.0,
+    let base_coverage = clamp(blurred_alpha * 2.0, 0.0, 1.0);
+    // Expand the bright part of the halo while letting the faint tail reach
+    // zero smoothly before the finite blur kernel's rectangular boundary.
+    let coverage = mix(
+        base_coverage,
+        smoothstep(0.0, 0.18, base_coverage),
+        spread,
     );
+    let energy = coverage * (properties.intensity / 100.0) * properties.color.a
+        * (1.0 - source.a);
+    let glow_alpha = 1.0 - exp(-energy);
     let glow = vec4(srgb(properties.color.rgb) * glow_alpha, glow_alpha);
     return over(source, glow);
 }

@@ -1,12 +1,18 @@
 import package::generated::compute::{effect_input, effect_sampler, context, store};
 import package::generated::properties_glow_blur::props;
-import constants::{direction_x, direction_y};
+import constants::{direction_x, direction_y, radius_scale};
 
-// A fixed tap count makes the cost independent of the requested glow width.
-// Bilinear sampling fills the gaps as the sample radius grows.
-const WEIGHTS: array<f32, 9> = array(
-    0.01483945, 0.04981729, 0.11832251, 0.19882900, 0.23638351,
-    0.19882900, 0.11832251, 0.04981729, 0.01483945,
+// Like gaussian_blur.wesl, blur each axis twice. Different radii stagger the
+// sample positions at large widths; their squared scales still add to one.
+const BLUR_OFFSETS: array<f32, 17> = array(
+    -1.0, -0.875, -0.75, -0.625, -0.5, -0.375, -0.25, -0.125, 0.0,
+    0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1.0,
+);
+const WEIGHTS: array<f32, 17> = array(
+    0.01396019, 0.02230832, 0.03348875, 0.04722671, 0.06256523,
+    0.07786368, 0.09103187, 0.09997895, 0.10315262, 0.09997895,
+    0.09103187, 0.07786368, 0.06256523, 0.04722671, 0.03348875,
+    0.02230832, 0.01396019,
 );
 
 @compute @workgroup_size(8, 8, 1)
@@ -24,12 +30,15 @@ fn compute_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
 
     let dimensions = vec2<f32>(output_size);
     let uv = (vec2<f32>(global_id.xy) + vec2(0.5)) / dimensions;
-    let radius = clamp(properties.width * context().composition_scale, 0.0, 256.0);
+    let radius = clamp(
+        properties.width * radius_scale * context().composition_scale,
+        0.0,
+        256.0,
+    );
     let direction = vec2(direction_x, direction_y);
     var alpha = 0.0;
-    for (var tap = 0u; tap < 9u; tap += 1u) {
-        let offset = (f32(tap) - 4.0) * radius / 4.0;
-        let sample_uv = uv + direction * offset / dimensions;
+    for (var tap = 0u; tap < 17u; tap += 1u) {
+        let sample_uv = uv + direction * BLUR_OFFSETS[tap] * radius / dimensions;
         alpha += textureSampleLevel(effect_input, effect_sampler, sample_uv, 0.0).a
             * WEIGHTS[tap];
     }

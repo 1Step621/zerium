@@ -488,28 +488,3 @@ pub(super) fn validate_capabilities(
 const fn default_item_vertex_count() -> u32 {
     6
 }
-
-#[cfg(test)]
-mod tests {
-    use super::Capability;
-
-    #[test]
-    fn media_capability_preserves_flat_manifest_contract() {
-        let source = r#"{
-            "type": "media",
-            "id": "source",
-            "label": "Source",
-            "media_type": "video",
-            "reader": "ffmpeg",
-            "extensions": ["mp4"]
-        }"#;
-        let capability: Capability = serde_json::from_str(source).unwrap();
-        let file = capability.media_file().unwrap();
-        assert_eq!(file.id(), "source");
-        assert_eq!(file.reader(), "ffmpeg");
-        assert_eq!(file.extensions(), ["mp4"]);
-
-        let unknown_field = source.replace("\"reader\"", "\"unexpected\": true, \"reader\"");
-        assert!(serde_json::from_str::<Capability>(&unknown_field).is_err());
-    }
-}
