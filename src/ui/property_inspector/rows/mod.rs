@@ -86,13 +86,19 @@ impl PropertyInspector {
         focused: bool,
         ctx: &RenderCtx,
     ) -> Div {
-        let label = div()
-            .h(px(24.))
-            .flex()
-            .items_center()
+        let text = div()
+            .w_full()
+            .min_w_0()
             .text_sm()
+            .whitespace_normal()
             .when(focused, |this| this.text_color(ctx.colors.primary))
             .child(label);
+        let label = div()
+            .min_h(px(24.))
+            .min_w_0()
+            .flex()
+            .items_center()
+            .child(text);
         match width {
             AnimationLabelWidth::Fixed(width) => label.w(px(width)).flex_none(),
             AnimationLabelWidth::Fill => label.flex_1(),

@@ -323,7 +323,7 @@ pub(crate) struct PropertyInspector {
 }
 
 impl PropertyInspector {
-    pub(super) const PROPERTY_LABEL_WIDTH: f32 = 64.;
+    pub(super) const PROPERTY_LABEL_WIDTH: f32 = 90.;
     pub(super) const ANIMATION_STOP_INPUT_MIN_WIDTH: f32 = 112.;
     pub(super) const DRAG_RANGE_PIXELS: f64 = 200.;
     pub(super) const MIN_STEP_MULTIPLIER: f64 = 0.1;
@@ -332,12 +332,19 @@ impl PropertyInspector {
     pub(super) fn property_label_column(label: impl Into<SharedString>) -> Div {
         div()
             .w(px(Self::PROPERTY_LABEL_WIDTH))
-            .h(px(24.))
+            .min_h(px(24.))
+            .min_w_0()
             .flex_none()
             .flex()
             .items_center()
-            .text_sm()
-            .child(label.into())
+            .child(
+                div()
+                    .w_full()
+                    .min_w_0()
+                    .text_sm()
+                    .whitespace_normal()
+                    .child(label.into()),
+            )
     }
 
     pub(crate) fn new(
