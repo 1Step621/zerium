@@ -70,7 +70,7 @@ pub(crate) fn decode_timeline_clipboard(
             (
                 scene.id,
                 scene
-                    .input_arguments()
+                    .arguments()
                     .map(|argument| argument.schema.clone())
                     .collect::<Vec<_>>(),
             )

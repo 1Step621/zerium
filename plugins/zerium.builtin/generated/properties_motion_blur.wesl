@@ -3,8 +3,8 @@ import package::generated::temporal::{ZeriumRawProps, effect_props, read_u32, re
 struct ZeriumProps {
     _raw: ZeriumRawProps,
     samples: u32,
-    shutter_angle: f32,
-    shutter_phase: f32,
+    start_offset: f32,
+    end_offset: f32,
 };
 
 fn props() -> ZeriumProps {

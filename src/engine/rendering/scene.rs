@@ -44,14 +44,92 @@ struct RenderCacheKey {
     render_scale: u32,
 }
 
+struct SceneCapturePlan {
+    source_layer: LayerId,
+    range: RenderResultSettings,
+    nodes: Vec<usize>,
+}
+
+/// Resolves which nodes appear normally and in each render_result input for one scene scope.
+struct SceneCompositionPlan<'a> {
+    nodes: &'a [EvaluatedSceneNode],
+    normal_nodes: Vec<usize>,
+    captures: Vec<SceneCapturePlan>,
+}
+
+impl<'a> SceneCompositionPlan<'a> {
+    fn new(nodes: &'a [EvaluatedSceneNode]) -> Self {
+        let ranges = nodes
+            .iter()
+            .flat_map(|node| {
+                node.item()
+                    .render_result_ranges()
+                    .map(|range| (node.local_layer, range))
+            })
+            .collect::<Vec<_>>();
+        let normal_nodes = nodes
+            .iter()
+            .enumerate()
+            .filter(|(_, node)| {
+                !ranges.iter().any(|(source, range)| {
+                    range.hide_original && range.includes(*source, node.local_layer)
+                })
+            })
+            .map(|(index, _)| index)
+            .collect();
+        let captures = ranges
+            .iter()
+            .map(|&(source_layer, range)| {
+                let captured = nodes
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, node)| {
+                        range.includes(source_layer, node.local_layer)
+                            && !ranges.iter().any(|(nested_layer, nested_range)| {
+                                *nested_layer != node.local_layer
+                                    && range.includes(source_layer, *nested_layer)
+                                    && nested_range.hide_original
+                                    && nested_range.includes(*nested_layer, node.local_layer)
+                            })
+                    })
+                    .map(|(index, _)| index)
+                    .collect();
+                SceneCapturePlan {
+                    source_layer,
+                    range,
+                    nodes: captured,
+                }
+            })
+            .collect();
+        Self {
+            nodes,
+            normal_nodes,
+            captures,
+        }
+    }
+
+    fn normal_nodes(&self) -> impl Iterator<Item = &'a EvaluatedSceneNode> + '_ {
+        self.normal_nodes.iter().map(|&index| &self.nodes[index])
+    }
+
+    fn captured_nodes(
+        &self,
+        source_layer: LayerId,
+        range: RenderResultSettings,
+    ) -> impl Iterator<Item = &'a EvaluatedSceneNode> + '_ {
+        self.captures
+            .iter()
+            .find(|capture| capture.source_layer == source_layer && capture.range == range)
+            .into_iter()
+            .flat_map(|capture| capture.nodes.iter().map(|&index| &self.nodes[index]))
+    }
+}
+
 /// Values shared by every capability renderer, regardless of whether the
 /// capability belongs to an item shader or an effect pass.
 struct CapabilitySource<'a> {
     item_id: ItemId,
     effect_id: Option<EffectInstanceId>,
-    plugin_id: &'a str,
-    owner_kind: shader::PluginShaderOwnerKind,
-    owner_id: &'a str,
     capabilities: &'a [Capability],
     properties: &'a crate::domain::property::PropertyValues,
     label: &'a str,
@@ -63,9 +141,6 @@ impl<'a> CapabilitySource<'a> {
         Self {
             item_id: item.id,
             effect_id: None,
-            plugin_id: item.plugin_id().unwrap_or_default(),
-            owner_kind: shader::PluginShaderOwnerKind::Item,
-            owner_id: schema.id(),
             capabilities: schema.capabilities(),
             properties: &item.properties,
             label: schema.label(),
@@ -77,22 +152,10 @@ impl<'a> CapabilitySource<'a> {
         Self {
             item_id,
             effect_id: Some(effect.id),
-            plugin_id: &effect.plugin_id,
-            owner_kind: shader::PluginShaderOwnerKind::Effect,
-            owner_id: schema.id(),
             capabilities: schema.capabilities(),
             properties: &effect.properties,
             label: schema.label(),
         }
-    }
-
-    fn shader_id(&self, capability_id: &str) -> ItemShaderId {
-        ItemShaderId::plugin_capability(
-            self.plugin_id,
-            self.owner_kind,
-            self.owner_id,
-            capability_id,
-        )
     }
 }
 
@@ -296,31 +359,6 @@ impl RenderScene {
         })
     }
 
-    fn original_is_hidden(node: &EvaluatedSceneNode, scope: &[EvaluatedSceneNode]) -> bool {
-        scope.iter().any(|render_result| {
-            render_result.item().render_result_ranges().any(|settings| {
-                settings.hide_original
-                    && settings.includes(render_result.local_layer, node.local_layer)
-            })
-        })
-    }
-
-    fn is_hidden_by_nested_render_result(
-        node: &EvaluatedSceneNode,
-        scope: &[EvaluatedSceneNode],
-        containing_range: RenderResultSettings,
-        source_layer: LayerId,
-    ) -> bool {
-        scope.iter().any(|render_result| {
-            render_result.local_layer != node.local_layer
-                && containing_range.includes(source_layer, render_result.local_layer)
-                && render_result.item().render_result_ranges().any(|settings| {
-                    settings.hide_original
-                        && settings.includes(render_result.local_layer, node.local_layer)
-                })
-        })
-    }
-
     pub(super) fn render_items(&self) -> Vec<&RenderItem> {
         fn collect<'a>(nodes: &'a [RenderNode], output: &mut Vec<&'a RenderItem>) {
             for node in nodes {
@@ -432,14 +470,12 @@ impl RenderScene {
         let mut render_cache = HashMap::new();
         let mut media_cache = HashMap::new();
         let mut temporal_nodes_remaining = MAX_TEMPORAL_RENDER_NODES;
+        let composition = SceneCompositionPlan::new(&graph);
         let mut roots = Vec::with_capacity(graph.len());
-        for node in &graph {
-            if Self::original_is_hidden(node, &graph) {
-                continue;
-            }
+        for node in composition.normal_nodes() {
             if let Some(rendered) = Self::render_evaluated_node(
                 node,
-                &graph,
+                &composition,
                 None,
                 timeline,
                 time,
@@ -467,9 +503,8 @@ impl RenderScene {
     #[allow(clippy::too_many_arguments)]
     fn render_capabilities<E: From<RenderError>>(
         source: CapabilitySource<'_>,
-        packed_properties: &[u8],
         node: &EvaluatedSceneNode,
-        scope: &[EvaluatedSceneNode],
+        composition: &SceneCompositionPlan<'_>,
         timeline: &dyn TimelineView,
         time: TimelineTime,
         size: RenderSize,
@@ -492,18 +527,6 @@ impl RenderScene {
         let mut inputs = Vec::with_capacity(source.capabilities.len());
         for (index, capability) in source.capabilities.iter().enumerate() {
             let input = match capability {
-                Capability::Shader { .. } => RenderNode::item(
-                    metadata.clone(),
-                    RenderItem {
-                        shader: source.shader_id(capability.id()),
-                        source: RenderItemSource::Shader,
-                        inputs: Vec::new(),
-                        properties: packed_properties.to_vec(),
-                        effects: Vec::new(),
-                        target_size,
-                        render_scale: 1,
-                    },
-                ),
                 Capability::Media { .. } => {
                     let item_id = source.item_id;
                     let effect_id = source.effect_id;
@@ -560,20 +583,10 @@ impl RenderScene {
                     )
                     .expect("render_result properties come from validated schemas");
                     let mut children = Vec::new();
-                    for candidate in scope {
-                        if !settings.includes(node.local_layer, candidate.local_layer)
-                            || Self::is_hidden_by_nested_render_result(
-                                candidate,
-                                scope,
-                                settings,
-                                node.local_layer,
-                            )
-                        {
-                            continue;
-                        }
+                    for candidate in composition.captured_nodes(node.local_layer, settings) {
                         if let Some(child) = Self::render_evaluated_node(
                             candidate,
-                            scope,
+                            composition,
                             None,
                             timeline,
                             time,
@@ -620,7 +633,7 @@ impl RenderScene {
     #[allow(clippy::too_many_arguments)]
     fn render_evaluated_node<E: From<RenderError>>(
         node: &EvaluatedSceneNode,
-        scope: &[EvaluatedSceneNode],
+        composition: &SceneCompositionPlan<'_>,
         scene_effect_count: Option<usize>,
         timeline: &dyn TimelineView,
         time: TimelineTime,
@@ -672,9 +685,8 @@ impl RenderScene {
                 };
                 let inputs = Self::render_capabilities(
                     CapabilitySource::item(item),
-                    &rendered_item.properties,
                     node,
-                    scope,
+                    composition,
                     timeline,
                     time,
                     size,
@@ -730,20 +742,10 @@ impl RenderScene {
                         schema.label()
                     )))
                 })?;
-                let properties = schema
-                    .property_layout()
-                    .pack(
-                        "effect",
-                        schema.id(),
-                        schema.properties(),
-                        &instance.properties,
-                    )
-                    .expect("effect properties come from a validated schema");
                 effect.inputs = Self::render_capabilities(
                     CapabilitySource::effect(node.item().id, instance),
-                    &properties,
                     node,
-                    scope,
+                    composition,
                     timeline,
                     time,
                     size,
@@ -780,14 +782,12 @@ impl RenderScene {
         media_frame: &mut impl FnMut(MediaFrameRequest<'_>) -> Result<Option<Arc<RgbaFrame>>, E>,
         text_frame: &mut impl FnMut(TextFrameRequest<'_>) -> Result<Arc<RgbaFrame>, RenderError>,
     ) -> Result<Option<RenderNode>, E> {
+        let composition = SceneCompositionPlan::new(child_scope);
         let mut rendered_children = Vec::with_capacity(child_scope.len());
-        for child in child_scope {
-            if Self::original_is_hidden(child, child_scope) {
-                continue;
-            }
+        for child in composition.normal_nodes() {
             if let Some(rendered) = Self::render_evaluated_node(
                 child,
-                child_scope,
+                &composition,
                 None,
                 timeline,
                 time,
@@ -850,9 +850,10 @@ impl RenderScene {
                             let input = sampled
                                 .as_ref()
                                 .map(|(sampled, scope)| {
+                                    let composition = SceneCompositionPlan::new(scope);
                                     Self::render_evaluated_node(
                                         sampled,
-                                        scope,
+                                        &composition,
                                         Some(effect_index),
                                         timeline,
                                         sample_time,
@@ -992,6 +993,7 @@ impl RenderScene {
                                             let input = sampled
                                                 .as_ref()
                                                 .map(|(sample, scope)| {
+                                                    let composition = SceneCompositionPlan::new(scope);
                                                     *temporal_nodes_remaining =
                                                         temporal_nodes_remaining
                                                             .checked_sub(1)
@@ -1002,7 +1004,7 @@ impl RenderScene {
                                                             })?;
                                                     Self::render_evaluated_node(
                                                         sample,
-                                                        scope,
+                                                        &composition,
                                                         Some(effect_index),
                                                         timeline,
                                                         sample_time,

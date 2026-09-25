@@ -13,21 +13,18 @@ use crate::domain::animation::{
 use crate::domain::media::ImportedMedia;
 use crate::domain::property::{
     PropertyConfiguration, PropertyElementId, PropertySchema, PropertyType, PropertyValue,
-    ScalarPropertyType,
 };
 
 use super::{
     document::{ResizeEdge, TimelineDocument},
     editor::{HistoryKey, HistorySnapshot, TimelineEditor},
-    evaluation::evaluate_expression_arguments,
-    expression,
     ids::{EffectInstanceId, ItemId, LayerId, SceneId},
     item::TimelineItem,
     scene::{
         SceneArgument, SceneArgumentPreset, SceneBindingOwner, SceneBindingTarget, SceneDefinition,
         apply_scene_binding_to_item, materialize_scene_instance_properties,
-        resolve_property_schema, resolve_scene_binding, scene_argument_expressions_valid,
-        set_scene_instance_override, unique_scene_argument_name,
+        resolve_property_schema, resolve_scene_binding, set_scene_instance_override,
+        unique_scene_argument_name,
     },
     settings::ProjectResolution,
     time::{Frame, FrameDuration, FrameRate, TimelineTime},
@@ -93,7 +90,6 @@ pub(crate) enum SceneArgumentEditError {
     TargetAnimated,
     TargetNotBindable,
     IncompatibleContract,
-    ReferencedByExpression,
 }
 
 /// An expected reason why an editor command could not be applied.

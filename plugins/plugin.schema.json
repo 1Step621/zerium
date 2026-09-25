@@ -463,20 +463,28 @@
           "const": "temporal"
         },
         "sampling": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["sample_count", "angle"],
-          "properties": {
-            "sample_count": {
-              "$ref": "#/$defs/wgslId"
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "sample_count", "start_offset", "end_offset"],
+              "properties": {
+                "type": { "const": "range" },
+                "sample_count": { "$ref": "#/$defs/wgslId" },
+                "start_offset": { "$ref": "#/$defs/wgslId" },
+                "end_offset": { "$ref": "#/$defs/wgslId" }
+              }
             },
-            "angle": {
-              "$ref": "#/$defs/wgslId"
-            },
-            "phase": {
-              "$ref": "#/$defs/wgslId"
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "offsets"],
+              "properties": {
+                "type": { "const": "offsets" },
+                "offsets": { "$ref": "#/$defs/wgslId" }
+              }
             }
-          }
+          ]
         },
         "reducer": {
           "$ref": "#/$defs/shader"
@@ -648,27 +656,6 @@
     },
     "capability": {
       "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type", "id", "shader"],
-          "properties": {
-            "type": {
-              "const": "shader"
-            },
-            "id": {
-              "$ref": "#/$defs/wgslId"
-            },
-            "shader": {
-              "$ref": "#/$defs/shader"
-            },
-            "vertex_count": {
-              "type": "integer",
-              "minimum": 1,
-              "maximum": 4294967295
-            }
-          }
-        },
         {
           "type": "object",
           "additionalProperties": false,

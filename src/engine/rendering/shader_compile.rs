@@ -5,7 +5,7 @@ use super::{
     shader::{
         CompiledEffectShader, CompiledPluginShaders, ComputeShaderDescriptor,
         EffectShaderDescriptor, EffectShaderId, ItemShaderDescriptor, ItemShaderId,
-        PluginShaderOwnerKind, TextureShaderDescriptor,
+        TextureShaderDescriptor,
     },
     wesl,
 };
@@ -29,24 +29,8 @@ pub(crate) fn compile_plugins(
                 schema.capabilities(),
             )?);
         }
-        compile_capability_shaders(
-            &mut compiled.items,
-            plugins,
-            plugin_id,
-            PluginShaderOwnerKind::Item,
-            schema.id(),
-            schema.capabilities(),
-        )?;
     }
     for (plugin_id, schema) in plugins.effects() {
-        compile_capability_shaders(
-            &mut compiled.items,
-            plugins,
-            plugin_id,
-            PluginShaderOwnerKind::Effect,
-            schema.id(),
-            schema.capabilities(),
-        )?;
         let interface = super::capability_input::interface(schema.capabilities());
         for (pass_index, pass) in schema.passes().iter().enumerate() {
             let id = EffectShaderId::plugin_pass(plugin_id, schema.id(), pass_index);
@@ -113,33 +97,6 @@ pub(crate) fn compile_plugins(
         input_ids: vec!["source".to_owned()],
     });
     Ok(Arc::new(compiled))
-}
-
-fn compile_capability_shaders(
-    compiled: &mut Vec<ItemShaderDescriptor>,
-    plugins: &PluginRegistry,
-    plugin_id: &str,
-    owner_kind: PluginShaderOwnerKind,
-    owner_id: &str,
-    capabilities: &[Capability],
-) -> Result<(), RenderError> {
-    for capability in capabilities {
-        if let Some(shader) = capability.shader() {
-            let id =
-                ItemShaderId::plugin_capability(plugin_id, owner_kind, owner_id, capability.id());
-            compiled.push(compile_item_shader(
-                plugins,
-                plugin_id,
-                shader,
-                id,
-                capability
-                    .vertex_count()
-                    .expect("shader capability has a vertex count"),
-                &[],
-            )?);
-        }
-    }
-    Ok(())
 }
 
 fn compile_item_shader(

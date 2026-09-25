@@ -77,9 +77,9 @@ animation module owns interpolation and track rules.
 scalar independently of inspector widget identity. `InspectorPath` remains a
 PropertyInspector-only key for row state; the inspector keeps editable scalar
 coordinates separately. `ui::property_presentation` resolves numeric display
-rules, while `ui::animation_presentation` resolves animation labels and source
-addresses from a `PropertyAddress`. Neither shared module depends on an
-inspector or curve component.
+rules, while `ui::animation_curve::presentation` resolves animation labels from
+a `PropertyAddress`. Aspect-ratio locking constrains direct size edits only;
+animation tracks and scene arguments keep their own values.
 
 ## Plugins and persistence
 
@@ -102,13 +102,15 @@ their sparse argument overrides. The same checked item representation is used
 for project files and the timeline clipboard.
 
 Item and effect schemas share an ordered array of named shader inputs.
-`shader`, `media`, `text`, and `render_result` can each produce a scene-linear
+`media`, `text`, and `render_result` can each produce a scene-linear
 texture, and both item shaders and effect passes import them by ID from the
 same generated capability module. The item's output shader is separate from
 its inputs. Each effect instance owns its imported file assets. Item-only
 `audio` and `editor` declarations stay outside shader capabilities. Rendering
 resolves capability nodes before the owner shader or pass and binds them in
 manifest order.
+Scene arguments contain property contracts and bindings; evaluation applies
+their instance values without expression evaluation.
 `persistence::project` and `persistence::clipboard` deserialize untrusted data,
 validate it against the current domain contracts, and then construct domain
 state. Filesystem access and atomic replacement stay in `engine::project_io`.
@@ -126,6 +128,11 @@ creates the dedicated export device; each consumer uses an independent render
 session while sharing compiled plugin shaders. Timeline evaluation preserves
 scene composition boundaries and carries sample time through media and
 temporal passes.
+Temporal passes select source frames through either a uniform range or an
+explicit array of frame offsets; their reducer shader combines the samples.
+`SceneCompositionPlan` resolves normal visibility and `render_result` capture
+membership once per evaluated scene scope, including scopes evaluated at a
+temporal sample time.
 
 ## Change rules
 

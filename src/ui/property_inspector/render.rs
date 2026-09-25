@@ -170,8 +170,7 @@ impl PropertyInspector {
                 .map(|schema| schema.label().to_owned())
                 .unwrap_or_default()
         };
-        let aspect_ratio_lock =
-            Self::aspect_ratio_lock_state(&item, &selected_items, &scene_arguments, editing_scene);
+        let aspect_ratio_lock = Self::aspect_ratio_lock_state(&item, &selected_items);
         let available_effects = {
             let editor = self.editor.read(cx);
             editor
@@ -225,11 +224,6 @@ impl PropertyInspector {
                 } else {
                     argument.schema.label().to_owned()
                 };
-                let referenced_by_expression = scene.arguments.iter().any(|other| {
-                    other.schema.id() != argument.schema.id()
-                        && other.expression_references(argument.schema.id())
-                });
-                let expression = argument.expression().map(str::to_owned);
                 SceneArgumentOption {
                     scene_id,
                     id: argument.schema.id().to_owned(),
@@ -237,8 +231,6 @@ impl PropertyInspector {
                     schema: argument.schema.clone(),
                     binding_count: argument.bindings.len(),
                     bindings: argument.bindings.clone(),
-                    expression,
-                    referenced_by_expression,
                 }
             })
             .collect()

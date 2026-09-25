@@ -324,21 +324,6 @@ impl TimelineItem {
             .then_some(width / height)
     }
 
-    pub(super) fn preserves_aspect_ratio(&self) -> bool {
-        self.aspect_ratio_locked
-    }
-
-    pub(super) fn constrain_size_to_aspect_ratio(&mut self, aspect_ratio: f32) -> bool {
-        let Some(schema) = self.schema().cloned() else {
-            return false;
-        };
-        let Some(requested) = size_values(&self.properties, &schema) else {
-            return false;
-        };
-        let adjusted = size_with_derived_height(requested, aspect_ratio, &schema);
-        set_size_values(&mut self.properties, &schema, adjusted)
-    }
-
     pub(crate) fn animation_span_frames(&self) -> f64 {
         self.duration.get().saturating_sub(1).max(1) as f64
     }
@@ -387,16 +372,9 @@ impl TimelineItem {
             }
             return item;
         };
-        let mut properties =
+        let properties =
             self.animations
                 .evaluated_values(&self.properties, schema.properties(), progress);
-        if self.aspect_ratio_locked
-            && let Some(aspect_ratio) = self.current_aspect_ratio(schema)
-            && let Some(requested) = size_values(&properties, schema)
-        {
-            let adjusted = size_with_derived_height(requested, aspect_ratio, schema);
-            set_size_values(&mut properties, schema, adjusted);
-        }
         item.properties = properties;
         for effect in &mut item.effects {
             effect.properties = effect.animations.evaluated_values(

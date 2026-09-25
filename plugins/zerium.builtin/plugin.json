@@ -2894,45 +2894,46 @@
           ]
         },
         {
-          "id": "shutter_angle",
+          "id": "start_offset",
           "type": {
             "value": "f32"
           },
           "default": {
-            "f32": 180
+            "f32": -0.25
           },
-          "label": "シャッター角度",
+          "label": "開始位置",
           "configurations": [
             {
               "animatable": true,
               "constraints": {
-                "min": 0,
-                "max": 720
+                "min": -32,
+                "max": 32
               },
               "ui": {
-                "unit": "°",
-                "step": 1
+                "unit": " フレーム",
+                "step": 0.01
               }
             }
           ]
         },
         {
-          "id": "shutter_phase",
+          "id": "end_offset",
           "type": {
             "value": "f32"
           },
           "default": {
-            "f32": 0
+            "f32": 0.25
           },
-          "label": "シャッター位相",
+          "label": "終了位置",
           "configurations": [
             {
               "animatable": true,
               "constraints": {
-                "min": -1,
-                "max": 1
+                "min": -32,
+                "max": 32
               },
               "ui": {
+                "unit": " フレーム",
                 "step": 0.01
               }
             }
@@ -2943,9 +2944,10 @@
         {
           "type": "temporal",
           "sampling": {
+            "type": "range",
             "sample_count": "samples",
-            "angle": "shutter_angle",
-            "phase": "shutter_phase"
+            "start_offset": "start_offset",
+            "end_offset": "end_offset"
           },
           "reducer": {
             "module": "motion_blur"

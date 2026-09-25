@@ -153,10 +153,7 @@ impl PropertyInspector {
                 Switch::new(SharedString::from(format!("aspect-ratio-lock-{key}")))
                     .small()
                     .checked(checked)
-                    .disabled(state.disabled_by_scene_size_argument)
-                    .tooltip(if state.disabled_by_scene_size_argument {
-                        "サイズが引数接続されているため一時的に無効"
-                    } else if state.mixed {
+                    .tooltip(if state.mixed {
                         "ロック状態が混在しています。クリックですべてオン"
                     } else if state.multiple {
                         "各アイテムの現在の縦横比を個別に固定"

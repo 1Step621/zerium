@@ -7,7 +7,6 @@ mod render;
 mod rows;
 mod scene_args;
 mod state;
-pub(super) use crate::ui::animation_source::number_animation_source;
 use numeric::{NumericInput, NumericInputSpec, numeric_input_spec};
 
 use std::collections::{HashMap, HashSet};
@@ -36,7 +35,6 @@ use crate::domain::property::{
 use crate::domain::timeline::{
     EffectInstance, EffectInstanceId, ItemId, PropertyAddress, SceneArgument, SceneArgumentPreset,
     SceneBindingOwner, SceneBindingTarget, SceneId, TimelineEditor, TimelineItem, TimelineTime,
-    display_scene_expression,
 };
 use crate::engine::media::MediaReaderRegistry;
 use crate::project_session::{ProjectActivity, ProjectSession, ProjectSessionId};
@@ -60,10 +58,6 @@ enum ControlId {
     EffectGroup(EffectInstanceId),
     SceneName(SceneId),
     SceneArgumentName {
-        scene_id: SceneId,
-        argument_id: String,
-    },
-    SceneArgumentExpression {
         scene_id: SceneId,
         argument_id: String,
     },
@@ -108,13 +102,6 @@ impl ControlId {
 
     fn scene_argument_name(scene_id: SceneId, argument_id: &str) -> Self {
         Self::SceneArgumentName {
-            scene_id,
-            argument_id: argument_id.to_owned(),
-        }
-    }
-
-    fn scene_argument_expression(scene_id: SceneId, argument_id: &str) -> Self {
-        Self::SceneArgumentExpression {
             scene_id,
             argument_id: argument_id.to_owned(),
         }
@@ -194,8 +181,6 @@ pub(super) struct SceneArgumentOption {
     pub schema: PropertySchema,
     pub binding_count: usize,
     pub bindings: Vec<SceneBindingTarget>,
-    pub expression: Option<String>,
-    pub referenced_by_expression: bool,
 }
 
 #[derive(Clone)]
@@ -217,7 +202,6 @@ pub(super) struct AspectRatioLockState {
     pub value: bool,
     pub mixed: bool,
     pub multiple: bool,
-    pub disabled_by_scene_size_argument: bool,
 }
 
 impl AspectRatioLockState {
@@ -240,7 +224,6 @@ pub(super) struct AnimationStopBinding {
     pub element_id: Option<PropertyElementId>,
     pub scalar_index: Option<usize>,
     pub stop: usize,
-    pub value_factor: f64,
 }
 
 impl AnimationStopBinding {
@@ -256,7 +239,6 @@ impl AnimationStopBinding {
             element_id: stop.element_id,
             scalar_index: stop.scalar_index,
             stop: stop.index,
-            value_factor: stop.value_factor,
         }
     }
 }

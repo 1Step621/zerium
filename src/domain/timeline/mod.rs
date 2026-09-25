@@ -2,7 +2,6 @@ mod commands;
 mod document;
 mod editor;
 mod evaluation;
-mod expression;
 mod history;
 mod ids;
 mod item;
@@ -26,7 +25,7 @@ pub(crate) use property_address::PropertyAddress;
 pub(crate) use scene::SceneDefinition;
 pub(crate) use scene::{
     SceneArgument, SceneArgumentPreset, SceneBindingOwner, SceneBindingTarget,
-    display_scene_expression, resolve_scene_binding, scene_argument_expressions_valid,
+    resolve_scene_binding,
 };
 pub(crate) use settings::ProjectResolution;
 pub(crate) use time::{Frame, FrameDuration, FrameRate, TimelineTime};

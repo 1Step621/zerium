@@ -31,35 +31,13 @@ fn unique_runtime_id(seed: u64, item_id: ItemId, used: &mut HashSet<ItemId>) -> 
     }
 }
 
-pub(super) fn evaluate_expression_arguments(
-    scene: &SceneDefinition,
-    numeric_values: &mut HashMap<String, f32>,
-    argument_values: &mut HashMap<String, PropertyValue>,
-) {
-    let mut pending = scene.computed_arguments().collect::<Vec<_>>();
-    while !pending.is_empty() {
-        let previous_len = pending.len();
-        pending.retain(|argument| {
-            let Some(value) = argument.evaluate_expression(numeric_values) else {
-                return true;
-            };
-            numeric_values.insert(argument.schema.id().to_owned(), value);
-            argument_values.insert(argument.schema.id().to_owned(), PropertyValue::F32(value));
-            false
-        });
-        if pending.len() == previous_len {
-            break;
-        }
-    }
-}
-
 pub(super) fn evaluated_scene_argument_values(
     scene: &SceneDefinition,
     instance: &TimelineItem,
     time: TimelineTime,
 ) -> HashMap<String, PropertyValue> {
     let schemas = scene
-        .input_arguments()
+        .arguments()
         .map(|argument| argument.schema.clone())
         .collect::<Vec<_>>();
     let values = instance.animations.evaluated_values(
@@ -68,19 +46,12 @@ pub(super) fn evaluated_scene_argument_values(
         instance.animation_progress_at_time(time),
     );
     let mut argument_values = HashMap::new();
-    let mut numeric_values = HashMap::new();
-    for argument in scene.input_arguments() {
+    for argument in scene.arguments() {
         let Some(value) = values.property(argument.schema.id()).cloned() else {
             continue;
         };
-        if let PropertyValue::F32(value) = value {
-            numeric_values.insert(argument.schema.id().to_owned(), value);
-            argument_values.insert(argument.schema.id().to_owned(), PropertyValue::F32(value));
-        } else {
-            argument_values.insert(argument.schema.id().to_owned(), value);
-        }
+        argument_values.insert(argument.schema.id().to_owned(), value);
     }
-    evaluate_expression_arguments(scene, &mut numeric_values, &mut argument_values);
     argument_values
 }
 
@@ -95,10 +66,6 @@ fn apply_scene_arguments(
         .iter()
         .enumerate()
         .map(|(index, (_, item))| (item.id, index))
-        .collect::<HashMap<_, _>>();
-    let aspect_ratios = items
-        .iter()
-        .filter_map(|(_, item)| Some((item.id, item.current_aspect_ratio(item.schema()?)?)))
         .collect::<HashMap<_, _>>();
     let argument_values = evaluated_scene_argument_values(scene, instance, time);
     for argument in &scene.arguments {
@@ -121,13 +88,6 @@ fn apply_scene_arguments(
             };
             apply_scene_binding_to_item(item, binding, &resolved.schema, value)
                 .expect("validated scene binding must remain applicable during evaluation");
-        }
-    }
-    for (_, item) in items {
-        if item.preserves_aspect_ratio()
-            && let Some(aspect_ratio) = aspect_ratios.get(&item.id)
-        {
-            item.constrain_size_to_aspect_ratio(*aspect_ratio);
         }
     }
 }

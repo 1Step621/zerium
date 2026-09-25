@@ -144,7 +144,7 @@ impl AnimationCurveEditor {
         let numeric_stops = track.numeric_stops().map(|stops| {
             stops[source_segment..=source_segment + 1]
                 .iter()
-                .map(|(_, value)| *value * presentation.value_factor)
+                .map(|(_, value)| *value)
                 .collect::<Vec<_>>()
         });
         let (value_min, value_max, stops, axis_suffix) = if let Some(values) = numeric_stops {

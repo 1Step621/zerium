@@ -24,7 +24,6 @@ pub(super) struct AnimationStopControl {
     pub element_id: Option<PropertyElementId>,
     pub scalar_index: Option<usize>,
     pub value: PropertyValue,
-    pub value_factor: f64,
 }
 
 #[derive(Clone)]
@@ -691,7 +690,6 @@ impl PropertyInspector {
         element_id: Option<PropertyElementId>,
         scalar_index: Option<usize>,
         property: &InspectorPath,
-        value_factor: f64,
         time: TimelineTime,
     ) -> Vec<AnimationStopControl> {
         let progress = item.animation_progress_at_time(time);
@@ -704,23 +702,13 @@ impl PropertyInspector {
             .into_iter()
             .filter_map(|index| {
                 let stop = track.stops().get(index)?;
-                let value = if value_factor == 1. {
-                    stop.value().clone()
-                } else {
-                    let value = stop.value().numeric_scalar()? * value_factor;
-                    if !value.is_finite() {
-                        return None;
-                    }
-                    stop.value().with_numeric_scalar(value)?
-                };
                 Some(AnimationStopControl {
                     id: ControlId::animation_stop(property, index),
                     index,
                     property_id: property_id.to_owned(),
                     element_id,
                     scalar_index,
-                    value,
-                    value_factor,
+                    value: stop.value().clone(),
                 })
             })
             .collect()
@@ -730,11 +718,7 @@ impl PropertyInspector {
         match control {
             Control::Group { .. } => {}
             Control::Number(number) => {
-                let animation_source = number_animation_source(
-                    resolution.item,
-                    &number.common.target.address(resolution.item.id),
-                );
-                let animation_enabled = animation_source.is_some();
+                let animation_enabled = number.common.target.animation_enabled(resolution.item);
                 Self::resolve_common(
                     resolution,
                     &mut number.common,
@@ -742,19 +726,19 @@ impl PropertyInspector {
                     animation_enabled,
                 );
                 number.common.animation_enabled = animation_enabled;
-                number.common.animation_stops =
-                    animation_source.as_ref().map_or_else(Vec::new, |source| {
-                        Self::animation_stop_controls(
-                            resolution.item,
-                            number.common.target.effect_id,
-                            &source.address.property_id,
-                            source.address.element_id,
-                            source.address.scalar_index,
-                            &number.common.target.key,
-                            source.value_factor,
-                            resolution.playhead,
-                        )
-                    });
+                number.common.animation_stops = if animation_enabled {
+                    Self::animation_stop_controls(
+                        resolution.item,
+                        number.common.target.effect_id,
+                        &number.common.target.property_id,
+                        number.common.target.element_id,
+                        number.common.target.scalar_index,
+                        &number.common.target.key,
+                        resolution.playhead,
+                    )
+                } else {
+                    Vec::new()
+                };
             }
             Control::Text(text) => Self::resolve_common(
                 resolution,
@@ -788,7 +772,6 @@ impl PropertyInspector {
                         color.common.target.element_id,
                         color.common.target.scalar_index,
                         &color.common.target.key,
-                        1.,
                         resolution.playhead,
                     );
                 }
@@ -831,8 +814,6 @@ impl PropertyInspector {
     pub(super) fn aspect_ratio_lock_state(
         item: &TimelineItem,
         selected_items: &[TimelineItem],
-        scene_arguments: &[SceneArgumentOption],
-        editing_scene: bool,
     ) -> Option<AspectRatioLockState> {
         if item.scene_id().is_some() {
             return None;
@@ -853,15 +834,6 @@ impl PropertyInspector {
         {
             return None;
         }
-        let size_is_bound = scene_arguments.iter().any(|argument| {
-            argument.bindings.iter().any(|binding| {
-                binding.item_id() == item.id
-                    && binding.owner() == SceneBindingOwner::Item
-                    && binding.property_id() == size.id()
-                    && binding.element_id().is_none()
-                    && binding.scalar_index().is_none()
-            })
-        });
         Some(AspectRatioLockState {
             value: item.aspect_ratio_locked,
             mixed: selected_items
@@ -869,7 +841,6 @@ impl PropertyInspector {
                 .skip(1)
                 .any(|selected| selected.aspect_ratio_locked != item.aspect_ratio_locked),
             multiple: selected_items.len() > 1,
-            disabled_by_scene_size_argument: editing_scene && size_is_bound,
         })
     }
 }

@@ -1,4 +1,4 @@
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
@@ -11,7 +11,6 @@ use crate::domain::property::{
 
 use super::{
     document::TimelineDocument,
-    expression,
     ids::{EffectInstanceId, ItemId, LayerId, SceneId},
     item::{TimelineItem, TimelineItemKind},
     time::{Frame, FrameDuration, FrameRate},
@@ -95,19 +94,6 @@ impl SceneBindingTarget {
         self.item_id == item_id
             && self.owner.effect_id() == effect_id
             && self.property_id == property_id
-    }
-
-    pub(crate) fn conflicts_with_aspect_ratio_lock(
-        &self,
-        item: &TimelineItem,
-        locked: bool,
-    ) -> bool {
-        locked
-            && self.owner() == SceneBindingOwner::Item
-            && self.scalar_index() == Some(1)
-            && item
-                .schema()
-                .is_some_and(|schema| schema.is_size_property(self.property_id()))
     }
 
     pub(crate) fn conflicts_with_animation(
@@ -254,7 +240,7 @@ pub(crate) fn resolve_property_schema<'a>(
             .or_else(|| {
                 scenes
                     .get(&item.scene_id()?)?
-                    .input_argument(property_id)
+                    .argument(property_id)
                     .map(|argument| &argument.schema)
             }),
     }
@@ -277,7 +263,7 @@ pub(crate) fn resolve_scene_binding(
             let value = item.properties.property(property_id).or_else(|| {
                 let nested = scenes.get(&item.scene_id()?)?;
                 nested
-                    .input_argument(property_id)
+                    .argument(property_id)
                     .map(|argument| argument.schema.default_value())
             })?;
             (value, &item.animations)
@@ -397,79 +383,17 @@ impl PropertySchema {
         next.configuration_mut(None).constraints = constraints;
         Some(next)
     }
-
-    fn into_scene_expression(mut self) -> Option<Self> {
-        if self.ty() != &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::F32)) {
-            return None;
-        }
-        self.configuration_mut(None).editable = false;
-        self.configuration_mut(None).animatable = false;
-        for configuration in &mut self.configurations {
-            configuration.scene_bindable = false;
-        }
-        Some(self)
-    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct SceneArgument {
     pub(crate) schema: PropertySchema,
     pub(crate) bindings: Vec<SceneBindingTarget>,
-    expression: Option<expression::CompiledExpression>,
 }
 
 impl SceneArgument {
-    pub(crate) fn input(schema: PropertySchema, bindings: Vec<SceneBindingTarget>) -> Self {
-        Self {
-            schema,
-            bindings,
-            expression: None,
-        }
-    }
-
-    pub(crate) fn computed(
-        schema: PropertySchema,
-        bindings: Vec<SceneBindingTarget>,
-        expression: String,
-    ) -> Option<Self> {
-        Some(Self {
-            schema: schema.into_scene_expression()?,
-            bindings,
-            expression: Some(expression::CompiledExpression::compile(expression)?),
-        })
-    }
-
-    pub(crate) fn expression(&self) -> Option<&str> {
-        self.expression
-            .as_ref()
-            .map(expression::CompiledExpression::source)
-    }
-
-    pub(crate) fn set_expression(&mut self, expression: String) -> bool {
-        let Some(current) = &mut self.expression else {
-            return false;
-        };
-        let Some(expression) = expression::CompiledExpression::compile(expression) else {
-            return false;
-        };
-        *current = expression;
-        true
-    }
-
-    pub(crate) fn expression_references(&self, argument_id: &str) -> bool {
-        self.expression
-            .as_ref()
-            .is_some_and(|expression| expression.dependencies().contains(argument_id))
-    }
-
-    pub(super) fn evaluate_expression(&self, values: &HashMap<String, f32>) -> Option<f32> {
-        self.expression.as_ref()?.evaluate(values)
-    }
-
-    fn expression_dependencies(&self) -> Option<&HashSet<String>> {
-        self.expression
-            .as_ref()
-            .map(expression::CompiledExpression::dependencies)
+    pub(crate) fn new(schema: PropertySchema, bindings: Vec<SceneBindingTarget>) -> Self {
+        Self { schema, bindings }
     }
 }
 
@@ -478,109 +402,23 @@ pub(super) fn unique_scene_argument_name(
     preferred: &str,
     fallback: &str,
 ) -> String {
-    let mut normalized = String::new();
-    for character in preferred.trim().chars() {
-        if character == '_' || character.is_alphanumeric() {
-            normalized.push(character);
-        } else if !normalized.ends_with('_') {
-            normalized.push('_');
-        }
-    }
-    if normalized
-        .chars()
-        .next()
-        .is_some_and(|character| character.is_numeric())
-    {
-        normalized.insert(0, '_');
-    }
-    while normalized.ends_with('_') {
-        normalized.pop();
-    }
-    if !expression::valid_variable_name(&normalized) {
-        normalized = fallback.to_owned();
-    }
-    let normalized_is_duplicate = |candidate: &str| {
-        arguments.iter().any(|argument| {
-            argument.schema.label() == candidate
-                || expression::variable_name_for_label(argument.schema.label())
-                    == Some(candidate.to_owned())
-        })
+    let normalized = if preferred.trim().is_empty() {
+        fallback
+    } else {
+        preferred.trim()
     };
-    if !normalized_is_duplicate(&normalized) {
-        return normalized;
+    let normalized_is_duplicate = |candidate: &str| {
+        arguments
+            .iter()
+            .any(|argument| argument.schema.label() == candidate)
+    };
+    if !normalized_is_duplicate(normalized) {
+        return normalized.to_owned();
     }
     (2_u64..)
         .map(|suffix| format!("{normalized}_{suffix}"))
         .find(|candidate| !normalized_is_duplicate(candidate))
         .expect("a scene argument name suffix must eventually be available")
-}
-
-pub(crate) fn scene_argument_expressions_valid(arguments: &[SceneArgument]) -> bool {
-    if arguments.iter().any(|argument| {
-        argument.expression().is_some()
-            && argument.schema.ty()
-                != &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::F32))
-    }) {
-        return false;
-    }
-    let numeric_names = arguments
-        .iter()
-        .filter(|argument| {
-            argument.schema.ty()
-                == &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::F32))
-        })
-        .map(|argument| argument.schema.id().to_owned())
-        .collect::<HashSet<_>>();
-    let dependencies = arguments
-        .iter()
-        .filter_map(|argument| {
-            let dependencies = argument.expression_dependencies()?.clone();
-            dependencies
-                .iter()
-                .all(|dependency| numeric_names.contains(dependency))
-                .then_some((argument.schema.id().to_owned(), dependencies))
-        })
-        .collect::<HashMap<_, _>>();
-    if dependencies.len()
-        != arguments
-            .iter()
-            .filter(|argument| argument.expression().is_some())
-            .count()
-    {
-        return false;
-    }
-
-    fn visit(
-        id: &str,
-        dependencies: &HashMap<String, HashSet<String>>,
-        visiting: &mut HashSet<String>,
-        visited: &mut HashSet<String>,
-    ) -> bool {
-        if visited.contains(id) {
-            return true;
-        }
-        if !visiting.insert(id.to_owned()) {
-            return false;
-        }
-        if let Some(argument_dependencies) = dependencies.get(id) {
-            for dependency in argument_dependencies {
-                if dependencies.contains_key(dependency.as_str())
-                    && !visit(dependency, dependencies, visiting, visited)
-                {
-                    return false;
-                }
-            }
-        }
-        visiting.remove(id);
-        visited.insert(id.to_owned());
-        true
-    }
-
-    let mut visiting = HashSet::new();
-    let mut visited = HashSet::new();
-    dependencies
-        .keys()
-        .all(|id| visit(id, &dependencies, &mut visiting, &mut visited))
 }
 
 #[derive(Clone)]
@@ -624,33 +462,14 @@ impl SceneDefinition {
         self.document.items()
     }
 
-    pub(crate) fn input_arguments(&self) -> impl Iterator<Item = &SceneArgument> {
-        self.arguments
-            .iter()
-            .filter(|argument| argument.expression().is_none())
-    }
-
-    pub(crate) fn computed_arguments(&self) -> impl Iterator<Item = &SceneArgument> {
-        self.arguments
-            .iter()
-            .filter(|argument| argument.expression().is_some())
-    }
-
-    pub(crate) fn input_argument(&self, id: &str) -> Option<&SceneArgument> {
-        self.input_arguments()
-            .find(|argument| argument.schema.id() == id)
+    pub(crate) fn arguments(&self) -> impl Iterator<Item = &SceneArgument> {
+        self.arguments.iter()
     }
 
     pub(crate) fn argument(&self, id: &str) -> Option<&SceneArgument> {
         self.arguments
             .iter()
             .find(|argument| argument.schema.id() == id)
-    }
-
-    pub(crate) fn input_argument_mut(&mut self, id: &str) -> Option<&mut SceneArgument> {
-        self.arguments
-            .iter_mut()
-            .find(|argument| argument.expression().is_none() && argument.schema.id() == id)
     }
 
     pub(crate) fn argument_mut(&mut self, id: &str) -> Option<&mut SceneArgument> {
@@ -679,30 +498,6 @@ impl SceneDefinition {
         let ordinal = self.next_argument_id;
         self.next_argument_id = self.next_argument_id.saturating_add(1);
         (format!("argument_{ordinal}"), ordinal)
-    }
-
-    fn expression_replacements(&self) -> HashMap<String, String> {
-        let labels = self
-            .arguments
-            .iter()
-            .filter_map(|argument| {
-                let label = expression::variable_name_for_label(argument.schema.label())?;
-                Some((argument.schema.id().to_owned(), label))
-            })
-            .collect::<Vec<_>>();
-        let mut counts = HashMap::new();
-        for (_, label) in &labels {
-            *counts.entry(label.clone()).or_insert(0_usize) += 1;
-        }
-        labels
-            .into_iter()
-            .filter(|(_, label)| counts.get(label.as_str()) == Some(&1))
-            .map(|(id, label)| (label, id))
-            .collect()
-    }
-
-    pub(crate) fn expression_from_display(&self, source: &str) -> Option<String> {
-        expression::rewrite_variables(source, &self.expression_replacements())
     }
 
     pub(super) fn instantiate(
@@ -774,27 +569,8 @@ pub(crate) fn materialize_scene_instance_properties(
 ) -> Option<PropertyValues> {
     let scene = scenes.get(&item.scene_id()?)?;
     let schemas = scene
-        .input_arguments()
+        .arguments()
         .map(|argument| argument.schema.clone())
         .collect::<Vec<_>>();
     Some(materialized_property_values(&item.properties, &schemas))
-}
-
-pub(crate) fn display_scene_expression(arguments: &[SceneArgument], source: &str) -> String {
-    let labels = arguments
-        .iter()
-        .filter_map(|argument| {
-            let label = expression::variable_name_for_label(argument.schema.label())?;
-            Some((argument.schema.id().to_owned(), label))
-        })
-        .collect::<Vec<_>>();
-    let mut counts = HashMap::new();
-    for (_, label) in &labels {
-        *counts.entry(label.clone()).or_insert(0_usize) += 1;
-    }
-    let replacements = labels
-        .into_iter()
-        .filter(|(_, label)| counts.get(label.as_str()) == Some(&1))
-        .collect();
-    expression::rewrite_variables(source, &replacements).unwrap_or_else(|| source.to_owned())
 }

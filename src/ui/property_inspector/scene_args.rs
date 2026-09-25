@@ -72,15 +72,6 @@ impl PropertyInspector {
             let input = self.scene_name_input(scene_id).expect("name input ensured");
             Self::set_input_value(&input, scene_name, window, cx);
         }
-        let displayed_expressions = arguments
-            .iter()
-            .filter_map(|argument| {
-                Some((
-                    argument.schema.id().to_owned(),
-                    display_scene_expression(&arguments, argument.expression()?),
-                ))
-            })
-            .collect::<HashMap<_, _>>();
         for argument in arguments {
             let argument_id = argument.schema.id().to_owned();
             let label = if argument.schema.label().is_empty() {
@@ -127,52 +118,6 @@ impl PropertyInspector {
                     .map(|state| state.input.clone())
                     .expect("argument name input ensured");
                 Self::set_input_value(&input, label, window, cx);
-            }
-
-            if let Some(expression) = displayed_expressions.get(&argument_id).cloned() {
-                let expression_key = ControlId::scene_argument_expression(scene_id, &argument_id);
-                if self
-                    .store
-                    .states
-                    .get(&expression_key)
-                    .and_then(state::ControlState::text)
-                    .is_none()
-                {
-                    let input = cx.new(|cx| {
-                        InputState::new(window, cx).default_value(SharedString::from(expression))
-                    });
-                    let edited_id = argument_id.clone();
-                    let subscription =
-                        cx.subscribe_in(&input, window, move |this, input, event, _, cx| {
-                            if !matches!(event, InputEvent::Change) {
-                                return;
-                            }
-                            let expression = input.read(cx).value().to_string();
-                            this.editor.update(cx, |editor, cx| {
-                                if editor.update_scene_argument_expression(&edited_id, &expression)
-                                {
-                                    cx.notify();
-                                }
-                            });
-                        });
-                    self.store.states.insert(
-                        expression_key,
-                        state::ControlState::Text(state::TextState {
-                            input,
-                            _subscriptions: vec![subscription],
-                        }),
-                    );
-                } else {
-                    let input = self
-                        .store
-                        .states
-                        .get(&expression_key)
-                        .and_then(state::ControlState::text)
-                        .map(|state| state.input.clone())
-                        .expect("argument expression input ensured");
-                    Self::set_input_value(&input, expression, window, cx);
-                }
-                continue;
             }
 
             if let Some(number) = NumericInput::for_schema(&argument.schema) {
@@ -772,16 +717,6 @@ impl PropertyInspector {
                                 });
                             }))
                         })
-                        .item(PopupMenuItem::new("数値(導出)").on_click({
-                            let editor = create_editor.clone();
-                            move |_, _, cx| {
-                                editor.update(cx, |editor, cx| {
-                                    if editor.create_expression_scene_argument().is_some() {
-                                        cx.notify();
-                                    }
-                                });
-                            }
-                        }))
                     }),
             )
     }
@@ -938,12 +873,7 @@ impl PropertyInspector {
                 .flex_none()
                 .ghost()
                 .icon(IconName::Delete)
-                .tooltip(if argument.referenced_by_expression {
-                    "式から参照されているため削除できません"
-                } else {
-                    "引数を削除"
-                })
-                .disabled(argument.referenced_by_expression)
+                .tooltip("引数を削除")
                 .on_click(move |_, _, cx| {
                     remove_inspector.update(cx, |inspector, cx| {
                         let result = inspector.editor.update(cx, |editor, cx| {
@@ -968,20 +898,6 @@ impl PropertyInspector {
         argument: &SceneArgumentOption,
         render: &RenderCtx<'_>,
     ) -> gpui::AnyElement {
-        if argument.expression.is_some() {
-            return self
-                .store
-                .states
-                .get(&ControlId::scene_argument_expression(
-                    argument.scene_id,
-                    &argument.id,
-                ))
-                .and_then(state::ControlState::text)
-                .map(|state| Self::scene_text_input_row("式", state.input.clone()))
-                .map(IntoElement::into_any_element)
-                .unwrap_or_else(|| div().into_any_element());
-        }
-
         let mut details = div().w_full().flex().flex_col().gap_2();
         if let Some(settings) = self.numeric_scene_argument_settings(argument, render) {
             details = details.child(settings);

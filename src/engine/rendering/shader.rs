@@ -3,36 +3,9 @@ use std::{fmt, sync::Arc};
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ItemShaderId(String);
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) enum PluginShaderOwnerKind {
-    Item,
-    Effect,
-}
-
-impl PluginShaderOwnerKind {
-    const fn namespace(self) -> &'static str {
-        match self {
-            Self::Item => "item",
-            Self::Effect => "effect",
-        }
-    }
-}
-
 impl ItemShaderId {
     pub(crate) fn plugin_item(plugin_id: &str, item_id: &str) -> Self {
         Self(format!("{plugin_id}::item::{item_id}"))
-    }
-
-    pub(crate) fn plugin_capability(
-        plugin_id: &str,
-        owner_kind: PluginShaderOwnerKind,
-        owner_id: &str,
-        id: &str,
-    ) -> Self {
-        let namespace = owner_kind.namespace();
-        Self(format!(
-            "{plugin_id}::{namespace}::{owner_id}::capability::{id}"
-        ))
     }
 
     pub(crate) fn host_capability_frame() -> Self {

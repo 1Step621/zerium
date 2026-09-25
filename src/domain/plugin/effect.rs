@@ -147,13 +147,18 @@ pub(crate) enum PassConstantValue {
     Bool(bool),
 }
 
+/// Selects source times independently of the shader that combines them.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct TemporalSamplingSchema {
-    sample_count: String,
-    angle: String,
-    #[serde(default)]
-    phase: Option<String>,
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum TemporalSamplingSchema {
+    Range {
+        sample_count: String,
+        start_offset: String,
+        end_offset: String,
+    },
+    Offsets {
+        offsets: String,
+    },
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -319,126 +324,104 @@ impl super::PluginCatalogEntry for EffectSchema {
 
 impl TemporalSamplingSchema {
     fn validate(&self, effect: &EffectSchema) -> Result<(), PluginError> {
-        let Self {
-            sample_count,
-            angle,
-            phase,
-        } = self;
-        for (property_id, expected_type, role) in [
-            (
-                sample_count.as_str(),
-                ScalarPropertyType::U32,
-                "sample count",
-            ),
-            (angle.as_str(), ScalarPropertyType::F32, "shutter angle"),
-        ] {
-            if effect.property(property_id).map(|property| &property.ty)
-                != Some(&PropertyType::Value(PropertyValueType::Scalar(
-                    expected_type,
-                )))
-            {
-                return Err(PluginError::invalid_definition(format!(
-                    "effect '{}' temporal {role} property '{}' has the wrong type",
-                    effect.id, property_id
-                )));
-            }
-        }
-        let samples = effect
-            .property(sample_count)
-            .expect("sample-count property type was checked");
-        if !samples
-            .configuration_constraints(None)
-            .min
-            .is_some_and(|minimum| minimum >= 1.)
-            || !samples
-                .configuration_constraints(None)
-                .max
-                .is_some_and(|maximum| maximum <= MAX_TEMPORAL_SAMPLES as f64)
-        {
-            return Err(PluginError::invalid_definition(format!(
-                "effect '{}' temporal sample count must be constrained to 1..={MAX_TEMPORAL_SAMPLES}",
-                effect.id
-            )));
-        }
-        let angle = effect
-            .property(angle)
-            .expect("shutter-angle property type was checked");
-        if !angle
-            .configuration_constraints(None)
-            .min
-            .is_some_and(|minimum| minimum >= 0.)
-        {
-            return Err(PluginError::invalid_definition(format!(
-                "effect '{}' temporal shutter angle must have a non-negative minimum",
-                effect.id
-            )));
-        }
-        if let Some(property_id) = phase
-            && effect.property(property_id).map(|property| &property.ty)
-                != Some(&PropertyType::Value(PropertyValueType::Scalar(
-                    ScalarPropertyType::F32,
-                )))
-        {
-            return Err(PluginError::invalid_definition(format!(
-                "effect '{}' temporal shutter phase property '{}' has the wrong type",
-                effect.id, property_id
-            )));
-        }
-        if let Some(property_id) = phase {
-            let phase = effect
-                .property(property_id)
-                .expect("shutter-phase property type was checked");
-            if !phase
-                .configuration_constraints(None)
-                .min
-                .is_some_and(|minimum| minimum >= -1.)
-                || !phase
-                    .configuration_constraints(None)
-                    .max
-                    .is_some_and(|maximum| maximum <= 1.)
-            {
-                return Err(PluginError::invalid_definition(format!(
-                    "effect '{}' temporal shutter phase must be constrained to -1..=1",
+        let scalar = |id: &str, ty: ScalarPropertyType| {
+            (effect.property(id).map(|property| property.ty())
+                == Some(&PropertyType::Value(PropertyValueType::Scalar(ty))))
+            .then_some(())
+            .ok_or_else(|| {
+                PluginError::invalid_definition(format!(
+                    "effect '{}' temporal property '{id}' has the wrong type",
                     effect.id
-                )));
+                ))
+            })
+        };
+        match self {
+            Self::Range {
+                sample_count,
+                start_offset,
+                end_offset,
+            } => {
+                scalar(sample_count, ScalarPropertyType::U32)?;
+                scalar(start_offset, ScalarPropertyType::F32)?;
+                scalar(end_offset, ScalarPropertyType::F32)?;
+                let constraints = effect
+                    .property(sample_count)
+                    .expect("sample count type was checked")
+                    .configuration_constraints(None);
+                if !constraints.min.is_some_and(|min| min >= 1.)
+                    || !constraints
+                        .max
+                        .is_some_and(|max| max <= f64::from(MAX_TEMPORAL_SAMPLES))
+                {
+                    return Err(PluginError::invalid_definition(format!(
+                        "effect '{}' temporal sample count must be constrained to 1..={MAX_TEMPORAL_SAMPLES}",
+                        effect.id
+                    )));
+                }
+            }
+            Self::Offsets { offsets } => {
+                let valid = matches!(
+                    effect.property(offsets).map(|property| property.ty()),
+                    Some(PropertyType::Array {
+                        element_type: PropertyValueType::Scalar(ScalarPropertyType::F32),
+                        min_items,
+                        max_items,
+                    }) if *min_items >= 1 && *max_items <= MAX_TEMPORAL_SAMPLES
+                );
+                if !valid {
+                    return Err(PluginError::invalid_definition(format!(
+                        "effect '{}' temporal offsets '{offsets}' must be a nonempty f32 array with at most {MAX_TEMPORAL_SAMPLES} entries",
+                        effect.id
+                    )));
+                }
             }
         }
         Ok(())
     }
 
     fn sample_offsets(&self, values: &PropertyValues) -> Option<Vec<f64>> {
-        let Self {
-            sample_count,
-            angle,
-            phase,
-        } = self;
-        let sample_count = match values.property(sample_count)? {
-            PropertyValue::U32(value) => (*value).clamp(1, MAX_TEMPORAL_SAMPLES),
-            _ => return None,
-        };
-        let shutter_angle = match values.property(angle)? {
-            PropertyValue::F32(value) if value.is_finite() => f64::from(value.abs()),
-            _ => return None,
-        };
-        if sample_count == 1 || shutter_angle <= f64::EPSILON {
-            return Some(vec![0.]);
+        match self {
+            Self::Range {
+                sample_count,
+                start_offset,
+                end_offset,
+            } => {
+                let PropertyValue::U32(count) = values.property(sample_count)? else {
+                    return None;
+                };
+                let PropertyValue::F32(start) = values.property(start_offset)? else {
+                    return None;
+                };
+                let PropertyValue::F32(end) = values.property(end_offset)? else {
+                    return None;
+                };
+                if !start.is_finite() || !end.is_finite() {
+                    return None;
+                }
+                let count = (*count).clamp(1, MAX_TEMPORAL_SAMPLES);
+                let start = f64::from(*start);
+                let span = f64::from(*end) - start;
+                if span == 0. {
+                    return Some(vec![start]);
+                }
+                Some(
+                    (0..count)
+                        .map(|index| start + (f64::from(index) + 0.5) * span / f64::from(count))
+                        .collect(),
+                )
+            }
+            Self::Offsets { offsets } => {
+                let PropertyValue::Array(elements) = values.property(offsets)? else {
+                    return None;
+                };
+                elements
+                    .iter()
+                    .map(|element| match element.value() {
+                        PropertyValue::F32(value) if value.is_finite() => Some(f64::from(*value)),
+                        _ => None,
+                    })
+                    .collect()
+            }
         }
-        let phase = phase
-            .as_deref()
-            .and_then(|id| values.property(id))
-            .and_then(|value| match value {
-                PropertyValue::F32(value) if value.is_finite() => Some(f64::from(*value)),
-                _ => None,
-            })
-            .unwrap_or(0.)
-            .clamp(-1., 1.);
-        let exposure_frames = shutter_angle / 360.;
-        let start = (phase - 1.) * exposure_frames * 0.5;
-        let step = exposure_frames / f64::from(sample_count);
-        Some(
-            (0..sample_count)
-                .map(|index| start + (f64::from(index) + 0.5) * step)
-                .collect(),
-        )
     }
 }

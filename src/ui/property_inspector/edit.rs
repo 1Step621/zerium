@@ -229,12 +229,8 @@ impl PropertyInspector {
         displayed_value: f64,
         cx: &mut Context<Self>,
     ) -> bool {
-        if !binding.value_factor.is_finite() || binding.value_factor == 0. {
-            return false;
-        }
-        let source_value = displayed_value / binding.value_factor;
         let Some(value) = Self::animation_stop_value(self.editor.read(cx), binding)
-            .and_then(|value| value.with_numeric_scalar(source_value))
+            .and_then(|value| value.with_numeric_scalar(displayed_value))
         else {
             return false;
         };
@@ -258,8 +254,7 @@ impl PropertyInspector {
         }
         let input_value = input.read(cx).value().to_string();
         let current = Self::animation_stop_value(self.editor.read(cx), binding)
-            .and_then(|value| value.numeric_scalar())
-            .map(|value| value * binding.value_factor);
+            .and_then(|value| value.numeric_scalar());
         if current.is_some_and(|value| input_value == Self::format_value(value)) {
             return;
         }
@@ -471,9 +466,7 @@ impl PropertyInspector {
     ) {
         let selected_items = self.editor.read(cx).selected_items();
         let address = match selected_items.as_slice() {
-            [item] => {
-                number_animation_source(item, &target.address(item.id)).map(|source| source.address)
-            }
+            [item] if target.animation_enabled(item) => Some(target.address(item.id)),
             _ => None,
         };
         self.animation_selection
@@ -490,19 +483,7 @@ impl PropertyInspector {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(item) = self.editor.read(cx).selected_item() else {
-            return;
-        };
-        let mut resolved = target.clone();
-        if !enabled {
-            let Some(display) = number_animation_source(&item, &target.address(item.id)) else {
-                return;
-            };
-            resolved.property_id = display.address.property_id;
-            resolved.element_id = display.address.element_id;
-            resolved.scalar_index = display.address.scalar_index;
-        }
-        self.set_animation_enabled(&resolved, enabled, _window, cx);
+        self.set_animation_enabled(target, enabled, _window, cx);
     }
 
     pub(super) fn select_animation(&mut self, property: &PropertyTarget, cx: &mut Context<Self>) {

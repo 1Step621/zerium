@@ -8,7 +8,6 @@ use serde::Deserialize;
 use super::PluginError;
 use super::identifier::{validate_logical_id, validate_wgsl_identifier};
 use super::item::ItemSchema;
-use super::shader::ShaderSchema;
 use crate::domain::property::{PropertySchema, PropertyType, ScalarPropertyType};
 
 pub(super) const MAX_RENDER_RESULT_OFFSET: u32 = 30;
@@ -130,12 +129,6 @@ impl FileCapability {
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub(crate) enum Capability {
-    Shader {
-        id: String,
-        shader: ShaderSchema,
-        #[serde(default = "default_item_vertex_count")]
-        vertex_count: u32,
-    },
     Media {
         #[serde(flatten)]
         file: FileCapability,
@@ -165,22 +158,8 @@ pub(crate) enum Capability {
 impl Capability {
     pub(crate) fn id(&self) -> &str {
         match self {
-            Self::Shader { id, .. } | Self::Text { id, .. } | Self::RenderResult { id, .. } => id,
+            Self::Text { id, .. } | Self::RenderResult { id, .. } => id,
             Self::Media { file } => file.id(),
-        }
-    }
-
-    pub(crate) fn shader(&self) -> Option<&ShaderSchema> {
-        match self {
-            Self::Shader { shader, .. } => Some(shader),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn vertex_count(&self) -> Option<u32> {
-        match self {
-            Self::Shader { vertex_count, .. } => Some(*vertex_count),
-            _ => None,
         }
     }
 
@@ -203,30 +182,14 @@ impl Capability {
                 "{owner_kind} '{owner_id}' capability ID 'capability_sampler' is reserved"
             )));
         }
-        match self {
-            Self::Shader {
-                shader,
-                vertex_count,
-                ..
-            } => {
-                shader.validate(owner_kind, owner_id)?;
-                if *vertex_count == 0 {
-                    return Err(PluginError::invalid_definition(format!(
-                        "{owner_kind} '{owner_id}' capability '{}' vertex count must be non-zero",
-                        self.id()
-                    )));
-                }
+        if let Self::Media { file } = self {
+            if file.media_type() == MediaType::Audio {
+                return Err(PluginError::invalid_definition(format!(
+                    "{owner_kind} '{owner_id}' media capability '{}' cannot be audio",
+                    self.id()
+                )));
             }
-            Self::Media { file } => {
-                if file.media_type() == MediaType::Audio {
-                    return Err(PluginError::invalid_definition(format!(
-                        "{owner_kind} '{owner_id}' media capability '{}' cannot be audio",
-                        self.id()
-                    )));
-                }
-                file.validate(owner_kind, owner_id)?;
-            }
-            _ => {}
+            file.validate(owner_kind, owner_id)?;
         }
         let mistyped = |property_id: &str, expected: &str| {
             PluginError::invalid_definition(format!(
@@ -336,7 +299,7 @@ impl Capability {
                     hide_original,
                 )?;
             }
-            Self::Shader { .. } | Self::Media { .. } => {}
+            Self::Media { .. } => {}
         }
         Ok(())
     }
@@ -483,8 +446,4 @@ pub(super) fn validate_capabilities(
         }
     }
     Ok(())
-}
-
-const fn default_item_vertex_count() -> u32 {
-    6
 }

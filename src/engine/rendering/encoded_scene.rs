@@ -23,7 +23,7 @@ pub(super) struct GpuEffect {
     pub(super) sample_index: u32,
     pub(super) sample_count: u32,
     pub(super) frame_offset: f32,
-    pub(super) exposure_progress: f32,
+    pub(super) sample_progress: f32,
     pub(super) composition_size: [f32; 2],
 }
 
@@ -284,7 +284,7 @@ fn encode_effect_pass(
         sample_index: 0,
         sample_count: 0,
         frame_offset: 0.,
-        exposure_progress: 0.,
+        sample_progress: 0.,
         composition_size: [
             composition_size.width as f32,
             composition_size.height as f32,
@@ -449,7 +449,7 @@ impl EncodeContext<'_> {
             sample_index,
             sample_count,
             frame_offset: sample.frame_offset,
-            exposure_progress: (sample_index as f32 + 0.5) / sample_count.max(1) as f32,
+            sample_progress: (sample_index as f32 + 0.5) / sample_count.max(1) as f32,
             composition_size: [
                 self.composition_size.width as f32,
                 self.composition_size.height as f32,

@@ -161,21 +161,6 @@ impl TimelineEditor {
                                 .is_none_or(|property| !property.is_editable(None))
                     })
             })
-            || (locked
-                && self.active_scene_id().is_some_and(|scene_id| {
-                    self.project().scenes.get(&scene_id).is_some_and(|scene| {
-                        scene
-                            .arguments
-                            .iter()
-                            .flat_map(|argument| &argument.bindings)
-                            .any(|binding| {
-                                ids.contains(&binding.item_id())
-                                    && self.active_document().item(binding.item_id()).is_some_and(
-                                        |item| binding.conflicts_with_aspect_ratio_lock(item, true),
-                                    )
-                            })
-                    })
-                }))
         {
             return false;
         }

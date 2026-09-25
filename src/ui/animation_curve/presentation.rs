@@ -3,14 +3,11 @@ use crate::domain::{
     timeline::{PropertyAddress, TimelineEditor, TimelineItem},
 };
 
-use super::super::animation_source::number_animation_source;
-
 #[derive(Clone)]
 pub(super) struct AnimationPresentation {
     pub(super) label: String,
     pub(super) suffix: String,
     pub(super) step: f64,
-    pub(super) value_factor: f64,
 }
 
 impl AnimationPresentation {
@@ -46,19 +43,19 @@ impl AnimationPresentation {
                 label,
                 suffix: String::new(),
                 step: 0.01,
-                value_factor: 1.,
             });
         }
         let (suffix, step) = numeric_animation_display(&property, scalar_index)?;
-        let display = number_animation_source(item, address)?;
-        if display.address != *address {
-            return None;
-        }
+        item.animation_track(
+            address.effect_id,
+            &address.property_id,
+            address.element_id,
+            address.scalar_index,
+        )?;
         Some(Self {
             label,
             suffix,
             step,
-            value_factor: display.value_factor,
         })
     }
 }

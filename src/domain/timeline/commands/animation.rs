@@ -26,17 +26,6 @@ impl TimelineEditor {
         if !schema.is_editable(scalar_index) {
             return false;
         }
-        if effect_id.is_none()
-            && scalar_index == Some(1)
-            && self.active_document().item(item_id).is_some_and(|item| {
-                item.preserves_aspect_ratio()
-                    && item
-                        .schema()
-                        .is_some_and(|schema| schema.is_size_property(&property_id))
-            })
-        {
-            return false;
-        }
         let address = ScalarAnimationAddress::new(property_id.clone(), element_id, scalar_index);
         let changed = if !enabled {
             self.animation_store_mut(item_id, effect_id)

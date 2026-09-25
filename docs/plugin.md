@@ -83,16 +83,13 @@ render, compute, or temporal pass can use those inputs. Array order fixes the
 GPU binding order; each `id` is unique within its item or effect and becomes
 the WESL symbol imported from `package::generated::capability_input`.
 
-- `shader` renders a separate item-like input from a WESL module. It sees the
-  owner's properties and does not receive the owner's capability array.
 - `media` decodes a video or image file and exposes its pixels as a texture.
 - `text` rasterizes text from referenced properties into a texture.
 - `render_result` composites an inclusive range of layers behind the owner.
 
 These input types use the same rendering rules for items and effects. A missing
 or unavailable media frame supplies a transparent texture in either case.
-Item and effect shader IDs retain separate namespaces so identically named
-schemas and capabilities cannot collide.
+Item output shaders and effect passes have distinct internal shader identities.
 
 Up to eight capabilities may be declared. Their IDs must be valid WGSL
 identifiers. The IDs are used directly, without a `slot_` prefix. All
@@ -480,17 +477,20 @@ its reducer owns the weighting algorithm:
 {
   "type": "temporal",
   "sampling": {
+    "type": "range",
     "sample_count": "samples",
-    "angle": "shutter_angle",
-    "phase": "phase"
+    "start_offset": "start_offset",
+    "end_offset": "end_offset"
   },
   "reducer": { "module": "motion_blur_accumulate" }
 }
 ```
 
-The sample-count property must have explicit constraints within `1..=32`, the
-angle must have a non-negative minimum, and phase (when present) must be bounded
-within `-1..=1`.
+`range` samples evenly between start and end offsets, measured in frames.
+The sample-count property must have explicit constraints within `1..=32`.
+Alternatively, `{"type":"offsets","offsets":"sample_offsets"}` reads an
+array of 1–32 explicit frame offsets from a property. Negative offsets sample
+the past, positive offsets the future, and zero samples the current frame.
 
 Reducer WESL receives `temporal_sample`,
 `temporal_accumulation`, `temporal_sampler`, and

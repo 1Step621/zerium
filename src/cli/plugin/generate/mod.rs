@@ -1,6 +1,6 @@
 use std::{collections::BTreeMap, fs, path::Path};
 
-use crate::domain::plugin::{Capability, PluginManifest, ShaderKind};
+use crate::domain::plugin::{PluginManifest, ShaderKind};
 use crate::engine::rendering::capability_input;
 
 mod property;
@@ -49,11 +49,9 @@ pub(crate) fn generate(path: Option<&Path>) -> Result<(), String> {
                 },
             )?;
         }
-        insert_capability_shader_contracts(&mut contracts, schema.capabilities(), &layout)?;
     }
     for schema in manifest.effects() {
         let layout = property::Layout::from_abi(schema.property_layout());
-        insert_capability_shader_contracts(&mut contracts, schema.capabilities(), &layout)?;
         for pass in schema.passes() {
             insert_contract(
                 &mut contracts,
@@ -84,27 +82,6 @@ pub(crate) fn generate(path: Option<&Path>) -> Result<(), String> {
         "generated WESL modules in {}",
         root.join(GENERATED_DIR).display()
     );
-    Ok(())
-}
-
-fn insert_capability_shader_contracts(
-    contracts: &mut BTreeMap<String, ShaderContract>,
-    capabilities: &[Capability],
-    layout: &property::Layout,
-) -> Result<(), String> {
-    for capability in capabilities {
-        if let Some(shader) = capability.shader() {
-            insert_contract(
-                contracts,
-                shader.module(),
-                ShaderContract {
-                    kind: ShaderKind::Item,
-                    properties: layout.clone(),
-                    capability_interface: capability_input::interface(&[]),
-                },
-            )?;
-        }
-    }
     Ok(())
 }
 

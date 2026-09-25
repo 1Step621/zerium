@@ -19,7 +19,7 @@ use crate::domain::timeline::{
     EffectInstance, EffectInstanceId, Frame, FrameDuration, FrameRate, ItemId, LayerId, ProjectId,
     ProjectResolution, SceneArgument, SceneBindingTarget, SceneDefinition, SceneId,
     TimelineDocument, TimelineEditor, TimelineItem, TimelineItemKind, TimelineSnapshot,
-    TimelineView, resolve_scene_binding, scene_argument_expressions_valid,
+    TimelineView, resolve_scene_binding,
 };
 
 pub(crate) const PROJECT_EXTENSION: &str = "zero";
@@ -173,7 +173,6 @@ impl ProjectFile {
                 scene
                     .arguments
                     .iter()
-                    .filter(|argument| argument.expression.is_none())
                     .map(|argument| argument.schema.clone())
                     .collect::<Vec<_>>(),
             );
@@ -311,8 +310,6 @@ impl ProjectScene {
 struct ProjectSceneArgument {
     schema: PropertySchema,
     bindings: Vec<SceneBindingTarget>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    expression: Option<String>,
 }
 
 impl ProjectSceneArgument {
@@ -320,7 +317,6 @@ impl ProjectSceneArgument {
         Self {
             schema: argument.schema.clone(),
             bindings: argument.bindings.clone(),
-            expression: argument.expression().map(str::to_owned),
         }
     }
 
@@ -328,13 +324,7 @@ impl ProjectSceneArgument {
         let schema = self.schema.for_scene_argument().ok_or_else(|| {
             ProjectError::invalid_data("シーン引数は対応するスカラー型ではありません")
         })?;
-        match self.expression {
-            Some(expression) => SceneArgument::computed(schema, self.bindings, expression)
-                .ok_or_else(|| {
-                    ProjectError::invalid_data("式シーン引数は数値型である必要があります")
-                }),
-            None => Ok(SceneArgument::input(schema, self.bindings)),
-        }
+        Ok(SceneArgument::new(schema, self.bindings))
     }
 }
 
@@ -804,12 +794,6 @@ fn validate_scenes(
 ) -> Result<(), ProjectError> {
     let mut names = HashSet::new();
     for scene in scenes.values() {
-        if !scene_argument_expressions_valid(&scene.arguments) {
-            return Err(ProjectError::invalid_data(format!(
-                "シーン '{}' の式が不正です",
-                scene.name
-            )));
-        }
         if !names.insert(scene.name.as_str()) {
             return Err(ProjectError::invalid_data(format!(
                 "シーン名 '{}' が重複しています",
@@ -826,21 +810,6 @@ fn validate_scenes(
                     )));
                 }
                 let property_id = binding.property_id();
-                let item = scene
-                    .items()
-                    .find(|item| item.id == binding.item_id())
-                    .ok_or_else(|| {
-                        ProjectError::invalid_data(format!(
-                            "シーン '{}' の引数接続先 '{}' がありません",
-                            scene.name, property_id
-                        ))
-                    })?;
-                if binding.conflicts_with_aspect_ratio_lock(item, item.aspect_ratio_locked) {
-                    return Err(ProjectError::invalid_data(format!(
-                        "シーン '{}' の接続先 '{}' は縦横比固定と競合しています",
-                        scene.name, property_id
-                    )));
-                }
                 let resolved = resolve_scene_binding(scenes, scene, binding).ok_or_else(|| {
                     ProjectError::invalid_data(format!(
                         "シーン '{}' の引数接続先 '{}' がありません",

@@ -87,7 +87,6 @@ pub(super) enum HistoryKey {
     SceneName(SceneId),
     SceneArgumentLabel(SceneId, String),
     SceneArgumentSettings(SceneId, String),
-    SceneArgumentExpression(SceneId, String),
 }
 
 #[derive(Clone)]

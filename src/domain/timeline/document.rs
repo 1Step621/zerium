@@ -3,7 +3,7 @@ use std::{
     sync::Arc,
 };
 
-use crate::domain::animation::{ScalarAnimationAddress, ScalarAnimations};
+use crate::domain::animation::ScalarAnimations;
 use crate::domain::media::ImportedMedia;
 use crate::domain::plugin::{EffectSchema, ItemSchema};
 use crate::domain::property::{PropertyValue, PropertyValues};
@@ -660,7 +660,7 @@ impl TimelineDocument {
         }
         // Resolve a locked size as one value. Writing width first can leave the old
         // height behind if the derived height is outside its contract.
-        let value = if item.preserves_aspect_ratio()
+        let value = if item.aspect_ratio_locked
             && schema.is_size_property(property_id)
             && property.ty().allows(&value)
             && let Some(ratio) = item.current_aspect_ratio(&schema)
@@ -704,15 +704,7 @@ impl TimelineDocument {
         {
             return false;
         }
-        let aspect_ratio = item.current_aspect_ratio(&schema);
         item.aspect_ratio_locked = locked;
-        if locked && let Some(size) = schema.size_property() {
-            item.animations
-                .remove(&ScalarAnimationAddress::new(size.id.clone(), None, Some(1)));
-        }
-        if locked && let Some(aspect_ratio) = aspect_ratio {
-            item.constrain_size_to_aspect_ratio(aspect_ratio);
-        }
         true
     }
 

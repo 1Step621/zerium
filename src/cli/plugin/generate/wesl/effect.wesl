@@ -6,7 +6,7 @@ struct ZeriumEffect {
     sample_index: u32,
     sample_count: u32,
     frame_offset: f32,
-    exposure_progress: f32,
+    sample_progress: f32,
     composition_size: vec2<f32>,
 };
 
