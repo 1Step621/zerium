@@ -15,7 +15,7 @@ fn vertex_main(
 ) -> EllipseVertexOutput {
     let properties = props(instance_index);
     let position = vec2(properties.position.v0, properties.position.v1);
-    let radius = vec2(properties.radius.v0, properties.radius.v1);
+    let diameter = vec2(properties.diameter.v0, properties.diameter.v1);
     let local = quad_corner(vertex_index);
 
     var output: EllipseVertexOutput;
@@ -23,7 +23,7 @@ fn vertex_main(
         instance_index,
         position,
         local,
-        radius * 2.0,
+        diameter,
     );
     output.local = local;
     output.color = scene_color(properties.color);

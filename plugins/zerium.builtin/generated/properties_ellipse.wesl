@@ -13,7 +13,7 @@ struct ZeriumPropsTuple1 {
 struct ZeriumProps {
     _raw: ZeriumRawProps,
     position: ZeriumPropsTuple0,
-    radius: ZeriumPropsTuple1,
+    diameter: ZeriumPropsTuple1,
     color: vec4<f32>,
 };
 
