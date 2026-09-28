@@ -399,7 +399,7 @@ impl PropertyInspector {
             return;
         };
         let sensitivity = origin.sensitivity * if fine_adjustment { 0.1 } else { 1. };
-        let value = model::snap_to_step(
+        let value = numeric::snap_to_step(
             origin.start_value + f64::from(pointer_x - origin.start_x) * sensitivity,
             origin.step,
         )
@@ -464,6 +464,11 @@ impl PropertyInspector {
         target: &PropertyTarget,
         cx: &mut Context<Self>,
     ) {
+        self.editor.update(cx, |editor, cx| {
+            if editor.set_active_edit_effect(target.effect_id) {
+                cx.notify();
+            }
+        });
         let selected_items = self.editor.read(cx).selected_items();
         let address = match selected_items.as_slice() {
             [item] if target.animation_enabled(item) => Some(target.address(item.id)),
@@ -487,6 +492,11 @@ impl PropertyInspector {
     }
 
     pub(super) fn select_animation(&mut self, property: &PropertyTarget, cx: &mut Context<Self>) {
+        self.editor.update(cx, |editor, cx| {
+            if editor.set_active_edit_effect(property.effect_id) {
+                cx.notify();
+            }
+        });
         let items = self.editor.read(cx).selected_items();
         let target = match items.as_slice() {
             [item] if property.animation_enabled(item) => Some(property.address(item.id)),

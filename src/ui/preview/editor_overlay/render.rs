@@ -6,6 +6,7 @@ impl Preview {
     fn size_overlay(
         &self,
         overlay: PreviewSizeOverlay,
+        effect_id: Option<EffectInstanceId>,
         resolution: crate::domain::timeline::ProjectResolution,
         composition_units_per_pixel: f32,
         color: Hsla,
@@ -23,7 +24,16 @@ impl Preview {
             PreviewResizeHandle::Bottom,
         ]
         .into_iter()
-        .map(|handle| self.resize_handle(&overlay, handle, composition_units_per_pixel, color, cx))
+        .map(|handle| {
+            self.resize_handle(
+                &overlay,
+                effect_id,
+                handle,
+                composition_units_per_pixel,
+                color,
+                cx,
+            )
+        })
         .collect::<Vec<_>>();
         div()
             .id(SharedString::from(format!(
@@ -45,7 +55,7 @@ impl Preview {
             .children(handles)
     }
 
-    fn motion_path(
+    fn path_overlay(
         positions: Vec<[f32; 2]>,
         resolution: crate::domain::timeline::ProjectResolution,
         color: Hsla,
@@ -88,13 +98,16 @@ impl Preview {
         cx: &Context<Self>,
     ) -> impl IntoElement {
         let item_id = overlay.item_id;
+        let effect_id = overlay.effect_id;
         let motion_path = overlay.motion_path;
+        let spline_path = overlay.spline_path;
         let positions = overlay
             .positions
             .into_iter()
             .map(|position| {
                 self.position_handle(
                     item_id,
+                    effect_id,
                     position,
                     resolution,
                     composition_units_per_pixel,
@@ -106,20 +119,39 @@ impl Preview {
         let sizes = overlay
             .sizes
             .into_iter()
-            .map(|size| self.size_overlay(size, resolution, composition_units_per_pixel, color, cx))
+            .map(|size| {
+                self.size_overlay(
+                    size,
+                    effect_id,
+                    resolution,
+                    composition_units_per_pixel,
+                    color,
+                    cx,
+                )
+            })
             .collect::<Vec<_>>();
         let points = overlay
             .points
             .into_iter()
             .map(|point| {
-                self.point_handle(point, resolution, composition_units_per_pixel, color, cx)
+                self.point_handle(
+                    point,
+                    effect_id,
+                    resolution,
+                    composition_units_per_pixel,
+                    color,
+                    cx,
+                )
             })
             .collect::<Vec<_>>();
         div()
             .absolute()
             .inset_0()
             .when(!motion_path.is_empty(), |this| {
-                this.child(Self::motion_path(motion_path, resolution, color))
+                this.child(Self::path_overlay(motion_path, resolution, color))
+            })
+            .when(!spline_path.is_empty(), |this| {
+                this.child(Self::path_overlay(spline_path, resolution, color))
             })
             .children(sizes)
             .children(points)

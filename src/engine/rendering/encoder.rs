@@ -347,24 +347,19 @@ impl FrameRenderer {
             } => {
                 let input_surface =
                     self.render_surface(encoder, context, rendered_shared_nodes, *input)?;
-                if matches!(bounds_operation, BoundsOperation::Translate(_))
-                    && node.bounds
-                        == bounds_operation.apply(
-                            context.nodes[*input].bounds,
-                            SurfaceRect::viewport(context.resources.composition_size),
-                        )
+                if let BoundsOperation::Translate(offset) = bounds_operation
+                    && node.bounds == context.nodes[*input].bounds.translate(*offset)
                 {
                     return Ok(RenderedSurface {
-                        rect: input_surface.rect.translate(match bounds_operation {
-                            BoundsOperation::Translate(offset) => *offset,
-                            _ => unreachable!(),
-                        }),
+                        rect: input_surface.rect.translate(*offset),
                         ..input_surface
                     });
                 }
                 let transformed = matches!(
                     bounds_operation,
-                    BoundsOperation::Rotate { .. } | BoundsOperation::Perspective { .. }
+                    BoundsOperation::Rotate { .. }
+                        | BoundsOperation::Perspective { .. }
+                        | BoundsOperation::CenterRange { .. }
                 );
                 let (resources, rect) = self.local_resources(
                     context,
@@ -525,21 +520,6 @@ impl FrameRenderer {
                                 &inputs,
                                 shader,
                                 *instance..*instance + 1,
-                                wgpu::LoadOp::Load,
-                            );
-                        }
-                        RenderNodeCommandKind::Source(RenderSourceCommand::Texture {
-                            index,
-                            shader,
-                        }) => {
-                            let texture = context.textures.get(*index).ok_or_else(|| {
-                                RenderError::backend("scene texture resource is missing")
-                            })?;
-                            self.encode_texture_pass(
-                                encoder,
-                                &resources.effect_view_a,
-                                &texture.binding,
-                                shader,
                                 wgpu::LoadOp::Load,
                             );
                         }
@@ -1073,7 +1053,7 @@ impl FrameRenderer {
                         wgpu::LoadOp::Load,
                     );
                 }
-                RenderCommand::Effected { node, render_scale } => {
+                RenderCommand::Surface { node, render_scale } => {
                     let resources = resources_by_scale
                         .get(render_scale)
                         .expect("effect render resources were created for the command scale");
@@ -1145,7 +1125,7 @@ impl FrameRenderer {
         let mut required_scales = HashSet::from([1_u32]);
         for command in &encoded.commands {
             match command {
-                RenderCommand::Effected { render_scale, .. } => {
+                RenderCommand::Surface { render_scale, .. } => {
                     required_scales.insert(*render_scale);
                 }
                 RenderCommand::Items(_) | RenderCommand::Texture { .. } => {}

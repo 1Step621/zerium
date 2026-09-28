@@ -250,7 +250,7 @@ impl ItemSchema {
             bounds.validate(&self.id, &self.properties)?;
         }
         if let Some(editor) = &self.editor {
-            editor.validate(self)?;
+            editor.validate("item", &self.id, &self.properties)?;
         }
         Ok(())
     }
@@ -281,6 +281,14 @@ impl ItemSchema {
             .points
             .as_deref()
             .and_then(|id| self.property(id))
+    }
+
+    pub(crate) fn spline_properties(&self) -> Option<(&PropertySchema, &PropertySchema)> {
+        let spline = self.editor.as_ref()?.spline.as_ref()?;
+        Some((
+            self.property(&spline.tension)?,
+            self.property(&spline.closed)?,
+        ))
     }
 
     pub(crate) fn label_property(&self) -> Option<&PropertySchema> {

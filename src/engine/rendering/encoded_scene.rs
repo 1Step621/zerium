@@ -73,7 +73,7 @@ pub(super) enum RenderCommand {
         index: usize,
         shader: ItemShaderId,
     },
-    Effected {
+    Surface {
         node: RenderNodeId,
         render_scale: u32,
     },
@@ -173,6 +173,7 @@ pub(super) enum SourceKey {
         properties: Vec<u8>,
         target_size: RenderSize,
         render_scale: u32,
+        bounds: [u64; 4],
     },
     Texture {
         shader: ItemShaderId,
@@ -180,7 +181,17 @@ pub(super) enum SourceKey {
         properties: Vec<u8>,
         target_size: RenderSize,
         render_scale: u32,
+        bounds: [u64; 4],
     },
+}
+
+fn bounds_key(bounds: SurfaceRect) -> [u64; 4] {
+    [
+        bounds.min[0].to_bits(),
+        bounds.min[1].to_bits(),
+        bounds.max[0].to_bits(),
+        bounds.max[1].to_bits(),
+    ]
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -325,6 +336,7 @@ impl EncodeContext<'_> {
                     properties: item.properties.clone(),
                     target_size: item.target_size,
                     render_scale: item.render_scale,
+                    bounds: bounds_key(item.output_bounds),
                 };
                 if let Some(source) = self.source_cache.get(&key) {
                     return Ok((source.clone(), key));
@@ -378,6 +390,7 @@ impl EncodeContext<'_> {
                     properties: item.properties.clone(),
                     target_size: item.target_size,
                     render_scale: item.render_scale,
+                    bounds: bounds_key(item.output_bounds),
                 };
                 if let Some(source) = self.source_cache.get(&key) {
                     return Ok((source.clone(), key));
@@ -668,14 +681,8 @@ pub(super) fn encode_items(scene: &RenderScene) -> Result<EncodedScene, RenderEr
     let mut source_cache = HashMap::new();
     let mut commands: Vec<RenderCommand> = Vec::new();
 
+    let viewport = SurfaceRect::viewport(scene.composition_size);
     for node in &scene.roots {
-        let (has_effects, item) = match &node.content {
-            RenderNodeContent::Item(item) => (
-                !item.effects.is_empty() || !item.inputs.is_empty(),
-                Some(item.clone()),
-            ),
-            RenderNodeContent::Scene { effects, .. } => (!effects.is_empty(), None),
-        };
         let mut context = EncodeContext {
             items: &mut items,
             properties: &mut properties,
@@ -688,41 +695,42 @@ pub(super) fn encode_items(scene: &RenderScene) -> Result<EncodedScene, RenderEr
             source_cache: &mut source_cache,
             composition_size: scene.composition_size,
         };
-        if has_effects || matches!(node.content, RenderNodeContent::Scene { .. }) {
-            commands.push(RenderCommand::Effected {
-                node: context.encode_node(node)?,
-                render_scale: node.required_render_scale(),
-            });
-            continue;
-        }
-        let item = item.as_ref().expect("non-scene nodes contain an item");
-        match context.encode_source(item)?.0 {
-            RenderSourceCommand::Item {
+        let root = context.encode_node(node)?;
+        match &context.nodes[root].kind {
+            RenderNodeCommandKind::Source(RenderSourceCommand::Item {
                 shader,
                 instance,
-                capabilities: _,
-            } => match commands.last_mut() {
+                capabilities,
+            }) if capabilities.is_empty() => match commands.last_mut() {
                 Some(RenderCommand::Items(batch))
-                    if batch.shader == shader && batch.instances.end == instance =>
+                    if batch.shader == *shader && batch.instances.end == *instance =>
                 {
                     batch.instances.end = instance + 1;
                 }
                 _ => commands.push(RenderCommand::Items(ItemBatch {
-                    shader,
-                    instances: instance..instance + 1,
+                    shader: shader.clone(),
+                    instances: *instance..instance + 1,
                 })),
             },
-            RenderSourceCommand::Texture { index, shader } => {
-                commands.push(RenderCommand::Texture { index, shader });
+            RenderNodeCommandKind::Source(RenderSourceCommand::Texture { index, shader })
+                if context.nodes[root].bounds == viewport =>
+            {
+                commands.push(RenderCommand::Texture {
+                    index: *index,
+                    shader: shader.clone(),
+                });
             }
-            RenderSourceCommand::Transparent => unreachable!("scene items are never transparent"),
+            _ => commands.push(RenderCommand::Surface {
+                node: root,
+                render_scale: node.required_render_scale(),
+            }),
         }
     }
 
     let shared_node_slots = shared_node_slots(
         &nodes,
         &commands,
-        SurfaceRect::viewport(scene.composition_size),
+        viewport,
         shared_node_cache_capacity(scene.effect_size),
     );
     Ok(EncodedScene {
@@ -747,7 +755,7 @@ fn shared_node_slots(
 ) -> Vec<Option<usize>> {
     let mut references = vec![0_usize; nodes.len()];
     for command in commands {
-        if let RenderCommand::Effected { node, .. } = command {
+        if let RenderCommand::Surface { node, .. } = command {
             references[*node] += 1;
         }
     }

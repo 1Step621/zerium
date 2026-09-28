@@ -124,6 +124,7 @@ impl TimelineEditor {
 
     pub(crate) fn set_selected_property_animation_pair_stop_at(
         &mut self,
+        effect_id: Option<EffectInstanceId>,
         property_id: &str,
         element_id: Option<PropertyElementId>,
         position: f32,
@@ -138,12 +139,13 @@ impl TimelineEditor {
         let stop_frame = Frame::new(item.animation_timeline_frame(position).round().max(0.) as u64);
         let key = HistoryKey::AnimationPairStopValue(
             item_id,
+            effect_id,
             property_id.to_owned(),
             element_id,
             stop_frame,
         );
         let before = self.history_snapshot_for_edit(Some(&key));
-        let Some(schema) = self.animation_schema(item_id, None, property_id) else {
+        let Some(schema) = self.animation_schema(item_id, effect_id, property_id) else {
             return false;
         };
         let editable = [0_usize, 1].map(|scalar_index| {
@@ -159,13 +161,13 @@ impl TimelineEditor {
             }
             let address = ScalarAnimationAddress::new(property_id, element_id, Some(scalar_index));
             let Some(index) = self
-                .animation_track(item_id, None, &address)
+                .animation_track(item_id, effect_id, &address)
                 .and_then(|track| track.stop_index_at(position))
             else {
                 continue;
             };
             changed |= self
-                .animation_track_mut(item_id, None, &address)
+                .animation_track_mut(item_id, effect_id, &address)
                 .is_some_and(|track| {
                     track.set_stop_exact(index, PropertyValue::F32(value[scalar_index]))
                 });

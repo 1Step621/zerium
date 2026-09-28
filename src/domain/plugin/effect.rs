@@ -5,6 +5,7 @@ use serde::{Deserialize, Deserializer, de::Error as _};
 use super::OutputBoundsSchema;
 use super::PluginError;
 use super::abi::PropertyLayout;
+use super::capability::EditorCapability;
 use super::capability::{Capability, FileCapability, validate_capabilities};
 use super::identifier::validate_wgsl_identifier;
 use super::shader::{ShaderKind, ShaderSchema, validate_shader_module};
@@ -24,6 +25,7 @@ pub(crate) struct EffectSchema {
     tags: Vec<String>,
     render_scale: u32,
     output_bounds: OutputBoundsSchema,
+    editor: Option<EditorCapability>,
     capabilities: Vec<Capability>,
     properties: Vec<PropertySchema>,
     passes: Vec<EffectPassSchema>,
@@ -42,6 +44,7 @@ struct EffectSchemaDefinition {
     render_scale: u32,
     #[serde(default)]
     output_bounds: OutputBoundsSchema,
+    editor: Option<EditorCapability>,
     #[serde(default)]
     capabilities: Vec<Capability>,
     properties: Vec<PropertySchema>,
@@ -70,6 +73,7 @@ impl<'de> Deserialize<'de> for EffectSchema {
             tags: definition.tags,
             render_scale: definition.render_scale,
             output_bounds: definition.output_bounds,
+            editor: definition.editor,
             capabilities: definition.capabilities,
             properties: definition.properties,
             passes: definition.passes,
@@ -230,6 +234,44 @@ impl EffectSchema {
         &self.output_bounds
     }
 
+    pub(crate) fn position_property(&self) -> Option<&PropertySchema> {
+        self.editor
+            .as_ref()?
+            .position
+            .as_deref()
+            .and_then(|id| self.property(id))
+    }
+
+    pub(crate) fn size_property(&self) -> Option<&PropertySchema> {
+        self.editor
+            .as_ref()?
+            .size
+            .as_deref()
+            .and_then(|id| self.property(id))
+    }
+
+    pub(crate) fn points_property(&self) -> Option<&PropertySchema> {
+        self.editor
+            .as_ref()?
+            .points
+            .as_deref()
+            .and_then(|id| self.property(id))
+    }
+
+    pub(crate) fn spline_properties(&self) -> Option<(&PropertySchema, &PropertySchema)> {
+        let spline = self.editor.as_ref()?.spline.as_ref()?;
+        Some((
+            self.property(&spline.tension)?,
+            self.property(&spline.closed)?,
+        ))
+    }
+
+    pub(crate) fn has_editor(&self) -> bool {
+        self.editor.as_ref().is_some_and(|editor| {
+            editor.position.is_some() || editor.size.is_some() || editor.points.is_some()
+        })
+    }
+
     pub(crate) fn properties(&self) -> &[PropertySchema] {
         &self.properties
     }
@@ -258,6 +300,7 @@ impl EffectSchema {
             OutputBoundsSchema::Translate { .. }
                 | OutputBoundsSchema::Rotate { .. }
                 | OutputBoundsSchema::Perspective { .. }
+                | OutputBoundsSchema::CenterRange { .. }
         ) && (self.passes.len() != 1
             || !matches!(self.passes[0], EffectPassSchema::Render { .. }))
         {
@@ -281,6 +324,9 @@ impl EffectSchema {
             )));
         }
         validate_property_schemas("effect", &self.id, &self.properties)?;
+        if let Some(editor) = &self.editor {
+            editor.validate("effect", &self.id, &self.properties)?;
+        }
         validate_capabilities("effect", &self.id, &self.properties, &self.capabilities)?;
         if self.passes.is_empty() {
             return Err(PluginError::invalid_definition(format!(

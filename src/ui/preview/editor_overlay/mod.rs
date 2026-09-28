@@ -1,8 +1,8 @@
 use gpui::{CursorStyle, Empty, EntityId};
 
 use crate::domain::{
-    property::{PropertyElementId, PropertyValue},
-    timeline::{TimelineItem, TimelineTime},
+    property::{PropertyElementId, PropertyValue, PropertyValues},
+    timeline::{EffectInstanceId, TimelineItem, TimelineTime},
 };
 
 use super::*;
@@ -74,6 +74,7 @@ enum PreviewDragKind {
 pub(super) struct PreviewEditorDrag {
     preview_id: EntityId,
     item_id: crate::domain::timeline::ItemId,
+    effect_id: Option<EffectInstanceId>,
     kind: PreviewDragKind,
 }
 
@@ -86,6 +87,7 @@ impl Render for PreviewEditorDrag {
 #[derive(Clone)]
 struct PreviewResizeOrigin {
     item_id: crate::domain::timeline::ItemId,
+    effect_id: Option<EffectInstanceId>,
     property_id: String,
     handle: PreviewResizeHandle,
     pointer: [f32; 2],
@@ -137,15 +139,18 @@ struct PreviewPointOverlay {
 
 pub(super) struct PreviewEditorOverlay {
     item_id: crate::domain::timeline::ItemId,
+    effect_id: Option<EffectInstanceId>,
     positions: Vec<PreviewPairProperty>,
     sizes: Vec<PreviewSizeOverlay>,
     points: Vec<PreviewPointOverlay>,
     motion_path: Vec<[f32; 2]>,
+    spline_path: Vec<[f32; 2]>,
 }
 
 #[derive(Clone)]
 struct PreviewPositionOrigin {
     item_id: crate::domain::timeline::ItemId,
+    effect_id: Option<EffectInstanceId>,
     property_id: String,
     pointer: [f32; 2],
     position: [f32; 2],
@@ -156,6 +161,7 @@ struct PreviewPositionOrigin {
 #[derive(Clone)]
 struct PreviewPointOrigin {
     item_id: crate::domain::timeline::ItemId,
+    effect_id: Option<EffectInstanceId>,
     property_id: String,
     element_id: PropertyElementId,
     pointer: [f32; 2],
@@ -193,12 +199,13 @@ impl Preview {
 
     fn animation_progresses(
         item: &TimelineItem,
+        effect_id: Option<EffectInstanceId>,
         property_id: &str,
         element_id: Option<PropertyElementId>,
     ) -> Vec<f32> {
         let mut progresses = (0..2)
             .filter_map(|scalar_index| {
-                item.animation_track(None, property_id, element_id, Some(scalar_index))
+                item.animation_track(effect_id, property_id, element_id, Some(scalar_index))
             })
             .flat_map(|track| track.stops().iter().map(|stop| stop.position()))
             .collect::<Vec<_>>();
@@ -213,9 +220,31 @@ impl Preview {
         ))
     }
 
-    fn item_position(item: &TimelineItem, property_id: Option<&str>) -> [f32; 2] {
+    fn overlay_properties(
+        item: &TimelineItem,
+        effect_id: Option<EffectInstanceId>,
+    ) -> Option<&PropertyValues> {
+        match effect_id {
+            Some(effect_id) => Some(
+                &item
+                    .effects
+                    .iter()
+                    .find(|effect| effect.id == effect_id)?
+                    .properties,
+            ),
+            None => Some(&item.properties),
+        }
+    }
+
+    fn item_position(
+        item: &TimelineItem,
+        effect_id: Option<EffectInstanceId>,
+        property_id: Option<&str>,
+    ) -> [f32; 2] {
         property_id
-            .and_then(|property_id| item.properties.property(property_id))
+            .and_then(|property_id| {
+                Self::overlay_properties(item, effect_id)?.property(property_id)
+            })
             .and_then(Self::f32_pair)
             .filter(|value| value.iter().all(|value| value.is_finite()))
             .unwrap_or([0., 0.])
@@ -223,13 +252,15 @@ impl Preview {
 
     fn position_at_progress(
         item: &TimelineItem,
+        effect_id: Option<EffectInstanceId>,
         property_id: &str,
         progress: f32,
     ) -> Option<[f32; 2]> {
-        let mut position = Self::f32_pair(item.properties.property(property_id)?)?;
+        let mut position =
+            Self::f32_pair(Self::overlay_properties(item, effect_id)?.property(property_id)?)?;
         for (scalar_index, value) in position.iter_mut().enumerate() {
             if let Some(animated) = item
-                .animation_track(None, property_id, None, Some(scalar_index))
+                .animation_track(effect_id, property_id, None, Some(scalar_index))
                 .and_then(|track| track.evaluate(progress))
                 .and_then(|value| value.numeric_scalar())
             {
@@ -242,8 +273,12 @@ impl Preview {
             .then_some(position)
     }
 
-    fn item_size(item: &TimelineItem, property_id: &str) -> Option<[f32; 2]> {
-        Self::f32_pair(item.properties.property(property_id)?)
+    fn item_size(
+        item: &TimelineItem,
+        effect_id: Option<EffectInstanceId>,
+        property_id: &str,
+    ) -> Option<[f32; 2]> {
+        Self::f32_pair(Self::overlay_properties(item, effect_id)?.property(property_id)?)
             .filter(|value| value.iter().all(|value| value.is_finite() && *value > 0.))
     }
 }
@@ -251,3 +286,4 @@ impl Preview {
 mod editing;
 mod model;
 mod render;
+mod spline;

@@ -128,7 +128,8 @@ Effects use the same import path. Their passes also receive `effect_input`
 regular pass chain). Each effect instance owns its imported media assets; they
 are saved with the project.
 
-`audio` and `editor` remain top-level item roles. They do not add shader inputs.
+`audio` remains a top-level item role. `editor` can be declared by items or
+effects and does not add shader inputs.
 `audio.inputs` refers to video capabilities or to audio files declared in
 `audio.files`; the host mixer reads the `f32` gain property named by `volume`.
 A media file property referenced by `editor.size` can use the host's aspect-ratio
@@ -224,15 +225,22 @@ Constraints are enforced for defaults, direct edits, array elements, loaded
 projects, and animation endpoints.
 
 Scalar types are `f32`, `i32`, `u32`, `bool`, `color`, `string`, and finite `enum` contracts. Color is one scalar, edited with a color picker even inside tuples and arrays. Numeric inputs address numeric scalars by their tuple index; RGBA components are not flattened into numeric input indices.
-Item-generic editor behaviors reference properties from the item `editor` block, for
+Preview editor behaviors reference properties from an item or effect `editor` block, for
 example `"editor": { "position": "position", "size": "size", "points":
 "points", "label": "text" }`. Position and size references require two-`f32`
 tuples. The points reference requires an array of two-`f32` tuples and also
 requires position and size references; each point is expressed as a percentage
-within the item's size, with `[0, 0]` at the top-left and `[100, 100]` at the
+within its size, with `[0, 0]` at the top-left and `[100, 100]` at the
 bottom-right. The label reference requires a string. This follows the same
 property-ID wiring used by text rasterization, audio gain, and temporal
-sampling. Effects may still use presentation hints such as `multiline`.
+sampling. A spline editor can also reference `"spline": { "tension":
+"tension", "closed": "closed" }` alongside points, position and size.
+`tension` must be `f32` and `closed` must be `bool`. The preview overlays the
+sampled curve while editing, using the existing point handles; the curve is
+not part of the rendered output.
+The property inspector chooses the preview editing target: item body or an effect
+with an `editor` block. Effects may still use presentation hints such as
+`multiline`.
 
 An array of strings uses the ordinary array inspector with a text input for each
 element by default.
@@ -243,6 +251,7 @@ fonts:
 {
   "type": {"array": {"element_type": "string", "max_items": 1024}},
   "default": {"array": []},
+  "append_default": {"string": ""},
   "configurations": [{
     "ui": { "editor": "font_family" }
   }]
@@ -253,6 +262,9 @@ Array configurations describe the scalar positions of one element template
 and apply to every element. The property-level `default` holds the initial
 elements; an empty list means the array starts empty. Each non-empty array
 element has a stable positive `id` and a tagged `value`.
+An array must declare `append_default` with a tagged element value, without an
+`id`. The inspector uses that fixed value when adding an element, regardless of
+the existing elements. The value must match the element type and scalar constraints.
 
 Without `ui.editor`, entries can be added, edited, reordered, and removed as
 ordinary strings. Empty and duplicate strings are valid list values. With
@@ -450,7 +462,10 @@ media `placement`:
 ```
 
 The two named properties must be `f32` pairs. A rotated quad can also declare
-an `f32` `rotation` property in degrees. Full-frame items can declare
+an `f32` `rotation` property in degrees. A stroke can reference an `f32`
+`padding` property to expand the source rectangle beyond the quad. An optional
+nonnegative `size_outset` expands each side by that fraction of its size
+component, including before rotation. Full-frame items can declare
 `{"type":"viewport"}`. An item without `output_bounds` uses
 the viewport for compatibility; it cannot promise to preserve pixels outside
 the viewport before effects. Media `placement` continues to control the
@@ -463,7 +478,16 @@ mask. The other supported operations are `translate` with an `f32` pair,
 `outset` with an `f32` radius and nonnegative
 multiplier, `rotate` with an `f32` angle and `f32` pair center, and
 `perspective` with a three-`f32` rotation, `f32` pair center, and `f32`
-perspective distance. For example, a blur with finite reach can declare:
+perspective distance. `center_range` references a position and size and
+reserves enough space to place the input center anywhere in that rectangle.
+It also accepts `size_outset` to enlarge the center range by a fraction of
+each size component on every side.
+An optional nonnegative numeric `padding` adds a fixed margin after reserving
+the input's half-size.
+This is a conservative bound for motion effects, independent of how a shader
+chooses the center at a particular time. The intermediate surface covers the
+declared range plus the input's half-width and half-height, so the range should
+be kept tight. For example, a blur with finite reach can declare:
 
 ```json
 "output_bounds": { "type": "outset", "radius": "radius", "multiplier": 4.0 }
@@ -475,10 +499,33 @@ their own output rectangle.
 
 `translate` moves item surface metadata without resampling its pixels. On a
 scene, its render pass still runs within the fixed viewport. `rotate` and
-`perspective` read their input texture in its own rectangle and write into the
-transformed rectangle; they require one render pass. Perspective projections
+`perspective` and `center_range` read their input texture in its own rectangle
+and write into the output rectangle; they require one render pass. Perspective projections
 that cross the camera plane or exceed the GPU texture limit report a render
 resource error.
+
+The built-in `spline_path` item and `follow_spline` effect use the same point
+convention as `polygon`: each point is a percentage of the path's `size`,
+relative to its `position`. The effect has its own points; matching its
+position, size, points, and tension to a path item makes another item follow the
+drawn curve when `progress` is animated. Tension runs from -100% (looser) through
+0% (the original Catmull–Rom shape) to 100% (straight segments between points).
+Both support `closed`, which adds a smooth segment from the last point back to
+the first (for three or more points). Match `closed` as well when following a
+drawn path. Progress runs from 0 to 100 and follows the sampled curve at
+approximately constant speed; on a closed path, 100% returns to the first point.
+The path item can fill a closed curve with `fill_enabled` and `fill_color`.
+`stroke_start` and `stroke_end` select a section of the stroke by cumulative
+curve length, with 0–100% covering the complete path. An equal or reversed
+range draws no stroke; fill remains independent. Setting `width` to zero
+produces a fill-only path.
+The follow effect uses `center_range` with `padding` for its output bounds;
+scene effects remain viewport-sized. Curve subdivision
+adapts to the path's size and bend (8–256 pieces per span, targeting 0.125
+composition pixel chord error), with the same sampling used for drawing and
+motion. Neighboring spans share the tangent at each point. The curve may
+extend outside the point quad by up to a quarter of its size per axis at
+-100% tension, so the item and effect reserve that area with `size_outset`.
 
 For spatial effects, `uv_to_position` converts an output UV to a composition
 position, while `position_to_uv` converts a composition position to the input

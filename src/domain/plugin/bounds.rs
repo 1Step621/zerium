@@ -15,7 +15,11 @@ pub(crate) enum ItemBoundsSchema {
         position: String,
         size: String,
         #[serde(default)]
+        size_outset: f32,
+        #[serde(default)]
         rotation: Option<String>,
+        #[serde(default)]
+        padding: Option<String>,
     },
 }
 
@@ -41,6 +45,24 @@ pub(crate) enum OutputBoundsSchema {
         center: String,
         perspective: String,
     },
+    CenterRange {
+        position: String,
+        size: String,
+        #[serde(default)]
+        size_outset: f32,
+        #[serde(default)]
+        padding: f32,
+    },
+}
+
+fn validate_size_outset(owner: &str, id: &str, value: f32) -> Result<(), PluginError> {
+    if value.is_finite() && value >= 0.0 {
+        Ok(())
+    } else {
+        Err(PluginError::invalid_definition(format!(
+            "{owner} '{id}' bounds size_outset must be finite and non-negative"
+        )))
+    }
 }
 
 fn is_f32_pair(property: &PropertySchema) -> bool {
@@ -108,12 +130,18 @@ impl ItemBoundsSchema {
             Self::Quad {
                 position,
                 size,
+                size_outset,
                 rotation,
+                padding,
             } => {
                 validate_reference("item", id, position, properties, true)?;
                 validate_reference("item", id, size, properties, true)?;
+                validate_size_outset("item", id, *size_outset)?;
                 if let Some(rotation) = rotation {
                     validate_reference("item", id, rotation, properties, false)?;
+                }
+                if let Some(padding) = padding {
+                    validate_reference("item", id, padding, properties, false)?;
                 }
             }
         }
@@ -160,6 +188,21 @@ impl OutputBoundsSchema {
                 }
                 validate_reference("effect", id, center, properties, true)?;
                 validate_reference("effect", id, perspective, properties, false)?;
+            }
+            Self::CenterRange {
+                position,
+                size,
+                size_outset,
+                padding,
+            } => {
+                validate_reference("effect", id, position, properties, true)?;
+                validate_reference("effect", id, size, properties, true)?;
+                validate_size_outset("effect", id, *size_outset)?;
+                if !padding.is_finite() || *padding < 0.0 {
+                    return Err(PluginError::invalid_definition(format!(
+                        "effect '{id}' bounds padding must be finite and non-negative"
+                    )));
+                }
             }
         }
         Ok(())

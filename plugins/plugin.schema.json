@@ -9,45 +9,15 @@
   "additionalProperties": false,
   "required": ["api_version", "id"],
   "anyOf": [
-    {
-      "properties": {
-        "items": {
-          "minItems": 1
-        }
-      },
-      "required": ["items"]
-    },
-    {
-      "properties": {
-        "effects": {
-          "minItems": 1
-        }
-      },
-      "required": ["effects"]
-    }
+    { "properties": { "items": { "minItems": 1 } }, "required": ["items"] },
+    { "properties": { "effects": { "minItems": 1 } }, "required": ["effects"] }
   ],
   "properties": {
-    "$schema": {
-      "type": "string"
-    },
-    "id": {
-      "$ref": "#/$defs/logicalId"
-    },
-    "items": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/item"
-      }
-    },
-    "effects": {
-      "type": "array",
-      "items": {
-        "$ref": "#/$defs/effect"
-      }
-    },
-    "api_version": {
-      "const": 1
-    }
+    "$schema": { "type": "string" },
+    "id": { "$ref": "#/$defs/logicalId" },
+    "items": { "type": "array", "items": { "$ref": "#/$defs/item" } },
+    "effects": { "type": "array", "items": { "$ref": "#/$defs/effect" } },
+    "api_version": { "const": 1 }
   },
   "$defs": {
     "logicalId": {
@@ -58,35 +28,22 @@
     "wgslId": {
       "type": "string",
       "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
-      "not": {
-        "pattern": "^(?:_|__.*)$"
-      }
+      "not": { "pattern": "^(?:_|__.*)$" }
     },
-    "wgslSuffix": {
-      "type": "string",
-      "pattern": "^[A-Za-z0-9_]+$"
-    },
+    "wgslSuffix": { "type": "string", "pattern": "^[A-Za-z0-9_]+$" },
     "shaderModule": {
       "type": "string",
       "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
-      "not": {
-        "pattern": "^(?:_|__.*|generated)$"
-      }
+      "not": { "pattern": "^(?:_|__.*|generated)$" }
     },
     "shader": {
       "type": "object",
       "additionalProperties": false,
       "required": ["module"],
       "properties": {
-        "module": {
-          "$ref": "#/$defs/shaderModule"
-        },
-        "vertex_entry": {
-          "$ref": "#/$defs/wgslId"
-        },
-        "fragment_entry": {
-          "$ref": "#/$defs/wgslId"
-        }
+        "module": { "$ref": "#/$defs/shaderModule" },
+        "vertex_entry": { "$ref": "#/$defs/wgslId" },
+        "fragment_entry": { "$ref": "#/$defs/wgslId" }
       }
     },
     "computeShader": {
@@ -94,12 +51,8 @@
       "additionalProperties": false,
       "required": ["module"],
       "properties": {
-        "module": {
-          "$ref": "#/$defs/shaderModule"
-        },
-        "entry": {
-          "$ref": "#/$defs/wgslId"
-        }
+        "module": { "$ref": "#/$defs/shaderModule" },
+        "entry": { "$ref": "#/$defs/wgslId" }
       }
     },
     "file": {
@@ -107,26 +60,14 @@
       "additionalProperties": false,
       "required": ["id", "label", "media_type", "reader"],
       "properties": {
-        "id": {
-          "$ref": "#/$defs/wgslId"
-        },
-        "label": {
-          "type": "string",
-          "minLength": 1
-        },
-        "media_type": {
-          "enum": ["video", "audio", "image"]
-        },
-        "reader": {
-          "$ref": "#/$defs/logicalId"
-        },
+        "id": { "$ref": "#/$defs/wgslId" },
+        "label": { "type": "string", "minLength": 1 },
+        "media_type": { "enum": ["video", "audio", "image"] },
+        "reader": { "$ref": "#/$defs/logicalId" },
         "extensions": {
           "type": "array",
           "uniqueItems": true,
-          "items": {
-            "type": "string",
-            "pattern": "^[a-z0-9]+$"
-          }
+          "items": { "type": "string", "pattern": "^[a-z0-9]+$" }
         }
       }
     },
@@ -139,19 +80,10 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": {
-            "$ref": "#/$defs/wgslSuffix"
-          }
+          "items": { "$ref": "#/$defs/wgslSuffix" }
         },
-        "volume": {
-          "$ref": "#/$defs/wgslId"
-        },
-        "files": {
-          "type": "array",
-          "items": {
-            "$ref": "#/$defs/file"
-          }
-        }
+        "volume": { "$ref": "#/$defs/wgslId" },
+        "files": { "type": "array", "items": { "$ref": "#/$defs/file" } }
       }
     },
     "editorCapability": {
@@ -159,46 +91,37 @@
       "additionalProperties": false,
       "minProperties": 1,
       "properties": {
-        "position": {
-          "$ref": "#/$defs/wgslId"
+        "position": { "$ref": "#/$defs/wgslId" },
+        "size": { "$ref": "#/$defs/wgslId" },
+        "points": { "$ref": "#/$defs/wgslId" },
+        "spline": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["tension", "closed"],
+          "properties": {
+            "tension": { "$ref": "#/$defs/wgslId" },
+            "closed": { "$ref": "#/$defs/wgslId" }
+          }
         },
-        "size": {
-          "$ref": "#/$defs/wgslId"
-        },
-        "points": {
-          "$ref": "#/$defs/wgslId"
-        },
-        "label": {
-          "$ref": "#/$defs/wgslId"
-        }
+        "label": { "$ref": "#/$defs/wgslId" }
       }
     },
     "scalarType": {
       "oneOf": [
-        {
-          "enum": ["f32", "i32", "u32", "bool", "color", "string"]
-        },
-        {
-          "$ref": "#/$defs/enumType"
-        }
+        { "enum": ["f32", "i32", "u32", "bool", "color", "string"] },
+        { "$ref": "#/$defs/enumType" }
       ]
     },
     "tupleType": {
       "type": "array",
       "minItems": 2,
       "maxItems": 64,
-      "items": {
-        "$ref": "#/$defs/scalarType"
-      }
+      "items": { "$ref": "#/$defs/scalarType" }
     },
     "arrayValueType": {
       "oneOf": [
-        {
-          "$ref": "#/$defs/scalarType"
-        },
-        {
-          "$ref": "#/$defs/tupleType"
-        }
+        { "$ref": "#/$defs/scalarType" },
+        { "$ref": "#/$defs/tupleType" }
       ]
     },
     "enumType": {
@@ -210,11 +133,7 @@
           "type": "array",
           "minItems": 1,
           "uniqueItems": true,
-          "items": {
-            "type": "integer",
-            "minimum": 0,
-            "maximum": 4294967295
-          }
+          "items": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
         }
       }
     },
@@ -224,11 +143,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["value"],
-          "properties": {
-            "value": {
-              "$ref": "#/$defs/arrayValueType"
-            }
-          }
+          "properties": { "value": { "$ref": "#/$defs/arrayValueType" } }
         },
         {
           "type": "object",
@@ -240,9 +155,7 @@
               "additionalProperties": false,
               "required": ["element_type", "max_items"],
               "properties": {
-                "element_type": {
-                  "$ref": "#/$defs/arrayValueType"
-                },
+                "element_type": { "$ref": "#/$defs/arrayValueType" },
                 "min_items": {
                   "type": "integer",
                   "minimum": 0,
@@ -263,27 +176,20 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "label", "type", "default", "configurations"],
+      "if": { "properties": { "type": { "required": ["array"] } } },
+      "then": { "required": ["append_default"] },
+      "else": { "not": { "required": ["append_default"] } },
       "properties": {
-        "id": {
-          "$ref": "#/$defs/wgslId"
-        },
-        "label": {
-          "type": "string",
-          "minLength": 1
-        },
-        "type": {
-          "$ref": "#/$defs/propertyType"
-        },
-        "default": {
-          "$ref": "#/$defs/propertyValue"
-        },
+        "id": { "$ref": "#/$defs/wgslId" },
+        "label": { "type": "string", "minLength": 1 },
+        "type": { "$ref": "#/$defs/propertyType" },
+        "default": { "$ref": "#/$defs/propertyValue" },
+        "append_default": { "$ref": "#/$defs/propertyValue" },
         "configurations": {
           "type": "array",
           "minItems": 1,
           "maxItems": 64,
-          "items": {
-            "$ref": "#/$defs/configuration"
-          }
+          "items": { "$ref": "#/$defs/configuration" }
         }
       }
     },
@@ -303,7 +209,9 @@
             "type": { "const": "quad" },
             "position": { "$ref": "#/$defs/wgslId" },
             "size": { "$ref": "#/$defs/wgslId" },
-            "rotation": { "$ref": "#/$defs/wgslId" }
+            "size_outset": { "type": "number", "minimum": 0 },
+            "rotation": { "$ref": "#/$defs/wgslId" },
+            "padding": { "$ref": "#/$defs/wgslId" }
           }
         }
       ]
@@ -361,6 +269,18 @@
             "center": { "$ref": "#/$defs/wgslId" },
             "perspective": { "$ref": "#/$defs/wgslId" }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "position", "size"],
+          "properties": {
+            "type": { "const": "center_range" },
+            "position": { "$ref": "#/$defs/wgslId" },
+            "size": { "$ref": "#/$defs/wgslId" },
+            "size_outset": { "type": "number", "minimum": 0 },
+            "padding": { "type": "number", "minimum": 0 }
+          }
         }
       ]
     },
@@ -369,49 +289,23 @@
       "additionalProperties": false,
       "required": ["id", "label", "category", "symbol", "capabilities"],
       "properties": {
-        "id": {
-          "$ref": "#/$defs/logicalId"
-        },
-        "label": {
-          "type": "string",
-          "minLength": 1
-        },
-        "category": {
-          "type": "string",
-          "minLength": 1
-        },
+        "id": { "$ref": "#/$defs/logicalId" },
+        "label": { "type": "string", "minLength": 1 },
+        "category": { "type": "string", "minLength": 1 },
         "tags": {
           "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         },
-        "symbol": {
-          "type": "string",
-          "minLength": 1
-        },
-        "capabilities": {
-          "$ref": "#/$defs/capabilities"
-        },
-        "audio": {
-          "$ref": "#/$defs/audioCapability"
-        },
-        "editor": {
-          "$ref": "#/$defs/editorCapability"
-        },
-        "output_bounds": {
-          "$ref": "#/$defs/itemBounds"
-        },
+        "symbol": { "type": "string", "minLength": 1 },
+        "capabilities": { "$ref": "#/$defs/capabilities" },
+        "audio": { "$ref": "#/$defs/audioCapability" },
+        "editor": { "$ref": "#/$defs/editorCapability" },
+        "output_bounds": { "$ref": "#/$defs/itemBounds" },
         "properties": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/property"
-          }
+          "items": { "$ref": "#/$defs/property" }
         },
-        "shader": {
-          "$ref": "#/$defs/shader"
-        },
+        "shader": { "$ref": "#/$defs/shader" },
         "vertex_count": {
           "type": "integer",
           "minimum": 1,
@@ -424,20 +318,14 @@
       "additionalProperties": false,
       "required": ["id", "value"],
       "properties": {
-        "id": {
-          "$ref": "#/$defs/wgslId"
-        },
+        "id": { "$ref": "#/$defs/wgslId" },
         "value": {
           "oneOf": [
             {
               "type": "object",
               "additionalProperties": false,
               "required": ["f32"],
-              "properties": {
-                "f32": {
-                  "type": "number"
-                }
-              }
+              "properties": { "f32": { "type": "number" } }
             },
             {
               "type": "object",
@@ -467,11 +355,7 @@
               "type": "object",
               "additionalProperties": false,
               "required": ["bool"],
-              "properties": {
-                "bool": {
-                  "type": "boolean"
-                }
-              }
+              "properties": { "bool": { "type": "boolean" } }
             }
           ]
         }
@@ -482,17 +366,11 @@
       "additionalProperties": false,
       "required": ["type", "shader"],
       "properties": {
-        "type": {
-          "const": "render"
-        },
-        "shader": {
-          "$ref": "#/$defs/shader"
-        },
+        "type": { "const": "render" },
+        "shader": { "$ref": "#/$defs/shader" },
         "constants": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/passConstant"
-          }
+          "items": { "$ref": "#/$defs/passConstant" }
         }
       }
     },
@@ -501,33 +379,21 @@
       "additionalProperties": false,
       "required": ["type", "shader"],
       "properties": {
-        "type": {
-          "const": "compute"
-        },
-        "shader": {
-          "$ref": "#/$defs/computeShader"
-        },
+        "type": { "const": "compute" },
+        "shader": { "$ref": "#/$defs/computeShader" },
         "dispatch": {
           "type": "array",
           "minItems": 3,
           "maxItems": 3,
           "prefixItems": [
-            {
-              "$ref": "#/$defs/dispatchDimension"
-            },
-            {
-              "$ref": "#/$defs/dispatchDimension"
-            },
-            {
-              "$ref": "#/$defs/dispatchDimension"
-            }
+            { "$ref": "#/$defs/dispatchDimension" },
+            { "$ref": "#/$defs/dispatchDimension" },
+            { "$ref": "#/$defs/dispatchDimension" }
           ]
         },
         "constants": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/passConstant"
-          }
+          "items": { "$ref": "#/$defs/passConstant" }
         }
       }
     },
@@ -539,9 +405,7 @@
       "additionalProperties": false,
       "required": ["type", "sampling", "reducer"],
       "properties": {
-        "type": {
-          "const": "temporal"
-        },
+        "type": { "const": "temporal" },
         "sampling": {
           "oneOf": [
             {
@@ -571,14 +435,10 @@
             }
           ]
         },
-        "reducer": {
-          "$ref": "#/$defs/shader"
-        },
+        "reducer": { "$ref": "#/$defs/shader" },
         "constants": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/passConstant"
-          }
+          "items": { "$ref": "#/$defs/passConstant" }
         }
       }
     },
@@ -587,55 +447,29 @@
       "additionalProperties": false,
       "required": ["id", "label", "category", "properties", "passes"],
       "properties": {
-        "id": {
-          "$ref": "#/$defs/logicalId"
-        },
-        "label": {
-          "type": "string",
-          "minLength": 1
-        },
-        "category": {
-          "type": "string",
-          "minLength": 1
-        },
+        "id": { "$ref": "#/$defs/logicalId" },
+        "label": { "type": "string", "minLength": 1 },
+        "category": { "type": "string", "minLength": 1 },
         "tags": {
           "type": "array",
-          "items": {
-            "type": "string",
-            "minLength": 1
-          }
+          "items": { "type": "string", "minLength": 1 }
         },
-        "render_scale": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4
-        },
-        "output_bounds": {
-          "$ref": "#/$defs/outputBounds"
-        },
-        "capabilities": {
-          "$ref": "#/$defs/capabilities"
-        },
+        "render_scale": { "type": "integer", "minimum": 1, "maximum": 4 },
+        "output_bounds": { "$ref": "#/$defs/outputBounds" },
+        "editor": { "$ref": "#/$defs/editorCapability" },
+        "capabilities": { "$ref": "#/$defs/capabilities" },
         "properties": {
           "type": "array",
-          "items": {
-            "$ref": "#/$defs/property"
-          }
+          "items": { "$ref": "#/$defs/property" }
         },
         "passes": {
           "type": "array",
           "minItems": 1,
           "items": {
             "oneOf": [
-              {
-                "$ref": "#/$defs/renderPass"
-              },
-              {
-                "$ref": "#/$defs/computePass"
-              },
-              {
-                "$ref": "#/$defs/temporalPass"
-              }
+              { "$ref": "#/$defs/renderPass" },
+              { "$ref": "#/$defs/computePass" },
+              { "$ref": "#/$defs/temporalPass" }
             ]
           }
         }
@@ -643,58 +477,30 @@
     },
     "fixedScalarType": {
       "oneOf": [
-        {
-          "enum": ["f32", "i32", "u32", "bool", "color"]
-        },
-        {
-          "$ref": "#/$defs/enumType"
-        }
+        { "enum": ["f32", "i32", "u32", "bool", "color"] },
+        { "$ref": "#/$defs/enumType" }
       ]
     },
     "numericConstraints": {
       "type": "object",
       "additionalProperties": false,
-      "properties": {
-        "min": {
-          "type": "number"
-        },
-        "max": {
-          "type": "number"
-        }
-      }
+      "properties": { "min": { "type": "number" }, "max": { "type": "number" } }
     },
     "scalarUi": {
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "label": {
-          "type": "string",
-          "minLength": 1
-        },
-        "unit": {
-          "type": "string"
-        },
-        "step": {
-          "type": "number",
-          "exclusiveMinimum": 0
-        },
-        "visible": {
-          "type": "boolean"
-        },
-        "multiline": {
-          "type": "boolean"
-        },
-        "editor": {
-          "enum": ["font_family"]
-        },
+        "label": { "type": "string", "minLength": 1 },
+        "unit": { "type": "string" },
+        "step": { "type": "number", "exclusiveMinimum": 0 },
+        "visible": { "type": "boolean" },
+        "multiline": { "type": "boolean" },
+        "editor": { "enum": ["font_family"] },
         "enum_variants": {
           "type": "object",
           "minProperties": 1,
           "patternProperties": {
-            "^[0-9]+$": {
-              "type": "string",
-              "minLength": 1
-            }
+            "^[0-9]+$": { "type": "string", "minLength": 1 }
           },
           "additionalProperties": false
         }
@@ -704,24 +510,11 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "scene_bindable": {
-          "type": "boolean",
-          "default": true
-        },
-        "editable": {
-          "type": "boolean",
-          "default": true
-        },
-        "animatable": {
-          "type": "boolean",
-          "default": false
-        },
-        "constraints": {
-          "$ref": "#/$defs/numericConstraints"
-        },
-        "ui": {
-          "$ref": "#/$defs/scalarUi"
-        }
+        "scene_bindable": { "type": "boolean", "default": true },
+        "editable": { "type": "boolean", "default": true },
+        "animatable": { "type": "boolean", "default": false },
+        "constraints": { "$ref": "#/$defs/numericConstraints" },
+        "ui": { "$ref": "#/$defs/scalarUi" }
       }
     },
     "propertyValue": {
@@ -749,22 +542,11 @@
           "additionalProperties": false,
           "required": ["type", "id", "label", "media_type", "reader"],
           "properties": {
-            "type": {
-              "const": "media"
-            },
-            "id": {
-              "$ref": "#/$defs/wgslId"
-            },
-            "label": {
-              "type": "string",
-              "minLength": 1
-            },
-            "media_type": {
-              "enum": ["video", "image"]
-            },
-            "reader": {
-              "$ref": "#/$defs/logicalId"
-            },
+            "type": { "const": "media" },
+            "id": { "$ref": "#/$defs/wgslId" },
+            "label": { "type": "string", "minLength": 1 },
+            "media_type": { "enum": ["video", "image"] },
+            "reader": { "$ref": "#/$defs/logicalId" },
             "placement": {
               "type": "object",
               "additionalProperties": false,
@@ -778,10 +560,7 @@
             "extensions": {
               "type": "array",
               "uniqueItems": true,
-              "items": {
-                "type": "string",
-                "pattern": "^[a-z0-9]+$"
-              }
+              "items": { "type": "string", "pattern": "^[a-z0-9]+$" }
             }
           }
         },
@@ -804,45 +583,19 @@
             "vertical_alignment"
           ],
           "properties": {
-            "type": {
-              "const": "text"
-            },
-            "size": {
-              "$ref": "#/$defs/wgslId"
-            },
-            "text": {
-              "$ref": "#/$defs/wgslId"
-            },
-            "font_family": {
-              "$ref": "#/$defs/wgslId"
-            },
-            "font_size": {
-              "$ref": "#/$defs/wgslId"
-            },
-            "color": {
-              "$ref": "#/$defs/wgslId"
-            },
-            "outline_width": {
-              "$ref": "#/$defs/wgslId"
-            },
-            "outline_color": {
-              "$ref": "#/$defs/wgslId"
-            },
-            "bold": {
-              "$ref": "#/$defs/wgslId"
-            },
-            "italic": {
-              "$ref": "#/$defs/wgslId"
-            },
-            "horizontal_alignment": {
-              "$ref": "#/$defs/wgslId"
-            },
-            "vertical_alignment": {
-              "$ref": "#/$defs/wgslId"
-            },
-            "id": {
-              "$ref": "#/$defs/wgslId"
-            }
+            "type": { "const": "text" },
+            "size": { "$ref": "#/$defs/wgslId" },
+            "text": { "$ref": "#/$defs/wgslId" },
+            "font_family": { "$ref": "#/$defs/wgslId" },
+            "font_size": { "$ref": "#/$defs/wgslId" },
+            "color": { "$ref": "#/$defs/wgslId" },
+            "outline_width": { "$ref": "#/$defs/wgslId" },
+            "outline_color": { "$ref": "#/$defs/wgslId" },
+            "bold": { "$ref": "#/$defs/wgslId" },
+            "italic": { "$ref": "#/$defs/wgslId" },
+            "horizontal_alignment": { "$ref": "#/$defs/wgslId" },
+            "vertical_alignment": { "$ref": "#/$defs/wgslId" },
+            "id": { "$ref": "#/$defs/wgslId" }
           }
         },
         {
@@ -856,21 +609,11 @@
             "hide_original"
           ],
           "properties": {
-            "type": {
-              "const": "render_result"
-            },
-            "start_offset": {
-              "$ref": "#/$defs/wgslId"
-            },
-            "end_offset": {
-              "$ref": "#/$defs/wgslId"
-            },
-            "hide_original": {
-              "$ref": "#/$defs/wgslId"
-            },
-            "id": {
-              "$ref": "#/$defs/wgslId"
-            }
+            "type": { "const": "render_result" },
+            "start_offset": { "$ref": "#/$defs/wgslId" },
+            "end_offset": { "$ref": "#/$defs/wgslId" },
+            "hide_original": { "$ref": "#/$defs/wgslId" },
+            "id": { "$ref": "#/$defs/wgslId" }
           }
         }
       ]
@@ -878,9 +621,7 @@
     "capabilities": {
       "type": "array",
       "maxItems": 8,
-      "items": {
-        "$ref": "#/$defs/capability"
-      }
+      "items": { "$ref": "#/$defs/capability" }
     }
   }
 }

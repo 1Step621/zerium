@@ -62,7 +62,13 @@ pub(super) enum HistoryKey {
         Option<usize>,
         Frame,
     ),
-    AnimationPairStopValue(ItemId, String, Option<PropertyElementId>, Frame),
+    AnimationPairStopValue(
+        ItemId,
+        Option<EffectInstanceId>,
+        String,
+        Option<PropertyElementId>,
+        Frame,
+    ),
     AnimationHandle(
         ItemId,
         Option<EffectInstanceId>,
@@ -114,6 +120,8 @@ pub(crate) struct TimelineEditor {
     pub(super) playhead: Frame,
     pub(super) playback_time: Option<TimelineTime>,
     pub(super) selection: SelectionState,
+    /// None edits the selected item's source; Some edits an effect on that item.
+    pub(super) active_edit_target: Option<(ItemId, EffectInstanceId)>,
     pub(super) visibility: PreviewVisibility,
     render_revision: u64,
     project_revision: u64,
@@ -163,6 +171,7 @@ impl TimelineEditor {
             playhead: Frame::new(0),
             playback_time: None,
             selection: SelectionState::default(),
+            active_edit_target: None,
             visibility: PreviewVisibility::default(),
             render_revision: 0,
             project_revision: 0,
@@ -479,6 +488,7 @@ impl TimelineEditor {
         self.playhead = playhead;
         self.playback_time = None;
         self.selection.clear();
+        self.active_edit_target = None;
         self.visibility.clear();
         self.project_revision = 0;
         self.next_project_revision = 1;
@@ -651,6 +661,39 @@ impl TimelineEditor {
             .primary
             .and_then(|id| self.active_document().item(id))
             .map(|item| self.materialized_item(item))
+    }
+
+    pub(crate) fn active_edit_effect(&self) -> Option<EffectInstanceId> {
+        let (item_id, effect_id) = self.active_edit_target?;
+        if self.selection.current.len() != 1 || self.selection.primary != Some(item_id) {
+            return None;
+        }
+        self.active_document()
+            .item(item_id)?
+            .effects
+            .iter()
+            .any(|effect| effect.id == effect_id)
+            .then_some(effect_id)
+    }
+
+    pub(crate) fn set_active_edit_effect(&mut self, effect_id: Option<EffectInstanceId>) -> bool {
+        let next = effect_id.and_then(|effect_id| {
+            let item_id = self.selection.primary?;
+            if self.selection.current.len() != 1 {
+                return None;
+            }
+            self.active_document()
+                .item(item_id)?
+                .effects
+                .iter()
+                .any(|effect| effect.id == effect_id)
+                .then_some((item_id, effect_id))
+        });
+        if self.active_edit_target == next {
+            return false;
+        }
+        self.active_edit_target = next;
+        true
     }
 
     pub(crate) fn item(&self, id: ItemId) -> Option<&TimelineItem> {

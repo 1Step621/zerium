@@ -40,6 +40,7 @@ impl TimelineEditor {
         self.scene_path.push(id);
         self.history.finish_group();
         self.selection.clear();
+        self.active_edit_target = None;
         self.visibility.clear();
         self.playhead = Frame::new(0);
         self.playback_time = None;
@@ -53,6 +54,7 @@ impl TimelineEditor {
         }
         self.history.finish_group();
         self.selection.clear();
+        self.active_edit_target = None;
         self.visibility.clear();
         self.playhead = Frame::new(0);
         self.playback_time = None;

@@ -120,7 +120,7 @@ impl SurfaceRect {
         (0..2).all(|axis| {
             self.min[axis].is_finite()
                 && self.max[axis].is_finite()
-                && self.max[axis] > self.min[axis]
+                && self.max[axis] >= self.min[axis]
         })
     }
 
@@ -132,7 +132,13 @@ impl SurfaceRect {
         composition: RenderSize,
         scale: u32,
     ) -> Option<(Self, RenderSize)> {
-        if !self.is_valid() || composition.width == 0 || composition.height == 0 || scale == 0 {
+        if !self.is_valid()
+            || viewport.width == 0
+            || viewport.height == 0
+            || composition.width == 0
+            || composition.height == 0
+            || scale == 0
+        {
             return None;
         }
         let density = [
@@ -149,12 +155,14 @@ impl SurfaceRect {
         for axis in 0..2 {
             let first = ((self.min[axis] + origin[axis]) * density[axis]).floor();
             let last = ((self.max[axis] + origin[axis]) * density[axis]).ceil();
+            if !first.is_finite() || !last.is_finite() {
+                return None;
+            }
+            // An edge-on surface can cover zero whole pixels on one axis.
+            // Keep a one-pixel target so its (transparent) shader pass can run.
+            let last = last.max(first + 1.0);
             let count = last - first;
-            if !first.is_finite()
-                || !count.is_finite()
-                || count < 1.0
-                || count > f64::from(u32::MAX)
-            {
+            if !count.is_finite() || count < 1.0 || count > f64::from(u32::MAX) {
                 return None;
             }
             pixels[axis] = count as u32;
@@ -176,6 +184,10 @@ pub(crate) enum BoundsOperation {
     Same,
     Viewport,
     Translate([f64; 2]),
+    CenterRange {
+        range: SurfaceRect,
+        padding: f64,
+    },
     Outset(f64),
     Rotate {
         center: [f64; 2],
@@ -194,6 +206,17 @@ impl BoundsOperation {
             Self::Same => input,
             Self::Viewport => viewport,
             Self::Translate(offset) => input.translate(offset),
+            Self::CenterRange { range, padding } => {
+                let half = [
+                    (input.max[0] - input.min[0]) * 0.5,
+                    (input.max[1] - input.min[1]) * 0.5,
+                ];
+                SurfaceRect {
+                    min: [range.min[0] - half[0], range.min[1] - half[1]],
+                    max: [range.max[0] + half[0], range.max[1] + half[1]],
+                }
+                .outset(padding)
+            }
             Self::Outset(radius) => input.outset(radius),
             Self::Rotate { center, degrees } => input.rotate(center, degrees),
             Self::Perspective {
@@ -225,6 +248,19 @@ impl BoundsOperation {
                 rotation: triple(values, rotation),
                 focal_length: scalar(values, perspective),
             },
+            OutputBoundsSchema::CenterRange {
+                position,
+                size,
+                size_outset,
+                padding,
+            } => Self::CenterRange {
+                range: SurfaceRect::quad(
+                    pair(values, position),
+                    outset_size(pair(values, size), *size_outset),
+                    0.0,
+                ),
+                padding: f64::from(*padding),
+            },
         }
     }
 }
@@ -239,13 +275,20 @@ pub(super) fn item_bounds(
         ItemBoundsSchema::Quad {
             position,
             size,
+            size_outset,
             rotation,
+            padding,
         } => SurfaceRect::quad(
             pair(values, position),
-            pair(values, size),
+            outset_size(pair(values, size), *size_outset),
             rotation.as_ref().map_or(0.0, |id| scalar(values, id)),
-        ),
+        )
+        .outset(padding.as_ref().map_or(0.0, |id| scalar(values, id).abs())),
     }
+}
+
+fn outset_size(size: [f64; 2], fraction: f32) -> [f64; 2] {
+    size.map(|component| component * (1.0 + 2.0 * f64::from(fraction)))
 }
 
 fn scalar(values: &PropertyValues, id: &str) -> f64 {

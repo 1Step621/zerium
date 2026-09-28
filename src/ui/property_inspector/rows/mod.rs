@@ -89,8 +89,10 @@ impl PropertyInspector {
         let text = div()
             .w_full()
             .min_w_0()
+            .overflow_hidden()
             .text_sm()
-            .whitespace_normal()
+            .whitespace_nowrap()
+            .text_ellipsis()
             .when(focused, |this| this.text_color(ctx.colors.primary))
             .child(label);
         let label = div()
@@ -101,7 +103,7 @@ impl PropertyInspector {
             .child(text);
         match width {
             AnimationLabelWidth::Fixed(width) => label.w(px(width)).flex_none(),
-            AnimationLabelWidth::Fill => label.flex_1(),
+            AnimationLabelWidth::Fill => label.w_0().flex_1(),
         }
     }
 
@@ -154,8 +156,8 @@ impl PropertyInspector {
             .common()
             .is_some_and(|common| Self::animation_address_is_focused(common, ctx))
             || matches!(control, Control::Group { children, .. } if children
-            .iter()
-            .any(|child| Self::control_contains_focused_animation(child, ctx)))
+                .iter()
+                .any(|child| Self::control_contains_focused_animation(child, ctx)))
     }
 
     pub(super) fn scene_binding_button(
@@ -577,7 +579,11 @@ impl PropertyInspector {
         let add_editor = ctx.editor.clone();
         let add_property_id = group.target.property_id.clone();
         let add_effect_id = group.target.effect_id;
-        let next_value = model::append_default(group);
+        let next_value = group
+            .property
+            .append_default_value()
+            .expect("array properties declare append_default")
+            .clone();
         let add_control = Button::new(SharedString::from(format!(
             "array-{}-{}-add",
             item_id.get(),

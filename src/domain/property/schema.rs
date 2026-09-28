@@ -70,6 +70,8 @@ pub(crate) struct PropertySchema {
     #[serde(rename = "type")]
     pub(in crate::domain) ty: PropertyType,
     pub(in crate::domain) default: PropertyValue,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub(in crate::domain) append_default: Option<PropertyValue>,
     pub(in crate::domain) configurations: Vec<PropertyConfiguration>,
 }
 
@@ -120,6 +122,10 @@ impl PropertySchema {
 
     pub(crate) fn default_value(&self) -> &PropertyValue {
         &self.default
+    }
+
+    pub(crate) fn append_default_value(&self) -> Option<&PropertyValue> {
+        self.append_default.as_ref()
     }
 
     pub(crate) fn is_editable(&self, scalar_index: Option<usize>) -> bool {
@@ -284,6 +290,42 @@ impl PropertySchema {
                 "{owner_kind} '{owner_id}' property '{}' default violates its constraints",
                 self.id
             )));
+        }
+        let (element_type, value) = match (&self.ty, &self.append_default) {
+            (PropertyType::Array { .. }, None) => {
+                return Err(self.validation_error(
+                    owner_kind,
+                    owner_id,
+                    "array property requires append_default",
+                ));
+            }
+            (PropertyType::Value(_), Some(_)) => {
+                return Err(self.validation_error(
+                    owner_kind,
+                    owner_id,
+                    "append_default requires an array property",
+                ));
+            }
+            (PropertyType::Value(_), None) => return Ok(()),
+            (PropertyType::Array { element_type, .. }, Some(value)) => (element_type, value),
+        };
+        let tuple = matches!(element_type, PropertyValueType::Tuple(_));
+        if !element_type.allows(value)
+            || self
+                .configurations
+                .iter()
+                .enumerate()
+                .any(|(index, configuration)| {
+                    value
+                        .scalar_at(tuple.then_some(index))
+                        .is_none_or(|scalar| !configuration.constraints.allows(scalar))
+                })
+        {
+            return Err(self.validation_error(
+                owner_kind,
+                owner_id,
+                "append_default violates the element type or constraints",
+            ));
         }
         Ok(())
     }

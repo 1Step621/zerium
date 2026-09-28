@@ -290,7 +290,7 @@ impl PropertyInspector {
     }
 
     pub(super) fn normalize_field_value(spec: &NumericInputSpec, value: f64) -> f64 {
-        model::snap_to_step(value, spec.step).clamp(spec.min, spec.max)
+        numeric::snap_to_step(value, spec.step).clamp(spec.min, spec.max)
     }
 
     pub(super) fn drag_sensitivity(min: f64, max: f64, step: f64) -> f64 {

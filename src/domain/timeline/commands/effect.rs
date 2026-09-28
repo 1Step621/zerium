@@ -128,6 +128,9 @@ impl TimelineEditor {
         let changed = self
             .active_document_mut()
             .remove_item_effect(item_id, effect_id);
+        if changed && self.active_edit_target == Some((item_id, effect_id)) {
+            self.active_edit_target = None;
+        }
         if changed
             && let Some(scene_id) = self.active_scene_id()
             && let Some(scene) = self.project_mut().scenes.get_mut(&scene_id)

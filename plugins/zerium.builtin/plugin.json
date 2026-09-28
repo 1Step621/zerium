@@ -14,131 +14,63 @@
       "category": "図形",
       "tags": ["矩形", "長方形", "square", "box"],
       "symbol": "■",
-      "shader": {
-        "module": "rectangle"
-      },
+      "shader": { "module": "rectangle" },
       "capabilities": [],
-      "editor": {
-        "position": "position",
-        "size": "size"
-      },
+      "editor": { "position": "position", "size": "size" },
       "properties": [
         {
           "id": "position",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 0
-              },
-              {
-                "f32": 0
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": "位置",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "X",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "X", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "Y",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "Y", "unit": "px" }
             }
           ]
         },
         {
           "id": "size",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 320
-              },
-              {
-                "f32": 180
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 320 }, { "f32": 180 }] },
           "label": "サイズ",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "幅",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "幅", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "高さ",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "高さ", "unit": "px" }
             }
           ]
         },
         {
           "id": "color",
-          "type": {
-            "value": "color"
-          },
-          "default": {
-            "color": [1, 0.28, 0.035, 1]
-          },
+          "type": { "value": "color" },
+          "default": { "color": [1, 0.28, 0.035, 1] },
           "label": "色",
-          "configurations": [
-            {
-              "animatable": true
-            }
-          ]
+          "configurations": [{ "animatable": true }]
         },
         {
           "id": "corner_radius",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 0
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 0 },
           "label": "角丸",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0,
-                "max": 5000
-              },
-              "ui": {
-                "unit": "px"
-              }
+              "constraints": { "min": 0, "max": 5000 },
+              "ui": { "unit": "px" }
             }
           ]
         }
@@ -155,132 +87,63 @@
       "category": "図形",
       "tags": ["さんかく", "triangle"],
       "symbol": "▲",
-      "shader": {
-        "module": "triangle"
-      },
+      "shader": { "module": "triangle" },
       "capabilities": [],
-      "editor": {
-        "position": "position",
-        "size": "size"
-      },
+      "editor": { "position": "position", "size": "size" },
       "properties": [
         {
           "id": "position",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 0
-              },
-              {
-                "f32": 0
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": "位置",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "X",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "X", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "Y",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "Y", "unit": "px" }
             }
           ]
         },
         {
           "id": "size",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 240
-              },
-              {
-                "f32": 200
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 240 }, { "f32": 200 }] },
           "label": "サイズ",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "幅",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "幅", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "高さ",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "高さ", "unit": "px" }
             }
           ]
         },
         {
           "id": "color",
-          "type": {
-            "value": "color"
-          },
-          "default": {
-            "color": [1, 0.52, 0.06, 1]
-          },
+          "type": { "value": "color" },
+          "default": { "color": [1, 0.52, 0.06, 1] },
           "label": "色",
-          "configurations": [
-            {
-              "animatable": true
-            }
-          ]
+          "configurations": [{ "animatable": true }]
         },
         {
           "id": "apex_position",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 50
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 50 },
           "label": "頂点位置",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0,
-                "max": 100
-              },
-              "ui": {
-                "unit": "%",
-                "step": 1
-              }
+              "constraints": { "min": 0, "max": 100 },
+              "ui": { "unit": "%", "step": 1 }
             }
           ]
         }
@@ -297,109 +160,222 @@
       "category": "図形",
       "tags": ["円", "丸", "circle", "oval"],
       "symbol": "●",
-      "shader": {
-        "module": "ellipse"
-      },
+      "shader": { "module": "ellipse" },
       "capabilities": [],
-      "editor": {
-        "size": "diameter",
-        "position": "position"
-      },
+      "editor": { "size": "diameter", "position": "position" },
       "properties": [
         {
           "id": "position",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 0
-              },
-              {
-                "f32": 0
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": "位置",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "X",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "X", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "Y",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "Y", "unit": "px" }
             }
           ]
         },
         {
           "id": "diameter",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 120
-              },
-              {
-                "f32": 120
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 120 }, { "f32": 120 }] },
           "label": "直径",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "横",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "横", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "縦",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "縦", "unit": "px" }
             }
           ]
         },
         {
           "id": "color",
-          "type": {
-            "value": "color"
-          },
-          "default": {
-            "color": [0.92, 0.18, 0.025, 1]
-          },
+          "type": { "value": "color" },
+          "default": { "color": [0.92, 0.18, 0.025, 1] },
           "label": "色",
+          "configurations": [{ "animatable": true }]
+        }
+      ]
+    },
+    {
+      "id": "spline_path",
+      "output_bounds": {
+        "type": "quad",
+        "position": "position",
+        "size": "size",
+        "size_outset": 0.252,
+        "padding": "width"
+      },
+      "label": "スプラインパス",
+      "category": "図形",
+      "tags": ["曲線", "パス", "スプライン", "spline", "path"],
+      "symbol": "〰",
+      "shader": { "module": "spline_path" },
+      "capabilities": [],
+      "editor": {
+        "position": "position",
+        "size": "size",
+        "points": "points",
+        "spline": { "tension": "tension", "closed": "closed" }
+      },
+      "properties": [
+        {
+          "id": "position",
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
+          "label": "経路の位置",
           "configurations": [
             {
-              "animatable": true
+              "animatable": true,
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "X", "unit": "px" }
+            },
+            {
+              "animatable": true,
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "Y", "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "size",
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 320 }, { "f32": 240 }] },
+          "label": "経路のサイズ",
+          "configurations": [
+            {
+              "animatable": true,
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "幅", "unit": "px" }
+            },
+            {
+              "animatable": true,
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "高さ", "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "points",
+          "type": {
+            "array": {
+              "element_type": ["f32", "f32"],
+              "max_items": 64,
+              "min_items": 2
+            }
+          },
+          "default": {
+            "array": [
+              { "id": 1, "value": { "tuple": [{ "f32": 0 }, { "f32": 70 }] } },
+              { "id": 2, "value": { "tuple": [{ "f32": 30 }, { "f32": 25 }] } },
+              { "id": 3, "value": { "tuple": [{ "f32": 70 }, { "f32": 75 }] } },
+              { "id": 4, "value": { "tuple": [{ "f32": 100 }, { "f32": 30 }] } }
+            ]
+          },
+          "append_default": { "tuple": [{ "f32": 50 }, { "f32": 50 }] },
+          "label": "経路の点",
+          "configurations": [
+            {
+              "animatable": true,
+              "constraints": { "min": 0, "max": 100 },
+              "ui": { "label": "X", "unit": "%", "step": 1 }
+            },
+            {
+              "animatable": true,
+              "constraints": { "min": 0, "max": 100 },
+              "ui": { "label": "Y", "unit": "%", "step": 1 }
+            }
+          ]
+        },
+        {
+          "id": "tension",
+          "type": { "value": "f32" },
+          "default": { "f32": 0 },
+          "label": "テンション",
+          "configurations": [
+            {
+              "animatable": true,
+              "constraints": { "min": -100, "max": 100 },
+              "ui": { "unit": "%", "step": 1 }
+            }
+          ]
+        },
+        {
+          "id": "width",
+          "type": { "value": "f32" },
+          "default": { "f32": 8 },
+          "label": "線幅",
+          "configurations": [
+            {
+              "animatable": true,
+              "constraints": { "min": 0, "max": 1000 },
+              "ui": { "unit": "px", "step": 1 }
+            }
+          ]
+        },
+        {
+          "id": "color",
+          "type": { "value": "color" },
+          "default": { "color": [1, 0.52, 0.06, 1] },
+          "label": "線の色",
+          "configurations": [{ "animatable": true }]
+        },
+        {
+          "id": "closed",
+          "type": { "value": "bool" },
+          "default": { "bool": false },
+          "label": "パスを閉じる",
+          "configurations": [{}]
+        },
+        {
+          "id": "fill_enabled",
+          "type": { "value": "bool" },
+          "default": { "bool": false },
+          "label": "塗りつぶす",
+          "configurations": [{}]
+        },
+        {
+          "id": "fill_color",
+          "type": { "value": "color" },
+          "default": { "color": [1, 0.52, 0.06, 1] },
+          "label": "塗りの色",
+          "configurations": [{ "animatable": true }]
+        },
+        {
+          "id": "stroke_start",
+          "type": { "value": "f32" },
+          "default": { "f32": 0 },
+          "label": "線の開始",
+          "configurations": [
+            {
+              "animatable": true,
+              "constraints": { "min": 0, "max": 100 },
+              "ui": { "unit": "%", "step": 1 }
+            }
+          ]
+        },
+        {
+          "id": "stroke_end",
+          "type": { "value": "f32" },
+          "default": { "f32": 100 },
+          "label": "線の終了",
+          "configurations": [
+            {
+              "animatable": true,
+              "constraints": { "min": 0, "max": 100 },
+              "ui": { "unit": "%", "step": 1 }
             }
           ]
         }
@@ -416,95 +392,43 @@
       "category": "図形",
       "tags": ["ポリゴン", "polygon"],
       "symbol": "⬟",
-      "shader": {
-        "module": "polygon"
-      },
+      "shader": { "module": "polygon" },
       "capabilities": [],
-      "editor": {
-        "position": "position",
-        "size": "size",
-        "points": "points"
-      },
+      "editor": { "position": "position", "size": "size", "points": "points" },
       "properties": [
         {
           "id": "position",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 0
-              },
-              {
-                "f32": 0
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": "位置",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "X",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "X", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "Y",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "Y", "unit": "px" }
             }
           ]
         },
         {
           "id": "size",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 320
-              },
-              {
-                "f32": 240
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 320 }, { "f32": 240 }] },
           "label": "サイズ",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "幅",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "幅", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "高さ",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "高さ", "unit": "px" }
             }
           ]
         },
@@ -519,89 +443,35 @@
           },
           "default": {
             "array": [
-              {
-                "id": 1,
-                "value": {
-                  "tuple": [
-                    {
-                      "f32": 50
-                    },
-                    {
-                      "f32": 0
-                    }
-                  ]
-                }
-              },
+              { "id": 1, "value": { "tuple": [{ "f32": 50 }, { "f32": 0 }] } },
               {
                 "id": 2,
-                "value": {
-                  "tuple": [
-                    {
-                      "f32": 100
-                    },
-                    {
-                      "f32": 100
-                    }
-                  ]
-                }
+                "value": { "tuple": [{ "f32": 100 }, { "f32": 100 }] }
               },
-              {
-                "id": 3,
-                "value": {
-                  "tuple": [
-                    {
-                      "f32": 0
-                    },
-                    {
-                      "f32": 100
-                    }
-                  ]
-                }
-              }
+              { "id": 3, "value": { "tuple": [{ "f32": 0 }, { "f32": 100 }] } }
             ]
           },
+          "append_default": { "tuple": [{ "f32": 50 }, { "f32": 50 }] },
           "label": "頂点",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0,
-                "max": 100
-              },
-              "ui": {
-                "label": "X",
-                "unit": "%",
-                "step": 1
-              }
+              "constraints": { "min": 0, "max": 100 },
+              "ui": { "label": "X", "unit": "%", "step": 1 }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": 0,
-                "max": 100
-              },
-              "ui": {
-                "label": "Y",
-                "unit": "%",
-                "step": 1
-              }
+              "constraints": { "min": 0, "max": 100 },
+              "ui": { "label": "Y", "unit": "%", "step": 1 }
             }
           ]
         },
         {
           "id": "color",
-          "type": {
-            "value": "color"
-          },
-          "default": {
-            "color": [1, 0.52, 0.06, 1]
-          },
+          "type": { "value": "color" },
+          "default": { "color": [1, 0.52, 0.06, 1] },
           "label": "色",
-          "configurations": [
-            {
-              "animatable": true
-            }
-          ]
+          "configurations": [{ "animatable": true }]
         }
       ]
     },
@@ -617,143 +487,70 @@
       "category": "図形",
       "tags": ["線", "line"],
       "symbol": "╱",
-      "shader": {
-        "module": "line"
-      },
+      "shader": { "module": "line" },
       "capabilities": [],
-      "editor": {
-        "position": "position",
-        "size": "size"
-      },
+      "editor": { "position": "position", "size": "size" },
       "properties": [
         {
           "id": "position",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 0
-              },
-              {
-                "f32": 0
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": "位置",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "X",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "X", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "Y",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "Y", "unit": "px" }
             }
           ]
         },
         {
           "id": "size",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 400
-              },
-              {
-                "f32": 12
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 400 }, { "f32": 12 }] },
           "label": "サイズ",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "長さ",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "長さ", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "太さ",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "太さ", "unit": "px" }
             }
           ]
         },
         {
           "id": "angle",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 0
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 0 },
           "label": "角度",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -360,
-                "max": 360
-              },
-              "ui": {
-                "unit": "°",
-                "step": 1
-              }
+              "constraints": { "min": -360, "max": 360 },
+              "ui": { "unit": "°", "step": 1 }
             }
           ]
         },
         {
           "id": "color",
-          "type": {
-            "value": "color"
-          },
-          "default": {
-            "color": [1, 1, 1, 1]
-          },
+          "type": { "value": "color" },
+          "default": { "color": [1, 1, 1, 1] },
           "label": "色",
-          "configurations": [
-            {
-              "animatable": true
-            }
-          ]
+          "configurations": [{ "animatable": true }]
         },
         {
           "id": "round_ends",
-          "type": {
-            "value": "bool"
-          },
-          "default": {
-            "bool": true
-          },
+          "type": { "value": "bool" },
+          "default": { "bool": true },
           "label": "端を丸める",
           "configurations": [{}]
         }
@@ -770,178 +567,87 @@
       "category": "図形",
       "tags": ["スター", "star"],
       "symbol": "★",
-      "shader": {
-        "module": "star"
-      },
+      "shader": { "module": "star" },
       "capabilities": [],
-      "editor": {
-        "position": "position",
-        "size": "size"
-      },
+      "editor": { "position": "position", "size": "size" },
       "properties": [
         {
           "id": "position",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 0
-              },
-              {
-                "f32": 0
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": "位置",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "X",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "X", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "Y",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "Y", "unit": "px" }
             }
           ]
         },
         {
           "id": "size",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 240
-              },
-              {
-                "f32": 240
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 240 }, { "f32": 240 }] },
           "label": "サイズ",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "幅",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "幅", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "高さ",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "高さ", "unit": "px" }
             }
           ]
         },
         {
           "id": "points",
-          "type": {
-            "value": "u32"
-          },
-          "default": {
-            "u32": 5
-          },
+          "type": { "value": "u32" },
+          "default": { "u32": 5 },
           "label": "頂点数",
           "configurations": [
-            {
-              "constraints": {
-                "min": 3,
-                "max": 16
-              },
-              "ui": {
-                "step": 1
-              }
-            }
+            { "constraints": { "min": 3, "max": 16 }, "ui": { "step": 1 } }
           ]
         },
         {
           "id": "inner_radius",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 45
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 45 },
           "label": "内側半径",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 5,
-                "max": 95
-              },
-              "ui": {
-                "unit": "%",
-                "step": 1
-              }
+              "constraints": { "min": 5, "max": 95 },
+              "ui": { "unit": "%", "step": 1 }
             }
           ]
         },
         {
           "id": "rotation",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 0
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 0 },
           "label": "回転",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -360,
-                "max": 360
-              },
-              "ui": {
-                "unit": "°",
-                "step": 1
-              }
+              "constraints": { "min": -360, "max": 360 },
+              "ui": { "unit": "°", "step": 1 }
             }
           ]
         },
         {
           "id": "color",
-          "type": {
-            "value": "color"
-          },
-          "default": {
-            "color": [1, 0.74, 0.04, 1]
-          },
+          "type": { "value": "color" },
+          "default": { "color": [1, 0.74, 0.04, 1] },
           "label": "色",
-          "configurations": [
-            {
-              "animatable": true
-            }
-          ]
+          "configurations": [{ "animatable": true }]
         }
       ]
     },
@@ -956,9 +662,7 @@
       "category": "テキスト",
       "tags": ["文字", "字幕", "title", "caption"],
       "symbol": "T",
-      "shader": {
-        "module": "text"
-      },
+      "shader": { "module": "text" },
       "capabilities": [
         {
           "type": "text",
@@ -976,215 +680,103 @@
           "vertical_alignment": "vertical_alignment"
         }
       ],
-      "editor": {
-        "position": "position",
-        "size": "size",
-        "label": "text"
-      },
+      "editor": { "position": "position", "size": "size", "label": "text" },
       "properties": [
         {
           "id": "position",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 0
-              },
-              {
-                "f32": 0
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": "位置",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "X",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "X", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "Y",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "Y", "unit": "px" }
             }
           ]
         },
         {
           "id": "size",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 640
-              },
-              {
-                "f32": 240
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 640 }, { "f32": 240 }] },
           "label": "サイズ",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "幅",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "幅", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "高さ",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "高さ", "unit": "px" }
             }
           ]
         },
         {
           "id": "text",
-          "type": {
-            "value": "string"
-          },
-          "default": {
-            "string": "テキスト"
-          },
+          "type": { "value": "string" },
+          "default": { "string": "テキスト" },
           "label": "テキスト",
-          "configurations": [
-            {
-              "ui": {
-                "multiline": true
-              }
-            }
-          ]
+          "configurations": [{ "ui": { "multiline": true } }]
         },
         {
           "id": "font_family",
-          "type": {
-            "array": {
-              "element_type": "string",
-              "max_items": 1024
-            }
-          },
-          "default": {
-            "array": []
-          },
+          "type": { "array": { "element_type": "string", "max_items": 1024 } },
+          "default": { "array": [] },
+          "append_default": { "string": "" },
           "label": "フォント",
-          "configurations": [
-            {
-              "ui": {
-                "editor": "font_family"
-              }
-            }
-          ]
+          "configurations": [{ "ui": { "editor": "font_family" } }]
         },
         {
           "id": "font_size",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 64
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 64 },
           "label": "文字サイズ",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 1000
-              },
-              "ui": {
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 1000 },
+              "ui": { "unit": "px" }
             }
           ]
         },
         {
           "id": "color",
-          "type": {
-            "value": "color"
-          },
-          "default": {
-            "color": [1, 1, 1, 1]
-          },
+          "type": { "value": "color" },
+          "default": { "color": [1, 1, 1, 1] },
           "label": "色",
-          "configurations": [
-            {
-              "animatable": true
-            }
-          ]
+          "configurations": [{ "animatable": true }]
         },
         {
           "id": "outline_width",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 0
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 0 },
           "label": "枠線",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0,
-                "max": 64
-              },
-              "ui": {
-                "unit": "px"
-              }
+              "constraints": { "min": 0, "max": 64 },
+              "ui": { "unit": "px" }
             }
           ]
         },
         {
           "id": "outline_color",
-          "type": {
-            "value": "color"
-          },
-          "default": {
-            "color": [1, 1, 1, 1]
-          },
+          "type": { "value": "color" },
+          "default": { "color": [1, 1, 1, 1] },
           "label": "枠線色",
-          "configurations": [
-            {
-              "animatable": true
-            }
-          ]
+          "configurations": [{ "animatable": true }]
         },
         {
           "id": "horizontal_alignment",
-          "type": {
-            "value": {
-              "enum": [0, 1, 2]
-            }
-          },
-          "default": {
-            "enum": 1
-          },
+          "type": { "value": { "enum": [0, 1, 2] } },
+          "default": { "enum": 1 },
           "label": "左右揃え",
           "configurations": [
             {
@@ -1200,14 +792,8 @@
         },
         {
           "id": "vertical_alignment",
-          "type": {
-            "value": {
-              "enum": [0, 1, 2]
-            }
-          },
-          "default": {
-            "enum": 1
-          },
+          "type": { "value": { "enum": [0, 1, 2] } },
+          "default": { "enum": 1 },
           "label": "上下揃え",
           "configurations": [
             {
@@ -1223,23 +809,15 @@
         },
         {
           "id": "bold",
-          "type": {
-            "value": "bool"
-          },
-          "default": {
-            "bool": false
-          },
+          "type": { "value": "bool" },
+          "default": { "bool": false },
           "label": "太字",
           "configurations": [{}]
         },
         {
           "id": "italic",
-          "type": {
-            "value": "bool"
-          },
-          "default": {
-            "bool": false
-          },
+          "type": { "value": "bool" },
+          "default": { "bool": false },
           "label": "イタリック",
           "configurations": [{}]
         }
@@ -1256,9 +834,7 @@
       "category": "メディア",
       "tags": ["映像", "movie", "clip"],
       "symbol": "▶",
-      "shader": {
-        "module": "media"
-      },
+      "shader": { "module": "media" },
       "capabilities": [
         {
           "type": "media",
@@ -1274,116 +850,55 @@
           "extensions": ["mp4", "mov", "mkv", "webm", "avi", "m4v", "gif"]
         }
       ],
-      "audio": {
-        "inputs": ["source"],
-        "volume": "volume"
-      },
-      "editor": {
-        "position": "position",
-        "size": "size"
-      },
+      "audio": { "inputs": ["source"], "volume": "volume" },
+      "editor": { "position": "position", "size": "size" },
       "properties": [
         {
           "id": "position",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 0
-              },
-              {
-                "f32": 0
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": "位置",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "X",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "X", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "Y",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "Y", "unit": "px" }
             }
           ]
         },
         {
           "id": "size",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 960
-              },
-              {
-                "f32": 540
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 960 }, { "f32": 540 }] },
           "label": "サイズ",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "幅",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "幅", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "高さ",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "高さ", "unit": "px" }
             }
           ]
         },
         {
           "id": "volume",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 1
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 1 },
           "label": "音量",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0,
-                "max": 2
-              },
-              "ui": {
-                "step": 0.01
-              }
+              "constraints": { "min": 0, "max": 2 },
+              "ui": { "step": 0.01 }
             }
           ]
         }
@@ -1400,9 +915,7 @@
       "category": "メディア",
       "tags": ["静止画", "写真", "photo", "picture"],
       "symbol": "▧",
-      "shader": {
-        "module": "media"
-      },
+      "shader": { "module": "media" },
       "capabilities": [
         {
           "type": "media",
@@ -1418,90 +931,41 @@
           "extensions": ["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"]
         }
       ],
-      "editor": {
-        "position": "position",
-        "size": "size"
-      },
+      "editor": { "position": "position", "size": "size" },
       "properties": [
         {
           "id": "position",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 0
-              },
-              {
-                "f32": 0
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": "位置",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "X",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "X", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "Y",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "Y", "unit": "px" }
             }
           ]
         },
         {
           "id": "size",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 960
-              },
-              {
-                "f32": 540
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 960 }, { "f32": 540 }] },
           "label": "サイズ",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "幅",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "幅", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "高さ",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "高さ", "unit": "px" }
             }
           ]
         }
@@ -1518,9 +982,7 @@
       "category": "メディア",
       "tags": ["ベクター", "vector", "svg"],
       "symbol": "▧",
-      "shader": {
-        "module": "media"
-      },
+      "shader": { "module": "media" },
       "capabilities": [
         {
           "type": "media",
@@ -1536,90 +998,41 @@
           "extensions": ["svg"]
         }
       ],
-      "editor": {
-        "position": "position",
-        "size": "size"
-      },
+      "editor": { "position": "position", "size": "size" },
       "properties": [
         {
           "id": "position",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 0
-              },
-              {
-                "f32": 0
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": "位置",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "X",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "X", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "Y",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "Y", "unit": "px" }
             }
           ]
         },
         {
           "id": "size",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 960
-              },
-              {
-                "f32": 540
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 960 }, { "f32": 540 }] },
           "label": "サイズ",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "幅",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "幅", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 10000
-              },
-              "ui": {
-                "label": "高さ",
-                "unit": "px"
-              }
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "高さ", "unit": "px" }
             }
           ]
         }
@@ -1648,23 +1061,14 @@
       "properties": [
         {
           "id": "volume",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 1
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 1 },
           "label": "音量",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0,
-                "max": 2
-              },
-              "ui": {
-                "step": 0.01
-              }
+              "constraints": { "min": 0, "max": 2 },
+              "ui": { "step": 0.01 }
             }
           ]
         }
@@ -1677,9 +1081,7 @@
       "category": "合成",
       "tags": ["レイヤー", "範囲", "render", "composite"],
       "symbol": "▣",
-      "shader": {
-        "module": "render_result"
-      },
+      "shader": { "module": "render_result" },
       "capabilities": [
         {
           "type": "render_result",
@@ -1692,54 +1094,26 @@
       "properties": [
         {
           "id": "start_offset",
-          "type": {
-            "value": "u32"
-          },
-          "default": {
-            "u32": 1
-          },
+          "type": { "value": "u32" },
+          "default": { "u32": 1 },
           "label": "開始オフセット",
           "configurations": [
-            {
-              "constraints": {
-                "min": 1,
-                "max": 30
-              },
-              "ui": {
-                "step": 1
-              }
-            }
+            { "constraints": { "min": 1, "max": 30 }, "ui": { "step": 1 } }
           ]
         },
         {
           "id": "end_offset",
-          "type": {
-            "value": "u32"
-          },
-          "default": {
-            "u32": 1
-          },
+          "type": { "value": "u32" },
+          "default": { "u32": 1 },
           "label": "終了オフセット",
           "configurations": [
-            {
-              "constraints": {
-                "min": 1,
-                "max": 30
-              },
-              "ui": {
-                "step": 1
-              }
-            }
+            { "constraints": { "min": 1, "max": 30 }, "ui": { "step": 1 } }
           ]
         },
         {
           "id": "hide_original",
-          "type": {
-            "value": "bool"
-          },
-          "default": {
-            "bool": false
-          },
+          "type": { "value": "bool" },
+          "default": { "bool": false },
           "label": "原本を隠す",
           "configurations": [{}]
         }
@@ -1762,78 +1136,162 @@
           "type": "render_result"
         }
       ],
-      "passes": [
-        {
-          "type": "render",
-          "shader": {
-            "module": "layer_mask"
-          }
-        }
-      ],
+      "passes": [{ "type": "render", "shader": { "module": "layer_mask" } }],
       "properties": [
         {
           "id": "start_offset",
-          "type": {
-            "value": "u32"
-          },
-          "default": {
-            "u32": 1
-          },
+          "type": { "value": "u32" },
+          "default": { "u32": 1 },
           "label": "開始オフセット",
           "configurations": [
-            {
-              "constraints": {
-                "min": 1,
-                "max": 30
-              },
-              "ui": {
-                "step": 1
-              }
-            }
+            { "constraints": { "min": 1, "max": 30 }, "ui": { "step": 1 } }
           ]
         },
         {
           "id": "end_offset",
-          "type": {
-            "value": "u32"
-          },
-          "default": {
-            "u32": 1
-          },
+          "type": { "value": "u32" },
+          "default": { "u32": 1 },
           "label": "終了オフセット",
           "configurations": [
-            {
-              "constraints": {
-                "min": 1,
-                "max": 30
-              },
-              "ui": {
-                "step": 1
-              }
-            }
+            { "constraints": { "min": 1, "max": 30 }, "ui": { "step": 1 } }
           ]
         },
         {
           "id": "hide_original",
-          "type": {
-            "value": "bool"
-          },
-          "default": {
-            "bool": true
-          },
+          "type": { "value": "bool" },
+          "default": { "bool": true },
           "label": "原本を隠す",
           "configurations": [{}]
         },
         {
           "id": "invert_mask",
-          "type": {
-            "value": "bool"
-          },
-          "default": {
-            "bool": false
-          },
+          "type": { "value": "bool" },
+          "default": { "bool": false },
           "label": "マスクを反転",
           "configurations": [{}]
+        }
+      ]
+    },
+    {
+      "id": "follow_spline",
+      "output_bounds": {
+        "type": "center_range",
+        "position": "position",
+        "size": "size",
+        "size_outset": 0.252,
+        "padding": 4
+      },
+      "label": "スプライン追従",
+      "category": "変形",
+      "tags": ["経路", "パス", "移動", "spline", "path", "motion"],
+      "editor": {
+        "position": "position",
+        "size": "size",
+        "points": "points",
+        "spline": { "tension": "tension", "closed": "closed" }
+      },
+      "passes": [{ "type": "render", "shader": { "module": "follow_spline" } }],
+      "properties": [
+        {
+          "id": "position",
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
+          "label": "経路の位置",
+          "configurations": [
+            {
+              "animatable": true,
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "X", "unit": "px" }
+            },
+            {
+              "animatable": true,
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "Y", "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "size",
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 320 }, { "f32": 240 }] },
+          "label": "経路のサイズ",
+          "configurations": [
+            {
+              "animatable": true,
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "幅", "unit": "px" }
+            },
+            {
+              "animatable": true,
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": { "label": "高さ", "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "points",
+          "type": {
+            "array": {
+              "element_type": ["f32", "f32"],
+              "max_items": 64,
+              "min_items": 2
+            }
+          },
+          "default": {
+            "array": [
+              { "id": 1, "value": { "tuple": [{ "f32": 0 }, { "f32": 70 }] } },
+              { "id": 2, "value": { "tuple": [{ "f32": 30 }, { "f32": 25 }] } },
+              { "id": 3, "value": { "tuple": [{ "f32": 70 }, { "f32": 75 }] } },
+              { "id": 4, "value": { "tuple": [{ "f32": 100 }, { "f32": 30 }] } }
+            ]
+          },
+          "append_default": { "tuple": [{ "f32": 50 }, { "f32": 50 }] },
+          "label": "経路の点",
+          "configurations": [
+            {
+              "animatable": true,
+              "constraints": { "min": 0, "max": 100 },
+              "ui": { "label": "X", "unit": "%", "step": 1 }
+            },
+            {
+              "animatable": true,
+              "constraints": { "min": 0, "max": 100 },
+              "ui": { "label": "Y", "unit": "%", "step": 1 }
+            }
+          ]
+        },
+        {
+          "id": "tension",
+          "type": { "value": "f32" },
+          "default": { "f32": 0 },
+          "label": "テンション",
+          "configurations": [
+            {
+              "animatable": true,
+              "constraints": { "min": -100, "max": 100 },
+              "ui": { "unit": "%", "step": 1 }
+            }
+          ]
+        },
+        {
+          "id": "closed",
+          "type": { "value": "bool" },
+          "default": { "bool": false },
+          "label": "パスを閉じる",
+          "configurations": [{}]
+        },
+        {
+          "id": "progress",
+          "type": { "value": "f32" },
+          "default": { "f32": 0 },
+          "label": "進度",
+          "configurations": [
+            {
+              "animatable": true,
+              "constraints": { "min": 0, "max": 100 },
+              "ui": { "unit": "%", "step": 1 }
+            }
+          ]
         }
       ]
     },
@@ -1843,53 +1301,23 @@
       "label": "移動",
       "category": "変形",
       "tags": ["位置", "ずらす", "position", "move"],
-      "passes": [
-        {
-          "type": "render",
-          "shader": {
-            "module": "translate"
-          }
-        }
-      ],
+      "passes": [{ "type": "render", "shader": { "module": "translate" } }],
       "properties": [
         {
           "id": "offset",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 0
-              },
-              {
-                "f32": 0
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": "移動量",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "X",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "X", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "Y",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "Y", "unit": "px" }
             }
           ]
         }
@@ -1905,76 +1333,36 @@
       "label": "回転",
       "category": "変形",
       "tags": ["角度", "rotate", "rotation"],
-      "passes": [
-        {
-          "type": "render",
-          "shader": {
-            "module": "rotate_2d"
-          }
-        }
-      ],
+      "passes": [{ "type": "render", "shader": { "module": "rotate_2d" } }],
       "properties": [
         {
           "id": "angle",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 0
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 0 },
           "label": "角度",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -360,
-                "max": 360
-              },
-              "ui": {
-                "unit": "°",
-                "step": 1
-              }
+              "constraints": { "min": -360, "max": 360 },
+              "ui": { "unit": "°", "step": 1 }
             }
           ]
         },
         {
           "id": "center",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 0
-              },
-              {
-                "f32": 0
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": "中心",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "X",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "X", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "Y",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "Y", "unit": "px" }
             }
           ]
         }
@@ -1991,134 +1379,59 @@
       "label": "3D回転",
       "category": "変形",
       "tags": ["立体", "遠近", "perspective", "rotation"],
-      "passes": [
-        {
-          "type": "render",
-          "shader": {
-            "module": "rotate_3d"
-          }
-        }
-      ],
+      "passes": [{ "type": "render", "shader": { "module": "rotate_3d" } }],
       "properties": [
         {
           "id": "rotation",
-          "type": {
-            "value": ["f32", "f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 0
-              },
-              {
-                "f32": 0
-              },
-              {
-                "f32": 0
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32", "f32"] },
+          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }, { "f32": 0 }] },
           "label": "回転",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -360,
-                "max": 360
-              },
-              "ui": {
-                "label": "X",
-                "unit": "°",
-                "step": 1
-              }
+              "constraints": { "min": -360, "max": 360 },
+              "ui": { "label": "X", "unit": "°", "step": 1 }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": -360,
-                "max": 360
-              },
-              "ui": {
-                "label": "Y",
-                "unit": "°",
-                "step": 1
-              }
+              "constraints": { "min": -360, "max": 360 },
+              "ui": { "label": "Y", "unit": "°", "step": 1 }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": -360,
-                "max": 360
-              },
-              "ui": {
-                "label": "Z",
-                "unit": "°",
-                "step": 1
-              }
+              "constraints": { "min": -360, "max": 360 },
+              "ui": { "label": "Z", "unit": "°", "step": 1 }
             }
           ]
         },
         {
           "id": "perspective",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 1000
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 1000 },
           "label": "遠近感",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 50,
-                "max": 5000
-              },
-              "ui": {
-                "unit": "px",
-                "step": 1
-              }
+              "constraints": { "min": 50, "max": 5000 },
+              "ui": { "unit": "px", "step": 1 }
             }
           ]
         },
         {
           "id": "center",
-          "type": {
-            "value": ["f32", "f32"]
-          },
-          "default": {
-            "tuple": [
-              {
-                "f32": 0
-              },
-              {
-                "f32": 0
-              }
-            ]
-          },
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": "中心",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "X",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "X", "unit": "px" }
             },
             {
               "animatable": true,
-              "constraints": {
-                "min": -1000000,
-                "max": 1000000
-              },
-              "ui": {
-                "label": "Y",
-                "unit": "px"
-              }
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": "Y", "unit": "px" }
             }
           ]
         }
@@ -2130,143 +1443,84 @@
       "category": "カラー調整",
       "tags": ["明るさ", "コントラスト", "彩度", "color correction", "grading"],
       "passes": [
-        {
-          "type": "render",
-          "shader": {
-            "module": "color_adjustment"
-          }
-        }
+        { "type": "render", "shader": { "module": "color_adjustment" } }
       ],
       "properties": [
         {
           "id": "brightness",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 0
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 0 },
           "label": "明るさ",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -1,
-                "max": 1
-              },
-              "ui": {
-                "step": 0.01
-              }
+              "constraints": { "min": -1, "max": 1 },
+              "ui": { "step": 0.01 }
             }
           ]
         },
         {
           "id": "contrast",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 1
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 1 },
           "label": "コントラスト",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0,
-                "max": 3
-              },
-              "ui": {
-                "step": 0.01
-              }
+              "constraints": { "min": 0, "max": 3 },
+              "ui": { "step": 0.01 }
             }
           ]
         },
         {
           "id": "saturation",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 1
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 1 },
           "label": "彩度",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0,
-                "max": 3
-              },
-              "ui": {
-                "step": 0.01
-              }
+              "constraints": { "min": 0, "max": 3 },
+              "ui": { "step": 0.01 }
             }
           ]
         },
         {
           "id": "temperature",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 0
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 0 },
           "label": "色温度",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -1,
-                "max": 1
-              },
-              "ui": {
-                "step": 0.01
-              }
+              "constraints": { "min": -1, "max": 1 },
+              "ui": { "step": 0.01 }
             }
           ]
         },
         {
           "id": "tint",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 0
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 0 },
           "label": "色かぶり",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -1,
-                "max": 1
-              },
-              "ui": {
-                "step": 0.01
-              }
+              "constraints": { "min": -1, "max": 1 },
+              "ui": { "step": 0.01 }
             }
           ]
         },
         {
           "id": "gamma",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 1
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 1 },
           "label": "ガンマ",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0.1,
-                "max": 3
-              },
-              "ui": {
-                "step": 0.01
-              }
+              "constraints": { "min": 0.1, "max": 3 },
+              "ui": { "step": 0.01 }
             }
           ]
         }
@@ -2277,35 +1531,18 @@
       "label": "不透明度",
       "category": "カラー調整",
       "tags": ["透明", "透過", "alpha", "transparency"],
-      "passes": [
-        {
-          "type": "render",
-          "shader": {
-            "module": "opacity"
-          }
-        }
-      ],
+      "passes": [{ "type": "render", "shader": { "module": "opacity" } }],
       "properties": [
         {
           "id": "opacity",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 100
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 100 },
           "label": "不透明度",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0,
-                "max": 100
-              },
-              "ui": {
-                "unit": "%",
-                "step": 1
-              }
+              "constraints": { "min": 0, "max": 100 },
+              "ui": { "unit": "%", "step": 1 }
             }
           ]
         }
@@ -2317,64 +1554,33 @@
       "category": "塗り",
       "tags": ["グラデ", "gradient", "fill"],
       "passes": [
-        {
-          "type": "render",
-          "shader": {
-            "module": "linear_gradient"
-          }
-        }
+        { "type": "render", "shader": { "module": "linear_gradient" } }
       ],
       "properties": [
         {
           "id": "start_color",
-          "type": {
-            "value": "color"
-          },
-          "default": {
-            "color": [0.08, 0.12, 0.28, 1]
-          },
+          "type": { "value": "color" },
+          "default": { "color": [0.08, 0.12, 0.28, 1] },
           "label": "開始色",
-          "configurations": [
-            {
-              "animatable": true
-            }
-          ]
+          "configurations": [{ "animatable": true }]
         },
         {
           "id": "end_color",
-          "type": {
-            "value": "color"
-          },
-          "default": {
-            "color": [0.92, 0.18, 0.32, 1]
-          },
+          "type": { "value": "color" },
+          "default": { "color": [0.92, 0.18, 0.32, 1] },
           "label": "終了色",
-          "configurations": [
-            {
-              "animatable": true
-            }
-          ]
+          "configurations": [{ "animatable": true }]
         },
         {
           "id": "angle",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 0
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 0 },
           "label": "角度",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -360,
-                "max": 360
-              },
-              "ui": {
-                "unit": "°",
-                "step": 1
-              }
+              "constraints": { "min": -360, "max": 360 },
+              "ui": { "unit": "°", "step": 1 }
             }
           ]
         }
@@ -2382,11 +1588,7 @@
     },
     {
       "id": "glow",
-      "output_bounds": {
-        "type": "outset",
-        "radius": "width",
-        "multiplier": 4.0
-      },
+      "output_bounds": { "type": "outset", "radius": "width", "multiplier": 4 },
       "label": "光彩",
       "category": "スタイル",
       "tags": ["発光", "ネオン", "bloom", "neon"],
@@ -2394,209 +1596,94 @@
       "properties": [
         {
           "id": "width",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 20
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 20 },
           "label": "半径",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0,
-                "max": 128
-              },
-              "ui": {
-                "unit": "px",
-                "step": 1
-              }
+              "constraints": { "min": 0, "max": 128 },
+              "ui": { "unit": "px", "step": 1 }
             }
           ]
         },
         {
           "id": "intensity",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 100
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 100 },
           "label": "強さ",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0,
-                "max": 500
-              },
-              "ui": {
-                "unit": "%",
-                "step": 1
-              }
+              "constraints": { "min": 0, "max": 500 },
+              "ui": { "unit": "%", "step": 1 }
             }
           ]
         },
         {
           "id": "spread",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 20
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 20 },
           "label": "広がり",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0,
-                "max": 100
-              },
-              "ui": {
-                "unit": "%",
-                "step": 1
-              }
+              "constraints": { "min": 0, "max": 100 },
+              "ui": { "unit": "%", "step": 1 }
             }
           ]
         },
         {
           "id": "color",
-          "type": {
-            "value": "color"
-          },
-          "default": {
-            "color": [0.1, 0.55, 1, 1]
-          },
+          "type": { "value": "color" },
+          "default": { "color": [0.1, 0.55, 1, 1] },
           "label": "色",
-          "configurations": [
-            {
-              "animatable": true
-            }
-          ]
+          "configurations": [{ "animatable": true }]
         }
       ],
       "passes": [
         {
           "type": "compute",
-          "shader": {
-            "module": "glow_blur"
-          },
+          "shader": { "module": "glow_blur" },
           "constants": [
-            {
-              "id": "direction_x",
-              "value": {
-                "f32": 1
-              }
-            },
-            {
-              "id": "direction_y",
-              "value": {
-                "f32": 0
-              }
-            },
-            {
-              "id": "radius_scale",
-              "value": {
-                "f32": 0.57735027
-              }
-            }
+            { "id": "direction_x", "value": { "f32": 1 } },
+            { "id": "direction_y", "value": { "f32": 0 } },
+            { "id": "radius_scale", "value": { "f32": 0.57735027 } }
           ]
         },
         {
           "type": "compute",
-          "shader": {
-            "module": "glow_blur"
-          },
+          "shader": { "module": "glow_blur" },
           "constants": [
-            {
-              "id": "direction_x",
-              "value": {
-                "f32": 0
-              }
-            },
-            {
-              "id": "direction_y",
-              "value": {
-                "f32": 1
-              }
-            },
-            {
-              "id": "radius_scale",
-              "value": {
-                "f32": 0.57735027
-              }
-            }
+            { "id": "direction_x", "value": { "f32": 0 } },
+            { "id": "direction_y", "value": { "f32": 1 } },
+            { "id": "radius_scale", "value": { "f32": 0.57735027 } }
           ]
         },
         {
           "type": "compute",
-          "shader": {
-            "module": "glow_blur"
-          },
+          "shader": { "module": "glow_blur" },
           "constants": [
-            {
-              "id": "direction_x",
-              "value": {
-                "f32": 1
-              }
-            },
-            {
-              "id": "direction_y",
-              "value": {
-                "f32": 0
-              }
-            },
-            {
-              "id": "radius_scale",
-              "value": {
-                "f32": 0.81649658
-              }
-            }
+            { "id": "direction_x", "value": { "f32": 1 } },
+            { "id": "direction_y", "value": { "f32": 0 } },
+            { "id": "radius_scale", "value": { "f32": 0.81649658 } }
           ]
         },
         {
           "type": "compute",
-          "shader": {
-            "module": "glow_blur"
-          },
+          "shader": { "module": "glow_blur" },
           "constants": [
-            {
-              "id": "direction_x",
-              "value": {
-                "f32": 0
-              }
-            },
-            {
-              "id": "direction_y",
-              "value": {
-                "f32": 1
-              }
-            },
-            {
-              "id": "radius_scale",
-              "value": {
-                "f32": 0.81649658
-              }
-            }
+            { "id": "direction_x", "value": { "f32": 0 } },
+            { "id": "direction_y", "value": { "f32": 1 } },
+            { "id": "radius_scale", "value": { "f32": 0.81649658 } }
           ]
         },
-        {
-          "type": "render",
-          "shader": {
-            "module": "glow"
-          }
-        }
+        { "type": "render", "shader": { "module": "glow" } }
       ]
     },
     {
       "id": "outline",
-      "output_bounds": {
-        "type": "outset",
-        "radius": "width",
-        "multiplier": 1.0
-      },
+      "output_bounds": { "type": "outset", "radius": "width", "multiplier": 1 },
       "label": "枠線",
       "category": "スタイル",
       "tags": ["縁取り", "ストローク", "border", "stroke"],
@@ -2604,115 +1691,55 @@
       "properties": [
         {
           "id": "width",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 4
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 4 },
           "label": "太さ",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0,
-                "max": 64
-              },
-              "ui": {
-                "unit": "px",
-                "step": 1
-              }
+              "constraints": { "min": 0, "max": 64 },
+              "ui": { "unit": "px", "step": 1 }
             }
           ]
         },
         {
           "id": "position",
-          "type": {
-            "value": {
-              "enum": [0, 1, 2]
-            }
-          },
-          "default": {
-            "enum": 0
-          },
+          "type": { "value": { "enum": [0, 1, 2] } },
+          "default": { "enum": 0 },
           "label": "位置",
           "configurations": [
             {
               "ui": {
-                "enum_variants": {
-                  "0": "外側",
-                  "1": "中央",
-                  "2": "内側"
-                }
+                "enum_variants": { "0": "外側", "1": "中央", "2": "内側" }
               }
             }
           ]
         },
         {
           "id": "color",
-          "type": {
-            "value": "color"
-          },
-          "default": {
-            "color": [1, 1, 1, 1]
-          },
+          "type": { "value": "color" },
+          "default": { "color": [1, 1, 1, 1] },
           "label": "色",
-          "configurations": [
-            {
-              "animatable": true
-            }
-          ]
+          "configurations": [{ "animatable": true }]
         }
       ],
       "passes": [
         {
           "type": "compute",
-          "shader": {
-            "module": "outline_distance_field"
-          },
-          "constants": [
-            {
-              "id": "phase",
-              "value": {
-                "u32": 0
-              }
-            }
-          ]
+          "shader": { "module": "outline_distance_field" },
+          "constants": [{ "id": "phase", "value": { "u32": 0 } }]
         },
         {
           "type": "compute",
-          "shader": {
-            "module": "outline_distance_field"
-          },
-          "constants": [
-            {
-              "id": "phase",
-              "value": {
-                "u32": 1
-              }
-            }
-          ]
+          "shader": { "module": "outline_distance_field" },
+          "constants": [{ "id": "phase", "value": { "u32": 1 } }]
         },
         {
           "type": "compute",
-          "shader": {
-            "module": "outline_distance_field"
-          },
-          "constants": [
-            {
-              "id": "phase",
-              "value": {
-                "u32": 2
-              }
-            }
-          ]
+          "shader": { "module": "outline_distance_field" },
+          "constants": [{ "id": "phase", "value": { "u32": 2 } }]
         },
-        {
-          "type": "render",
-          "shader": {
-            "module": "outline"
-          }
-        }
+        { "type": "render", "shader": { "module": "outline" } }
       ]
     },
     {
@@ -2720,78 +1747,44 @@
       "label": "ビネット",
       "category": "スタイル",
       "tags": ["周辺減光", "vignette"],
-      "passes": [
-        {
-          "type": "render",
-          "shader": {
-            "module": "vignette"
-          }
-        }
-      ],
+      "passes": [{ "type": "render", "shader": { "module": "vignette" } }],
       "properties": [
         {
           "id": "amount",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 0.45
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 0.45 },
           "label": "強さ",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0,
-                "max": 1
-              },
-              "ui": {
-                "step": 0.01
-              }
+              "constraints": { "min": 0, "max": 1 },
+              "ui": { "step": 0.01 }
             }
           ]
         },
         {
           "id": "softness",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 0.5
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 0.5 },
           "label": "ぼかし",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0.01,
-                "max": 1
-              },
-              "ui": {
-                "step": 0.01
-              }
+              "constraints": { "min": 0.01, "max": 1 },
+              "ui": { "step": 0.01 }
             }
           ]
         },
         {
           "id": "roundness",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 1
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 1 },
           "label": "丸み",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0.25,
-                "max": 4
-              },
-              "ui": {
-                "step": 0.01
-              }
+              "constraints": { "min": 0.25, "max": 4 },
+              "ui": { "step": 0.01 }
             }
           ]
         }
@@ -2802,35 +1795,18 @@
       "label": "ピクセル化",
       "category": "フィルター",
       "tags": ["モザイク", "ドット", "mosaic", "pixel"],
-      "passes": [
-        {
-          "type": "render",
-          "shader": {
-            "module": "pixelate"
-          }
-        }
-      ],
+      "passes": [{ "type": "render", "shader": { "module": "pixelate" } }],
       "properties": [
         {
           "id": "block_size",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 12
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 12 },
           "label": "ブロック幅",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 1,
-                "max": 256
-              },
-              "ui": {
-                "unit": "px",
-                "step": 1
-              }
+              "constraints": { "min": 1, "max": 256 },
+              "ui": { "unit": "px", "step": 1 }
             }
           ]
         }
@@ -2841,63 +1817,38 @@
       "output_bounds": {
         "type": "outset",
         "radius": "amount",
-        "multiplier": 1.0
+        "multiplier": 1
       },
       "label": "色収差",
       "category": "フィルター",
       "tags": ["色ずれ", "RGBずれ", "chromatic", "fringing"],
       "passes": [
-        {
-          "type": "render",
-          "shader": {
-            "module": "chromatic_aberration"
-          }
-        }
+        { "type": "render", "shader": { "module": "chromatic_aberration" } }
       ],
       "properties": [
         {
           "id": "amount",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 4
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 4 },
           "label": "ずれ",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0,
-                "max": 100
-              },
-              "ui": {
-                "unit": "px",
-                "step": 1
-              }
+              "constraints": { "min": 0, "max": 100 },
+              "ui": { "unit": "px", "step": 1 }
             }
           ]
         },
         {
           "id": "angle",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 0
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 0 },
           "label": "角度",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -180,
-                "max": 180
-              },
-              "ui": {
-                "unit": "°",
-                "step": 1
-              }
+              "constraints": { "min": -180, "max": 180 },
+              "ui": { "unit": "°", "step": 1 }
             }
           ]
         }
@@ -2908,7 +1859,7 @@
       "output_bounds": {
         "type": "outset",
         "radius": "radius",
-        "multiplier": 4.0
+        "multiplier": 4
       },
       "label": "ガウスぼかし",
       "category": "フィルター",
@@ -2916,24 +1867,14 @@
       "properties": [
         {
           "id": "radius",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 12
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 12 },
           "label": "半径",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0,
-                "max": 64
-              },
-              "ui": {
-                "unit": "px",
-                "step": 1
-              }
+              "constraints": { "min": 0, "max": 64 },
+              "ui": { "unit": "px", "step": 1 }
             }
           ]
         }
@@ -2941,106 +1882,38 @@
       "passes": [
         {
           "type": "compute",
-          "shader": {
-            "module": "gaussian_blur"
-          },
+          "shader": { "module": "gaussian_blur" },
           "constants": [
-            {
-              "id": "direction_x",
-              "value": {
-                "f32": 1
-              }
-            },
-            {
-              "id": "direction_y",
-              "value": {
-                "f32": 0
-              }
-            },
-            {
-              "id": "radius_scale",
-              "value": {
-                "f32": 0.70710678
-              }
-            }
+            { "id": "direction_x", "value": { "f32": 1 } },
+            { "id": "direction_y", "value": { "f32": 0 } },
+            { "id": "radius_scale", "value": { "f32": 0.70710678 } }
           ]
         },
         {
           "type": "compute",
-          "shader": {
-            "module": "gaussian_blur"
-          },
+          "shader": { "module": "gaussian_blur" },
           "constants": [
-            {
-              "id": "direction_x",
-              "value": {
-                "f32": 0
-              }
-            },
-            {
-              "id": "direction_y",
-              "value": {
-                "f32": 1
-              }
-            },
-            {
-              "id": "radius_scale",
-              "value": {
-                "f32": 0.70710678
-              }
-            }
+            { "id": "direction_x", "value": { "f32": 0 } },
+            { "id": "direction_y", "value": { "f32": 1 } },
+            { "id": "radius_scale", "value": { "f32": 0.70710678 } }
           ]
         },
         {
           "type": "compute",
-          "shader": {
-            "module": "gaussian_blur"
-          },
+          "shader": { "module": "gaussian_blur" },
           "constants": [
-            {
-              "id": "direction_x",
-              "value": {
-                "f32": 1
-              }
-            },
-            {
-              "id": "direction_y",
-              "value": {
-                "f32": 0
-              }
-            },
-            {
-              "id": "radius_scale",
-              "value": {
-                "f32": 0.70710678
-              }
-            }
+            { "id": "direction_x", "value": { "f32": 1 } },
+            { "id": "direction_y", "value": { "f32": 0 } },
+            { "id": "radius_scale", "value": { "f32": 0.70710678 } }
           ]
         },
         {
           "type": "compute",
-          "shader": {
-            "module": "gaussian_blur"
-          },
+          "shader": { "module": "gaussian_blur" },
           "constants": [
-            {
-              "id": "direction_x",
-              "value": {
-                "f32": 0
-              }
-            },
-            {
-              "id": "direction_y",
-              "value": {
-                "f32": 1
-              }
-            },
-            {
-              "id": "radius_scale",
-              "value": {
-                "f32": 0.70710678
-              }
-            }
+            { "id": "direction_x", "value": { "f32": 0 } },
+            { "id": "direction_y", "value": { "f32": 1 } },
+            { "id": "radius_scale", "value": { "f32": 0.70710678 } }
           ]
         }
       ]
@@ -3053,68 +1926,36 @@
       "properties": [
         {
           "id": "samples",
-          "type": {
-            "value": "u32"
-          },
-          "default": {
-            "u32": 8
-          },
+          "type": { "value": "u32" },
+          "default": { "u32": 8 },
           "label": "サンプル数",
           "configurations": [
-            {
-              "constraints": {
-                "min": 1,
-                "max": 16
-              },
-              "ui": {
-                "step": 1
-              }
-            }
+            { "constraints": { "min": 1, "max": 16 }, "ui": { "step": 1 } }
           ]
         },
         {
           "id": "start_offset",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": -0.25
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": -0.25 },
           "label": "開始位置",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -32,
-                "max": 32
-              },
-              "ui": {
-                "unit": "F",
-                "step": 0.01
-              }
+              "constraints": { "min": -32, "max": 32 },
+              "ui": { "unit": "F", "step": 0.01 }
             }
           ]
         },
         {
           "id": "end_offset",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 0.25
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 0.25 },
           "label": "終了位置",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": -32,
-                "max": 32
-              },
-              "ui": {
-                "unit": "F",
-                "step": 0.01
-              }
+              "constraints": { "min": -32, "max": 32 },
+              "ui": { "unit": "F", "step": 0.01 }
             }
           ]
         }
@@ -3128,9 +1969,7 @@
             "start_offset": "start_offset",
             "end_offset": "end_offset"
           },
-          "reducer": {
-            "module": "motion_blur"
-          }
+          "reducer": { "module": "motion_blur" }
         }
       ]
     },
@@ -3142,45 +1981,28 @@
       "properties": [
         {
           "id": "threshold",
-          "type": {
-            "value": "f32"
-          },
-          "default": {
-            "f32": 0.25
-          },
+          "type": { "value": "f32" },
+          "default": { "f32": 0.25 },
           "label": "しきい値",
           "configurations": [
             {
               "animatable": true,
-              "constraints": {
-                "min": 0,
-                "max": 1
-              },
-              "ui": {
-                "step": 0.01
-              }
+              "constraints": { "min": 0, "max": 1 },
+              "ui": { "step": 0.01 }
             }
           ]
         },
         {
           "id": "vertical",
-          "type": {
-            "value": "bool"
-          },
-          "default": {
-            "bool": false
-          },
+          "type": { "value": "bool" },
+          "default": { "bool": false },
           "label": "縦方向",
           "configurations": [{}]
         },
         {
           "id": "descending",
-          "type": {
-            "value": "bool"
-          },
-          "default": {
-            "bool": false
-          },
+          "type": { "value": "bool" },
+          "default": { "bool": false },
           "label": "明るい順",
           "configurations": [{}]
         }
@@ -3188,9 +2010,7 @@
       "passes": [
         {
           "type": "compute",
-          "shader": {
-            "module": "pixel_sort"
-          },
+          "shader": { "module": "pixel_sort" },
           "dispatch": ["width", "height", "one"]
         }
       ]

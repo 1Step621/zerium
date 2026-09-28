@@ -242,7 +242,8 @@ impl PropertyInspector {
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
         let render = self.render_context(&view, cx);
-        let header = Self::selection_header(&view, &render);
+        let active_effect = self.editor.read(cx).active_edit_effect();
+        let header = Self::selection_header(&view, &render, active_effect);
         let scene_settings = view
             .editing_scene
             .then(|| self.scene_settings_element(&view.scene_arguments, &render));
@@ -293,6 +294,27 @@ impl PropertyInspector {
             .cloned()
             .map(|file| self.file_input_element(None, file, &render))
             .collect::<Vec<_>>();
+        let item_editor = render.editor.clone();
+        let item_controls = div()
+            .w_full()
+            .flex()
+            .flex_col()
+            .gap_3()
+            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                Self::activate_edit_target(&item_editor, None, cx);
+            })
+            .child(Self::kind_row(view.kind_label.clone(), render.colors))
+            .children(controls)
+            .children(files)
+            .when_some(self.file_error.clone(), |this, error| {
+                this.child(
+                    div()
+                        .w_full()
+                        .text_sm()
+                        .text_color(render.colors.danger)
+                        .child(error),
+                )
+            });
         div()
             .size_full()
             .flex()
@@ -325,18 +347,7 @@ impl PropertyInspector {
                                 .child("アイテム設定"),
                         )
                     })
-                    .child(Self::kind_row(view.kind_label.clone(), render.colors))
-                    .children(controls)
-                    .children(files)
-                    .when_some(self.file_error.clone(), |this, error| {
-                        this.child(
-                            div()
-                                .w_full()
-                                .text_sm()
-                                .text_color(render.colors.danger)
-                                .child(error),
-                        )
-                    })
+                    .child(item_controls)
                     .when_some(effects, |this, effects| this.child(effects)),
             )
             .into_any_element()
@@ -386,7 +397,8 @@ impl PropertyInspector {
         inspector.update(cx, |inspector, cx| {
             let result = inspector.editor.update(cx, |editor, cx| {
                 let result = editor.add_selected_effect(&plugin_id, &effect_id);
-                if result.is_ok() {
+                if let Ok(instance_id) = result.as_ref() {
+                    editor.set_active_edit_effect(Some(*instance_id));
                     cx.notify();
                 }
                 result
@@ -428,16 +440,32 @@ impl PropertyInspector {
         }
     }
 
-    fn selection_header(view: &SelectionView, render: &RenderCtx<'_>) -> Div {
+    fn selection_header(
+        view: &SelectionView,
+        render: &RenderCtx<'_>,
+        active_effect: Option<EffectInstanceId>,
+    ) -> Div {
         let editor = render.editor.clone();
+        let title_editor = render.editor.clone();
         pane_header(render.colors)
             .child(
                 div()
+                    .id("item-editor-title")
                     .min_w_0()
                     .flex_1()
                     .overflow_hidden()
                     .text_ellipsis()
                     .whitespace_nowrap()
+                    .text_color(if active_effect.is_none() && !view.multiple {
+                        render.colors.primary
+                    } else {
+                        render.colors.foreground
+                    })
+                    .when(!view.multiple, |this| {
+                        this.cursor_pointer().on_click(move |_, _, cx| {
+                            Self::activate_edit_target(&title_editor, None, cx);
+                        })
+                    })
                     .child(if view.multiple {
                         format!("{}個のアイテム", view.selected_count)
                     } else {
@@ -471,6 +499,18 @@ impl PropertyInspector {
                         });
                     }),
             )
+    }
+
+    fn activate_edit_target(
+        editor: &Entity<TimelineEditor>,
+        effect_id: Option<EffectInstanceId>,
+        cx: &mut App,
+    ) {
+        editor.update(cx, |editor, cx| {
+            if editor.set_active_edit_effect(effect_id) {
+                cx.notify();
+            }
+        });
     }
 
     fn kind_row(label: String, colors: ThemeColor) -> Div {
@@ -594,6 +634,8 @@ impl PropertyInspector {
     ) -> gpui::AnyElement {
         let effect_id = effect.id;
         let hidden = effect.hidden;
+        let focused = render.editor.read(cx).active_edit_effect() == Some(effect_id);
+        let effect_editor = render.editor.clone();
         let (can_move_up, can_move_down) = {
             let editor = render.editor.read(cx);
             (
@@ -636,6 +678,11 @@ impl PropertyInspector {
             .pb_3()
             .border_b_1()
             .border_color(render.colors.border)
+            .when(!view.multiple, |this| {
+                this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                    Self::activate_edit_target(&effect_editor, Some(effect_id), cx);
+                })
+            })
             .child(Self::effect_header(
                 effect.label,
                 effect_id,
@@ -643,6 +690,7 @@ impl PropertyInspector {
                 can_move_up,
                 can_move_down,
                 view.multiple,
+                focused,
                 render,
             ))
             .children(controls)
@@ -657,8 +705,10 @@ impl PropertyInspector {
         can_move_up: bool,
         can_move_down: bool,
         multiple: bool,
+        focused: bool,
         render: &RenderCtx<'_>,
     ) -> Div {
+        let title_editor = render.editor.clone();
         let visibility_editor = render.editor.clone();
         let move_up_editor = render.editor.clone();
         let move_down_editor = render.editor.clone();
@@ -671,11 +721,22 @@ impl PropertyInspector {
             .justify_between()
             .child(
                 div()
+                    .id(SharedString::from(format!(
+                        "effect-editor-title-{}",
+                        effect_id.get()
+                    )))
                     .text_sm()
-                    .text_color(if hidden {
+                    .text_color(if focused {
+                        render.colors.primary
+                    } else if hidden {
                         render.colors.muted_foreground
                     } else {
                         render.colors.foreground
+                    })
+                    .when(!multiple, |this| {
+                        this.cursor_pointer().on_click(move |_, _, cx| {
+                            Self::activate_edit_target(&title_editor, Some(effect_id), cx);
+                        })
                     })
                     .child(label),
             )

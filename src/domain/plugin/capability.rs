@@ -1,4 +1,4 @@
-//! Named shader inputs shared by items and effects, plus item-only roles.
+//! Named shader inputs and editor roles for items and effects.
 
 use crate::domain::property::PropertyValueType;
 use std::collections::HashSet;
@@ -7,7 +7,6 @@ use serde::Deserialize;
 
 use super::PluginError;
 use super::identifier::{validate_logical_id, validate_wgsl_identifier};
-use super::item::ItemSchema;
 use crate::domain::property::{PropertySchema, PropertyType, ScalarPropertyType};
 
 pub(super) const MAX_RENDER_RESULT_OFFSET: u32 = 30;
@@ -371,7 +370,15 @@ pub(super) struct EditorCapability {
     pub(super) position: Option<String>,
     pub(super) size: Option<String>,
     pub(super) points: Option<String>,
+    pub(super) spline: Option<SplineEditorCapability>,
     pub(super) label: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct SplineEditorCapability {
+    pub(super) tension: String,
+    pub(super) closed: String,
 }
 
 impl EditorCapability {
@@ -383,15 +390,24 @@ impl EditorCapability {
         )
     }
 
-    pub(super) fn validate(&self, item: &ItemSchema) -> Result<(), PluginError> {
+    pub(super) fn validate(
+        &self,
+        owner: &str,
+        id: &str,
+        properties: &[PropertySchema],
+    ) -> Result<(), PluginError> {
+        let property = |property_id: &str| {
+            properties
+                .iter()
+                .find(|property| property.id() == property_id)
+        };
         if self.position.is_none()
             && self.size.is_none()
             && self.points.is_none()
             && self.label.is_none()
         {
             return Err(PluginError::invalid_definition(format!(
-                "item '{}' editor capability must reference at least one property",
-                item.id()
+                "{owner} '{id}' editor capability must reference at least one property"
             )));
         }
         for (kind, property_id) in [
@@ -401,18 +417,16 @@ impl EditorCapability {
             let Some(property_id) = property_id else {
                 continue;
             };
-            if !item.property(property_id).is_some_and(|property| {
+            if !property(property_id).is_some_and(|property| {
                 matches!(property.ty(), PropertyType::Value(ty) if Self::is_f32_pair(ty))
             }) {
                 return Err(PluginError::invalid_definition(format!(
-                    "item '{}' editor {kind} property '{}' must be a tuple of two f32 values",
-                    item.id(),
-                    property_id
+                    "{owner} '{id}' editor {kind} property '{property_id}' must be a tuple of two f32 values"
                 )));
             }
         }
         if let Some(property_id) = self.points.as_deref() {
-            let valid = item.property(property_id).is_some_and(|property| {
+            let valid = property(property_id).is_some_and(|property| {
                 matches!(
                     property.ty(),
                     PropertyType::Array {
@@ -424,28 +438,42 @@ impl EditorCapability {
             });
             if !valid {
                 return Err(PluginError::invalid_definition(format!(
-                    "item '{}' editor points property '{}' must be an array of two-f32 tuples",
-                    item.id(),
-                    property_id
+                    "{owner} '{id}' editor points property '{property_id}' must be an array of two-f32 tuples"
                 )));
             }
             if self.position.is_none() || self.size.is_none() {
                 return Err(PluginError::invalid_definition(format!(
-                    "item '{}' editor points property requires position and size properties",
-                    item.id()
+                    "{owner} '{id}' editor points property requires position and size properties"
                 )));
             }
         }
+        if let Some(spline) = &self.spline {
+            if self.points.is_none() {
+                return Err(PluginError::invalid_definition(format!(
+                    "{owner} '{id}' editor spline requires points, position and size properties"
+                )));
+            }
+            for (kind, property_id, expected) in [
+                ("tension", spline.tension.as_str(), ScalarPropertyType::F32),
+                ("closed", spline.closed.as_str(), ScalarPropertyType::Bool),
+            ] {
+                if property(property_id).map(PropertySchema::ty)
+                    != Some(&PropertyType::Value(PropertyValueType::Scalar(expected)))
+                {
+                    return Err(PluginError::invalid_definition(format!(
+                        "{owner} '{id}' editor spline {kind} property '{property_id}' has the wrong type"
+                    )));
+                }
+            }
+        }
         if let Some(property_id) = self.label.as_deref()
-            && item.property(property_id).map(|property| property.ty())
+            && property(property_id).map(|property| property.ty())
                 != Some(&PropertyType::Value(PropertyValueType::Scalar(
                     ScalarPropertyType::String,
                 )))
         {
             return Err(PluginError::invalid_definition(format!(
-                "item '{}' editor label property '{}' must be a string",
-                item.id(),
-                property_id
+                "{owner} '{id}' editor label property '{property_id}' must be a string"
             )));
         }
         Ok(())

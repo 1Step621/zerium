@@ -373,6 +373,7 @@ impl TimelineEditor {
             label,
             ty: PropertyType::Value(PropertyValueType::Scalar(preset.scalar())),
             default,
+            append_default: None,
             configurations: vec![PropertyConfiguration {
                 scene_bindable: true,
                 editable: true,

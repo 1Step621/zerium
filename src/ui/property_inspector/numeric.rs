@@ -1,5 +1,13 @@
 use super::*;
 
+pub(super) fn snap_to_step(value: f64, step: f64) -> f64 {
+    if !step.is_finite() || step <= 0. {
+        value
+    } else {
+        (value / step).round() * step
+    }
+}
+
 /// Numeric display rules used by PropertyInspector input controls.
 #[derive(Clone)]
 pub(super) struct NumericInputSpec {
