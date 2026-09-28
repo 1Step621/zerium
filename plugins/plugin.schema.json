@@ -467,7 +467,12 @@
             {
               "type": "object",
               "additionalProperties": false,
-              "required": ["type", "sample_count", "start_offset", "end_offset"],
+              "required": [
+                "type",
+                "sample_count",
+                "start_offset",
+                "end_offset"
+              ],
               "properties": {
                 "type": { "const": "range" },
                 "sample_count": { "$ref": "#/$defs/wgslId" },
@@ -680,6 +685,16 @@
             },
             "reader": {
               "$ref": "#/$defs/logicalId"
+            },
+            "placement": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "position", "size"],
+              "properties": {
+                "type": { "const": "quad" },
+                "position": { "$ref": "#/$defs/wgslId" },
+                "size": { "$ref": "#/$defs/wgslId" }
+              }
             },
             "extensions": {
               "type": "array",

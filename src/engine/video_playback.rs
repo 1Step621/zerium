@@ -21,8 +21,8 @@ use crate::{
         cache::{BudgetedTimestampCache, TimestampCacheHit},
         frame::RgbaFrame,
         media::{
-            DecodedVideoFrame, MediaError, MediaReaderRegistry, VideoDecodeSize,
-            VideoDecoderSession, VideoProxy, VideoProxyRequest, estimate_max_keyframe_gap,
+            DecodedVideoFrame, MediaError, MediaReaderRegistry, VideoDecodeSize, VideoProxy,
+            VideoProxyRequest, VisualDecoderSession, estimate_max_keyframe_gap,
         },
     },
 };
@@ -237,7 +237,7 @@ struct PresentedVideoFrame {
 
 struct VideoDecoderState {
     source: MediaAsset,
-    decoder: Box<dyn VideoDecoderSession>,
+    decoder: VisualDecoderSession,
 }
 
 struct VideoWorkerRequest {
@@ -316,7 +316,7 @@ fn video_worker_main(
             .as_ref()
             .is_none_or(|decoder| decoder.source != request.source)
         {
-            decoder = match media_readers.open_video_decoder(&request.source) {
+            decoder = match media_readers.open_visual_decoder(&request.source) {
                 Ok(decoder) => Some(VideoDecoderState {
                     source: request.source.clone(),
                     decoder,
@@ -678,7 +678,7 @@ impl VideoPlaybackEngine {
         time: TimelineTime,
         active_items: &[(LayerId, TimelineItem)],
         frame_rate: FrameRate,
-        size_for_item: impl Fn(ItemId) -> VideoDecodeSize,
+        size_for_input: impl Fn(&VideoInputId) -> VideoDecodeSize,
     ) -> Vec<(VideoInputId, RequestedVideoFrame)> {
         if !self.tick_seen_times.insert(time.frames().to_bits()) {
             return Vec::new();
@@ -691,7 +691,7 @@ impl VideoPlaybackEngine {
             frame_rate,
             playback_seconds,
         ) {
-            let size = size_for_item(request.input.item_id);
+            let size = size_for_input(&request.input);
             let (source, source_start) = match self.decode_mode {
                 VideoPlaybackMode::Idle => self.idle_source(&request, size),
                 VideoPlaybackMode::Playing | VideoPlaybackMode::Scrubbing => {

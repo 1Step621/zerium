@@ -329,7 +329,7 @@ pub(crate) struct MediaFrameRequest<'a> {
 }
 
 type MediaFrameCache =
-    HashMap<(ItemId, Option<EffectInstanceId>, usize, u64), Option<Arc<RgbaFrame>>>;
+    HashMap<(ItemId, Option<EffectInstanceId>, usize, u64, RenderSize), Option<Arc<RgbaFrame>>>;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RenderScene {
@@ -341,6 +341,60 @@ pub(crate) struct RenderScene {
 }
 
 impl RenderScene {
+    /// The media capability declares its placement; the source decides how many
+    /// of the requested pixels it can produce.
+    pub(crate) fn media_raster_size_for_input(
+        item: &TimelineItem,
+        effect_id: Option<EffectInstanceId>,
+        input_id: &str,
+        target_size: RenderSize,
+        composition_size: RenderSize,
+    ) -> RenderSize {
+        let (capabilities, properties) = match effect_id {
+            Some(effect_id) => {
+                let Some(effect) = item.effects.iter().find(|effect| effect.id == effect_id) else {
+                    return target_size;
+                };
+                (effect.schema().capabilities(), &effect.properties)
+            }
+            None => {
+                let Some(schema) = item.schema() else {
+                    return target_size;
+                };
+                (schema.capabilities(), &item.properties)
+            }
+        };
+        let Some(size_property) = capabilities
+            .iter()
+            .find(|capability| capability.id() == input_id)
+            .and_then(Capability::media_placement)
+            .map(|placement| placement.size_property())
+        else {
+            return target_size;
+        };
+        let Some(size_value) = properties.property(size_property) else {
+            return target_size;
+        };
+        let displayed = [0, 1].map(|index| {
+            size_value
+                .scalar_at(Some(index))
+                .and_then(|value| value.numeric_scalar())
+                .unwrap_or(0.)
+        });
+        let dimension = |displayed: f64, target: u32, composition: u32| {
+            let needed = (displayed * f64::from(target) / f64::from(composition.max(1))).ceil();
+            if needed.is_finite() && needed > 0. {
+                target.max(needed.min(f64::from(ProjectResolution::MAX_DIMENSION)) as u32)
+            } else {
+                target
+            }
+        };
+        RenderSize {
+            width: dimension(displayed[0], target_size.width, composition_size.width),
+            height: dimension(displayed[1], target_size.height, composition_size.height),
+        }
+    }
+
     pub(crate) fn render_size_for_item(
         item: &TimelineItem,
         size: RenderSize,
@@ -531,7 +585,13 @@ impl RenderScene {
                 Capability::Media { .. } => {
                     let item_id = source.item_id;
                     let effect_id = source.effect_id;
-                    let key = (item_id, effect_id, index, time.frames().to_bits());
+                    let key = (
+                        item_id,
+                        effect_id,
+                        index,
+                        time.frames().to_bits(),
+                        target_size,
+                    );
                     let frame = match media_cache.entry(key) {
                         std::collections::hash_map::Entry::Occupied(entry) => {
                             entry.into_mut().clone()

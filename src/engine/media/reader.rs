@@ -17,6 +17,7 @@ use crate::{
 };
 
 use super::ffmpeg::{FfmpegMediaReader, READER_ID as FFMPEG_READER_ID};
+use super::svg::{READER_ID as SVG_READER_ID, SvgMediaReader};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct AudioFormat {
@@ -93,6 +94,65 @@ pub(crate) trait VideoDecoderSession: Send {
     ) -> Result<Vec<DecodedVideoFrame>, MediaError>;
 }
 
+pub(crate) trait ImageDecoderSession: Send {
+    fn render(
+        &mut self,
+        size: VideoDecodeSize,
+        cancelled: &AtomicBool,
+    ) -> Result<RgbaFrame, MediaError>;
+}
+
+pub(crate) enum VisualDecoderSession {
+    Video(Box<dyn VideoDecoderSession>),
+    Image {
+        decoder: Box<dyn ImageDecoderSession>,
+        duration: Duration,
+    },
+}
+
+impl VisualDecoderSession {
+    pub(crate) fn stream_duration(&self) -> Duration {
+        match self {
+            Self::Video(decoder) => decoder.stream_duration(),
+            Self::Image { duration, .. } => *duration,
+        }
+    }
+
+    pub(crate) fn decode_at(
+        &mut self,
+        presentation_time: Duration,
+        size: VideoDecodeSize,
+        cancelled: &AtomicBool,
+    ) -> Result<DecodedVideoFrame, MediaError> {
+        match self {
+            Self::Video(decoder) => decoder.decode_at(presentation_time, size, cancelled),
+            Self::Image { decoder, duration } => Ok(DecodedVideoFrame {
+                presentation_time: Duration::ZERO,
+                duration: *duration,
+                frame: decoder.render(size, cancelled)?,
+            }),
+        }
+    }
+
+    pub(crate) fn decode_from(
+        &mut self,
+        presentation_time: Duration,
+        frame_count: usize,
+        size: VideoDecodeSize,
+        cancelled: &AtomicBool,
+    ) -> Result<Vec<DecodedVideoFrame>, MediaError> {
+        if frame_count == 0 {
+            return Ok(Vec::new());
+        }
+        match self {
+            Self::Video(decoder) => {
+                decoder.decode_from(presentation_time, frame_count, size, cancelled)
+            }
+            Self::Image { .. } => Ok(vec![self.decode_at(presentation_time, size, cancelled)?]),
+        }
+    }
+}
+
 pub(crate) trait AudioDecoderSession: Send {
     fn stream_duration(&self) -> Duration;
 
@@ -115,6 +175,16 @@ pub(crate) trait MediaReader: Send + Sync {
         let _ = asset;
         Err(MediaError::unsupported(
             "このメディアリーダーは動画デコードに対応していません",
+        ))
+    }
+
+    fn open_image_decoder(
+        &self,
+        asset: &MediaAsset,
+    ) -> Result<Box<dyn ImageDecoderSession>, MediaError> {
+        let _ = asset;
+        Err(MediaError::unsupported(
+            "このメディアリーダーは静止画デコードに対応していません",
         ))
     }
 
@@ -336,11 +406,23 @@ impl MediaReaderRegistry {
         })
     }
 
-    pub(crate) fn open_video_decoder(
+    pub(crate) fn open_visual_decoder(
         &self,
         asset: &MediaAsset,
-    ) -> Result<Box<dyn VideoDecoderSession>, MediaError> {
-        self.reader_for(&asset.reader_id)?.open_video_decoder(asset)
+    ) -> Result<VisualDecoderSession, MediaError> {
+        let reader = self.reader_for(&asset.reader_id)?;
+        match asset.kind {
+            MediaKind::Video { .. } => Ok(VisualDecoderSession::Video(
+                reader.open_video_decoder(asset)?,
+            )),
+            MediaKind::Image { .. } => Ok(VisualDecoderSession::Image {
+                decoder: reader.open_image_decoder(asset)?,
+                duration: asset.duration,
+            }),
+            MediaKind::Audio { .. } => Err(MediaError::unsupported(
+                "音声素材から映像デコーダーは作成できません",
+            )),
+        }
     }
 
     pub(crate) fn open_audio_decoder(
@@ -365,6 +447,7 @@ pub(crate) fn bundled_media_readers(
 ) -> Result<Arc<MediaReaderRegistry>, MediaError> {
     let mut registry = MediaReaderRegistry::new();
     registry.register_reader(FFMPEG_READER_ID, Arc::new(FfmpegMediaReader))?;
+    registry.register_reader(SVG_READER_ID, Arc::new(SvgMediaReader))?;
     for manifest in plugins.manifests() {
         registry.register_plugin(manifest)?;
     }

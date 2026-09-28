@@ -1225,6 +1225,11 @@
           "label": "動画",
           "reader": "zerium.ffmpeg",
           "media_type": "video",
+          "placement": {
+            "type": "quad",
+            "position": "position",
+            "size": "size"
+          },
           "extensions": ["mp4", "mov", "mkv", "webm", "avi", "m4v", "gif"]
         }
       ],
@@ -1359,7 +1364,125 @@
           "label": "画像",
           "reader": "zerium.ffmpeg",
           "media_type": "image",
+          "placement": {
+            "type": "quad",
+            "position": "position",
+            "size": "size"
+          },
           "extensions": ["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"]
+        }
+      ],
+      "editor": {
+        "position": "position",
+        "size": "size"
+      },
+      "properties": [
+        {
+          "id": "position",
+          "type": {
+            "value": ["f32", "f32"]
+          },
+          "default": {
+            "tuple": [
+              {
+                "f32": 0
+              },
+              {
+                "f32": 0
+              }
+            ]
+          },
+          "label": "位置",
+          "configurations": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "X",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": -1000000,
+                "max": 1000000
+              },
+              "ui": {
+                "label": "Y",
+                "unit": "px"
+              }
+            }
+          ]
+        },
+        {
+          "id": "size",
+          "type": {
+            "value": ["f32", "f32"]
+          },
+          "default": {
+            "tuple": [
+              {
+                "f32": 960
+              },
+              {
+                "f32": 540
+              }
+            ]
+          },
+          "label": "サイズ",
+          "configurations": [
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "幅",
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": {
+                "min": 1,
+                "max": 10000
+              },
+              "ui": {
+                "label": "高さ",
+                "unit": "px"
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "svg",
+      "label": "SVG",
+      "category": "メディア",
+      "tags": ["ベクター", "vector", "svg"],
+      "symbol": "▧",
+      "shader": {
+        "module": "media"
+      },
+      "capabilities": [
+        {
+          "type": "media",
+          "id": "source",
+          "label": "SVG",
+          "reader": "zerium.svg",
+          "media_type": "image",
+          "placement": {
+            "type": "quad",
+            "position": "position",
+            "size": "size"
+          },
+          "extensions": ["svg"]
         }
       ],
       "editor": {

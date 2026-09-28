@@ -116,6 +116,13 @@ capability textures contain scene-linear, premultiplied color. For example:
 
 The item shader can use `import package::generated::capability_input::{source,
 capability_sampler};` and sample `source` with `capability_sampler`.
+Every visual media input presents the reader's returned frame resolution to the
+shader in scene-linear, premultiplied color. An input that fills a quad can
+declare `"placement": {"type":"quad", "position":"position", "size":"size"}`.
+The host uses that placement and the output resolution to request enough source
+pixels; fixed-resolution readers can return a smaller frame. Without placement,
+the host requests the render target size. Placement properties must each be a
+tuple of two `f32` values.
 Effects use the same import path. Their passes also receive `effect_input`
 (the current image) and `effect_source` (the image captured at the start of a
 regular pass chain). Each effect instance owns its imported media assets; they

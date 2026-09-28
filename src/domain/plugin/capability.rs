@@ -124,6 +124,22 @@ impl FileCapability {
     }
 }
 
+/// Describes where a media input appears in its owner's composition space.
+/// The quad covers the full source UV range.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub(crate) enum MediaPlacement {
+    Quad { position: String, size: String },
+}
+
+impl MediaPlacement {
+    pub(crate) fn size_property(&self) -> &str {
+        match self {
+            Self::Quad { size, .. } => size,
+        }
+    }
+}
+
 /// One named texture input produced for an item or effect shader.
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -132,6 +148,8 @@ pub(crate) enum Capability {
     Media {
         #[serde(flatten)]
         file: FileCapability,
+        #[serde(default)]
+        placement: Option<MediaPlacement>,
     },
     Text {
         id: String,
@@ -159,13 +177,20 @@ impl Capability {
     pub(crate) fn id(&self) -> &str {
         match self {
             Self::Text { id, .. } | Self::RenderResult { id, .. } => id,
-            Self::Media { file } => file.id(),
+            Self::Media { file, .. } => file.id(),
         }
     }
 
     pub(crate) fn media_file(&self) -> Option<&FileCapability> {
         match self {
-            Self::Media { file } => Some(file),
+            Self::Media { file, .. } => Some(file),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn media_placement(&self) -> Option<&MediaPlacement> {
+        match self {
+            Self::Media { placement, .. } => placement.as_ref(),
             _ => None,
         }
     }
@@ -182,7 +207,7 @@ impl Capability {
                 "{owner_kind} '{owner_id}' capability ID 'capability_sampler' is reserved"
             )));
         }
-        if let Self::Media { file } = self {
+        if let Self::Media { file, .. } = self {
             if file.media_type() == MediaType::Audio {
                 return Err(PluginError::invalid_definition(format!(
                     "{owner_kind} '{owner_id}' media capability '{}' cannot be audio",
@@ -299,7 +324,12 @@ impl Capability {
                     hide_original,
                 )?;
             }
-            Self::Media { .. } => {}
+            Self::Media { placement, .. } => {
+                if let Some(MediaPlacement::Quad { position, size }) = placement {
+                    tuple_f32_pair(position)?;
+                    tuple_f32_pair(size)?;
+                }
+            }
         }
         Ok(())
     }

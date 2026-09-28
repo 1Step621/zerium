@@ -144,11 +144,17 @@ struct TexturePipeline {
 
 struct TextureResource {
     input_count: usize,
+    frame_target: FrameTextureTarget,
     _uploaded_frames: Vec<Arc<UploadedVideoFrame>>,
     _input_properties: wgpu::Buffer,
     _item: wgpu::Buffer,
     _item_properties: wgpu::Buffer,
     binding: wgpu::BindGroup,
+}
+
+struct FrameTextureTarget {
+    _texture: wgpu::Texture,
+    view: wgpu::TextureView,
 }
 
 struct UploadedVideoFrame {

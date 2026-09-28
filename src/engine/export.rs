@@ -22,7 +22,7 @@ use crate::{
         media::{
             AtomicFileTransaction, AudioFormat, AudioGainEvaluation, AudioTimelineGraph,
             FfmpegFileEncoder, MediaReaderRegistry, VideoColorSpec, VideoDecodeSize,
-            VideoDecoderSession, VideoEncoderSettings, VideoOutputSpec, sample_boundary,
+            VideoEncoderSettings, VideoOutputSpec, VisualDecoderSession, sample_boundary,
         },
         rendering::{
             ExportFramePipeline, FrameRenderer, RenderQuality, RenderScene, RenderSize,
@@ -63,7 +63,7 @@ struct TextureInputId {
 
 struct ExportDecoder {
     asset: MediaAsset,
-    decoder: Box<dyn VideoDecoderSession>,
+    decoder: VisualDecoderSession,
 }
 
 const EXPORT_AUDIO_FORMAT: AudioFormat = AudioFormat {
@@ -362,13 +362,13 @@ fn decode_texture_frame(
             if entry.get().asset != *asset {
                 entry.insert(ExportDecoder {
                     asset: asset.clone(),
-                    decoder: media_readers.open_video_decoder(asset)?,
+                    decoder: media_readers.open_visual_decoder(asset)?,
                 });
             }
             entry.into_mut()
         }
         std::collections::hash_map::Entry::Vacant(entry) => {
-            let decoder = media_readers.open_video_decoder(asset)?;
+            let decoder = media_readers.open_visual_decoder(asset)?;
             entry.insert(ExportDecoder {
                 asset: asset.clone(),
                 decoder,
@@ -384,11 +384,18 @@ fn decode_texture_frame(
         MediaKind::Image { .. } => Duration::ZERO,
         MediaKind::Audio { .. } => unreachable!("audio inputs were skipped above"),
     };
+    let decode_size = RenderScene::media_raster_size_for_input(
+        &item,
+        effect_id,
+        input_id,
+        size,
+        RenderSize::from(timeline.resolution()),
+    );
     let decoded = decoder.decoder.decode_at(
         presentation_time,
         VideoDecodeSize {
-            max_width: size.width,
-            max_height: size.height,
+            max_width: decode_size.width,
+            max_height: decode_size.height,
         },
         cancelled,
     )?;

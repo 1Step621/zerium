@@ -16,14 +16,15 @@ use crate::domain::{
     media::{MediaAsset, MediaKind, VideoFrameRate},
     plugin::MediaType,
 };
+use crate::engine::frame::RgbaFrame;
 
 use super::{
     atomic_file::AtomicFileTransaction,
     ffmpeg_encoder::{FfmpegFileEncoder, VideoColorSpec, VideoEncoderSettings, VideoOutputSpec},
     ffmpeg_next::{self, FfmpegAudioDecoder, FfmpegVideoDecoder},
     reader::{
-        AudioDecoderSession, MediaError, MediaProbe, MediaReader, VideoDecodeSize,
-        VideoDecoderSession, VideoProxy, VideoProxyRequest,
+        AudioDecoderSession, ImageDecoderSession, MediaError, MediaProbe, MediaReader,
+        VideoDecodeSize, VideoDecoderSession, VideoProxy, VideoProxyRequest,
     },
 };
 
@@ -47,12 +48,26 @@ impl MediaReader for FfmpegMediaReader {
         &self,
         asset: &MediaAsset,
     ) -> Result<Box<dyn VideoDecoderSession>, MediaError> {
-        if asset.kind.dimensions().is_none() {
+        if !matches!(asset.kind, MediaKind::Video { .. }) {
             return Err(MediaError::external(
-                "音声素材から映像デコーダーは作成できません",
+                "動画素材からのみ映像デコーダーを作成できます",
             ));
         }
         Ok(Box::new(FfmpegVideoDecoder::open(asset.clone())?))
+    }
+
+    fn open_image_decoder(
+        &self,
+        asset: &MediaAsset,
+    ) -> Result<Box<dyn ImageDecoderSession>, MediaError> {
+        if !matches!(asset.kind, MediaKind::Image { .. }) {
+            return Err(MediaError::external(
+                "画像素材からのみ静止画デコーダーを作成できます",
+            ));
+        }
+        Ok(Box::new(FfmpegImageDecoder {
+            decoder: FfmpegVideoDecoder::open(asset.clone())?,
+        }))
     }
 
     fn open_audio_decoder(
@@ -73,6 +88,23 @@ impl MediaReader for FfmpegMediaReader {
         request: VideoProxyRequest,
     ) -> Result<VideoProxy, MediaError> {
         create_video_proxy_in(asset, request, &video_proxy_cache_dir())
+    }
+}
+
+struct FfmpegImageDecoder {
+    decoder: FfmpegVideoDecoder,
+}
+
+impl ImageDecoderSession for FfmpegImageDecoder {
+    fn render(
+        &mut self,
+        size: VideoDecodeSize,
+        cancelled: &AtomicBool,
+    ) -> Result<RgbaFrame, MediaError> {
+        Ok(self
+            .decoder
+            .decode_at(Duration::ZERO, size, cancelled)?
+            .frame)
     }
 }
 

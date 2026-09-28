@@ -63,6 +63,7 @@ gpui = { package = "gpui-ce", git = "https://github.com/1Step621/WGPUI", branch 
 naga = { version = "30", features = ["wgsl-in"] }
 pollster = "0.4"
 rtrb = "0.3"
+resvg = "0.47"
 rust-embed = { version = "8.12", features = ["debug-embed"] }
 semver = "1"
 serde = { version = "1", features = ["derive"] }

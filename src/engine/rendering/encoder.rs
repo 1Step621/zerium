@@ -148,6 +148,24 @@ impl FrameRenderer {
         };
         let mut views = Vec::with_capacity(capabilities.len());
         for (index, capability) in capabilities.iter().enumerate() {
+            if let RenderNodeCommandKind::Source(RenderSourceCommand::Texture {
+                index: texture_index,
+                shader,
+            }) = &context.nodes[*capability].kind
+            {
+                let texture = context.textures.get(*texture_index).ok_or_else(|| {
+                    RenderError::backend("capability texture resource is missing")
+                })?;
+                self.encode_texture_pass(
+                    encoder,
+                    &texture.frame_target.view,
+                    &texture.binding,
+                    shader,
+                    wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                );
+                views.push(&texture.frame_target.view);
+                continue;
+            }
             let source = self.encode_render_node(
                 encoder,
                 context,

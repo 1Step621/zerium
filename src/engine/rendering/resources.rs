@@ -747,8 +747,27 @@ impl FrameRenderer {
                     entries: &bind_entries,
                 })
             };
+            let frame = frames
+                .first()
+                .ok_or_else(|| RenderError::backend("capability texture has no frame"))?;
+            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+                label: Some("zerium-capability-frame-target"),
+                size: Self::video_frame_extent(frame)?,
+                mip_level_count: 1,
+                sample_count: 1,
+                dimension: wgpu::TextureDimension::D2,
+                format: SCENE_FORMAT,
+                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                    | wgpu::TextureUsages::TEXTURE_BINDING,
+                view_formats: &[],
+            });
+            let frame_target = FrameTextureTarget {
+                view: texture.create_view(&Default::default()),
+                _texture: texture,
+            };
             resources.push(TextureResource {
                 input_count,
+                frame_target,
                 _uploaded_frames: uploaded_frames,
                 _input_properties: input_properties,
                 _item: item,
