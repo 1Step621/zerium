@@ -12,6 +12,8 @@ var composite_sampler: sampler;
 struct CompositeInfo {
     input_size: vec2<u32>,
     output_size: vec2<u32>,
+    // Input image footprint in the output texture's pixel coordinates.
+    input_rect: vec4<f32>,
 };
 
 @group(0) @binding(2)
@@ -32,6 +34,33 @@ fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> CompositeVertexOutpu
 }
 
 fn composite_sample(input: CompositeVertexOutput) -> vec4<f32> {
+    if any(composite_info.input_rect.xy != vec2(0.0))
+        || any(composite_info.input_rect.zw != vec2<f32>(composite_info.output_size))
+    {
+        let uv = (input.position.xy - composite_info.input_rect.xy)
+            / composite_info.input_rect.zw;
+        if any(uv < vec2(0.0)) || any(uv >= vec2(1.0)) {
+            return vec4(0.0);
+        }
+        let ratio = vec2<f32>(composite_info.input_size) / composite_info.input_rect.zw;
+        let scale = min(u32(round(max(ratio.x, ratio.y))), 4u);
+        if scale <= 1u {
+            return textureSample(composite_input, composite_sampler, uv);
+        }
+        var result = vec4(0.0);
+        for (var y = 0u; y < scale; y += 1u) {
+            for (var x = 0u; x < scale; x += 1u) {
+                let offset = (vec2(f32(x), f32(y)) + vec2(0.5)) / f32(scale)
+                    - vec2(0.5);
+                result += textureSample(
+                    composite_input,
+                    composite_sampler,
+                    uv + offset / composite_info.input_rect.zw,
+                );
+            }
+        }
+        return result / f32(scale * scale);
+    }
     if all(composite_info.input_size == composite_info.output_size) {
         let position = min(
             vec2<u32>(input.position.xy),

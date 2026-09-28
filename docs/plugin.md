@@ -422,15 +422,68 @@ UTF-8 byte. The descriptor layout and backing-buffer offsets remain host-private
 Host types use the `Zerium` namespace; resource and function names are concise
 and unprefixed. Plugin WESL must not redeclare imported host names.
 
-Every shader receives `ZeriumContext` through `context`.
-It contains `output_size`, the fixed `composition_size`, and
-`composition_scale`. Item shaders pass their instance index; effect passes do
-not. Composition coordinates are centered, with positive X right and positive
-Y down.
+Every shader receives `ZeriumContext` through `context`. It contains the
+physical surface `output_size`, fixed `composition_size`, logical
+`surface_size`, and pixel density `composition_scale`. Item shaders pass their
+instance index; effect passes do not. Composition coordinates are centered,
+with positive X right and positive Y down.
 
 Procedural and media item shaders also receive quad and coordinate helpers such
 as `quad_corner`, `quad_position`, and
 `rotate`.
+
+## Render surfaces and bounds
+
+An item effect receives the item's image on a surface described by a logical
+rectangle and a pixel density. This rectangle can lie outside the viewport.
+Each effect produces its own rectangle; the renderer maps its input image into
+that rectangle without clipping it to the viewport first. A scene composites
+its children into the viewport, then runs scene effects on that viewport-sized
+image. The scene boundary is therefore the point where offscreen content is
+clipped.
+
+Visual items should declare their source area independently of `editor` and
+media `placement`:
+
+```json
+"output_bounds": { "type": "quad", "position": "position", "size": "size" }
+```
+
+The two named properties must be `f32` pairs. A rotated quad can also declare
+an `f32` `rotation` property in degrees. Full-frame items can declare
+`{"type":"viewport"}`. An item without `output_bounds` uses
+the viewport for compatibility; it cannot promise to preserve pixels outside
+the viewport before effects. Media `placement` continues to control the
+reader's requested raster resolution, independent of output bounds.
+
+Effects declare how their output bounds relate to their input. Omitted
+`output_bounds` means `{"type":"same"}`. Use `{"type":"viewport"}` for
+effects that can produce pixels anywhere on screen, such as an inverted layer
+mask. The other supported operations are `translate` with an `f32` pair,
+`outset` with an `f32` radius and nonnegative
+multiplier, `rotate` with an `f32` angle and `f32` pair center, and
+`perspective` with a three-`f32` rotation, `f32` pair center, and `f32`
+perspective distance. For example, a blur with finite reach can declare:
+
+```json
+"output_bounds": { "type": "outset", "radius": "radius", "multiplier": 4.0 }
+```
+
+For scene effects, the output rectangle is always the viewport, regardless of
+the declared operation. Item effects use the declared operation to update
+their own output rectangle.
+
+`translate` moves item surface metadata without resampling its pixels. On a
+scene, its render pass still runs within the fixed viewport. `rotate` and
+`perspective` read their input texture in its own rectangle and write into the
+transformed rectangle; they require one render pass. Perspective projections
+that cross the camera plane or exceed the GPU texture limit report a render
+resource error.
+
+For spatial effects, `uv_to_position` converts an output UV to a composition
+position, while `position_to_uv` converts a composition position to the input
+texture's UV. A `render_result` capability is scene-sized; use `viewport_uv`
+to sample it from an item-local effect pass.
 
 ## Effects and passes
 
@@ -442,7 +495,7 @@ top-level shader and no implicit render pass.
   "id": "blur",
   "label": "Blur",
   "category": "Blur",
-  "uses_effect_bounds": true,
+  "output_bounds": { "type": "outset", "radius": "radius", "multiplier": 4.0 },
   "properties": [{
     "id": "radius",
     "label": "Radius",
@@ -471,12 +524,11 @@ each pass and never enter the property buffer or inspector state. Compute
 workgroup size is read from the shader's `@workgroup_size`; the manifest only controls
 dispatch dimensions.
 
-Every effect render, compute, and temporal shader has the generated
-`package::generated::effect_bounds` binding available. Set
-`uses_effect_bounds` on the effect when its shaders need the input alpha bounds;
-the renderer computes those bounds before the effect. Temporal reducers receive
-bounds for each sampled frame. The flag is effect-level and applies to all of
-its passes.
+Effect shaders process the output surface declared by `output_bounds`. Shader
+coordinates and `context().output_size` refer to that surface for item effects,
+and to the viewport for scene effects. The renderer does not scan input alpha
+to determine effect bounds. The built-in linear gradient and pixel sort use the
+full surface as their coordinate range.
 
 Render and compute passes receive `effect_input`, the current pipeline
 input, and `effect_source`, the image captured at the start of the current

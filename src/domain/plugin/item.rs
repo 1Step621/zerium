@@ -5,6 +5,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Deserializer, de::Error as _};
 
+use super::ItemBoundsSchema;
 use super::PluginError;
 use super::abi::PropertyLayout;
 use super::capability::{
@@ -26,6 +27,7 @@ pub(crate) struct ItemSchema {
     capabilities: Vec<Capability>,
     audio: Option<AudioCapability>,
     editor: Option<EditorCapability>,
+    output_bounds: Option<ItemBoundsSchema>,
     properties: Vec<PropertySchema>,
     property_abi: PropertyLayout,
 }
@@ -47,6 +49,7 @@ struct ItemSchemaDefinition {
     capabilities: Vec<Capability>,
     audio: Option<AudioCapability>,
     editor: Option<EditorCapability>,
+    output_bounds: Option<ItemBoundsSchema>,
     #[serde(default)]
     properties: Vec<PropertySchema>,
 }
@@ -77,6 +80,7 @@ impl<'de> Deserialize<'de> for ItemSchema {
             capabilities: definition.capabilities,
             audio: definition.audio,
             editor: definition.editor,
+            output_bounds: definition.output_bounds,
             properties: definition.properties,
             property_abi,
         };
@@ -120,6 +124,10 @@ impl ItemSchema {
 
     pub(crate) fn properties(&self) -> &[PropertySchema] {
         &self.properties
+    }
+
+    pub(crate) fn output_bounds(&self) -> Option<&ItemBoundsSchema> {
+        self.output_bounds.as_ref()
     }
 
     pub(crate) fn property_layout(&self) -> &PropertyLayout {
@@ -238,6 +246,9 @@ impl ItemSchema {
         }
 
         validate_property_schemas("item", &self.id, &self.properties)?;
+        if let Some(bounds) = &self.output_bounds {
+            bounds.validate(&self.id, &self.properties)?;
+        }
         if let Some(editor) = &self.editor {
             editor.validate(self)?;
         }

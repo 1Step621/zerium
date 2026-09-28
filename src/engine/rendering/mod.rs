@@ -8,8 +8,10 @@ mod runtime;
 mod scene;
 mod shader;
 mod shader_compile;
+mod surface;
 
 use std::{
+    cell::RefCell,
     collections::{HashMap, HashSet},
     num::NonZeroU64,
     ops::{Deref, Range},
@@ -44,7 +46,6 @@ const VIDEO_FRAME_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormS
 const PROPERTY_WORD_SIZE: usize = size_of::<u32>();
 const COMPOSITE: &str = include_str!("composite.wgsl");
 const YUV_CONVERT: &str = include_str!("yuv.wgsl");
-const EFFECT_BOUNDS: &str = include_str!("effect_bounds.wgsl");
 
 pub(crate) use readback::ExportFramePipeline;
 pub(crate) use runtime::RenderRuntime;
@@ -74,9 +75,6 @@ pub(crate) struct RendererDevice {
     effect_bind_group_layout: wgpu::BindGroupLayout,
     temporal_bind_group_layout: wgpu::BindGroupLayout,
     compute_bind_group_layout: wgpu::BindGroupLayout,
-    effect_bounds_source_layout: wgpu::BindGroupLayout,
-    effect_bounds_read_layout: wgpu::BindGroupLayout,
-    effect_bounds_pipeline: wgpu::ComputePipeline,
     effect_pipeline_layout: wgpu::PipelineLayout,
     temporal_pipeline_layout: wgpu::PipelineLayout,
     composite_bind_group_layout: wgpu::BindGroupLayout,
@@ -94,6 +92,7 @@ pub(crate) struct RendererDevice {
 pub(crate) struct FrameRenderer {
     shared: Arc<RendererDevice>,
     resources: Mutex<HashMap<u32, RenderResources>>,
+    local_resources: Mutex<Vec<RenderResources>>,
     video_textures: Mutex<VideoTextureCache>,
 }
 
@@ -106,6 +105,7 @@ impl RendererDevice {
         FrameRenderer {
             shared: self.clone(),
             resources: Mutex::new(HashMap::new()),
+            local_resources: Mutex::new(Vec::new()),
             video_textures: Mutex::new(VideoTextureCache::default()),
         }
     }
@@ -200,10 +200,7 @@ struct RenderResources {
     compute_info_stride: u64,
     compute_info_buffer: wgpu::Buffer,
     compute_inputs: [wgpu::BindGroup; 2],
-    effect_bounds_buffer: wgpu::Buffer,
-    effect_bounds_read: wgpu::BindGroup,
     _composite_info_buffer: wgpu::Buffer,
-    _composition_info_buffer: wgpu::Buffer,
     scene_view: wgpu::TextureView,
     output_input: wgpu::BindGroup,
     effect_texture_a: wgpu::Texture,
@@ -214,24 +211,19 @@ struct RenderResources {
     effect_view_b: wgpu::TextureView,
     effect_input_a: wgpu::BindGroup,
     effect_input_b: wgpu::BindGroup,
-    composite_input_a: wgpu::BindGroup,
-    composite_input_b: wgpu::BindGroup,
-    composition_input_a: wgpu::BindGroup,
-    composition_input_b: wgpu::BindGroup,
-    compositions: Vec<RenderTarget>,
     temporal: Vec<TemporalRenderResource>,
     cached_nodes: Vec<RenderTarget>,
     cached_node_keys: Vec<Option<Arc<RenderNodeKey>>>,
 }
 
 struct RenderTarget {
-    texture: wgpu::Texture,
+    _texture: wgpu::Texture,
     view: wgpu::TextureView,
 }
 
 struct TemporalRenderResource {
-    texture_a: wgpu::Texture,
-    texture_b: wgpu::Texture,
+    _texture_a: wgpu::Texture,
+    _texture_b: wgpu::Texture,
     view_a: wgpu::TextureView,
     view_b: wgpu::TextureView,
     inputs: Vec<wgpu::BindGroup>,
@@ -239,11 +231,11 @@ struct TemporalRenderResource {
 
 #[derive(Clone, Copy)]
 struct RenderResourceRequirements {
+    frame_output: bool,
     item_count: usize,
     property_size: usize,
     effect_pass_count: usize,
     effect_property_size: usize,
-    composition_depth: usize,
     temporal_depth: usize,
     shared_node_count: usize,
 }

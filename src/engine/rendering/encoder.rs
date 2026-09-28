@@ -1,12 +1,26 @@
+use super::surface::{BoundsOperation, SurfaceRect};
 use super::*;
+
+#[derive(Clone)]
+struct RenderedSurface {
+    view: wgpu::TextureView,
+    rect: SurfaceRect,
+    size: RenderSize,
+}
+
+struct SceneEncoding {
+    cache_updates: Vec<(u32, usize, Arc<RenderNodeKey>)>,
+    // Keep transient surfaces alive until their GPU commands are submitted.
+    local_resources: Vec<RenderResources>,
+    unused_resources: Vec<RenderResources>,
+}
+
+const LOCAL_RESOURCE_CACHE_BUDGET: usize = 256 * 1024 * 1024;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum RenderOutput {
     EffectA,
     EffectB,
-    Composition(usize),
-    Temporal { depth: usize, is_a: bool },
-    Cached(usize),
 }
 
 impl RenderOutput {
@@ -14,27 +28,6 @@ impl RenderOutput {
         match self {
             Self::EffectA => Ok(&resources.effect_view_a),
             Self::EffectB => Ok(&resources.effect_view_b),
-            Self::Composition(depth) => resources
-                .compositions
-                .get(depth)
-                .map(|resource| &resource.view)
-                .ok_or_else(|| RenderError::backend("composition render resource is missing")),
-            Self::Temporal { depth, is_a } => resources
-                .temporal
-                .get(depth)
-                .map(|resource| {
-                    if is_a {
-                        &resource.view_a
-                    } else {
-                        &resource.view_b
-                    }
-                })
-                .ok_or_else(|| RenderError::backend("temporal render resource is missing")),
-            Self::Cached(slot) => resources
-                .cached_nodes
-                .get(slot)
-                .map(|resource| &resource.view)
-                .ok_or_else(|| RenderError::backend("shared render node resource is missing")),
         }
     }
 
@@ -42,27 +35,6 @@ impl RenderOutput {
         match self {
             Self::EffectA => Ok(&resources.effect_texture_a),
             Self::EffectB => Ok(&resources.effect_texture_b),
-            Self::Composition(depth) => resources
-                .compositions
-                .get(depth)
-                .map(|resource| &resource.texture)
-                .ok_or_else(|| RenderError::backend("composition render resource is missing")),
-            Self::Temporal { depth, is_a } => resources
-                .temporal
-                .get(depth)
-                .map(|resource| {
-                    if is_a {
-                        &resource.texture_a
-                    } else {
-                        &resource.texture_b
-                    }
-                })
-                .ok_or_else(|| RenderError::backend("temporal render resource is missing")),
-            Self::Cached(slot) => resources
-                .cached_nodes
-                .get(slot)
-                .map(|resource| &resource.texture)
-                .ok_or_else(|| RenderError::backend("shared render node resource is missing")),
         }
     }
 
@@ -76,39 +48,530 @@ impl RenderOutput {
 }
 
 #[derive(Clone, Copy)]
-struct RenderDepth {
-    temporal: usize,
-    composition: usize,
-}
-
 struct RenderNodeContext<'a> {
     resources: &'a RenderResources,
+    encoded: &'a EncodedScene,
+    viewport: RenderSize,
+    render_scale: u32,
+    local_pool: &'a RefCell<Vec<RenderResources>>,
+    available_local_resources: &'a RefCell<Vec<RenderResources>>,
     textures: &'a [TextureResource],
     nodes: &'a [RenderNodeCommand],
     shared_node_slots: &'a [Option<usize>],
-    stride: u32,
 }
 
 struct EffectPassBindings<'a> {
     input: &'a wgpu::BindGroup,
     capabilities: &'a wgpu::BindGroup,
-    bounds: &'a wgpu::BindGroup,
 }
 
 struct EffectPassContext<'a> {
     stride: u32,
     capabilities: &'a [&'a wgpu::TextureView],
-    uses_effect_bounds: bool,
-}
-
-impl RenderDepth {
-    const ROOT: Self = Self {
-        temporal: 0,
-        composition: 0,
-    };
 }
 
 impl FrameRenderer {
+    fn local_resources(
+        &self,
+        context: &RenderNodeContext<'_>,
+        node_id: RenderNodeId,
+        bounds: SurfaceRect,
+        input_bounds: Option<SurfaceRect>,
+    ) -> Result<(RenderResources, SurfaceRect), RenderError> {
+        let composition = context.resources.composition_size;
+        let (rect, size) = bounds
+            .pixel_aligned(context.viewport, composition, context.render_scale)
+            .ok_or_else(|| {
+                RenderError::resource_limit("render surface bounds cannot be rasterized")
+            })?;
+        let limit = self.device.limits().max_texture_dimension_2d;
+        if size.width > limit || size.height > limit {
+            return Err(RenderError::resource_limit(format!(
+                "render surface {}x{} exceeds GPU limit {limit}",
+                size.width, size.height
+            )));
+        }
+        let encoded = context.encoded;
+        let temporal_depth = usize::from(matches!(
+            encoded.nodes[node_id].kind,
+            RenderNodeCommandKind::TemporalEffect { .. }
+        ));
+        let requirements = RenderResourceRequirements {
+            frame_output: false,
+            item_count: encoded.items.len(),
+            property_size: encoded.properties.len(),
+            effect_pass_count: encoded.effects.len(),
+            effect_property_size: encoded.effect_properties.len(),
+            temporal_depth,
+            shared_node_count: 0,
+        };
+        let reuse = context
+            .available_local_resources
+            .borrow()
+            .iter()
+            .position(|resource| {
+                resource.size == size
+                    && resource.composition_size == composition
+                    && resource.output_size == size
+                    && resource.item_capacity >= requirements.item_count.max(1)
+                    && resource.property_capacity
+                        >= requirements.property_size.max(PROPERTY_WORD_SIZE)
+                    && resource.effect_instance_capacity >= requirements.effect_pass_count.max(1)
+                    && resource.effect_property_capacity
+                        >= requirements.effect_property_size.max(PROPERTY_WORD_SIZE)
+                    && resource.temporal.len() >= temporal_depth
+            });
+        let resources = if let Some(index) = reuse {
+            context
+                .available_local_resources
+                .borrow_mut()
+                .swap_remove(index)
+        } else {
+            self.create_resources(size, size, composition, requirements)?
+        };
+        let surface_size = [
+            (rect.max[0] - rect.min[0]) as f32,
+            (rect.max[1] - rect.min[1]) as f32,
+        ];
+        let surface_min = [rect.min[0] as f32, rect.min[1] as f32];
+        if !encoded.items.is_empty() {
+            let mut items = encoded.items.clone();
+            for item in &mut items {
+                item.surface_min = surface_min;
+                item.surface_size = surface_size;
+                item.output_size = [size.width as f32, size.height as f32];
+            }
+            self.queue
+                .write_buffer(&resources.item_buffer, 0, bytemuck::cast_slice(&items));
+        }
+        if !encoded.properties.is_empty() {
+            self.queue
+                .write_buffer(&resources.property_buffer, 0, &encoded.properties);
+        }
+        if !encoded.effects.is_empty() {
+            let mut effects = encoded.effects.clone();
+            for effect in &mut effects {
+                effect.surface_min = surface_min;
+                effect.surface_size = surface_size;
+                let input = input_bounds.unwrap_or(rect);
+                effect.input_min = [input.min[0] as f32, input.min[1] as f32];
+                effect.input_size = [
+                    (input.max[0] - input.min[0]) as f32,
+                    (input.max[1] - input.min[1]) as f32,
+                ];
+            }
+            let stride = usize::try_from(resources.effect_instance_stride)
+                .map_err(|_| RenderError::backend("effect instance stride exceeds usize"))?;
+            self.queue.write_buffer(
+                &resources.effect_instance_buffer,
+                0,
+                &Self::effect_instance_data(&effects, stride),
+            );
+            let compute_stride = usize::try_from(resources.compute_info_stride)
+                .map_err(|_| RenderError::backend("compute info stride exceeds usize"))?;
+            self.queue.write_buffer(
+                &resources.compute_info_buffer,
+                0,
+                &Self::compute_instance_data(&effects, compute_stride, size, composition),
+            );
+            if !encoded.effect_properties.is_empty() {
+                self.queue.write_buffer(
+                    &resources.effect_property_buffer,
+                    0,
+                    &encoded.effect_properties,
+                );
+            }
+        }
+        Ok((resources, rect))
+    }
+
+    fn clear_target(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+        let attachments = [Some(wgpu::RenderPassColorAttachment {
+            view: target,
+            depth_slice: None,
+            resolve_target: None,
+            ops: wgpu::Operations {
+                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                store: wgpu::StoreOp::Store,
+            },
+        })];
+        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("zerium-surface-clear"),
+            color_attachments: &attachments,
+            ..Default::default()
+        });
+    }
+
+    fn spatial_composite(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &wgpu::TextureView,
+        target_rect: SurfaceRect,
+        target_size: RenderSize,
+        source: &RenderedSurface,
+        clear: bool,
+    ) {
+        if clear {
+            self.clear_target(encoder, target);
+        }
+        let width = target_rect.max[0] - target_rect.min[0];
+        let height = target_rect.max[1] - target_rect.min[1];
+        let info = GpuComposite {
+            input_size: [source.size.width, source.size.height],
+            output_size: [target_size.width, target_size.height],
+            input_rect: [
+                ((source.rect.min[0] - target_rect.min[0]) / width * f64::from(target_size.width))
+                    as f32,
+                ((source.rect.min[1] - target_rect.min[1]) / height * f64::from(target_size.height))
+                    as f32,
+                ((source.rect.max[0] - source.rect.min[0]) / width * f64::from(target_size.width))
+                    as f32,
+                ((source.rect.max[1] - source.rect.min[1]) / height * f64::from(target_size.height))
+                    as f32,
+            ],
+        };
+        let buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("zerium-spatial-composite-info"),
+            size: size_of::<GpuComposite>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.queue
+            .write_buffer(&buffer, 0, bytemuck::bytes_of(&info));
+        let input = self.composite_input_bind_group(&source.view, &buffer);
+        self.encode_composite_pass(encoder, target, &input);
+    }
+
+    fn render_surface(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        context: &RenderNodeContext<'_>,
+        rendered_shared_nodes: &mut [bool],
+        node_id: RenderNodeId,
+    ) -> Result<RenderedSurface, RenderError> {
+        if let Some(slot) = context.shared_node_slots[node_id] {
+            let cached =
+                context.resources.cached_nodes.get(slot).ok_or_else(|| {
+                    RenderError::backend("shared render node resource is missing")
+                })?;
+            let rect = SurfaceRect::viewport(context.resources.composition_size);
+            if !rendered_shared_nodes[slot] {
+                let surface =
+                    self.render_surface_uncached(encoder, context, rendered_shared_nodes, node_id)?;
+                self.spatial_composite(
+                    encoder,
+                    &cached.view,
+                    rect,
+                    context.resources.size,
+                    &surface,
+                    true,
+                );
+                rendered_shared_nodes[slot] = true;
+            }
+            return Ok(RenderedSurface {
+                view: cached.view.clone(),
+                rect,
+                size: context.resources.size,
+            });
+        }
+        self.render_surface_uncached(encoder, context, rendered_shared_nodes, node_id)
+    }
+
+    fn render_surface_uncached(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        context: &RenderNodeContext<'_>,
+        rendered_shared_nodes: &mut [bool],
+        node_id: RenderNodeId,
+    ) -> Result<RenderedSurface, RenderError> {
+        let node = &context.nodes[node_id];
+        match &node.kind {
+            RenderNodeCommandKind::Source(source) => {
+                let (resources, rect) =
+                    self.local_resources(context, node_id, node.bounds, None)?;
+                match source {
+                    RenderSourceCommand::Transparent => {
+                        self.clear_target(encoder, &resources.effect_view_a)
+                    }
+                    RenderSourceCommand::Item {
+                        shader,
+                        instance,
+                        capabilities,
+                    } => {
+                        let views = self.render_capability_views(
+                            encoder,
+                            context,
+                            rendered_shared_nodes,
+                            capabilities,
+                        )?;
+                        let inputs = self.capability_bind_group(
+                            &views.iter().collect::<Vec<_>>(),
+                            &resources.effect_source_view,
+                        );
+                        self.encode_item_pass(
+                            encoder,
+                            &resources.effect_view_a,
+                            &resources.bind_group,
+                            &inputs,
+                            shader,
+                            *instance..*instance + 1,
+                            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        );
+                    }
+                    RenderSourceCommand::Texture { index, shader } => {
+                        let texture = context.textures.get(*index).ok_or_else(|| {
+                            RenderError::backend("item texture resource is missing")
+                        })?;
+                        self.encode_texture_pass(
+                            encoder,
+                            &resources.effect_view_a,
+                            &texture.binding,
+                            shader,
+                            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                        );
+                    }
+                }
+                let surface = RenderedSurface {
+                    view: resources.effect_view_a.clone(),
+                    rect,
+                    size: resources.size,
+                };
+                context.local_pool.borrow_mut().push(resources);
+                Ok(surface)
+            }
+            RenderNodeCommandKind::Effect {
+                input,
+                capabilities,
+                bounds_operation,
+                passes,
+            } => {
+                let input_surface =
+                    self.render_surface(encoder, context, rendered_shared_nodes, *input)?;
+                if matches!(bounds_operation, BoundsOperation::Translate(_))
+                    && node.bounds
+                        == bounds_operation.apply(
+                            context.nodes[*input].bounds,
+                            SurfaceRect::viewport(context.resources.composition_size),
+                        )
+                {
+                    return Ok(RenderedSurface {
+                        rect: input_surface.rect.translate(match bounds_operation {
+                            BoundsOperation::Translate(offset) => *offset,
+                            _ => unreachable!(),
+                        }),
+                        ..input_surface
+                    });
+                }
+                let transformed = matches!(
+                    bounds_operation,
+                    BoundsOperation::Rotate { .. } | BoundsOperation::Perspective { .. }
+                );
+                let (resources, rect) = self.local_resources(
+                    context,
+                    node_id,
+                    node.bounds,
+                    transformed.then_some(input_surface.rect),
+                )?;
+                if !transformed {
+                    self.spatial_composite(
+                        encoder,
+                        &resources.effect_view_a,
+                        rect,
+                        resources.size,
+                        &input_surface,
+                        true,
+                    );
+                }
+                let views = self.render_capability_views(
+                    encoder,
+                    context,
+                    rendered_shared_nodes,
+                    capabilities,
+                )?;
+                let input_views = views.iter().collect::<Vec<_>>();
+                let stride = u32::try_from(resources.effect_instance_stride)
+                    .map_err(|_| RenderError::backend("effect instance stride exceeds u32"))?;
+                let output = if transformed {
+                    let pass = passes
+                        .first()
+                        .ok_or_else(|| RenderError::backend("transform pass is missing"))?;
+                    let input = self.effect_input_bind_group(
+                        &resources,
+                        &input_surface.view,
+                        &input_surface.view,
+                    );
+                    let capability_group =
+                        self.capability_bind_group(&input_views, &resources.effect_source_view);
+                    let instance_offset = pass.instance.checked_mul(stride).ok_or_else(|| {
+                        RenderError::backend("effect instance offset exceeds u32")
+                    })?;
+                    self.encode_effect_pass(
+                        encoder,
+                        &resources.effect_view_a,
+                        EffectPassBindings {
+                            input: &input,
+                            capabilities: &capability_group,
+                        },
+                        &pass.shader,
+                        instance_offset,
+                    );
+                    RenderOutput::EffectA
+                } else {
+                    self.encode_effect_passes(
+                        encoder,
+                        &resources,
+                        passes,
+                        RenderOutput::EffectA,
+                        EffectPassContext {
+                            stride,
+                            capabilities: &input_views,
+                        },
+                    )?
+                };
+                let surface = RenderedSurface {
+                    view: output.view(&resources)?.clone(),
+                    rect,
+                    size: resources.size,
+                };
+                context.local_pool.borrow_mut().push(resources);
+                Ok(surface)
+            }
+            RenderNodeCommandKind::TemporalEffect {
+                samples,
+                capabilities,
+            } => {
+                let (resources, rect) =
+                    self.local_resources(context, node_id, node.bounds, None)?;
+                let held = self.render_capability_views(
+                    encoder,
+                    context,
+                    rendered_shared_nodes,
+                    capabilities,
+                )?;
+                let capability_group = self.capability_bind_group(
+                    &held.iter().collect::<Vec<_>>(),
+                    &resources.effect_source_view,
+                );
+                let temporal = resources
+                    .temporal
+                    .first()
+                    .ok_or_else(|| RenderError::backend("temporal render resource is missing"))?;
+                self.clear_target(encoder, &temporal.view_a);
+                let stride = u32::try_from(resources.effect_instance_stride)
+                    .map_err(|_| RenderError::backend("effect instance stride exceeds u32"))?;
+                let mut accumulation_is_a = true;
+                for (sample, reduce) in samples {
+                    let sample =
+                        self.render_surface(encoder, context, rendered_shared_nodes, *sample)?;
+                    self.spatial_composite(
+                        encoder,
+                        &resources.effect_view_a,
+                        rect,
+                        resources.size,
+                        &sample,
+                        true,
+                    );
+                    let target_view = if accumulation_is_a {
+                        &temporal.view_b
+                    } else {
+                        &temporal.view_a
+                    };
+                    let input = &temporal.inputs[usize::from(!accumulation_is_a)];
+                    let instance_offset = reduce.instance.checked_mul(stride).ok_or_else(|| {
+                        RenderError::backend("temporal instance offset exceeds u32")
+                    })?;
+                    self.encode_temporal_reduce_pass(
+                        encoder,
+                        target_view,
+                        EffectPassBindings {
+                            input,
+                            capabilities: &capability_group,
+                        },
+                        reduce,
+                        instance_offset,
+                    );
+                    accumulation_is_a = !accumulation_is_a;
+                }
+                let surface = RenderedSurface {
+                    view: if accumulation_is_a {
+                        temporal.view_a.clone()
+                    } else {
+                        temporal.view_b.clone()
+                    },
+                    rect,
+                    size: resources.size,
+                };
+                context.local_pool.borrow_mut().push(resources);
+                Ok(surface)
+            }
+            RenderNodeCommandKind::Composite { children } => {
+                let (resources, rect) =
+                    self.local_resources(context, node_id, node.bounds, None)?;
+                self.clear_target(encoder, &resources.effect_view_a);
+                for child in children {
+                    match &context.nodes[*child].kind {
+                        RenderNodeCommandKind::Source(RenderSourceCommand::Transparent) => {}
+                        RenderNodeCommandKind::Source(RenderSourceCommand::Item {
+                            shader,
+                            instance,
+                            capabilities,
+                        }) if capabilities.is_empty() => {
+                            let inputs =
+                                self.capability_bind_group(&[], &resources.effect_source_view);
+                            self.encode_item_pass(
+                                encoder,
+                                &resources.effect_view_a,
+                                &resources.bind_group,
+                                &inputs,
+                                shader,
+                                *instance..*instance + 1,
+                                wgpu::LoadOp::Load,
+                            );
+                        }
+                        RenderNodeCommandKind::Source(RenderSourceCommand::Texture {
+                            index,
+                            shader,
+                        }) => {
+                            let texture = context.textures.get(*index).ok_or_else(|| {
+                                RenderError::backend("scene texture resource is missing")
+                            })?;
+                            self.encode_texture_pass(
+                                encoder,
+                                &resources.effect_view_a,
+                                &texture.binding,
+                                shader,
+                                wgpu::LoadOp::Load,
+                            );
+                        }
+                        _ => {
+                            let surface = self.render_surface(
+                                encoder,
+                                context,
+                                rendered_shared_nodes,
+                                *child,
+                            )?;
+                            self.spatial_composite(
+                                encoder,
+                                &resources.effect_view_a,
+                                rect,
+                                resources.size,
+                                &surface,
+                                false,
+                            );
+                        }
+                    }
+                }
+                let surface = RenderedSurface {
+                    view: resources.effect_view_a.clone(),
+                    rect,
+                    size: resources.size,
+                };
+                context.local_pool.borrow_mut().push(resources);
+                Ok(surface)
+            }
+        }
+    }
+
     fn capability_bind_group(
         &self,
         inputs: &[&wgpu::TextureView],
@@ -133,27 +596,19 @@ impl FrameRenderer {
         })
     }
 
-    fn encode_capability_nodes<'a>(
+    fn render_capability_views(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        context: &RenderNodeContext<'a>,
+        context: &RenderNodeContext<'_>,
         rendered_shared_nodes: &mut [bool],
         capabilities: &[RenderNodeId],
-        depth: RenderDepth,
-    ) -> Result<Vec<&'a wgpu::TextureView>, RenderError> {
-        let resources = context.resources;
-        let child_depth = RenderDepth {
-            temporal: depth.temporal,
-            composition: depth.composition + capabilities.len(),
-        };
+    ) -> Result<Vec<wgpu::TextureView>, RenderError> {
         let mut views = Vec::with_capacity(capabilities.len());
-        for (index, capability) in capabilities.iter().enumerate() {
-            if let RenderNodeCommandKind::Source(RenderSourceCommand::Texture {
-                index: texture_index,
-                shader,
-            }) = &context.nodes[*capability].kind
+        for capability in capabilities {
+            if let RenderNodeCommandKind::Source(RenderSourceCommand::Texture { index, shader }) =
+                &context.nodes[*capability].kind
             {
-                let texture = context.textures.get(*texture_index).ok_or_else(|| {
+                let texture = context.textures.get(*index).ok_or_else(|| {
                     RenderError::backend("capability texture resource is missing")
                 })?;
                 self.encode_texture_pass(
@@ -163,42 +618,13 @@ impl FrameRenderer {
                     shader,
                     wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                 );
-                views.push(&texture.frame_target.view);
-                continue;
+                views.push(texture.frame_target.view.clone());
+            } else {
+                views.push(
+                    self.render_surface(encoder, context, rendered_shared_nodes, *capability)?
+                        .view,
+                );
             }
-            let source = self.encode_render_node(
-                encoder,
-                context,
-                rendered_shared_nodes,
-                *capability,
-                child_depth,
-            )?;
-            let held = resources
-                .compositions
-                .get(depth.composition + index)
-                .ok_or_else(|| {
-                    RenderError::backend("capability composition resource is missing")
-                })?;
-            encoder.copy_texture_to_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: source.texture(resources)?,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::TexelCopyTextureInfo {
-                    texture: &held.texture,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::Extent3d {
-                    width: resources.size.width,
-                    height: resources.size.height,
-                    depth_or_array_layers: 1,
-                },
-            );
-            views.push(&held.view);
         }
         Ok(views)
     }
@@ -332,86 +758,6 @@ impl FrameRenderer {
         })
     }
 
-    fn compute_input_bind_group(
-        &self,
-        resources: &RenderResources,
-        input: &wgpu::TextureView,
-        output: &wgpu::TextureView,
-    ) -> wgpu::BindGroup {
-        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("zerium-dynamic-compute-input"),
-            layout: &self.compute_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(input),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &resources.compute_info_buffer,
-                        offset: 0,
-                        size: NonZeroU64::new(size_of::<GpuCompute>() as u64),
-                    }),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: resources.effect_property_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: wgpu::BindingResource::TextureView(output),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 5,
-                    resource: wgpu::BindingResource::TextureView(&resources.effect_source_view),
-                },
-            ],
-        })
-    }
-
-    fn temporal_input_bind_group(
-        &self,
-        resources: &RenderResources,
-        sample: &wgpu::TextureView,
-        accumulation: &wgpu::TextureView,
-    ) -> wgpu::BindGroup {
-        self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("zerium-dynamic-temporal-input"),
-            layout: &self.temporal_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(sample),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: wgpu::BindingResource::TextureView(accumulation),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 2,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 3,
-                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                        buffer: &resources.effect_instance_buffer,
-                        offset: 0,
-                        size: NonZeroU64::new(size_of::<GpuEffect>() as u64),
-                    }),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 4,
-                    resource: resources.effect_property_buffer.as_entire_binding(),
-                },
-            ],
-        })
-    }
-
     fn encode_effect_pass(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -441,7 +787,6 @@ impl FrameRenderer {
         pass.set_pipeline(&pipeline.pipeline);
         pass.set_bind_group(0, bindings.input, &[instance_offset]);
         pass.set_bind_group(1, bindings.capabilities, &[]);
-        pass.set_bind_group(2, bindings.bounds, &[]);
         pass.draw(0..pipeline.vertex_count, 0..1);
     }
 
@@ -524,7 +869,6 @@ impl FrameRenderer {
         pass.set_pipeline(&pipeline.pipeline);
         pass.set_bind_group(0, bindings.input, &[instance_offset]);
         pass.set_bind_group(1, bindings.capabilities, &[]);
-        pass.set_bind_group(2, bindings.bounds, &[]);
         pass.draw(0..pipeline.vertex_count, 0..1);
     }
 
@@ -561,7 +905,6 @@ impl FrameRenderer {
         pass.set_pipeline(&pipeline.pipeline);
         pass.set_bind_group(0, input, &[instance_offset]);
         pass.set_bind_group(1, capability_group, &[]);
-        pass.set_bind_group(2, &resources.effect_bounds_read, &[]);
         let extent = |dimension: ComputeDispatchDimension| match dimension {
             ComputeDispatchDimension::Width => resources.size.width,
             ComputeDispatchDimension::Height => resources.size.height,
@@ -586,9 +929,6 @@ impl FrameRenderer {
         mut output: RenderOutput,
         context: EffectPassContext<'_>,
     ) -> Result<RenderOutput, RenderError> {
-        if context.uses_effect_bounds {
-            self.encode_effect_bounds(encoder, resources, output.view(resources)?);
-        }
         let capability_group =
             self.capability_bind_group(context.capabilities, &resources.effect_source_view);
         for effect_pass in passes {
@@ -618,20 +958,10 @@ impl FrameRenderer {
                 .checked_mul(context.stride)
                 .ok_or_else(|| RenderError::backend("effect instance offset exceeds u32"))?;
             let target = output.next_effect_target();
-            let input_view = output.view(resources)?;
             let target_view = target.view(resources)?;
-            let dynamic_effect_input;
             let effect_input = match output {
                 RenderOutput::EffectA => &resources.effect_input_a,
                 RenderOutput::EffectB => &resources.effect_input_b,
-                _ => {
-                    dynamic_effect_input = self.effect_input_bind_group(
-                        resources,
-                        input_view,
-                        &resources.effect_source_view,
-                    );
-                    &dynamic_effect_input
-                }
             };
             match effect_pass.kind {
                 EffectPassCommandKind::Render => self.encode_effect_pass(
@@ -640,25 +970,14 @@ impl FrameRenderer {
                     EffectPassBindings {
                         input: effect_input,
                         capabilities: &capability_group,
-                        bounds: &resources.effect_bounds_read,
                     },
                     &effect_pass.shader,
                     instance_offset,
                 ),
                 EffectPassCommandKind::Compute { .. } => {
-                    let dynamic_compute_input;
-                    let compute_input = match (output, target) {
-                        (RenderOutput::EffectA, RenderOutput::EffectB) => {
-                            &resources.compute_inputs[0]
-                        }
-                        (RenderOutput::EffectB, RenderOutput::EffectA) => {
-                            &resources.compute_inputs[1]
-                        }
-                        _ => {
-                            dynamic_compute_input =
-                                self.compute_input_bind_group(resources, input_view, target_view);
-                            &dynamic_compute_input
-                        }
+                    let compute_input = match output {
+                        RenderOutput::EffectA => &resources.compute_inputs[0],
+                        RenderOutput::EffectB => &resources.compute_inputs[1],
                     };
                     self.encode_compute_pass(
                         encoder,
@@ -674,403 +993,17 @@ impl FrameRenderer {
         Ok(output)
     }
 
-    fn encode_effect_bounds(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        resources: &RenderResources,
-        source: &wgpu::TextureView,
-    ) {
-        encoder.clear_buffer(&resources.effect_bounds_buffer, 0, None);
-        let source_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("zerium-effect-bounds-source"),
-            layout: &self.effect_bounds_source_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: wgpu::BindingResource::TextureView(source),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: resources.effect_bounds_buffer.as_entire_binding(),
-                },
-            ],
-        });
-        {
-            let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                label: Some("zerium-effect-bounds-pass"),
-                timestamp_writes: None,
-            });
-            pass.set_pipeline(&self.effect_bounds_pipeline);
-            pass.set_bind_group(0, &source_group, &[]);
-            pass.dispatch_workgroups(
-                resources.size.width.div_ceil(32),
-                resources.size.height.div_ceil(32),
-                1,
-            );
-        }
-    }
-
-    fn encode_render_node(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        context: &RenderNodeContext<'_>,
-        rendered_shared_nodes: &mut [bool],
-        node_id: RenderNodeId,
-        depth: RenderDepth,
-    ) -> Result<RenderOutput, RenderError> {
-        if let Some(slot) = context.shared_node_slots[node_id] {
-            if rendered_shared_nodes[slot] {
-                return Ok(RenderOutput::Cached(slot));
-            }
-            let output = self.encode_render_node_uncached(
-                encoder,
-                context,
-                rendered_shared_nodes,
-                node_id,
-                depth,
-            )?;
-            let cached = RenderOutput::Cached(slot);
-            encoder.copy_texture_to_texture(
-                wgpu::TexelCopyTextureInfo {
-                    texture: output.texture(context.resources)?,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::TexelCopyTextureInfo {
-                    texture: cached.texture(context.resources)?,
-                    mip_level: 0,
-                    origin: wgpu::Origin3d::ZERO,
-                    aspect: wgpu::TextureAspect::All,
-                },
-                wgpu::Extent3d {
-                    width: context.resources.size.width,
-                    height: context.resources.size.height,
-                    depth_or_array_layers: 1,
-                },
-            );
-            rendered_shared_nodes[slot] = true;
-            return Ok(cached);
-        }
-        self.encode_render_node_uncached(encoder, context, rendered_shared_nodes, node_id, depth)
-    }
-
-    fn encode_render_node_uncached(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        context: &RenderNodeContext<'_>,
-        rendered_shared_nodes: &mut [bool],
-        node_id: RenderNodeId,
-        depth: RenderDepth,
-    ) -> Result<RenderOutput, RenderError> {
-        let resources = context.resources;
-        let textures = context.textures;
-        let nodes = context.nodes;
-        let stride = context.stride;
-        let temporal_depth = depth.temporal;
-        let composition_depth = depth.composition;
-        let node = &nodes[node_id];
-        match &node.kind {
-            RenderNodeCommandKind::Source(source) => {
-                match source {
-                    RenderSourceCommand::Transparent => {
-                        let color_attachments = [Some(wgpu::RenderPassColorAttachment {
-                            view: &resources.effect_view_a,
-                            depth_slice: None,
-                            resolve_target: None,
-                            ops: wgpu::Operations {
-                                load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                                store: wgpu::StoreOp::Store,
-                            },
-                        })];
-                        encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                            label: Some("zerium-transparent-temporal-sample"),
-                            color_attachments: &color_attachments,
-                            ..Default::default()
-                        });
-                    }
-                    RenderSourceCommand::Item {
-                        shader,
-                        instance,
-                        capabilities,
-                    } => {
-                        let views = self.encode_capability_nodes(
-                            encoder,
-                            context,
-                            rendered_shared_nodes,
-                            capabilities,
-                            depth,
-                        )?;
-                        let capability_group =
-                            self.capability_bind_group(&views, &resources.effect_source_view);
-                        self.encode_item_pass(
-                            encoder,
-                            &resources.effect_view_a,
-                            &resources.bind_group,
-                            &capability_group,
-                            shader,
-                            *instance..*instance + 1,
-                            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        );
-                    }
-                    RenderSourceCommand::Texture { index, shader } => {
-                        let texture = textures.get(*index).ok_or_else(|| {
-                            RenderError::backend(
-                                "temporal render source references a missing texture",
-                            )
-                        })?;
-                        let bind_group = &texture.binding;
-                        self.encode_texture_pass(
-                            encoder,
-                            &resources.effect_view_a,
-                            bind_group,
-                            shader,
-                            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        );
-                    }
-                }
-                Ok(RenderOutput::EffectA)
-            }
-            RenderNodeCommandKind::Composite { children } => {
-                let composition =
-                    resources
-                        .compositions
-                        .get(composition_depth)
-                        .ok_or_else(|| {
-                            RenderError::backend("scene composition resource depth is insufficient")
-                        })?;
-                let attachments = [Some(wgpu::RenderPassColorAttachment {
-                    view: &composition.view,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })];
-                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("zerium-scene-node-clear"),
-                    color_attachments: &attachments,
-                    ..Default::default()
-                });
-                for child in children {
-                    match &nodes[*child].kind {
-                        RenderNodeCommandKind::Source(RenderSourceCommand::Transparent) => {}
-                        RenderNodeCommandKind::Source(RenderSourceCommand::Item {
-                            shader,
-                            instance,
-                            capabilities,
-                        }) if capabilities.is_empty() => {
-                            let capability_group =
-                                self.capability_bind_group(&[], &resources.effect_source_view);
-                            self.encode_item_pass(
-                                encoder,
-                                &composition.view,
-                                &resources.bind_group,
-                                &capability_group,
-                                shader,
-                                *instance..*instance + 1,
-                                wgpu::LoadOp::Load,
-                            );
-                        }
-                        RenderNodeCommandKind::Source(RenderSourceCommand::Texture {
-                            index,
-                            shader,
-                        }) => {
-                            let texture = textures.get(*index).ok_or_else(|| {
-                                RenderError::backend(
-                                    "scene node references a missing texture input",
-                                )
-                            })?;
-                            let bind_group = &texture.binding;
-                            self.encode_texture_pass(
-                                encoder,
-                                &composition.view,
-                                bind_group,
-                                shader,
-                                wgpu::LoadOp::Load,
-                            );
-                        }
-                        RenderNodeCommandKind::Source(RenderSourceCommand::Item { .. })
-                        | RenderNodeCommandKind::Composite { .. }
-                        | RenderNodeCommandKind::Effect { .. }
-                        | RenderNodeCommandKind::TemporalEffect { .. } => {
-                            let child_output = self.encode_render_node(
-                                encoder,
-                                context,
-                                rendered_shared_nodes,
-                                *child,
-                                RenderDepth {
-                                    temporal: temporal_depth,
-                                    composition: composition_depth + 1,
-                                },
-                            )?;
-                            let dynamic_input;
-                            let input = match child_output {
-                                RenderOutput::EffectA => &resources.composition_input_a,
-                                RenderOutput::EffectB => &resources.composition_input_b,
-                                RenderOutput::Composition(_)
-                                | RenderOutput::Temporal { .. }
-                                | RenderOutput::Cached(_) => {
-                                    dynamic_input = self.composite_input_bind_group(
-                                        child_output.view(resources)?,
-                                        &resources._composition_info_buffer,
-                                    );
-                                    &dynamic_input
-                                }
-                            };
-                            self.encode_composite_pass(encoder, &composition.view, input);
-                        }
-                    }
-                }
-                Ok(RenderOutput::Composition(composition_depth))
-            }
-            RenderNodeCommandKind::Effect {
-                input,
-                capabilities,
-                uses_effect_bounds,
-                passes,
-            } => {
-                let held = self.encode_capability_nodes(
-                    encoder,
-                    context,
-                    rendered_shared_nodes,
-                    capabilities,
-                    depth,
-                )?;
-                let input = self.encode_render_node(
-                    encoder,
-                    context,
-                    rendered_shared_nodes,
-                    *input,
-                    RenderDepth {
-                        temporal: temporal_depth,
-                        composition: composition_depth + capabilities.len(),
-                    },
-                )?;
-                self.encode_effect_passes(
-                    encoder,
-                    resources,
-                    passes,
-                    input,
-                    EffectPassContext {
-                        stride,
-                        capabilities: &held,
-                        uses_effect_bounds: *uses_effect_bounds,
-                    },
-                )
-            }
-            RenderNodeCommandKind::TemporalEffect {
-                samples,
-                capabilities,
-                uses_effect_bounds,
-            } => {
-                let held = self.encode_capability_nodes(
-                    encoder,
-                    context,
-                    rendered_shared_nodes,
-                    capabilities,
-                    depth,
-                )?;
-                let child_composition_depth = composition_depth + capabilities.len();
-                let capability_group =
-                    self.capability_bind_group(&held, &resources.effect_source_view);
-                let temporal = resources.temporal.get(temporal_depth).ok_or_else(|| {
-                    RenderError::backend("temporal render resource depth is insufficient")
-                })?;
-                let clear_attachments = [Some(wgpu::RenderPassColorAttachment {
-                    view: &temporal.view_a,
-                    depth_slice: None,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                        store: wgpu::StoreOp::Store,
-                    },
-                })];
-                encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                    label: Some("zerium-temporal-accumulation-clear"),
-                    color_attachments: &clear_attachments,
-                    ..Default::default()
-                });
-                let mut accumulation_is_a = true;
-                for (sample, reduce) in samples {
-                    let sample_output = self.encode_render_node(
-                        encoder,
-                        context,
-                        rendered_shared_nodes,
-                        *sample,
-                        RenderDepth {
-                            temporal: temporal_depth + 1,
-                            composition: child_composition_depth,
-                        },
-                    )?;
-                    if *uses_effect_bounds {
-                        self.encode_effect_bounds(
-                            encoder,
-                            resources,
-                            sample_output.view(resources)?,
-                        );
-                    }
-                    let target_view = if accumulation_is_a {
-                        &temporal.view_b
-                    } else {
-                        &temporal.view_a
-                    };
-                    let accumulation_view = if accumulation_is_a {
-                        &temporal.view_a
-                    } else {
-                        &temporal.view_b
-                    };
-                    let instance_offset = reduce.instance.checked_mul(stride).ok_or_else(|| {
-                        RenderError::backend("temporal instance offset exceeds u32")
-                    })?;
-                    let dynamic_input;
-                    let input = match sample_output {
-                        RenderOutput::EffectA | RenderOutput::EffectB => {
-                            let sample_is_a = sample_output == RenderOutput::EffectA;
-                            let input_index =
-                                usize::from(!sample_is_a) * 2 + usize::from(!accumulation_is_a);
-                            &temporal.inputs[input_index]
-                        }
-                        _ => {
-                            dynamic_input = self.temporal_input_bind_group(
-                                resources,
-                                sample_output.view(resources)?,
-                                accumulation_view,
-                            );
-                            &dynamic_input
-                        }
-                    };
-                    self.encode_temporal_reduce_pass(
-                        encoder,
-                        target_view,
-                        EffectPassBindings {
-                            input,
-                            capabilities: &capability_group,
-                            bounds: &resources.effect_bounds_read,
-                        },
-                        reduce,
-                        instance_offset,
-                    );
-                    accumulation_is_a = !accumulation_is_a;
-                }
-                Ok(RenderOutput::Temporal {
-                    depth: temporal_depth,
-                    is_a: accumulation_is_a,
-                })
-            }
-        }
-    }
-
-    pub(super) fn encode_scene(
+    fn encode_scene(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         target_view: &wgpu::TextureView,
         resources_by_scale: &HashMap<u32, RenderResources>,
         textures: &[TextureResource],
         scene: &EncodedScene,
-        background: [f64; 4],
-    ) -> Result<Vec<(u32, usize, Arc<RenderNodeKey>)>, RenderError> {
+        available_resources: Vec<RenderResources>,
+    ) -> Result<SceneEncoding, RenderError> {
+        let local_pool = RefCell::new(Vec::new());
+        let available_local_resources = RefCell::new(available_resources);
         let decode = |value: f64| {
             if value <= 0.04045 {
                 value / 12.92
@@ -1079,10 +1012,10 @@ impl FrameRenderer {
             }
         };
         let background = wgpu::Color {
-            r: decode(background[0]),
-            g: decode(background[1]),
-            b: decode(background[2]),
-            a: background[3],
+            r: decode(scene.background[0]),
+            g: decode(scene.background[1]),
+            b: decode(scene.background[2]),
+            a: scene.background[3],
         };
         {
             let color_attachments = [Some(wgpu::RenderPassColorAttachment {
@@ -1101,13 +1034,6 @@ impl FrameRenderer {
             });
         }
 
-        let stride = u32::try_from(
-            resources_by_scale
-                .get(&1)
-                .expect("scale-one render resources are always created")
-                .effect_instance_stride,
-        )
-        .map_err(|_| RenderError::backend("effect instance stride exceeds u32"))?;
         let shared_node_count = scene.shared_node_slots.iter().flatten().count();
         let mut keys_by_slot = vec![None; shared_node_count];
         for (node, slot) in scene.shared_node_slots.iter().enumerate() {
@@ -1160,53 +1086,47 @@ impl FrameRenderer {
                                 .map(|(cached, expected)| cached == expected && expected.is_some())
                                 .collect()
                         });
-                    let output = {
-                        let context = RenderNodeContext {
-                            resources,
-                            textures,
-                            nodes: &scene.nodes,
-                            shared_node_slots: &scene.shared_node_slots,
-                            stride,
-                        };
-                        self.encode_render_node(
-                            encoder,
-                            &context,
-                            rendered_shared_nodes,
-                            *node,
-                            RenderDepth::ROOT,
-                        )?
+                    let context = RenderNodeContext {
+                        resources,
+                        encoded: scene,
+                        viewport: resources.output_size,
+                        render_scale: *render_scale,
+                        local_pool: &local_pool,
+                        available_local_resources: &available_local_resources,
+                        textures,
+                        nodes: &scene.nodes,
+                        shared_node_slots: &scene.shared_node_slots,
                     };
-                    let dynamic_input;
-                    let composite_input = match output {
-                        RenderOutput::EffectA => &resources.composite_input_a,
-                        RenderOutput::EffectB => &resources.composite_input_b,
-                        RenderOutput::Composition(_)
-                        | RenderOutput::Temporal { .. }
-                        | RenderOutput::Cached(_) => {
-                            dynamic_input = self.composite_input_bind_group(
-                                output.view(resources)?,
-                                &resources._composite_info_buffer,
-                            );
-                            &dynamic_input
-                        }
-                    };
-                    self.encode_composite_pass(encoder, target_view, composite_input);
+                    let surface =
+                        self.render_surface(encoder, &context, rendered_shared_nodes, *node)?;
+                    self.spatial_composite(
+                        encoder,
+                        target_view,
+                        SurfaceRect::viewport(resources.composition_size),
+                        resources.output_size,
+                        &surface,
+                        false,
+                    );
                 }
             }
         }
-        Ok(rendered_by_scale
-            .into_iter()
-            .flat_map(|(scale, rendered)| {
-                keys_by_slot
-                    .iter()
-                    .zip(rendered)
-                    .enumerate()
-                    .filter(|(_, (_, rendered))| *rendered)
-                    .map(move |(slot, (key, _))| {
-                        (scale, slot, key.clone().expect("slots have keys"))
-                    })
-            })
-            .collect())
+        Ok(SceneEncoding {
+            cache_updates: rendered_by_scale
+                .into_iter()
+                .flat_map(|(scale, rendered)| {
+                    keys_by_slot
+                        .iter()
+                        .zip(rendered)
+                        .enumerate()
+                        .filter(|(_, (_, rendered))| *rendered)
+                        .map(move |(slot, (key, _))| {
+                            (scale, slot, key.clone().expect("slots have keys"))
+                        })
+                })
+                .collect(),
+            local_resources: local_pool.into_inner(),
+            unused_resources: available_local_resources.into_inner(),
+        })
     }
 
     pub(crate) fn render_to_view(
@@ -1216,8 +1136,6 @@ impl FrameRenderer {
     ) -> Result<wgpu::SubmissionIndex, RenderError> {
         self.validate_scene(scene)?;
         let encoded = encode_items(scene)?;
-        let effect_pass_count = encoded.effects.len();
-        let (temporal_depth, composition_depth) = encoded.depths();
         let shared_node_count = encoded.shared_node_slots.iter().flatten().count();
         let texture_resources = self.create_texture_resources(&encoded.textures)?;
         let mut resources = self
@@ -1247,11 +1165,6 @@ impl FrameRenderer {
                     || resources.item_capacity < encoded.items.len().max(1)
                     || resources.property_capacity
                         < encoded.properties.len().max(PROPERTY_WORD_SIZE)
-                    || resources.effect_instance_capacity < effect_pass_count.max(1)
-                    || resources.effect_property_capacity
-                        < encoded.effect_properties.len().max(PROPERTY_WORD_SIZE)
-                    || resources.compositions.len() < composition_depth
-                    || resources.temporal.len() < temporal_depth
                     || resources.cached_nodes.len() < shared_node_count
             });
             if rebuild {
@@ -1262,12 +1175,12 @@ impl FrameRenderer {
                         scene.size,
                         scene.composition_size,
                         RenderResourceRequirements {
+                            frame_output: true,
                             item_count: encoded.items.len(),
                             property_size: encoded.properties.len(),
-                            effect_pass_count,
-                            effect_property_size: encoded.effect_properties.len(),
-                            composition_depth,
-                            temporal_depth,
+                            effect_pass_count: 0,
+                            effect_property_size: 0,
+                            temporal_depth: 0,
                             shared_node_count,
                         },
                     )?,
@@ -1275,15 +1188,6 @@ impl FrameRenderer {
             }
         }
 
-        let stride = usize::try_from(
-            resources
-                .get(&1)
-                .expect("scale-one resources were created")
-                .effect_instance_stride,
-        )
-        .map_err(|_| RenderError::backend("effect instance stride exceeds usize"))?;
-        let instances =
-            (effect_pass_count > 0).then(|| Self::effect_instance_data(&encoded.effects, stride));
         for resources in resources.values() {
             if !encoded.items.is_empty() {
                 self.queue.write_buffer(
@@ -1295,27 +1199,6 @@ impl FrameRenderer {
             if !encoded.properties.is_empty() {
                 self.queue
                     .write_buffer(&resources.property_buffer, 0, &encoded.properties);
-            }
-            if let Some(instances) = &instances {
-                self.queue
-                    .write_buffer(&resources.effect_instance_buffer, 0, instances);
-                let compute_stride = usize::try_from(resources.compute_info_stride)
-                    .map_err(|_| RenderError::backend("compute info stride exceeds usize"))?;
-                let compute_instances = Self::compute_instance_data(
-                    &encoded.effects,
-                    compute_stride,
-                    resources.size,
-                    resources.composition_size,
-                );
-                self.queue
-                    .write_buffer(&resources.compute_info_buffer, 0, &compute_instances);
-                if !encoded.effect_properties.is_empty() {
-                    self.queue.write_buffer(
-                        &resources.effect_property_buffer,
-                        0,
-                        &encoded.effect_properties,
-                    );
-                }
             }
         }
 
@@ -1329,22 +1212,51 @@ impl FrameRenderer {
             .expect("scale-one render resources were created")
             .scene_view
             .clone();
-        let cache_updates = self.encode_scene(
+        let available_local_resources = {
+            let mut cached = self
+                .local_resources
+                .lock()
+                .map_err(|_| RenderError::backend("local render resource lock poisoned"))?;
+            std::mem::take(&mut *cached)
+        };
+        let scene_encoding = self.encode_scene(
             &mut encoder,
             &scene_view,
             &resources,
             &texture_resources,
             &encoded,
-            scene.background,
+            available_local_resources,
         )?;
         let base_resources = resources
             .get(&1)
             .expect("scale-one render resources were created");
         self.encode_output_pass(&mut encoder, target_view, &base_resources.output_input);
         let submission = self.queue.submit([encoder.finish()]);
-        for (scale, slot, key) in cache_updates {
+        for (scale, slot, key) in scene_encoding.cache_updates {
             if let Some(resources) = resources.get_mut(&scale) {
                 resources.cached_node_keys[slot] = Some(key);
+            }
+        }
+        {
+            let mut cached = self
+                .local_resources
+                .lock()
+                .map_err(|_| RenderError::backend("local render resource lock poisoned"))?;
+            let mut retained_bytes = 0_usize;
+            for resource in scene_encoding
+                .local_resources
+                .into_iter()
+                .chain(scene_encoding.unused_resources)
+            {
+                let surfaces = 4_usize.saturating_add(resource.temporal.len().saturating_mul(2));
+                let bytes = (resource.size.width as usize)
+                    .saturating_mul(resource.size.height as usize)
+                    .saturating_mul(8)
+                    .saturating_mul(surfaces);
+                if retained_bytes.saturating_add(bytes) <= LOCAL_RESOURCE_CACHE_BUDGET {
+                    retained_bytes += bytes;
+                    cached.push(resource);
+                }
             }
         }
         // The queue retains the submitted work, so scratch buffers are parked

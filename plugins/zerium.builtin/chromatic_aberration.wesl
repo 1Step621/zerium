@@ -12,7 +12,7 @@ fn fragment_main(input: ZeriumVertex) -> @location(0) vec4<f32> {
     let properties = props();
     let angle = properties.angle * DEG2RAD;
     let offset = vec2(cos(angle), sin(angle)) * properties.amount
-        / context().composition_size;
+        / context().surface_size;
     let red_sample = textureSample(effect_input, effect_sampler, input.uv + offset);
     let center_sample = textureSample(effect_input, effect_sampler, input.uv);
     let blue_sample = textureSample(effect_input, effect_sampler, input.uv - offset);

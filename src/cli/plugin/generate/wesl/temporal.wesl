@@ -1,4 +1,4 @@
-import package::generated::util::{ZeriumContext, make_context};
+import package::generated::util::{ZeriumContext, make_surface_context};
 
 struct ZeriumTemporal {
     property_offset: u32,
@@ -8,6 +8,8 @@ struct ZeriumTemporal {
     frame_offset: f32,
     sample_progress: f32,
     composition_size: vec2<f32>,
+    surface_min: vec2<f32>,
+    surface_size: vec2<f32>,
 };
 
 @group(0) @binding(0)
@@ -38,7 +40,7 @@ fn info() -> ZeriumTemporal {
 
 fn context() -> ZeriumContext {
     let output_size = vec2<f32>(textureDimensions(temporal_sample));
-    return make_context(output_size, temporal_state.composition_size);
+    return make_surface_context(output_size, temporal_state.composition_size, temporal_state.surface_size);
 }
 
 struct ZeriumVertex {

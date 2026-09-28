@@ -1,10 +1,12 @@
-import package::generated::util::{ZeriumContext, make_context};
+import package::generated::util::{ZeriumContext, make_surface_context};
 
 struct ZeriumItem {
     property_offset: u32,
     property_size: u32,
     output_size: vec2<f32>,
     composition_size: vec2<f32>,
+    surface_min: vec2<f32>,
+    surface_size: vec2<f32>,
 };
 
 @group(0) @binding(0)
@@ -23,17 +25,21 @@ fn item_props(instance_index: u32) -> ZeriumRawProps {
 // and +Y downward. The viewport remains a pixel size rather than a position.
 fn context(instance_index: u32) -> ZeriumContext {
     let output_size = items[instance_index].output_size;
-    return make_context(output_size, items[instance_index].composition_size);
+    return make_surface_context(
+        output_size,
+        items[instance_index].composition_size,
+        items[instance_index].surface_size,
+    );
 }
 
 fn to_ndc(
     instance_index: u32,
     position: vec2<f32>,
 ) -> vec2<f32> {
-    let composition_size = items[instance_index].composition_size;
+    let item = items[instance_index];
     return vec2(
-        position.x / composition_size.x * 2.0,
-        -position.y / composition_size.y * 2.0,
+        (position.x - item.surface_min.x) / item.surface_size.x * 2.0 - 1.0,
+        1.0 - (position.y - item.surface_min.y) / item.surface_size.y * 2.0,
     );
 }
 

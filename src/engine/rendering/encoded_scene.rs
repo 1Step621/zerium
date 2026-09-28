@@ -1,3 +1,4 @@
+use super::surface::{BoundsOperation, SurfaceRect};
 use super::*;
 
 pub(super) type RenderNodeId = usize;
@@ -13,6 +14,8 @@ pub(super) struct GpuItem {
     pub(super) property_size: u32,
     pub(super) output_size: [f32; 2],
     pub(super) composition_size: [f32; 2],
+    pub(super) surface_min: [f32; 2],
+    pub(super) surface_size: [f32; 2],
 }
 
 #[repr(C)]
@@ -25,6 +28,10 @@ pub(super) struct GpuEffect {
     pub(super) frame_offset: f32,
     pub(super) sample_progress: f32,
     pub(super) composition_size: [f32; 2],
+    pub(super) surface_min: [f32; 2],
+    pub(super) surface_size: [f32; 2],
+    pub(super) input_min: [f32; 2],
+    pub(super) input_size: [f32; 2],
 }
 
 #[repr(C)]
@@ -41,7 +48,8 @@ pub(super) struct GpuCompute {
     pub(super) width: u32,
     pub(super) height: u32,
     pub(super) composition_size: [f32; 2],
-    pub(super) padding: [u32; 2],
+    pub(super) surface_min: [f32; 2],
+    pub(super) surface_size: [f32; 2],
 }
 
 #[repr(C)]
@@ -49,6 +57,7 @@ pub(super) struct GpuCompute {
 pub(super) struct GpuComposite {
     pub(super) input_size: [u32; 2],
     pub(super) output_size: [u32; 2],
+    pub(super) input_rect: [f32; 4],
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -88,6 +97,8 @@ pub(super) enum RenderSourceCommand {
 pub(super) struct RenderNodeCommand {
     pub(super) metadata: RenderNodeMetadata,
     pub(super) kind: RenderNodeCommandKind,
+    /// Pixels with a possible non-transparent contribution from this node.
+    pub(super) bounds: SurfaceRect,
 }
 
 #[derive(Debug, PartialEq)]
@@ -99,69 +110,14 @@ pub(super) enum RenderNodeCommandKind {
     Effect {
         input: RenderNodeId,
         capabilities: Vec<RenderNodeId>,
-        uses_effect_bounds: bool,
+        bounds_operation: BoundsOperation,
         passes: Vec<EffectPassCommand>,
     },
     TemporalEffect {
         // Every branch includes the effects preceding this temporal effect.
         samples: Vec<(RenderNodeId, TemporalReduceCommand)>,
         capabilities: Vec<RenderNodeId>,
-        uses_effect_bounds: bool,
     },
-}
-
-impl RenderNodeCommand {
-    pub(super) fn depths(&self, nodes: &[Self]) -> (usize, usize) {
-        match &self.kind {
-            RenderNodeCommandKind::Source(RenderSourceCommand::Item { capabilities, .. }) => {
-                let (temporal, composition) =
-                    max_depths(capabilities.iter().map(|id| nodes[*id].depths(nodes)));
-                (temporal, composition + capabilities.len())
-            }
-            RenderNodeCommandKind::Source(_) => (0, 0),
-            RenderNodeCommandKind::Effect {
-                input,
-                capabilities,
-                ..
-            } => {
-                let (temporal, composition) = max_depths(
-                    std::iter::once(nodes[*input].depths(nodes))
-                        .chain(capabilities.iter().map(|id| nodes[*id].depths(nodes))),
-                );
-                (temporal, composition + capabilities.len())
-            }
-            RenderNodeCommandKind::Composite { children } => {
-                let (temporal, composition) =
-                    max_depths(children.iter().map(|child| nodes[*child].depths(nodes)));
-                (temporal, composition + 1)
-            }
-            RenderNodeCommandKind::TemporalEffect {
-                samples,
-                capabilities,
-                ..
-            } => {
-                let (temporal, composition) = max_depths(
-                    samples
-                        .iter()
-                        .map(|(sample, _)| nodes[*sample].depths(nodes))
-                        .chain(capabilities.iter().map(|id| nodes[*id].depths(nodes))),
-                );
-                (temporal + 1, composition + capabilities.len())
-            }
-        }
-    }
-}
-
-fn max_depths(depths: impl Iterator<Item = (usize, usize)>) -> (usize, usize) {
-    depths.fold(
-        (0, 0),
-        |(temporal, composition), (next_temporal, next_composition)| {
-            (
-                temporal.max(next_temporal),
-                composition.max(next_composition),
-            )
-        },
-    )
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -189,6 +145,7 @@ pub(super) struct TemporalReduceCommand {
 }
 
 pub(super) struct EncodedScene {
+    pub(super) background: [f64; 4],
     pub(super) items: Vec<GpuItem>,
     pub(super) properties: Vec<u8>,
     pub(super) effects: Vec<GpuEffect>,
@@ -198,15 +155,6 @@ pub(super) struct EncodedScene {
     pub(super) node_keys: Vec<Arc<RenderNodeKey>>,
     pub(super) shared_node_slots: Vec<Option<usize>>,
     pub(super) commands: Vec<RenderCommand>,
-}
-
-impl EncodedScene {
-    pub(super) fn depths(&self) -> (usize, usize) {
-        max_depths(self.commands.iter().filter_map(|command| match command {
-            RenderCommand::Effected { node, .. } => Some(self.nodes[*node].depths(&self.nodes)),
-            RenderCommand::Items(_) | RenderCommand::Texture { .. } => None,
-        }))
-    }
 }
 
 pub(super) struct EncodedTexture {
@@ -219,7 +167,6 @@ pub(super) struct EncodedTexture {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum SourceKey {
-    Transparent,
     Item {
         shader: ItemShaderId,
         capabilities: Vec<Arc<RenderNodeKey>>,
@@ -247,11 +194,13 @@ pub(super) struct EffectPassKey {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(super) enum RenderNodeKey {
     Source(SourceKey),
+    Transparent {
+        owner: Arc<RenderNodeKey>,
+    },
     Composite(Vec<Arc<RenderNodeKey>>),
     Effect {
         input: Arc<RenderNodeKey>,
         capabilities: Vec<Arc<RenderNodeKey>>,
-        uses_effect_bounds: bool,
         passes: Vec<EffectPassKey>,
     },
     Temporal {
@@ -259,7 +208,6 @@ pub(super) enum RenderNodeKey {
         properties: Vec<u8>,
         samples: Vec<(Arc<RenderNodeKey>, u32)>,
         capabilities: Vec<Arc<RenderNodeKey>>,
-        uses_effect_bounds: bool,
     },
 }
 
@@ -294,6 +242,22 @@ fn encode_effect_pass(
             composition_size.width as f32,
             composition_size.height as f32,
         ],
+        surface_min: [
+            -(composition_size.width as f32) * 0.5,
+            -(composition_size.height as f32) * 0.5,
+        ],
+        surface_size: [
+            composition_size.width as f32,
+            composition_size.height as f32,
+        ],
+        input_min: [
+            -(composition_size.width as f32) * 0.5,
+            -(composition_size.height as f32) * 0.5,
+        ],
+        input_size: [
+            composition_size.width as f32,
+            composition_size.height as f32,
+        ],
     });
     Ok(EffectPassCommand {
         shader: shader.clone(),
@@ -324,13 +288,18 @@ impl EncodeContext<'_> {
         key: RenderNodeKey,
         metadata: RenderNodeMetadata,
         kind: RenderNodeCommandKind,
+        bounds: SurfaceRect,
     ) -> RenderNodeId {
         let key = Arc::new(key);
         if let Some(id) = self.node_cache.get(&key) {
             return *id;
         }
         let id = self.nodes.len();
-        self.nodes.push(RenderNodeCommand { metadata, kind });
+        self.nodes.push(RenderNodeCommand {
+            metadata,
+            kind,
+            bounds,
+        });
         self.node_keys.push(key.clone());
         self.node_cache.insert(key, id);
         id
@@ -379,6 +348,14 @@ impl EncodeContext<'_> {
                         item.target_size.height as f32,
                     ],
                     composition_size: [
+                        self.composition_size.width as f32,
+                        self.composition_size.height as f32,
+                    ],
+                    surface_min: [
+                        -(self.composition_size.width as f32) * 0.5,
+                        -(self.composition_size.height as f32) * 0.5,
+                    ],
+                    surface_size: [
                         self.composition_size.width as f32,
                         self.composition_size.height as f32,
                     ],
@@ -459,6 +436,22 @@ impl EncodeContext<'_> {
                 self.composition_size.width as f32,
                 self.composition_size.height as f32,
             ],
+            surface_min: [
+                -(self.composition_size.width as f32) * 0.5,
+                -(self.composition_size.height as f32) * 0.5,
+            ],
+            surface_size: [
+                self.composition_size.width as f32,
+                self.composition_size.height as f32,
+            ],
+            input_min: [
+                -(self.composition_size.width as f32) * 0.5,
+                -(self.composition_size.height as f32) * 0.5,
+            ],
+            input_size: [
+                self.composition_size.width as f32,
+                self.composition_size.height as f32,
+            ],
         });
         Ok(TemporalReduceCommand {
             reducer: reducer.clone(),
@@ -470,14 +463,18 @@ impl EncodeContext<'_> {
         &mut self,
         mut node: RenderNodeId,
         effects: &[RenderEffect],
+        fixed_bounds: Option<SurfaceRect>,
     ) -> Result<RenderNodeId, RenderError> {
         for effect in effects {
+            let has_regular_pass = effect
+                .passes
+                .iter()
+                .any(|pass| !matches!(&pass.kind, RenderEffectPassKind::Temporal(_)));
             let capabilities = effect
                 .inputs
                 .iter()
                 .map(|input| self.encode_node(input))
                 .collect::<Result<Vec<_>, _>>()?;
-            let uses_effect_bounds = effect.uses_effect_bounds;
             let mut regular_passes = Vec::new();
             let mut regular_keys = Vec::new();
             for pass in &effect.passes {
@@ -492,11 +489,14 @@ impl EncodeContext<'_> {
                                 let node = match &sample.input {
                                     Some(sample) => self.encode_node(sample)?,
                                     None => self.intern_node(
-                                        RenderNodeKey::Source(SourceKey::Transparent),
+                                        RenderNodeKey::Transparent {
+                                            owner: self.node_keys[node].clone(),
+                                        },
                                         self.nodes[node].metadata.clone(),
                                         RenderNodeCommandKind::Source(
                                             RenderSourceCommand::Transparent,
                                         ),
+                                        self.nodes[node].bounds,
                                     ),
                                 };
                                 Ok((
@@ -525,20 +525,42 @@ impl EncodeContext<'_> {
                                 .iter()
                                 .map(|id| self.node_keys[*id].clone())
                                 .collect(),
-                            uses_effect_bounds,
                         };
                         let samples = encoded_samples
                             .into_iter()
                             .map(|(sample, reduce, _)| (sample, reduce))
-                            .collect();
+                            .collect::<Vec<_>>();
+                        let temporal_bounds = fixed_bounds.unwrap_or_else(|| {
+                            let input_bounds = samples
+                                .iter()
+                                .filter(|(sample, _)| {
+                                    !matches!(
+                                        self.nodes[*sample].kind,
+                                        RenderNodeCommandKind::Source(
+                                            RenderSourceCommand::Transparent
+                                        )
+                                    )
+                                })
+                                .map(|(sample, _)| self.nodes[*sample].bounds)
+                                .reduce(SurfaceRect::union)
+                                .unwrap_or(self.nodes[node].bounds);
+                            if has_regular_pass {
+                                input_bounds
+                            } else {
+                                effect.output_bounds.apply(
+                                    input_bounds,
+                                    SurfaceRect::viewport(self.composition_size),
+                                )
+                            }
+                        });
                         node = self.intern_node(
                             key,
                             self.nodes[node].metadata.clone(),
                             RenderNodeCommandKind::TemporalEffect {
                                 samples,
                                 capabilities: capabilities.clone(),
-                                uses_effect_bounds,
                             },
+                            temporal_bounds,
                         );
                         continue;
                     }
@@ -565,6 +587,12 @@ impl EncodeContext<'_> {
                 });
             }
             if !regular_passes.is_empty() {
+                let bounds = fixed_bounds.unwrap_or_else(|| {
+                    effect.output_bounds.apply(
+                        self.nodes[node].bounds,
+                        SurfaceRect::viewport(self.composition_size),
+                    )
+                });
                 node = self.intern_node(
                     RenderNodeKey::Effect {
                         input: self.node_keys[node].clone(),
@@ -572,16 +600,16 @@ impl EncodeContext<'_> {
                             .iter()
                             .map(|id| self.node_keys[*id].clone())
                             .collect(),
-                        uses_effect_bounds,
                         passes: regular_keys,
                     },
                     self.nodes[node].metadata.clone(),
                     RenderNodeCommandKind::Effect {
                         input: node,
                         capabilities,
-                        uses_effect_bounds,
+                        bounds_operation: effect.output_bounds,
                         passes: regular_passes,
                     },
+                    bounds,
                 );
             }
         }
@@ -596,8 +624,9 @@ impl EncodeContext<'_> {
                     RenderNodeKey::Source(key),
                     node.metadata.clone(),
                     RenderNodeCommandKind::Source(source),
+                    item.output_bounds,
                 );
-                self.encode_effects(source, &item.effects)
+                self.encode_effects(source, &item.effects, None)
             }
             RenderNodeContent::Scene {
                 children, effects, ..
@@ -615,8 +644,13 @@ impl EncodeContext<'_> {
                     ),
                     node.metadata.clone(),
                     RenderNodeCommandKind::Composite { children },
+                    SurfaceRect::viewport(self.composition_size),
                 );
-                self.encode_effects(composite, effects)
+                self.encode_effects(
+                    composite,
+                    effects,
+                    Some(SurfaceRect::viewport(self.composition_size)),
+                )
             }
         }
     }
@@ -688,9 +722,11 @@ pub(super) fn encode_items(scene: &RenderScene) -> Result<EncodedScene, RenderEr
     let shared_node_slots = shared_node_slots(
         &nodes,
         &commands,
+        SurfaceRect::viewport(scene.composition_size),
         shared_node_cache_capacity(scene.effect_size),
     );
     Ok(EncodedScene {
+        background: scene.background,
         items,
         properties,
         effects,
@@ -706,6 +742,7 @@ pub(super) fn encode_items(scene: &RenderScene) -> Result<EncodedScene, RenderEr
 fn shared_node_slots(
     nodes: &[RenderNodeCommand],
     commands: &[RenderCommand],
+    viewport: SurfaceRect,
     capacity: usize,
 ) -> Vec<Option<usize>> {
     let mut references = vec![0_usize; nodes.len()];
@@ -762,7 +799,8 @@ fn shared_node_slots(
                     | RenderNodeCommandKind::Effect { .. }
                     | RenderNodeCommandKind::TemporalEffect { .. }
             );
-            (*references > 1 && cacheable).then_some((index, *references))
+            (*references > 1 && cacheable && node.bounds == viewport)
+                .then_some((index, *references))
         })
         .collect::<Vec<_>>();
     candidates.sort_by_key(|(index, references)| (std::cmp::Reverse(*references), *index));

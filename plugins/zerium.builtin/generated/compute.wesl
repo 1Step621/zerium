@@ -1,4 +1,4 @@
-import package::generated::util::{ZeriumContext, make_context};
+import package::generated::util::{ZeriumContext, make_surface_context};
 
 struct ZeriumCompute {
     property_offset: u32,
@@ -6,7 +6,8 @@ struct ZeriumCompute {
     width: u32,
     height: u32,
     composition_size: vec2<f32>,
-    _padding_0: vec2<u32>,
+    surface_min: vec2<f32>,
+    surface_size: vec2<f32>,
 };
 
 @group(0) @binding(0)
@@ -41,7 +42,7 @@ fn context() -> ZeriumContext {
     let output_size = vec2<f32>(
         vec2(compute_info.width, compute_info.height),
     );
-    return make_context(output_size, compute_info.composition_size);
+    return make_surface_context(output_size, compute_info.composition_size, compute_info.surface_size);
 }
 
 fn store(position: vec2<u32>, color: vec4<f32>) {

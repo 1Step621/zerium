@@ -129,7 +129,7 @@ impl ImageDecoderSession for SvgDecoder {
         }
         // tiny-skia stores premultiplied RGBA; media textures use straight alpha.
         let mut rgba = pixmap.take();
-        for pixel in rgba.chunks_exact_mut(4) {
+        for pixel in rgba.as_chunks_mut::<4>().0 {
             let alpha = u32::from(pixel[3]);
             if alpha == 0 {
                 pixel[..3].fill(0);

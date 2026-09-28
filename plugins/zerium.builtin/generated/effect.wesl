@@ -1,4 +1,4 @@
-import package::generated::util::{ZeriumContext, make_context, srgb};
+import package::generated::util::{ZeriumContext, make_surface_context, srgb};
 
 struct ZeriumEffect {
     property_offset: u32,
@@ -8,6 +8,10 @@ struct ZeriumEffect {
     frame_offset: f32,
     sample_progress: f32,
     composition_size: vec2<f32>,
+    surface_min: vec2<f32>,
+    surface_size: vec2<f32>,
+    input_min: vec2<f32>,
+    input_size: vec2<f32>,
 };
 
 @group(0) @binding(0)
@@ -36,7 +40,7 @@ fn effect_props() -> ZeriumRawProps {
 
 fn context() -> ZeriumContext {
     let output_size = vec2<f32>(textureDimensions(effect_input));
-    return make_context(output_size, effect_instance.composition_size);
+    return make_surface_context(output_size, effect_instance.composition_size, effect_instance.surface_size);
 }
 
 struct ZeriumVertex {
@@ -58,11 +62,15 @@ fn vertex(vertex_index: u32) -> ZeriumVertex {
 }
 
 fn uv_to_position(uv: vec2<f32>) -> vec2<f32> {
-    return (uv - vec2(0.5)) * context().composition_size;
+    return effect_instance.surface_min + uv * effect_instance.surface_size;
 }
 
 fn position_to_uv(position: vec2<f32>) -> vec2<f32> {
-    return position / context().composition_size + vec2(0.5);
+    return (position - effect_instance.input_min) / effect_instance.input_size;
+}
+
+fn viewport_uv(uv: vec2<f32>) -> vec2<f32> {
+    return uv_to_position(uv) / effect_instance.composition_size + vec2(0.5);
 }
 
 fn uv_inside(uv: vec2<f32>) -> bool {

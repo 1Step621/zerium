@@ -1,6 +1,5 @@
 import package::generated::compute::{effect_input, context, store};
 import package::generated::properties_pixel_sort::props;
-import package::generated::effect_bounds::{effect_bounds, contains};
 
 fn pixel_luminance(color: vec4<f32>) -> f32 {
     return dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));
@@ -37,19 +36,10 @@ fn compute_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
     let properties = props();
     let current_position = global_id.xy;
     let color = textureLoad(effect_input, vec2<i32>(current_position), 0);
-    if !contains(current_position, output_size, 0.0) {
-        store(current_position, color);
-        return;
-    }
-
     let axis = select(current_position.x, current_position.y, properties.vertical);
     let line = select(current_position.y, current_position.x, properties.vertical);
-    let logical_start = select(
-        output_size.x - effect_bounds.from_right,
-        output_size.y - effect_bounds.from_bottom,
-        properties.vertical,
-    );
-    let logical_end = select(effect_bounds.max_x, effect_bounds.max_y, properties.vertical);
+    let logical_start = 0u;
+    let logical_end = select(output_size.x, output_size.y, properties.vertical);
     let current_luminance = pixel_luminance(color);
     if current_luminance < properties.threshold {
         store(current_position, color);

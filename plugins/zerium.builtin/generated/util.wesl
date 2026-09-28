@@ -2,6 +2,7 @@ struct ZeriumContext {
     output_size: vec2<f32>,
     composition_size: vec2<f32>,
     composition_scale: f32,
+    surface_size: vec2<f32>,
 };
 
 fn make_context(
@@ -9,7 +10,16 @@ fn make_context(
     composition_size: vec2<f32>,
 ) -> ZeriumContext {
     let scale = output_size / composition_size;
-    return ZeriumContext(output_size, composition_size, min(scale.x, scale.y));
+    return ZeriumContext(output_size, composition_size, min(scale.x, scale.y), composition_size);
+}
+
+fn make_surface_context(
+    output_size: vec2<f32>,
+    composition_size: vec2<f32>,
+    surface_size: vec2<f32>,
+) -> ZeriumContext {
+    let scale = output_size / surface_size;
+    return ZeriumContext(output_size, composition_size, min(scale.x, scale.y), surface_size);
 }
 
 fn srgb_channel(value: f32) -> f32 {

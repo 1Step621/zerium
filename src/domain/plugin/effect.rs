@@ -2,6 +2,7 @@
 
 use serde::{Deserialize, Deserializer, de::Error as _};
 
+use super::OutputBoundsSchema;
 use super::PluginError;
 use super::abi::PropertyLayout;
 use super::capability::{Capability, FileCapability, validate_capabilities};
@@ -22,7 +23,7 @@ pub(crate) struct EffectSchema {
     category: String,
     tags: Vec<String>,
     render_scale: u32,
-    uses_effect_bounds: bool,
+    output_bounds: OutputBoundsSchema,
     capabilities: Vec<Capability>,
     properties: Vec<PropertySchema>,
     passes: Vec<EffectPassSchema>,
@@ -40,7 +41,7 @@ struct EffectSchemaDefinition {
     #[serde(default = "default_effect_render_scale")]
     render_scale: u32,
     #[serde(default)]
-    uses_effect_bounds: bool,
+    output_bounds: OutputBoundsSchema,
     #[serde(default)]
     capabilities: Vec<Capability>,
     properties: Vec<PropertySchema>,
@@ -68,7 +69,7 @@ impl<'de> Deserialize<'de> for EffectSchema {
             category: definition.category,
             tags: definition.tags,
             render_scale: definition.render_scale,
-            uses_effect_bounds: definition.uses_effect_bounds,
+            output_bounds: definition.output_bounds,
             capabilities: definition.capabilities,
             properties: definition.properties,
             passes: definition.passes,
@@ -225,8 +226,8 @@ impl EffectSchema {
         self.render_scale
     }
 
-    pub(crate) const fn uses_effect_bounds(&self) -> bool {
-        self.uses_effect_bounds
+    pub(crate) fn output_bounds(&self) -> &OutputBoundsSchema {
+        &self.output_bounds
     }
 
     pub(crate) fn properties(&self) -> &[PropertySchema] {
@@ -251,6 +252,28 @@ impl EffectSchema {
 
     pub(super) fn validate(&self) -> Result<(), PluginError> {
         validate_catalog_entry("effect", &self.id, &self.label, &self.category, &self.tags)?;
+        self.output_bounds.validate(&self.id, &self.properties)?;
+        if matches!(
+            self.output_bounds,
+            OutputBoundsSchema::Translate { .. }
+                | OutputBoundsSchema::Rotate { .. }
+                | OutputBoundsSchema::Perspective { .. }
+        ) && (self.passes.len() != 1
+            || !matches!(self.passes[0], EffectPassSchema::Render { .. }))
+        {
+            return Err(PluginError::invalid_definition(format!(
+                "effect '{}' transform bounds require one render pass",
+                self.id
+            )));
+        }
+        if matches!(self.output_bounds, OutputBoundsSchema::Translate { .. })
+            && !self.capabilities.is_empty()
+        {
+            return Err(PluginError::invalid_definition(format!(
+                "effect '{}' metadata translation cannot consume capability inputs",
+                self.id
+            )));
+        }
         if !(1..=4).contains(&self.render_scale) {
             return Err(PluginError::invalid_definition(format!(
                 "effect '{}' render_scale must be between 1 and 4",

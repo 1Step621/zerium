@@ -1,3 +1,4 @@
+use super::surface::{BoundsOperation, SurfaceRect, item_bounds};
 use super::*;
 
 const MAX_TEMPORAL_DEPTH: usize = 4;
@@ -198,13 +199,14 @@ pub(crate) struct RenderItem {
     pub effects: Vec<RenderEffect>,
     pub target_size: RenderSize,
     pub render_scale: u32,
+    pub output_bounds: SurfaceRect,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RenderEffect {
-    pub uses_effect_bounds: bool,
     pub passes: Vec<RenderEffectPass>,
     pub inputs: Vec<RenderNode>,
+    pub output_bounds: BoundsOperation,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -614,7 +616,12 @@ impl RenderScene {
                             rgba: Arc::from([0u8; 4]),
                         })
                     });
-                    Self::frame_capability_node(metadata.clone(), frame, target_size)
+                    Self::frame_capability_node(
+                        metadata.clone(),
+                        frame,
+                        target_size,
+                        RenderSize::from(timeline.resolution()),
+                    )
                 }
                 Capability::Text { .. } => {
                     let frame = text_frame(TextFrameRequest {
@@ -628,7 +635,12 @@ impl RenderScene {
                         label: source.label,
                         target_size,
                     })?;
-                    Self::frame_capability_node(metadata.clone(), frame, target_size)
+                    Self::frame_capability_node(
+                        metadata.clone(),
+                        frame,
+                        target_size,
+                        RenderSize::from(timeline.resolution()),
+                    )
                 }
                 Capability::RenderResult {
                     start_offset,
@@ -676,6 +688,7 @@ impl RenderScene {
         metadata: RenderNodeMetadata,
         frame: Arc<RgbaFrame>,
         target_size: RenderSize,
+        composition_size: RenderSize,
     ) -> RenderNode {
         RenderNode::item(
             metadata,
@@ -687,6 +700,7 @@ impl RenderScene {
                 effects: Vec::new(),
                 target_size,
                 render_scale: 1,
+                output_bounds: SurfaceRect::viewport(composition_size),
             },
         )
     }
@@ -1111,6 +1125,17 @@ impl RenderScene {
             effects,
             target_size,
             render_scale,
+            output_bounds: schema
+                .output_bounds()
+                .map(|bounds| {
+                    item_bounds(
+                        bounds,
+                        &item.properties,
+                        RenderSize::from(timeline.resolution()),
+                    )
+                })
+                .filter(|bounds| bounds.is_valid())
+                .unwrap_or_else(|| SurfaceRect::viewport(RenderSize::from(timeline.resolution()))),
         };
         render_cache.insert(cache_key, Some(render_item.clone()));
         Ok(Some(render_item))
@@ -1155,9 +1180,9 @@ impl RenderScene {
             })
             .collect();
         RenderEffect {
-            uses_effect_bounds: schema.uses_effect_bounds(),
             passes,
             inputs: Vec::new(),
+            output_bounds: BoundsOperation::from_schema(schema.output_bounds(), &effect.properties),
         }
     }
 

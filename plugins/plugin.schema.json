@@ -287,6 +287,83 @@
         }
       }
     },
+    "itemBounds": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": { "type": { "const": "viewport" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "position", "size"],
+          "properties": {
+            "type": { "const": "quad" },
+            "position": { "$ref": "#/$defs/wgslId" },
+            "size": { "$ref": "#/$defs/wgslId" },
+            "rotation": { "$ref": "#/$defs/wgslId" }
+          }
+        }
+      ]
+    },
+    "outputBounds": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": { "type": { "const": "same" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type"],
+          "properties": { "type": { "const": "viewport" } }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "offset"],
+          "properties": {
+            "type": { "const": "translate" },
+            "offset": { "$ref": "#/$defs/wgslId" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "radius", "multiplier"],
+          "properties": {
+            "type": { "const": "outset" },
+            "radius": { "$ref": "#/$defs/wgslId" },
+            "multiplier": { "type": "number", "minimum": 0 }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "angle", "center"],
+          "properties": {
+            "type": { "const": "rotate" },
+            "angle": { "$ref": "#/$defs/wgslId" },
+            "center": { "$ref": "#/$defs/wgslId" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "rotation", "center", "perspective"],
+          "properties": {
+            "type": { "const": "perspective" },
+            "rotation": { "$ref": "#/$defs/wgslId" },
+            "center": { "$ref": "#/$defs/wgslId" },
+            "perspective": { "$ref": "#/$defs/wgslId" }
+          }
+        }
+      ]
+    },
     "item": {
       "type": "object",
       "additionalProperties": false,
@@ -322,6 +399,9 @@
         },
         "editor": {
           "$ref": "#/$defs/editorCapability"
+        },
+        "output_bounds": {
+          "$ref": "#/$defs/itemBounds"
         },
         "properties": {
           "type": "array",
@@ -530,9 +610,8 @@
           "minimum": 1,
           "maximum": 4
         },
-        "uses_effect_bounds": {
-          "type": "boolean",
-          "default": false
+        "output_bounds": {
+          "$ref": "#/$defs/outputBounds"
         },
         "capabilities": {
           "$ref": "#/$defs/capabilities"

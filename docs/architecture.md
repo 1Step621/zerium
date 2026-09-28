@@ -128,6 +128,11 @@ creates the dedicated export device; each consumer uses an independent render
 session while sharing compiled plugin shaders. Timeline evaluation preserves
 scene composition boundaries and carries sample time through media and
 temporal passes.
+The encoder assigns every node a logical output rectangle. Item shaders begin
+with their declared bounds; each item effect transforms those bounds. A scene
+composite and every scene effect use the viewport rectangle. The GPU renderer
+returns a texture and rectangle for each node, then maps child rectangles into
+the scene composite. Compositing into the viewport clips item pixels there.
 Temporal passes select source frames through either a uniform range or an
 explicit array of frame offsets; their reducer shader combines the samples.
 `SceneCompositionPlan` resolves normal visibility and `render_result` capture

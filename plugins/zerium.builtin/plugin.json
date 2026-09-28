@@ -5,6 +5,11 @@
   "items": [
     {
       "id": "rectangle",
+      "output_bounds": {
+        "type": "quad",
+        "position": "position",
+        "size": "size"
+      },
       "label": "四角形",
       "category": "図形",
       "tags": ["矩形", "長方形", "square", "box"],
@@ -141,6 +146,11 @@
     },
     {
       "id": "triangle",
+      "output_bounds": {
+        "type": "quad",
+        "position": "position",
+        "size": "size"
+      },
       "label": "三角形",
       "category": "図形",
       "tags": ["さんかく", "triangle"],
@@ -278,6 +288,11 @@
     },
     {
       "id": "ellipse",
+      "output_bounds": {
+        "type": "quad",
+        "position": "position",
+        "size": "diameter"
+      },
       "label": "楕円",
       "category": "図形",
       "tags": ["円", "丸", "circle", "oval"],
@@ -392,6 +407,11 @@
     },
     {
       "id": "polygon",
+      "output_bounds": {
+        "type": "quad",
+        "position": "position",
+        "size": "size"
+      },
       "label": "多角形",
       "category": "図形",
       "tags": ["ポリゴン", "polygon"],
@@ -587,6 +607,12 @@
     },
     {
       "id": "line",
+      "output_bounds": {
+        "type": "quad",
+        "position": "position",
+        "size": "size",
+        "rotation": "angle"
+      },
       "label": "直線",
       "category": "図形",
       "tags": ["線", "line"],
@@ -735,6 +761,11 @@
     },
     {
       "id": "star",
+      "output_bounds": {
+        "type": "quad",
+        "position": "position",
+        "size": "size"
+      },
       "label": "星",
       "category": "図形",
       "tags": ["スター", "star"],
@@ -916,6 +947,11 @@
     },
     {
       "id": "text",
+      "output_bounds": {
+        "type": "quad",
+        "position": "position",
+        "size": "size"
+      },
       "label": "テキスト",
       "category": "テキスト",
       "tags": ["文字", "字幕", "title", "caption"],
@@ -1211,6 +1247,11 @@
     },
     {
       "id": "video",
+      "output_bounds": {
+        "type": "quad",
+        "position": "position",
+        "size": "size"
+      },
       "label": "動画",
       "category": "メディア",
       "tags": ["映像", "movie", "clip"],
@@ -1350,6 +1391,11 @@
     },
     {
       "id": "image",
+      "output_bounds": {
+        "type": "quad",
+        "position": "position",
+        "size": "size"
+      },
       "label": "画像",
       "category": "メディア",
       "tags": ["静止画", "写真", "photo", "picture"],
@@ -1463,6 +1509,11 @@
     },
     {
       "id": "svg",
+      "output_bounds": {
+        "type": "quad",
+        "position": "position",
+        "size": "size"
+      },
       "label": "SVG",
       "category": "メディア",
       "tags": ["ベクター", "vector", "svg"],
@@ -1621,6 +1672,7 @@
     },
     {
       "id": "render_result",
+      "output_bounds": { "type": "viewport" },
       "label": "レンダー結果",
       "category": "合成",
       "tags": ["レイヤー", "範囲", "render", "composite"],
@@ -1697,6 +1749,7 @@
   "effects": [
     {
       "id": "layer_mask",
+      "output_bounds": { "type": "viewport" },
       "label": "レイヤーマスク",
       "category": "合成",
       "tags": ["切り抜き", "アルファ", "範囲", "mask", "layers"],
@@ -1786,6 +1839,7 @@
     },
     {
       "id": "translate",
+      "output_bounds": { "type": "translate", "offset": "offset" },
       "label": "移動",
       "category": "変形",
       "tags": ["位置", "ずらす", "position", "move"],
@@ -1843,6 +1897,11 @@
     },
     {
       "id": "rotate_2d",
+      "output_bounds": {
+        "type": "rotate",
+        "angle": "angle",
+        "center": "center"
+      },
       "label": "回転",
       "category": "変形",
       "tags": ["角度", "rotate", "rotation"],
@@ -1923,6 +1982,12 @@
     },
     {
       "id": "rotate_3d",
+      "output_bounds": {
+        "type": "perspective",
+        "rotation": "rotation",
+        "center": "center",
+        "perspective": "perspective"
+      },
       "label": "3D回転",
       "category": "変形",
       "tags": ["立体", "遠近", "perspective", "rotation"],
@@ -2251,7 +2316,6 @@
       "label": "線形グラデーション",
       "category": "塗り",
       "tags": ["グラデ", "gradient", "fill"],
-      "uses_effect_bounds": true,
       "passes": [
         {
           "type": "render",
@@ -2318,10 +2382,14 @@
     },
     {
       "id": "glow",
+      "output_bounds": {
+        "type": "outset",
+        "radius": "width",
+        "multiplier": 4.0
+      },
       "label": "光彩",
       "category": "スタイル",
       "tags": ["発光", "ネオン", "bloom", "neon"],
-      "uses_effect_bounds": true,
       "render_scale": 2,
       "properties": [
         {
@@ -2524,10 +2592,14 @@
     },
     {
       "id": "outline",
+      "output_bounds": {
+        "type": "outset",
+        "radius": "width",
+        "multiplier": 1.0
+      },
       "label": "枠線",
       "category": "スタイル",
       "tags": ["縁取り", "ストローク", "border", "stroke"],
-      "uses_effect_bounds": true,
       "render_scale": 2,
       "properties": [
         {
@@ -2766,6 +2838,11 @@
     },
     {
       "id": "chromatic_aberration",
+      "output_bounds": {
+        "type": "outset",
+        "radius": "amount",
+        "multiplier": 1.0
+      },
       "label": "色収差",
       "category": "フィルター",
       "tags": ["色ずれ", "RGBずれ", "chromatic", "fringing"],
@@ -2828,10 +2905,14 @@
     },
     {
       "id": "gaussian_blur",
+      "output_bounds": {
+        "type": "outset",
+        "radius": "radius",
+        "multiplier": 4.0
+      },
       "label": "ガウスぼかし",
       "category": "フィルター",
       "tags": ["ぼかし", "ブラー", "soft focus", "blur"],
-      "uses_effect_bounds": true,
       "properties": [
         {
           "id": "radius",
@@ -3058,7 +3139,6 @@
       "label": "ピクセルソート",
       "category": "フィルター",
       "tags": ["グリッチ", "並べ替え", "glitch", "sort"],
-      "uses_effect_bounds": true,
       "properties": [
         {
           "id": "threshold",
