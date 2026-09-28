@@ -1,7 +1,8 @@
 $ErrorActionPreference = 'Stop'
 
-$ffmpegArchive = Join-Path $env:RUNNER_TEMP 'ffmpeg-9.0.1-29-gad500d59cb-windows-x86_64.zip'
-$ffmpegUrl = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-14-13-17/ffmpeg-n9.0.1-29-gad500d59cb-win64-gpl-shared-9.0.zip'
+$ffmpegArchive = Join-Path $env:RUNNER_TEMP 'ffmpeg-n9.0-latest-win64-gpl-shared-9.0.zip'
+# Dated autobuild releases are pruned by BtbN; the latest tag keeps a stable URL.
+$ffmpegUrl = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-win64-gpl-shared-9.0.zip'
 Remove-Item -Recurse -Force target\ffmpeg-sdk -ErrorAction SilentlyContinue
 Invoke-WebRequest -Uri $ffmpegUrl -OutFile $ffmpegArchive
 Expand-Archive -Path $ffmpegArchive -DestinationPath target\ffmpeg-extract

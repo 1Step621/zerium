@@ -17,8 +17,9 @@ sudo apt-get install --no-install-recommends -y \
   patchelf \
   pkg-config
 
-ffmpeg_archive="${RUNNER_TEMP:-/tmp}/ffmpeg-9.0.1-29-gad500d59cb-linux-x86_64.tar.xz"
-ffmpeg_url="https://github.com/BtbN/FFmpeg-Builds/releases/download/autobuild-2026-09-14-13-17/ffmpeg-n9.0.1-29-gad500d59cb-linux64-gpl-shared-9.0.tar.xz"
+ffmpeg_archive="${RUNNER_TEMP:-/tmp}/ffmpeg-n9.0-latest-linux64-gpl-shared-9.0.tar.xz"
+# Dated autobuild releases are pruned by BtbN; the latest tag keeps a stable URL.
+ffmpeg_url="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-linux64-gpl-shared-9.0.tar.xz"
 rm -rf target/ffmpeg-sdk
 mkdir -p target/ffmpeg-sdk
 curl --fail --location --retry 3 --output "$ffmpeg_archive" "$ffmpeg_url"
