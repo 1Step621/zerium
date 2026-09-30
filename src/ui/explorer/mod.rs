@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use std::{
     collections::HashSet,
     collections::hash_map::DefaultHasher,
@@ -243,12 +245,19 @@ impl Explorer {
     }
 
     fn read_directory(path: &Path) -> Result<Vec<(PathBuf, String, bool)>, String> {
-        let directory = fs::read_dir(path)
-            .map_err(|error| format!("'{}'を開けません: {error}", path.display()))?;
+        let directory = fs::read_dir(path).map_err(|error| {
+            t!("explorer.open_failed", path = path.display(), error = error).to_string()
+        })?;
         let mut entries = Vec::new();
         for entry in directory {
-            let entry = entry
-                .map_err(|error| format!("'{}'の項目を読み取れません: {error}", path.display()))?;
+            let entry = entry.map_err(|error| {
+                t!(
+                    "explorer.read_entries_failed",
+                    path = path.display(),
+                    error = error
+                )
+                .to_string()
+            })?;
             let entry_path = entry.path();
             let name = entry.file_name().to_string_lossy().into_owned();
             if name.starts_with('.') {
@@ -257,7 +266,12 @@ impl Explorer {
             let is_directory = entry
                 .file_type()
                 .map_err(|error| {
-                    format!("'{}'の種類を取得できません: {error}", entry_path.display())
+                    t!(
+                        "explorer.determine_type_failed",
+                        path = entry_path.display(),
+                        error = error
+                    )
+                    .to_string()
                 })?
                 .is_dir();
             entries.push((entry_path, name, is_directory));
@@ -483,7 +497,7 @@ impl Explorer {
             .child(
                 Button::new("explorer-parent")
                     .icon(IconName::ChevronUp)
-                    .tooltip("親フォルダー")
+                    .tooltip(t!("explorer.parent_folder").to_string())
                     .xsmall()
                     .ghost()
                     .disabled(!has_parent)
@@ -492,7 +506,7 @@ impl Explorer {
             .child(
                 Button::new("explorer-home")
                     .icon(IconName::Home)
-                    .tooltip("ホーム")
+                    .tooltip(t!("explorer.home").to_string())
                     .xsmall()
                     .ghost()
                     .on_click(cx.listener(Self::open_home)),
@@ -518,7 +532,7 @@ impl Explorer {
             .child(
                 Button::new("explorer-refresh")
                     .icon(IconName::Refresh)
-                    .tooltip("更新")
+                    .tooltip(t!("explorer.refresh").to_string())
                     .xsmall()
                     .ghost()
                     .on_click(cx.listener(Self::refresh)),
@@ -604,7 +618,7 @@ impl Explorer {
                 let label = if files.len() == 1 {
                     drag_label
                 } else {
-                    SharedString::from(format!("{}個のファイル", files.len()))
+                    SharedString::from(t!("explorer.drag_count", count = files.len()).to_string())
                 };
                 let drag = ExplorerFileDrag::new(files, label);
                 row.cursor_grab()

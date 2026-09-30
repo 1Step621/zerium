@@ -1,5 +1,6 @@
 //! Named shader inputs and editor roles for items and effects.
 
+use crate::domain::localized_text::LocalizedText;
 use crate::domain::property::PropertyValueType;
 use std::collections::HashSet;
 
@@ -63,7 +64,7 @@ pub(crate) enum MediaType {
 #[serde(deny_unknown_fields)]
 pub(crate) struct FileCapability {
     id: String,
-    label: String,
+    label: LocalizedText,
     media_type: MediaType,
     reader: String,
     #[serde(default)]
@@ -76,7 +77,7 @@ impl FileCapability {
     }
 
     pub(crate) fn label(&self) -> &str {
-        &self.label
+        self.label.resolve()
     }
 
     pub(crate) const fn media_type(&self) -> MediaType {
@@ -93,7 +94,7 @@ impl FileCapability {
 
     pub(super) fn validate(&self, owner_kind: &str, owner_id: &str) -> Result<(), PluginError> {
         validate_wgsl_identifier("file input", &self.id)?;
-        if self.label.trim().is_empty() {
+        if self.label.is_empty() {
             return Err(PluginError::invalid_definition(format!(
                 "{owner_kind} '{owner_id}' file input '{}' has an empty label",
                 self.id

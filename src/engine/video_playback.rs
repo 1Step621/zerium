@@ -543,7 +543,7 @@ impl VideoProxyManager {
             self.record_result(
                 failure_key,
                 Err(MediaError::External(
-                    "動画proxy workerを開始できませんでした".to_owned(),
+                    "Failed to start video proxy worker".to_owned(),
                 )),
             );
         }
@@ -578,7 +578,7 @@ impl VideoProxyManager {
                 let attempts = self.failed_attempts.entry(key).or_insert(0);
                 *attempts = attempts.saturating_add(1);
                 let message = format!(
-                    "動画proxyの生成に失敗しました ({}/{}): {error}",
+                    "Failed to generate video proxy ({}/{}): {error}",
                     *attempts,
                     Self::MAX_ATTEMPTS,
                 );
@@ -1231,7 +1231,7 @@ impl VideoPlaybackEngine {
                 if current {
                     self.error = Some(error.to_string());
                     self.notifications
-                        .push(format!("動画フレームの読み込みに失敗しました: {error}"));
+                        .push(format!("Failed to load video frame: {error}"));
                 }
             }
         }

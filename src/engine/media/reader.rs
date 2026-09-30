@@ -177,7 +177,7 @@ pub(crate) trait MediaReader: Send + Sync {
     ) -> Result<Box<dyn VideoDecoderSession>, MediaError> {
         let _ = asset;
         Err(MediaError::unsupported(
-            "このメディアリーダーは動画デコードに対応していません",
+            "This media reader does not support video decoding",
         ))
     }
 
@@ -187,7 +187,7 @@ pub(crate) trait MediaReader: Send + Sync {
     ) -> Result<Box<dyn ImageDecoderSession>, MediaError> {
         let _ = asset;
         Err(MediaError::unsupported(
-            "このメディアリーダーは静止画デコードに対応していません",
+            "This media reader does not support still image decoding",
         ))
     }
 
@@ -197,7 +197,7 @@ pub(crate) trait MediaReader: Send + Sync {
     ) -> Result<Box<dyn AudioDecoderSession>, MediaError> {
         let _ = asset;
         Err(MediaError::unsupported(
-            "このメディアリーダーは音声デコードに対応していません",
+            "This media reader does not support audio decoding",
         ))
     }
 
@@ -208,7 +208,7 @@ pub(crate) trait MediaReader: Send + Sync {
     ) -> Result<VideoProxy, MediaError> {
         let _ = (asset, request);
         Err(MediaError::unsupported(
-            "このメディアリーダーはプロキシ生成に対応していません",
+            "This media reader does not support proxy generation",
         ))
     }
 }
@@ -248,11 +248,11 @@ impl MediaReaderRegistry {
     ) -> Result<(), MediaError> {
         let id = id.into();
         if id.is_empty() {
-            return Err(MediaError::invalid_input("メディアリーダーIDが空です"));
+            return Err(MediaError::invalid_input("Media reader ID cannot be empty"));
         }
         if self.readers.contains_key(&id) {
             return Err(MediaError::invalid_input(format!(
-                "メディアリーダー'{id}'はすでに登録されています"
+                "Media reader '{id}' is already registered"
             )));
         }
         self.readers.insert(id, reader);
@@ -268,7 +268,7 @@ impl MediaReaderRegistry {
                         && registered.input.id() == input.id()
                 }) {
                     return Err(MediaError::external(format!(
-                        "ファイル入力'{}:{}:{}'はすでに登録されています",
+                        "File input '{}:{}:{}' is already registered",
                         manifest.id(),
                         item.id(),
                         input.id()
@@ -328,13 +328,13 @@ impl MediaReaderRegistry {
         let path = path.as_ref();
         let metadata = fs::metadata(path).map_err(|error| {
             MediaError::external(format!(
-                "メディアファイル '{}' を開けません: {error}",
+                "Failed to open media file '{}': {error}",
                 path.display()
             ))
         })?;
         if !metadata.is_file() {
             return Err(MediaError::external(format!(
-                "'{}' はファイルではありません",
+                "'{}' is not a file",
                 path.display()
             )));
         }
@@ -349,7 +349,7 @@ impl MediaReaderRegistry {
             })
             .ok_or_else(|| {
                 MediaError::invalid_input(format!(
-                    "ファイル入力'{plugin_id}:{source_id}:{input_id}'が登録されていません"
+                    "File input '{plugin_id}:{source_id}:{input_id}' is not registered"
                 ))
             })?;
         let file = &definition.input;
@@ -364,23 +364,26 @@ impl MediaReaderRegistry {
                 })
         {
             return Err(MediaError::external(format!(
-                "'{}' は'{}'で対応していないファイル形式です",
+                "'{}' is an unsupported file format for '{}'",
                 path.display(),
                 definition.source_label
             )));
         }
         let reader = self.readers.get(file.reader()).ok_or_else(|| {
             MediaError::ReaderUnavailable(format!(
-                "メディアリーダー'{}'が登録されていません",
+                "Media reader '{}' is not registered",
                 file.reader()
             ))
         })?;
         let probe = reader.probe(path, file.media_type())?.ok_or_else(|| {
-            MediaError::external(format!("'{}'はこの入力で読み込めません", path.display()))
+            MediaError::external(format!(
+                "'{}' cannot be loaded by this input",
+                path.display()
+            ))
         })?;
         if probe.kind.media_type() != file.media_type() {
             return Err(MediaError::external(format!(
-                "選択したファイルの種類が'{}'と一致しません",
+                "Selected file type does not match '{}'",
                 definition.source_label
             )));
         }
@@ -405,7 +408,7 @@ impl MediaReaderRegistry {
 
     fn reader_for(&self, reader_id: &str) -> Result<&Arc<dyn MediaReader>, MediaError> {
         self.readers.get(reader_id).ok_or_else(|| {
-            MediaError::external(format!("メディアリーダー'{reader_id}'が登録されていません"))
+            MediaError::external(format!("Media reader '{reader_id}' is not registered"))
         })
     }
 
@@ -423,7 +426,7 @@ impl MediaReaderRegistry {
                 duration: asset.duration,
             }),
             MediaKind::Audio { .. } => Err(MediaError::unsupported(
-                "音声素材から映像デコーダーは作成できません",
+                "Cannot create a video decoder from audio media",
             )),
         }
     }
@@ -467,7 +470,7 @@ pub(crate) enum MediaError {
     ReaderUnavailable(String),
     #[error("{0}")]
     External(String),
-    #[error("キャンセルされました")]
+    #[error("Operation was cancelled")]
     Cancelled,
 }
 

@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use super::*;
 
 impl PropertyInspector {
@@ -23,9 +25,9 @@ impl PropertyInspector {
                 &common.target,
                 animation_enabled,
                 if animation_enabled {
-                    "アニメーションを解除".to_owned()
+                    t!("rows.unanimate").to_string()
                 } else {
-                    "アニメーションする".to_owned()
+                    t!("rows.animate_axis").to_string()
                 },
                 &ctx.inspector,
             )
@@ -232,7 +234,7 @@ impl PropertyInspector {
                 .items_center()
                 .gap_2()
                 .when(!is_bound && mixed, |this| {
-                    this.child(div().text_xs().child("混在"))
+                    this.child(div().text_xs().child(t!("rows.mixed").to_string()))
                 })
                 .when(!is_bound, |this| this.child(switch))
                 .when_some(binding_button, |this, button| this.child(button)),
@@ -281,7 +283,7 @@ impl PropertyInspector {
                     .items_center()
                     .gap_2()
                     .when(!is_bound && mixed, |this| {
-                        this.child(div().text_xs().child("混在"))
+                        this.child(div().text_xs().child(t!("rows.mixed").to_string()))
                     })
                     .when(!is_bound, |this| this.child(switch))
                     .when_some(binding_button, |this, button| this.child(button)),

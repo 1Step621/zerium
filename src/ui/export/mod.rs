@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use std::{path::PathBuf, sync::Arc, time::Instant};
 
 use ::ui::{
@@ -110,14 +112,14 @@ impl ExportController {
                     div()
                         .font_family(".SystemUIFont")
                         .font_normal()
-                        .child("書き出し"),
+                        .child(t!("export.title").to_string()),
                 )
                 .width(px(440.))
                 .confirm()
                 .button_props(
                     ModalButtonProps::default()
-                        .ok_text("保存先を選択")
-                        .cancel_text("キャンセル"),
+                        .ok_text(t!("export.choose_destination").to_string())
+                        .cancel_text(t!("common.cancel").to_string()),
                 )
                 .on_ok(move |_, window, cx| {
                     confirm_controller.update(cx, |controller, cx| {
@@ -125,13 +127,22 @@ impl ExportController {
                     });
                     true
                 })
-                .child(summary_row("形式", "MP4 / H.264 + AAC"))
                 .child(summary_row(
-                    "解像度",
+                    t!("export.format").to_string(),
+                    "MP4 / H.264 + AAC",
+                ))
+                .child(summary_row(
+                    t!("export.resolution").to_string(),
                     format!("{} × {}", resolution.width(), resolution.height()),
                 ))
-                .child(summary_row("フレームレート", frame_rate_label.clone()))
-                .child(summary_row("長さ", duration_label.clone()))
+                .child(summary_row(
+                    t!("export.frame_rate").to_string(),
+                    frame_rate_label.clone(),
+                ))
+                .child(summary_row(
+                    t!("export.duration").to_string(),
+                    duration_label.clone(),
+                ))
         });
     }
 
@@ -144,8 +155,7 @@ impl ExportController {
             Err(error) => {
                 eprintln!("dedicated export device unavailable, sharing preview device: {error}");
                 let Some(renderer) = self.render_runtime.read(cx).renderer() else {
-                    let message =
-                        "GPUレンダラーが利用できないため書き出しを開始できません".to_owned();
+                    let message = t!("export.gpu_renderer_unavailable").to_string();
                     self.state = ExportState::Failed;
                     self.notifications
                         .update(cx, |notifications, cx| notifications.push(message, cx));
@@ -186,7 +196,7 @@ impl ExportController {
                         &session,
                         &notifications,
                         operation,
-                        format!("保存先を選択できません: {error}"),
+                        t!("export.select_destination_failed", error = error).to_string(),
                         cx,
                     );
                     return;
@@ -197,7 +207,7 @@ impl ExportController {
                         &session,
                         &notifications,
                         operation,
-                        format!("保存先ダイアログから応答を取得できません: {error}"),
+                        t!("export.destination_picker_failed", error = error).to_string(),
                         cx,
                     );
                     return;
@@ -280,7 +290,7 @@ impl ExportController {
                     Some(ExportProgress::Finished(result)) => break result,
                     None => {
                         break Err(ExportError::encoding(
-                            "書き出しスレッドが予期せず終了しました",
+                            "Export thread terminated unexpectedly",
                         ));
                     }
                 }
@@ -300,7 +310,7 @@ impl ExportController {
             match error {
                 Some(error) => {
                     notifications.update(cx, |notifications, cx| {
-                        notifications.push(format!("書き出し失敗: {error}"), cx);
+                        notifications.push(t!("export.failed", error = error).to_string(), cx);
                     });
                 }
                 None => {
@@ -308,7 +318,12 @@ impl ExportController {
                         total_frames as f64 / started.elapsed().as_secs_f64().max(f64::EPSILON);
                     notifications.update(cx, |notifications, cx| {
                         notifications.push_success(
-                            format!("書き出し完了: {output_name} ({fps:.1} fps)"),
+                            t!(
+                                "export.complete",
+                                name = output_name,
+                                fps = format!("{fps:.1}")
+                            )
+                            .to_string(),
                             cx,
                         );
                     });
@@ -347,7 +362,7 @@ fn fail_operation(
         cx.notify();
     });
     notifications.update(cx, |notifications, cx| {
-        notifications.push(format!("書き出し失敗: {error}"), cx);
+        notifications.push(error, cx);
     });
     session.update(cx, |session, cx| {
         if session.finish(operation) {
@@ -356,7 +371,7 @@ fn fail_operation(
     });
 }
 
-fn summary_row(label: &'static str, value: impl Into<SharedString>) -> gpui::Div {
+fn summary_row(label: impl Into<SharedString>, value: impl Into<SharedString>) -> gpui::Div {
     div()
         .w_full()
         .flex()
@@ -367,7 +382,7 @@ fn summary_row(label: &'static str, value: impl Into<SharedString>) -> gpui::Div
                 .w(px(120.))
                 .flex_none()
                 .text_color(gpui::rgb(0x888888))
-                .child(label),
+                .child(label.into()),
         )
         .child(div().min_w_0().flex_1().child(value.into()))
 }

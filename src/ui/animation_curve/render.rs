@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use super::*;
 
 const EASING_FAMILIES: &[(&str, EasingFamily)] = &[
@@ -34,8 +36,8 @@ fn easing_options() -> Vec<(String, SegmentInterpolation)> {
 
 fn interpolation_label(interpolation: SegmentInterpolation) -> String {
     match interpolation {
-        SegmentInterpolation::Linear => "直線".to_owned(),
-        SegmentInterpolation::Hold => "ホールド".to_owned(),
+        SegmentInterpolation::Linear => t!("curve.linear").to_string(),
+        SegmentInterpolation::Hold => t!("curve.hold").to_string(),
         SegmentInterpolation::Ease { family, direction } => {
             let family = EASING_FAMILIES
                 .iter()
@@ -47,7 +49,7 @@ fn interpolation_label(interpolation: SegmentInterpolation) -> String {
                 .expect("every easing direction has a label");
             format!("{family} {direction}")
         }
-        SegmentInterpolation::Custom(_) => "カスタム".to_owned(),
+        SegmentInterpolation::Custom(_) => t!("curve.custom").to_string(),
     }
 }
 
@@ -63,20 +65,26 @@ impl Render for AnimationCurveEditor {
                 .bg(colors.background)
                 .text_sm()
                 .text_color(colors.muted_foreground)
-                .child("アニメーションするプロパティを選択")
+                .child(t!("curve.select_property").to_string())
                 .into_any_element();
         };
         let mut title = format!(
-            "{} · セグメント {} / {}",
+            "{} · {}",
             selected.presentation.label,
-            selected.source_segment + 1,
-            selected.source_stop_count.saturating_sub(1),
+            t!(
+                "curve.segment",
+                current = selected.source_segment + 1,
+                total = selected.source_stop_count.saturating_sub(1)
+            )
         );
         if let GraphInteraction::StopDrag { frame, .. } = self.graph_interaction {
             title.push_str(&format!(
-                " · {}f / {}秒",
-                frame.get(),
-                Self::format_number(selected.frame_rate.frame_to_seconds(frame))
+                " · {}",
+                t!(
+                    "curve.frame_time",
+                    frame = frame.get(),
+                    seconds = Self::format_number(selected.frame_rate.frame_to_seconds(frame))
+                )
             ));
         }
         let curve = selected.curve.clone();
@@ -394,10 +402,10 @@ impl Render for AnimationCurveEditor {
                     .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
                     .on_click(|_, _, cx| cx.stop_propagation())
                     .child(
-                        div()
-                            .text_xs()
-                            .text_color(colors.muted_foreground)
-                            .child(format!("セグメント {}", selected.source_segment + 1)),
+                        div().text_xs().text_color(colors.muted_foreground).child(
+                            t!("curve.segment_number", number = selected.source_segment + 1)
+                                .to_string(),
+                        ),
                     )
                     .child(
                         Button::new("selected-segment-interpolation")
@@ -419,7 +427,7 @@ impl Render for AnimationCurveEditor {
                                     .max_h(max_height)
                                     .scrollable()
                                     .item(
-                                        PopupMenuItem::new("直線")
+                                        PopupMenuItem::new(t!("curve.linear").to_string())
                                             .checked(interpolation == SegmentInterpolation::Linear)
                                             .on_click(move |_, _, cx| {
                                                 linear_editor.update(cx, |editor, cx| {
@@ -431,7 +439,7 @@ impl Render for AnimationCurveEditor {
                                             }),
                                     )
                                     .item(
-                                        PopupMenuItem::new("ホールド")
+                                        PopupMenuItem::new(t!("curve.hold").to_string())
                                             .checked(interpolation == SegmentInterpolation::Hold)
                                             .on_click(move |_, _, cx| {
                                                 hold_editor.update(cx, |editor, cx| {
@@ -443,7 +451,7 @@ impl Render for AnimationCurveEditor {
                                             }),
                                     )
                                     .item(
-                                        PopupMenuItem::new("カスタム")
+                                        PopupMenuItem::new(t!("curve.custom").to_string())
                                             .checked(matches!(
                                                 interpolation,
                                                 SegmentInterpolation::Custom(_)
@@ -495,14 +503,20 @@ impl Render for AnimationCurveEditor {
                 };
                 let source_stop = source_segment + index;
                 if source_stop == 0 || source_stop + 1 == source_stop_count {
-                    return menu.item(PopupMenuItem::Label("端のstopは削除できません".into()));
+                    return menu.item(PopupMenuItem::Label(
+                        t!("curve.endpoint_stop_delete_error").to_string().into(),
+                    ));
                 }
                 let remove_editor = context_menu_editor.clone();
-                menu.item(PopupMenuItem::new("stopを削除").on_click(move |_, _, cx| {
-                    remove_editor.update(cx, |editor, cx| {
-                        editor.remove_source_stop(source_stop, cx);
-                    });
-                }))
+                menu.item(
+                    PopupMenuItem::new(t!("curve.delete_stop").to_string()).on_click(
+                        move |_, _, cx| {
+                            remove_editor.update(cx, |editor, cx| {
+                                editor.remove_source_stop(source_stop, cx);
+                            });
+                        },
+                    ),
+                )
             });
         let overview_drag_editor = curve_editor.clone();
         let overview_context_menu_editor = curve_editor.clone();
@@ -645,17 +659,20 @@ impl Render for AnimationCurveEditor {
                         };
                         if let Some(source_stop) = source_stop {
                             if source_stop == 0 || source_stop + 1 == source_stop_count {
-                                return menu
-                                    .item(PopupMenuItem::Label("端のstopは削除できません".into()));
+                                return menu.item(PopupMenuItem::Label(
+                                    t!("curve.endpoint_stop_delete_error").to_string().into(),
+                                ));
                             }
                             let remove_editor = overview_context_menu_editor.clone();
-                            return menu.item(PopupMenuItem::new("stopを削除").on_click(
-                                move |_, _, cx| {
-                                    remove_editor.update(cx, |editor, cx| {
-                                        editor.remove_source_stop(source_stop, cx);
-                                    });
-                                },
-                            ));
+                            return menu.item(
+                                PopupMenuItem::new(t!("curve.delete_stop").to_string()).on_click(
+                                    move |_, _, cx| {
+                                        remove_editor.update(cx, |editor, cx| {
+                                            editor.remove_source_stop(source_stop, cx);
+                                        });
+                                    },
+                                ),
+                            );
                         }
                         let Some(frame) = frame else {
                             return menu;
@@ -665,17 +682,19 @@ impl Render for AnimationCurveEditor {
                             .can_add_stop_at_frame(frame, cx)
                         {
                             return menu.item(PopupMenuItem::Label(
-                                "このフレームにはstopを追加できません".into(),
+                                t!("curve.stop_add_error").to_string().into(),
                             ));
                         }
                         let add_stop_editor = overview_context_menu_editor.clone();
-                        menu.item(PopupMenuItem::new("この位置にstopを追加").on_click(
-                            move |_, _, cx| {
-                                add_stop_editor.update(cx, |editor, cx| {
-                                    editor.add_stop_at_frame(frame, cx);
-                                });
-                            },
-                        ))
+                        menu.item(
+                            PopupMenuItem::new(t!("curve.add_stop").to_string()).on_click(
+                                move |_, _, cx| {
+                                    add_stop_editor.update(cx, |editor, cx| {
+                                        editor.add_stop_at_frame(frame, cx);
+                                    });
+                                },
+                            ),
+                        )
                     }),
             );
         let capture_scrub_editor = curve_editor.clone();

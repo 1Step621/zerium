@@ -50,7 +50,7 @@ impl MediaReader for FfmpegMediaReader {
     ) -> Result<Box<dyn VideoDecoderSession>, MediaError> {
         if !matches!(asset.kind, MediaKind::Video { .. }) {
             return Err(MediaError::external(
-                "動画素材からのみ映像デコーダーを作成できます",
+                "Video decoder can only be created for video media",
             ));
         }
         Ok(Box::new(FfmpegVideoDecoder::open(asset.clone())?))
@@ -62,7 +62,7 @@ impl MediaReader for FfmpegMediaReader {
     ) -> Result<Box<dyn ImageDecoderSession>, MediaError> {
         if !matches!(asset.kind, MediaKind::Image { .. }) {
             return Err(MediaError::external(
-                "画像素材からのみ静止画デコーダーを作成できます",
+                "Still image decoder can only be created for image media",
             ));
         }
         Ok(Box::new(FfmpegImageDecoder {
@@ -75,9 +75,7 @@ impl MediaReader for FfmpegMediaReader {
         asset: &MediaAsset,
     ) -> Result<Box<dyn AudioDecoderSession>, MediaError> {
         if !asset.kind.has_audio() {
-            return Err(MediaError::external(
-                "このメディア素材に音声ストリームはありません",
-            ));
+            return Err(MediaError::external("This media asset has no audio stream"));
         }
         Ok(Box::new(FfmpegAudioDecoder::open(asset.clone())?))
     }
@@ -136,7 +134,7 @@ fn create_video_proxy_in(
         || request.max_frames_per_second == 0
         || request.source_duration.is_zero()
     {
-        return Err(MediaError::external("プロキシの生成条件が不正です"));
+        return Err(MediaError::external("Invalid proxy generation parameters"));
     }
     let (source_width, source_height, source_frame_rate) = match asset.kind {
         MediaKind::Video {
@@ -147,12 +145,12 @@ fn create_video_proxy_in(
         } => (width, height, frame_rate),
         MediaKind::Image { .. } => {
             return Err(MediaError::external(
-                "画像素材から映像プロキシは作成できません",
+                "Cannot create a video proxy from image media",
             ));
         }
         MediaKind::Audio { .. } => {
             return Err(MediaError::external(
-                "音声素材から映像プロキシは作成できません",
+                "Cannot create a video proxy from audio media",
             ));
         }
     };
@@ -162,12 +160,12 @@ fn create_video_proxy_in(
         request.max_width,
         request.max_height,
     )
-    .ok_or_else(|| MediaError::external("プロキシの映像サイズが不正です"))?;
+    .ok_or_else(|| MediaError::external("Invalid proxy video dimensions"))?;
     width -= width % 2;
     height -= height % 2;
     if width == 0 || height == 0 {
         return Err(MediaError::external(
-            "プロキシの映像サイズは2ピクセル以上である必要があります",
+            "Proxy video dimensions must be at least 2 pixels",
         ));
     }
     let video_stream_duration = ffmpeg_next::probe(&asset.path, MediaType::Video)?
@@ -176,13 +174,15 @@ fn create_video_proxy_in(
     let remaining_duration = video_stream_duration
         .checked_sub(request.source_start)
         .filter(|duration| !duration.is_zero())
-        .ok_or_else(|| MediaError::external("プロキシの開始位置が素材の範囲外です"))?;
+        .ok_or_else(|| {
+            MediaError::external("Proxy start position is outside the media duration")
+        })?;
     let duration = request.source_duration.min(remaining_duration);
     let frame_rate = capped_frame_rate(source_frame_rate, request.max_frames_per_second);
 
     fs::create_dir_all(cache_dir).map_err(|error| {
         MediaError::external(format!(
-            "プロキシキャッシュ'{}'を作成できません: {error}",
+            "Failed to create proxy cache '{}': {error}",
             cache_dir.display()
         ))
     })?;
@@ -205,7 +205,7 @@ fn create_video_proxy_in(
     }
 
     let transaction = AtomicFileTransaction::new(&target).map_err(|error| {
-        MediaError::external(format!("プロキシ一時ファイルを作成できません: {error}"))
+        MediaError::external(format!("Failed to create proxy temporary file: {error}"))
     })?;
     create_proxy_file(
         asset,
@@ -219,7 +219,7 @@ fn create_video_proxy_in(
     ffmpeg_next::probe(transaction.temporary_path(), MediaType::Video)?;
     transaction.commit().map_err(|error| {
         MediaError::external(format!(
-            "プロキシをキャッシュ'{}'へ確定できません: {error}",
+            "Failed to commit proxy to cache '{}': {error}",
             target.display()
         ))
     })?;
@@ -240,7 +240,7 @@ fn load_cached_proxy(
         Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(error) => {
             return Err(MediaError::external(format!(
-                "プロキシキャッシュ'{}'の情報を取得できません: {error}",
+                "Failed to get information for proxy cache '{}': {error}",
                 target.display()
             )));
         }
@@ -248,7 +248,7 @@ fn load_cached_proxy(
     if !metadata.is_file() || metadata.len() == 0 {
         fs::remove_file(target).map_err(|error| {
             MediaError::external(format!(
-                "不正なプロキシキャッシュ'{}'を削除できません: {error}",
+                "Failed to remove invalid proxy cache '{}': {error}",
                 target.display()
             ))
         })?;
@@ -270,7 +270,7 @@ fn load_cached_proxy(
         Err(_) => {
             fs::remove_file(target).map_err(|error| {
                 MediaError::external(format!(
-                    "破損したプロキシキャッシュ'{}'を削除できません: {error}",
+                    "Failed to remove corrupted proxy cache '{}': {error}",
                     target.display()
                 ))
             })?;
@@ -355,14 +355,14 @@ impl CacheFileLock {
                 }
                 Err(error) => {
                     return Err(MediaError::external(format!(
-                        "プロキシキャッシュロック'{}'を作成できません: {error}",
+                        "Failed to create proxy cache lock '{}': {error}",
                         path.display()
                     )));
                 }
             }
         }
         Err(MediaError::external(format!(
-            "プロキシキャッシュ'{}'は別の処理が生成中です",
+            "Proxy cache '{}' is being generated by another process",
             target.display()
         )))
     }
@@ -383,14 +383,14 @@ impl Drop for CacheFileLock {
 fn cleanup_stale_proxy_temporary_files(cache_dir: &Path) -> Result<(), MediaError> {
     let entries = fs::read_dir(cache_dir).map_err(|error| {
         MediaError::external(format!(
-            "プロキシキャッシュ'{}'を読み取れません: {error}",
+            "Failed to read proxy cache '{}': {error}",
             cache_dir.display()
         ))
     })?;
     for entry in entries {
         let entry = entry.map_err(|error| {
             MediaError::external(format!(
-                "プロキシキャッシュ'{}'の項目を読み取れません: {error}",
+                "Failed to read entries in proxy cache '{}': {error}",
                 cache_dir.display()
             ))
         })?;
@@ -400,7 +400,7 @@ fn cleanup_stale_proxy_temporary_files(cache_dir: &Path) -> Result<(), MediaErro
         }
         let metadata = entry.metadata().map_err(|error| {
             MediaError::external(format!(
-                "プロキシ一時ファイル'{}'の情報を取得できません: {error}",
+                "Failed to get information for proxy temporary file '{}': {error}",
                 path.display()
             ))
         })?;
@@ -414,7 +414,7 @@ fn cleanup_stale_proxy_temporary_files(cache_dir: &Path) -> Result<(), MediaErro
             && error.kind() != std::io::ErrorKind::NotFound
         {
             return Err(MediaError::external(format!(
-                "古いプロキシ一時ファイル'{}'を削除できません: {error}",
+                "Failed to remove stale proxy temporary file '{}': {error}",
                 path.display()
             )));
         }
@@ -425,7 +425,7 @@ fn cleanup_stale_proxy_temporary_files(cache_dir: &Path) -> Result<(), MediaErro
 fn enforce_proxy_cache_budget(cache_dir: &Path, protected: &Path) -> Result<(), MediaError> {
     let entries = fs::read_dir(cache_dir).map_err(|error| {
         MediaError::external(format!(
-            "プロキシキャッシュ'{}'を読み取れません: {error}",
+            "Failed to read proxy cache '{}': {error}",
             cache_dir.display()
         ))
     })?;
@@ -433,7 +433,7 @@ fn enforce_proxy_cache_budget(cache_dir: &Path, protected: &Path) -> Result<(), 
     for entry in entries {
         let entry = entry.map_err(|error| {
             MediaError::external(format!(
-                "プロキシキャッシュ'{}'の項目を読み取れません: {error}",
+                "Failed to read entries in proxy cache '{}': {error}",
                 cache_dir.display()
             ))
         })?;
@@ -443,7 +443,7 @@ fn enforce_proxy_cache_budget(cache_dir: &Path, protected: &Path) -> Result<(), 
         }
         let metadata = entry.metadata().map_err(|error| {
             MediaError::external(format!(
-                "プロキシキャッシュ'{}'の情報を取得できません: {error}",
+                "Failed to get information for proxy cache '{}': {error}",
                 path.display()
             ))
         })?;
@@ -469,7 +469,7 @@ fn enforce_proxy_cache_budget(cache_dir: &Path, protected: &Path) -> Result<(), 
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
             Err(error) => {
                 return Err(MediaError::external(format!(
-                    "プロキシキャッシュ'{}'を削除できません: {error}",
+                    "Failed to remove proxy cache '{}': {error}",
                     path.display()
                 )));
             }
@@ -488,7 +488,9 @@ fn create_proxy_file(
     duration: Duration,
 ) -> Result<(), MediaError> {
     if !matches!(asset.kind, MediaKind::Video { .. }) {
-        return Err(MediaError::external("動画以外はプロキシへ変換できません"));
+        return Err(MediaError::external(
+            "Only video media can be converted to a proxy",
+        ));
     }
     let target_frame_count = (duration.as_secs_f64() * frame_rate.frames_per_second())
         .ceil()
@@ -516,13 +518,10 @@ fn create_proxy_file(
     for target_frame in 0..target_frame_count {
         let target_time = source_start
             .checked_add(
-                Duration::try_from_secs_f64(frame_rate.frame_to_seconds(target_frame)).map_err(
-                    |_| MediaError::external("プロキシ映像の presentation time が不正です"),
-                )?,
+                Duration::try_from_secs_f64(frame_rate.frame_to_seconds(target_frame))
+                    .map_err(|_| MediaError::external("Invalid proxy video presentation time"))?,
             )
-            .ok_or_else(|| {
-                MediaError::external("プロキシ映像の presentation time が大きすぎます")
-            })?;
+            .ok_or_else(|| MediaError::external("Proxy video presentation time is too large"))?;
         let decoded = decoder.decode_at(
             target_time,
             VideoDecodeSize {
@@ -563,7 +562,7 @@ fn proxy_asset(asset: &MediaAsset, path: PathBuf) -> Result<MediaAsset, MediaErr
 fn proxy_cache_key(asset: &MediaAsset) -> Result<u64, MediaError> {
     let metadata = fs::metadata(&asset.path).map_err(|error| {
         MediaError::external(format!(
-            "メディアファイル'{}'の情報を取得できません: {error}",
+            "Failed to get information for media file '{}': {error}",
             asset.path.display()
         ))
     })?;

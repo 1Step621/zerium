@@ -37,7 +37,10 @@ pub(crate) fn encode_timeline_clipboard(
         scene_bindings: scene_bindings.to_vec(),
     };
     serde_json::to_string(&file).map_err(|error| {
-        ProjectError::encode(format!("コピー内容を変換できません: {error}"), error)
+        ProjectError::encode(
+            format!("Failed to serialize clipboard data: {error}"),
+            error,
+        )
     })
 }
 
@@ -46,20 +49,22 @@ pub(crate) fn decode_timeline_clipboard(
     editor: &TimelineEditor,
 ) -> Result<DecodedTimelineClipboard, ProjectError> {
     let file = serde_json::from_str::<TimelineClipboardFile>(source).map_err(|error| {
-        ProjectError::invalid_format(format!("コピー内容の形式が不正です: {error}"), error)
+        ProjectError::invalid_format(format!("Invalid clipboard data format: {error}"), error)
     })?;
     if file.format != TIMELINE_CLIPBOARD_FORMAT
         || file.format_version != TIMELINE_CLIPBOARD_FORMAT_VERSION
     {
-        return Err(ProjectError::unsupported_format("未対応のコピー形式です"));
+        return Err(ProjectError::unsupported_format(
+            "Unsupported clipboard format",
+        ));
     }
     let source_scene = file
         .source_scene
         .map(|[high, low, scene]| {
             let project = ProjectId::from_parts(high, low)
-                .ok_or_else(|| ProjectError::invalid_data("プロジェクトIDが不正です"))?;
+                .ok_or_else(|| ProjectError::invalid_data("Invalid project ID"))?;
             if scene == 0 || scene == u64::MAX {
-                return Err(ProjectError::invalid_data("シーンIDが不正です"));
+                return Err(ProjectError::invalid_data("Invalid scene ID"));
             }
             Ok(SceneId::new(project, scene))
         })
@@ -93,7 +98,7 @@ pub(crate) fn decode_timeline_clipboard(
     for (argument_id, binding) in file.scene_bindings {
         if !item_ids.contains(&binding.item_id()) {
             return Err(ProjectError::invalid_data(
-                "コピーされたシーン引数接続の対象がありません",
+                "Copied scene argument binding target was not found",
             ));
         }
         scene_bindings.push((argument_id, binding));

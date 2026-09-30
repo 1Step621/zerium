@@ -1,10 +1,12 @@
 //! Item schemas and their runtime property ABI.
 
+use crate::domain::localized_text::LocalizedText;
 use crate::domain::property::PropertyValueType;
 use std::collections::HashSet;
 
 use serde::{Deserialize, Deserializer, de::Error as _};
 
+use super::CatalogCategory;
 use super::OutputBoundsSchema;
 use super::PluginError;
 use super::abi::PropertyLayout;
@@ -18,8 +20,8 @@ use crate::domain::property::{PropertySchema, PropertyType, ScalarPropertyType};
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct ItemSchema {
     id: String,
-    label: String,
-    category: String,
+    label: LocalizedText,
+    category: CatalogCategory,
     tags: Vec<String>,
     symbol: String,
     shader: Option<ShaderSchema>,
@@ -36,8 +38,8 @@ pub(crate) struct ItemSchema {
 #[serde(deny_unknown_fields)]
 struct ItemSchemaDefinition {
     id: String,
-    label: String,
-    category: String,
+    label: LocalizedText,
+    category: CatalogCategory,
     #[serde(default)]
     tags: Vec<String>,
     symbol: String,
@@ -107,11 +109,15 @@ impl ItemSchema {
     }
 
     pub(crate) fn label(&self) -> &str {
-        &self.label
+        self.label.resolve()
     }
 
     pub(crate) fn category(&self) -> &str {
-        &self.category
+        self.category.label()
+    }
+
+    pub(crate) fn category_id(&self) -> &str {
+        self.category.id()
     }
 
     pub(crate) fn tags(&self) -> &[String] {
@@ -153,7 +159,8 @@ impl ItemSchema {
     }
 
     pub(super) fn validate(&self) -> Result<(), PluginError> {
-        validate_catalog_entry("item", &self.id, &self.label, &self.category, &self.tags)?;
+        self.category.validate("item", &self.id)?;
+        validate_catalog_entry("item", &self.id, self.label(), self.category(), &self.tags)?;
         if self.symbol.trim().is_empty() {
             return Err(PluginError::invalid_definition(format!(
                 "item '{}' symbol must not be empty",
@@ -331,6 +338,10 @@ impl super::PluginCatalogEntry for ItemSchema {
 
     fn category(&self) -> &str {
         self.category()
+    }
+
+    fn category_id(&self) -> &str {
+        self.category_id()
     }
 
     fn tags(&self) -> &[String] {

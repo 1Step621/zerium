@@ -45,7 +45,7 @@ impl MediaReader for SvgMediaReader {
         asset: &MediaAsset,
     ) -> Result<Box<dyn ImageDecoderSession>, MediaError> {
         if !matches!(asset.kind, MediaKind::Image { .. }) {
-            return Err(MediaError::external("SVG readerには画像素材が必要です"));
+            return Err(MediaError::external("SVG reader requires image media"));
         }
         Ok(Box::new(SvgDecoder {
             tree: read_tree(&asset.path)?,
@@ -56,14 +56,14 @@ impl MediaReader for SvgMediaReader {
 
 fn dimension(value: f32) -> Result<u32, MediaError> {
     if !value.is_finite() || value <= 0. || value > u32::MAX as f32 {
-        return Err(MediaError::external("SVGのサイズが不正です"));
+        return Err(MediaError::external("Invalid SVG size"));
     }
     Ok(value.round().max(1.) as u32)
 }
 
 fn read_tree(path: &Path) -> Result<usvg::Tree, MediaError> {
     let data = fs::read(path).map_err(|error| {
-        MediaError::external(format!("SVG '{}' を開けません: {error}", path.display()))
+        MediaError::external(format!("Failed to open SVG '{}': {error}", path.display()))
     })?;
     let options = usvg::Options {
         resources_dir: path.parent().map(Path::to_path_buf),
@@ -71,10 +71,7 @@ fn read_tree(path: &Path) -> Result<usvg::Tree, MediaError> {
         ..usvg::Options::default()
     };
     usvg::Tree::from_data(&data, &options).map_err(|error| {
-        MediaError::external(format!(
-            "SVG '{}' を読み込めません: {error}",
-            path.display()
-        ))
+        MediaError::external(format!("Failed to load SVG '{}': {error}", path.display()))
     })
 }
 
@@ -102,7 +99,7 @@ impl ImageDecoderSession for SvgDecoder {
             return Err(MediaError::Cancelled);
         }
         if size.max_width == 0 || size.max_height == 0 {
-            return Err(MediaError::external("SVGの描画サイズが不正です"));
+            return Err(MediaError::external("Invalid SVG render size"));
         }
         if let Some(frame) = &self.cached
             && frame.width == size.max_width
@@ -111,11 +108,11 @@ impl ImageDecoderSession for SvgDecoder {
             return Ok(frame.clone());
         }
         let mut pixmap = tiny_skia::Pixmap::new(size.max_width, size.max_height)
-            .ok_or_else(|| MediaError::external("SVGの描画領域を確保できません"))?;
+            .ok_or_else(|| MediaError::external("Failed to allocate SVG render area"))?;
         let scale_x = size.max_width as f32 / self.tree.size().width();
         let scale_y = size.max_height as f32 / self.tree.size().height();
         if !scale_x.is_finite() || !scale_y.is_finite() {
-            return Err(MediaError::external("SVGの拡大率が不正です"));
+            return Err(MediaError::external("Invalid SVG scale factor"));
         }
         resvg::render(
             &self.tree,

@@ -144,7 +144,7 @@ impl TimelineDocument {
                     .and_then(FrameDuration::new)
                     .ok_or_else(|| {
                         ProjectSettingsError::out_of_range(format!(
-                            "アイテム {} は変更後のフレームレートでは1フレーム未満になります",
+                            "Item {} would be shorter than one frame at the new frame rate",
                             item.id.get()
                         ))
                     })?;
@@ -161,7 +161,7 @@ impl TimelineDocument {
             })
         }) {
             return Err(ProjectSettingsError::out_of_range(
-                "変更後のフレームレートではアイテム同士が重なります",
+                "Items would overlap at the new frame rate",
             ));
         }
         Ok(document)
@@ -960,13 +960,13 @@ pub(super) fn retime_frame(
     let numerator = u128::from(frame.get())
         .checked_mul(u128::from(target.numerator()))
         .and_then(|value| value.checked_mul(u128::from(source.denominator())))
-        .ok_or_else(|| ProjectSettingsError::out_of_range("フレーム位置が大きすぎます"))?;
+        .ok_or_else(|| ProjectSettingsError::out_of_range("Frame position is too large"))?;
     let denominator = u128::from(source.numerator()) * u128::from(target.denominator());
     let rounded = numerator
         .checked_add(denominator / 2)
-        .ok_or_else(|| ProjectSettingsError::out_of_range("フレーム位置が大きすぎます"))?
+        .ok_or_else(|| ProjectSettingsError::out_of_range("Frame position is too large"))?
         / denominator;
     let frame = u64::try_from(rounded)
-        .map_err(|_| ProjectSettingsError::out_of_range("フレーム位置が大きすぎます"))?;
+        .map_err(|_| ProjectSettingsError::out_of_range("Frame position is too large"))?;
     Ok(Frame::new(frame))
 }

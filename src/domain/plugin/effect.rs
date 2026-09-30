@@ -1,7 +1,9 @@
 //! Effect schemas, render passes, and temporal sampling.
 
+use crate::domain::localized_text::LocalizedText;
 use serde::{Deserialize, Deserializer, de::Error as _};
 
+use super::CatalogCategory;
 use super::OutputBoundsSchema;
 use super::PluginError;
 use super::abi::PropertyLayout;
@@ -31,8 +33,8 @@ pub(crate) enum EffectInputSpace {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct EffectSchema {
     id: String,
-    label: String,
-    category: String,
+    label: LocalizedText,
+    category: CatalogCategory,
     tags: Vec<String>,
     render_scale: u32,
     output_bounds: OutputBoundsSchema,
@@ -48,8 +50,8 @@ pub(crate) struct EffectSchema {
 #[serde(deny_unknown_fields)]
 struct EffectSchemaDefinition {
     id: String,
-    label: String,
-    category: String,
+    label: LocalizedText,
+    category: CatalogCategory,
     #[serde(default)]
     tags: Vec<String>,
     #[serde(default = "default_effect_render_scale")]
@@ -222,11 +224,15 @@ impl EffectSchema {
     }
 
     pub(crate) fn label(&self) -> &str {
-        &self.label
+        self.label.resolve()
     }
 
     pub(crate) fn category(&self) -> &str {
-        &self.category
+        self.category.label()
+    }
+
+    pub(crate) fn category_id(&self) -> &str {
+        self.category.id()
     }
 
     pub(crate) fn tags(&self) -> &[String] {
@@ -323,7 +329,14 @@ impl EffectSchema {
     }
 
     pub(super) fn validate(&self) -> Result<(), PluginError> {
-        validate_catalog_entry("effect", &self.id, &self.label, &self.category, &self.tags)?;
+        self.category.validate("effect", &self.id)?;
+        validate_catalog_entry(
+            "effect",
+            &self.id,
+            self.label(),
+            self.category(),
+            &self.tags,
+        )?;
         validate_property_schemas("effect", &self.id, &self.properties)?;
         self.output_bounds
             .validate("effect", &self.id, &self.properties)?;
@@ -410,6 +423,10 @@ impl super::PluginCatalogEntry for EffectSchema {
 
     fn category(&self) -> &str {
         self.category()
+    }
+
+    fn category_id(&self) -> &str {
+        self.category_id()
     }
 
     fn tags(&self) -> &[String] {

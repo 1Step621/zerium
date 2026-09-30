@@ -65,57 +65,57 @@ pub(crate) struct VideoEncoderSettings<'a> {
 pub(crate) enum FfmpegEncoderError {
     #[error(transparent)]
     Initialize(#[from] super::reader::MediaError),
-    #[error("出力ファイル'{path}'を開けません: {source}")]
+    #[error("Failed to open output file '{path}': {source}")]
     OpenOutput {
         path: PathBuf,
         source: ffmpeg::Error,
     },
-    #[error("H.264エンコーダーが見つかりません")]
+    #[error("H.264 encoder was not found")]
     MissingVideoCodec,
-    #[error("映像のタイムベースが大きすぎます")]
+    #[error("Video time base is too large")]
     VideoTimeBaseTooLarge,
-    #[error("H.264エンコーダーを構成できません: {0}")]
+    #[error("Failed to configure H.264 encoder: {0}")]
     ConfigureVideo(ffmpeg::Error),
-    #[error("H.264エンコーダーを開けません: {0}")]
+    #[error("Failed to open H.264 encoder: {0}")]
     OpenVideo(ffmpeg::Error),
-    #[error("映像ストリームを作成できません: {0}")]
+    #[error("Failed to create video stream: {0}")]
     CreateVideoStream(ffmpeg::Error),
-    #[error("出力ヘッダーを書き込めません: {0}")]
+    #[error("Failed to write output header: {0}")]
     WriteHeader(ffmpeg::Error),
-    #[error("映像エンコード用スケーラーを構成できません: {0}")]
+    #[error("Failed to configure video encoding scaler: {0}")]
     CreateScaler(ffmpeg::Error),
-    #[error("未対応のRGB→YUV行列です: {0:?}")]
+    #[error("Unsupported RGB-to-YUV matrix: {0:?}")]
     UnsupportedColorMatrix(ffmpeg::util::color::Space),
-    #[error("FFmpegから色変換係数を取得できません")]
+    #[error("Failed to get color conversion coefficients from FFmpeg")]
     MissingColorCoefficients,
-    #[error("RGB→YUV色変換を構成できません: FFmpeg error {code}")]
+    #[error("Failed to configure RGB-to-YUV color conversion: FFmpeg error {code}")]
     ConfigureColorSpace { code: i32 },
-    #[error("エンコードする映像サイズは正である必要があります")]
+    #[error("Video dimensions to encode must be positive")]
     NonPositiveDimensions,
     #[error(
-        "YUV420P出力には偶数解像度が必要です（指定: {width}x{height}）。出力設定でpad/cropするか偶数解像度を指定してください"
+        "YUV420P output requires even dimensions (got {width}x{height}). Configure padding/cropping or specify an even resolution in the output settings."
     )]
     OddOutputDimensions { width: u32, height: u32 },
-    #[error("音声エンコード設定が不正です")]
+    #[error("Invalid audio encoding configuration")]
     InvalidAudioConfig,
-    #[error("AACエンコーダーが見つかりません")]
+    #[error("AAC encoder was not found")]
     MissingAudioCodec,
-    #[error("AACエンコーダーを取得できません: {0}")]
+    #[error("Failed to get AAC encoder: {0}")]
     AcquireAudioCodec(ffmpeg::Error),
-    #[error("AACエンコーダーのサンプル形式を取得できません")]
+    #[error("Failed to get AAC encoder sample format")]
     MissingAudioSampleFormat,
-    #[error("音声サンプルレートが大きすぎます")]
+    #[error("Audio sample rate is too large")]
     AudioSampleRateTooLarge,
-    #[error("AACエンコーダーを構成できません: {0}")]
+    #[error("Failed to configure AAC encoder: {0}")]
     ConfigureAudio(ffmpeg::Error),
-    #[error("AACエンコーダーを開けません: {0}")]
+    #[error("Failed to open AAC encoder: {0}")]
     OpenAudio(ffmpeg::Error),
-    #[error("音声ストリームを作成できません: {0}")]
+    #[error("Failed to create audio stream: {0}")]
     CreateAudioStream(ffmpeg::Error),
-    #[error("音声エンコード用リサンプラーを構成できません: {0}")]
+    #[error("Failed to configure audio encoding resampler: {0}")]
     CreateResampler(ffmpeg::Error),
     #[error(
-        "映像フレームのサイズ{frame_width}x{frame_height}が出力サイズ{output_width}x{output_height}と一致しません"
+        "Video frame dimensions {frame_width}x{frame_height} do not match output dimensions {output_width}x{output_height}"
     )]
     FrameSizeMismatch {
         frame_width: u32,
@@ -123,55 +123,55 @@ pub(crate) enum FfmpegEncoderError {
         output_width: u32,
         output_height: u32,
     },
-    #[error("映像フレームの幅が大きすぎます")]
+    #[error("Video frame width is too large")]
     FrameTooWide,
-    #[error("映像フレームの高さが大きすぎます")]
+    #[error("Video frame height is too large")]
     FrameTooTall,
-    #[error("映像フレームが大きすぎます")]
+    #[error("Video frame is too large")]
     FrameTooLarge,
-    #[error("映像フレームのデータ長が不正です")]
+    #[error("Invalid video frame data length")]
     InvalidFrameData,
-    #[error("映像フレームのストライドが不正です")]
+    #[error("Invalid video frame stride")]
     InvalidFrameStride,
-    #[error("YUV420P入力には偶数解像度が必要です")]
+    #[error("YUV420P input requires even dimensions")]
     OddYuvDimensions,
-    #[error("映像PTSが大きすぎます")]
+    #[error("Video PTS is too large")]
     VideoPtsTooLarge,
-    #[error("映像フレームをYUVへ変換できません: {0}")]
+    #[error("Failed to convert video frame to YUV: {0}")]
     ConvertToYuv(ffmpeg::Error),
-    #[error("映像フレームをエンコーダーへ送れません: {0}")]
+    #[error("Failed to send video frame to encoder: {0}")]
     SendVideoFrame(ffmpeg::Error),
-    #[error("音声ストリームのない出力へ音声が渡されました")]
+    #[error("Audio was provided to an output without an audio stream")]
     AudioWithoutStream,
-    #[error("音声サンプル数がチャンネル数で割り切れません")]
+    #[error("Audio sample count is not divisible by the channel count")]
     InvalidSampleCount,
-    #[error("音声サンプル数が大きすぎます")]
+    #[error("Audio sample count is too large")]
     TooManySamples,
-    #[error("音声PTSが大きすぎます")]
+    #[error("Audio PTS is too large")]
     AudioPtsTooLarge,
-    #[error("音声エンコーダーフレームが大きすぎます")]
+    #[error("Audio encoder frame is too large")]
     AudioFrameTooLarge,
-    #[error("音声サンプルを変換できません: {0}")]
+    #[error("Failed to convert audio samples: {0}")]
     ResampleAudio(ffmpeg::Error),
-    #[error("音声フレームをエンコーダーへ送れません: {0}")]
+    #[error("Failed to send audio frame to encoder: {0}")]
     SendAudioFrame(ffmpeg::Error),
-    #[error("出力映像ストリームが失われました")]
+    #[error("Output video stream was lost")]
     MissingVideoStream,
-    #[error("映像パケットを書き込めません: {0}")]
+    #[error("Failed to write video packet: {0}")]
     WriteVideoPacket(ffmpeg::Error),
-    #[error("映像パケットを取得できません: {0}")]
+    #[error("Failed to receive video packet: {0}")]
     ReceiveVideoPacket(ffmpeg::Error),
-    #[error("出力音声ストリームが失われました")]
+    #[error("Output audio stream was lost")]
     MissingAudioStream,
-    #[error("音声パケットを書き込めません: {0}")]
+    #[error("Failed to write audio packet: {0}")]
     WriteAudioPacket(ffmpeg::Error),
-    #[error("音声パケットを取得できません: {0}")]
+    #[error("Failed to receive audio packet: {0}")]
     ReceiveAudioPacket(ffmpeg::Error),
-    #[error("映像エンコーダーを完了できません: {0}")]
+    #[error("Failed to flush video encoder: {0}")]
     FinishVideo(ffmpeg::Error),
-    #[error("音声エンコーダーを完了できません: {0}")]
+    #[error("Failed to flush audio encoder: {0}")]
     FinishAudio(ffmpeg::Error),
-    #[error("出力トレーラーを書き込めません: {0}")]
+    #[error("Failed to write output trailer: {0}")]
     WriteTrailer(ffmpeg::Error),
 }
 

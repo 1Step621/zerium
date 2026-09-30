@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use std::path::{Path, PathBuf};
 
 use ::ui::{
@@ -62,7 +64,7 @@ impl ProjectController {
         if !has_project_extension(&path) {
             self.notifications.update(cx, |notifications, cx| {
                 notifications.push(
-                    format!(".{} ファイルを選択してください", PROJECT_EXTENSION),
+                    t!("project.extension_prompt", extension = PROJECT_EXTENSION).to_string(),
                     cx,
                 );
             });
@@ -99,12 +101,14 @@ impl ProjectController {
                             controller.busy = false;
                             controller.notifications.update(cx, |notifications, cx| {
                                 notifications.push_success(
-                                    format!(
-                                        "読み込み完了: {}",
-                                        path.file_name()
+                                    t!(
+                                        "project.load_complete",
+                                        name = path
+                                            .file_name()
                                             .map(|name| name.to_string_lossy())
                                             .unwrap_or_default()
-                                    ),
+                                    )
+                                    .to_string(),
                                     cx,
                                 );
                             });
@@ -113,7 +117,8 @@ impl ProjectController {
                         Err(error) => {
                             controller.busy = false;
                             controller.notifications.update(cx, |notifications, cx| {
-                                notifications.push(format!("読み込み失敗: {error}"), cx);
+                                notifications
+                                    .push(t!("project.load_failed", error = error).to_string(), cx);
                             });
                             cx.notify();
                         }
@@ -174,14 +179,14 @@ impl ProjectController {
                     div()
                         .font_family(".SystemUIFont")
                         .font_normal()
-                        .child("プロジェクト設定"),
+                        .child(t!("project.settings").to_string()),
                 )
                 .width(gpui::px(440.))
                 .confirm()
                 .button_props(
                     ModalButtonProps::default()
-                        .ok_text("適用")
-                        .cancel_text("キャンセル"),
+                        .ok_text(t!("project.apply").to_string())
+                        .cancel_text(t!("common.cancel").to_string()),
                 )
                 .on_ok(move |_, _, cx| {
                     confirm_controller.update(cx, |controller, cx| {
@@ -194,10 +199,11 @@ impl ProjectController {
                         let Some(resolution) = resolution else {
                             controller.notifications.update(cx, |notifications, cx| {
                                 notifications.push(
-                                    format!(
-                                        "解像度は1〜{}の整数で入力してください",
-                                        ProjectResolution::MAX_DIMENSION
-                                    ),
+                                    t!(
+                                        "project.invalid_resolution",
+                                        max = ProjectResolution::MAX_DIMENSION
+                                    )
+                                    .to_string(),
                                     cx,
                                 );
                             });
@@ -221,7 +227,7 @@ impl ProjectController {
                                     None => {
                                         controller.notifications.update(cx, |notifications, cx| {
                                             notifications.push(
-                                                "フレームレートは0より大きくしてください",
+                                                t!("project.invalid_frame_rate").to_string(),
                                                 cx,
                                             );
                                         });
@@ -232,8 +238,10 @@ impl ProjectController {
                             }
                             _ => {
                                 controller.notifications.update(cx, |notifications, cx| {
-                                    notifications
-                                        .push("フレームレートは1以上の整数で入力してください", cx);
+                                    notifications.push(
+                                        t!("project.invalid_integer_frame_rate").to_string(),
+                                        cx,
+                                    );
                                 });
                                 cx.notify();
                                 return false;
@@ -267,15 +275,15 @@ impl ProjectController {
                         .flex_col()
                         .gap_3()
                         .child(settings_row(
-                            "幅",
+                            t!("project.width").to_string(),
                             NumberInput::new(&width).small().w_full(),
                         ))
                         .child(settings_row(
-                            "高さ",
+                            t!("project.height").to_string(),
                             NumberInput::new(&height).small().w_full(),
                         ))
                         .child(settings_row(
-                            "フレームレート",
+                            t!("project.frame_rate").to_string(),
                             div()
                                 .flex()
                                 .items_center()
@@ -327,13 +335,13 @@ impl ProjectController {
                     div()
                         .font_family(".SystemUIFont")
                         .font_normal()
-                        .child("未保存の変更"),
+                        .child(t!("project.unsaved_changes").to_string()),
                 )
                 .confirm()
                 .button_props(
                     ModalButtonProps::default()
-                        .ok_text("変更を破棄")
-                        .cancel_text("キャンセル"),
+                        .ok_text(t!("project.discard").to_string())
+                        .cancel_text(t!("common.cancel").to_string()),
                 )
                 .on_ok(move |_, window, cx| {
                     confirm_controller.update(cx, |controller, cx| {
@@ -341,7 +349,7 @@ impl ProjectController {
                     });
                     true
                 })
-                .child("保存されていない変更があります。この変更を破棄しますか？")
+                .child(t!("project.discard_prompt").to_string())
         });
     }
 
@@ -374,16 +382,14 @@ impl ProjectController {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("Zeriumプロジェクトを開く".into()),
+            prompt: Some(t!("project.open_prompt").to_string().into()),
         });
         self._dialog_task = cx.spawn(async move |controller, cx| {
             let selected: Result<Option<PathBuf>, String> = match receiver.await {
                 Ok(Ok(Some(paths))) => Ok(paths.into_iter().next()),
                 Ok(Ok(None)) => Ok(None),
-                Ok(Err(error)) => Err(format!("ファイルを選択できません: {error}")),
-                Err(error) => Err(format!(
-                    "ファイル選択ダイアログから応答を取得できません: {error}"
-                )),
+                Ok(Err(error)) => Err(t!("project.select_file_failed", error = error).to_string()),
+                Err(error) => Err(t!("project.file_picker_failed", error = error).to_string()),
             };
             match selected {
                 Err(message) => {
@@ -430,7 +436,11 @@ impl ProjectController {
                 Ok(Ok(path)) => path,
                 Ok(Err(error)) => {
                     if session.update(cx, |session, _| session.operation_is_current(operation)) {
-                        set_failed(&controller, format!("保存先を選択できません: {error}"), cx);
+                        set_failed(
+                            &controller,
+                            t!("project.select_destination_failed", error = error).to_string(),
+                            cx,
+                        );
                         session.update(cx, |session, cx| {
                             if session.finish(operation) {
                                 cx.notify();
@@ -443,7 +453,7 @@ impl ProjectController {
                     if session.update(cx, |session, _| session.operation_is_current(operation)) {
                         set_failed(
                             &controller,
-                            format!("保存先ダイアログから応答を取得できません: {error}"),
+                            t!("project.destination_picker_failed", error = error).to_string(),
                             cx,
                         );
                         session.update(cx, |session, cx| {
@@ -510,18 +520,20 @@ impl ProjectController {
                             controller.saved_revision = revision;
                             controller.notifications.update(cx, |notifications, cx| {
                                 notifications.push_success(
-                                    format!(
-                                        "保存完了: {}",
-                                        path.file_name()
+                                    t!(
+                                        "project.save_complete",
+                                        name = path
+                                            .file_name()
                                             .map(|name| name.to_string_lossy())
                                             .unwrap_or_default()
-                                    ),
+                                    )
+                                    .to_string(),
                                     cx,
                                 );
                             });
                         }
                         Err(error) => {
-                            let message = format!("保存失敗: {error}");
+                            let message = t!("project.save_failed", error = error).to_string();
                             controller.notifications.update(cx, |notifications, cx| {
                                 notifications.push(message, cx);
                             });
@@ -548,25 +560,28 @@ impl ProjectController {
             let activities = self.runtime.session().read(cx).busy_activities();
             let activity = if activities.is_empty() {
                 if export_busy {
-                    "書き出し".to_owned()
+                    t!("project.export_activity").to_string()
                 } else {
-                    "保存または読み込み".to_owned()
+                    t!("project.idle_activity").to_string()
                 }
             } else {
                 activities
                     .iter()
                     .map(|activity| match activity {
-                        ProjectActivity::Import => "ファイル読み込み",
-                        ProjectActivity::Probe => "メディア解析",
-                        ProjectActivity::Save => "保存",
-                        ProjectActivity::Load => "プロジェクト読み込み",
-                        ProjectActivity::Export => "書き出し",
+                        ProjectActivity::Import => t!("project.import_activity").to_string(),
+                        ProjectActivity::Probe => t!("project.probe_activity").to_string(),
+                        ProjectActivity::Save => t!("project.save_activity").to_string(),
+                        ProjectActivity::Load => t!("project.load_activity").to_string(),
+                        ProjectActivity::Export => t!("project.export_activity").to_string(),
                     })
                     .collect::<Vec<_>>()
                     .join("・")
             };
             self.notifications.update(cx, |notifications, cx| {
-                notifications.push(format!("{activity}の完了後に終了してください"), cx);
+                notifications.push(
+                    t!("project.wait_activity", activity = activity).to_string(),
+                    cx,
+                );
             });
             return false;
         }
@@ -580,25 +595,25 @@ impl ProjectController {
                     div()
                         .font_family(".SystemUIFont")
                         .font_normal()
-                        .child("未保存の変更"),
+                        .child(t!("project.unsaved_changes").to_string()),
                 )
                 .confirm()
                 .button_props(
                     ModalButtonProps::default()
-                        .ok_text("変更を破棄して終了")
-                        .cancel_text("キャンセル"),
+                        .ok_text(t!("project.discard_exit").to_string())
+                        .cancel_text(t!("common.cancel").to_string()),
                 )
                 .on_ok(|_, window, cx| {
                     window.defer(cx, |window, _| window.remove_window());
                     true
                 })
-                .child("保存されていない変更があります。破棄して終了しますか？")
+                .child(t!("project.discard_exit_prompt").to_string())
         });
         false
     }
 }
 
-fn settings_row(label: &'static str, input: impl IntoElement) -> gpui::Div {
+fn settings_row(label: String, input: impl IntoElement) -> gpui::Div {
     div()
         .w_full()
         .flex()

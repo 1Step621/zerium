@@ -1,4 +1,5 @@
 use super::*;
+use rust_i18n::t;
 
 impl Timeline {
     pub(in crate::ui::timeline) fn update_explorer_drop_target(
@@ -153,11 +154,14 @@ impl Timeline {
             } else if errors.len() == 1 {
                 Some(SharedString::from(errors.remove(0)))
             } else {
-                Some(SharedString::from(format!(
-                    "{}件の読み込みに失敗しました: {}",
-                    errors.len(),
-                    errors.join(" / ")
-                )))
+                Some(SharedString::from(
+                    t!(
+                        "timeline.import_failed_count",
+                        count = errors.len(),
+                        details = errors.join(" / ")
+                    )
+                    .to_string(),
+                ))
             };
             if let Some(error_message) = error.clone() {
                 timeline

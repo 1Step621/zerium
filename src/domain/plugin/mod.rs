@@ -4,6 +4,7 @@ mod abi;
 mod bounds;
 mod bundle;
 mod capability;
+mod category;
 mod effect;
 mod error;
 mod identifier;
@@ -19,6 +20,7 @@ pub(crate) use bundle::Plugin;
 pub(crate) use capability::{
     Capability, FileCapability, MAX_CAPABILITIES, MediaType, TextCapability,
 };
+pub(crate) use category::CatalogCategory;
 pub(crate) use effect::{
     ComputeDispatchDimension, EffectInputSpace, EffectPassSchema, EffectSchema, PassConstantSchema,
     PassConstantValue,
@@ -32,6 +34,7 @@ pub(crate) use shader::{ShaderKind, ShaderSchema};
 pub(crate) trait PluginCatalogEntry {
     fn id(&self) -> &str;
     fn label(&self) -> &str;
+    fn category_id(&self) -> &str;
     fn category(&self) -> &str;
     fn tags(&self) -> &[String];
 }

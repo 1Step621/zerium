@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use super::*;
 
 impl PropertyInspector {
@@ -55,11 +57,11 @@ impl PropertyInspector {
             .checked(checked)
             .disabled(read_only)
             .tooltip(if mixed {
-                "値が混在しています。クリックですべてオン"
+                t!("edit.bool_mixed")
             } else if checked {
-                "オフにする"
+                t!("edit.turn_off")
             } else {
-                "オンにする"
+                t!("edit.turn_on")
             })
             .on_click(move |checked, _, cx| {
                 inspector.update(cx, |inspector, cx| {
@@ -144,19 +146,24 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_2()
-            .child(div().text_xs().text_color(muted_color).child("比率固定"))
+            .child(
+                div()
+                    .text_xs()
+                    .text_color(muted_color)
+                    .child(t!("edit.aspect_lock").to_string()),
+            )
             .child(
                 Switch::new(SharedString::from(format!("aspect-ratio-lock-{key}")))
                     .small()
                     .checked(checked)
                     .tooltip(if state.mixed {
-                        "ロック状態が混在しています。クリックですべてオン"
+                        t!("edit.ratio_mixed")
                     } else if state.multiple {
-                        "各編集対象の現在の縦横比を個別に固定"
+                        t!("edit.lock_each_ratio")
                     } else if checked {
-                        "アスペクト比維持を解除"
+                        t!("edit.unlock_ratio")
                     } else {
-                        "現在のアスペクト比を維持"
+                        t!("edit.lock_ratio")
                     })
                     .on_click(move |checked, _, cx| {
                         editor.update(cx, |editor, cx| {

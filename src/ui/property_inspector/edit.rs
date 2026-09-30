@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use super::*;
 
 #[derive(Clone, Copy)]
@@ -632,7 +634,7 @@ impl PropertyInspector {
             files: true,
             directories: false,
             multiple: false,
-            prompt: Some("ファイルを選択".into()),
+            prompt: Some(t!("edit.choose_file").to_string().into()),
         });
         self.loading_file = true;
         self.file_error = None;
@@ -651,7 +653,7 @@ impl PropertyInspector {
                 Ok(Err(error)) => {
                     if let Some(inspector) = inspector.upgrade() {
                         inspector.update(cx, |inspector, cx| {
-                            let message = format!("ファイルを選択できません: {error}");
+                            let message = t!("edit.select_file_failed", error = error).to_string();
                             inspector.loading_file = false;
                             inspector.file_error = Some(message.clone().into());
                             inspector.notifications.update(cx, |notifications, cx| {
@@ -670,8 +672,7 @@ impl PropertyInspector {
                 Err(error) => {
                     if let Some(inspector) = inspector.upgrade() {
                         inspector.update(cx, |inspector, cx| {
-                            let message =
-                                format!("ファイル選択ダイアログから応答を取得できません: {error}");
+                            let message = t!("edit.file_picker_failed", error = error).to_string();
                             inspector.loading_file = false;
                             inspector.file_error = Some(message.clone().into());
                             inspector.notifications.update(cx, |notifications, cx| {
@@ -756,7 +757,7 @@ impl PropertyInspector {
                         }
                         Ok(_) => {
                             inspector.file_error =
-                                Some("選択したファイルの種類がこのアイテムと一致しません".into());
+                                Some(t!("edit.mismatched_file").to_string().into());
                         }
                         Err(error) => inspector.file_error = Some(error.to_string().into()),
                     }

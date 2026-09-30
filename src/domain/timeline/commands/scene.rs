@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use super::*;
 use crate::domain::property::PropertyPath;
 
@@ -209,7 +211,7 @@ impl TimelineEditor {
             item.start = Frame::new(item.start.get().saturating_sub(start.get()));
         }
         let scene_id = SceneId::new(self.project().id, raw_scene_id);
-        let base_name = "シーン";
+        let base_name = t!("timeline.new_scene").to_string();
         let name = if self
             .project()
             .scenes
@@ -342,8 +344,11 @@ impl TimelineEditor {
         let before = self.history_snapshot();
         let scene = self.project_mut().scenes.get_mut(&scene_id)?;
         let (argument_id, ordinal) = scene.allocate_argument_id();
-        let label =
-            unique_scene_argument_name(&scene.arguments, &format!("引数{ordinal}"), &argument_id);
+        let label = unique_scene_argument_name(
+            &scene.arguments,
+            &t!("args.new_argument", number = ordinal).to_string(),
+            &argument_id,
+        );
         let default = match preset {
             SceneArgumentPreset::Number => PropertyValue::F32(0.),
             SceneArgumentPreset::SignedInteger => PropertyValue::I32(0),
@@ -354,7 +359,7 @@ impl TimelineEditor {
         };
         let schema = PropertySchema {
             id: argument_id.clone(),
-            label,
+            label: label.into(),
             ty: PropertyType::Value(PropertyValueType::Scalar(preset.scalar())),
             default,
             append_default: None,
@@ -403,7 +408,7 @@ impl TimelineEditor {
         if argument.schema.label() == label {
             return false;
         }
-        argument.schema.label = label.to_owned();
+        argument.schema.label = label.into();
         self.project_mut()
             .scenes
             .get_mut(&scene_id)

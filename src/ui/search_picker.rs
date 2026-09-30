@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use std::rc::Rc;
 
 use ::ui::{
@@ -14,6 +16,7 @@ use crate::domain::plugin::PluginCatalogEntry;
 #[derive(Clone)]
 pub(crate) struct SearchPickerEntry<T> {
     label: SharedString,
+    category_id: SharedString,
     category: SharedString,
     searchable_text: String,
     value: T,
@@ -25,11 +28,23 @@ impl<T> SearchPickerEntry<T> {
         category: impl Into<SharedString>,
         value: T,
     ) -> Self {
+        let category = category.into();
+        Self::with_category_id(label, category.clone(), category, value)
+    }
+
+    fn with_category_id(
+        label: impl Into<SharedString>,
+        category_id: impl Into<SharedString>,
+        category: impl Into<SharedString>,
+        value: T,
+    ) -> Self {
         let label = label.into();
+        let category_id = category_id.into();
         let category = category.into();
         let searchable_text = format!("{label}\n{category}").to_lowercase();
         Self {
             label,
+            category_id,
             category,
             searchable_text,
             value,
@@ -52,8 +67,9 @@ impl<T> SearchPickerEntry<T> {
         schema: &impl PluginCatalogEntry,
         value: T,
     ) -> Self {
-        Self::new(
+        Self::with_category_id(
             schema.label().to_owned(),
+            schema.category_id().to_owned(),
             schema.category().to_owned(),
             value,
         )
@@ -73,6 +89,7 @@ impl<T> SearchPickerEntry<T> {
 }
 
 struct SearchPickerSection {
+    category_id: SharedString,
     category: SharedString,
     entry_indices: Vec<usize>,
 }
@@ -86,9 +103,8 @@ struct SearchPickerDelegate<T> {
 impl<T> SearchPickerDelegate<T> {
     fn new(mut entries: Vec<SearchPickerEntry<T>>) -> Self {
         entries.sort_by(|left, right| {
-            left.category
-                .to_lowercase()
-                .cmp(&right.category.to_lowercase())
+            left.category_id
+                .cmp(&right.category_id)
                 .then_with(|| left.label.to_lowercase().cmp(&right.label.to_lowercase()))
         });
         let visible_sections = Self::matching_sections(&entries, "");
@@ -111,9 +127,10 @@ impl<T> SearchPickerDelegate<T> {
         {
             if sections
                 .last()
-                .is_none_or(|section| section.category != entry.category)
+                .is_none_or(|section| section.category_id != entry.category_id)
             {
                 sections.push(SearchPickerSection {
+                    category_id: entry.category_id.clone(),
                     category: entry.category.clone(),
                     entry_indices: Vec::new(),
                 });
@@ -124,6 +141,12 @@ impl<T> SearchPickerDelegate<T> {
                 .entry_indices
                 .push(index);
         }
+        sections.sort_by(|left, right| {
+            left.category
+                .to_lowercase()
+                .cmp(&right.category.to_lowercase())
+                .then_with(|| left.category_id.cmp(&right.category_id))
+        });
         sections
     }
 
@@ -210,7 +233,7 @@ impl<T: Clone + 'static> ListDelegate for SearchPickerDelegate<T> {
             .py_6()
             .text_sm()
             .text_color(cx.theme().muted_foreground)
-            .child("該当する候補がありません")
+            .child(t!("app.no_matching_candidates").to_string())
     }
 
     fn perform_search(

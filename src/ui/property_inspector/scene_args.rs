@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use super::rows::RenderCtx;
 use super::*;
 
@@ -631,10 +633,13 @@ impl PropertyInspector {
                 div()
                     .text_sm()
                     .text_color(render.colors.muted_foreground)
-                    .child("シーン設定"),
+                    .child(t!("args.scene_settings").to_string()),
             );
         if let Some(input) = active_scene_name_input {
-            section = section.child(Self::scene_text_input_row("シーン名", input));
+            section = section.child(Self::scene_text_input_row(
+                t!("args.scene_name").to_string(),
+                input,
+            ));
         }
         section
             .child(Self::scene_arguments_header(render.editor))
@@ -649,21 +654,31 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .justify_between()
-            .child(div().text_sm().child("シーン引数"))
+            .child(
+                div()
+                    .text_sm()
+                    .child(t!("args.scene_arguments").to_string()),
+            )
             .child(
                 Button::new("create-scene-argument")
                     .small()
                     .compact()
-                    .label("引数を作成")
+                    .label(t!("args.create").to_string())
                     .dropdown_caret(true)
                     .popup_menu(move |menu, _, _| {
                         [
-                            ("小数", SceneArgumentPreset::Number),
-                            ("整数", SceneArgumentPreset::SignedInteger),
-                            ("非負の整数", SceneArgumentPreset::UnsignedInteger),
-                            ("真偽値", SceneArgumentPreset::Boolean),
-                            ("色", SceneArgumentPreset::Color),
-                            ("文字列", SceneArgumentPreset::Text),
+                            (t!("args.number").to_string(), SceneArgumentPreset::Number),
+                            (
+                                t!("args.integer").to_string(),
+                                SceneArgumentPreset::SignedInteger,
+                            ),
+                            (
+                                t!("args.unsigned_integer").to_string(),
+                                SceneArgumentPreset::UnsignedInteger,
+                            ),
+                            (t!("args.boolean").to_string(), SceneArgumentPreset::Boolean),
+                            (t!("args.color").to_string(), SceneArgumentPreset::Color),
+                            (t!("args.string").to_string(), SceneArgumentPreset::Text),
                         ]
                         .into_iter()
                         .fold(menu, |menu, (label, ty)| {
@@ -754,7 +769,7 @@ impl PropertyInspector {
                     .whitespace_nowrap()
                     .text_sm()
                     .text_color(render.colors.muted_foreground)
-                    .child(format!("{}件接続", argument.binding_count)),
+                    .child(t!("args.binding_count", count = argument.binding_count).to_string()),
             )
             .child(
                 Button::new(SharedString::from(format!(
@@ -766,7 +781,7 @@ impl PropertyInspector {
                 .flex_none()
                 .ghost()
                 .icon(IconName::ChevronUp)
-                .tooltip("上へ移動")
+                .tooltip(t!("common.move_up").to_string())
                 .disabled(index == 0)
                 .on_click(move |_, _, cx| {
                     move_up_editor.update(cx, |editor, cx| {
@@ -786,7 +801,7 @@ impl PropertyInspector {
                 .flex_none()
                 .ghost()
                 .icon(IconName::ChevronDown)
-                .tooltip("下へ移動")
+                .tooltip(t!("common.move_down").to_string())
                 .disabled(index + 1 == count)
                 .on_click(move |_, _, cx| {
                     move_down_editor.update(cx, |editor, cx| {
@@ -811,9 +826,9 @@ impl PropertyInspector {
                     IconName::ChevronRight
                 })
                 .tooltip(if expanded {
-                    "詳細設定を折り畳む"
+                    t!("args.collapse").to_string()
                 } else {
-                    "詳細設定を展開"
+                    t!("args.expand").to_string()
                 })
                 .on_click(move |_, _, cx| {
                     expand_inspector.update(cx, |inspector, cx| {
@@ -831,7 +846,7 @@ impl PropertyInspector {
                 .flex_none()
                 .ghost()
                 .icon(IconName::Delete)
-                .tooltip("引数を削除")
+                .tooltip(t!("args.remove").to_string())
                 .on_click(move |_, _, cx| {
                     remove_inspector.update(cx, |inspector, cx| {
                         let result = inspector.editor.update(cx, |editor, cx| {
@@ -843,7 +858,7 @@ impl PropertyInspector {
                         });
                         if result.is_err() {
                             inspector.notifications.update(cx, |notifications, cx| {
-                                notifications.push("シーン引数を削除できません", cx);
+                                notifications.push(t!("args.remove_failed").to_string(), cx);
                             });
                         }
                     });
@@ -869,7 +884,7 @@ impl PropertyInspector {
             ))
         {
             details = details.child(Self::scene_text_input_row(
-                "デフォルト",
+                t!("args.default").to_string(),
                 input.input.clone(),
             ));
         }
@@ -919,7 +934,7 @@ impl PropertyInspector {
                 .flex_col()
                 .gap_2()
                 .child(Self::scene_argument_setting_row(
-                    "デフォルト",
+                    t!("args.default").to_string(),
                     &default,
                     argument.scene_id,
                     &argument.id,
@@ -927,7 +942,7 @@ impl PropertyInspector {
                     &render.inspector,
                 ))
                 .child(Self::scene_argument_setting_row(
-                    "最小",
+                    t!("args.minimum").to_string(),
                     &min,
                     argument.scene_id,
                     &argument.id,
@@ -935,7 +950,7 @@ impl PropertyInspector {
                     &render.inspector,
                 ))
                 .child(Self::scene_argument_setting_row(
-                    "最大",
+                    t!("args.maximum").to_string(),
                     &max,
                     argument.scene_id,
                     &argument.id,
@@ -947,7 +962,7 @@ impl PropertyInspector {
     }
 
     fn scene_argument_setting_row(
-        label: &'static str,
+        label: String,
         input: &Entity<InputState>,
         scene_id: SceneId,
         argument_id: &str,
@@ -993,7 +1008,7 @@ impl PropertyInspector {
             .into_any_element()
     }
 
-    fn scene_text_input_row(label: &'static str, input: Entity<InputState>) -> Div {
+    fn scene_text_input_row(label: String, input: Entity<InputState>) -> Div {
         div()
             .w_full()
             .min_w_0()
@@ -1016,7 +1031,7 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_3()
-            .child(Self::property_label_column("デフォルト"))
+            .child(Self::property_label_column(t!("args.default").to_string()))
             .child(
                 div()
                     .w_0()
@@ -1034,7 +1049,7 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_3()
-            .child(Self::property_label_column("デフォルト"))
+            .child(Self::property_label_column(t!("args.default").to_string()))
             .child(
                 Switch::new(SharedString::from(format!(
                     "scene-argument-default-{switch_id}"
@@ -1088,11 +1103,11 @@ fn numeric_settings(number: &NumericInput, schema: &PropertySchema) -> Option<[S
     ])
 }
 
-fn scene_argument_setting_placeholder(setting: SceneArgumentSetting) -> &'static str {
+fn scene_argument_setting_placeholder(setting: SceneArgumentSetting) -> String {
     match setting {
-        SceneArgumentSetting::Default => "",
-        SceneArgumentSetting::Min => "下限なし",
-        SceneArgumentSetting::Max => "上限なし",
+        SceneArgumentSetting::Default => String::new(),
+        SceneArgumentSetting::Min => t!("args.no_minimum").to_string(),
+        SceneArgumentSetting::Max => t!("args.no_maximum").to_string(),
     }
 }
 

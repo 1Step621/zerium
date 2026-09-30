@@ -96,26 +96,26 @@ pub(crate) enum SceneArgumentEditError {
 /// the UI does not have to guess why they failed.
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub(crate) enum TimelineEditError {
-    #[error("アイテム '{plugin_id}/{item_id}' がありません")]
+    #[error("Item '{plugin_id}/{item_id}' was not found")]
     PluginItemNotFound { plugin_id: String, item_id: String },
-    #[error("エフェクト '{plugin_id}/{effect_id}' がありません")]
+    #[error("Effect '{plugin_id}/{effect_id}' was not found")]
     PluginEffectNotFound {
         plugin_id: String,
         effect_id: String,
     },
-    #[error("シーン {} がありません", .0.get())]
+    #[error("Scene {} was not found", .0.get())]
     SceneNotFound(SceneId),
-    #[error("シーン参照が循環します")]
+    #[error("Scene reference cycle detected")]
     RecursiveSceneReference,
-    #[error("対象のアイテムが選択されていません")]
+    #[error("No target item is selected")]
     NothingSelected,
-    #[error("新しいIDを割り当てられません")]
+    #[error("Could not allocate a new ID")]
     IdentifierExhausted,
-    #[error("指定した位置にアイテムを配置できません")]
+    #[error("Cannot place item at the specified position")]
     PlacementUnavailable,
-    #[error("アイテム {} がありません", .0.get())]
+    #[error("Item {} was not found", .0.get())]
     ItemNotFound(ItemId),
-    #[error("ファイルの種類がアイテム入力と一致しません")]
+    #[error("File type does not match the item input")]
     IncompatibleMedia,
 }
 

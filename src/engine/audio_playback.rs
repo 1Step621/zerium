@@ -41,7 +41,7 @@ pub(crate) enum AudioPlaybackEvent {
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub(crate) enum AudioPlaybackError {
-    #[error("音声出力デバイスが見つかりません")]
+    #[error("No audio output device was found")]
     DeviceUnavailable,
     #[error("{0}")]
     Configuration(String),
@@ -164,7 +164,9 @@ impl AudioPlaybackEngine {
             .default_output_device()
             .ok_or(AudioPlaybackError::DeviceUnavailable)?;
         let supported = device.default_output_config().map_err(|error| {
-            AudioPlaybackError::Configuration(format!("音声出力設定を取得できません: {error}"))
+            AudioPlaybackError::Configuration(format!(
+                "Failed to get audio output configuration: {error}"
+            ))
         })?;
         let format = AudioFormat {
             sample_rate: supported.sample_rate().0,
@@ -219,7 +221,7 @@ impl AudioPlaybackEngine {
             }
             for sample in block {
                 producer.push(sample).map_err(|_| {
-                    AudioPlaybackError::Worker("初期音声バッファが不足しています".to_owned())
+                    AudioPlaybackError::Worker("Initial audio buffer is too small".to_owned())
                 })?;
             }
             prebuffered_frames = prebuffered_frames.saturating_add(MIX_BLOCK_SAMPLE_FRAMES as u64);
@@ -287,14 +289,14 @@ impl AudioPlaybackEngine {
                 Ok(())
             })
             .map_err(|error| {
-                AudioPlaybackError::Worker(format!("音声レンダースレッドを開始できません: {error}"))
+                AudioPlaybackError::Worker(format!("Failed to start audio render thread: {error}"))
             })?;
 
         if let Err(error) = stream.play() {
             stop.store(true, Ordering::Release);
             self.retire_worker(worker, events, underrun, false);
             return Err(AudioPlaybackError::Stream(format!(
-                "音声再生を開始できません: {error}"
+                "Failed to start audio playback: {error}"
             )));
         }
         self.session = Some(AudioPlaybackSession {
@@ -514,7 +516,7 @@ fn build_output_stream(
                     None,
                 )
                 .map_err(|error| {
-                    AudioPlaybackError::Stream(format!("音声出力を作成できません: {error}"))
+                    AudioPlaybackError::Stream(format!("Failed to create audio output: {error}"))
                 })
         }
         cpal::SampleFormat::I16 => {
@@ -539,7 +541,7 @@ fn build_output_stream(
                     None,
                 )
                 .map_err(|error| {
-                    AudioPlaybackError::Stream(format!("音声出力を作成できません: {error}"))
+                    AudioPlaybackError::Stream(format!("Failed to create audio output: {error}"))
                 })
         }
         cpal::SampleFormat::U16 => {
@@ -564,11 +566,11 @@ fn build_output_stream(
                     None,
                 )
                 .map_err(|error| {
-                    AudioPlaybackError::Stream(format!("音声出力を作成できません: {error}"))
+                    AudioPlaybackError::Stream(format!("Failed to create audio output: {error}"))
                 })
         }
         format => Err(AudioPlaybackError::Configuration(format!(
-            "未対応の音声出力サンプル形式です: {format:?}"
+            "Unsupported audio output sample format: {format:?}"
         ))),
     }
 }

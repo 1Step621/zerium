@@ -25,8 +25,11 @@ The root contract is versioned independently from the plugin release:
   "id": "com.example.plugin",
   "items": [{
     "id": "shape",
-    "label": "Shape",
-    "category": "Example",
+    "label": { "ja-JP": "図形", "en-US": "Shape" },
+    "category": {
+      "id": "example",
+      "label": { "ja-JP": "サンプル", "en-US": "Example" }
+    },
     "symbol": "■",
     "shader": { "module": "shape" },
     "capabilities": []
@@ -36,6 +39,16 @@ The root contract is versioned independently from the plugin release:
 
 `api_version` must be `1` during the current development cycle.
 Each plugin must define at least one item or effect.
+Every user-facing plugin label is a locale map keyed by BCP 47 tags, such as
+`ja-JP` and `en-US`. This applies to item and effect labels and category labels,
+property and scalar labels, enum variant labels, and file input labels. Zerium
+uses the operating-system locale as-is and resolves each label independently:
+it tries the exact locale, then `en-US`, and then the first available
+translation. Unsupported operating-system locales therefore use English when
+the plugin provides it. Plugin validation errors stay in English. Each
+category also has a stable `id` separate from its localized `label`. Catalog
+pickers group by this ID, so localized labels do not split one category into
+separate groups. Plugins can use the same category ID to group entries together.
 The root envelope is deserialized privately. `ItemSchema` and `EffectSchema`
 each validate themselves at their deserialization boundary; the root then
 checks the API version and collection-wide uniqueness before returning a
@@ -98,14 +111,17 @@ capability textures contain scene-linear, premultiplied color. For example:
 ```json
 {
   "id": "video",
-  "label": "Video",
-  "category": "Media",
+  "label": { "ja-JP": "動画", "en-US": "Video" },
+  "category": {
+    "id": "media",
+    "label": { "ja-JP": "メディア", "en-US": "Media" }
+  },
   "symbol": "▶",
   "shader": { "module": "media" },
   "capabilities": [{
     "type": "media",
     "id": "source",
-    "label": "Source",
+    "label": { "ja-JP": "ソース", "en-US": "Source" },
     "media_type": "video",
     "reader": "zerium.ffmpeg",
     "extensions": ["mp4", "mov"]
@@ -198,19 +214,19 @@ and animated independently, but are not modeled as separate property lanes.
 ```json
 {
   "id": "position",
-  "label": "Position",
+  "label": { "ja-JP": "位置", "en-US": "Position" },
   "type": {"value": ["f32", "f32"]},
   "default": {"tuple": [{"f32": 0}, {"f32": 0}]},
   "configurations": [
     {
       "animatable": true,
       "constraints": {"min": -1000000, "max": 1000000},
-      "ui": {"label": "X", "unit": "px", "step": 1}
+      "ui": {"label": {"ja-JP": "X", "en-US": "X"}, "unit": "px", "step": 1}
     },
     {
       "animatable": true,
       "constraints": {"min": -1000000, "max": 1000000},
-      "ui": {"label": "Y", "unit": "px", "step": 1}
+      "ui": {"label": {"ja-JP": "Y", "en-US": "Y"}, "unit": "px", "step": 1}
     }
   ]
 }
@@ -315,7 +331,7 @@ Finite choices are types, not UI options:
   "type": { "value": { "enum": [0, 1] } },
   "default": { "enum": 0 },
   "configurations": [{
-    "ui": { "enum_variants": { "0": "Outside", "1": "Inside" } }
+    "ui": { "enum_variants": { "0": {"en-US": "Outside"}, "1": {"en-US": "Inside"} } }
   }]
 }
 ```
@@ -349,7 +365,7 @@ an array of tuples.
 ```json
 {
   "id": "entry",
-  "label": "Entry",
+  "label": {"en-US": "Entry"},
   "type": {"value": ["f32", {"enum": [2, 7]}, "string", "color"]},
   "default": {"tuple": [
     {"f32": 1}, {"enum": 2}, {"string": "Caption"}, {"color": [1, 1, 1, 1]}
@@ -358,14 +374,14 @@ an array of tuples.
     {
       "animatable": true,
       "constraints": {"min": 0, "max": 10},
-      "ui": {"label": "Width", "unit": "px"}
+      "ui": {"label": {"en-US": "Width"}, "unit": "px"}
     },
-    {"ui": {"label": "Mode", "enum_variants": {"2": "Low", "7": "High"}}},
-    {"ui": {"label": "Caption", "multiline": true}},
+    {"ui": {"label": {"en-US": "Mode"}, "enum_variants": {"2": {"en-US": "Low"}, "7": {"en-US": "High"}}}},
+    {"ui": {"label": {"en-US": "Caption"}, "multiline": true}},
     {
       "animatable": true,
       "constraints": {"min": 0, "max": 1},
-      "ui": {"label": "Tint"}
+      "ui": {"label": {"en-US": "Tint"}}
     }
   ]
 }
@@ -554,15 +570,15 @@ top-level shader and no implicit render pass.
 ```json
 {
   "id": "blur",
-  "label": "Blur",
-  "category": "Blur",
+  "label": {"en-US": "Blur"},
+  "category": {"id": "blur", "label": {"en-US": "Blur"}},
   "output_bounds": {
     "min": ["input::min::x - p::radius * 4", "input::min::y - p::radius * 4"],
     "max": ["input::max::x + p::radius * 4", "input::max::y + p::radius * 4"]
   },
   "properties": [{
     "id": "radius",
-    "label": "Radius",
+    "label": {"en-US": "Radius"},
     "type": { "value": "f32" },
     "default": { "f32": 8 },
     "configurations": [{

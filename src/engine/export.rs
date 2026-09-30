@@ -97,7 +97,7 @@ pub(crate) fn export_timeline(
     let frame_count = timeline.end_frame_exclusive().get();
     if frame_count == 0 {
         return Err(ExportError::InvalidTimeline(
-            "タイムラインに書き出せるアイテムがありません".to_owned(),
+            "There are no items to export on the timeline".to_owned(),
         ));
     }
     let frame_rate = timeline.frame_rate();
@@ -118,7 +118,7 @@ pub(crate) fn export_timeline(
     )
     .map_err(|error| ExportError::encoding(error.to_string()))?;
     let video_frame_rate = VideoFrameRate::new(frame_rate.numerator(), frame_rate.denominator())
-        .ok_or_else(|| ExportError::encoding("出力フレームレートが不正です"))?;
+        .ok_or_else(|| ExportError::encoding("Invalid output frame rate"))?;
     let mut readbacks = ExportFramePipeline::new(renderer, size, EXPORT_PIPELINE_DEPTH)?;
     let output = settings.output;
     let (frames_to_encode, rendered_frames) = mpsc::sync_channel(EXPORT_PIPELINE_DEPTH);
@@ -135,7 +135,7 @@ pub(crate) fn export_timeline(
             )
         })
         .map_err(|error| {
-            ExportError::encoding(format!("映像エンコードスレッドを開始できません: {error}"))
+            ExportError::encoding(format!("Failed to start video encoding thread: {error}"))
         })?;
     // Scene evaluation, video decoding, and text rasterization run ahead on a
     // worker so the render thread only waits on the GPU, never on the CPU.
@@ -152,13 +152,13 @@ pub(crate) fn export_timeline(
             )
         })
         .map_err(|error| {
-            ExportError::encoding(format!("映像デコードスレッドを開始できません: {error}"))
+            ExportError::encoding(format!("Failed to start video decoding thread: {error}"))
         })?;
 
     let render_result = (|| {
         for _ in 0..frame_count {
             let (frame_index, scene) = decoded_scenes_rx.recv().map_err(|_| {
-                ExportError::encoding("映像デコードスレッドが予期せず終了しました")
+                ExportError::encoding("Video decoding thread terminated unexpectedly")
             })??;
             if let Some(frame) = readbacks.submit(frame_index, &scene)? {
                 send_frame(&frames_to_encode, frame)?;
@@ -170,7 +170,7 @@ pub(crate) fn export_timeline(
         }
         frames_to_encode
             .send(EncoderMessage::Complete)
-            .map_err(|_| ExportError::encoding("映像エンコーダーが予期せず終了しました"))?;
+            .map_err(|_| ExportError::encoding("Video encoder terminated unexpectedly"))?;
         Ok(())
     })();
     drop(decoded_scenes_rx);
@@ -178,15 +178,15 @@ pub(crate) fn export_timeline(
     drop(frames_to_encode);
     let encoding_result = encoder_worker
         .join()
-        .map_err(|_| ExportError::encoding("映像エンコードスレッドが予期せず終了しました"))?;
+        .map_err(|_| ExportError::encoding("Video encoding thread terminated unexpectedly"))?;
     match (render_result, decode_result, encoding_result) {
         (Err(error), _, _) => Err(error),
         (Ok(()), Err(_), _) => Err(ExportError::encoding(
-            "映像デコードスレッドが予期せず終了しました",
+            "Video decoding thread terminated unexpectedly",
         )),
         (Ok(()), Ok(()), Err(EncoderWorkerError::Export(error))) => Err(error),
         (Ok(()), Ok(()), Err(EncoderWorkerError::IncompleteInput)) => Err(ExportError::encoding(
-            "レンダリングが完了する前に書き出し入力が閉じられました",
+            "Export input closed before rendering completed",
         )),
         (Ok(()), Ok(()), Ok(())) => Ok(()),
     }
@@ -242,7 +242,7 @@ fn send_frame(
 ) -> Result<(), ExportError> {
     sender
         .send(EncoderMessage::Frame { index, yuv })
-        .map_err(|_| ExportError::encoding("映像エンコーダーが予期せず終了しました"))
+        .map_err(|_| ExportError::encoding("Video encoder terminated unexpectedly"))
 }
 
 fn encode_frames(
@@ -255,7 +255,7 @@ fn encode_frames(
 ) -> Result<(), EncoderWorkerError> {
     let transaction = AtomicFileTransaction::new(&output).map_err(|error| {
         ExportError::encoding(format!(
-            "出力一時ファイル'{}'を作成できません: {error}",
+            "Failed to create output temporary file '{}': {error}",
             output.display()
         ))
     })?;
@@ -282,7 +282,7 @@ fn encode_frames(
             encoder.finish().map_err(ExportError::encoding)?;
             transaction.commit().map_err(|error| {
                 ExportError::encoding(format!(
-                    "出力'{}'を確定できません: {error}",
+                    "Failed to finalize output '{}': {error}",
                     output.display()
                 ))
             })?;
@@ -299,7 +299,7 @@ fn encode_frames(
                 EXPORT_AUDIO_FORMAT.sample_rate,
             );
             let frame_count = usize::try_from(end.saturating_sub(start))
-                .map_err(|_| ExportError::encoding("書き出し音声範囲が大きすぎます"))?;
+                .map_err(|_| ExportError::encoding("Export audio range is too large"))?;
             let audio = audio_graph
                 .render(start, frame_count)
                 .map_err(|error| ExportError::encoding(error.to_string()))?;
@@ -401,8 +401,10 @@ fn looped_presentation_time(
 ) -> Result<Duration, ExportError> {
     let duration = stream_duration.as_secs_f64();
     if !local_seconds.is_finite() || local_seconds < 0. || !duration.is_finite() || duration <= 0. {
-        return Err(ExportError::encoding("映像ストリームの再生時刻が不正です"));
+        return Err(ExportError::encoding(
+            "Invalid video stream presentation timestamp",
+        ));
     }
     Duration::try_from_secs_f64(local_seconds.rem_euclid(duration))
-        .map_err(|_| ExportError::encoding("映像ストリームの再生時刻が不正です"))
+        .map_err(|_| ExportError::encoding("Invalid video stream presentation timestamp"))
 }

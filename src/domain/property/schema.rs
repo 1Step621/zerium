@@ -1,6 +1,7 @@
 //! Property schemas, scalar metadata, and semantic validation.
 
 use super::{PropertyError, constraints::PropertyConstraints, metadata::PropertyUi};
+use crate::domain::localized_text::LocalizedText;
 use crate::domain::property::{PropertyType, PropertyValue, PropertyValueType, ScalarPropertyType};
 use serde::{Deserialize, Serialize};
 
@@ -66,7 +67,7 @@ impl PropertyConfiguration {
 #[serde(deny_unknown_fields)]
 pub(crate) struct PropertySchema {
     pub(in crate::domain) id: String,
-    pub(in crate::domain) label: String,
+    pub(in crate::domain) label: LocalizedText,
     #[serde(rename = "type")]
     pub(in crate::domain) ty: PropertyType,
     pub(in crate::domain) default: PropertyValue,
@@ -113,7 +114,7 @@ impl PropertySchema {
     }
 
     pub(crate) fn label(&self) -> &str {
-        &self.label
+        self.label.resolve()
     }
 
     pub(crate) fn ty(&self) -> &PropertyType {
@@ -263,7 +264,7 @@ impl PropertySchema {
                 "default does not match its type",
             ));
         }
-        if self.label.trim().is_empty() {
+        if self.label.is_empty() {
             return Err(self.validation_error(owner_kind, owner_id, "label must not be empty"));
         }
 

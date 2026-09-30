@@ -1,7 +1,9 @@
+use rust_i18n::t;
+
 use super::*;
 
 impl Timeline {
-    fn transport_button(id: &'static str, icon: Icon, tooltip: &'static str) -> Button {
+    fn transport_button(id: &'static str, icon: Icon, tooltip: String) -> Button {
         Button::new(id)
             .icon(icon)
             .tooltip(tooltip)
@@ -37,7 +39,7 @@ impl Timeline {
                     .find(|(scene_id, _)| *scene_id == id)
                     .map(|(_, name)| name.clone())
             })
-            .unwrap_or_else(|| "メイン".to_owned());
+            .unwrap_or_else(|| t!("timeline.main_scene").to_string());
         let mut label_width = 0;
         let active_scene_label = active_scene_name
             .char_indices()
@@ -53,9 +55,9 @@ impl Timeline {
             IconName::Play
         };
         let playback_tooltip = if self.transport.read(cx).is_playing() {
-            "一時停止"
+            t!("timeline.pause").to_string()
         } else {
-            "再生"
+            t!("timeline.play").to_string()
         };
 
         div()
@@ -88,7 +90,7 @@ impl Timeline {
                                 Self::transport_button(
                                     "timeline-previous",
                                     Icon::new(IconName::ChevronLeft),
-                                    "前のフレーム",
+                                    t!("timeline.previous_frame").to_string(),
                                 )
                                 .on_click(cx.listener(Self::previous_frame)),
                             )
@@ -104,7 +106,7 @@ impl Timeline {
                                 Self::transport_button(
                                     "timeline-next",
                                     Icon::new(IconName::ChevronRight),
-                                    "次のフレーム",
+                                    t!("timeline.next_frame").to_string(),
                                 )
                                 .on_click(cx.listener(Self::next_frame)),
                             ),
@@ -124,13 +126,14 @@ impl Timeline {
                                 let timeline = cx.entity();
                                 move |menu, _, _| {
                                     let root_timeline = timeline.clone();
-                                    let menu = menu.item(PopupMenuItem::new("メイン").on_click(
-                                        move |_, _, cx| {
-                                            root_timeline.update(cx, |timeline, cx| {
-                                                timeline.switch_scene(None, cx);
-                                            });
-                                        },
-                                    ));
+                                    let menu = menu.item(
+                                        PopupMenuItem::new(t!("timeline.main_scene").to_string())
+                                            .on_click(move |_, _, cx| {
+                                                root_timeline.update(cx, |timeline, cx| {
+                                                    timeline.switch_scene(None, cx);
+                                                });
+                                            }),
+                                    );
                                     scenes.iter().cloned().fold(
                                         menu.separator(),
                                         |menu, (id, name)| {
@@ -260,9 +263,9 @@ impl Timeline {
                     IconName::Eye
                 })
                 .tooltip(if hidden {
-                    "レイヤーを表示"
+                    t!("timeline.show_layer").to_string()
                 } else {
-                    "レイヤーを非表示"
+                    t!("timeline.hide_layer").to_string()
                 })
                 .on_click(move |_, _, cx| {
                     editor.update(cx, |editor, cx| {
@@ -920,9 +923,10 @@ impl Render for Timeline {
                                             .items_on_layer(LayerId::new(layer_index as u64))
                                             .into_iter()
                                             .map(|item| {
-                                                let label = editor
-                                                    .item_label(item.id)
-                                                    .unwrap_or_else(|| "不明なアイテム".to_owned());
+                                                let label =
+                                                    editor.item_label(item.id).unwrap_or_else(
+                                                        || t!("timeline.unknown_item").to_string(),
+                                                    );
                                                 TimelineItemRenderData { item, label }
                                             })
                                             .collect()
@@ -967,14 +971,14 @@ impl Render for Timeline {
                                 .bg(colors.background.opacity(0.96))
                                 .shadow_md()
                                 .text_sm()
-                                .child("このシーンは空です")
+                                .child(t!("timeline.empty_scene").to_string())
                                 .child(
                                     Button::new("timeline-delete-empty-scene")
                                         .small()
                                         .danger()
                                         .icon(IconName::Delete)
-                                        .label("シーンを削除")
-                                        .tooltip("このシーンと、配置済みの全インスタンスを削除")
+                                        .label(t!("timeline.delete_scene").to_string())
+                                        .tooltip(t!("timeline.delete_scene_tooltip").to_string())
                                         .on_click(cx.listener(Self::delete_empty_scene)),
                                 ),
                         ),

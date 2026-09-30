@@ -27,7 +27,7 @@ pub(crate) enum AudioGainEvaluation {
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub(crate) enum AudioTimelineError {
     #[error(
-        "音声入力'{}'（item {:?}）を処理できません: {error}",
+        "Failed to process audio input '{}' (item {:?}): {error}",
         clip.input_id,
         clip.item_id
     )]
@@ -37,12 +37,12 @@ pub(crate) enum AudioTimelineError {
         error: MediaError,
     },
     #[error(
-        "音声入力'{}'（item {:?}）が不正な形式を返しました",
+        "Audio input '{}' (item {:?}) returned invalid data",
         clip.input_id,
         clip.item_id
     )]
     InvalidDecoderOutput { clip: AudioClipId },
-    #[error("音声レンダー範囲が大きすぎます")]
+    #[error("Audio render range is too large")]
     RangeTooLarge,
 }
 

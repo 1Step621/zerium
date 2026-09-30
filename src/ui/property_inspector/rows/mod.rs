@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use super::control::{Control, ElementGroup, ElementKind, LeafControl, NumberControl};
 use super::edit::ArrayEdit;
 use super::state::ControlStore;
@@ -166,23 +168,23 @@ impl PropertyInspector {
         key: SharedString,
     ) -> gpui::AnyElement {
         let menu_inspector = inspector.clone();
-        let button_label = binding
-            .connected
-            .as_ref()
-            .map_or_else(|| "引数".to_owned(), |(_, label)| format!("→ {label}"));
+        let button_label = binding.connected.as_ref().map_or_else(
+            || t!("rows.argument").to_string(),
+            |(_, label)| format!("→ {label}"),
+        );
         Button::new(key)
             .small()
             .compact()
             .ghost()
             .label(button_label)
             .dropdown_caret(true)
-            .tooltip("シーン引数との接続を設定")
+            .tooltip(t!("rows.bind_tooltip").to_string())
             .popup_menu(move |menu, _, _| {
                 if let Some((argument_id, _)) = &binding.connected {
                     let inspector = menu_inspector.clone();
                     let argument_id = argument_id.clone();
                     let target = binding.target.clone();
-                    return menu.item(PopupMenuItem::new("接続を解除").on_click(
+                    return menu.item(PopupMenuItem::new(t!("rows.unbind").to_string()).on_click(
                         move |_, _, cx| {
                             inspector.update(cx, |inspector, cx| {
                                 let result = inspector.editor.update(cx, |editor, cx| {
@@ -195,7 +197,8 @@ impl PropertyInspector {
                                 });
                                 if result.is_err() {
                                     inspector.notifications.update(cx, |notifications, cx| {
-                                        notifications.push("シーン引数の接続を解除できません", cx);
+                                        notifications
+                                            .push(t!("rows.unbind_failed").to_string(), cx);
                                     });
                                 }
                             });
@@ -222,7 +225,7 @@ impl PropertyInspector {
                                 });
                                 if result.is_err() {
                                     inspector.notifications.update(cx, |notifications, cx| {
-                                        notifications.push("シーン引数へ接続できません", cx);
+                                        notifications.push(t!("rows.bind_failed").to_string(), cx);
                                     });
                                 }
                             });
@@ -275,11 +278,11 @@ impl PropertyInspector {
             SharedString::from(format!("toggle-animation-{}", target.key)),
             visible,
             if disabled {
-                "アスペクト比維持中は幅から自動計算".to_owned()
+                t!("rows.aspect_auto").to_string()
             } else if enabled {
-                "この座標のアニメーションを解除".to_owned()
+                t!("rows.unanimate_axis").to_string()
             } else {
-                "この座標をアニメーションする".to_owned()
+                t!("rows.animate_axis").to_string()
             },
         )
         .tab_stop(!disabled)
@@ -304,9 +307,9 @@ impl PropertyInspector {
             SharedString::from(format!("toggle-animation-{}", target.key)),
             enabled,
             if enabled {
-                "アニメーションを解除".to_owned()
+                t!("rows.unanimate").to_string()
             } else {
-                "色全体をアニメーションする".to_owned()
+                t!("rows.animate_color").to_string()
             },
         )
         .on_click(move |_, window, cx| {
@@ -325,9 +328,13 @@ impl PropertyInspector {
         ctx: &RenderCtx,
     ) -> Button {
         let (suffix, icon, tooltip) = match edit {
-            ArrayEdit::MoveUp(_) => ("up", IconName::ChevronUp, "上へ移動"),
-            ArrayEdit::MoveDown(_) => ("down", IconName::ChevronDown, "下へ移動"),
-            ArrayEdit::Remove(_) => ("remove", IconName::Delete, "削除"),
+            ArrayEdit::MoveUp(_) => ("up", IconName::ChevronUp, t!("rows.move_up").to_string()),
+            ArrayEdit::MoveDown(_) => (
+                "down",
+                IconName::ChevronDown,
+                t!("rows.move_down").to_string(),
+            ),
+            ArrayEdit::Remove(_) => ("remove", IconName::Delete, t!("rows.remove").to_string()),
         };
         let editor = ctx.editor.clone();
         let effect_id = group.target.effect_id;
@@ -443,7 +450,7 @@ impl PropertyInspector {
                     picker_target.element_id = Some(row.element_id());
                     picker_target.scalar_index = None;
                     let label = if selected_font.is_empty() {
-                        "フォントを選択".to_owned()
+                        t!("rows.choose_font").to_string()
                     } else {
                         selected_font.clone()
                     };
@@ -470,7 +477,7 @@ impl PropertyInspector {
                             cx.new(|cx| {
                                 SearchPicker::new(
                                     entries,
-                                    "フォントを検索",
+                                    t!("rows.search_font").to_string(),
                                     move |font, _, cx| {
                                         inspector.update(cx, |inspector, cx| {
                                             if inspector
@@ -550,7 +557,7 @@ impl PropertyInspector {
                             .flex()
                             .items_center()
                             .child(Self::animation_container_label(
-                                format!("要素 {}", element_index + 1),
+                                t!("rows.element", index = element_index + 1).to_string(),
                                 row_controls,
                                 ctx,
                                 AnimationLabelWidth::Fill,
@@ -591,7 +598,7 @@ impl PropertyInspector {
         )))
         .small()
         .w_full()
-        .label(format!("{}を追加", group.property.label()))
+        .label(t!("rows.add_element", label = group.property.label()).to_string())
         .disabled(add_disabled)
         .on_click(move |_, _, cx| {
             add_editor.update(cx, |editor, cx| {
@@ -716,9 +723,9 @@ impl PropertyInspector {
                 &common.target,
                 animation_enabled,
                 if animation_enabled {
-                    "この座標のアニメーションを解除".to_owned()
+                    t!("rows.unanimate_axis").to_string()
                 } else {
-                    "要素全体をアニメーションする".to_owned()
+                    t!("rows.animate_element").to_string()
                 },
                 &ctx.inspector,
             )

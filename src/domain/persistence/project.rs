@@ -49,7 +49,7 @@ pub(crate) fn encode(
 ) -> Result<String, ProjectError> {
     let file = ProjectFile::capture(snapshot, project_path)?;
     serde_json::to_string_pretty(&file).map_err(|error| {
-        ProjectError::encode(format!("プロジェクトを変換できません: {error}"), error)
+        ProjectError::encode(format!("Failed to serialize project: {error}"), error)
     })
 }
 
@@ -59,10 +59,7 @@ pub(crate) fn decode(
     plugins: &PluginRegistry,
 ) -> Result<LoadedProject, ProjectError> {
     let file = serde_json::from_str::<ProjectFile>(source).map_err(|error| {
-        ProjectError::invalid_format(
-            format!("プロジェクトファイルの形式が不正です: {error}"),
-            error,
-        )
+        ProjectError::invalid_format(format!("Invalid project file format: {error}"), error)
     })?;
     file.into_loaded(project_path, plugins)
 }
@@ -88,7 +85,7 @@ impl ProjectFile {
             .map(|scene| {
                 if scene.id.project() != snapshot.project_id() {
                     return Err(ProjectError::invalid_data(
-                        "別プロジェクトのシーンを保存できません",
+                        "Cannot save a scene from another project",
                     ));
                 }
                 ProjectScene::capture(scene, project_path)
@@ -120,27 +117,27 @@ impl ProjectFile {
     ) -> Result<LoadedProject, ProjectError> {
         if self.format_version != FORMAT_VERSION {
             return Err(ProjectError::unsupported_format(format!(
-                "未対応のプロジェクト形式です (version {})",
+                "Unsupported project format (version {})",
                 self.format_version
             )));
         }
         let project_id = ProjectId::from_parts(self.project_high, self.project_low)
-            .ok_or_else(|| ProjectError::invalid_data("プロジェクトIDが不正です"))?;
+            .ok_or_else(|| ProjectError::invalid_data("Invalid project ID"))?;
         let frame_rate = FrameRate::new(self.frame_rate[0], self.frame_rate[1])
-            .ok_or_else(|| ProjectError::invalid_data("フレームレートが不正です"))?;
+            .ok_or_else(|| ProjectError::invalid_data("Invalid frame rate"))?;
         let resolution = ProjectResolution::new(self.resolution[0], self.resolution[1])
-            .ok_or_else(|| ProjectError::invalid_data("解像度が不正です"))?;
+            .ok_or_else(|| ProjectError::invalid_data("Invalid resolution"))?;
         let mut scene_ids = HashSet::new();
         let mut scene_schemas = HashMap::new();
         for scene in &self.scenes {
             if scene.id == 0 || scene.id == u64::MAX || !scene_ids.insert(scene.id) {
                 return Err(ProjectError::invalid_data(format!(
-                    "シーンID {} が不正または重複しています",
+                    "Scene ID {} is invalid or duplicated",
                     scene.id
                 )));
             }
             if scene.name.trim().is_empty() {
-                return Err(ProjectError::invalid_data("シーン名は空にできません"));
+                return Err(ProjectError::invalid_data("Scene name cannot be empty"));
             }
             let mut argument_ids = HashSet::new();
             for argument in &scene.arguments {
@@ -149,19 +146,19 @@ impl ProjectFile {
                     .validate("scene", &scene.name)
                     .map_err(|error| {
                         ProjectError::invalid_data(format!(
-                            "シーン '{}' の引数 '{}' が不正です: {error}",
+                            "Scene '{}' argument '{}' is invalid: {error}",
                             scene.name, argument.schema.id
                         ))
                     })?;
                 if argument.schema.clone().for_scene_argument().is_none() {
                     return Err(ProjectError::invalid_data(format!(
-                        "シーン '{}' の引数 '{}' は対応するスカラー型ではありません",
+                        "Scene '{}' argument '{}' must use a supported scalar type",
                         scene.name, argument.schema.id
                     )));
                 }
                 if !argument_ids.insert(argument.schema.id.as_str()) {
                     return Err(ProjectError::invalid_data(format!(
-                        "シーン '{}' の引数 '{}' が重複しています",
+                        "Scene '{}' argument '{}' is duplicated",
                         scene.name, argument.schema.id
                     )));
                 }
@@ -231,7 +228,7 @@ fn capture_items<'a>(
         .map(|item| {
             let layer = layer_for(item.id).ok_or_else(|| {
                 ProjectError::invalid_data(format!(
-                    "アイテム {} のレイヤー情報がありません",
+                    "No layer information found for item {}",
                     item.id.get()
                 ))
             })?;
@@ -255,7 +252,7 @@ pub(super) fn load_items(
         .map(|item| {
             if item.id == 0 || item.id == u64::MAX || !item_ids.insert(item.id) {
                 return Err(ProjectError::invalid_data(format!(
-                    "アイテムID {} が不正または重複しています",
+                    "Item ID {} is invalid or duplicated",
                     item.id
                 )));
             }
@@ -320,7 +317,7 @@ impl ProjectSceneArgument {
 
     fn into_domain(self) -> Result<SceneArgument, ProjectError> {
         let schema = self.schema.for_scene_argument().ok_or_else(|| {
-            ProjectError::invalid_data("シーン引数は対応するスカラー型ではありません")
+            ProjectError::invalid_data("Scene argument must use a supported scalar type")
         })?;
         Ok(SceneArgument::new(schema, self.bindings))
     }
@@ -400,17 +397,18 @@ impl ProjectItem {
         scene_schemas: &HashMap<SceneId, Vec<PropertySchema>>,
         plugins: &PluginRegistry,
     ) -> Result<(LayerId, TimelineItem), ProjectError> {
-        let duration = FrameDuration::new(self.duration)
-            .ok_or_else(|| ProjectError::invalid_data("アイテムの長さは1フレーム以上必要です"))?;
+        let duration = FrameDuration::new(self.duration).ok_or_else(|| {
+            ProjectError::invalid_data("Item duration must be at least one frame")
+        })?;
         self.start
             .checked_add(self.duration)
-            .ok_or_else(|| ProjectError::invalid_data("アイテムの時刻が大きすぎます"))?;
+            .ok_or_else(|| ProjectError::invalid_data("Item timestamp is too large"))?;
         let plugin_schema = match &self.kind {
             ProjectItemKind::Scene { .. } => None,
             ProjectItemKind::Plugin { plugin_id, item_id } => {
                 Some(plugins.item(plugin_id, item_id).ok_or_else(|| {
                     ProjectError::invalid_data(format!(
-                        "アイテム '{}:{}' を提供するプラグインがありません",
+                        "Plugin for item '{}:{}' was not found",
                         plugin_id, item_id
                     ))
                 })?)
@@ -424,11 +422,11 @@ impl ProjectItem {
             } => {
                 let project =
                     ProjectId::from_parts(*project_high, *project_low).ok_or_else(|| {
-                        ProjectError::invalid_data("参照先のプロジェクトIDが不正です")
+                        ProjectError::invalid_data("Referenced project ID is invalid")
                     })?;
                 let scene = SceneId::new(project, *scene_id);
                 scene_schemas.get(&scene).ok_or_else(|| {
-                    ProjectError::invalid_data(format!("参照先のシーン {scene_id} がありません"))
+                    ProjectError::invalid_data(format!("Referenced scene {scene_id} was not found"))
                 })?
             }
             ProjectItemKind::Plugin { .. } => plugin_schema
@@ -446,9 +444,9 @@ impl ProjectItem {
             property_schema,
             self.properties,
             if scene_instance {
-                "シーンインスタンス"
+                "scene instance"
             } else {
-                "アイテム"
+                "item"
             },
             initial,
         )?;
@@ -460,13 +458,13 @@ impl ProjectItem {
             let asset = asset.into_media(project_path)?;
             if let Some(schema) = plugin_schema.as_deref() {
                 let capability = schema.file(&input_id).ok_or_else(|| {
-                    ProjectError::invalid_data(format!("不明なファイル入力 '{input_id}' です"))
+                    ProjectError::invalid_data(format!("Unknown file input '{input_id}'"))
                 })?;
                 if capability.reader() != asset.reader_id
                     || capability.media_type() != asset.kind.media_type()
                 {
                     return Err(ProjectError::invalid_data(format!(
-                        "ファイル入力 '{input_id}' の種類がプラグイン定義と一致しません"
+                        "File input '{input_id}' does not match the plugin definition"
                     )));
                 }
             }
@@ -480,7 +478,7 @@ impl ProjectItem {
                 .is_none()
         {
             return Err(ProjectError::invalid_data(
-                "比率固定の対象がないアイテムに比率が保存されています",
+                "Aspect ratio is stored for an item without an aspect lock property",
             ));
         }
 
@@ -488,7 +486,7 @@ impl ProjectItem {
         for effect in self.effects {
             if effect.id == 0 || effect.id == u64::MAX || !effect_ids.insert(effect.id) {
                 return Err(ProjectError::invalid_data(format!(
-                    "エフェクトID {} が不正または重複しています",
+                    "Effect ID {} is invalid or duplicated",
                     effect.id
                 )));
             }
@@ -500,7 +498,7 @@ impl ProjectItem {
                 .is_some_and(|schema| schema.shader().is_none())
         {
             return Err(ProjectError::invalid_data(
-                "映像を持たないアイテムにはエフェクトを設定できません",
+                "Effects cannot be set on items without video",
             ));
         }
 
@@ -581,19 +579,19 @@ impl ProjectEffect {
             .effect(&self.plugin_id, &self.effect_id)
             .ok_or_else(|| {
                 ProjectError::invalid_data(format!(
-                    "エフェクト '{}:{}' を提供するプラグインがありません",
+                    "Plugin for effect '{}:{}' was not found",
                     self.plugin_id, self.effect_id
                 ))
             })?;
         if self.aspect_ratio.is_some() && schema.aspect_lock_property().is_none() {
             return Err(ProjectError::invalid_data(
-                "比率固定の対象がないエフェクトに比率が保存されています",
+                "Aspect ratio is stored for an effect without an aspect lock property",
             ));
         }
         let properties = load_properties(
             schema.properties(),
             self.properties,
-            "エフェクト",
+            "effect",
             PropertyValues::from_properties(schema.properties()),
         )?;
         let animations = load_animations(schema.properties(), &properties, self.animations)?;
@@ -603,14 +601,12 @@ impl ProjectEffect {
                 .files()
                 .find(|file| file.id() == input_id)
                 .ok_or_else(|| {
-                    ProjectError::invalid_data(format!(
-                        "エフェクトの入力 '{input_id}' が見つかりません"
-                    ))
+                    ProjectError::invalid_data(format!("Effect input '{input_id}' was not found"))
                 })?;
             let asset = stored.into_media(project_path)?;
             if file.reader() != asset.reader_id || file.media_type() != asset.kind.media_type() {
                 return Err(ProjectError::invalid_data(format!(
-                    "エフェクトの入力 '{input_id}' とメディアが一致しません"
+                    "Effect input '{input_id}' does not match the media"
                 )));
             }
             assets.insert(input_id, asset);
@@ -657,7 +653,7 @@ fn load_animations(
             .find(|property| property.id == animation.path.property_id())
             .ok_or_else(|| {
                 ProjectError::invalid_data(format!(
-                    "アニメーション対象 '{}' が見つかりません",
+                    "Animation target '{}' was not found",
                     animation.path.property_id()
                 ))
             })?;
@@ -693,7 +689,7 @@ fn validate_project_track(
         });
     if !valid || loaded.track(&path).is_some() {
         return Err(ProjectError::invalid_data(format!(
-            "'{property_id}' のアニメーション対象が不正です"
+            "Animation target for '{property_id}' is invalid"
         )));
     }
     loaded.insert(path, track);
@@ -711,13 +707,13 @@ fn load_properties(
             .iter()
             .find(|property| property.id == id)
             .ok_or_else(|| {
-                ProjectError::invalid_data(format!("{owner}に不明なパラメータ '{id}' があります"))
+                ProjectError::invalid_data(format!("{owner} has unknown property '{id}'"))
             })?;
         if &value == property.default_value() {
             continue;
         }
         loaded.set(property, value).map_err(|error| {
-            ProjectError::invalid_data(format!("{owner}パラメータ '{id}' が不正です: {error}"))
+            ProjectError::invalid_data(format!("{owner} property '{id}' is invalid: {error}"))
         })?;
     }
     Ok(loaded)
@@ -749,7 +745,7 @@ impl ProjectMediaAsset {
 
     fn into_media(self, project_path: &Path) -> Result<MediaAsset, ProjectError> {
         if self.duration_nanoseconds >= 1_000_000_000 {
-            return Err(ProjectError::invalid_data("メディアの長さが不正です"));
+            return Err(ProjectError::invalid_data("Media duration is invalid"));
         }
         let asset = MediaAsset {
             reader_id: self.reader_id,
@@ -759,7 +755,7 @@ impl ProjectMediaAsset {
             kind: self.kind,
         };
         asset.validate().map_err(|error| {
-            ProjectError::invalid_data(format!("メディア情報が不正です: {error}"))
+            ProjectError::invalid_data(format!("Media information is invalid: {error}"))
         })?;
         Ok(asset)
     }
@@ -774,7 +770,7 @@ pub(super) fn validate_no_overlaps(items: &[(LayerId, TimelineItem)]) -> Result<
     for pair in ranges.windows(2) {
         if pair[0].0 == pair[1].0 && pair[0].2 > pair[1].1 {
             return Err(ProjectError::invalid_data(format!(
-                "レイヤー {} でアイテムが重なっています",
+                "Items overlap on layer {}",
                 pair[0].0
             )));
         }
@@ -790,7 +786,7 @@ fn validate_scenes(
     for scene in scenes.values() {
         if !names.insert(scene.name.as_str()) {
             return Err(ProjectError::invalid_data(format!(
-                "シーン名 '{}' が重複しています",
+                "Scene name '{}' is duplicated",
                 scene.name
             )));
         }
@@ -799,33 +795,33 @@ fn validate_scenes(
             for binding in &argument.bindings {
                 if !bound_targets.insert(binding) {
                     return Err(ProjectError::invalid_data(format!(
-                        "シーン '{}' で同じ接続先が複数回使われています",
+                        "Binding target is used more than once in scene '{}'",
                         scene.name
                     )));
                 }
                 let property_id = binding.property_id();
                 let resolved = resolve_scene_binding(scenes, scene, binding).ok_or_else(|| {
                     ProjectError::invalid_data(format!(
-                        "シーン '{}' の引数接続先 '{}' がありません",
+                        "Scene '{}' references missing argument binding target '{}'",
                         scene.name, property_id
                     ))
                 })?;
                 if !resolved.schema.is_scene_bindable(None) {
                     return Err(ProjectError::invalid_data(format!(
-                        "シーン '{}' の接続先 '{}' はシーン引数へ公開できません",
+                        "Scene '{}' binding target '{}' cannot be exposed as a scene argument",
                         scene.name, property_id
                     )));
                 }
                 if resolved.schema.ty() != argument.schema.ty() {
                     return Err(ProjectError::invalid_data(format!(
-                        "シーン '{}' の引数 '{}' と接続先の型が一致しません",
+                        "Scene '{}' argument '{}' does not match the binding target type",
                         scene.name,
                         argument.schema.id()
                     )));
                 }
                 if resolved.animated {
                     return Err(ProjectError::invalid_data(format!(
-                        "アニメーション済みの '{}' にはシーン引数を接続できません",
+                        "Scene arguments cannot be bound to animated property '{}'",
                         property_id
                     )));
                 }
@@ -839,7 +835,7 @@ fn validate_scenes(
                 && !scenes.contains_key(&scene_id)
             {
                 return Err(ProjectError::invalid_data(format!(
-                    "参照先のシーン {} がありません",
+                    "Referenced scene {} was not found",
                     scene_id.get()
                 )));
             }
@@ -861,11 +857,13 @@ fn validate_scenes(
             return Ok(());
         }
         if !visiting.insert(scene_id) {
-            return Err(ProjectError::invalid_data("シーン参照が循環しています"));
+            return Err(ProjectError::invalid_data(
+                "Scene references contain a cycle",
+            ));
         }
         let scene = scenes
             .get(&scene_id)
-            .ok_or_else(|| ProjectError::invalid_data("参照先のシーンがありません"))?;
+            .ok_or_else(|| ProjectError::invalid_data("Referenced scene was not found"))?;
         for nested in scene.items().filter_map(TimelineItem::scene_id) {
             visit(nested, scenes, visiting, visited)?;
         }

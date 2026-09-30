@@ -202,17 +202,19 @@ pub(crate) fn estimate_max_keyframe_gap(path: &Path) -> Option<u64> {
 pub(super) fn probe(path: &Path, media_type: MediaType) -> Result<MediaProbe, MediaError> {
     initialize_ffmpeg()?;
     let input = ffmpeg::format::input(path).map_err(|error| {
-        MediaError::external(format!("'{}'を解析できません: {error}", path.display()))
+        MediaError::external(format!("Failed to parse '{}': {error}", path.display()))
     })?;
     let video = input.streams().best(ffmpeg::media::Type::Video);
     let audio = input.streams().best(ffmpeg::media::Type::Audio);
     if media_type == MediaType::Image {
-        let stream = video.ok_or_else(|| MediaError::external("画像ストリームが見つかりません"))?;
+        let stream = video.ok_or_else(|| MediaError::external("Image stream was not found"))?;
         let decoder = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
             .and_then(|context| context.decoder().video())
-            .map_err(|error| MediaError::external(format!("画像情報を取得できません: {error}")))?;
+            .map_err(|error| {
+                MediaError::external(format!("Failed to get image information: {error}"))
+            })?;
         if decoder.width() == 0 || decoder.height() == 0 {
-            return Err(MediaError::external("画像サイズを取得できません"));
+            return Err(MediaError::external("Failed to get image dimensions"));
         }
         return Ok(MediaProbe {
             duration: Duration::from_secs(5),
@@ -226,15 +228,17 @@ pub(super) fn probe(path: &Path, media_type: MediaType) -> Result<MediaProbe, Me
 
     let duration = media_duration(&input)
         .and_then(|seconds| Duration::try_from_secs_f64(seconds).ok())
-        .ok_or_else(|| MediaError::external("メディアの再生時間を取得できません"))?;
+        .ok_or_else(|| MediaError::external("Failed to get media duration"))?;
     let video_duration = video.as_ref().and_then(stream_duration);
     let kind = if let Some(stream) = video {
         let decoder = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
             .and_then(|context| context.decoder().video())
-            .map_err(|error| MediaError::external(format!("映像情報を取得できません: {error}")))?;
+            .map_err(|error| {
+                MediaError::external(format!("Failed to get video information: {error}"))
+            })?;
         let frame_rate = video_frame_rate(stream.avg_frame_rate())
             .or_else(|| video_frame_rate(stream.rate()))
-            .ok_or_else(|| MediaError::external("動画のフレームレートを取得できません"))?;
+            .ok_or_else(|| MediaError::external("Failed to get video frame rate"))?;
         let frame_count = u64::try_from(stream.frames())
             .ok()
             .filter(|frames| *frames > 0)
@@ -253,15 +257,15 @@ pub(super) fn probe(path: &Path, media_type: MediaType) -> Result<MediaProbe, Me
     } else if let Some(stream) = audio {
         let decoder = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
             .and_then(|context| context.decoder().audio())
-            .map_err(|error| MediaError::external(format!("音声情報を取得できません: {error}")))?;
+            .map_err(|error| {
+                MediaError::external(format!("Failed to get audio information: {error}"))
+            })?;
         MediaKind::Audio {
             channels: Some(u32::from(decoder.channels())).filter(|channels| *channels > 0),
             sample_rate: Some(decoder.rate()).filter(|rate| *rate > 0),
         }
     } else {
-        return Err(MediaError::external(
-            "動画または音声ストリームが見つかりません",
-        ));
+        return Err(MediaError::external("No video or audio stream was found"));
     };
     Ok(MediaProbe {
         duration,
@@ -298,8 +302,9 @@ fn stream_seconds(timestamp: i64, start_time: i64, time_base: ffmpeg::Rational) 
 
 fn open_input(path: &Path) -> Result<ffmpeg::format::context::Input, MediaError> {
     initialize_ffmpeg()?;
-    ffmpeg::format::input(path)
-        .map_err(|error| MediaError::external(format!("'{}'を開けません: {error}", path.display())))
+    ffmpeg::format::input(path).map_err(|error| {
+        MediaError::external(format!("Failed to open '{}': {error}", path.display()))
+    })
 }
 
 fn media_duration(input: &ffmpeg::format::context::Input) -> Option<f64> {
@@ -346,7 +351,7 @@ impl FfmpegAudioDecoder {
         let stream = input
             .streams()
             .best(ffmpeg::media::Type::Audio)
-            .ok_or_else(|| MediaError::external("音声ストリームが見つかりません"))?;
+            .ok_or_else(|| MediaError::external("Audio stream was not found"))?;
         let stream_index = stream.index();
         let stream_time_base = stream.time_base();
         let stream_start_time = stream.start_time();
@@ -354,7 +359,7 @@ impl FfmpegAudioDecoder {
         let decoder = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
             .and_then(|context| context.decoder().audio())
             .map_err(|error| {
-                MediaError::external(format!("音声デコーダーを開けません: {error}"))
+                MediaError::external(format!("Failed to open audio decoder: {error}"))
             })?;
         Ok(Self {
             asset,
@@ -379,7 +384,7 @@ impl FfmpegAudioDecoder {
         let timestamp = seek_timestamp(self.stream_start_time, self.stream_time_base, seconds);
         self.input.seek(timestamp, ..timestamp).map_err(|error| {
             MediaError::external(format!(
-                "'{}'の音声をシークできません: {error}",
+                "Failed to seek audio in '{}': {error}",
                 self.asset.path.display()
             ))
         })?;
@@ -401,7 +406,7 @@ impl FfmpegAudioDecoder {
                 Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::error::EAGAIN => {}
                 Err(error) => {
                     return Err(MediaError::external(format!(
-                        "'{}'の音声をデコードできません: {error}",
+                        "Failed to decode audio in '{}': {error}",
                         self.asset.path.display()
                     )));
                 }
@@ -413,13 +418,13 @@ impl FfmpegAudioDecoder {
                 .map(|(_, packet)| packet)
             {
                 self.decoder.send_packet(&packet).map_err(|error| {
-                    MediaError::external(format!("音声パケットを送信できません: {error}"))
+                    MediaError::external(format!("Failed to send audio packet: {error}"))
                 })?;
             } else if self.draining {
                 return Ok(None);
             } else {
                 self.decoder.send_eof().map_err(|error| {
-                    MediaError::external(format!("音声デコーダーを完了できません: {error}"))
+                    MediaError::external(format!("Failed to flush audio decoder: {error}"))
                 })?;
                 self.draining = true;
             }
@@ -455,7 +460,7 @@ impl FfmpegAudioDecoder {
                     format.sample_rate,
                 )
                 .map_err(|error| {
-                    MediaError::external(format!("音声リサンプラーを構成できません: {error}"))
+                    MediaError::external(format!("Failed to configure audio resampler: {error}"))
                 })?,
             );
             self.output_format = Some(format);
@@ -465,7 +470,7 @@ impl FfmpegAudioDecoder {
             .as_mut()
             .expect("the resampler was created above")
             .run(decoded, &mut converted)
-            .map_err(|error| MediaError::external(format!("音声を変換できません: {error}")))?;
+            .map_err(|error| MediaError::external(format!("Failed to convert audio: {error}")))?;
         let frame_start = decoded
             .timestamp()
             .map_or(self.decoded_cursor, |timestamp| {
@@ -515,7 +520,7 @@ impl AudioDecoderSession for FfmpegAudioDecoder {
             || format.sample_rate == 0
             || format.channels == 0
         {
-            return Err(MediaError::external("音声サンプル要求が不正です"));
+            return Err(MediaError::external("Invalid audio sample request"));
         }
         let latest_time = (self.stream_duration.as_secs_f64() - 0.000_001).max(0.);
         let start_seconds = start_seconds.clamp(0., latest_time);
@@ -529,7 +534,7 @@ impl AudioDecoderSession for FfmpegAudioDecoder {
         let channels = usize::from(format.channels);
         let requested_samples = sample_frames
             .checked_mul(channels)
-            .ok_or_else(|| MediaError::external("音声ブロックが大きすぎます"))?;
+            .ok_or_else(|| MediaError::external("Audio block is too large"))?;
         while self.pending.len() < requested_samples {
             let Some(decoded) = self.next_decoded_frame()? else {
                 break;
@@ -540,7 +545,7 @@ impl AudioDecoderSession for FfmpegAudioDecoder {
         let returned_samples = returned_samples - returned_samples % channels;
         if returned_samples == 0 {
             return Err(MediaError::external(format!(
-                "'{}'の音声を取得できません",
+                "Failed to get audio from '{}'",
                 self.asset.path.display()
             )));
         }
@@ -560,21 +565,21 @@ impl FfmpegVideoDecoder {
         let stream = input
             .streams()
             .best(ffmpeg::media::Type::Video)
-            .ok_or_else(|| MediaError::external("映像ストリームが見つかりません"))?;
+            .ok_or_else(|| MediaError::external("Video stream was not found"))?;
         let video_stream_index = stream.index();
         let stream_time_base = stream.time_base();
         let stream_start_time = stream.start_time();
         let stream_duration = stream_duration(&stream).unwrap_or(asset.duration);
         let mut context = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
             .map_err(|error| {
-                MediaError::external(format!("映像デコーダーを構成できません: {error}"))
+                MediaError::external(format!("Failed to configure video decoder: {error}"))
             })?;
         context.set_threading(ffmpeg::codec::threading::Config {
             kind: ffmpeg::codec::threading::Type::Frame,
             count: interactive_decode_threads(),
         });
         let decoder = context.decoder().video().map_err(|error| {
-            MediaError::external(format!("映像デコーダーを開けません: {error}"))
+            MediaError::external(format!("Failed to open video decoder: {error}"))
         })?;
 
         Ok(Self {
@@ -605,7 +610,7 @@ impl FfmpegVideoDecoder {
         );
         self.input.seek(timestamp, ..timestamp).map_err(|error| {
             MediaError::external(format!(
-                "'{}' の映像をシークできません: {error}",
+                "Failed to seek video in '{}': {error}",
                 self.asset.path.display()
             ))
         })?;
@@ -629,7 +634,7 @@ impl FfmpegVideoDecoder {
                 Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::error::EAGAIN => {}
                 Err(error) => {
                     return Err(MediaError::external(format!(
-                        "'{}' の映像をデコードできません: {error}",
+                        "Failed to decode video in '{}': {error}",
                         self.asset.path.display()
                     )));
                 }
@@ -638,7 +643,7 @@ impl FfmpegVideoDecoder {
             if let Some(packet) = self.next_video_packet() {
                 self.decoder.send_packet(&packet).map_err(|error| {
                     MediaError::external(format!(
-                        "'{}' の映像パケットをデコーダーへ送信できません: {error}",
+                        "Failed to send video packet to decoder for '{}': {error}",
                         self.asset.path.display()
                     ))
                 })?;
@@ -647,7 +652,7 @@ impl FfmpegVideoDecoder {
             } else {
                 self.decoder.send_eof().map_err(|error| {
                     MediaError::external(format!(
-                        "'{}' の映像デコーダーを完了できません: {error}",
+                        "Failed to flush video decoder for '{}': {error}",
                         self.asset.path.display()
                     ))
                 })?;
@@ -732,7 +737,7 @@ impl FfmpegVideoDecoder {
                 ffmpeg::software::scaling::flag::Flags::BILINEAR,
             )
             .map_err(|error| {
-                MediaError::external(format!("映像スケーラーを構成できません: {error}"))
+                MediaError::external(format!("Failed to configure video scaler: {error}"))
             })?;
             self.scaler = Some(VideoScaler(scaler));
             self.output_size = Some((width, height));
@@ -745,28 +750,28 @@ impl FfmpegVideoDecoder {
             .0
             .run(decoded, &mut converted)
             .map_err(|error| {
-                MediaError::external(format!("映像をRGBAへ変換できません: {error}"))
+                MediaError::external(format!("Failed to convert video to RGBA: {error}"))
             })?;
         let width = usize::try_from(width)
-            .map_err(|_| MediaError::external("映像フレームの幅が大きすぎます"))?;
+            .map_err(|_| MediaError::external("Video frame width is too large"))?;
         let height = usize::try_from(height)
-            .map_err(|_| MediaError::external("映像フレームの高さが大きすぎます"))?;
+            .map_err(|_| MediaError::external("Video frame height is too large"))?;
         let row_bytes = width
             .checked_mul(4)
-            .ok_or_else(|| MediaError::external("映像フレームの幅が大きすぎます"))?;
+            .ok_or_else(|| MediaError::external("Video frame width is too large"))?;
         let frame_bytes = row_bytes
             .checked_mul(height)
-            .ok_or_else(|| MediaError::external("映像フレームのサイズが大きすぎます"))?;
+            .ok_or_else(|| MediaError::external("Video frame size is too large"))?;
         let source = converted.data(0);
         let stride = converted.stride(0);
         let mut rgba = vec![0; frame_bytes];
         for row in 0..height {
             let source_start = row
                 .checked_mul(stride)
-                .ok_or_else(|| MediaError::external("映像フレームが大きすぎます"))?;
+                .ok_or_else(|| MediaError::external("Video frame is too large"))?;
             let target_start = row
                 .checked_mul(row_bytes)
-                .ok_or_else(|| MediaError::external("映像フレームが大きすぎます"))?;
+                .ok_or_else(|| MediaError::external("Video frame is too large"))?;
             rgba[target_start..target_start + row_bytes]
                 .copy_from_slice(&source[source_start..source_start + row_bytes]);
         }
@@ -804,20 +809,20 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
             return Err(MediaError::Cancelled);
         }
         if size.max_width == 0 || size.max_height == 0 {
-            return Err(MediaError::external("映像フレーム要求が不正です"));
+            return Err(MediaError::external("Invalid video frame request"));
         }
         let (source_width, source_height, is_image) = match self.asset.kind {
             MediaKind::Video { width, height, .. } => (width, height, false),
             MediaKind::Image { width, height } => (width, height, true),
             MediaKind::Audio { .. } => {
                 return Err(MediaError::external(
-                    "音声素材から映像フレームは取得できません",
+                    "Cannot get video frames from audio media",
                 ));
             }
         };
         let (width, height) =
             fit_dimensions(source_width, source_height, size.max_width, size.max_height)
-                .ok_or_else(|| MediaError::external("映像サイズが不正です"))?;
+                .ok_or_else(|| MediaError::external("Invalid video dimensions"))?;
 
         if let Some(frame) = &self.last_frame
             && self.output_size == Some((width, height))
@@ -976,7 +981,7 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
             None => {}
         }
         Err(MediaError::external(format!(
-            "'{}' の時刻 {:.6} 秒の映像フレームを取得できません",
+            "Failed to get video frame from '{}' at {:.6} seconds",
             self.asset.path.display(),
             presentation_time.as_secs_f64()
         )))
@@ -993,7 +998,7 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
             return Err(MediaError::Cancelled);
         }
         if frame_count == 0 {
-            return Err(MediaError::external("映像フレーム要求が不正です"));
+            return Err(MediaError::external("Invalid video frame request"));
         }
         let first = self.decode_at(presentation_time, size, cancelled)?;
         if matches!(self.asset.kind, MediaKind::Image { .. }) || frame_count == 1 {
@@ -1004,10 +1009,10 @@ impl VideoDecoderSession for FfmpegVideoDecoder {
             .kind
             .dimensions()
             .map(|[width, height]| (width, height))
-            .ok_or_else(|| MediaError::external("映像サイズが不正です"))?;
+            .ok_or_else(|| MediaError::external("Invalid video dimensions"))?;
         let (width, height) =
             fit_dimensions(source_width, source_height, size.max_width, size.max_height)
-                .ok_or_else(|| MediaError::external("映像サイズが不正です"))?;
+                .ok_or_else(|| MediaError::external("Invalid video dimensions"))?;
         let mut frames = Vec::with_capacity(frame_count);
         frames.push(first);
         while frames.len() < frame_count {
@@ -1085,5 +1090,5 @@ pub(super) fn initialize_ffmpeg() -> Result<(), MediaError> {
         })
         .as_ref()
         .map(|_| ())
-        .map_err(|error| MediaError::external(format!("FFmpegを初期化できません: {error}")))
+        .map_err(|error| MediaError::external(format!("Failed to initialize FFmpeg: {error}")))
 }

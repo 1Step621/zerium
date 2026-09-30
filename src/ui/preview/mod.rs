@@ -1,3 +1,4 @@
+use rust_i18n::t;
 use std::{collections::HashMap, sync::Arc};
 
 use ::ui::{
@@ -149,7 +150,7 @@ impl Preview {
         let renderer = surface
             .as_ref()
             .ok_or_else(|| {
-                RenderError::backend("このプラットフォームではWGPUIのGPUサーフェスを作成できません")
+                RenderError::backend("Cannot create a WGPUI GPU surface on this platform")
             })
             .and_then(|surface| {
                 render_runtime.read(cx).create_preview_renderer(
@@ -163,7 +164,10 @@ impl Preview {
             .map(|error| error.to_string().into());
         if let Some(error) = error.clone() {
             notifications.update(cx, |notifications, cx| {
-                notifications.push(format!("プレビュー初期化失敗: {error}"), cx);
+                notifications.push(
+                    t!("preview.initialize_failed", error = error).to_string(),
+                    cx,
+                );
             });
         }
         render_runtime.update(cx, |runtime, _| {
@@ -338,7 +342,10 @@ impl Preview {
         let (scene, playback) = match self.prepare_scene(render_time, size, cx) {
             Ok(prepared) => prepared,
             Err(error) => {
-                self.report_error(format!("プレビューシーンの構築に失敗しました: {error}"), cx);
+                self.report_error(
+                    t!("preview.build_scene_failed", error = error).to_string(),
+                    cx,
+                );
                 return;
             }
         };
@@ -370,7 +377,7 @@ impl Preview {
                 }
                 Err(error) => {
                     self.report_error(
-                        format!("プレビューシーンの再構築に失敗しました: {error}"),
+                        t!("preview.rebuild_scene_failed", error = error).to_string(),
                         cx,
                     );
                     return;
@@ -387,7 +394,7 @@ impl Preview {
                 self.error = None;
             }
             Err(error) => {
-                self.report_error(format!("プレビュー描画に失敗しました: {error}"), cx);
+                self.report_error(t!("preview.render_failed", error = error).to_string(), cx);
             }
         }
     }

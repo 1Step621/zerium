@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use super::*;
 
 impl Timeline {
@@ -93,8 +95,12 @@ impl Timeline {
         if self.can_paste_items(cx) {
             entries.insert(
                 0,
-                SearchPickerEntry::new("貼り付け", "クリップボード", ItemPickerTarget::Paste)
-                    .search_terms(["paste"]),
+                SearchPickerEntry::new(
+                    t!("context.paste").to_string(),
+                    t!("context.clipboard").to_string(),
+                    ItemPickerTarget::Paste,
+                )
+                .search_terms(["paste"]),
             );
         }
         let editor = self.editor.read(cx);
@@ -105,7 +111,7 @@ impl Timeline {
                 .map(|scene| {
                     SearchPickerEntry::new(
                         scene.name.clone(),
-                        "シーン",
+                        t!("context.scene").to_string(),
                         ItemPickerTarget::Scene(scene.id),
                     )
                     .search_terms(["scene"])
@@ -126,7 +132,7 @@ impl Timeline {
         let picker = cx.new(|cx| {
             SearchPicker::new(
                 entries,
-                "アイテムを検索",
+                t!("context.search_item").to_string(),
                 move |target, window, cx| {
                     let focus_handle = picker_timeline.read(cx).focus_handle.clone();
                     picker_timeline.update(cx, |timeline, cx| {
@@ -186,40 +192,54 @@ impl Timeline {
                 let copy_timeline = timeline.clone();
                 let cut_timeline = timeline.clone();
                 let paste_timeline = timeline.clone();
-                menu.item(PopupMenuItem::new("コピー").on_click(move |_, _, cx| {
-                    copy_timeline.update(cx, |timeline, cx| {
-                        timeline.copy_selected_items(cx);
-                    });
-                }))
-                .item(PopupMenuItem::new("切り取り").on_click(move |_, _, cx| {
-                    cut_timeline.update(cx, |timeline, cx| {
-                        timeline.cut_selected_items(cx);
-                    });
-                }))
-                .when(can_paste, |menu| {
-                    menu.item(PopupMenuItem::new("貼り付け").on_click(move |_, _, cx| {
-                        paste_timeline.update(cx, |timeline, cx| {
-                            timeline.paste_items_at(paste_target, cx);
+                menu.item(PopupMenuItem::new(t!("context.copy").to_string()).on_click(
+                    move |_, _, cx| {
+                        copy_timeline.update(cx, |timeline, cx| {
+                            timeline.copy_selected_items(cx);
                         });
-                    }))
+                    },
+                ))
+                .item(PopupMenuItem::new(t!("context.cut").to_string()).on_click(
+                    move |_, _, cx| {
+                        cut_timeline.update(cx, |timeline, cx| {
+                            timeline.cut_selected_items(cx);
+                        });
+                    },
+                ))
+                .when(can_paste, |menu| {
+                    menu.item(
+                        PopupMenuItem::new(t!("context.paste").to_string()).on_click(
+                            move |_, _, cx| {
+                                paste_timeline.update(cx, |timeline, cx| {
+                                    timeline.paste_items_at(paste_target, cx);
+                                });
+                            },
+                        ),
+                    )
                 })
                 .separator()
                 .when(can_group, |menu| {
                     let group_timeline = timeline.clone();
                     menu.item(
-                        PopupMenuItem::new("シーンにまとめる").on_click(move |_, _, cx| {
-                            group_timeline.update(cx, |timeline, cx| {
-                                timeline.group_selected_as_scene(cx);
-                            });
-                        }),
+                        PopupMenuItem::new(t!("context.group_scene").to_string()).on_click(
+                            move |_, _, cx| {
+                                group_timeline.update(cx, |timeline, cx| {
+                                    timeline.group_selected_as_scene(cx);
+                                });
+                            },
+                        ),
                     )
                     .separator()
                 })
-                .item(PopupMenuItem::new("削除").on_click(move |_, _, cx| {
-                    timeline.update(cx, |timeline, cx| {
-                        timeline.remove_item(item_id, cx);
-                    });
-                }))
+                .item(
+                    PopupMenuItem::new(t!("common.delete").to_string()).on_click(
+                        move |_, _, cx| {
+                            timeline.update(cx, |timeline, cx| {
+                                timeline.remove_item(item_id, cx);
+                            });
+                        },
+                    ),
+                )
                 .action_context(action_context)
             });
             cx.subscribe(&menu, |this, _, _: &DismissEvent, cx| {
@@ -301,7 +321,8 @@ impl Timeline {
                     self.add_item_at(target.layer, target.start, &plugin_id, &item_id, cx)
                 {
                     self.notifications.update(cx, |notifications, cx| {
-                        notifications.push(format!("アイテムを追加できません: {error}"), cx);
+                        notifications
+                            .push(t!("context.add_item_failed", error = error).to_string(), cx);
                     });
                 }
             }
@@ -315,7 +336,10 @@ impl Timeline {
                 });
                 if let Err(error) = result {
                     self.notifications.update(cx, |notifications, cx| {
-                        notifications.push(format!("シーンを追加できません: {error}"), cx);
+                        notifications.push(
+                            t!("context.add_scene_failed", error = error).to_string(),
+                            cx,
+                        );
                     });
                 }
             }

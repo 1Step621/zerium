@@ -7,6 +7,7 @@
 //! remains outside this module in `engine::project_io`.
 
 pub(crate) mod animation;
+pub(crate) mod localized_text;
 pub(crate) mod media;
 pub(crate) mod persistence;
 pub(crate) mod plugin;

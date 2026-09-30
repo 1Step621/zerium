@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use std::collections::HashSet;
 
 use gpui::{App, ClipboardItem, Context, Window};
@@ -58,7 +60,7 @@ impl Timeline {
             (items.len(), metadata)
         };
         cx.write_to_clipboard(ClipboardItem::new_string_with_metadata(
-            format!("Zeriumのアイテム {item_count}件"),
+            t!("clipboard.item_count", count = item_count).to_string(),
             metadata,
         ));
         true

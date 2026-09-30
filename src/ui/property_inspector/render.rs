@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use super::control::{Control, ControlTree, EffectGroup, GroupKind};
 use super::rows::RenderCtx;
 use super::*;
@@ -136,7 +138,7 @@ impl PropertyInspector {
             .editor
             .read(cx)
             .item_label(item.id)
-            .unwrap_or_else(|| "不明なアイテム".to_owned());
+            .unwrap_or_else(|| t!("inspector.unknown_item").to_string());
         let multiple = selected_items.len() > 1;
         let hidden_state = self.editor.read(cx).selected_items_hidden_state();
         let schema = Self::selected_schema(&item);
@@ -161,9 +163,9 @@ impl PropertyInspector {
             })
             .unwrap_or_default();
         let kind_label = if multiple {
-            "複数".to_owned()
+            t!("inspector.multiple").to_string()
         } else if item.scene_id().is_some() {
-            "シーン".to_owned()
+            t!("inspector.scene").to_string()
         } else {
             schema
                 .map(|schema| schema.label().to_owned())
@@ -343,7 +345,7 @@ impl PropertyInspector {
                             div()
                                 .text_sm()
                                 .text_color(render.colors.muted_foreground)
-                                .child("アイテム設定"),
+                                .child(t!("inspector.item_settings").to_string()),
                         )
                     })
                     .child(item_controls)
@@ -383,7 +385,7 @@ impl PropertyInspector {
         cx.new(|cx| {
             SearchPicker::new(
                 entries,
-                "エフェクトを検索",
+                t!("inspector.search_effects").to_string(),
                 move |target, _, cx| Self::add_effect(&inspector, target, cx),
                 window,
                 cx,
@@ -404,7 +406,10 @@ impl PropertyInspector {
             });
             if let Err(error) = result {
                 inspector.notifications.update(cx, |notifications, cx| {
-                    notifications.push(format!("エフェクトを追加できません: {error}"), cx);
+                    notifications.push(
+                        t!("inspector.add_effect_failed", error = error).to_string(),
+                        cx,
+                    );
                 });
             }
         });
@@ -466,7 +471,7 @@ impl PropertyInspector {
                         })
                     })
                     .child(if view.multiple {
-                        format!("{}個のアイテム", view.selected_count)
+                        t!("inspector.selected_item_count", count = view.selected_count).to_string()
                     } else {
                         view.item_label.clone()
                     }),
@@ -484,11 +489,11 @@ impl PropertyInspector {
                         IconName::Eye
                     })
                     .tooltip(if view.items_hidden {
-                        "選択アイテムを表示"
+                        t!("inspector.show_selected_items").to_string()
                     } else if view.item_visibility_mixed {
-                        "表示状態が混在しています。すべて非表示"
+                        t!("inspector.hide_selected_items_mixed").to_string()
                     } else {
-                        "選択アイテムを非表示"
+                        t!("inspector.hide_selected_items").to_string()
                     })
                     .on_click(move |_, _, cx| {
                         editor.update(cx, |editor, cx| {
@@ -518,7 +523,9 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_3()
-            .child(Self::property_label_column("種類"))
+            .child(Self::property_label_column(
+                t!("inspector.kind").to_string(),
+            ))
             .child(
                 div()
                     .text_sm()
@@ -537,11 +544,11 @@ impl PropertyInspector {
         let choose_input_id = input_id.clone();
         let inspector = render.inspector.clone();
         let button_label = if self.loading_file {
-            "読み込み中…"
+            t!("inspector.loading").to_string()
         } else if media.is_some() {
-            "ファイルを変更"
+            t!("inspector.change_file").to_string()
         } else {
-            "ファイルを選択"
+            t!("inspector.choose_file").to_string()
         };
         let details = media.as_ref().map(Self::media_details);
 
@@ -602,9 +609,13 @@ impl PropertyInspector {
                 has_audio,
                 ..
             } => format!(
-                "{width} × {height}・{:.3} fps{}",
+                "{width} × {height} · {:.3} fps{}",
                 frame_rate.frames_per_second(),
-                if *has_audio { "・音声あり" } else { "" }
+                if *has_audio {
+                    t!("inspector.audio_available")
+                } else {
+                    "".into()
+                }
             ),
             MediaKind::Audio {
                 channels,
@@ -613,12 +624,14 @@ impl PropertyInspector {
                 (Some(channels), Some(sample_rate)) => format!("{channels} ch・{sample_rate} Hz"),
                 (Some(channels), None) => format!("{channels} ch"),
                 (None, Some(sample_rate)) => format!("{sample_rate} Hz"),
-                (None, None) => "音声ストリーム".to_owned(),
+                (None, None) => t!("inspector.audio_stream").to_string(),
             },
-            MediaKind::Image { width, height } => format!("{width} × {height}・画像"),
+            MediaKind::Image { width, height } => {
+                format!("{width} × {height} · {}", t!("inspector.image"))
+            }
         };
         format!(
-            "{minutes:02}:{seconds:06.3}・{format}\n{}",
+            "{minutes:02}:{seconds:06.3} · {format}\n{}",
             media.path.display()
         )
     }
@@ -757,9 +770,9 @@ impl PropertyInspector {
                             IconName::Eye
                         })
                         .tooltip(if hidden {
-                            "エフェクトを有効化"
+                            t!("inspector.enable_effect")
                         } else {
-                            "エフェクトを一時的に無効化"
+                            t!("inspector.disable_effect")
                         })
                         .on_click(move |_, _, cx| {
                             visibility_editor.update(cx, |editor, cx| {
@@ -778,7 +791,7 @@ impl PropertyInspector {
                         .compact()
                         .ghost()
                         .icon(IconName::ChevronUp)
-                        .tooltip("上へ移動")
+                        .tooltip(t!("common.move_up").to_string())
                         .disabled(!can_move_up)
                         .on_click(move |_, _, cx| {
                             move_up_editor.update(cx, |editor, cx| {
@@ -797,7 +810,7 @@ impl PropertyInspector {
                         .compact()
                         .ghost()
                         .icon(IconName::ChevronDown)
-                        .tooltip("下へ移動")
+                        .tooltip(t!("common.move_down").to_string())
                         .disabled(!can_move_down)
                         .on_click(move |_, _, cx| {
                             move_down_editor.update(cx, |editor, cx| {
@@ -815,7 +828,7 @@ impl PropertyInspector {
                             )))
                             .small()
                             .compact()
-                            .label("削除")
+                            .label(t!("common.delete").to_string())
                             .on_click(move |_, _, cx| {
                                 remove_editor.update(cx, |editor, cx| {
                                     if editor.remove_selected_effect(effect_id) {
@@ -836,7 +849,7 @@ impl PropertyInspector {
             .trigger(
                 Button::new("add-effect")
                     .small()
-                    .label("エフェクトを追加")
+                    .label(t!("inspector.add_effect").to_string())
                     .dropdown_caret(true),
             )
             .content(move |window, cx| {

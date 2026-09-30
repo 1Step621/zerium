@@ -66,9 +66,11 @@ pollster = "0.4"
 rtrb = "0.3"
 resvg = "0.47"
 rust-embed = { version = "8.12", features = ["debug-embed"] }
+rust-i18n = "4.2.2"
 semver = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+sys-locale = "0.3.2"
 thiserror = "2"
 ui = { git = "https://github.com/1Step621/WGPUI-Component", branch = "fix/input-selection-replacement" }
 wesl = "0.5"

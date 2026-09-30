@@ -5,6 +5,7 @@ use std::collections::{BTreeMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use super::{PropertyError, types::EnumPropertyType};
+use crate::domain::localized_text::LocalizedText;
 use crate::domain::property::{PropertyType, PropertyValueType, ScalarPropertyType};
 
 fn is_one(value: &f32) -> bool {
@@ -29,7 +30,7 @@ enum PropertyEditor {
 #[serde(default, deny_unknown_fields)]
 pub(crate) struct PropertyUi {
     #[serde(skip_serializing_if = "Option::is_none")]
-    label: Option<String>,
+    label: Option<LocalizedText>,
     #[serde(skip_serializing_if = "String::is_empty")]
     unit: String,
     #[serde(skip_serializing_if = "is_one")]
@@ -37,7 +38,7 @@ pub(crate) struct PropertyUi {
     #[serde(skip_serializing_if = "is_true")]
     visible: bool,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    enum_variants: BTreeMap<u32, String>,
+    enum_variants: BTreeMap<u32, LocalizedText>,
     #[serde(default, skip_serializing_if = "is_false")]
     multiline: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -78,7 +79,7 @@ impl PropertyUi {
     }
 
     pub(crate) fn label(&self) -> Option<&str> {
-        self.label.as_deref()
+        self.label.as_ref().map(LocalizedText::resolve)
     }
 
     pub(crate) fn unit(&self) -> &str {
@@ -102,7 +103,7 @@ impl PropertyUi {
     }
 
     pub(super) fn enum_label(&self, value: u32) -> Option<&str> {
-        self.enum_variants.get(&value).map(String::as_str)
+        self.enum_variants.get(&value).map(LocalizedText::resolve)
     }
 
     pub(super) fn validate(
@@ -121,11 +122,7 @@ impl PropertyUi {
         if !self.step.is_finite() || self.step <= 0. {
             return Err(invalid("UI step must be positive"));
         }
-        if self
-            .label
-            .as_ref()
-            .is_some_and(|label| label.trim().is_empty())
-        {
+        if self.label.as_ref().is_some_and(LocalizedText::is_empty) {
             return Err(invalid("UI scalar label must not be empty"));
         }
         if self.multiline
@@ -171,18 +168,14 @@ impl PropertyUi {
                 "UI enum_variants must define a label for every enum value",
             ));
         }
-        if self
-            .enum_variants
-            .values()
-            .any(|label| label.trim().is_empty())
-        {
+        if self.enum_variants.values().any(LocalizedText::is_empty) {
             return Err(invalid("UI enum variant labels must not be empty"));
         }
         let mut labels = HashSet::new();
         if self
             .enum_variants
             .values()
-            .any(|label| !labels.insert(label.to_lowercase()))
+            .any(|label| !labels.insert(label.resolve().to_lowercase()))
         {
             return Err(invalid("UI enum variant labels must be unique"));
         }

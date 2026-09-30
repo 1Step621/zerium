@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use ::ui::{
     ActiveTheme as _, ContextModal as _, Root, Sizable as _,
     button::{Button, ButtonVariants as _},
@@ -237,7 +239,7 @@ impl Render for Workspace {
                                     .small()
                                     .compact()
                                     .ghost()
-                                    .label("ファイル")
+                                    .label(t!("menu.file").to_string())
                                     .popup_menu(move |menu, _, _| {
                                         let new_controller = project_controller.clone();
                                         let open_controller = project_controller.clone();
@@ -245,51 +247,62 @@ impl Render for Workspace {
                                         let save_as_controller = project_controller.clone();
                                         let settings_controller = project_controller.clone();
                                         let export_controller = export_controller.clone();
-                                        menu.item(PopupMenuItem::new("新規プロジェクト").on_click(
-                                            move |_, window, cx| {
-                                                new_controller.update(cx, |project, cx| {
-                                                    project.request_new(window, cx);
-                                                });
-                                            },
-                                        ))
-                                        .item(PopupMenuItem::new("プロジェクトを開く…").on_click(
-                                            move |_, window, cx| {
-                                                open_controller.update(cx, |project, cx| {
-                                                    project.request_open(window, cx);
-                                                });
-                                            },
-                                        ))
-                                        .separator()
-                                        .item(PopupMenuItem::new("保存").on_click(
-                                            move |_, window, cx| {
-                                                save_controller.update(cx, |project, cx| {
-                                                    project.save(window, cx);
-                                                });
-                                            },
-                                        ))
-                                        .item(PopupMenuItem::new("名前を付けて保存…").on_click(
-                                            move |_, window, cx| {
-                                                save_as_controller.update(cx, |project, cx| {
-                                                    project.save_as(window, cx);
-                                                });
-                                            },
-                                        ))
-                                        .separator()
-                                        .item(PopupMenuItem::new("プロジェクト設定…").on_click(
-                                            move |_, window, cx| {
-                                                settings_controller.update(cx, |project, cx| {
-                                                    project.open_settings(window, cx);
-                                                });
-                                            },
-                                        ))
+                                        menu.item(
+                                            PopupMenuItem::new(t!("menu.new_project").to_string())
+                                                .on_click(move |_, window, cx| {
+                                                    new_controller.update(cx, |project, cx| {
+                                                        project.request_new(window, cx);
+                                                    });
+                                                }),
+                                        )
                                         .item(
-                                            PopupMenuItem::new("書き出し…").on_click(
+                                            PopupMenuItem::new(t!("menu.open_project").to_string())
+                                                .on_click(move |_, window, cx| {
+                                                    open_controller.update(cx, |project, cx| {
+                                                        project.request_open(window, cx);
+                                                    });
+                                                }),
+                                        )
+                                        .separator()
+                                        .item(
+                                            PopupMenuItem::new(t!("menu.save").to_string())
+                                                .on_click(move |_, window, cx| {
+                                                    save_controller.update(cx, |project, cx| {
+                                                        project.save(window, cx);
+                                                    });
+                                                }),
+                                        )
+                                        .item(
+                                            PopupMenuItem::new(t!("menu.save_as").to_string())
+                                                .on_click(move |_, window, cx| {
+                                                    save_as_controller.update(cx, |project, cx| {
+                                                        project.save_as(window, cx);
+                                                    });
+                                                }),
+                                        )
+                                        .separator()
+                                        .item(
+                                            PopupMenuItem::new(
+                                                t!("menu.project_settings").to_string(),
+                                            )
+                                            .on_click(
                                                 move |_, window, cx| {
+                                                    settings_controller.update(
+                                                        cx,
+                                                        |project, cx| {
+                                                            project.open_settings(window, cx);
+                                                        },
+                                                    );
+                                                },
+                                            ),
+                                        )
+                                        .item(
+                                            PopupMenuItem::new(t!("menu.export").to_string())
+                                                .on_click(move |_, window, cx| {
                                                     export_controller.update(cx, |export, cx| {
                                                         export.open_dialog(window, cx);
                                                     });
-                                                },
-                                            ),
+                                                }),
                                         )
                                     }),
                             )
@@ -298,27 +311,31 @@ impl Render for Workspace {
                                     .small()
                                     .compact()
                                     .ghost()
-                                    .label("編集")
+                                    .label(t!("menu.edit").to_string())
                                     .popup_menu(move |menu, _, _| {
                                         menu.menu_with_disabled(
-                                            "元に戻す",
+                                            t!("menu.undo").to_string(),
                                             Box::new(Undo),
                                             !can_undo,
                                         )
-                                        .menu_with_disabled("やり直す", Box::new(Redo), !can_redo)
+                                        .menu_with_disabled(
+                                            t!("menu.redo").to_string(),
+                                            Box::new(Redo),
+                                            !can_redo,
+                                        )
                                         .separator()
                                         .menu_with_disabled(
-                                            "コピー",
+                                            t!("menu.copy").to_string(),
                                             Box::new(CopySelectedItems),
                                             !can_copy,
                                         )
                                         .menu_with_disabled(
-                                            "切り取り",
+                                            t!("menu.cut").to_string(),
                                             Box::new(CutSelectedItems),
                                             !can_copy,
                                         )
                                         .menu_with_disabled(
-                                            "貼り付け",
+                                            t!("menu.paste").to_string(),
                                             Box::new(PasteItems),
                                             !can_paste,
                                         )
@@ -343,7 +360,14 @@ impl Render for Workspace {
                                         .text_xs()
                                         .whitespace_nowrap()
                                         .text_color(colors.muted_foreground)
-                                        .child(format!("書き出し中… {completed}/{total}")),
+                                        .child(
+                                            t!(
+                                                "workspace.exporting",
+                                                completed = completed,
+                                                total = total
+                                            )
+                                            .to_string(),
+                                        ),
                                 )
                                 .child(
                                     div()

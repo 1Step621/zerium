@@ -1,3 +1,5 @@
+use rust_i18n::t;
+
 use super::*;
 
 #[derive(Clone)]
@@ -536,7 +538,7 @@ impl PropertyInspector {
                 );
                 Control::Group {
                     id: ControlId::group(&key.scalar(Some(element_index), None)),
-                    label: format!("要素 {}", element_index + 1),
+                    label: t!("rows.element", index = element_index + 1).to_string(),
                     children: row_controls,
                     kind: GroupKind::Plain,
                 }

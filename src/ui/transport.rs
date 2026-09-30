@@ -1,3 +1,4 @@
+use rust_i18n::t;
 use std::time::Instant;
 
 use gpui::{App, Context, Entity};
@@ -97,7 +98,10 @@ impl TransportController {
             Ok(clock) => clock,
             Err(error) => {
                 self.notifications.update(cx, |notifications, cx| {
-                    notifications.push(format!("音声再生を開始できません: {error}"), cx);
+                    notifications.push(
+                        t!("transport.start_playback_failed", error = error).to_string(),
+                        cx,
+                    );
                 });
                 PlaybackClock::Wall
             }
@@ -219,7 +223,10 @@ impl TransportController {
                 }
                 Some(Err(error)) => {
                     self.notifications.update(cx, |notifications, cx| {
-                        notifications.push(format!("音声再生を開始できません: {error}"), cx);
+                        notifications.push(
+                            t!("transport.start_playback_failed", error = error).to_string(),
+                            cx,
+                        );
                     });
                 }
                 _ => {}
@@ -256,17 +263,17 @@ impl TransportController {
                 AudioPlaybackEvent::Underrun {
                     missing_sample_frames,
                 } => {
-                    format!("音声バッファが不足しました（{missing_sample_frames}サンプルフレーム）")
+                    format!("Audio buffer underrun ({missing_sample_frames} sample frames missing)")
                 }
-                AudioPlaybackEvent::Recovered => "音声再生が復旧しました".to_owned(),
+                AudioPlaybackEvent::Recovered => "Audio playback recovered".to_owned(),
                 AudioPlaybackEvent::DecodeFailed(error) => {
-                    format!("音声のデコードに失敗しました: {error}")
+                    t!("transport.audio_decode_failed", error = error).to_string()
                 }
                 AudioPlaybackEvent::DeviceFailed(error) => {
-                    format!("音声デバイスでエラーが発生しました: {error}")
+                    t!("transport.audio_device_failed", error = error).to_string()
                 }
                 AudioPlaybackEvent::WorkerPanicked => {
-                    "音声処理スレッドが予期せず終了しました".to_owned()
+                    t!("transport.audio_worker_panicked").to_string()
                 }
             };
             self.notifications

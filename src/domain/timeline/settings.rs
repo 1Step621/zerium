@@ -66,7 +66,7 @@ impl FromStr for FrameRate {
         let value = value.trim();
         let invalid = || {
             ProjectSettingsError::invalid_frame_rate(
-                "フレームレートは 30 または 30000/1001 の形式で入力してください",
+                "Enter the frame rate as a decimal or fraction, such as 30 or 30000/1001",
             )
         };
         let (numerator, denominator) = match value.split_once('/') {
@@ -78,7 +78,7 @@ impl FromStr for FrameRate {
         };
         let divisor = gcd(numerator, denominator).max(1);
         FrameRate::new(numerator / divisor, denominator / divisor).ok_or_else(|| {
-            ProjectSettingsError::invalid_frame_rate("フレームレートは0より大きくしてください")
+            ProjectSettingsError::invalid_frame_rate("Frame rate must be greater than 0")
         })
     }
 }
