@@ -5,6 +5,7 @@ use crate::domain::timeline::TimelineEditor;
 pub(crate) mod animation_curve;
 pub(crate) mod explorer;
 pub(crate) mod export;
+mod numeric_property;
 mod pane;
 pub(crate) mod preview;
 pub(crate) mod property_inspector;

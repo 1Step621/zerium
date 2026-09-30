@@ -912,7 +912,7 @@ impl TimelineDocument {
             targets.push((*id, target_start, target_end, LayerId::new(target_layer)));
         }
 
-        for (index, (id, start, end, layer)) in targets.iter().enumerate() {
+        for (index, (_, start, end, layer)) in targets.iter().enumerate() {
             let collides_with_moving_item =
                 targets
                     .iter()
@@ -933,7 +933,7 @@ impl TimelineDocument {
                 .any(|candidate| {
                     *start < candidate.end_exclusive().get() && candidate.start.get() < *end
                 });
-            if collides_with_stationary_item || !moving.contains(id) {
+            if collides_with_stationary_item {
                 return false;
             }
         }

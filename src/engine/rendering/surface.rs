@@ -106,7 +106,8 @@ impl BoundsOperation {
             viewport.max,
             &self.values,
         );
-        let evaluate = |expressions: &[evalexpr::Node; 2], context: &mut evalexpr::HashMapContext| {
+        let evaluate = |expressions: &[evalexpr::Node; 2],
+                        context: &mut evalexpr::HashMapContext| {
             std::array::from_fn(|axis| {
                 expressions[axis]
                     .eval_number_with_context_mut(context)

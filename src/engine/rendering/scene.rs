@@ -1,8 +1,6 @@
-use super::surface::{BoundsOperation, SurfaceRect, item_bounds};
+use super::scene_builder::SceneBuilder;
+use super::surface::{BoundsOperation, SurfaceRect};
 use super::*;
-
-const MAX_TEMPORAL_DEPTH: usize = 4;
-const MAX_TEMPORAL_RENDER_NODES: usize = 4_096;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum RenderQuality {
@@ -14,7 +12,7 @@ pub(crate) enum RenderQuality {
 }
 
 impl RenderQuality {
-    fn temporal_offsets(self, offsets: Vec<f64>) -> Vec<f64> {
+    pub(super) fn temporal_offsets(self, offsets: Vec<f64>) -> Vec<f64> {
         let Self::Realtime {
             max_temporal_samples,
         } = self
@@ -36,129 +34,7 @@ impl RenderQuality {
     }
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct RenderCacheKey {
-    item_id: ItemId,
-    path: Vec<ItemId>,
-    effect_count: usize,
-    time_bits: u64,
-    render_scale: u32,
-}
-
-struct SceneCapturePlan {
-    source_layer: LayerId,
-    range: RenderResultSettings,
-    nodes: Vec<usize>,
-}
-
-/// Resolves which nodes appear normally and in each render_result input for one scene scope.
-struct SceneCompositionPlan<'a> {
-    nodes: &'a [EvaluatedSceneNode],
-    normal_nodes: Vec<usize>,
-    captures: Vec<SceneCapturePlan>,
-}
-
-impl<'a> SceneCompositionPlan<'a> {
-    fn new(nodes: &'a [EvaluatedSceneNode]) -> Self {
-        let ranges = nodes
-            .iter()
-            .flat_map(|node| {
-                node.item()
-                    .render_result_ranges()
-                    .map(|range| (node.local_layer, range))
-            })
-            .collect::<Vec<_>>();
-        let normal_nodes = nodes
-            .iter()
-            .enumerate()
-            .filter(|(_, node)| {
-                !ranges.iter().any(|(source, range)| {
-                    range.hide_original && range.includes(*source, node.local_layer)
-                })
-            })
-            .map(|(index, _)| index)
-            .collect();
-        let captures = ranges
-            .iter()
-            .map(|&(source_layer, range)| {
-                let captured = nodes
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, node)| {
-                        range.includes(source_layer, node.local_layer)
-                            && !ranges.iter().any(|(nested_layer, nested_range)| {
-                                *nested_layer != node.local_layer
-                                    && range.includes(source_layer, *nested_layer)
-                                    && nested_range.hide_original
-                                    && nested_range.includes(*nested_layer, node.local_layer)
-                            })
-                    })
-                    .map(|(index, _)| index)
-                    .collect();
-                SceneCapturePlan {
-                    source_layer,
-                    range,
-                    nodes: captured,
-                }
-            })
-            .collect();
-        Self {
-            nodes,
-            normal_nodes,
-            captures,
-        }
-    }
-
-    fn normal_nodes(&self) -> impl Iterator<Item = &'a EvaluatedSceneNode> + '_ {
-        self.normal_nodes.iter().map(|&index| &self.nodes[index])
-    }
-
-    fn captured_nodes(
-        &self,
-        source_layer: LayerId,
-        range: RenderResultSettings,
-    ) -> impl Iterator<Item = &'a EvaluatedSceneNode> + '_ {
-        self.captures
-            .iter()
-            .find(|capture| capture.source_layer == source_layer && capture.range == range)
-            .into_iter()
-            .flat_map(|capture| capture.nodes.iter().map(|&index| &self.nodes[index]))
-    }
-}
-
-/// Values shared by every capability renderer, regardless of whether the
-/// capability belongs to an item shader or an effect pass.
-struct CapabilitySource<'a> {
-    item_id: ItemId,
-    effect_id: Option<EffectInstanceId>,
-    capabilities: &'a [Capability],
-    properties: &'a crate::domain::property::PropertyValues,
-    label: &'a str,
-}
-
-impl<'a> CapabilitySource<'a> {
-    fn item(item: &'a TimelineItem) -> Self {
-        let schema = item.schema().expect("renderable item has a schema");
-        Self {
-            item_id: item.id,
-            effect_id: None,
-            capabilities: schema.capabilities(),
-            properties: &item.properties,
-            label: schema.label(),
-        }
-    }
-
-    fn effect(item_id: ItemId, effect: &'a EffectInstance) -> Self {
-        let schema = effect.schema();
-        Self {
-            item_id,
-            effect_id: Some(effect.id),
-            capabilities: schema.capabilities(),
-            properties: &effect.properties,
-            label: schema.label(),
-        }
-    }
-}
+pub(super) type SceneNodeId = usize;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct RenderSize {
@@ -194,7 +70,7 @@ pub(crate) enum RenderItemSource {
 pub(crate) struct RenderItem {
     pub shader: ItemShaderId,
     pub source: RenderItemSource,
-    pub inputs: Vec<RenderNode>,
+    pub inputs: Vec<SceneNodeId>,
     pub properties: Vec<u8>,
     pub effects: Vec<RenderEffect>,
     pub target_size: RenderSize,
@@ -205,7 +81,7 @@ pub(crate) struct RenderItem {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RenderEffect {
     pub passes: Vec<RenderEffectPass>,
-    pub inputs: Vec<RenderNode>,
+    pub inputs: Vec<SceneNodeId>,
     pub output_bounds: BoundsOperation,
     pub input_space: EffectInputSpace,
 }
@@ -215,7 +91,7 @@ pub(crate) struct RenderTemporalSample {
     pub frame_offset: f32,
     pub time: TimelineTime,
     /// A missing node is an intentionally transparent sample at a clip boundary.
-    pub input: Option<Box<RenderNode>>,
+    pub input: Option<SceneNodeId>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -244,7 +120,7 @@ pub(crate) struct RenderNodeMetadata {
 pub(crate) enum RenderNodeContent {
     Item(RenderItem),
     Scene {
-        children: Vec<RenderNode>,
+        children: Vec<SceneNodeId>,
         effects: Vec<RenderEffect>,
         render_scale: u32,
     },
@@ -256,69 +132,12 @@ pub(crate) enum RenderNodeContent {
 pub(crate) struct RenderNode {
     pub metadata: RenderNodeMetadata,
     pub content: RenderNodeContent,
+    pub render_scale: u32,
 }
 
 impl RenderNode {
-    pub(crate) fn item(metadata: RenderNodeMetadata, item: RenderItem) -> Self {
-        Self {
-            metadata,
-            content: RenderNodeContent::Item(item),
-        }
-    }
-
-    pub(crate) fn scene(
-        metadata: RenderNodeMetadata,
-        children: Vec<RenderNode>,
-        effects: Vec<RenderEffect>,
-        render_scale: u32,
-    ) -> Self {
-        Self {
-            metadata,
-            content: RenderNodeContent::Scene {
-                children,
-                effects,
-                render_scale,
-            },
-        }
-    }
-
     pub(super) fn required_render_scale(&self) -> u32 {
-        let effect_scale = |effects: &[RenderEffect]| {
-            effects
-                .iter()
-                .flat_map(|effect| {
-                    effect
-                        .inputs
-                        .iter()
-                        .map(|input| input.required_render_scale())
-                })
-                .max()
-                .unwrap_or(1)
-        };
-        match &self.content {
-            RenderNodeContent::Item(item) => item
-                .render_scale
-                .max(
-                    item.inputs
-                        .iter()
-                        .map(|input| input.required_render_scale())
-                        .max()
-                        .unwrap_or(1),
-                )
-                .max(effect_scale(&item.effects)),
-            RenderNodeContent::Scene {
-                children,
-                effects,
-                render_scale,
-                ..
-            } => (*render_scale).max(effect_scale(effects)).max(
-                children
-                    .iter()
-                    .map(Self::required_render_scale)
-                    .max()
-                    .unwrap_or(1),
-            ),
-        }
+        self.render_scale
     }
 }
 
@@ -331,16 +150,14 @@ pub(crate) struct MediaFrameRequest<'a> {
     pub target_size: RenderSize,
 }
 
-type MediaFrameCache =
-    HashMap<(ItemId, Option<EffectInstanceId>, usize, u64, RenderSize), Option<Arc<RgbaFrame>>>;
-
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RenderScene {
     pub size: RenderSize,
     pub composition_size: RenderSize,
     pub effect_size: RenderSize,
     pub background: [f64; 4],
-    pub roots: Vec<RenderNode>,
+    pub nodes: Vec<RenderNode>,
+    pub roots: Vec<SceneNodeId>,
 }
 
 impl RenderScene {
@@ -370,8 +187,13 @@ impl RenderScene {
         let Some(size_property) = capabilities
             .iter()
             .find(|capability| capability.id() == input_id)
-            .and_then(Capability::media_placement)
-            .map(|placement| placement.size_property())
+            .and_then(|capability| match capability {
+                Capability::Media {
+                    placement: Some(placement),
+                    ..
+                } => Some(placement.size.as_str()),
+                _ => None,
+            })
         else {
             return target_size;
         };
@@ -418,89 +240,34 @@ impl RenderScene {
     }
 
     pub(super) fn render_items(&self) -> Vec<&RenderItem> {
-        fn collect<'a>(nodes: &'a [RenderNode], output: &mut Vec<&'a RenderItem>) {
-            for node in nodes {
-                match &node.content {
-                    RenderNodeContent::Item(item) => {
-                        for input in &item.inputs {
-                            collect(std::slice::from_ref(input), output);
-                        }
-                        collect_effect_inputs(&item.effects, output);
-                        output.push(item);
-                    }
-                    RenderNodeContent::Scene {
-                        children, effects, ..
-                    } => {
-                        collect_effect_inputs(effects, output);
-                        collect(children, output);
-                    }
-                }
-            }
-        }
-
-        fn collect_effect_inputs<'a>(
-            effects: &'a [RenderEffect],
-            output: &mut Vec<&'a RenderItem>,
-        ) {
-            for effect in effects {
-                for input in &effect.inputs {
-                    collect(std::slice::from_ref(input), output);
-                }
-            }
-        }
-
-        let mut output = Vec::new();
-        collect(&self.roots, &mut output);
-        output
+        self.nodes
+            .iter()
+            .filter_map(|node| match &node.content {
+                RenderNodeContent::Item(item) => Some(item),
+                RenderNodeContent::Scene { .. } => None,
+            })
+            .collect()
     }
 
     pub(super) fn render_effects(&self) -> Vec<&RenderEffect> {
-        fn collect<'a>(nodes: &'a [RenderNode], output: &mut Vec<&'a RenderEffect>) {
-            for node in nodes {
-                match &node.content {
-                    RenderNodeContent::Item(item) => {
-                        for input in &item.inputs {
-                            collect(std::slice::from_ref(input), output);
-                        }
-                        collect_effect_inputs(&item.effects, output);
-                        output.extend(&item.effects)
-                    }
-                    RenderNodeContent::Scene {
-                        children, effects, ..
-                    } => {
-                        collect_effect_inputs(effects, output);
-                        output.extend(effects);
-                        collect(children, output);
-                    }
-                }
-            }
-        }
-
-        fn collect_effect_inputs<'a>(
-            effects: &'a [RenderEffect],
-            output: &mut Vec<&'a RenderEffect>,
-        ) {
-            for effect in effects {
-                for input in &effect.inputs {
-                    collect(std::slice::from_ref(input), output);
-                }
-            }
-        }
-
-        let mut output = Vec::new();
-        collect(&self.roots, &mut output);
-        output
+        self.nodes
+            .iter()
+            .flat_map(|node| match &node.content {
+                RenderNodeContent::Item(item) => &item.effects,
+                RenderNodeContent::Scene { effects, .. } => effects,
+            })
+            .collect()
     }
 
-    pub(crate) fn from_roots(
+    pub(super) fn from_graph(
         size: RenderSize,
         composition_size: RenderSize,
-        background: [f64; 4],
-        roots: Vec<RenderNode>,
+        nodes: Vec<RenderNode>,
+        roots: Vec<SceneNodeId>,
     ) -> Result<Self, RenderError> {
         let effect_scale = roots
             .iter()
-            .map(RenderNode::required_render_scale)
+            .map(|id| nodes[*id].required_render_scale())
             .max()
             .unwrap_or(1);
         let effect_size = size.checked_scale(effect_scale).ok_or_else(|| {
@@ -510,7 +277,8 @@ impl RenderScene {
             size,
             composition_size,
             effect_size,
-            background,
+            background: [0.008, 0.006, 0.005, 1.],
+            nodes,
             roots,
         })
     }
@@ -520,620 +288,10 @@ impl RenderScene {
         time: TimelineTime,
         size: RenderSize,
         quality: RenderQuality,
-        mut media_frame: impl FnMut(MediaFrameRequest<'_>) -> Result<Option<Arc<RgbaFrame>>, E>,
-        mut text_frame: impl FnMut(TextFrameRequest<'_>) -> Result<Arc<RgbaFrame>, RenderError>,
+        media_frame: impl FnMut(MediaFrameRequest<'_>) -> Result<Option<Arc<RgbaFrame>>, E>,
+        text_frame: impl FnMut(TextFrameRequest<'_>) -> Result<Arc<RgbaFrame>, RenderError>,
     ) -> Result<Self, E> {
-        let graph = timeline.active_scene_graph_at_time(time);
-        let mut graph_cache = HashMap::from([(time.frames().to_bits(), graph.clone())]);
-        let mut render_cache = HashMap::new();
-        let mut media_cache = HashMap::new();
-        let mut temporal_nodes_remaining = MAX_TEMPORAL_RENDER_NODES;
-        let composition = SceneCompositionPlan::new(&graph);
-        let mut roots = Vec::with_capacity(graph.len());
-        for node in composition.normal_nodes() {
-            if let Some(rendered) = Self::render_evaluated_node(
-                node,
-                &composition,
-                None,
-                timeline,
-                time,
-                size,
-                quality,
-                0,
-                &mut temporal_nodes_remaining,
-                &mut graph_cache,
-                &mut render_cache,
-                &mut media_cache,
-                &mut media_frame,
-                &mut text_frame,
-            )? {
-                roots.push(rendered);
-            }
-        }
-        Ok(Self::from_roots(
-            size,
-            RenderSize::from(timeline.resolution()),
-            [0.008, 0.006, 0.005, 1.],
-            roots,
-        )?)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn render_capabilities<E: From<RenderError>>(
-        source: CapabilitySource<'_>,
-        node: &EvaluatedSceneNode,
-        composition: &SceneCompositionPlan<'_>,
-        timeline: &dyn TimelineView,
-        time: TimelineTime,
-        size: RenderSize,
-        target_size: RenderSize,
-        quality: RenderQuality,
-        temporal_depth: usize,
-        temporal_nodes_remaining: &mut usize,
-        graph_cache: &mut HashMap<u64, Vec<EvaluatedSceneNode>>,
-        render_cache: &mut HashMap<RenderCacheKey, Option<RenderItem>>,
-        media_cache: &mut MediaFrameCache,
-        media_frame: &mut impl FnMut(MediaFrameRequest<'_>) -> Result<Option<Arc<RgbaFrame>>, E>,
-        text_frame: &mut impl FnMut(TextFrameRequest<'_>) -> Result<Arc<RgbaFrame>, RenderError>,
-    ) -> Result<Vec<RenderNode>, E> {
-        let metadata = RenderNodeMetadata {
-            layer: node.layer,
-            clip_start: TimelineTime::from_frame(node.clip.start),
-            clip_end: TimelineTime::from_frame(node.clip.end_exclusive()),
-            path: node.path.clone(),
-        };
-        let mut inputs = Vec::with_capacity(source.capabilities.len());
-        for (index, capability) in source.capabilities.iter().enumerate() {
-            let input = match capability {
-                Capability::Media { .. } => {
-                    let item_id = source.item_id;
-                    let effect_id = source.effect_id;
-                    let key = (
-                        item_id,
-                        effect_id,
-                        index,
-                        time.frames().to_bits(),
-                        target_size,
-                    );
-                    let frame = match media_cache.entry(key) {
-                        std::collections::hash_map::Entry::Occupied(entry) => {
-                            entry.into_mut().clone()
-                        }
-                        std::collections::hash_map::Entry::Vacant(entry) => {
-                            let frame = media_frame(MediaFrameRequest {
-                                item_id,
-                                effect_id,
-                                input_id: capability.id(),
-                                time,
-                                target_size,
-                            })?;
-                            entry.insert(frame.clone()).clone()
-                        }
-                    };
-                    let frame = frame.unwrap_or_else(|| {
-                        Arc::new(RgbaFrame {
-                            width: 1,
-                            height: 1,
-                            rgba: Arc::from([0u8; 4]),
-                        })
-                    });
-                    Self::frame_capability_node(
-                        metadata.clone(),
-                        frame,
-                        target_size,
-                        RenderSize::from(timeline.resolution()),
-                    )
-                }
-                Capability::Text { .. } => {
-                    let frame = text_frame(TextFrameRequest {
-                        id: TextSourceId {
-                            item_id: source.item_id,
-                            effect_id: source.effect_id,
-                            capability_index: index,
-                        },
-                        capability,
-                        properties: source.properties,
-                        label: source.label,
-                        target_size,
-                    })?;
-                    Self::frame_capability_node(
-                        metadata.clone(),
-                        frame,
-                        target_size,
-                        RenderSize::from(timeline.resolution()),
-                    )
-                }
-                Capability::RenderResult {
-                    start_offset,
-                    end_offset,
-                    hide_original,
-                    ..
-                } => {
-                    let settings = RenderResultSettings::from_properties(
-                        source.properties,
-                        start_offset,
-                        end_offset,
-                        hide_original,
-                    )
-                    .expect("render_result properties come from validated schemas");
-                    let mut children = Vec::new();
-                    for candidate in composition.captured_nodes(node.local_layer, settings) {
-                        if let Some(child) = Self::render_evaluated_node(
-                            candidate,
-                            composition,
-                            None,
-                            timeline,
-                            time,
-                            size,
-                            quality,
-                            temporal_depth,
-                            temporal_nodes_remaining,
-                            graph_cache,
-                            render_cache,
-                            media_cache,
-                            media_frame,
-                            text_frame,
-                        )? {
-                            children.push(child);
-                        }
-                    }
-                    RenderNode::scene(metadata.clone(), children, Vec::new(), 1)
-                }
-            };
-            inputs.push(input);
-        }
-        Ok(inputs)
-    }
-
-    fn frame_capability_node(
-        metadata: RenderNodeMetadata,
-        frame: Arc<RgbaFrame>,
-        target_size: RenderSize,
-        composition_size: RenderSize,
-    ) -> RenderNode {
-        RenderNode::item(
-            metadata,
-            RenderItem {
-                shader: ItemShaderId::host_capability_frame(),
-                source: RenderItemSource::Texture(vec![frame]),
-                inputs: Vec::new(),
-                properties: Vec::new(),
-                effects: Vec::new(),
-                target_size,
-                render_scale: 1,
-                output_bounds: SurfaceRect::viewport(composition_size),
-            },
-        )
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn render_evaluated_node<E: From<RenderError>>(
-        node: &EvaluatedSceneNode,
-        composition: &SceneCompositionPlan<'_>,
-        scene_effect_count: Option<usize>,
-        timeline: &dyn TimelineView,
-        time: TimelineTime,
-        size: RenderSize,
-        quality: RenderQuality,
-        temporal_depth: usize,
-        temporal_nodes_remaining: &mut usize,
-        graph_cache: &mut HashMap<u64, Vec<EvaluatedSceneNode>>,
-        render_cache: &mut HashMap<RenderCacheKey, Option<RenderItem>>,
-        media_cache: &mut MediaFrameCache,
-        media_frame: &mut impl FnMut(MediaFrameRequest<'_>) -> Result<Option<Arc<RgbaFrame>>, E>,
-        text_frame: &mut impl FnMut(TextFrameRequest<'_>) -> Result<Arc<RgbaFrame>, RenderError>,
-    ) -> Result<Option<RenderNode>, E> {
-        let metadata = RenderNodeMetadata {
-            layer: node.layer,
-            clip_start: TimelineTime::from_frame(node.clip.start),
-            clip_end: TimelineTime::from_frame(node.clip.end_exclusive()),
-            path: node.path.clone(),
-        };
-        let mut rendered = match &node.kind {
-            EvaluatedSceneNodeKind::Item(item) => {
-                let effect_count = scene_effect_count.unwrap_or(item.effects.len());
-                let render_scale = item
-                    .effects
-                    .iter()
-                    .take(effect_count)
-                    .map(|effect| effect.schema().render_scale())
-                    .max()
-                    .unwrap_or(1);
-                let Some(mut rendered_item) = Self::render_item(
-                    item,
-                    &node.path,
-                    effect_count,
-                    timeline,
-                    time,
-                    size,
-                    render_scale,
-                    quality,
-                    temporal_depth,
-                    temporal_nodes_remaining,
-                    graph_cache,
-                    render_cache,
-                    media_cache,
-                    media_frame,
-                    text_frame,
-                )?
-                else {
-                    return Ok(None);
-                };
-                let inputs = Self::render_capabilities(
-                    CapabilitySource::item(item),
-                    node,
-                    composition,
-                    timeline,
-                    time,
-                    size,
-                    rendered_item.target_size,
-                    quality,
-                    temporal_depth,
-                    temporal_nodes_remaining,
-                    graph_cache,
-                    render_cache,
-                    media_cache,
-                    media_frame,
-                    text_frame,
-                )?;
-                rendered_item.inputs = inputs;
-                Ok(Some(RenderNode::item(metadata, rendered_item)))
-            }
-            EvaluatedSceneNodeKind::Scene {
-                scene_id,
-                instance,
-                children,
-            } => {
-                debug_assert_eq!(instance.scene_id(), Some(*scene_id));
-                Self::render_composite_node(
-                    node,
-                    instance,
-                    children,
-                    scene_effect_count.unwrap_or(instance.effects.len()),
-                    timeline,
-                    time,
-                    size,
-                    quality,
-                    temporal_depth,
-                    temporal_nodes_remaining,
-                    graph_cache,
-                    render_cache,
-                    media_cache,
-                    media_frame,
-                    text_frame,
-                )
-            }
-        }?;
-        if let Some(rendered) = &mut rendered {
-            let source_render_scale = rendered.required_render_scale();
-            let effects = match &mut rendered.content {
-                RenderNodeContent::Item(item) => &mut item.effects,
-                RenderNodeContent::Scene { effects, .. } => effects,
-            };
-            for (effect, instance) in effects.iter_mut().zip(&node.item().effects) {
-                let schema = instance.schema();
-                let target_size = size.checked_scale(source_render_scale).ok_or_else(|| {
-                    E::from(RenderError::resource_limit(format!(
-                        "effect '{}' render size overflows",
-                        schema.label()
-                    )))
-                })?;
-                effect.inputs = Self::render_capabilities(
-                    CapabilitySource::effect(node.item().id, instance),
-                    node,
-                    composition,
-                    timeline,
-                    time,
-                    size,
-                    target_size,
-                    quality,
-                    temporal_depth,
-                    temporal_nodes_remaining,
-                    graph_cache,
-                    render_cache,
-                    media_cache,
-                    media_frame,
-                    text_frame,
-                )?;
-            }
-        }
-        Ok(rendered)
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn render_composite_node<E: From<RenderError>>(
-        node: &EvaluatedSceneNode,
-        instance: &TimelineItem,
-        child_scope: &[EvaluatedSceneNode],
-        effect_count: usize,
-        timeline: &dyn TimelineView,
-        time: TimelineTime,
-        size: RenderSize,
-        quality: RenderQuality,
-        temporal_depth: usize,
-        temporal_nodes_remaining: &mut usize,
-        graph_cache: &mut HashMap<u64, Vec<EvaluatedSceneNode>>,
-        render_cache: &mut HashMap<RenderCacheKey, Option<RenderItem>>,
-        media_cache: &mut MediaFrameCache,
-        media_frame: &mut impl FnMut(MediaFrameRequest<'_>) -> Result<Option<Arc<RgbaFrame>>, E>,
-        text_frame: &mut impl FnMut(TextFrameRequest<'_>) -> Result<Arc<RgbaFrame>, RenderError>,
-    ) -> Result<Option<RenderNode>, E> {
-        let composition = SceneCompositionPlan::new(child_scope);
-        let mut rendered_children = Vec::with_capacity(child_scope.len());
-        for child in composition.normal_nodes() {
-            if let Some(rendered) = Self::render_evaluated_node(
-                child,
-                &composition,
-                None,
-                timeline,
-                time,
-                size,
-                quality,
-                temporal_depth,
-                temporal_nodes_remaining,
-                graph_cache,
-                render_cache,
-                media_cache,
-                media_frame,
-                text_frame,
-            )? {
-                rendered_children.push(rendered);
-            }
-        }
-        let render_scale = instance
-            .effects
-            .iter()
-            .take(effect_count)
-            .map(|effect| effect.schema().render_scale())
-            .max()
-            .unwrap_or(1);
-        let mut effects = Vec::with_capacity(effect_count);
-        for (effect_index, effect) in instance.effects.iter().take(effect_count).enumerate() {
-            let temporal_samples = effect
-                .schema()
-                .passes()
-                .iter()
-                .map(|pass| {
-                    let Some(offsets) = pass.temporal_sample_offsets(&effect.properties) else {
-                        return Ok(None);
-                    };
-                    if temporal_depth >= MAX_TEMPORAL_DEPTH {
-                        return Err(E::from(RenderError::resource_limit(format!(
-                            "temporal effect depth exceeds {MAX_TEMPORAL_DEPTH}"
-                        ))));
-                    }
-                    quality
-                        .temporal_offsets(offsets)
-                        .into_iter()
-                        .map(|offset| {
-                            *temporal_nodes_remaining = temporal_nodes_remaining
-                                .checked_sub(1)
-                                .ok_or_else(|| {
-                                    RenderError::resource_limit(format!(
-                                        "temporal render graph exceeds {MAX_TEMPORAL_RENDER_NODES} nodes"
-                                    ))
-                                })?;
-                            let sample_time = time.offset(offset);
-                            let sampled = {
-                                let graph = graph_cache
-                                    .entry(sample_time.frames().to_bits())
-                                    .or_insert_with(|| {
-                                        timeline.active_scene_graph_at_time(sample_time)
-                                    });
-                                Self::find_evaluated_node(graph, &node.path)
-                                    .map(|(sampled, scope)| (sampled.clone(), scope.to_vec()))
-                            };
-                            let input = sampled
-                                .as_ref()
-                                .map(|(sampled, scope)| {
-                                    let composition = SceneCompositionPlan::new(scope);
-                                    Self::render_evaluated_node(
-                                        sampled,
-                                        &composition,
-                                        Some(effect_index),
-                                        timeline,
-                                        sample_time,
-                                        size,
-                                        quality,
-                                        temporal_depth + 1,
-                                        temporal_nodes_remaining,
-                                        graph_cache,
-                                        render_cache,
-                                        media_cache,
-                                        media_frame,
-                                        text_frame,
-                                    )
-                                })
-                                .transpose()?
-                                .flatten()
-                                .map(Box::new);
-                            Ok(RenderTemporalSample {
-                                frame_offset: offset as f32,
-                                time: sample_time,
-                                input,
-                            })
-                        })
-                        .collect::<Result<Vec<_>, E>>()
-                        .map(Some)
-                })
-                .collect::<Result<Vec<_>, E>>()?;
-            effects.push(Self::render_effect(effect, temporal_samples));
-        }
-        let metadata = RenderNodeMetadata {
-            layer: node.layer,
-            clip_start: TimelineTime::from_frame(node.clip.start),
-            clip_end: TimelineTime::from_frame(node.clip.end_exclusive()),
-            path: node.path.clone(),
-        };
-        Ok(Some(RenderNode::scene(
-            metadata,
-            rendered_children,
-            effects,
-            render_scale,
-        )))
-    }
-
-    fn find_evaluated_node<'a>(
-        nodes: &'a [EvaluatedSceneNode],
-        path: &[ItemId],
-    ) -> Option<(&'a EvaluatedSceneNode, &'a [EvaluatedSceneNode])> {
-        for node in nodes {
-            if node.path == path {
-                return Some((node, nodes));
-            }
-            if let EvaluatedSceneNodeKind::Scene { children, .. } = &node.kind
-                && let Some(found) = Self::find_evaluated_node(children, path)
-            {
-                return Some(found);
-            }
-        }
-        None
-    }
-
-    #[allow(clippy::too_many_arguments)]
-    fn render_item<E: From<RenderError>>(
-        item: &TimelineItem,
-        path: &[ItemId],
-        effect_count: usize,
-        timeline: &dyn TimelineView,
-        time: TimelineTime,
-        size: RenderSize,
-        render_scale: u32,
-        quality: RenderQuality,
-        temporal_depth: usize,
-        temporal_nodes_remaining: &mut usize,
-        graph_cache: &mut HashMap<u64, Vec<EvaluatedSceneNode>>,
-        render_cache: &mut HashMap<RenderCacheKey, Option<RenderItem>>,
-        media_cache: &mut MediaFrameCache,
-        media_frame: &mut impl FnMut(MediaFrameRequest<'_>) -> Result<Option<Arc<RgbaFrame>>, E>,
-        text_frame: &mut impl FnMut(TextFrameRequest<'_>) -> Result<Arc<RgbaFrame>, RenderError>,
-    ) -> Result<Option<RenderItem>, E> {
-        let cache_key = RenderCacheKey {
-            item_id: item.id,
-            path: path.to_vec(),
-            effect_count,
-            time_bits: time.frames().to_bits(),
-            render_scale,
-        };
-        if let Some(cached) = render_cache.get(&cache_key) {
-            return Ok(cached.clone());
-        }
-        let Some(schema) = item.schema() else {
-            return Ok(None);
-        };
-        let Some(_shader) = schema.shader() else {
-            return Ok(None);
-        };
-        let target_size = size.checked_scale(render_scale).ok_or_else(|| {
-            let item_label = item
-                .intrinsic_label()
-                .unwrap_or_else(|| schema.label().to_owned());
-            RenderError::resource_limit(format!(
-                "item '{}' render size at scale {render_scale} overflows",
-                item_label
-            ))
-        })?;
-        let effects = item
-            .effects
-            .iter()
-            .take(effect_count)
-            .enumerate()
-            .map(|(effect_index, effect)| {
-                let temporal_samples = effect
-                    .schema()
-                    .passes()
-                    .iter()
-                    .map(|pass| {
-                        Ok(
-                            match pass.temporal_sample_offsets(&effect.properties) {
-                                Some(offsets) => Some(
-                                    quality
-                                        .temporal_offsets(offsets)
-                                        .into_iter()
-                                        .map(|offset| {
-                                            if temporal_depth >= MAX_TEMPORAL_DEPTH {
-                                                return Err(E::from(
-                                                    RenderError::resource_limit(format!(
-                                                        "temporal effect depth exceeds {MAX_TEMPORAL_DEPTH}"
-                                                    )),
-                                                ));
-                                            }
-                                            let sample_time = time.offset(offset);
-                                            let sampled = graph_cache
-                                                .entry(sample_time.frames().to_bits())
-                                                .or_insert_with(|| {
-                                                    timeline.active_scene_graph_at_time(sample_time)
-                                                });
-                                            let sampled = Self::find_evaluated_node(sampled, path)
-                                                .map(|(node, scope)| (node.clone(), scope.to_vec()));
-                                            let input = sampled
-                                                .as_ref()
-                                                .map(|(sample, scope)| {
-                                                    let composition = SceneCompositionPlan::new(scope);
-                                                    *temporal_nodes_remaining =
-                                                        temporal_nodes_remaining
-                                                            .checked_sub(1)
-                                                            .ok_or_else(|| {
-                                                                RenderError::resource_limit(format!(
-                                                                    "temporal render graph exceeds {MAX_TEMPORAL_RENDER_NODES} nodes"
-                                                                ))
-                                                            })?;
-                                                    Self::render_evaluated_node(
-                                                        sample,
-                                                        &composition,
-                                                        Some(effect_index),
-                                                        timeline,
-                                                        sample_time,
-                                                        size,
-                                                        quality,
-                                                        temporal_depth + 1,
-                                                        temporal_nodes_remaining,
-                                                        graph_cache,
-                                                        render_cache,
-                                                        media_cache,
-                                                        media_frame,
-                                                        text_frame,
-                                                    )
-                                                })
-                                                .transpose()
-                                                .map(Option::flatten)?;
-                                            Ok(RenderTemporalSample {
-                                                frame_offset: offset as f32,
-                                                time: sample_time,
-                                                input: input.map(Box::new),
-                                            })
-                                        })
-                                        .collect::<Result<Vec<_>, E>>()?,
-                                ),
-                                None => None,
-                            },
-                        )
-                    })
-                    .collect::<Result<Vec<_>, E>>()?;
-                Ok(Self::render_effect(effect, temporal_samples))
-            })
-            .collect::<Result<Vec<_>, E>>()?;
-        let properties = Self::pack_item_properties(item, schema);
-        let source = RenderItemSource::Shader;
-        let render_item = RenderItem {
-            shader: ItemShaderId::plugin_item(
-                item.plugin_id().unwrap_or_default(),
-                item.item_id().unwrap_or_default(),
-            ),
-            source,
-            inputs: Vec::new(),
-            properties,
-            effects,
-            target_size,
-            render_scale,
-            output_bounds: item_bounds(
-                schema.output_bounds(),
-                &item.properties,
-                RenderSize::from(timeline.resolution()),
-            ),
-        };
-        render_cache.insert(cache_key, Some(render_item.clone()));
-        Ok(Some(render_item))
+        SceneBuilder::build(timeline, time, size, quality, media_frame, text_frame)
     }
 
     pub(crate) fn render_effect(

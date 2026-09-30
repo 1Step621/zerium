@@ -82,10 +82,9 @@ fn property_aliases(id: &str, value: &PropertyValue) -> Vec<String> {
         PropertyValue::F32(_) => vec![format!("p::{id}")],
         PropertyValue::Tuple(values) => values
             .iter()
-            .zip(0..)
-            .filter_map(|(value, index)| {
-                matches!(value, PropertyValue::F32(_)).then(|| format!("p::{id}::v{index}"))
-            })
+            .enumerate()
+            .filter(|(_, value)| matches!(value, PropertyValue::F32(_)))
+            .map(|(index, _)| format!("p::{id}::v{index}"))
             .collect(),
         _ => Vec::new(),
     }

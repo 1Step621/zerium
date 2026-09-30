@@ -1,9 +1,9 @@
 use std::{collections::HashMap, sync::Arc};
 
-use crate::domain::animation::{ScalarAnimationAddress, ScalarAnimations, ScalarTrack};
+use crate::domain::animation::{ScalarAnimations, ScalarTrack};
 use crate::domain::media::MediaAsset;
 use crate::domain::plugin::{Capability, EffectSchema, ItemSchema};
-use crate::domain::property::{PropertyElementId, PropertyValue, PropertyValues};
+use crate::domain::property::{PropertyElementId, PropertyPath, PropertyValue, PropertyValues};
 
 use super::{
     ids::{EffectInstanceId, ItemId, LayerId, SceneId},
@@ -362,20 +362,11 @@ impl TimelineItem {
     pub(crate) fn evaluated_at_time(&self, time: TimelineTime) -> Self {
         let progress = self.animation_progress_at_time(time);
         let mut item = self.clone();
-        let Some(schema) = self.schema() else {
-            for effect in &mut item.effects {
-                effect.properties = effect.animations.evaluated_values(
-                    &effect.properties,
-                    effect.schema.properties(),
-                    progress,
-                );
-            }
-            return item;
-        };
-        let properties =
-            self.animations
-                .evaluated_values(&self.properties, schema.properties(), progress);
-        item.properties = properties;
+        if let Some(schema) = self.schema() {
+            item.properties =
+                self.animations
+                    .evaluated_values(&self.properties, schema.properties(), progress);
+        }
         for effect in &mut item.effects {
             effect.properties = effect.animations.evaluated_values(
                 &effect.properties,
@@ -393,7 +384,7 @@ impl TimelineItem {
         element_id: Option<PropertyElementId>,
         scalar_index: Option<usize>,
     ) -> Option<&ScalarTrack> {
-        let address = ScalarAnimationAddress::new(property_id, element_id, scalar_index);
+        let address = PropertyPath::new(property_id, element_id, scalar_index);
         match effect_id {
             Some(effect_id) => self
                 .effects

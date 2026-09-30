@@ -16,6 +16,6 @@ pub(crate) use ffmpeg_encoder::{
 pub(crate) use ffmpeg_next::estimate_max_keyframe_gap;
 pub(crate) use reader::bundled_media_readers;
 pub(crate) use reader::{
-    AudioFormat, DecodedVideoFrame, MediaError, MediaReaderRegistry, VideoDecodeSize, VideoProxy,
-    VideoProxyRequest, VisualDecoderSession,
+    AudioFormat, DecodedVideoFrame, MediaError, MediaInputId, MediaReaderRegistry, VideoDecodeSize,
+    VideoProxy, VideoProxyRequest, VisualDecoderSession,
 };

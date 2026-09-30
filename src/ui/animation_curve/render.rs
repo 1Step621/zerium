@@ -47,7 +47,7 @@ fn interpolation_label(interpolation: SegmentInterpolation) -> String {
                 .expect("every easing direction has a label");
             format!("{family} {direction}")
         }
-        SegmentInterpolation::Custom { .. } => "カスタム".to_owned(),
+        SegmentInterpolation::Custom(_) => "カスタム".to_owned(),
     }
 }
 
@@ -102,7 +102,7 @@ impl Render for AnimationCurveEditor {
                     .get(segment)
                     .copied()
                     .is_some_and(|interpolation| {
-                        matches!(interpolation, SegmentInterpolation::Custom { .. })
+                        matches!(interpolation, SegmentInterpolation::Custom(_))
                     })
             })
             .collect::<Vec<_>>();
@@ -446,12 +446,14 @@ impl Render for AnimationCurveEditor {
                                         PopupMenuItem::new("カスタム")
                                             .checked(matches!(
                                                 interpolation,
-                                                SegmentInterpolation::Custom { .. }
+                                                SegmentInterpolation::Custom(_)
                                             ))
                                             .on_click(move |_, _, cx| {
                                                 custom_editor.update(cx, |editor, cx| {
                                                     editor.set_interpolation(
-                                                        SegmentInterpolation::custom_default(),
+                                                        SegmentInterpolation::Custom(
+                                                            Default::default(),
+                                                        ),
                                                         cx,
                                                     );
                                                 });

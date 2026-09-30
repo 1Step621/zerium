@@ -4,7 +4,7 @@ use std::collections::{BTreeMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use super::PropertyError;
+use super::{PropertyError, types::EnumPropertyType};
 use crate::domain::property::{PropertyType, PropertyValueType, ScalarPropertyType};
 
 fn is_one(value: &f32) -> bool {
@@ -36,12 +36,7 @@ pub(crate) struct PropertyUi {
     step: f32,
     #[serde(skip_serializing_if = "is_true")]
     visible: bool,
-    #[serde(
-        default,
-        skip_serializing_if = "enum_variants_map::is_empty",
-        serialize_with = "enum_variants_map::serialize",
-        deserialize_with = "enum_variants_map::deserialize"
-    )]
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     enum_variants: BTreeMap<u32, String>,
     #[serde(default, skip_serializing_if = "is_false")]
     multiline: bool,
@@ -68,23 +63,18 @@ impl PropertyUi {
         self == &Self::default()
     }
 
-    pub(crate) fn enum_options(&self, ty: &ScalarPropertyType) -> Option<Vec<(u32, String)>> {
-        let ScalarPropertyType::Enum(ty) = ty else {
-            return None;
-        };
-        Some(
-            ty.values()
-                .iter()
-                .map(|value| {
-                    (
-                        *value,
-                        self.enum_label(*value)
-                            .map(str::to_owned)
-                            .unwrap_or_else(|| value.to_string()),
-                    )
-                })
-                .collect(),
-        )
+    pub(crate) fn enum_options(&self, ty: &EnumPropertyType) -> Vec<(u32, String)> {
+        ty.values()
+            .iter()
+            .map(|value| {
+                (
+                    *value,
+                    self.enum_label(*value)
+                        .map(str::to_owned)
+                        .unwrap_or_else(|| value.to_string()),
+                )
+            })
+            .collect()
     }
 
     pub(crate) fn label(&self) -> Option<&str> {
@@ -165,13 +155,7 @@ impl PropertyUi {
         ty: &PropertyType,
         invalid: impl Fn(&str) -> PropertyError,
     ) -> Result<(), PropertyError> {
-        let value_type = match ty {
-            PropertyType::Value(value_type)
-            | PropertyType::Array {
-                element_type: value_type,
-                ..
-            } => value_type,
-        };
+        let value_type = ty.value_type();
         let PropertyValueType::Scalar(ScalarPropertyType::Enum(enumeration)) = value_type else {
             return self
                 .enum_variants
@@ -203,42 +187,5 @@ impl PropertyUi {
             return Err(invalid("UI enum variant labels must be unique"));
         }
         Ok(())
-    }
-}
-
-mod enum_variants_map {
-    use std::collections::BTreeMap;
-
-    use serde::{Deserialize, Deserializer, Serialize, Serializer};
-
-    pub(super) fn serialize<S>(
-        map: &BTreeMap<u32, String>,
-        serializer: S,
-    ) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        map.iter()
-            .map(|(key, value)| (key.to_string(), value))
-            .collect::<BTreeMap<_, _>>()
-            .serialize(serializer)
-    }
-
-    pub(super) fn deserialize<'de, D>(deserializer: D) -> Result<BTreeMap<u32, String>, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        BTreeMap::<String, String>::deserialize(deserializer)?
-            .into_iter()
-            .map(|(key, value)| {
-                key.parse::<u32>()
-                    .map_err(serde::de::Error::custom)
-                    .map(|key| (key, value))
-            })
-            .collect()
-    }
-
-    pub(super) fn is_empty(map: &BTreeMap<u32, String>) -> bool {
-        map.is_empty()
     }
 }

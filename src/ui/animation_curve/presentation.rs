@@ -1,7 +1,8 @@
 use crate::domain::{
-    property::{PropertySchema, PropertyType, ScalarPropertyType},
+    property::{PropertySchema, ScalarPropertyType},
     timeline::{PropertyAddress, TimelineEditor, TimelineItem},
 };
+use crate::ui::numeric_property::numeric_input_spec;
 
 #[derive(Clone)]
 pub(super) struct AnimationPresentation {
@@ -18,13 +19,7 @@ impl AnimationPresentation {
     ) -> Option<Self> {
         let property = animation_property(editor, item, address)?;
         let scalar_index = address.scalar_index;
-        let value_type = match property.ty() {
-            PropertyType::Value(value_type)
-            | PropertyType::Array {
-                element_type: value_type,
-                ..
-            } => value_type,
-        };
+        let value_type = property.ty().value_type();
         let scalar_type = value_type.scalar_at(scalar_index)?.clone();
         let element_index = address.element_id.and_then(|id| {
             item.property_values(address.effect_id)?
@@ -45,7 +40,7 @@ impl AnimationPresentation {
                 step: 0.01,
             });
         }
-        let (suffix, step) = numeric_animation_display(&property, scalar_index)?;
+        let spec = numeric_input_spec(&property, scalar_index)?;
         item.animation_track(
             address.effect_id,
             &address.property_id,
@@ -54,33 +49,10 @@ impl AnimationPresentation {
         )?;
         Some(Self {
             label,
-            suffix,
-            step,
+            suffix: spec.suffix,
+            step: spec.step,
         })
     }
-}
-
-fn numeric_animation_display(
-    property: &PropertySchema,
-    scalar_index: Option<usize>,
-) -> Option<(String, f64)> {
-    if !property.is_visible() || !property.configuration_ui(scalar_index).is_visible() {
-        return None;
-    }
-    let value_type = match property.ty() {
-        PropertyType::Value(value_type)
-        | PropertyType::Array {
-            element_type: value_type,
-            ..
-        } => value_type,
-    };
-    let ui = property.configuration_ui(scalar_index);
-    let step = match value_type.scalar_at(scalar_index)? {
-        ScalarPropertyType::F32 => f64::from(ui.step()),
-        ScalarPropertyType::I32 | ScalarPropertyType::U32 => f64::from(ui.step()).max(1.),
-        _ => return None,
-    };
-    Some((ui.unit().to_owned(), step))
 }
 
 fn animation_property(

@@ -316,16 +316,14 @@ impl Timeline {
         frame_delta: i64,
         layer_delta: i64,
     ) -> (i64, i64) {
-        let origins = origin
-            .items
-            .iter()
-            .map(|item| model::MoveOrigin {
-                start: item.start.get(),
-                duration: item.duration.get(),
-                layer: item.source_layer.get(),
-            })
-            .collect::<Vec<_>>();
-        model::clamp_move_delta(&origins, frame_delta, layer_delta)
+        let origins = origin.items.iter().map(|item| {
+            (
+                item.start.get(),
+                item.duration.get(),
+                item.source_layer.get(),
+            )
+        });
+        model::clamp_move_delta(origins, frame_delta, layer_delta)
     }
 
     pub(super) fn move_item_from_pointer(

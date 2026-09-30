@@ -282,6 +282,8 @@ fn encode_effect_pass(
 }
 
 struct EncodeContext<'a> {
+    scene_nodes: &'a [RenderNode],
+    encoded_nodes: &'a mut HashMap<SceneNodeId, RenderNodeId>,
     items: &'a mut Vec<GpuItem>,
     properties: &'a mut Vec<u8>,
     effects: &'a mut Vec<GpuEffect>,
@@ -326,7 +328,7 @@ impl EncodeContext<'_> {
                 let capabilities = item
                     .inputs
                     .iter()
-                    .map(|input| self.encode_node(input))
+                    .map(|input| self.encode_node(*input))
                     .collect::<Result<Vec<_>, _>>()?;
                 let key = SourceKey::Item {
                     shader: item.shader.clone(),
@@ -487,7 +489,7 @@ impl EncodeContext<'_> {
             let capabilities = effect
                 .inputs
                 .iter()
-                .map(|input| self.encode_node(input))
+                .map(|input| self.encode_node(*input))
                 .collect::<Result<Vec<_>, _>>()?;
             let mut regular_passes = Vec::new();
             let mut regular_keys = Vec::new();
@@ -501,7 +503,7 @@ impl EncodeContext<'_> {
                             .enumerate()
                             .map(|(sample_index, sample)| {
                                 let node = match &sample.input {
-                                    Some(sample) => self.encode_node(sample)?,
+                                    Some(sample) => self.encode_node(*sample)?,
                                     None => self.intern_node(
                                         RenderNodeKey::Transparent {
                                             owner: self.node_keys[node].clone(),
@@ -631,8 +633,13 @@ impl EncodeContext<'_> {
         Ok(node)
     }
 
-    fn encode_node(&mut self, node: &RenderNode) -> Result<RenderNodeId, RenderError> {
-        match &node.content {
+    fn encode_node(&mut self, id: SceneNodeId) -> Result<RenderNodeId, RenderError> {
+        if let Some(encoded) = self.encoded_nodes.get(&id) {
+            return Ok(*encoded);
+        }
+        let nodes = self.scene_nodes;
+        let node = &nodes[id];
+        let encoded = match &node.content {
             RenderNodeContent::Item(item) => {
                 let (source, key) = self.encode_source(item)?;
                 let source = self.intern_node(
@@ -648,7 +655,7 @@ impl EncodeContext<'_> {
             } => {
                 let children = children
                     .iter()
-                    .map(|child| self.encode_node(child))
+                    .map(|child| self.encode_node(*child))
                     .collect::<Result<Vec<_>, _>>()?;
                 let composite = self.intern_node(
                     RenderNodeKey::Composite(
@@ -667,7 +674,9 @@ impl EncodeContext<'_> {
                     Some(SurfaceRect::viewport(self.composition_size)),
                 )
             }
-        }
+        }?;
+        self.encoded_nodes.insert(id, encoded);
+        Ok(encoded)
     }
 }
 
@@ -680,12 +689,15 @@ pub(super) fn encode_items(scene: &RenderScene) -> Result<EncodedScene, RenderEr
     let mut nodes = Vec::new();
     let mut node_keys = Vec::new();
     let mut node_cache = HashMap::new();
+    let mut encoded_nodes = HashMap::new();
     let mut source_cache = HashMap::new();
     let mut commands: Vec<RenderCommand> = Vec::new();
 
     let viewport = SurfaceRect::viewport(scene.composition_size);
     for node in &scene.roots {
         let mut context = EncodeContext {
+            scene_nodes: &scene.nodes,
+            encoded_nodes: &mut encoded_nodes,
             items: &mut items,
             properties: &mut properties,
             effects: &mut effects,
@@ -697,7 +709,7 @@ pub(super) fn encode_items(scene: &RenderScene) -> Result<EncodedScene, RenderEr
             source_cache: &mut source_cache,
             composition_size: scene.composition_size,
         };
-        let root = context.encode_node(node)?;
+        let root = context.encode_node(*node)?;
         match &context.nodes[root].kind {
             RenderNodeCommandKind::Source(RenderSourceCommand::Item {
                 shader,
@@ -724,7 +736,7 @@ pub(super) fn encode_items(scene: &RenderScene) -> Result<EncodedScene, RenderEr
             }
             _ => commands.push(RenderCommand::Surface {
                 node: root,
-                render_scale: node.required_render_scale(),
+                render_scale: scene.nodes[*node].required_render_scale(),
             }),
         }
     }

@@ -145,13 +145,6 @@ impl EffectPassSchema {
             Self::Temporal { reducer, .. } => reducer.module(),
         }
     }
-
-    pub(crate) fn temporal_sample_offsets(&self, values: &PropertyValues) -> Option<Vec<f64>> {
-        let Self::Temporal { sampling, .. } = self else {
-            return None;
-        };
-        sampling.sample_offsets(values)
-    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -295,7 +288,12 @@ impl EffectSchema {
     }
 
     pub(crate) fn files(&self) -> impl Iterator<Item = &FileCapability> {
-        self.capabilities.iter().filter_map(Capability::media_file)
+        self.capabilities
+            .iter()
+            .filter_map(|capability| match capability {
+                Capability::Media { file, .. } => Some(file),
+                _ => None,
+            })
     }
 
     pub(crate) fn capabilities(&self) -> &[Capability] {
@@ -462,7 +460,7 @@ impl TemporalSamplingSchema {
         Ok(())
     }
 
-    fn sample_offsets(&self, values: &PropertyValues) -> Option<Vec<f64>> {
+    pub(crate) fn sample_offsets(&self, values: &PropertyValues) -> Option<Vec<f64>> {
         match self {
             Self::Range {
                 sample_count,

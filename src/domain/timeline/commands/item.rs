@@ -183,25 +183,6 @@ impl TimelineEditor {
         {
             return false;
         }
-        let Some(anchor) = origins.iter().find(|item| item.id == anchor_id) else {
-            return false;
-        };
-        let anchor_edge = edge.item_frame(anchor);
-        let mut delta = i128::from(pointer.get()) - i128::from(anchor_edge);
-        if edge == ResizeEdge::Right {
-            for origin in origins {
-                let Some(limit) = origin
-                    .scene_id()
-                    .and_then(|scene_id| self.project().scenes.get(&scene_id))
-                    .map(SceneDefinition::duration)
-                else {
-                    continue;
-                };
-                let maximum = i128::from(limit.get()) - i128::from(origin.duration.get());
-                delta = delta.min(maximum);
-            }
-        }
-        let pointer = (i128::from(anchor_edge) + delta).clamp(0, i128::from(u64::MAX)) as u64;
         let mut ids = origins.iter().map(|item| item.id).collect::<Vec<_>>();
         ids.sort_unstable_by_key(|id| id.get());
         ids.dedup();
@@ -211,12 +192,9 @@ impl TimelineEditor {
             HistoryKey::ItemsResize(ids, edge)
         };
         let before = self.history_snapshot_for_edit(Some(&key));
-        let changed = self.active_document_mut().resize_items_from(
-            origins,
-            anchor_id,
-            edge,
-            Frame::new(pointer),
-        );
+        let changed = self
+            .active_document_mut()
+            .resize_items_from(origins, anchor_id, edge, pointer);
         self.finish_project_edit_if_changed(changed, before, Some(key))
     }
 

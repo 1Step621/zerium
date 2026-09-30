@@ -20,7 +20,7 @@ use super::{
     ffmpeg::fit_dimensions,
     reader::{
         AudioDecoderSession, AudioFormat, DecodedAudioBlock, DecodedVideoFrame, MediaError,
-        MediaProbe, MediaStreamDurations, VideoDecodeSize, VideoDecoderSession,
+        MediaProbe, VideoDecodeSize, VideoDecoderSession,
     },
 };
 
@@ -220,18 +220,14 @@ pub(super) fn probe(path: &Path, media_type: MediaType) -> Result<MediaProbe, Me
                 width: decoder.width(),
                 height: decoder.height(),
             },
-            streams: MediaStreamDurations {
-                video: Some(Duration::from_secs(5)),
-            },
+            video_duration: Some(Duration::from_secs(5)),
         });
     }
 
     let duration = media_duration(&input)
         .and_then(|seconds| Duration::try_from_secs_f64(seconds).ok())
         .ok_or_else(|| MediaError::external("メディアの再生時間を取得できません"))?;
-    let stream_durations = MediaStreamDurations {
-        video: video.as_ref().and_then(stream_duration),
-    };
+    let video_duration = video.as_ref().and_then(stream_duration);
     let kind = if let Some(stream) = video {
         let decoder = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
             .and_then(|context| context.decoder().video())
@@ -270,7 +266,7 @@ pub(super) fn probe(path: &Path, media_type: MediaType) -> Result<MediaProbe, Me
     Ok(MediaProbe {
         duration,
         kind,
-        streams: stream_durations,
+        video_duration,
     })
 }
 

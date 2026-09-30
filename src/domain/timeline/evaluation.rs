@@ -124,26 +124,8 @@ pub(crate) struct EvaluatedSceneNode {
     pub layer: LayerId,
     pub clip: EvaluatedClip,
     pub path: Vec<ItemId>,
-    pub kind: EvaluatedSceneNodeKind,
-}
-
-#[derive(Clone, Debug)]
-pub(crate) enum EvaluatedSceneNodeKind {
-    Item(TimelineItem),
-    Scene {
-        scene_id: SceneId,
-        instance: TimelineItem,
-        children: Vec<EvaluatedSceneNode>,
-    },
-}
-
-impl EvaluatedSceneNode {
-    pub(crate) fn item(&self) -> &TimelineItem {
-        match &self.kind {
-            EvaluatedSceneNodeKind::Item(item) => item,
-            EvaluatedSceneNodeKind::Scene { instance, .. } => instance,
-        }
-    }
+    pub item: TimelineItem,
+    pub children: Vec<EvaluatedSceneNode>,
 }
 
 fn evaluated_document_graph_with_visibility(
@@ -202,7 +184,8 @@ fn evaluated_document_graph_with_visibility(
                     layer: output_layer,
                     clip,
                     path,
-                    kind: EvaluatedSceneNodeKind::Item(item),
+                    item,
+                    children: Vec::new(),
                 });
                 continue;
             };
@@ -210,6 +193,11 @@ fn evaluated_document_graph_with_visibility(
                 continue;
             };
             let local = TimelineTime::from_frames(time.frames() - item.start.get() as f64);
+            // The instance keeps its own span when its source scene shrinks.
+            // Outside the source, even effects on the instance are transparent.
+            if local.frames() >= scene.duration().get() as f64 {
+                continue;
+            }
             let mut child_items = scene.document().active_source_items_at_time(local);
             apply_scene_arguments(scene, context.scenes, &item, time, &mut child_items);
             let child_seed = runtime_seed
@@ -237,11 +225,8 @@ fn evaluated_document_graph_with_visibility(
                 layer: output_layer,
                 clip,
                 path,
-                kind: EvaluatedSceneNodeKind::Scene {
-                    scene_id,
-                    instance: item,
-                    children,
-                },
+                item,
+                children,
             });
         }
         output
@@ -291,9 +276,10 @@ fn evaluated_document_items_with_visibility(
 ) -> Vec<(LayerId, TimelineItem)> {
     fn flatten(nodes: Vec<EvaluatedSceneNode>, output: &mut Vec<(LayerId, TimelineItem)>) {
         for node in nodes {
-            match node.kind {
-                EvaluatedSceneNodeKind::Item(item) => output.push((node.layer, item)),
-                EvaluatedSceneNodeKind::Scene { children, .. } => flatten(children, output),
+            if node.item.scene_id().is_some() {
+                flatten(node.children, output);
+            } else {
+                output.push((node.layer, node.item));
             }
         }
     }

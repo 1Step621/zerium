@@ -13,16 +13,14 @@ use crate::{
     domain::{
         media::{MediaAsset, MediaKind, MediaSourceId},
         plugin::Capability,
-        timeline::{
-            EffectInstanceId, Frame, FrameRate, ItemId, LayerId, TimelineItem, TimelineTime,
-        },
+        timeline::{Frame, FrameRate, LayerId, TimelineItem, TimelineTime},
     },
     engine::{
         cache::{BudgetedTimestampCache, TimestampCacheHit},
         frame::RgbaFrame,
         media::{
-            DecodedVideoFrame, MediaError, MediaReaderRegistry, VideoDecodeSize, VideoProxy,
-            VideoProxyRequest, VisualDecoderSession, estimate_max_keyframe_gap,
+            DecodedVideoFrame, MediaError, MediaInputId, MediaReaderRegistry, VideoDecodeSize,
+            VideoProxy, VideoProxyRequest, VisualDecoderSession, estimate_max_keyframe_gap,
         },
     },
 };
@@ -71,14 +69,14 @@ impl InFlightVideoDecode {
 
 #[derive(Default)]
 struct InFlightVideoDecodes {
-    active: HashMap<VideoInputId, InFlightVideoDecode>,
+    active: HashMap<MediaInputId, InFlightVideoDecode>,
     next_generation: u64,
 }
 
 impl InFlightVideoDecodes {
     fn spawn(
         &mut self,
-        input: VideoInputId,
+        input: MediaInputId,
         source: MediaAsset,
         presentation_time: Duration,
         size: VideoDecodeSize,
@@ -119,7 +117,7 @@ impl InFlightVideoDecodes {
         (generation, cancel)
     }
 
-    fn complete(&mut self, input: &VideoInputId, generation: u64) -> bool {
+    fn complete(&mut self, input: &MediaInputId, generation: u64) -> bool {
         if self
             .active
             .get(input)
@@ -132,7 +130,7 @@ impl InFlightVideoDecodes {
         }
     }
 
-    fn cancel_orphans(&mut self, active_inputs: &HashSet<VideoInputId>) {
+    fn cancel_orphans(&mut self, active_inputs: &HashSet<MediaInputId>) {
         for (input, decode) in &self.active {
             if !active_inputs.contains(input) {
                 // Do not release the slot until the worker returns.
@@ -149,7 +147,7 @@ impl InFlightVideoDecodes {
 
 #[derive(Clone)]
 struct VideoDecodeRequest {
-    input: VideoInputId,
+    input: MediaInputId,
     asset_time: Duration,
     asset: MediaAsset,
 }
@@ -202,13 +200,6 @@ struct VideoProxyJob {
     key: VideoProxyKey,
     source: MediaAsset,
     request: VideoProxyRequest,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct VideoInputId {
-    pub(crate) item_id: ItemId,
-    pub(crate) effect_id: Option<EffectInstanceId>,
-    pub(crate) input_id: String,
 }
 
 #[derive(Clone)]
@@ -272,7 +263,7 @@ pub(crate) struct VideoPlaybackEvent(VideoPlaybackEventKind);
 
 enum VideoPlaybackEventKind {
     Decoded {
-        input: VideoInputId,
+        input: MediaInputId,
         result: VideoWorkerResult,
     },
     ProxyGenerated {
@@ -285,7 +276,7 @@ enum VideoPlaybackEventKind {
 fn video_worker_main(
     media_readers: Arc<MediaReaderRegistry>,
     requests: std::sync::mpsc::Receiver<VideoWorkerDirective>,
-    input: VideoInputId,
+    input: MediaInputId,
     events: UnboundedSender<VideoPlaybackEvent>,
 ) {
     let mut decoder: Option<VideoDecoderState> = None;
@@ -617,12 +608,12 @@ pub(crate) struct VideoPlaybackSnapshot {
 pub(crate) struct VideoPlaybackEngine {
     media_readers: Arc<MediaReaderRegistry>,
     frame_cache: BudgetedTimestampCache<VideoFrameSequence, Arc<RgbaFrame>>,
-    requested_frames: HashMap<VideoInputId, Vec<RequestedVideoFrame>>,
+    requested_frames: HashMap<MediaInputId, Vec<RequestedVideoFrame>>,
     tick_decode_requests: Vec<VideoDecodeRequest>,
     tick_seen_times: HashSet<u64>,
-    last_presented_frames: HashMap<VideoInputId, PresentedVideoFrame>,
+    last_presented_frames: HashMap<MediaInputId, PresentedVideoFrame>,
     in_flight: InFlightVideoDecodes,
-    workers: HashMap<VideoInputId, VideoWorkerHandle>,
+    workers: HashMap<MediaInputId, VideoWorkerHandle>,
     proxy: VideoProxyManager,
     events: UnboundedSender<VideoPlaybackEvent>,
     failed_frames: HashSet<(VideoFrameSequence, Duration)>,
@@ -678,8 +669,8 @@ impl VideoPlaybackEngine {
         time: TimelineTime,
         active_items: &[(LayerId, TimelineItem)],
         frame_rate: FrameRate,
-        size_for_input: impl Fn(&VideoInputId) -> VideoDecodeSize,
-    ) -> Vec<(VideoInputId, RequestedVideoFrame)> {
+        size_for_input: impl Fn(&MediaInputId) -> VideoDecodeSize,
+    ) -> Vec<(MediaInputId, RequestedVideoFrame)> {
         if !self.tick_seen_times.insert(time.frames().to_bits()) {
             return Vec::new();
         }
@@ -793,7 +784,7 @@ impl VideoPlaybackEngine {
 
     pub(crate) fn present_recorded_frame(
         &mut self,
-        input: &VideoInputId,
+        input: &MediaInputId,
         request: &RequestedVideoFrame,
     ) -> Option<Arc<RgbaFrame>> {
         let sequence = request.sequence();
@@ -925,7 +916,7 @@ impl VideoPlaybackEngine {
                         Duration::try_from_secs_f64(asset.looped_seconds(local_seconds))
                             .unwrap_or_default();
                     requests.push(VideoDecodeRequest {
-                        input: VideoInputId {
+                        input: MediaInputId {
                             item_id: item.id,
                             effect_id,
                             input_id: input_id.clone(),
@@ -1071,7 +1062,7 @@ impl VideoPlaybackEngine {
         }
     }
 
-    fn ensure_worker(&mut self, input: &VideoInputId) -> bool {
+    fn ensure_worker(&mut self, input: &MediaInputId) -> bool {
         if self.workers.contains_key(input) {
             return true;
         }
@@ -1095,7 +1086,7 @@ impl VideoPlaybackEngine {
         true
     }
 
-    fn shutdown_idle_workers(&mut self, active_inputs: &HashSet<VideoInputId>) {
+    fn shutdown_idle_workers(&mut self, active_inputs: &HashSet<MediaInputId>) {
         self.workers.retain(|input, worker| {
             if active_inputs.contains(input) {
                 return true;
@@ -1106,7 +1097,7 @@ impl VideoPlaybackEngine {
         });
     }
 
-    fn decode_input_if_needed(&mut self, input: &VideoInputId) {
+    fn decode_input_if_needed(&mut self, input: &MediaInputId) {
         let Some(requests) = self.requested_frames.get(input) else {
             return;
         };
@@ -1184,7 +1175,7 @@ impl VideoPlaybackEngine {
         }
     }
 
-    fn finish_decode(&mut self, input: &VideoInputId, message: VideoWorkerResult) -> bool {
+    fn finish_decode(&mut self, input: &MediaInputId, message: VideoWorkerResult) -> bool {
         if !self.in_flight.complete(input, message.generation) {
             return false;
         }

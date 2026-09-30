@@ -11,32 +11,10 @@ pub(super) struct ColorState {
     pub _subscriptions: Vec<Subscription>,
 }
 
-pub(super) enum ControlState {
-    Text(TextState),
-    Number(TextState),
-    Color(ColorState),
-}
-
-impl ControlState {
-    pub(super) fn text(&self) -> Option<&TextState> {
-        match self {
-            Self::Text(state) => Some(state),
-            Self::Number(input) => Some(input),
-            Self::Color(_) => None,
-        }
-    }
-
-    pub(super) fn color(&self) -> Option<&ColorState> {
-        match self {
-            Self::Color(picker) => Some(picker),
-            Self::Text(_) | Self::Number(_) => None,
-        }
-    }
-}
-
 #[derive(Default)]
 pub(super) struct ControlStore {
-    pub states: HashMap<ControlId, ControlState>,
+    pub text_inputs: HashMap<ControlId, TextState>,
+    pub color_pickers: HashMap<ControlId, ColorState>,
     pub tree: ControlTree,
     pub input_structure: Option<InspectorInputStructure>,
     pub value_drag_origin: Option<PropertyValueDragOrigin>,
@@ -45,17 +23,11 @@ pub(super) struct ControlStore {
 
 impl ControlStore {
     pub(super) fn text(&self, id: &ControlId) -> Option<Entity<InputState>> {
-        self.states
-            .get(id)
-            .and_then(ControlState::text)
-            .map(|state| state.input.clone())
+        self.text_inputs.get(id).map(|state| state.input.clone())
     }
 
     pub(super) fn color(&self, id: &ControlId) -> Option<Entity<ColorPickerState>> {
-        self.states
-            .get(id)
-            .and_then(ControlState::color)
-            .map(|state| state.picker.clone())
+        self.color_pickers.get(id).map(|state| state.picker.clone())
     }
 }
 
@@ -73,24 +45,7 @@ impl PropertyInspector {
     }
 
     pub(super) fn color_value(item: &TimelineItem, target: &PropertyTarget) -> Option<[f32; 4]> {
-        let value = match target.effect_id {
-            Some(effect_id) => item
-                .effects
-                .iter()
-                .find(|effect| effect.id == effect_id)
-                .and_then(|effect| effect.properties.property(&target.property_id)),
-            None => item.properties.property(&target.property_id),
-        };
-        let value = match target.element_id {
-            Some(id) => match value? {
-                PropertyValue::Array(values) => {
-                    values.iter().find(|row| row.element_id() == id)?.value()
-                }
-                _ => return None,
-            },
-            None => value?,
-        }
-        .scalar_at(target.scalar_index)?;
+        let value = target.value(item)?;
         match value {
             PropertyValue::Color(color) => Some(*color),
             _ => None,
@@ -104,7 +59,6 @@ impl PropertyInspector {
         key: ControlId,
         initial: String,
         multiline: bool,
-        numeric: bool,
         subscribe: impl FnOnce(
             &Entity<InputState>,
             &mut Window,
@@ -113,7 +67,7 @@ impl PropertyInspector {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<InputState> {
-        if let Some(state) = self.store.states.get(&key).and_then(ControlState::text) {
+        if let Some(state) = self.store.text_inputs.get(&key) {
             Self::set_input_value(&state.input, initial, window, cx);
             return state.input.clone();
         }
@@ -132,14 +86,7 @@ impl PropertyInspector {
             input,
             _subscriptions: subscriptions,
         };
-        self.store.states.insert(
-            key,
-            if numeric {
-                ControlState::Number(state)
-            } else {
-                ControlState::Text(state)
-            },
-        );
+        self.store.text_inputs.insert(key, state);
         cloned
     }
 
@@ -155,7 +102,7 @@ impl PropertyInspector {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Entity<ColorPickerState> {
-        if let Some(state) = self.store.states.get(&key).and_then(ControlState::color) {
+        if let Some(state) = self.store.color_pickers.get(&key) {
             if state.picker.read(cx).value() != Some(initial) {
                 state
                     .picker
@@ -166,12 +113,12 @@ impl PropertyInspector {
         let picker = cx.new(|cx| ColorPickerState::new(window, cx).default_value(initial));
         let subscription = subscribe(&picker, window, cx);
         let cloned = picker.clone();
-        self.store.states.insert(
+        self.store.color_pickers.insert(
             key,
-            ControlState::Color(ColorState {
+            ColorState {
                 picker,
                 _subscriptions: vec![subscription],
-            }),
+            },
         );
         cloned
     }
@@ -190,7 +137,6 @@ impl PropertyInspector {
             control.common.id.clone(),
             text,
             false,
-            true,
             |input, window, cx| {
                 let change_target = target.clone();
                 let change_spec = spec.clone();
@@ -249,7 +195,6 @@ impl PropertyInspector {
             stop.id.clone(),
             Self::format_value(value),
             false,
-            true,
             |input, window, cx| {
                 let change_binding = binding.clone();
                 let change_spec = spec.clone();
@@ -304,7 +249,6 @@ impl PropertyInspector {
             control.common.id.clone(),
             text,
             control.multiline,
-            false,
             |input, window, cx| {
                 vec![
                     cx.subscribe_in(input, window, move |this, input, event, window, cx| {
@@ -320,20 +264,20 @@ impl PropertyInspector {
     fn ensure_color_control(
         &mut self,
         item_id: ItemId,
-        control: &crate::ui::property_inspector::control::ColorControl,
+        control: &crate::ui::property_inspector::control::LeafControl,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let color = match control.common.value {
+        let color = match control.value {
             PropertyValue::Color(color) => Self::color_to_hsla(color),
             _ => gpui::Hsla::default(),
         };
         let binding = PropertyBinding {
             item_id,
-            target: control.common.target.clone(),
+            target: control.target.clone(),
         };
         self.ensure_color(
-            control.common.id.clone(),
+            control.id.clone(),
             color,
             |picker, window, cx| {
                 cx.subscribe_in(picker, window, move |this, _, event, _, cx| {
@@ -343,11 +287,11 @@ impl PropertyInspector {
             window,
             cx,
         );
-        for stop in &control.common.animation_stops {
+        for stop in &control.animation_stops {
             let PropertyValue::Color(color) = stop.value else {
                 continue;
             };
-            let binding = AnimationStopBinding::new(item_id, control.common.target.effect_id, stop);
+            let binding = AnimationStopBinding::new(item_id, control.target.effect_id, stop);
             self.ensure_color(
                 stop.id.clone(),
                 Self::color_to_hsla(color),

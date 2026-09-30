@@ -80,7 +80,7 @@ impl Preview {
         if event.button != MouseButton::Left || composition_units_per_pixel <= 0. {
             return;
         }
-        self.editor_drag.resize_origin = Some(PreviewResizeOrigin {
+        self.editor_drag = PreviewEditorDragState::Resize(PreviewResizeOrigin {
             item_id: overlay.item_id,
             effect_id,
             property_id: overlay.property_id.clone(),
@@ -101,18 +101,15 @@ impl Preview {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(origin) = self
-            .editor_drag
-            .resize_origin
-            .as_ref()
-            .filter(|origin| {
-                origin.item_id == drag.item_id
+        let origin = match &self.editor_drag {
+            PreviewEditorDragState::Resize(origin)
+                if origin.item_id == drag.item_id
                     && origin.effect_id == drag.effect_id
-                    && origin.handle == handle
-            })
-            .cloned()
-        else {
-            return;
+                    && origin.handle == handle =>
+            {
+                origin.clone()
+            }
+            _ => return,
         };
         cx.set_active_drag_cursor_style(origin.handle.cursor(), window);
         let direction = origin.handle.direction();
@@ -153,19 +150,15 @@ impl Preview {
 
     fn begin_position_drag(
         &mut self,
-        item_id: crate::domain::timeline::ItemId,
-        effect_id: Option<EffectInstanceId>,
-        position: &PreviewPairProperty,
+        position: &PreviewPositionOverlay,
         composition_units_per_pixel: f32,
         event: &MouseDownEvent,
     ) {
         if event.button != MouseButton::Left || composition_units_per_pixel <= 0. {
             return;
         }
-        self.editor_drag.position_origin = Some(PreviewPositionOrigin {
-            item_id,
-            effect_id,
-            property_id: position.property_id.clone(),
+        self.editor_drag = PreviewEditorDragState::Position(PreviewPositionOrigin {
+            address: position.address.clone(),
             pointer: [f32::from(event.position.x), f32::from(event.position.y)],
             position: position.value,
             target: position.target,
@@ -180,14 +173,14 @@ impl Preview {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(origin) = self
-            .editor_drag
-            .position_origin
-            .as_ref()
-            .filter(|origin| origin.item_id == drag.item_id && origin.effect_id == drag.effect_id)
-            .cloned()
-        else {
-            return;
+        let origin = match &self.editor_drag {
+            PreviewEditorDragState::Position(origin)
+                if origin.address.item_id == drag.item_id
+                    && origin.address.effect_id == drag.effect_id =>
+            {
+                origin.clone()
+            }
+            _ => return,
         };
         cx.set_active_drag_cursor_style(CursorStyle::ClosedHand, window);
         let position = [
@@ -199,9 +192,9 @@ impl Preview {
         self.editor.update(cx, |editor, cx| {
             if Self::update_pair_property(
                 editor,
-                origin.item_id,
-                origin.effect_id,
-                &origin.property_id,
+                origin.address.item_id,
+                origin.address.effect_id,
+                &origin.address.property_id,
                 origin.target,
                 position,
             ) {
@@ -212,15 +205,15 @@ impl Preview {
 
     pub(super) fn position_handle(
         &self,
-        item_id: crate::domain::timeline::ItemId,
-        effect_id: Option<EffectInstanceId>,
-        position: PreviewPairProperty,
+        position: PreviewPositionOverlay,
         resolution: crate::domain::timeline::ProjectResolution,
         composition_units_per_pixel: f32,
         color: Hsla,
         cx: &Context<Self>,
     ) -> impl IntoElement {
         const HANDLE_SIZE: f32 = 14.;
+        let item_id = position.address.item_id;
+        let effect_id = position.address.effect_id;
         let drag = PreviewEditorDrag {
             preview_id: cx.entity_id(),
             item_id,
@@ -253,13 +246,7 @@ impl Preview {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event, _, _| {
-                    this.begin_position_drag(
-                        item_id,
-                        effect_id,
-                        &begin_position,
-                        composition_units_per_pixel,
-                        event,
-                    );
+                    this.begin_position_drag(&begin_position, composition_units_per_pixel, event);
                 }),
             )
             .on_drag(drag, move |drag, _, _, cx| {
@@ -270,27 +257,24 @@ impl Preview {
 
     fn begin_point_drag(
         &mut self,
-        item_id: crate::domain::timeline::ItemId,
+        overlay: &PreviewPointOverlay,
         effect_id: Option<EffectInstanceId>,
-        points: &PreviewPointsProperty,
-        point: &PreviewPoint,
-        size: [f32; 2],
         composition_units_per_pixel: f32,
         event: &MouseDownEvent,
     ) {
         if event.button != MouseButton::Left || composition_units_per_pixel <= 0. {
             return;
         }
-        self.editor_drag.point_origin = Some(PreviewPointOrigin {
-            item_id,
+        self.editor_drag = PreviewEditorDragState::Point(PreviewPointOrigin {
+            item_id: overlay.item_id,
             effect_id,
-            property_id: points.property_id.clone(),
-            element_id: point.element_id,
+            property_id: overlay.points.property_id.clone(),
+            element_id: overlay.point.element_id,
             pointer: [f32::from(event.position.x), f32::from(event.position.y)],
-            point: point.value,
-            size,
-            value: points.value.clone(),
-            target: point.target,
+            point: overlay.point.value,
+            size: overlay.size,
+            value: overlay.points.value.clone(),
+            target: overlay.point.target,
             composition_units_per_pixel,
         });
     }
@@ -303,18 +287,15 @@ impl Preview {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(origin) = self
-            .editor_drag
-            .point_origin
-            .as_ref()
-            .filter(|origin| {
-                origin.item_id == drag.item_id
+        let origin = match &self.editor_drag {
+            PreviewEditorDragState::Point(origin)
+                if origin.item_id == drag.item_id
                     && origin.effect_id == drag.effect_id
-                    && origin.element_id == element_id
-            })
-            .cloned()
-        else {
-            return;
+                    && origin.element_id == element_id =>
+            {
+                origin.clone()
+            }
+            _ => return,
         };
         cx.set_active_drag_cursor_style(CursorStyle::Crosshair, window);
         let point = [
@@ -397,7 +378,7 @@ impl Preview {
         const HANDLE_SIZE: f32 = 9.;
         let item_id = overlay.item_id;
         let size = overlay.size;
-        let point = overlay.point;
+        let point = &overlay.point;
         let position = [
             overlay.center[0] + (point.value[0] / 100. - 0.5) * size[0],
             overlay.center[1] + (point.value[1] / 100. - 0.5) * size[1],
@@ -408,8 +389,6 @@ impl Preview {
             effect_id,
             kind: PreviewDragKind::Point(point.element_id),
         };
-        let begin_points = overlay.points;
-        let begin_point = point.clone();
         div()
             .id(SharedString::from(format!(
                 "preview-point-handle-{}-{}-{}",
@@ -431,15 +410,7 @@ impl Preview {
             .on_mouse_down(
                 MouseButton::Left,
                 cx.listener(move |this, event, _, _| {
-                    this.begin_point_drag(
-                        item_id,
-                        effect_id,
-                        &begin_points,
-                        &begin_point,
-                        size,
-                        composition_units_per_pixel,
-                        event,
-                    );
+                    this.begin_point_drag(&overlay, effect_id, composition_units_per_pixel, event);
                 }),
             )
             .on_drag(drag, move |drag, _, _, cx| {

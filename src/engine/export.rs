@@ -21,7 +21,7 @@ use crate::{
         frame::RgbaFrame,
         media::{
             AtomicFileTransaction, AudioFormat, AudioGainEvaluation, AudioTimelineGraph,
-            FfmpegFileEncoder, MediaReaderRegistry, VideoColorSpec, VideoDecodeSize,
+            FfmpegFileEncoder, MediaInputId, MediaReaderRegistry, VideoColorSpec, VideoDecodeSize,
             VideoEncoderSettings, VideoOutputSpec, VisualDecoderSession, sample_boundary,
         },
         rendering::{
@@ -52,13 +52,6 @@ impl ExportError {
     pub(crate) fn encoding(message: impl fmt::Display) -> Self {
         Self::Encoding(message.to_string())
     }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct TextureInputId {
-    item_id: ItemId,
-    effect_id: Option<EffectInstanceId>,
-    input_id: String,
 }
 
 struct ExportDecoder {
@@ -207,7 +200,7 @@ fn decode_scenes(
     scenes: mpsc::SyncSender<Result<(u64, RenderScene), ExportError>>,
 ) {
     let composition_size = RenderSize::from(timeline.resolution());
-    let mut decoders = HashMap::<TextureInputId, ExportDecoder>::new();
+    let mut decoders = HashMap::<MediaInputId, ExportDecoder>::new();
     let mut text_frames = TextFrameCache::new();
     let cancelled = AtomicBool::new(false);
     for frame_index in 0..frame_count {
@@ -326,7 +319,7 @@ fn decode_texture_frame(
     input_id: &str,
     time: TimelineTime,
     size: RenderSize,
-    decoders: &mut HashMap<TextureInputId, ExportDecoder>,
+    decoders: &mut HashMap<MediaInputId, ExportDecoder>,
     media_readers: &MediaReaderRegistry,
     cancelled: &AtomicBool,
 ) -> Result<Option<Arc<RgbaFrame>>, ExportError> {
@@ -352,7 +345,7 @@ fn decode_texture_frame(
     if matches!(asset.kind, MediaKind::Audio { .. }) {
         return Ok(None);
     }
-    let id = TextureInputId {
+    let id = MediaInputId {
         item_id,
         effect_id,
         input_id: input_id.to_owned(),

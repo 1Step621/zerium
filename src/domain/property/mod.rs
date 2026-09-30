@@ -4,12 +4,14 @@ use thiserror::Error;
 mod constraints;
 mod metadata;
 mod numeric;
+mod path;
 mod schema;
 mod types;
 mod value;
 
 pub(crate) use constraints::PropertyConstraints;
 pub(crate) use numeric::NumericSettings;
+pub(crate) use path::PropertyPath;
 pub(crate) use schema::{PropertyConfiguration, PropertySchema};
 pub(crate) use types::{PropertyType, PropertyValueType, ScalarPropertyType};
 pub(in crate::domain) use value::MAX_STRING_BYTES;

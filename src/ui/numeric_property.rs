@@ -1,4 +1,4 @@
-use super::*;
+use crate::domain::property::{PropertySchema, PropertyType, PropertyValue, ScalarPropertyType};
 
 pub(super) fn snap_to_step(value: f64, step: f64) -> f64 {
     if !step.is_finite() || step <= 0. {
@@ -8,37 +8,25 @@ pub(super) fn snap_to_step(value: f64, step: f64) -> f64 {
     }
 }
 
-/// Numeric display rules used by PropertyInspector input controls.
+/// Numeric display rules shared by inspector controls and animation curves.
 #[derive(Clone)]
 pub(super) struct NumericInputSpec {
-    pub suffix: String,
-    pub min: f64,
-    pub max: f64,
-    pub step: f64,
-    pub scalar_type: ScalarPropertyType,
+    pub(super) suffix: String,
+    pub(super) min: f64,
+    pub(super) max: f64,
+    pub(super) step: f64,
+    pub(super) scalar_type: ScalarPropertyType,
 }
 
 pub(super) fn numeric_input_spec(
     property: &PropertySchema,
     scalar_index: Option<usize>,
 ) -> Option<NumericInputSpec> {
-    if !property.is_visible() || !property.configuration_ui(scalar_index).is_visible() {
+    let scalar_type = property.ty().value_type().scalar_at(scalar_index)?.clone();
+    if !property.configuration_ui(scalar_index).is_visible() {
         return None;
     }
-    let value_type = match property.ty() {
-        PropertyType::Value(value_type)
-        | PropertyType::Array {
-            element_type: value_type,
-            ..
-        } => value_type,
-    };
-    let scalar_type = value_type.scalar_at(scalar_index)?.clone();
-    let (type_min, type_max) = match &scalar_type {
-        ScalarPropertyType::F32 => (f64::from(f32::MIN), f64::from(f32::MAX)),
-        ScalarPropertyType::I32 => (f64::from(i32::MIN), f64::from(i32::MAX)),
-        ScalarPropertyType::U32 => (0., f64::from(u32::MAX)),
-        _ => return None,
-    };
+    let (type_min, type_max) = NumericInput::new(scalar_type.clone())?.bounds();
     let constraints = property.configuration_constraints(scalar_index);
     let ui = property.configuration_ui(scalar_index);
     let min = constraints.min.unwrap_or(type_min).max(type_min);

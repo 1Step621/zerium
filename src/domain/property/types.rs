@@ -175,6 +175,15 @@ fn is_zero(value: &u32) -> bool {
 }
 
 impl PropertyType {
+    pub(crate) fn value_type(&self) -> &PropertyValueType {
+        match self {
+            Self::Value(ty)
+            | Self::Array {
+                element_type: ty, ..
+            } => ty,
+        }
+    }
+
     pub(crate) fn allows(&self, value: &PropertyValue) -> bool {
         match self {
             Self::Value(ty) => ty.allows(value),

@@ -15,14 +15,6 @@ impl PropertyInspector {
         cx.notify();
     }
 
-    fn scene_name_input(&self, scene_id: SceneId) -> Option<Entity<InputState>> {
-        self.store
-            .states
-            .get(&ControlId::scene_name(scene_id))
-            .and_then(state::ControlState::text)
-            .map(|state| state.input.clone())
-    }
-
     pub(super) fn ensure_active_scene_argument_names(
         &mut self,
         window: &mut Window,
@@ -40,13 +32,14 @@ impl PropertyInspector {
             return;
         };
         let key = ControlId::scene_name(scene_id);
-        if self
+        if let Some(input) = self
             .store
-            .states
+            .text_inputs
             .get(&key)
-            .and_then(state::ControlState::text)
-            .is_none()
+            .map(|state| state.input.clone())
         {
+            Self::set_input_value(&input, scene_name, window, cx);
+        } else {
             let input = cx.new(|cx| {
                 InputState::new(window, cx).default_value(SharedString::from(scene_name.clone()))
             });
@@ -61,16 +54,13 @@ impl PropertyInspector {
                     }
                 });
             });
-            self.store.states.insert(
+            self.store.text_inputs.insert(
                 key,
-                state::ControlState::Text(state::TextState {
+                state::TextState {
                     input,
                     _subscriptions: vec![subscription],
-                }),
+                },
             );
-        } else {
-            let input = self.scene_name_input(scene_id).expect("name input ensured");
-            Self::set_input_value(&input, scene_name, window, cx);
         }
         for argument in arguments {
             let argument_id = argument.schema.id().to_owned();
@@ -80,13 +70,14 @@ impl PropertyInspector {
                 argument.schema.label().to_owned()
             };
             let name_key = ControlId::scene_argument_name(scene_id, &argument_id);
-            if self
+            if let Some(input) = self
                 .store
-                .states
+                .text_inputs
                 .get(&name_key)
-                .and_then(state::ControlState::text)
-                .is_none()
+                .map(|state| state.input.clone())
             {
+                Self::set_input_value(&input, label, window, cx);
+            } else {
                 let input = cx
                     .new(|cx| InputState::new(window, cx).default_value(SharedString::from(label)));
                 let renamed_id = argument_id.clone();
@@ -102,22 +93,13 @@ impl PropertyInspector {
                             }
                         });
                     });
-                self.store.states.insert(
+                self.store.text_inputs.insert(
                     name_key,
-                    state::ControlState::Text(state::TextState {
+                    state::TextState {
                         input,
                         _subscriptions: vec![subscription],
-                    }),
+                    },
                 );
-            } else {
-                let input = self
-                    .store
-                    .states
-                    .get(&name_key)
-                    .and_then(state::ControlState::text)
-                    .map(|state| state.input.clone())
-                    .expect("argument name input ensured");
-                Self::set_input_value(&input, label, window, cx);
             }
 
             if let Some(number) = NumericInput::for_schema(&argument.schema) {
@@ -149,13 +131,14 @@ impl PropertyInspector {
                     _ => String::new(),
                 };
                 let default_key = ControlId::scene_argument_default(scene_id, &argument_id);
-                if self
+                if let Some(input) = self
                     .store
-                    .states
+                    .text_inputs
                     .get(&default_key)
-                    .and_then(state::ControlState::text)
-                    .is_none()
+                    .map(|state| state.input.clone())
                 {
+                    Self::set_input_value(&input, value, window, cx);
+                } else {
                     let input = cx.new(|cx| {
                         InputState::new(window, cx).default_value(SharedString::from(value))
                     });
@@ -175,22 +158,13 @@ impl PropertyInspector {
                                 }
                             });
                         });
-                    self.store.states.insert(
+                    self.store.text_inputs.insert(
                         default_key,
-                        state::ControlState::Text(state::TextState {
+                        state::TextState {
                             input,
                             _subscriptions: vec![subscription],
-                        }),
+                        },
                     );
-                } else {
-                    let input = self
-                        .store
-                        .states
-                        .get(&default_key)
-                        .and_then(state::ControlState::text)
-                        .map(|state| state.input.clone())
-                        .expect("argument default input ensured");
-                    Self::set_input_value(&input, value, window, cx);
                 }
             } else if matches!(
                 argument.schema.ty(),
@@ -204,9 +178,8 @@ impl PropertyInspector {
                 let color_key = ControlId::scene_argument_color(scene_id, &argument_id);
                 if let Some(picker) = self
                     .store
-                    .states
+                    .color_pickers
                     .get(&color_key)
-                    .and_then(state::ControlState::color)
                     .map(|state| &state.picker)
                 {
                     if picker.read(cx).value() != Some(color) {
@@ -229,12 +202,12 @@ impl PropertyInspector {
                                 }
                             });
                         });
-                    self.store.states.insert(
+                    self.store.color_pickers.insert(
                         color_key,
-                        state::ControlState::Color(state::ColorState {
+                        state::ColorState {
                             picker,
                             _subscriptions: vec![subscription],
-                        }),
+                        },
                     );
                 }
             }
@@ -251,20 +224,12 @@ impl PropertyInspector {
         cx: &mut Context<Self>,
     ) {
         let key = ControlId::scene_argument_setting(scene_id, argument_id, setting);
-        if self
+        if let Some(input) = self
             .store
-            .states
+            .text_inputs
             .get(&key)
-            .and_then(state::ControlState::text)
-            .is_some()
+            .map(|state| state.input.clone())
         {
-            let input = self
-                .store
-                .states
-                .get(&key)
-                .and_then(state::ControlState::text)
-                .map(|state| state.input.clone())
-                .expect("setting input ensured");
             Self::set_input_value(&input, value, window, cx);
             return;
         }
@@ -296,12 +261,12 @@ impl PropertyInspector {
                 this.apply_scene_argument_settings(scene_id, &argument_id, setting, window, cx);
             }
         });
-        self.store.states.insert(
+        self.store.text_inputs.insert(
             key,
-            state::ControlState::Text(state::TextState {
+            state::TextState {
                 input,
                 _subscriptions: vec![step_sub, change_sub],
-            }),
+            },
         );
     }
 
@@ -332,13 +297,12 @@ impl PropertyInspector {
         };
         let setting_text = |setting| {
             self.store
-                .states
+                .text_inputs
                 .get(&ControlId::scene_argument_setting(
                     scene_id,
                     argument_id,
                     setting,
                 ))
-                .and_then(state::ControlState::text)
                 .map(|state| state.input.read(cx).value())
         };
         let Some(default) =
@@ -401,13 +365,12 @@ impl PropertyInspector {
         };
         let text = |setting| {
             self.store
-                .states
+                .text_inputs
                 .get(&ControlId::scene_argument_setting(
                     scene_id,
                     argument_id,
                     setting,
                 ))
-                .and_then(state::ControlState::text)
                 .map(|state| state.input.read(cx).value().to_string())
         };
         let Some(default_text) = text(SceneArgumentSetting::Default) else {
@@ -466,13 +429,12 @@ impl PropertyInspector {
         ] {
             if let Some(input) = self
                 .store
-                .states
+                .text_inputs
                 .get(&ControlId::scene_argument_setting(
                     scene_id,
                     argument_id,
                     setting,
                 ))
-                .and_then(state::ControlState::text)
             {
                 Self::set_input_value(&input.input, value, window, cx);
             }
@@ -499,45 +461,44 @@ impl PropertyInspector {
         else {
             return;
         };
-        let input = self.store.states.get(&ControlId::scene_argument_setting(
-            drag.scene_id,
-            &drag.argument_id,
-            drag.setting,
-        ));
+        let input = self
+            .store
+            .text_inputs
+            .get(&ControlId::scene_argument_setting(
+                drag.scene_id,
+                &drag.argument_id,
+                drag.setting,
+            ));
         let Some(default) = self
             .store
-            .states
+            .text_inputs
             .get(&ControlId::scene_argument_setting(
                 drag.scene_id,
                 &drag.argument_id,
                 SceneArgumentSetting::Default,
             ))
-            .and_then(state::ControlState::text)
             .and_then(|state| number.parse_number(&state.input.read(cx).value()))
         else {
             return;
         };
-        let Some(start_value) = input.and_then(|field| {
-            state::ControlState::text(field).and_then(|state| {
-                setting_edit_value(
-                    &number,
-                    drag.setting,
-                    &state.input.read(cx).value(),
-                    default,
-                )
-            })
+        let Some(start_value) = input.and_then(|state| {
+            setting_edit_value(
+                &number,
+                drag.setting,
+                &state.input.read(cx).value(),
+                default,
+            )
         }) else {
             return;
         };
         let parse = |setting| {
             self.store
-                .states
+                .text_inputs
                 .get(&ControlId::scene_argument_setting(
                     drag.scene_id,
                     &drag.argument_id,
                     setting,
                 ))
-                .and_then(state::ControlState::text)
                 .map(|state| state.input.read(cx).value())
                 .and_then(|text| setting_bound_value(&number, setting, &text))
         };
@@ -598,13 +559,12 @@ impl PropertyInspector {
             * step;
         let parse = |setting| {
             self.store
-                .states
+                .text_inputs
                 .get(&ControlId::scene_argument_setting(
                     drag.scene_id,
                     &drag.argument_id,
                     setting,
                 ))
-                .and_then(state::ControlState::text)
                 .map(|state| state.input.read(cx).value())
                 .and_then(|text| setting_bound_value(&origin.number, setting, &text))
         };
@@ -622,13 +582,12 @@ impl PropertyInspector {
         };
         let Some(input) = self
             .store
-            .states
+            .text_inputs
             .get(&ControlId::scene_argument_setting(
                 drag.scene_id,
                 &drag.argument_id,
                 drag.setting,
             ))
-            .and_then(state::ControlState::text)
         else {
             return;
         };
@@ -733,12 +692,11 @@ impl PropertyInspector {
             .contains(&(argument.scene_id, argument.id.clone()));
         let name_input = self
             .store
-            .states
+            .text_inputs
             .get(&ControlId::scene_argument_name(
                 argument.scene_id,
                 &argument.id,
             ))
-            .and_then(state::ControlState::text)
             .map(|state| state.input.clone());
         let details = expanded.then(|| self.scene_argument_details(&argument, render));
 
@@ -904,12 +862,11 @@ impl PropertyInspector {
         }
         if let Some(input) = self
             .store
-            .states
+            .text_inputs
             .get(&ControlId::scene_argument_default(
                 argument.scene_id,
                 &argument.id,
             ))
-            .and_then(state::ControlState::text)
         {
             details = details.child(Self::scene_text_input_row(
                 "デフォルト",
@@ -918,12 +875,11 @@ impl PropertyInspector {
         }
         if let Some(picker) = self
             .store
-            .states
+            .color_pickers
             .get(&ControlId::scene_argument_color(
                 argument.scene_id,
                 &argument.id,
             ))
-            .and_then(state::ControlState::color)
         {
             details = details.child(Self::scene_color_row(picker.picker.clone()));
         }
@@ -944,13 +900,12 @@ impl PropertyInspector {
     ) -> Option<gpui::AnyElement> {
         let input = |setting| {
             self.store
-                .states
+                .text_inputs
                 .get(&ControlId::scene_argument_setting(
                     argument.scene_id,
                     &argument.id,
                     setting,
                 ))
-                .and_then(state::ControlState::text)
                 .map(|state| state.input.clone())
         };
         let default = input(SceneArgumentSetting::Default)?;

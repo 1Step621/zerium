@@ -97,7 +97,6 @@ impl Preview {
         color: Hsla,
         cx: &Context<Self>,
     ) -> impl IntoElement {
-        let item_id = overlay.item_id;
         let effect_id = overlay.effect_id;
         let motion_path = overlay.motion_path;
         let spline_path = overlay.spline_path;
@@ -105,15 +104,7 @@ impl Preview {
             .positions
             .into_iter()
             .map(|position| {
-                self.position_handle(
-                    item_id,
-                    effect_id,
-                    position,
-                    resolution,
-                    composition_units_per_pixel,
-                    color,
-                    cx,
-                )
+                self.position_handle(position, resolution, composition_units_per_pixel, color, cx)
             })
             .collect::<Vec<_>>();
         let sizes = overlay

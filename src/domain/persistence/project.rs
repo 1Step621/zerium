@@ -8,13 +8,11 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::animation::{ScalarAnimationAddress, ScalarAnimations, ScalarTrack};
+use crate::domain::animation::{ScalarAnimations, ScalarTrack};
 use crate::domain::media::{MediaAsset, MediaKind};
 use crate::domain::plugin::PluginRegistry;
 use crate::domain::property::materialized_property_values;
-use crate::domain::property::{
-    PropertyElementId, PropertySchema, PropertyType, PropertyValue, PropertyValues,
-};
+use crate::domain::property::{PropertyPath, PropertySchema, PropertyValue, PropertyValues};
 use crate::domain::timeline::{
     EffectInstance, EffectInstanceId, Frame, FrameDuration, FrameRate, ItemId, LayerId, ProjectId,
     ProjectResolution, SceneArgument, SceneBindingTarget, SceneDefinition, SceneId,
@@ -614,8 +612,7 @@ impl ProjectEffect {
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct ProjectScalarAnimation {
-    #[serde(flatten)]
-    address: ScalarAnimationAddress,
+    path: PropertyPath,
     track: ScalarTrack,
 }
 
@@ -623,7 +620,7 @@ fn capture_animations(animations: &ScalarAnimations) -> Vec<ProjectScalarAnimati
     animations
         .tracks()
         .map(|(address, track)| ProjectScalarAnimation {
-            address: address.clone(),
+            path: address.clone(),
             track: track.clone(),
         })
         .collect()
@@ -638,20 +635,18 @@ fn load_animations(
     for animation in animations {
         let property = schema
             .iter()
-            .find(|property| property.id == animation.address.property_id())
+            .find(|property| property.id == animation.path.property_id())
             .ok_or_else(|| {
                 ProjectError::invalid_data(format!(
                     "アニメーション対象 '{}' が見つかりません",
-                    animation.address.property_id()
+                    animation.path.property_id()
                 ))
             })?;
         validate_project_track(
             &mut loaded,
             properties,
             property,
-            animation.address.property_id(),
-            animation.address.element_id(),
-            animation.address.scalar_index(),
+            animation.path,
             animation.track,
         )?;
     }
@@ -662,47 +657,27 @@ fn validate_project_track(
     loaded: &mut ScalarAnimations,
     properties: &PropertyValues,
     property: &PropertySchema,
-    property_id: &str,
-    element_id: Option<PropertyElementId>,
-    scalar_index: Option<usize>,
+    path: PropertyPath,
     track: ScalarTrack,
 ) -> Result<(), ProjectError> {
-    let Some(scalar) = properties
+    let property_id = path.property_id();
+    let valid = properties
         .property(property_id)
-        .and_then(|value| value.element(element_id))
-        .and_then(|value| value.scalar_at(scalar_index))
-    else {
-        return Err(ProjectError::invalid_data(format!(
-            "'{property_id}' のアニメーション対象が不正です"
-        )));
-    };
-    let value_type = match (element_id, property.ty()) {
-        (Some(_), PropertyType::Array { element_type, .. })
-        | (None, PropertyType::Value(element_type)) => Some(element_type),
-        _ => None,
-    };
-    let valid = value_type
-        .and_then(|value_type| {
-            value_type
-                .scalar_at(scalar_index)
-                .map(|scalar_ty| (scalar, scalar_ty))
-        })
-        .is_some_and(|(scalar, scalar_ty)| {
-            property.is_animatable(scalar_index)
-                && track.is_valid_for(scalar_ty)
-                && scalar_ty.allows(scalar)
-                && track.stops().iter().all(|stop| {
-                    property
-                        .configuration_constraints(scalar_index)
-                        .allows(stop.value())
-                })
+        .and_then(|value| property.resolve_scalar(value, path.element_id(), path.scalar_index()))
+        .is_some_and(|resolved| {
+            property.is_animatable(path.scalar_index())
+                && track.is_valid_for(resolved.ty)
+                && track
+                    .stops()
+                    .iter()
+                    .all(|stop| resolved.configuration.constraints.allows(stop.value()))
         });
-    let address = ScalarAnimationAddress::new(property_id, element_id, scalar_index);
-    if !valid || !loaded.insert(address, track) {
+    if !valid || loaded.track(&path).is_some() {
         return Err(ProjectError::invalid_data(format!(
             "'{property_id}' のアニメーション対象が不正です"
         )));
     }
+    loaded.insert(path, track);
     Ok(())
 }
 
@@ -841,19 +816,13 @@ fn validate_scenes(
 
     let validate_instances = |items: Vec<&TimelineItem>| -> Result<(), ProjectError> {
         for item in items {
-            if let Some(scene_id) = item.scene_id() {
-                let scene = scenes.get(&scene_id).ok_or_else(|| {
-                    ProjectError::invalid_data(format!(
-                        "参照先のシーン {} がありません",
-                        scene_id.get()
-                    ))
-                })?;
-                if item.duration.get() > scene.duration().get() {
-                    return Err(ProjectError::invalid_data(format!(
-                        "シーン '{}' のインスタンスが本来の長さを超えています",
-                        scene.name
-                    )));
-                }
+            if let Some(scene_id) = item.scene_id()
+                && !scenes.contains_key(&scene_id)
+            {
+                return Err(ProjectError::invalid_data(format!(
+                    "参照先のシーン {} がありません",
+                    scene_id.get()
+                )));
             }
         }
         Ok(())

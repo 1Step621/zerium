@@ -660,17 +660,16 @@ impl PropertyInspector {
             }
             Control::Number(number) => Self::element_number(number, group, element_index, ctx),
             Control::Color(color) => {
-                let picker = ctx.store.color(&color.common.id)?;
+                let picker = ctx.store.color(&color.id)?;
                 let bound = color
-                    .common
                     .binding
                     .as_ref()
                     .is_some_and(|binding| binding.connected.is_some());
                 let row = Self::color_full_row(
-                    &color.common,
+                    color,
                     &picker,
-                    color.common.animation_enabled,
-                    color.common.binding.clone(),
+                    color.animation_enabled,
+                    color.binding.clone(),
                     ctx,
                 );
                 Some((row, bound))

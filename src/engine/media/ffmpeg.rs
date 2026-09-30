@@ -171,8 +171,7 @@ fn create_video_proxy_in(
         ));
     }
     let video_stream_duration = ffmpeg_next::probe(&asset.path, MediaType::Video)?
-        .streams
-        .video
+        .video_duration
         .unwrap_or(asset.duration);
     let remaining_duration = video_stream_duration
         .checked_sub(request.source_start)

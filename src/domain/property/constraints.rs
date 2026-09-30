@@ -152,13 +152,7 @@ impl PropertyConstraints {
     }
 
     fn valid_for_type(&self, ty: &PropertyType) -> bool {
-        let value_type = match ty {
-            PropertyType::Value(value_type)
-            | PropertyType::Array {
-                element_type: value_type,
-                ..
-            } => value_type,
-        };
+        let value_type = ty.value_type();
         let constrained = self.min.is_some() || self.max.is_some();
         if !constrained {
             return true;

@@ -499,9 +499,8 @@
             "placement": {
               "type": "object",
               "additionalProperties": false,
-              "required": ["type", "position", "size"],
+              "required": ["position", "size"],
               "properties": {
-                "type": { "const": "quad" },
                 "position": { "$ref": "#/$defs/wgslId" },
                 "size": { "$ref": "#/$defs/wgslId" }
               }

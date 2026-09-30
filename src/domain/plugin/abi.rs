@@ -218,13 +218,7 @@ pub(crate) fn value_string_count(ty: &PropertyValueType) -> usize {
 }
 
 fn max_dynamic_size(ty: &PropertyType) -> Result<usize, PluginError> {
-    let value_type = match ty {
-        PropertyType::Value(value_type)
-        | PropertyType::Array {
-            element_type: value_type,
-            ..
-        } => value_type,
-    };
+    let value_type = ty.value_type();
     let payload = value_string_count(value_type) * aligned_size(MAX_STRING_BYTES);
     match ty {
         PropertyType::Value(_) => Ok(payload),

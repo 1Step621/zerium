@@ -2,11 +2,11 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::domain::animation::{ScalarAnimationAddress, ScalarAnimations};
+use crate::domain::animation::ScalarAnimations;
 use crate::domain::property::materialized_property_values;
 use crate::domain::property::{
-    PropertyElementId, PropertySchema, PropertyType, PropertyValue, PropertyValueType,
-    PropertyValues, ScalarPropertyType,
+    PropertyElementId, PropertyPath, PropertySchema, PropertyType, PropertyValue,
+    PropertyValueType, PropertyValues, ScalarPropertyType,
 };
 
 use super::{
@@ -41,11 +41,7 @@ impl SceneBindingOwner {
 pub(crate) struct SceneBindingTarget {
     item_id: ItemId,
     owner: SceneBindingOwner,
-    property_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    element_id: Option<PropertyElementId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    scalar_index: Option<usize>,
+    path: PropertyPath,
 }
 
 impl SceneBindingTarget {
@@ -59,9 +55,7 @@ impl SceneBindingTarget {
         Self {
             item_id,
             owner,
-            property_id: property_id.into(),
-            element_id,
-            scalar_index,
+            path: PropertyPath::new(property_id, element_id, scalar_index),
         }
     }
 
@@ -74,15 +68,15 @@ impl SceneBindingTarget {
     }
 
     pub(crate) fn property_id(&self) -> &str {
-        &self.property_id
+        self.path.property_id()
     }
 
     pub(crate) const fn element_id(&self) -> Option<PropertyElementId> {
-        self.element_id
+        self.path.element_id()
     }
 
     pub(crate) const fn scalar_index(&self) -> Option<usize> {
-        self.scalar_index
+        self.path.scalar_index()
     }
 
     pub(crate) fn matches(
@@ -93,7 +87,7 @@ impl SceneBindingTarget {
     ) -> bool {
         self.item_id == item_id
             && self.owner.effect_id() == effect_id
-            && self.property_id == property_id
+            && self.property_id() == property_id
     }
 
     pub(crate) fn conflicts_with_animation(
@@ -102,10 +96,10 @@ impl SceneBindingTarget {
         element_id: Option<PropertyElementId>,
         scalar_index: Option<usize>,
     ) -> bool {
-        if self.property_id != property_id || self.element_id != element_id {
+        if self.property_id() != property_id || self.element_id() != element_id {
             return false;
         }
-        match (self.scalar_index, scalar_index) {
+        match (self.scalar_index(), scalar_index) {
             (None, _) | (_, None) => true,
             (Some(bound), Some(animated)) => bound == animated,
         }
@@ -118,83 +112,13 @@ pub(crate) fn project_scene_binding_value(
     element_id: Option<PropertyElementId>,
     scalar_index: Option<usize>,
 ) -> Option<(PropertySchema, PropertyValue)> {
-    let mut schema = schema.clone();
-    let mut value = value.clone();
-
-    if let Some(id) = element_id {
-        let PropertyType::Array { element_type, .. } = schema.ty else {
-            return None;
-        };
-        let PropertyValue::Array(values) = value else {
-            return None;
-        };
-        value = values
-            .iter()
-            .find(|element| element.element_id() == id)?
-            .value()
-            .clone();
-        schema.ty = PropertyType::Value(element_type);
-    } else if matches!(schema.ty, PropertyType::Array { .. }) {
-        return None;
-    }
-
-    if let Some(scalar_index) = scalar_index {
-        let PropertyType::Value(PropertyValueType::Tuple(tuple)) = &schema.ty else {
-            return None;
-        };
-        let PropertyValue::Tuple(values) = value else {
-            return None;
-        };
-        value = values.get(scalar_index)?.clone();
-        schema.ty = PropertyType::Value(PropertyValueType::Scalar(
-            tuple.scalars().get(scalar_index)?.clone(),
-        ));
-        let configuration = schema.configuration(Some(scalar_index)).clone();
-        schema.configurations = vec![configuration];
-    } else {
-        if !matches!(
-            &schema.ty,
-            PropertyType::Value(PropertyValueType::Scalar(_))
-        ) {
-            return None;
-        }
-    }
-
-    value = schema.constrained_value(&value)?;
-    schema.default = value.clone();
-    Some((schema, value))
-}
-
-pub(crate) fn apply_scene_binding_value(
-    current: &PropertyValue,
-    element_id: Option<PropertyElementId>,
-    scalar_index: Option<usize>,
-    value: PropertyValue,
-) -> Option<PropertyValue> {
-    let replace_scalar_index = |current: &PropertyValue| {
-        let Some(scalar_index) = scalar_index else {
-            return Some(value.clone());
-        };
-        let PropertyValue::Tuple(values) = current else {
-            return None;
-        };
-        let mut values = values.clone();
-        *values.get_mut(scalar_index)? = value.clone();
-        Some(PropertyValue::Tuple(values))
-    };
-
-    let Some(id) = element_id else {
-        return replace_scalar_index(current);
-    };
-    let PropertyValue::Array(values) = current else {
-        return None;
-    };
-    let mut values = values.clone();
-    let target = values
-        .iter_mut()
-        .find(|element| element.element_id() == id)?;
-    *target.value_mut() = replace_scalar_index(target.value())?;
-    Some(PropertyValue::Array(values))
+    let resolved = schema.resolve_scalar(value, element_id, scalar_index)?;
+    let mut projected = schema.clone();
+    projected.ty = PropertyType::Value(PropertyValueType::Scalar(resolved.ty.clone()));
+    projected.configurations = vec![resolved.configuration.clone()];
+    let value = projected.constrained_value(resolved.value)?;
+    projected.default = value.clone();
+    Some((projected, value))
 }
 
 pub(crate) fn scene_binding_is_animated(
@@ -204,11 +128,7 @@ pub(crate) fn scene_binding_is_animated(
     scalar_index: Option<usize>,
 ) -> bool {
     animations
-        .track(&ScalarAnimationAddress::new(
-            property_id,
-            element_id,
-            scalar_index,
-        ))
+        .track(&PropertyPath::new(property_id, element_id, scalar_index))
         .is_some()
 }
 
@@ -297,12 +217,8 @@ pub(crate) fn apply_scene_binding_to_item(
                 let effect_schema = effect.schema.clone();
                 let target_schema = effect_schema.property(property_id)?;
                 let current = effect.properties.property(property_id)?;
-                let value = apply_scene_binding_value(
-                    current,
-                    target.element_id(),
-                    target.scalar_index(),
-                    value,
-                )?;
+                let value =
+                    current.replaced_at(target.element_id(), target.scalar_index(), value)?;
                 effect.properties.set(target_schema, value).ok()
             }),
         SceneBindingOwner::Item => {
@@ -312,12 +228,7 @@ pub(crate) fn apply_scene_binding_to_item(
                 .and_then(|schema| schema.property(property_id))
                 .unwrap_or(binding_schema);
             let current = item.properties.property(property_id)?;
-            let value = apply_scene_binding_value(
-                current,
-                target.element_id(),
-                target.scalar_index(),
-                value,
-            )?;
+            let value = current.replaced_at(target.element_id(), target.scalar_index(), value)?;
             item.properties.set(target_schema, value).ok()
         }
     }

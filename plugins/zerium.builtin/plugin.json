@@ -885,7 +885,6 @@
           "reader": "zerium.ffmpeg",
           "media_type": "video",
           "placement": {
-            "type": "quad",
             "position": "position",
             "size": "size"
           },
@@ -971,7 +970,6 @@
           "reader": "zerium.ffmpeg",
           "media_type": "image",
           "placement": {
-            "type": "quad",
             "position": "position",
             "size": "size"
           },
@@ -1043,7 +1041,6 @@
           "reader": "zerium.svg",
           "media_type": "image",
           "placement": {
-            "type": "quad",
             "position": "position",
             "size": "size"
           },

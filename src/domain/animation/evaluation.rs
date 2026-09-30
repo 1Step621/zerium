@@ -17,16 +17,10 @@ impl ScalarAnimations {
             if !schema.iter().any(|property| property.id == property_id) {
                 continue;
             }
-            let Some(value) = values.property_mut(property_id) else {
-                continue;
-            };
-            let Some(element) = value.element_mut(address.element_id()) else {
-                continue;
-            };
             let Some(animated) = track.evaluate(progress) else {
                 continue;
             };
-            if let Some(scalar) = element.scalar_at_mut(address.scalar_index()) {
+            if let Some(scalar) = address.value_mut(&mut values) {
                 *scalar = animated;
                 animated_properties.insert(property_id.to_owned());
             }

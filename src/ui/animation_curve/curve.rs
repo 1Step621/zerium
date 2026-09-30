@@ -10,11 +10,10 @@ impl GraphCurve {
 
     pub(super) fn handle_position(&self, index: usize, handle: BezierHandle) -> Option<[f32; 2]> {
         let segment = Self::segment_for_handle(index, handle)?;
-        let local = match (handle, self.interpolations.get(segment)?) {
-            (BezierHandle::Out, SegmentInterpolation::Custom { handle_out, .. }) => *handle_out,
-            (BezierHandle::In, SegmentInterpolation::Custom { handle_in, .. }) => *handle_in,
-            _ => return None,
+        let SegmentInterpolation::Custom(curve) = self.interpolations.get(segment)? else {
+            return None;
         };
+        let local = curve.handle(handle);
         let start = self.stops.get(segment)?;
         let end = self.stops.get(segment + 1)?;
         Some([

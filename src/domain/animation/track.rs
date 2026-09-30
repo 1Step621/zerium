@@ -1,8 +1,6 @@
 //! Typed scalar animation tracks made of value stops and interval interpolations.
 use super::{BezierHandle, SegmentInterpolation, interpolate_scalar};
-use crate::domain::property::{
-    PropertyElementId, PropertyValue, PropertyValues, ScalarPropertyType,
-};
+use crate::domain::property::{PropertyPath, PropertyValue, PropertyValues, ScalarPropertyType};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -293,17 +291,10 @@ impl ScalarTrack {
         handle: BezierHandle,
         position: [f32; 2],
     ) -> bool {
-        let Some(slot) = self.interpolations.get_mut(segment) else {
+        let Some(SegmentInterpolation::Custom(curve)) = self.interpolations.get_mut(segment) else {
             return false;
         };
-        let Some(next) = (*slot).with_handle(handle, position) else {
-            return false;
-        };
-        if *slot == next {
-            return false;
-        }
-        *slot = next;
-        true
+        curve.set_handle(handle, position)
     }
 
     fn remap_time_range(&mut self, start: f64, end: f64) {
@@ -389,81 +380,36 @@ impl ScalarTrack {
     }
 }
 
-#[derive(Clone, Debug, Deserialize, Eq, Ord, PartialEq, PartialOrd, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(crate) struct ScalarAnimationAddress {
-    #[serde(rename = "property")]
-    property_id: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    element_id: Option<PropertyElementId>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    scalar_index: Option<usize>,
-}
-
-impl ScalarAnimationAddress {
-    pub(crate) fn new(
-        property_id: impl Into<String>,
-        element_id: Option<PropertyElementId>,
-        scalar_index: Option<usize>,
-    ) -> Self {
-        Self {
-            property_id: property_id.into(),
-            element_id,
-            scalar_index,
-        }
-    }
-
-    pub(crate) fn property_id(&self) -> &str {
-        &self.property_id
-    }
-
-    pub(crate) const fn element_id(&self) -> Option<PropertyElementId> {
-        self.element_id
-    }
-
-    pub(crate) const fn scalar_index(&self) -> Option<usize> {
-        self.scalar_index
-    }
-}
-
 #[derive(Clone, Debug, Default, PartialEq)]
 pub(crate) struct ScalarAnimations {
-    tracks: BTreeMap<ScalarAnimationAddress, ScalarTrack>,
+    tracks: BTreeMap<PropertyPath, ScalarTrack>,
 }
 
 impl ScalarAnimations {
-    pub(crate) fn track(&self, address: &ScalarAnimationAddress) -> Option<&ScalarTrack> {
+    pub(crate) fn track(&self, address: &PropertyPath) -> Option<&ScalarTrack> {
         self.tracks.get(address)
     }
 
-    pub(crate) fn track_mut(
-        &mut self,
-        address: &ScalarAnimationAddress,
-    ) -> Option<&mut ScalarTrack> {
+    pub(crate) fn track_mut(&mut self, address: &PropertyPath) -> Option<&mut ScalarTrack> {
         self.tracks.get_mut(address)
     }
 
-    pub(crate) fn insert(&mut self, address: ScalarAnimationAddress, track: ScalarTrack) -> bool {
+    pub(crate) fn insert(&mut self, address: PropertyPath, track: ScalarTrack) -> bool {
         self.tracks.insert(address, track).is_none()
     }
 
-    pub(crate) fn remove(&mut self, address: &ScalarAnimationAddress) -> bool {
+    pub(crate) fn remove(&mut self, address: &PropertyPath) -> bool {
         self.tracks.remove(address).is_some()
     }
 
-    pub(crate) fn tracks(&self) -> impl Iterator<Item = (&ScalarAnimationAddress, &ScalarTrack)> {
+    pub(crate) fn tracks(&self) -> impl Iterator<Item = (&PropertyPath, &ScalarTrack)> {
         self.tracks.iter()
     }
 
     pub(crate) fn retain_valid(&mut self, values: &PropertyValues) -> bool {
         let previous = self.tracks.len();
-        self.tracks.retain(|address, _| {
-            values
-                .property(address.property_id())
-                .and_then(|value| value.element(address.element_id()))
-                .and_then(|value| value.scalar_at(address.scalar_index()))
-                .is_some()
-        });
+        self.tracks
+            .retain(|address, _| address.value(values).is_some());
         previous != self.tracks.len()
     }
 

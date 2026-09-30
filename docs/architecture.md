@@ -48,7 +48,11 @@ grouped in `domain::timeline::commands` by scene, session, and item concerns.
 `TimelineDocument` owns indexes and document invariants. `TimelineItem` owns its
 plugin or scene identity, properties, effects, and geometry. Scene resolution
 and argument binding live in `timeline::scene`; runtime evaluation produces a
-detached hierarchical scene graph.
+detached hierarchical scene graph. Each evaluated node retains its timeline item
+and children; its item kind is the sole source of plugin/scene identity. Scene
+instance spans are independent of the source scene duration; source times beyond
+its end produce no content. Editing a source duration does not resize other
+instances or parent scenes.
 
 Timeline positions use `Frame`, positive spans use `FrameDuration`, and frame
 rates use `FrameRate`. Items, layers, and effect instances use distinct ID
@@ -61,25 +65,28 @@ not follow a neighboring element after deletion or reordering.
 metadata, and plugin JSON adapters. Plugin manifests describe these contracts;
 they do not own runtime property mutation.
 
-Scene bindings and animation lookups address a property with an optional stable
-array element ID and an optional tuple scalar index. Animation tracks are stored
-hierarchically under property ID, array element ID, and tuple scalar index, so
-each layer resolves only the identifier belonging to that layer. Scope values and
-animation collections resolve property IDs; property values resolve array
-elements; element values and animation groups resolve tuple scalar indices.
+`PropertyPath` identifies a property with an optional stable array element ID
+and an optional tuple scalar index. Animation tracks use a flat map keyed by
+this path, and scene binding targets store the same path. Shared value traversal
+and schema resolution validate the scalar and preserve neighboring values when
+editing it. Inspector lookups, animation evaluation, binding projection, and
+persistence validation use these common operations.
 
 `domain::animation` owns scalar tracks, ordered value stops, interpolation,
 and animation evaluation. A track contains one interpolation per adjacent stop
-pair. Property validation determines whether a scalar can be animated; the
-animation module owns interpolation and track rules.
+pair. Custom handles belong to `CubicBezier`, rather than optional operations
+on other interpolation modes. Property validation determines whether a scalar can
+be animated; the animation module owns interpolation and track rules.
 
 `PropertyAddress` identifies an item, effect, property, array element, and
 scalar independently of inspector widget identity. `InspectorPath` remains a
 PropertyInspector-only key for row state; the inspector keeps editable scalar
-coordinates separately. `ui::property_presentation` resolves numeric display
+coordinates separately. `ui::numeric_property` resolves numeric display
 rules, while `ui::animation_curve::presentation` resolves animation labels from
-a `PropertyAddress`. Aspect-ratio locking constrains direct size edits only;
-animation tracks and scene arguments keep their own values.
+a `PropertyAddress`. Both use the same numeric presentation metadata. Inspector
+text inputs and color pickers are stored by their concrete widget types.
+Aspect-ratio locking constrains direct size edits only; animation tracks and scene
+arguments keep their own values.
 
 ## Plugins and persistence
 
@@ -124,10 +131,11 @@ and the concrete media adapter.
 Rendering depends on the read-only `TimelineView`, not editing commands.
 `engine::rendering::RenderRuntime` is constructed by the app composition root
 and shared by Preview and Export. It owns the preview renderer and lazily
-creates the dedicated export device; each consumer uses an independent render
-session while sharing compiled plugin shaders. Timeline evaluation preserves
-scene composition boundaries and carries sample time through media and
-temporal passes.
+creates the dedicated export device. Preview initialization is retained as one
+result, keeping success and error states mutually exclusive. Each consumer uses
+an independent render session while sharing compiled plugin shaders. Timeline
+evaluation preserves scene composition boundaries and carries sample time through
+media and temporal passes.
 The encoder assigns every node a logical output rectangle. Item shaders begin
 with their declared bounds; each item effect transforms those bounds. A scene
 composite and every scene effect use the viewport rectangle. The GPU renderer
@@ -135,6 +143,11 @@ returns a texture and rectangle for each node, then maps child rectangles into
 the scene composite. Compositing into the viewport clips item pixels there.
 Temporal passes select source frames through either a uniform range or an
 explicit array of frame offsets; their reducer shader combines the samples.
+`SceneBuilder` constructs an arena of nodes referenced by IDs. Normal drawing,
+captures, and temporal samples reuse those IDs; GPU encoding lowers each node
+once. Item and scene effects use the same temporal sampling pipeline, with
+shared depth and sample limits. Evaluation and composition plans are cached by
+sample time and scene scope.
 `SceneCompositionPlan` resolves normal visibility and `render_result` capture
 membership once per evaluated scene scope, including scopes evaluated at a
 temporal sample time.

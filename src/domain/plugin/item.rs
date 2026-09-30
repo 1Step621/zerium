@@ -137,7 +137,10 @@ impl ItemSchema {
     pub(crate) fn files(&self) -> impl Iterator<Item = &FileCapability> {
         self.capabilities
             .iter()
-            .filter_map(Capability::media_file)
+            .filter_map(|capability| match capability {
+                Capability::Media { file, .. } => Some(file),
+                _ => None,
+            })
             .chain(self.audio.iter().flat_map(AudioCapability::files))
     }
 
@@ -246,7 +249,8 @@ impl ItemSchema {
         }
 
         validate_property_schemas("item", &self.id, &self.properties)?;
-        self.output_bounds.validate("item", &self.id, &self.properties)?;
+        self.output_bounds
+            .validate("item", &self.id, &self.properties)?;
         if let Some(editor) = &self.editor {
             editor.validate("item", &self.id, &self.properties)?;
         }

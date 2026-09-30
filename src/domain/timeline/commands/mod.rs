@@ -7,9 +7,7 @@ use crate::domain::property::PropertyValueType;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
-use crate::domain::animation::{
-    BezierHandle, ScalarAnimationAddress, ScalarAnimations, ScalarTrack, SegmentInterpolation,
-};
+use crate::domain::animation::{BezierHandle, ScalarAnimations, ScalarTrack, SegmentInterpolation};
 use crate::domain::media::ImportedMedia;
 use crate::domain::property::{
     PropertyConfiguration, PropertyElementId, PropertySchema, PropertyType, PropertyValue,

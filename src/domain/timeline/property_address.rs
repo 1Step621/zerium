@@ -1,4 +1,4 @@
-use crate::domain::property::PropertyElementId;
+use crate::domain::property::{PropertyElementId, PropertyPath, PropertyValue};
 
 use super::ids::{EffectInstanceId, ItemId};
 
@@ -10,4 +10,14 @@ pub(crate) struct PropertyAddress {
     pub(crate) property_id: String,
     pub(crate) element_id: Option<PropertyElementId>,
     pub(crate) scalar_index: Option<usize>,
+}
+
+impl PropertyAddress {
+    pub(crate) fn path(&self) -> PropertyPath {
+        PropertyPath::new(&self.property_id, self.element_id, self.scalar_index)
+    }
+
+    pub(crate) fn value<'a>(&self, item: &'a super::TimelineItem) -> Option<&'a PropertyValue> {
+        self.path().value(item.property_values(self.effect_id)?)
+    }
 }

@@ -2,7 +2,7 @@ use gpui::{CursorStyle, Empty, EntityId};
 
 use crate::domain::{
     property::{PropertyElementId, PropertyValue, PropertyValues},
-    timeline::{EffectInstanceId, TimelineItem, TimelineTime},
+    timeline::{EffectInstanceId, PropertyAddress, TimelineItem, TimelineTime},
 };
 
 use super::*;
@@ -85,7 +85,7 @@ impl Render for PreviewEditorDrag {
 }
 
 #[derive(Clone)]
-struct PreviewResizeOrigin {
+pub(super) struct PreviewResizeOrigin {
     item_id: crate::domain::timeline::ItemId,
     effect_id: Option<EffectInstanceId>,
     property_id: String,
@@ -98,8 +98,8 @@ struct PreviewResizeOrigin {
 }
 
 #[derive(Clone)]
-struct PreviewPairProperty {
-    property_id: String,
+struct PreviewPositionOverlay {
+    address: PropertyAddress,
     value: [f32; 2],
     target: PreviewEditTarget,
 }
@@ -138,9 +138,8 @@ struct PreviewPointOverlay {
 }
 
 pub(super) struct PreviewEditorOverlay {
-    item_id: crate::domain::timeline::ItemId,
     effect_id: Option<EffectInstanceId>,
-    positions: Vec<PreviewPairProperty>,
+    positions: Vec<PreviewPositionOverlay>,
     sizes: Vec<PreviewSizeOverlay>,
     points: Vec<PreviewPointOverlay>,
     motion_path: Vec<[f32; 2]>,
@@ -148,10 +147,8 @@ pub(super) struct PreviewEditorOverlay {
 }
 
 #[derive(Clone)]
-struct PreviewPositionOrigin {
-    item_id: crate::domain::timeline::ItemId,
-    effect_id: Option<EffectInstanceId>,
-    property_id: String,
+pub(super) struct PreviewPositionOrigin {
+    address: PropertyAddress,
     pointer: [f32; 2],
     position: [f32; 2],
     target: PreviewEditTarget,
@@ -159,7 +156,7 @@ struct PreviewPositionOrigin {
 }
 
 #[derive(Clone)]
-struct PreviewPointOrigin {
+pub(super) struct PreviewPointOrigin {
     item_id: crate::domain::timeline::ItemId,
     effect_id: Option<EffectInstanceId>,
     property_id: String,
@@ -173,17 +170,17 @@ struct PreviewPointOrigin {
 }
 
 #[derive(Default)]
-pub(super) struct PreviewEditorDragState {
-    resize_origin: Option<PreviewResizeOrigin>,
-    position_origin: Option<PreviewPositionOrigin>,
-    point_origin: Option<PreviewPointOrigin>,
+pub(super) enum PreviewEditorDragState {
+    #[default]
+    Idle,
+    Resize(PreviewResizeOrigin),
+    Position(PreviewPositionOrigin),
+    Point(PreviewPointOrigin),
 }
 
 impl PreviewEditorDragState {
     pub(super) fn clear(&mut self) -> bool {
-        let was_active = self.resize_origin.is_some()
-            || self.position_origin.is_some()
-            || self.point_origin.is_some();
+        let was_active = !matches!(self, Self::Idle);
         *self = Self::default();
         was_active
     }

@@ -19,14 +19,12 @@ use crate::{
     domain::timeline::{Frame, LayerId, TimelineEditor, TimelineItem, TimelineTime},
     engine::{
         audio_meter::AudioLevelSampler,
-        media::{MediaReaderRegistry, VideoDecodeSize},
+        media::{MediaInputId, MediaReaderRegistry, VideoDecodeSize},
         rendering::{
-            FrameRenderer, RenderError, RenderQuality, RenderRuntime, RenderScene, RenderSize,
-            TextFrameCache,
+            RenderError, RenderQuality, RenderRuntime, RenderScene, RenderSize, TextFrameCache,
         },
         video_playback::{
-            RequestedVideoFrame, VideoInputId, VideoPlaybackEngine, VideoPlaybackMode,
-            VideoPlaybackSnapshot,
+            RequestedVideoFrame, VideoPlaybackEngine, VideoPlaybackMode, VideoPlaybackSnapshot,
         },
     },
     project_session::{ProjectSession, ProjectSessionId},
@@ -148,26 +146,28 @@ impl Preview {
             Self::INITIAL_SIZE.height,
             wgpu::TextureFormat::Rgba8UnormSrgb,
         );
-        let (renderer, error): (Option<Arc<FrameRenderer>>, Option<SharedString>) = match &surface {
-            Some(surface) => match render_runtime.read(cx).create_preview_renderer(
-                Arc::new(surface.device().clone()),
-                Arc::new(surface.queue().clone()),
-            ) {
-                Ok(renderer) => (Some(renderer), None),
-                Err(error) => (None, Some(error.to_string().into())),
-            },
-            None => (
-                None,
-                Some("このプラットフォームではWGPUIのGPUサーフェスを作成できません".into()),
-            ),
-        };
+        let renderer = surface
+            .as_ref()
+            .ok_or_else(|| {
+                RenderError::backend("このプラットフォームではWGPUIのGPUサーフェスを作成できません")
+            })
+            .and_then(|surface| {
+                render_runtime.read(cx).create_preview_renderer(
+                    Arc::new(surface.device().clone()),
+                    Arc::new(surface.queue().clone()),
+                )
+            });
+        let error: Option<SharedString> = renderer
+            .as_ref()
+            .err()
+            .map(|error| error.to_string().into());
         if let Some(error) = error.clone() {
             notifications.update(cx, |notifications, cx| {
                 notifications.push(format!("プレビュー初期化失敗: {error}"), cx);
             });
         }
         render_runtime.update(cx, |runtime, _| {
-            runtime.set_preview_renderer(renderer, error.clone().map(|error| error.to_string()));
+            runtime.set_preview_renderer(renderer);
         });
         let audio_level_sampler = AudioLevelSampler::new(media_readers.clone());
         let (video_playback, mut video_playback_events) = VideoPlaybackEngine::new(media_readers);
@@ -235,7 +235,7 @@ impl Preview {
         let composition_size = RenderSize::from(resolution);
         self.video_playback.begin_frame_demand(mode);
         let mut items_by_time: HashMap<u64, Vec<(LayerId, TimelineItem)>> = HashMap::new();
-        let mut recorded: HashMap<(u64, VideoInputId), RequestedVideoFrame> = HashMap::new();
+        let mut recorded: HashMap<(u64, MediaInputId), RequestedVideoFrame> = HashMap::new();
         let editor = self.editor.clone();
         let editor = editor.read(cx);
         let playback = &mut self.video_playback;
@@ -254,7 +254,7 @@ impl Preview {
             },
             |request| {
                 let time_bits = request.time.frames().to_bits();
-                let input = VideoInputId {
+                let input = MediaInputId {
                     item_id: request.item_id,
                     effect_id: request.effect_id,
                     input_id: request.input_id.to_owned(),

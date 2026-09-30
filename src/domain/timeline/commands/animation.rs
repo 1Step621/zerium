@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::property::PropertyPath;
 
 impl TimelineEditor {
     pub(crate) fn set_selected_property_animation_enabled(
@@ -26,7 +27,7 @@ impl TimelineEditor {
         if !schema.is_editable(scalar_index) {
             return false;
         }
-        let address = ScalarAnimationAddress::new(property_id.clone(), element_id, scalar_index);
+        let address = PropertyPath::new(property_id.clone(), element_id, scalar_index);
         let changed = if !enabled {
             self.animation_store_mut(item_id, effect_id)
                 .is_some_and(|animations| animations.remove(&address))
@@ -51,21 +52,13 @@ impl TimelineEditor {
             let Some(values) = values else {
                 return false;
             };
-            let Some(value) = values
+            let Some(resolved) = values
                 .property(&property_id)
-                .and_then(|value| value.element(element_id))
-                .and_then(|value| value.scalar_at(scalar_index))
+                .and_then(|value| schema.resolve_scalar(value, element_id, scalar_index))
             else {
                 return false;
             };
-            let Some(value_type) = (match (element_id, schema.ty()) {
-                (Some(_), PropertyType::Array { element_type, .. })
-                | (None, PropertyType::Value(element_type)) => element_type.scalar_at(scalar_index),
-                _ => None,
-            }) else {
-                return false;
-            };
-            let Some(track) = ScalarTrack::from_value(value.clone(), value_type) else {
+            let Some(track) = ScalarTrack::from_value(resolved.value.clone(), resolved.ty) else {
                 return false;
             };
             self.animation_store_mut(item_id, effect_id)
@@ -91,7 +84,7 @@ impl TimelineEditor {
         let Some(item) = self.active_document().item(item_id) else {
             return false;
         };
-        let address = ScalarAnimationAddress::new(property_id.clone(), element_id, scalar_index);
+        let address = PropertyPath::new(property_id.clone(), element_id, scalar_index);
         let Some(position) = self
             .animation_track(item_id, effect_id, &address)
             .and_then(|track| track.stops().get(index))
@@ -159,7 +152,7 @@ impl TimelineEditor {
             if !editable[scalar_index] {
                 continue;
             }
-            let address = ScalarAnimationAddress::new(property_id, element_id, Some(scalar_index));
+            let address = PropertyPath::new(property_id, element_id, Some(scalar_index));
             let Some(index) = self
                 .animation_track(item_id, effect_id, &address)
                 .and_then(|track| track.stop_index_at(position))
@@ -211,7 +204,7 @@ impl TimelineEditor {
                 self.animation_track_mut(
                     item_id,
                     effect_id,
-                    &ScalarAnimationAddress::new(property_id, element_id, scalar_index),
+                    &PropertyPath::new(property_id, element_id, scalar_index),
                 )
             })
             .and_then(|animation| animation.insert_stop(position, value));
@@ -248,7 +241,7 @@ impl TimelineEditor {
         self.edit_selected_animation(
             item_id,
             effect_id,
-            ScalarAnimationAddress::new(property_id.as_str(), element_id, scalar_index),
+            PropertyPath::new(property_id.as_str(), element_id, scalar_index),
             before,
             Some(key),
             |animation| animation.set_segment_handle(segment, handle, position),
@@ -271,7 +264,7 @@ impl TimelineEditor {
         self.edit_selected_animation(
             item_id,
             effect_id,
-            ScalarAnimationAddress::new(property_id.as_str(), element_id, scalar_index),
+            PropertyPath::new(property_id.as_str(), element_id, scalar_index),
             Some(before),
             None,
             |animation| animation.set_segment_interpolation(segment, interpolation),
@@ -293,7 +286,7 @@ impl TimelineEditor {
         self.edit_selected_animation(
             item_id,
             effect_id,
-            ScalarAnimationAddress::new(property_id.as_str(), element_id, scalar_index),
+            PropertyPath::new(property_id.as_str(), element_id, scalar_index),
             Some(before),
             None,
             |animation| animation.remove_stop(stop),
@@ -324,7 +317,7 @@ impl TimelineEditor {
         self.edit_selected_animation(
             item_id,
             effect_id,
-            ScalarAnimationAddress::new(property_id.as_str(), element_id, scalar_index),
+            PropertyPath::new(property_id.as_str(), element_id, scalar_index),
             before,
             Some(key),
             |animation| animation.move_stop(stop, position),

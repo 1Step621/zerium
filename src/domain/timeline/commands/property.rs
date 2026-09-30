@@ -46,12 +46,7 @@ impl TimelineEditor {
                         .property(property_id)
                         .unwrap_or(schema.default_value()),
                 };
-                let next = crate::domain::timeline::scene::apply_scene_binding_value(
-                    current,
-                    element_id,
-                    scalar_index,
-                    value.clone(),
-                )?;
+                let next = current.replaced_at(element_id, scalar_index, value.clone())?;
                 (schema.is_editable(scalar_index)
                     && schema.ty().allows(&next)
                     && self.value_preserves_active_bindings(*id, *effect, property_id, &next))

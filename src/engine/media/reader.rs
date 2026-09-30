@@ -12,12 +12,20 @@ use crate::{
     domain::{
         media::{ImportedMedia, MediaAsset, MediaKind},
         plugin::{MediaType, PluginManifest},
+        timeline::{EffectInstanceId, ItemId},
     },
     engine::frame::RgbaFrame,
 };
 
 use super::ffmpeg::{FfmpegMediaReader, READER_ID as FFMPEG_READER_ID};
 use super::svg::{READER_ID as SVG_READER_ID, SvgMediaReader};
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct MediaInputId {
+    pub(crate) item_id: ItemId,
+    pub(crate) effect_id: Option<EffectInstanceId>,
+    pub(crate) input_id: String,
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct AudioFormat {
@@ -32,16 +40,11 @@ pub(crate) struct DecodedAudioBlock {
     pub samples: Arc<[f32]>,
 }
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) struct MediaStreamDurations {
-    pub video: Option<Duration>,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct MediaProbe {
     pub duration: Duration,
     pub kind: MediaKind,
-    pub streams: MediaStreamDurations,
+    pub video_duration: Option<Duration>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

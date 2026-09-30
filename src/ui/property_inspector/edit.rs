@@ -47,27 +47,7 @@ impl PropertyInspector {
     }
 
     fn live_numeric_value(item: &TimelineItem, target: &PropertyTarget) -> Option<f64> {
-        let value = match target.effect_id {
-            Some(effect_id) => item
-                .effects
-                .iter()
-                .find(|effect| effect.id == effect_id)?
-                .properties
-                .property(&target.property_id)?,
-            None => item.properties.property(&target.property_id)?,
-        };
-        match target.element_id {
-            Some(id) => match value {
-                PropertyValue::Array(values) => values
-                    .iter()
-                    .find(|element| element.element_id() == id)?
-                    .value()
-                    .scalar_at(target.scalar_index)?
-                    .numeric_scalar(),
-                _ => None,
-            },
-            None => value.scalar_at(target.scalar_index)?.numeric_scalar(),
-        }
+        target.value(item)?.numeric_scalar()
     }
 
     pub(super) fn update_numeric_scalar(
@@ -399,7 +379,7 @@ impl PropertyInspector {
             return;
         };
         let sensitivity = origin.sensitivity * if fine_adjustment { 0.1 } else { 1. };
-        let value = numeric::snap_to_step(
+        let value = snap_to_step(
             origin.start_value + f64::from(pointer_x - origin.start_x) * sensitivity,
             origin.step,
         )
@@ -410,12 +390,7 @@ impl PropertyInspector {
         } else {
             self.update_numeric_scalar(&origin.target, value, cx);
         }
-        if let Some(input) = self
-            .store
-            .states
-            .get(&drag.input_id)
-            .and_then(state::ControlState::text)
-        {
+        if let Some(input) = self.store.text_inputs.get(&drag.input_id) {
             Self::set_input_value(&input.input, Self::format_value(value), window, cx);
         }
     }
@@ -431,11 +406,7 @@ impl PropertyInspector {
     ) {
         self.editor
             .update(cx, |editor, _| editor.finish_history_group());
-        let input = self
-            .store
-            .states
-            .get(input_id)
-            .and_then(state::ControlState::text);
+        let input = self.store.text_inputs.get(input_id);
         let start_value = input
             .and_then(|state| state.input.read(cx).value().parse::<f64>().ok())
             .unwrap_or(spec.min);

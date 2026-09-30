@@ -50,26 +50,14 @@ fn generate_property_interface(fields: &[InterfaceField], kind: ShaderKind) -> S
         .iter()
         .enumerate()
         .map(|(index, field)| {
-            let value_type = match &field.ty {
-                PropertyType::Value(value_type)
-                | PropertyType::Array {
-                    element_type: value_type,
-                    ..
-                } => value_type,
-            };
+            let value_type = field.ty.value_type();
             matches!(value_type, PropertyValueType::Tuple(_))
                 .then(|| format!("{struct_name}Tuple{index}"))
         })
         .collect::<Vec<_>>();
     let mut source = String::new();
     if fields.iter().any(|field| {
-        let value_type = match &field.ty {
-            PropertyType::Value(value_type)
-            | PropertyType::Array {
-                element_type: value_type,
-                ..
-            } => value_type,
-        };
+        let value_type = field.ty.value_type();
         value_string_count(value_type) > 0
     }) {
         source.push_str("struct ZeriumStr {\n    _offset: u32,\n    byte_len: u32,\n};\n\n");
@@ -81,13 +69,7 @@ fn generate_property_interface(fields: &[InterfaceField], kind: ShaderKind) -> S
         source.push_str("    return (word >> ((byte_offset & 3u) * 8u)) & 0xffu;\n}\n\n");
     }
     for (field, tuple_name) in fields.iter().zip(&tuple_names) {
-        let value_type = match &field.ty {
-            PropertyType::Value(value_type)
-            | PropertyType::Array {
-                element_type: value_type,
-                ..
-            } => value_type,
-        };
+        let value_type = field.ty.value_type();
         let (PropertyValueType::Tuple(tuple), Some(tuple_name)) = (value_type, tuple_name) else {
             continue;
         };
@@ -107,13 +89,7 @@ fn generate_property_interface(fields: &[InterfaceField], kind: ShaderKind) -> S
         if matches!(field.ty, PropertyType::Array { .. }) {
             source.push_str(&format!("    {}_len: u32,\n", field.id));
         } else {
-            let value_type = match &field.ty {
-                PropertyType::Value(value_type)
-                | PropertyType::Array {
-                    element_type: value_type,
-                    ..
-                } => value_type,
-            };
+            let value_type = field.ty.value_type();
             source.push_str(&format!(
                 "    {}: {},\n",
                 field.id,
@@ -142,13 +118,7 @@ fn generate_property_interface(fields: &[InterfaceField], kind: ShaderKind) -> S
         let load = if matches!(field.ty, PropertyType::Array { .. }) {
             format!("read_u32(raw, {}u)", field.offset + 4)
         } else {
-            let value_type = match &field.ty {
-                PropertyType::Value(value_type)
-                | PropertyType::Array {
-                    element_type: value_type,
-                    ..
-                } => value_type,
-            };
+            let value_type = field.ty.value_type();
             value_load(
                 value_type,
                 tuple_name.as_deref(),

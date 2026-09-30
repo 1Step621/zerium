@@ -89,16 +89,28 @@ impl Preview {
             let progresses = Self::animation_progresses(selected, effect_id, property.id(), None);
             if progresses.is_empty() {
                 let value = Self::item_position(&current, effect_id, Some(property.id()));
-                positions.push(PreviewPairProperty {
-                    property_id: property.id().to_owned(),
+                positions.push(PreviewPositionOverlay {
+                    address: PropertyAddress {
+                        item_id: selected.id,
+                        effect_id,
+                        property_id: property.id().to_owned(),
+                        element_id: None,
+                        scalar_index: None,
+                    },
                     value,
                     target: PreviewEditTarget::Property,
                 });
             } else {
                 positions.extend(progresses.iter().map(|progress| {
                     let item = Self::evaluated_at_progress(selected, *progress);
-                    PreviewPairProperty {
-                        property_id: property.id().to_owned(),
+                    PreviewPositionOverlay {
+                        address: PropertyAddress {
+                            item_id: selected.id,
+                            effect_id,
+                            property_id: property.id().to_owned(),
+                            element_id: None,
+                            scalar_index: None,
+                        },
                         value: Self::item_position(&item, effect_id, Some(property.id())),
                         target: PreviewEditTarget::Keyframe(*progress),
                     }
@@ -214,7 +226,6 @@ impl Preview {
             || !points.is_empty()
             || !spline_path.is_empty())
         .then_some(PreviewEditorOverlay {
-            item_id: selected.id,
             effect_id,
             positions,
             sizes,

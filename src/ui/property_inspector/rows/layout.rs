@@ -538,7 +538,7 @@ impl PropertyInspector {
                 )
             }
             Control::Bool(boolean) => {
-                let common = &boolean.common;
+                let common = &boolean;
                 let PropertyValue::Bool(value) = common.value else {
                     return None;
                 };
@@ -564,7 +564,7 @@ impl PropertyInspector {
                 ))
             }
             Control::Color(color) => {
-                let common = &color.common;
+                let common = &color;
                 let picker = ctx.store.color(&common.id)?;
                 Some(Self::color_full_row(
                     common,
@@ -609,7 +609,7 @@ impl PropertyInspector {
                 ))
             }
             Control::Bool(boolean) => {
-                let common = &boolean.common;
+                let common = &boolean;
                 let PropertyValue::Bool(value) = common.value else {
                     return None;
                 };
@@ -635,7 +635,7 @@ impl PropertyInspector {
                 ))
             }
             Control::Color(color) => {
-                let common = &color.common;
+                let common = &color;
                 let picker = ctx.store.color(&common.id)?;
                 Some(Self::color_compact_row(
                     common,

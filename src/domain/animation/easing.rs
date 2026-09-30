@@ -52,6 +52,65 @@ impl EasingDirection {
     }
 }
 
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Serialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct CubicBezier {
+    handle_out: [f32; 2],
+    handle_in: [f32; 2],
+}
+
+impl Default for CubicBezier {
+    fn default() -> Self {
+        Self {
+            handle_out: [1. / 3., 1. / 3.],
+            handle_in: [2. / 3., 2. / 3.],
+        }
+    }
+}
+
+impl CubicBezier {
+    pub(crate) fn handle(&self, handle: BezierHandle) -> [f32; 2] {
+        match handle {
+            BezierHandle::In => self.handle_in,
+            BezierHandle::Out => self.handle_out,
+        }
+    }
+
+    pub(crate) fn set_handle(&mut self, handle: BezierHandle, position: [f32; 2]) -> bool {
+        if !position.iter().all(|value| value.is_finite()) {
+            return false;
+        }
+        let position = position.map(|value| value.clamp(0., 1.));
+        let target = match handle {
+            BezierHandle::In => &mut self.handle_in,
+            BezierHandle::Out => &mut self.handle_out,
+        };
+        if *target == position {
+            return false;
+        }
+        *target = position;
+        true
+    }
+
+    fn is_valid(self) -> bool {
+        [self.handle_out, self.handle_in].into_iter().all(|handle| {
+            handle
+                .iter()
+                .all(|value| value.is_finite() && (0. ..=1.).contains(value))
+        })
+    }
+
+    fn evaluate(self, progress: f32) -> f32 {
+        cubic_bezier_progress(
+            progress,
+            self.handle_out[0],
+            self.handle_out[1],
+            self.handle_in[0],
+            self.handle_in[1],
+        )
+    }
+}
+
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub(crate) enum SegmentInterpolation {
@@ -62,10 +121,7 @@ pub(crate) enum SegmentInterpolation {
         family: EasingFamily,
         direction: EasingDirection,
     },
-    Custom {
-        handle_out: [f32; 2],
-        handle_in: [f32; 2],
-    },
+    Custom(CubicBezier),
 }
 
 impl SegmentInterpolation {
@@ -78,56 +134,14 @@ impl SegmentInterpolation {
             Self::Linear => progress,
             Self::Hold => 0.,
             Self::Ease { family, direction } => direction.apply(family, progress),
-            Self::Custom {
-                handle_out,
-                handle_in,
-            } => cubic_bezier_progress(
-                progress,
-                handle_out[0],
-                handle_out[1],
-                handle_in[0],
-                handle_in[1],
-            ),
+            Self::Custom(curve) => curve.evaluate(progress),
         }
     }
 
     pub(crate) fn is_valid(self) -> bool {
-        let Self::Custom {
-            handle_out,
-            handle_in,
-        } = self
-        else {
-            return true;
-        };
-        [handle_out, handle_in].into_iter().all(|handle| {
-            handle.iter().all(|value| value.is_finite())
-                && (0. ..=1.).contains(&handle[0])
-                && (0. ..=1.).contains(&handle[1])
-        })
-    }
-
-    pub(crate) fn with_handle(self, handle: BezierHandle, position: [f32; 2]) -> Option<Self> {
-        if !position.iter().all(|value| value.is_finite()) {
-            return None;
-        }
-        let position = [position[0].clamp(0., 1.), position[1].clamp(0., 1.)];
-        match (handle, self) {
-            (BezierHandle::Out, Self::Custom { handle_in, .. }) => Some(Self::Custom {
-                handle_out: position,
-                handle_in,
-            }),
-            (BezierHandle::In, Self::Custom { handle_out, .. }) => Some(Self::Custom {
-                handle_out,
-                handle_in: position,
-            }),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn custom_default() -> Self {
-        Self::Custom {
-            handle_out: [1. / 3., 1. / 3.],
-            handle_in: [2. / 3., 2. / 3.],
+        match self {
+            Self::Custom(curve) => curve.is_valid(),
+            _ => true,
         }
     }
 }

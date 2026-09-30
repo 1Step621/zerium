@@ -1,4 +1,5 @@
 use super::*;
+use crate::domain::property::PropertyPath;
 
 // Scene definition and scene-argument commands.
 impl TimelineEditor {
@@ -86,7 +87,7 @@ impl TimelineEditor {
         &self,
         item_id: ItemId,
         effect_id: Option<EffectInstanceId>,
-        address: &ScalarAnimationAddress,
+        address: &PropertyPath,
     ) -> Option<&ScalarTrack> {
         self.active_document().item(item_id)?.animation_track(
             effect_id,
@@ -100,7 +101,7 @@ impl TimelineEditor {
         &mut self,
         item_id: ItemId,
         effect_id: Option<EffectInstanceId>,
-        address: &ScalarAnimationAddress,
+        address: &PropertyPath,
     ) -> Option<&mut ScalarTrack> {
         self.animation_store_mut(item_id, effect_id)?
             .track_mut(address)
@@ -110,7 +111,7 @@ impl TimelineEditor {
         &mut self,
         item_id: ItemId,
         effect_id: Option<EffectInstanceId>,
-        address: ScalarAnimationAddress,
+        address: PropertyPath,
         before: Option<HistorySnapshot>,
         key: Option<HistoryKey>,
         edit: impl FnOnce(&mut ScalarTrack) -> bool,
@@ -303,7 +304,6 @@ impl TimelineEditor {
             remove_bindings_for_items(scene, &removed_items);
         }
         self.project_mut().scenes.remove(&scene_id);
-        self.clamp_all_scene_instances();
 
         if let Some(path_index) = self.scene_path.iter().position(|id| *id == scene_id) {
             self.scene_path.truncate(path_index);

@@ -18,9 +18,7 @@ use crate::{
     engine::frame::RgbaFrame,
 };
 
-use super::reader::{
-    ImageDecoderSession, MediaError, MediaProbe, MediaReader, MediaStreamDurations, VideoDecodeSize,
-};
+use super::reader::{ImageDecoderSession, MediaError, MediaProbe, MediaReader, VideoDecodeSize};
 
 pub(super) const READER_ID: &str = "zerium.svg";
 const IMAGE_DURATION: Duration = Duration::from_secs(5);
@@ -38,7 +36,7 @@ impl MediaReader for SvgMediaReader {
         Ok(Some(MediaProbe {
             duration: IMAGE_DURATION,
             kind: MediaKind::Image { width, height },
-            streams: MediaStreamDurations { video: None },
+            video_duration: None,
         }))
     }
 

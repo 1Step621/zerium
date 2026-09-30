@@ -6,6 +6,7 @@ mod readback;
 mod resources;
 mod runtime;
 mod scene;
+mod scene_builder;
 mod shader;
 mod shader_compile;
 mod surface;
@@ -29,8 +30,8 @@ use crate::{
             Capability, ComputeDispatchDimension, EffectInputSpace, EffectPassSchema, ItemSchema,
         },
         timeline::{
-            EffectInstance, EffectInstanceId, EvaluatedSceneNode, EvaluatedSceneNodeKind, ItemId,
-            LayerId, ProjectResolution, RenderResultSettings, TimelineItem, TimelineTime,
+            EffectInstance, EffectInstanceId, EvaluatedSceneNode, ItemId, LayerId,
+            ProjectResolution, RenderResultSettings, TimelineItem, TimelineItemKind, TimelineTime,
             TimelineView,
         },
     },
@@ -51,6 +52,7 @@ const YUV_CONVERT: &str = include_str!("yuv.wgsl");
 
 pub(crate) use readback::ExportFramePipeline;
 pub(crate) use runtime::RenderRuntime;
+use scene::SceneNodeId;
 pub(crate) use scene::{
     RenderEffect, RenderEffectPassKind, RenderItem, RenderItemSource, RenderNode,
     RenderNodeContent, RenderNodeMetadata, RenderQuality, RenderScene, RenderTemporalSample,

@@ -1,10 +1,3 @@
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) struct MoveOrigin {
-    pub start: u64,
-    pub duration: u64,
-    pub layer: u64,
-}
-
 pub(super) fn virtual_layer_count(
     highest_occupied_layer: Option<usize>,
     viewport_end: usize,
@@ -16,27 +9,23 @@ pub(super) fn virtual_layer_count(
 }
 
 pub(super) fn clamp_move_delta(
-    origins: &[MoveOrigin],
+    origins: impl Iterator<Item = (u64, u64, u64)>,
     frame_delta: i64,
     layer_delta: i64,
 ) -> (i64, i64) {
-    let min_start = origins.iter().map(|item| item.start).min().unwrap_or(0);
-    let max_end = origins
-        .iter()
-        .map(|item| item.start.saturating_add(item.duration))
-        .max()
-        .unwrap_or(0);
-    let min_layer = origins.iter().map(|item| item.layer).min().unwrap_or(0);
-    let max_layer = origins.iter().map(|item| item.layer).max().unwrap_or(0);
-
-    let min_frame_delta = negative_bound(min_start);
-    let max_frame_delta = positive_bound(u64::MAX.saturating_sub(max_end));
-    let min_layer_delta = negative_bound(min_layer);
-    let max_layer_delta = positive_bound(u64::MAX.saturating_sub(max_layer));
-
+    let (min_start, max_end, min_layer, max_layer) = origins
+        .map(|(start, duration, layer)| (start, start.saturating_add(duration), layer, layer))
+        .reduce(|a, b| (a.0.min(b.0), a.1.max(b.1), a.2.min(b.2), a.3.max(b.3)))
+        .unwrap_or((0, 0, 0, 0));
     (
-        frame_delta.clamp(min_frame_delta, max_frame_delta),
-        layer_delta.clamp(min_layer_delta, max_layer_delta),
+        frame_delta.clamp(
+            negative_bound(min_start),
+            positive_bound(u64::MAX.saturating_sub(max_end)),
+        ),
+        layer_delta.clamp(
+            negative_bound(min_layer),
+            positive_bound(u64::MAX.saturating_sub(max_layer)),
+        ),
     )
 }
 

@@ -238,13 +238,7 @@ impl PropertySchema {
             }
         }
 
-        let component_type = match &self.ty {
-            PropertyType::Value(value_type)
-            | PropertyType::Array {
-                element_type: value_type,
-                ..
-            } => value_type,
-        };
+        let component_type = self.ty.value_type();
         let scalar_types = match component_type {
             PropertyValueType::Scalar(scalar) => std::slice::from_ref(scalar),
             PropertyValueType::Tuple(tuple) => tuple.scalars(),

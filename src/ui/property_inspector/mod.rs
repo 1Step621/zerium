@@ -1,12 +1,13 @@
 mod control;
 mod edit;
-mod numeric;
 mod path;
 mod render;
 mod rows;
 mod scene_args;
 mod state;
-use numeric::{NumericInput, NumericInputSpec, numeric_input_spec};
+use crate::ui::numeric_property::{
+    NumericInput, NumericInputSpec, numeric_input_spec, snap_to_step,
+};
 
 use std::collections::{HashMap, HashSet};
 
@@ -143,6 +144,10 @@ struct PropertyTarget {
 }
 
 impl PropertyTarget {
+    fn value<'a>(&self, item: &'a TimelineItem) -> Option<&'a PropertyValue> {
+        self.address(item.id).value(item)
+    }
+
     fn address(&self, item_id: ItemId) -> PropertyAddress {
         PropertyAddress {
             item_id,
@@ -281,7 +286,7 @@ pub(super) struct SceneArgumentValueDragOrigin {
     pub setting: SceneArgumentSetting,
     pub start_x: f32,
     pub start_value: f64,
-    number: numeric::NumericInput,
+    number: NumericInput,
     pub sensitivity: f64,
 }
 

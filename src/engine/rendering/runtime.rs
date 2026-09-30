@@ -4,37 +4,39 @@ use super::{CompiledPluginShaders, FrameRenderer, RenderError, RendererBuilder, 
 
 /// Shared rendering resources used by preview and export.
 pub(crate) struct RenderRuntime {
-    renderer: Option<Arc<FrameRenderer>>,
+    preview: Option<Result<Arc<FrameRenderer>, String>>,
     export_device: Option<Arc<RendererDevice>>,
     plugin_shaders: Arc<CompiledPluginShaders>,
-    error: Option<String>,
 }
 
 impl RenderRuntime {
     pub(crate) fn new(plugin_shaders: Arc<CompiledPluginShaders>) -> Self {
         Self {
-            renderer: None,
+            preview: None,
             export_device: None,
             plugin_shaders,
-            error: None,
         }
     }
 
     pub(crate) fn set_preview_renderer(
         &mut self,
-        renderer: Option<Arc<FrameRenderer>>,
-        error: Option<String>,
+        renderer: Result<Arc<FrameRenderer>, RenderError>,
     ) {
-        self.renderer = renderer;
-        self.error = error;
+        self.preview = Some(renderer.map_err(|error| error.to_string()));
     }
 
     pub(crate) fn renderer(&self) -> Option<Arc<FrameRenderer>> {
-        self.renderer.clone()
+        self.preview
+            .as_ref()
+            .and_then(|result| result.as_ref().ok())
+            .cloned()
     }
 
     pub(crate) fn error(&self) -> Option<&str> {
-        self.error.as_deref()
+        self.preview
+            .as_ref()
+            .and_then(|result| result.as_ref().err())
+            .map(String::as_str)
     }
 
     /// Creates the dedicated export device lazily, then gives each export an

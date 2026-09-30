@@ -8,7 +8,7 @@ use cosmic_text::{
     Weight, Wrap, fontdb,
 };
 
-use crate::domain::plugin::Capability;
+use crate::domain::plugin::{Capability, TextCapability};
 use crate::domain::property::{PropertyValue, PropertyValues};
 use crate::domain::timeline::{EffectInstanceId, ItemId, TimelineItem};
 use crate::engine::frame::RgbaFrame;
@@ -24,7 +24,7 @@ pub(crate) struct TextSourceId {
 
 pub(crate) struct TextFrameRequest<'a> {
     pub id: TextSourceId,
-    pub capability: &'a Capability,
+    pub capability: &'a TextCapability,
     pub properties: &'a PropertyValues,
     pub label: &'a str,
     pub target_size: RenderSize,
@@ -90,7 +90,7 @@ impl TextFrameCache {
         for item in items {
             if let Some(schema) = item.schema() {
                 for (capability_index, capability) in schema.capabilities().iter().enumerate() {
-                    if matches!(capability, Capability::Text { .. }) {
+                    if matches!(capability, Capability::Text(_)) {
                         self.active.insert(TextSourceId {
                             item_id: item.id,
                             effect_id: None,
@@ -103,7 +103,7 @@ impl TextFrameCache {
                 for (capability_index, capability) in
                     effect.schema().capabilities().iter().enumerate()
                 {
-                    if matches!(capability, Capability::Text { .. }) {
+                    if matches!(capability, Capability::Text(_)) {
                         self.active.insert(TextSourceId {
                             item_id: item.id,
                             effect_id: Some(effect.id),
@@ -184,13 +184,7 @@ impl TextFrameCache {
         request: &TextFrameRequest<'_>,
         composition_size: RenderSize,
     ) -> Result<TextSignature, RenderError> {
-        let missing_binding = || {
-            RenderError::backend(format!(
-                "text source '{}' has no text property binding",
-                request.label
-            ))
-        };
-        let Some(Capability::Text {
+        let TextCapability {
             size,
             text,
             font_family,
@@ -203,10 +197,7 @@ impl TextFrameCache {
             horizontal_alignment,
             vertical_alignment,
             ..
-        }) = Some(request.capability)
-        else {
-            return Err(missing_binding());
-        };
+        } = request.capability;
         let string = |id: &str| match request.properties.property(id) {
             Some(PropertyValue::String(value)) => Some(value.clone()),
             _ => None,

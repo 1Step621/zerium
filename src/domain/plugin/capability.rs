@@ -126,17 +126,27 @@ impl FileCapability {
 /// Describes where a media input appears in its owner's composition space.
 /// The quad covers the full source UV range.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
-pub(crate) enum MediaPlacement {
-    Quad { position: String, size: String },
+#[serde(deny_unknown_fields)]
+pub(crate) struct MediaPlacement {
+    pub(crate) position: String,
+    pub(crate) size: String,
 }
 
-impl MediaPlacement {
-    pub(crate) fn size_property(&self) -> &str {
-        match self {
-            Self::Quad { size, .. } => size,
-        }
-    }
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct TextCapability {
+    pub(crate) id: String,
+    pub(crate) size: String,
+    pub(crate) text: String,
+    pub(crate) font_family: String,
+    pub(crate) font_size: String,
+    pub(crate) color: String,
+    pub(crate) outline_width: String,
+    pub(crate) outline_color: String,
+    pub(crate) bold: String,
+    pub(crate) italic: String,
+    pub(crate) horizontal_alignment: String,
+    pub(crate) vertical_alignment: String,
 }
 
 /// One named texture input produced for an item or effect shader.
@@ -150,20 +160,7 @@ pub(crate) enum Capability {
         #[serde(default)]
         placement: Option<MediaPlacement>,
     },
-    Text {
-        id: String,
-        size: String,
-        text: String,
-        font_family: String,
-        font_size: String,
-        color: String,
-        outline_width: String,
-        outline_color: String,
-        bold: String,
-        italic: String,
-        horizontal_alignment: String,
-        vertical_alignment: String,
-    },
+    Text(TextCapability),
     RenderResult {
         id: String,
         start_offset: String,
@@ -175,22 +172,9 @@ pub(crate) enum Capability {
 impl Capability {
     pub(crate) fn id(&self) -> &str {
         match self {
-            Self::Text { id, .. } | Self::RenderResult { id, .. } => id,
+            Self::Text(text) => &text.id,
+            Self::RenderResult { id, .. } => id,
             Self::Media { file, .. } => file.id(),
-        }
-    }
-
-    pub(crate) fn media_file(&self) -> Option<&FileCapability> {
-        match self {
-            Self::Media { file, .. } => Some(file),
-            _ => None,
-        }
-    }
-
-    pub(crate) fn media_placement(&self) -> Option<&MediaPlacement> {
-        match self {
-            Self::Media { placement, .. } => placement.as_ref(),
-            _ => None,
         }
     }
 
@@ -254,7 +238,7 @@ impl Capability {
             Ok(())
         };
         match self {
-            Self::Text {
+            Self::Text(TextCapability {
                 size,
                 text,
                 font_family,
@@ -267,7 +251,7 @@ impl Capability {
                 horizontal_alignment,
                 vertical_alignment,
                 ..
-            } => {
+            }) => {
                 tuple_f32_pair(size)?;
                 scalar(text, ScalarPropertyType::String)?;
                 let font_property = property(font_family)?;
@@ -324,7 +308,7 @@ impl Capability {
                 )?;
             }
             Self::Media { placement, .. } => {
-                if let Some(MediaPlacement::Quad { position, size }) = placement {
+                if let Some(MediaPlacement { position, size }) = placement {
                     tuple_f32_pair(position)?;
                     tuple_f32_pair(size)?;
                 }

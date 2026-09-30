@@ -39,20 +39,10 @@ pub(super) struct TextControl {
 }
 
 #[derive(Clone)]
-pub(super) struct BoolControl {
-    pub common: LeafControl,
-}
-
-#[derive(Clone)]
 pub(super) struct ChoiceControl {
     pub common: LeafControl,
     pub ty: ScalarPropertyType,
     pub options: Vec<(String, u32)>,
-}
-
-#[derive(Clone)]
-pub(super) struct ColorControl {
-    pub common: LeafControl,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,9 +87,9 @@ pub(super) enum Control {
     },
     Number(NumberControl),
     Text(TextControl),
-    Bool(BoolControl),
+    Bool(LeafControl),
     Choice(ChoiceControl),
-    Color(ColorControl),
+    Color(LeafControl),
 }
 
 impl Control {
@@ -108,9 +98,9 @@ impl Control {
             Self::Group { id, .. } => id,
             Self::Number(control) => &control.common.id,
             Self::Text(control) => &control.common.id,
-            Self::Bool(control) => &control.common.id,
+            Self::Bool(control) => &control.id,
             Self::Choice(control) => &control.common.id,
-            Self::Color(control) => &control.common.id,
+            Self::Color(control) => &control.id,
         }
     }
 
@@ -118,9 +108,9 @@ impl Control {
         match self {
             Self::Number(control) => Some(&control.common),
             Self::Text(control) => Some(&control.common),
-            Self::Bool(control) => Some(&control.common),
+            Self::Bool(control) => Some(control),
             Self::Choice(control) => Some(&control.common),
-            Self::Color(control) => Some(&control.common),
+            Self::Color(control) => Some(control),
             Self::Group { .. } => None,
         }
     }
@@ -129,9 +119,9 @@ impl Control {
         match self {
             Self::Number(control) => Some(&mut control.common),
             Self::Text(control) => Some(&mut control.common),
-            Self::Bool(control) => Some(&mut control.common),
+            Self::Bool(control) => Some(control),
             Self::Choice(control) => Some(&mut control.common),
-            Self::Color(control) => Some(&mut control.common),
+            Self::Color(control) => Some(control),
             Self::Group { .. } => None,
         }
     }
@@ -290,7 +280,7 @@ impl PropertyInspector {
     }
 
     pub(super) fn normalize_field_value(spec: &NumericInputSpec, value: f64) -> f64 {
-        numeric::snap_to_step(value, spec.step).clamp(spec.min, spec.max)
+        snap_to_step(value, spec.step).clamp(spec.min, spec.max)
     }
 
     pub(super) fn drag_sensitivity(min: f64, max: f64, step: f64) -> f64 {
@@ -363,13 +353,7 @@ impl PropertyInspector {
             || property.label().to_owned(),
             |(index, _)| format!("{} {}", property.label(), index + 1),
         );
-        let ty = match property.ty() {
-            PropertyType::Value(value_type)
-            | PropertyType::Array {
-                element_type: value_type,
-                ..
-            } => value_type,
-        };
+        let ty = property.ty().value_type();
         ty.scalars()
             .filter_map(|(scalar_index, scalar_type)| {
                 let value = value.scalar_at(scalar_index)?.clone();
@@ -407,24 +391,20 @@ impl PropertyInspector {
                         common,
                         spec: numeric_input_spec(property, scalar_index)?,
                     }),
-                    (ScalarPropertyType::Color, PropertyValue::Color(_)) => {
-                        Control::Color(ColorControl { common })
-                    }
-                    (ScalarPropertyType::Bool, PropertyValue::Bool(_)) => {
-                        Control::Bool(BoolControl { common })
-                    }
+                    (ScalarPropertyType::Color, PropertyValue::Color(_)) => Control::Color(common),
+                    (ScalarPropertyType::Bool, PropertyValue::Bool(_)) => Control::Bool(common),
                     (ScalarPropertyType::String, PropertyValue::String(_)) => {
                         Control::Text(TextControl {
                             common,
                             multiline: scalar_ui.is_multiline(),
                         })
                     }
-                    (ScalarPropertyType::Enum(_), PropertyValue::Enum(_)) => {
+                    (ScalarPropertyType::Enum(enumeration), PropertyValue::Enum(_)) => {
                         Control::Choice(ChoiceControl {
                             common,
                             ty: scalar_type.clone(),
                             options: scalar_ui
-                                .enum_options(scalar_type)?
+                                .enum_options(enumeration)
                                 .into_iter()
                                 .map(|(value, label)| (label, value))
                                 .collect(),
@@ -746,32 +726,29 @@ impl PropertyInspector {
                 ScalarPropertyType::String,
                 false,
             ),
-            Control::Bool(boolean) => Self::resolve_common(
-                resolution,
-                &mut boolean.common,
-                ScalarPropertyType::Bool,
-                false,
-            ),
+            Control::Bool(boolean) => {
+                Self::resolve_common(resolution, boolean, ScalarPropertyType::Bool, false)
+            }
             Control::Choice(choice) => {
                 Self::resolve_common(resolution, &mut choice.common, choice.ty.clone(), false)
             }
             Control::Color(color) => {
-                let animation_enabled = color.common.target.animation_enabled(resolution.item);
+                let animation_enabled = color.target.animation_enabled(resolution.item);
                 Self::resolve_common(
                     resolution,
-                    &mut color.common,
+                    color,
                     ScalarPropertyType::Color,
                     animation_enabled,
                 );
-                color.common.animation_enabled = animation_enabled;
+                color.animation_enabled = animation_enabled;
                 if animation_enabled {
-                    color.common.animation_stops = Self::animation_stop_controls(
+                    color.animation_stops = Self::animation_stop_controls(
                         resolution.item,
-                        color.common.target.effect_id,
-                        &color.common.target.property_id,
-                        color.common.target.element_id,
-                        color.common.target.scalar_index,
-                        &color.common.target.key,
+                        color.target.effect_id,
+                        &color.target.property_id,
+                        color.target.element_id,
+                        color.target.scalar_index,
+                        &color.target.key,
                         resolution.playhead,
                     );
                 }

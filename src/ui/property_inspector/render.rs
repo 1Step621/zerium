@@ -105,9 +105,8 @@ impl PropertyInspector {
     ) -> RenderCtx<'a> {
         let active_scene_name_input = self.editor.read(cx).active_scene_id().and_then(|scene_id| {
             self.store
-                .states
+                .text_inputs
                 .get(&ControlId::scene_name(scene_id))
-                .and_then(state::ControlState::text)
                 .map(|state| state.input.clone())
         });
         RenderCtx {
@@ -633,7 +632,6 @@ impl PropertyInspector {
         cx: &Context<Self>,
     ) -> gpui::AnyElement {
         let effect_id = effect.id;
-        let hidden = effect.hidden;
         let focused = render.editor.read(cx).active_edit_effect() == Some(effect_id);
         let effect_editor = render.editor.clone();
         let (can_move_up, can_move_down) = {
@@ -684,9 +682,7 @@ impl PropertyInspector {
                 })
             })
             .child(Self::effect_header(
-                effect.label,
-                effect_id,
-                hidden,
+                &effect,
                 can_move_up,
                 can_move_down,
                 view.multiple,
@@ -699,15 +695,16 @@ impl PropertyInspector {
     }
 
     fn effect_header(
-        label: String,
-        effect_id: EffectInstanceId,
-        hidden: bool,
+        effect: &EffectGroup,
         can_move_up: bool,
         can_move_down: bool,
         multiple: bool,
         focused: bool,
         render: &RenderCtx<'_>,
     ) -> Div {
+        let effect_id = effect.id;
+        let hidden = effect.hidden;
+        let label = effect.label.clone();
         let title_editor = render.editor.clone();
         let visibility_editor = render.editor.clone();
         let move_up_editor = render.editor.clone();
