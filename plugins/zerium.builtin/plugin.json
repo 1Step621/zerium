@@ -21,7 +21,11 @@
       "symbol": "■",
       "shader": { "module": "rectangle" },
       "capabilities": [],
-      "editor": { "position": "position", "size": "size", "aspect_lock": "size" },
+      "editor": {
+        "position": "position",
+        "size": "size",
+        "aspect_lock": "size"
+      },
       "properties": [
         {
           "id": "position",
@@ -99,7 +103,11 @@
       "symbol": "▲",
       "shader": { "module": "triangle" },
       "capabilities": [],
-      "editor": { "position": "position", "size": "size", "aspect_lock": "size" },
+      "editor": {
+        "position": "position",
+        "size": "size",
+        "aspect_lock": "size"
+      },
       "properties": [
         {
           "id": "position",
@@ -177,7 +185,11 @@
       "symbol": "●",
       "shader": { "module": "ellipse" },
       "capabilities": [],
-      "editor": { "size": "diameter", "aspect_lock": "diameter", "position": "position" },
+      "editor": {
+        "size": "diameter",
+        "aspect_lock": "diameter",
+        "position": "position"
+      },
       "properties": [
         {
           "id": "position",
@@ -418,7 +430,12 @@
       "symbol": "⬟",
       "shader": { "module": "polygon" },
       "capabilities": [],
-      "editor": { "position": "position", "size": "size", "aspect_lock": "size", "points": "points" },
+      "editor": {
+        "position": "position",
+        "size": "size",
+        "aspect_lock": "size",
+        "points": "points"
+      },
       "properties": [
         {
           "id": "position",
@@ -517,7 +534,11 @@
       "symbol": "╱",
       "shader": { "module": "line" },
       "capabilities": [],
-      "editor": { "position": "position", "size": "size", "aspect_lock": "size" },
+      "editor": {
+        "position": "position",
+        "size": "size",
+        "aspect_lock": "size"
+      },
       "properties": [
         {
           "id": "position",
@@ -602,7 +623,11 @@
       "symbol": "★",
       "shader": { "module": "star" },
       "capabilities": [],
-      "editor": { "position": "position", "size": "size", "aspect_lock": "size" },
+      "editor": {
+        "position": "position",
+        "size": "size",
+        "aspect_lock": "size"
+      },
       "properties": [
         {
           "id": "position",
@@ -718,7 +743,12 @@
           "vertical_alignment": "vertical_alignment"
         }
       ],
-      "editor": { "position": "position", "size": "size", "aspect_lock": "size", "label": "text" },
+      "editor": {
+        "position": "position",
+        "size": "size",
+        "aspect_lock": "size",
+        "label": "text"
+      },
       "properties": [
         {
           "id": "position",
@@ -893,7 +923,11 @@
         }
       ],
       "audio": { "inputs": ["source"], "volume": "volume" },
-      "editor": { "position": "position", "size": "size", "aspect_lock": "size" },
+      "editor": {
+        "position": "position",
+        "size": "size",
+        "aspect_lock": "size"
+      },
       "properties": [
         {
           "id": "position",
@@ -977,7 +1011,11 @@
           "extensions": ["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"]
         }
       ],
-      "editor": { "position": "position", "size": "size", "aspect_lock": "size" },
+      "editor": {
+        "position": "position",
+        "size": "size",
+        "aspect_lock": "size"
+      },
       "properties": [
         {
           "id": "position",
@@ -1048,7 +1086,11 @@
           "extensions": ["svg"]
         }
       ],
-      "editor": { "position": "position", "size": "size", "aspect_lock": "size" },
+      "editor": {
+        "position": "position",
+        "size": "size",
+        "aspect_lock": "size"
+      },
       "properties": [
         {
           "id": "position",
