@@ -207,6 +207,7 @@ pub(crate) struct RenderEffect {
     pub passes: Vec<RenderEffectPass>,
     pub inputs: Vec<RenderNode>,
     pub output_bounds: BoundsOperation,
+    pub input_space: EffectInputSpace,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -1125,17 +1126,11 @@ impl RenderScene {
             effects,
             target_size,
             render_scale,
-            output_bounds: schema
-                .output_bounds()
-                .map(|bounds| {
-                    item_bounds(
-                        bounds,
-                        &item.properties,
-                        RenderSize::from(timeline.resolution()),
-                    )
-                })
-                .filter(|bounds| bounds.is_valid())
-                .unwrap_or_else(|| SurfaceRect::viewport(RenderSize::from(timeline.resolution()))),
+            output_bounds: item_bounds(
+                schema.output_bounds(),
+                &item.properties,
+                RenderSize::from(timeline.resolution()),
+            ),
         };
         render_cache.insert(cache_key, Some(render_item.clone()));
         Ok(Some(render_item))
@@ -1183,6 +1178,7 @@ impl RenderScene {
             passes,
             inputs: Vec::new(),
             output_bounds: BoundsOperation::from_schema(schema.output_bounds(), &effect.properties),
+            input_space: schema.input_space(),
         }
     }
 

@@ -14,11 +14,12 @@ mod shader;
 mod validation;
 
 pub(crate) use abi::{PropertyLayout, abi_size, scalar_abi_size, value_string_count};
-pub(crate) use bounds::{ItemBoundsSchema, OutputBoundsSchema};
+pub(crate) use bounds::{OutputBoundsSchema, program_context};
 pub(crate) use bundle::Plugin;
 pub(crate) use capability::{Capability, FileCapability, MAX_CAPABILITIES, MediaType};
 pub(crate) use effect::{
-    ComputeDispatchDimension, EffectPassSchema, EffectSchema, PassConstantSchema, PassConstantValue,
+    ComputeDispatchDimension, EffectInputSpace, EffectPassSchema, EffectSchema, PassConstantSchema,
+    PassConstantValue,
 };
 pub(crate) use error::PluginError;
 pub(crate) use item::ItemSchema;

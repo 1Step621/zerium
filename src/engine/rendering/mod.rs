@@ -25,7 +25,9 @@ pub(crate) use text::{TextFrameCache, TextFrameRequest, TextSourceId};
 
 use crate::{
     domain::{
-        plugin::{Capability, ComputeDispatchDimension, EffectPassSchema, ItemSchema},
+        plugin::{
+            Capability, ComputeDispatchDimension, EffectInputSpace, EffectPassSchema, ItemSchema,
+        },
         timeline::{
             EffectInstance, EffectInstanceId, EvaluatedSceneNode, EvaluatedSceneNodeKind, ItemId,
             LayerId, ProjectResolution, RenderResultSettings, TimelineItem, TimelineTime,

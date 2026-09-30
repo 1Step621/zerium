@@ -193,101 +193,42 @@
         }
       }
     },
-    "itemBounds": {
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type"],
-          "properties": { "type": { "const": "viewport" } }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type", "position", "size"],
-          "properties": {
-            "type": { "const": "quad" },
-            "position": { "$ref": "#/$defs/wgslId" },
-            "size": { "$ref": "#/$defs/wgslId" },
-            "size_outset": { "type": "number", "minimum": 0 },
-            "rotation": { "$ref": "#/$defs/wgslId" },
-            "padding": { "$ref": "#/$defs/wgslId" }
-          }
-        }
-      ]
-    },
     "outputBounds": {
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type"],
-          "properties": { "type": { "const": "same" } }
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["min", "max"],
+      "properties": {
+        "min": {
+          "type": "array",
+          "prefixItems": [
+            { "type": "string", "minLength": 1 },
+            { "type": "string", "minLength": 1 }
+          ],
+          "minItems": 2,
+          "maxItems": 2
         },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type"],
-          "properties": { "type": { "const": "viewport" } }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type", "offset"],
-          "properties": {
-            "type": { "const": "translate" },
-            "offset": { "$ref": "#/$defs/wgslId" }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type", "radius", "multiplier"],
-          "properties": {
-            "type": { "const": "outset" },
-            "radius": { "$ref": "#/$defs/wgslId" },
-            "multiplier": { "type": "number", "minimum": 0 }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type", "angle", "center"],
-          "properties": {
-            "type": { "const": "rotate" },
-            "angle": { "$ref": "#/$defs/wgslId" },
-            "center": { "$ref": "#/$defs/wgslId" }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type", "rotation", "center", "perspective"],
-          "properties": {
-            "type": { "const": "perspective" },
-            "rotation": { "$ref": "#/$defs/wgslId" },
-            "center": { "$ref": "#/$defs/wgslId" },
-            "perspective": { "$ref": "#/$defs/wgslId" }
-          }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["type", "position", "size"],
-          "properties": {
-            "type": { "const": "center_range" },
-            "position": { "$ref": "#/$defs/wgslId" },
-            "size": { "$ref": "#/$defs/wgslId" },
-            "size_outset": { "type": "number", "minimum": 0 },
-            "padding": { "type": "number", "minimum": 0 }
-          }
+        "max": {
+          "type": "array",
+          "prefixItems": [
+            { "type": "string", "minLength": 1 },
+            { "type": "string", "minLength": 1 }
+          ],
+          "minItems": 2,
+          "maxItems": 2
         }
-      ]
+      }
     },
     "item": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "label", "category", "symbol", "capabilities"],
+      "required": [
+        "id",
+        "label",
+        "category",
+        "symbol",
+        "capabilities",
+        "output_bounds"
+      ],
       "properties": {
         "id": { "$ref": "#/$defs/logicalId" },
         "label": { "type": "string", "minLength": 1 },
@@ -300,7 +241,7 @@
         "capabilities": { "$ref": "#/$defs/capabilities" },
         "audio": { "$ref": "#/$defs/audioCapability" },
         "editor": { "$ref": "#/$defs/editorCapability" },
-        "output_bounds": { "$ref": "#/$defs/itemBounds" },
+        "output_bounds": { "$ref": "#/$defs/outputBounds" },
         "properties": {
           "type": "array",
           "items": { "$ref": "#/$defs/property" }
@@ -445,7 +386,14 @@
     "effect": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "label", "category", "properties", "passes"],
+      "required": [
+        "id",
+        "label",
+        "category",
+        "properties",
+        "passes",
+        "output_bounds"
+      ],
       "properties": {
         "id": { "$ref": "#/$defs/logicalId" },
         "label": { "type": "string", "minLength": 1 },
@@ -456,6 +404,7 @@
         },
         "render_scale": { "type": "integer", "minimum": 1, "maximum": 4 },
         "output_bounds": { "$ref": "#/$defs/outputBounds" },
+        "input_space": { "enum": ["output", "source"] },
         "editor": { "$ref": "#/$defs/editorCapability" },
         "capabilities": { "$ref": "#/$defs/capabilities" },
         "properties": {

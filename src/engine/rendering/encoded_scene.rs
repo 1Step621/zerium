@@ -1,4 +1,4 @@
-use super::surface::{BoundsOperation, SurfaceRect};
+use super::surface::SurfaceRect;
 use super::*;
 
 pub(super) type RenderNodeId = usize;
@@ -110,7 +110,7 @@ pub(super) enum RenderNodeCommandKind {
     Effect {
         input: RenderNodeId,
         capabilities: Vec<RenderNodeId>,
-        bounds_operation: BoundsOperation,
+        input_space: EffectInputSpace,
         passes: Vec<EffectPassCommand>,
     },
     TemporalEffect {
@@ -212,6 +212,7 @@ pub(super) enum RenderNodeKey {
     Effect {
         input: Arc<RenderNodeKey>,
         capabilities: Vec<Arc<RenderNodeKey>>,
+        input_space: EffectInputSpace,
         passes: Vec<EffectPassKey>,
     },
     Temporal {
@@ -613,13 +614,14 @@ impl EncodeContext<'_> {
                             .iter()
                             .map(|id| self.node_keys[*id].clone())
                             .collect(),
+                        input_space: effect.input_space,
                         passes: regular_keys,
                     },
                     self.nodes[node].metadata.clone(),
                     RenderNodeCommandKind::Effect {
                         input: node,
                         capabilities,
-                        bounds_operation: effect.output_bounds,
+                        input_space: effect.input_space,
                         passes: regular_passes,
                     },
                     bounds,

@@ -17,6 +17,17 @@ use crate::domain::property::{
 
 const MAX_TEMPORAL_SAMPLES: u32 = 32;
 
+/// Which rectangle the first render pass sees in `effect_input`.
+#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum EffectInputSpace {
+    /// The input is composited into the effect's output rectangle first.
+    #[default]
+    Output,
+    /// The input keeps its own rectangle for coordinate-based transforms.
+    Source,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct EffectSchema {
     id: String,
@@ -25,6 +36,7 @@ pub(crate) struct EffectSchema {
     tags: Vec<String>,
     render_scale: u32,
     output_bounds: OutputBoundsSchema,
+    input_space: EffectInputSpace,
     editor: Option<EditorCapability>,
     capabilities: Vec<Capability>,
     properties: Vec<PropertySchema>,
@@ -42,8 +54,9 @@ struct EffectSchemaDefinition {
     tags: Vec<String>,
     #[serde(default = "default_effect_render_scale")]
     render_scale: u32,
-    #[serde(default)]
     output_bounds: OutputBoundsSchema,
+    #[serde(default)]
+    input_space: EffectInputSpace,
     editor: Option<EditorCapability>,
     #[serde(default)]
     capabilities: Vec<Capability>,
@@ -73,6 +86,7 @@ impl<'de> Deserialize<'de> for EffectSchema {
             tags: definition.tags,
             render_scale: definition.render_scale,
             output_bounds: definition.output_bounds,
+            input_space: definition.input_space,
             editor: definition.editor,
             capabilities: definition.capabilities,
             properties: definition.properties,
@@ -234,6 +248,10 @@ impl EffectSchema {
         &self.output_bounds
     }
 
+    pub(crate) const fn input_space(&self) -> EffectInputSpace {
+        self.input_space
+    }
+
     pub(crate) fn position_property(&self) -> Option<&PropertySchema> {
         self.editor
             .as_ref()?
@@ -294,26 +312,15 @@ impl EffectSchema {
 
     pub(super) fn validate(&self) -> Result<(), PluginError> {
         validate_catalog_entry("effect", &self.id, &self.label, &self.category, &self.tags)?;
-        self.output_bounds.validate(&self.id, &self.properties)?;
-        if matches!(
-            self.output_bounds,
-            OutputBoundsSchema::Translate { .. }
-                | OutputBoundsSchema::Rotate { .. }
-                | OutputBoundsSchema::Perspective { .. }
-                | OutputBoundsSchema::CenterRange { .. }
-        ) && (self.passes.len() != 1
-            || !matches!(self.passes[0], EffectPassSchema::Render { .. }))
+        validate_property_schemas("effect", &self.id, &self.properties)?;
+        self.output_bounds
+            .validate("effect", &self.id, &self.properties)?;
+        if self.input_space == EffectInputSpace::Source
+            && (self.passes.len() != 1
+                || !matches!(self.passes[0], EffectPassSchema::Render { .. }))
         {
             return Err(PluginError::invalid_definition(format!(
-                "effect '{}' transform bounds require one render pass",
-                self.id
-            )));
-        }
-        if matches!(self.output_bounds, OutputBoundsSchema::Translate { .. })
-            && !self.capabilities.is_empty()
-        {
-            return Err(PluginError::invalid_definition(format!(
-                "effect '{}' metadata translation cannot consume capability inputs",
+                "effect '{}' source input space requires one render pass",
                 self.id
             )));
         }
@@ -323,7 +330,6 @@ impl EffectSchema {
                 self.id
             )));
         }
-        validate_property_schemas("effect", &self.id, &self.properties)?;
         if let Some(editor) = &self.editor {
             editor.validate("effect", &self.id, &self.properties)?;
         }

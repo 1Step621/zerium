@@ -1,4 +1,4 @@
-use super::surface::{BoundsOperation, SurfaceRect};
+use super::surface::SurfaceRect;
 use super::*;
 
 #[derive(Clone)]
@@ -342,25 +342,12 @@ impl FrameRenderer {
             RenderNodeCommandKind::Effect {
                 input,
                 capabilities,
-                bounds_operation,
+                input_space,
                 passes,
             } => {
                 let input_surface =
                     self.render_surface(encoder, context, rendered_shared_nodes, *input)?;
-                if let BoundsOperation::Translate(offset) = bounds_operation
-                    && node.bounds == context.nodes[*input].bounds.translate(*offset)
-                {
-                    return Ok(RenderedSurface {
-                        rect: input_surface.rect.translate(*offset),
-                        ..input_surface
-                    });
-                }
-                let transformed = matches!(
-                    bounds_operation,
-                    BoundsOperation::Rotate { .. }
-                        | BoundsOperation::Perspective { .. }
-                        | BoundsOperation::CenterRange { .. }
-                );
+                let transformed = *input_space == EffectInputSpace::Source;
                 let (resources, rect) = self.local_resources(
                     context,
                     node_id,

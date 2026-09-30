@@ -6,9 +6,14 @@
     {
       "id": "rectangle",
       "output_bounds": {
-        "type": "quad",
-        "position": "position",
-        "size": "size"
+        "min": [
+          "p::position::v0 - (math::abs(p::size::v0) * 1 / 2 + 0)",
+          "p::position::v1 - (math::abs(p::size::v1) * 1 / 2 + 0)"
+        ],
+        "max": [
+          "p::position::v0 + (math::abs(p::size::v0) * 1 / 2 + 0)",
+          "p::position::v1 + (math::abs(p::size::v1) * 1 / 2 + 0)"
+        ]
       },
       "label": "四角形",
       "category": "図形",
@@ -79,9 +84,14 @@
     {
       "id": "triangle",
       "output_bounds": {
-        "type": "quad",
-        "position": "position",
-        "size": "size"
+        "min": [
+          "p::position::v0 - (math::abs(p::size::v0) * 1 / 2 + 0)",
+          "p::position::v1 - (math::abs(p::size::v1) * 1 / 2 + 0)"
+        ],
+        "max": [
+          "p::position::v0 + (math::abs(p::size::v0) * 1 / 2 + 0)",
+          "p::position::v1 + (math::abs(p::size::v1) * 1 / 2 + 0)"
+        ]
       },
       "label": "三角形",
       "category": "図形",
@@ -152,9 +162,14 @@
     {
       "id": "ellipse",
       "output_bounds": {
-        "type": "quad",
-        "position": "position",
-        "size": "diameter"
+        "min": [
+          "p::position::v0 - (math::abs(p::diameter::v0) * 1 / 2 + 0)",
+          "p::position::v1 - (math::abs(p::diameter::v1) * 1 / 2 + 0)"
+        ],
+        "max": [
+          "p::position::v0 + (math::abs(p::diameter::v0) * 1 / 2 + 0)",
+          "p::position::v1 + (math::abs(p::diameter::v1) * 1 / 2 + 0)"
+        ]
       },
       "label": "楕円",
       "category": "図形",
@@ -212,11 +227,14 @@
     {
       "id": "spline_path",
       "output_bounds": {
-        "type": "quad",
-        "position": "position",
-        "size": "size",
-        "size_outset": 0.252,
-        "padding": "width"
+        "min": [
+          "p::position::v0 - (math::abs(p::size::v0) * 1.504 / 2 + math::abs(p::width))",
+          "p::position::v1 - (math::abs(p::size::v1) * 1.504 / 2 + math::abs(p::width))"
+        ],
+        "max": [
+          "p::position::v0 + (math::abs(p::size::v0) * 1.504 / 2 + math::abs(p::width))",
+          "p::position::v1 + (math::abs(p::size::v1) * 1.504 / 2 + math::abs(p::width))"
+        ]
       },
       "label": "スプラインパス",
       "category": "図形",
@@ -384,9 +402,14 @@
     {
       "id": "polygon",
       "output_bounds": {
-        "type": "quad",
-        "position": "position",
-        "size": "size"
+        "min": [
+          "p::position::v0 - (math::abs(p::size::v0) * 1 / 2 + 0)",
+          "p::position::v1 - (math::abs(p::size::v1) * 1 / 2 + 0)"
+        ],
+        "max": [
+          "p::position::v0 + (math::abs(p::size::v0) * 1 / 2 + 0)",
+          "p::position::v1 + (math::abs(p::size::v1) * 1 / 2 + 0)"
+        ]
       },
       "label": "多角形",
       "category": "図形",
@@ -478,10 +501,14 @@
     {
       "id": "line",
       "output_bounds": {
-        "type": "quad",
-        "position": "position",
-        "size": "size",
-        "rotation": "angle"
+        "min": [
+          "p::position::v0 - ((math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) * 1 / 2 + 0)",
+          "p::position::v1 - ((math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) * 1 / 2 + 0)"
+        ],
+        "max": [
+          "p::position::v0 + ((math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) * 1 / 2 + 0)",
+          "p::position::v1 + ((math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) * 1 / 2 + 0)"
+        ]
       },
       "label": "直線",
       "category": "図形",
@@ -559,9 +586,14 @@
     {
       "id": "star",
       "output_bounds": {
-        "type": "quad",
-        "position": "position",
-        "size": "size"
+        "min": [
+          "p::position::v0 - (math::abs(p::size::v0) * 1 / 2 + 0)",
+          "p::position::v1 - (math::abs(p::size::v1) * 1 / 2 + 0)"
+        ],
+        "max": [
+          "p::position::v0 + (math::abs(p::size::v0) * 1 / 2 + 0)",
+          "p::position::v1 + (math::abs(p::size::v1) * 1 / 2 + 0)"
+        ]
       },
       "label": "星",
       "category": "図形",
@@ -654,9 +686,14 @@
     {
       "id": "text",
       "output_bounds": {
-        "type": "quad",
-        "position": "position",
-        "size": "size"
+        "min": [
+          "p::position::v0 - (math::abs(p::size::v0) * 1 / 2 + 0)",
+          "p::position::v1 - (math::abs(p::size::v1) * 1 / 2 + 0)"
+        ],
+        "max": [
+          "p::position::v0 + (math::abs(p::size::v0) * 1 / 2 + 0)",
+          "p::position::v1 + (math::abs(p::size::v1) * 1 / 2 + 0)"
+        ]
       },
       "label": "テキスト",
       "category": "テキスト",
@@ -826,9 +863,14 @@
     {
       "id": "video",
       "output_bounds": {
-        "type": "quad",
-        "position": "position",
-        "size": "size"
+        "min": [
+          "p::position::v0 - (math::abs(p::size::v0) * 1 / 2 + 0)",
+          "p::position::v1 - (math::abs(p::size::v1) * 1 / 2 + 0)"
+        ],
+        "max": [
+          "p::position::v0 + (math::abs(p::size::v0) * 1 / 2 + 0)",
+          "p::position::v1 + (math::abs(p::size::v1) * 1 / 2 + 0)"
+        ]
       },
       "label": "動画",
       "category": "メディア",
@@ -907,9 +949,14 @@
     {
       "id": "image",
       "output_bounds": {
-        "type": "quad",
-        "position": "position",
-        "size": "size"
+        "min": [
+          "p::position::v0 - (math::abs(p::size::v0) * 1 / 2 + 0)",
+          "p::position::v1 - (math::abs(p::size::v1) * 1 / 2 + 0)"
+        ],
+        "max": [
+          "p::position::v0 + (math::abs(p::size::v0) * 1 / 2 + 0)",
+          "p::position::v1 + (math::abs(p::size::v1) * 1 / 2 + 0)"
+        ]
       },
       "label": "画像",
       "category": "メディア",
@@ -974,9 +1021,14 @@
     {
       "id": "svg",
       "output_bounds": {
-        "type": "quad",
-        "position": "position",
-        "size": "size"
+        "min": [
+          "p::position::v0 - (math::abs(p::size::v0) * 1 / 2 + 0)",
+          "p::position::v1 - (math::abs(p::size::v1) * 1 / 2 + 0)"
+        ],
+        "max": [
+          "p::position::v0 + (math::abs(p::size::v0) * 1 / 2 + 0)",
+          "p::position::v1 + (math::abs(p::size::v1) * 1 / 2 + 0)"
+        ]
       },
       "label": "SVG",
       "category": "メディア",
@@ -1040,6 +1092,10 @@
     },
     {
       "id": "audio",
+      "output_bounds": {
+        "min": ["viewport::min::x", "viewport::min::y"],
+        "max": ["viewport::max::x", "viewport::max::y"]
+      },
       "label": "音声",
       "category": "メディア",
       "tags": ["音楽", "サウンド", "music", "sound"],
@@ -1076,7 +1132,10 @@
     },
     {
       "id": "render_result",
-      "output_bounds": { "type": "viewport" },
+      "output_bounds": {
+        "min": ["viewport::min::x", "viewport::min::y"],
+        "max": ["viewport::max::x", "viewport::max::y"]
+      },
       "label": "レンダー結果",
       "category": "合成",
       "tags": ["レイヤー", "範囲", "render", "composite"],
@@ -1123,7 +1182,10 @@
   "effects": [
     {
       "id": "layer_mask",
-      "output_bounds": { "type": "viewport" },
+      "output_bounds": {
+        "min": ["viewport::min::x", "viewport::min::y"],
+        "max": ["viewport::max::x", "viewport::max::y"]
+      },
       "label": "レイヤーマスク",
       "category": "合成",
       "tags": ["切り抜き", "アルファ", "範囲", "mask", "layers"],
@@ -1174,12 +1236,16 @@
     },
     {
       "id": "follow_spline",
+      "input_space": "source",
       "output_bounds": {
-        "type": "center_range",
-        "position": "position",
-        "size": "size",
-        "size_outset": 0.252,
-        "padding": 4
+        "min": [
+          "p::position::v0 - (math::abs(p::size::v0) * 1.504 + input::size::x) / 2 + 4",
+          "p::position::v1 - (math::abs(p::size::v1) * 1.504 + input::size::y) / 2 + 4"
+        ],
+        "max": [
+          "p::position::v0 + (math::abs(p::size::v0) * 1.504 + input::size::x) / 2 + 4",
+          "p::position::v1 + (math::abs(p::size::v1) * 1.504 + input::size::y) / 2 + 4"
+        ]
       },
       "label": "スプライン追従",
       "category": "変形",
@@ -1297,7 +1363,17 @@
     },
     {
       "id": "translate",
-      "output_bounds": { "type": "translate", "offset": "offset" },
+      "input_space": "source",
+      "output_bounds": {
+        "min": [
+          "input::min::x + p::offset::v0",
+          "input::min::y + p::offset::v1"
+        ],
+        "max": [
+          "input::max::x + p::offset::v0",
+          "input::max::y + p::offset::v1"
+        ]
+      },
       "label": "移動",
       "category": "変形",
       "tags": ["位置", "ずらす", "position", "move"],
@@ -1324,11 +1400,55 @@
       ]
     },
     {
-      "id": "rotate_2d",
+      "id": "scale",
+      "input_space": "source",
       "output_bounds": {
-        "type": "rotate",
-        "angle": "angle",
-        "center": "center"
+        "min": [
+          "input::center::x + (input::min::x - input::center::x) * p::amount::v0 / 100",
+          "input::center::y + (input::min::y - input::center::y) * p::amount::v1 / 100"
+        ],
+        "max": [
+          "input::center::x + (input::max::x - input::center::x) * p::amount::v0 / 100",
+          "input::center::y + (input::max::y - input::center::y) * p::amount::v1 / 100"
+        ]
+      },
+      "label": "拡縮",
+      "category": "変形",
+      "tags": ["サイズ", "拡大", "縮小", "scale", "resize", "zoom"],
+      "passes": [{ "type": "render", "shader": { "module": "scale" } }],
+      "properties": [
+        {
+          "id": "amount",
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 100 }, { "f32": 100 }] },
+          "label": "拡縮率",
+          "configurations": [
+            {
+              "animatable": true,
+              "constraints": { "min": 0, "max": 1000 },
+              "ui": { "label": "X", "unit": "%", "step": 1 }
+            },
+            {
+              "animatable": true,
+              "constraints": { "min": 0, "max": 1000 },
+              "ui": { "label": "Y", "unit": "%", "step": 1 }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "rotate_2d",
+      "input_space": "source",
+      "output_bounds": {
+        "min": [
+          "p::center::v0 + (input::center::x - p::center::v0) * math::cos(p::angle * 3.141592653589793 / 180) - (input::center::y - p::center::v1) * math::sin(p::angle * 3.141592653589793 / 180) - (math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * input::size::x + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * input::size::y) / 2",
+          "p::center::v1 + (input::center::x - p::center::v0) * math::sin(p::angle * 3.141592653589793 / 180) + (input::center::y - p::center::v1) * math::cos(p::angle * 3.141592653589793 / 180) - (math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * input::size::x + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * input::size::y) / 2"
+        ],
+        "max": [
+          "p::center::v0 + (input::center::x - p::center::v0) * math::cos(p::angle * 3.141592653589793 / 180) - (input::center::y - p::center::v1) * math::sin(p::angle * 3.141592653589793 / 180) + (math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * input::size::x + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * input::size::y) / 2",
+          "p::center::v1 + (input::center::x - p::center::v0) * math::sin(p::angle * 3.141592653589793 / 180) + (input::center::y - p::center::v1) * math::cos(p::angle * 3.141592653589793 / 180) + (math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * input::size::x + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * input::size::y) / 2"
+        ]
       },
       "label": "回転",
       "category": "変形",
@@ -1370,11 +1490,16 @@
     },
     {
       "id": "rotate_3d",
+      "input_space": "source",
       "output_bounds": {
-        "type": "perspective",
-        "rotation": "rotation",
-        "center": "center",
-        "perspective": "perspective"
+        "min": [
+          "rx = p::rotation::v0 * 0.017453292519943295; ry = p::rotation::v1 * 0.017453292519943295; rz = p::rotation::v2 * 0.017453292519943295; sx = math::sin(rx); cx = math::cos(rx); sy = math::sin(ry); cy = math::cos(ry); sz = math::sin(rz); cz = math::cos(rz); ra = cz * cy; rb = cz * sy * sx - sz * cx; r20 = 0 - sy; r21 = cy * sx; fl = max((p::perspective, 1)); qx = p::center::v0; qy = p::center::v1; ax0 = input::min::x - qx; ax1 = input::max::x - qx; ay0 = input::min::y - qy; ay1 = input::max::y - qy; min((qx + fl * (ra * ax0 + rb * ay0) / (fl + r20 * ax0 + r21 * ay0), qx + fl * (ra * ax0 + rb * ay1) / (fl + r20 * ax0 + r21 * ay1), qx + fl * (ra * ax1 + rb * ay0) / (fl + r20 * ax1 + r21 * ay0), qx + fl * (ra * ax1 + rb * ay1) / (fl + r20 * ax1 + r21 * ay1)))",
+          "rx = p::rotation::v0 * 0.017453292519943295; ry = p::rotation::v1 * 0.017453292519943295; rz = p::rotation::v2 * 0.017453292519943295; sx = math::sin(rx); cx = math::cos(rx); sy = math::sin(ry); cy = math::cos(ry); sz = math::sin(rz); cz = math::cos(rz); ra = sz * cy; rb = sz * sy * sx + cz * cx; r20 = 0 - sy; r21 = cy * sx; fl = max((p::perspective, 1)); qx = p::center::v0; qy = p::center::v1; ax0 = input::min::x - qx; ax1 = input::max::x - qx; ay0 = input::min::y - qy; ay1 = input::max::y - qy; min((qy + fl * (ra * ax0 + rb * ay0) / (fl + r20 * ax0 + r21 * ay0), qy + fl * (ra * ax0 + rb * ay1) / (fl + r20 * ax0 + r21 * ay1), qy + fl * (ra * ax1 + rb * ay0) / (fl + r20 * ax1 + r21 * ay0), qy + fl * (ra * ax1 + rb * ay1) / (fl + r20 * ax1 + r21 * ay1)))"
+        ],
+        "max": [
+          "rx = p::rotation::v0 * 0.017453292519943295; ry = p::rotation::v1 * 0.017453292519943295; rz = p::rotation::v2 * 0.017453292519943295; sx = math::sin(rx); cx = math::cos(rx); sy = math::sin(ry); cy = math::cos(ry); sz = math::sin(rz); cz = math::cos(rz); ra = cz * cy; rb = cz * sy * sx - sz * cx; r20 = 0 - sy; r21 = cy * sx; fl = max((p::perspective, 1)); qx = p::center::v0; qy = p::center::v1; ax0 = input::min::x - qx; ax1 = input::max::x - qx; ay0 = input::min::y - qy; ay1 = input::max::y - qy; max((qx + fl * (ra * ax0 + rb * ay0) / (fl + r20 * ax0 + r21 * ay0), qx + fl * (ra * ax0 + rb * ay1) / (fl + r20 * ax0 + r21 * ay1), qx + fl * (ra * ax1 + rb * ay0) / (fl + r20 * ax1 + r21 * ay0), qx + fl * (ra * ax1 + rb * ay1) / (fl + r20 * ax1 + r21 * ay1)))",
+          "rx = p::rotation::v0 * 0.017453292519943295; ry = p::rotation::v1 * 0.017453292519943295; rz = p::rotation::v2 * 0.017453292519943295; sx = math::sin(rx); cx = math::cos(rx); sy = math::sin(ry); cy = math::cos(ry); sz = math::sin(rz); cz = math::cos(rz); ra = sz * cy; rb = sz * sy * sx + cz * cx; r20 = 0 - sy; r21 = cy * sx; fl = max((p::perspective, 1)); qx = p::center::v0; qy = p::center::v1; ax0 = input::min::x - qx; ax1 = input::max::x - qx; ay0 = input::min::y - qy; ay1 = input::max::y - qy; max((qy + fl * (ra * ax0 + rb * ay0) / (fl + r20 * ax0 + r21 * ay0), qy + fl * (ra * ax0 + rb * ay1) / (fl + r20 * ax0 + r21 * ay1), qy + fl * (ra * ax1 + rb * ay0) / (fl + r20 * ax1 + r21 * ay0), qy + fl * (ra * ax1 + rb * ay1) / (fl + r20 * ax1 + r21 * ay1)))"
+        ]
       },
       "label": "3D回転",
       "category": "変形",
@@ -1439,6 +1564,10 @@
     },
     {
       "id": "color_adjustment",
+      "output_bounds": {
+        "min": ["input::min::x", "input::min::y"],
+        "max": ["input::max::x", "input::max::y"]
+      },
       "label": "色調補正",
       "category": "カラー調整",
       "tags": ["明るさ", "コントラスト", "彩度", "color correction", "grading"],
@@ -1528,6 +1657,10 @@
     },
     {
       "id": "opacity",
+      "output_bounds": {
+        "min": ["input::min::x", "input::min::y"],
+        "max": ["input::max::x", "input::max::y"]
+      },
       "label": "不透明度",
       "category": "カラー調整",
       "tags": ["透明", "透過", "alpha", "transparency"],
@@ -1550,6 +1683,10 @@
     },
     {
       "id": "linear_gradient",
+      "output_bounds": {
+        "min": ["input::min::x", "input::min::y"],
+        "max": ["input::max::x", "input::max::y"]
+      },
       "label": "線形グラデーション",
       "category": "塗り",
       "tags": ["グラデ", "gradient", "fill"],
@@ -1588,7 +1725,16 @@
     },
     {
       "id": "glow",
-      "output_bounds": { "type": "outset", "radius": "width", "multiplier": 4 },
+      "output_bounds": {
+        "min": [
+          "input::min::x - math::abs(p::width) * 4",
+          "input::min::y - math::abs(p::width) * 4"
+        ],
+        "max": [
+          "input::max::x + math::abs(p::width) * 4",
+          "input::max::y + math::abs(p::width) * 4"
+        ]
+      },
       "label": "光彩",
       "category": "スタイル",
       "tags": ["発光", "ネオン", "bloom", "neon"],
@@ -1683,7 +1829,16 @@
     },
     {
       "id": "outline",
-      "output_bounds": { "type": "outset", "radius": "width", "multiplier": 1 },
+      "output_bounds": {
+        "min": [
+          "input::min::x - math::abs(p::width) * 1",
+          "input::min::y - math::abs(p::width) * 1"
+        ],
+        "max": [
+          "input::max::x + math::abs(p::width) * 1",
+          "input::max::y + math::abs(p::width) * 1"
+        ]
+      },
       "label": "枠線",
       "category": "スタイル",
       "tags": ["縁取り", "ストローク", "border", "stroke"],
@@ -1744,6 +1899,10 @@
     },
     {
       "id": "vignette",
+      "output_bounds": {
+        "min": ["input::min::x", "input::min::y"],
+        "max": ["input::max::x", "input::max::y"]
+      },
       "label": "ビネット",
       "category": "スタイル",
       "tags": ["周辺減光", "vignette"],
@@ -1792,6 +1951,10 @@
     },
     {
       "id": "pixelate",
+      "output_bounds": {
+        "min": ["input::min::x", "input::min::y"],
+        "max": ["input::max::x", "input::max::y"]
+      },
       "label": "ピクセル化",
       "category": "フィルター",
       "tags": ["モザイク", "ドット", "mosaic", "pixel"],
@@ -1815,9 +1978,14 @@
     {
       "id": "chromatic_aberration",
       "output_bounds": {
-        "type": "outset",
-        "radius": "amount",
-        "multiplier": 1
+        "min": [
+          "input::min::x - math::abs(p::amount) * 1",
+          "input::min::y - math::abs(p::amount) * 1"
+        ],
+        "max": [
+          "input::max::x + math::abs(p::amount) * 1",
+          "input::max::y + math::abs(p::amount) * 1"
+        ]
       },
       "label": "色収差",
       "category": "フィルター",
@@ -1857,9 +2025,14 @@
     {
       "id": "gaussian_blur",
       "output_bounds": {
-        "type": "outset",
-        "radius": "radius",
-        "multiplier": 4
+        "min": [
+          "input::min::x - math::abs(p::radius) * 4",
+          "input::min::y - math::abs(p::radius) * 4"
+        ],
+        "max": [
+          "input::max::x + math::abs(p::radius) * 4",
+          "input::max::y + math::abs(p::radius) * 4"
+        ]
       },
       "label": "ガウスぼかし",
       "category": "フィルター",
@@ -1920,6 +2093,10 @@
     },
     {
       "id": "motion_blur",
+      "output_bounds": {
+        "min": ["input::min::x", "input::min::y"],
+        "max": ["input::max::x", "input::max::y"]
+      },
       "label": "モーションブラー",
       "category": "フィルター",
       "tags": ["残像", "動き", "速度", "motion blur", "temporal"],
@@ -1975,6 +2152,10 @@
     },
     {
       "id": "pixel_sort",
+      "output_bounds": {
+        "min": ["input::min::x", "input::min::y"],
+        "max": ["input::max::x", "input::max::y"]
+      },
       "label": "ピクセルソート",
       "category": "フィルター",
       "tags": ["グリッチ", "並べ替え", "glitch", "sort"],

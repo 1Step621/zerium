@@ -454,55 +454,59 @@ its children into the viewport, then runs scene effects on that viewport-sized
 image. The scene boundary is therefore the point where offscreen content is
 clipped.
 
-Visual items should declare their source area independently of `editor` and
-media `placement`:
+Every item and effect declares `output_bounds` with four
+expressions. `min` and `max` contain X and Y edges in composition pixels.
+Expressions run on the CPU for each evaluated frame, before the output texture
+is allocated. An item starts with the viewport as its `input` rectangle; an
+effect starts with its incoming image rectangle. Scene effects always render
+inside the viewport, regardless of their declared output rectangle.
+
+Expressions can use arithmetic, parentheses, and functions such as `min`,
+`max`, `math::abs`, `math::sin`, and `math::cos`. For each `input` and `viewport`
+rectangle, `{prefix}::{min,max,center,size}::{x,y}` variables are available
+(e.g. `input::min::x`). An `f32` property `radius` is `p::radius`;
+an `f32` pair `position` exposes `p::position::v0` and `p::position::v1`.
+Three- and four-component `f32` tuples also expose `::v2` and `::v3`.
+The declaration must include all four edges:
 
 ```json
-"output_bounds": { "type": "quad", "position": "position", "size": "size" }
+"output_bounds": {
+  "min": ["input::min::x - p::radius", "input::min::y - p::radius"],
+  "max": ["input::max::x + p::radius", "input::max::y + p::radius"]
+}
 ```
 
-The two named properties must be `f32` pairs. A rotated quad can also declare
-an `f32` `rotation` property in degrees. A stroke can reference an `f32`
-`padding` property to expand the source rectangle beyond the quad. An optional
-nonnegative `size_outset` expands each side by that fraction of its size
-component, including before rotation. Full-frame items can declare
-`{"type":"viewport"}`. An item without `output_bounds` uses
-the viewport for compatibility; it cannot promise to preserve pixels outside
-the viewport before effects. Media `placement` continues to control the
-reader's requested raster resolution, independent of output bounds.
+For a full-frame item, set the edges to `viewport::min::x`,
+`viewport::min::y`, `viewport::max::x`, and `viewport::max::y`.
+For an effect that preserves its input rectangle, use the corresponding
+`input::*` variables. Items can compute a
+rotated quad from their position, size, and angle properties; effects can
+compute transformed rectangles from the input edges. Edges may chain
+`;`-separated assignments to share locals (e.g.
+`rx = p::rotation::v0 * 0.017453292519943295; sx = math::sin(rx); ...`);
+the built-in `rotate_3d` effect projects its input rectangle through a 3D
+rotation this way, using `min((...))` / `max((...))` over the four projected
+corners. There are no other built-in bounds functions: everything else is
+plain arithmetic over the variables above plus `min`, `max`, and `math::*`.
 
-Effects declare how their output bounds relate to their input. Omitted
-`output_bounds` means `{"type":"same"}`. Use `{"type":"viewport"}` for
-effects that can produce pixels anywhere on screen, such as an inverted layer
-mask. The other supported operations are `translate` with an `f32` pair,
-`outset` with an `f32` radius and nonnegative
-multiplier, `rotate` with an `f32` angle and `f32` pair center, and
-`perspective` with a three-`f32` rotation, `f32` pair center, and `f32`
-perspective distance. `center_range` references a position and size and
-reserves enough space to place the input center anywhere in that rectangle.
-It also accepts `size_outset` to enlarge the center range by a fraction of
-each size component on every side.
-An optional nonnegative numeric `padding` adds a fixed margin after reserving
-the input's half-size.
-This is a conservative bound for motion effects, independent of how a shader
-chooses the center at a particular time. The intermediate surface covers the
-declared range plus the input's half-width and half-height, so the range should
-be kept tight. For example, a blur with finite reach can declare:
+Invalid, reversed, or non-finite results fail the render rather than producing
+an unbounded texture allocation. Media `placement` independently controls the
+reader's requested raster resolution. The visual shader remains responsible
+for drawing pixels inside the declared rectangle.
 
-```json
-"output_bounds": { "type": "outset", "radius": "radius", "multiplier": 4.0 }
-```
+`input_space` separately controls which rectangle an effect shader receives in
+`effect_input`. With `"output"`, the renderer first composites the input into
+the output rectangle, so the shader can sample it with output UVs. With
+`"source"`, the input keeps its own rectangle; shaders can use
+`uv_to_position` and `position_to_uv` to map between them. The default is
+`"output"`; source-space effects must have exactly one render pass.
 
-For scene effects, the output rectangle is always the viewport, regardless of
-the declared operation. Item effects use the declared operation to update
-their own output rectangle.
-
-`translate` moves item surface metadata without resampling its pixels. On a
-scene, its render pass still runs within the fixed viewport. `rotate` and
-`perspective` and `center_range` read their input texture in its own rectangle
-and write into the output rectangle; they require one render pass. Perspective projections
-that cross the camera plane or exceed the GPU texture limit report a render
-resource error.
+The built-in `translate` effect moves item surface metadata without resampling
+its pixels when it has no capability inputs. On a scene, its render pass still
+runs within the fixed viewport. The built-in scale, rotation, perspective, and
+spline-follow effects use `"source"` input space and render into the rectangle
+declared by `output_bounds`. Perspective projections that cross the camera
+plane or exceed the GPU texture limit report a render resource error.
 
 The built-in `spline_path` item and `follow_spline` effect use the same point
 convention as `polygon`: each point is a percentage of the path's `size`,
@@ -519,7 +523,7 @@ The path item can fill a closed curve with `fill_enabled` and `fill_color`.
 curve length, with 0–100% covering the complete path. An equal or reversed
 range draws no stroke; fill remains independent. Setting `width` to zero
 produces a fill-only path.
-The follow effect uses `center_range` with `padding` for its output bounds;
+The follow effect reserves a center range and padding in its bounds program;
 scene effects remain viewport-sized. Curve subdivision
 adapts to the path's size and bend (8–256 pieces per span, targeting 0.125
 composition pixel chord error), with the same sampling used for drawing and
@@ -529,7 +533,8 @@ extend outside the point quad by up to a quarter of its size per axis at
 
 For spatial effects, `uv_to_position` converts an output UV to a composition
 position, while `position_to_uv` converts a composition position to the input
-texture's UV. A `render_result` capability is scene-sized; use `viewport_uv`
+texture's UV. `input_uv_to_position` converts an input UV to a composition
+position. A `render_result` capability is scene-sized; use `viewport_uv`
 to sample it from an item-local effect pass.
 
 ## Effects and passes
@@ -542,7 +547,10 @@ top-level shader and no implicit render pass.
   "id": "blur",
   "label": "Blur",
   "category": "Blur",
-  "output_bounds": { "type": "outset", "radius": "radius", "multiplier": 4.0 },
+  "output_bounds": {
+    "min": ["input::min::x - p::radius * 4", "input::min::y - p::radius * 4"],
+    "max": ["input::max::x + p::radius * 4", "input::max::y + p::radius * 4"]
+  },
   "properties": [{
     "id": "radius",
     "label": "Radius",

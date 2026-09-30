@@ -69,6 +69,10 @@ fn position_to_uv(position: vec2<f32>) -> vec2<f32> {
     return (position - effect_instance.input_min) / effect_instance.input_size;
 }
 
+fn input_uv_to_position(uv: vec2<f32>) -> vec2<f32> {
+    return effect_instance.input_min + uv * effect_instance.input_size;
+}
+
 fn viewport_uv(uv: vec2<f32>) -> vec2<f32> {
     return uv_to_position(uv) / effect_instance.composition_size + vec2(0.5);
 }
