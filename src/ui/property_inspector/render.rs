@@ -423,9 +423,9 @@ impl PropertyInspector {
                 ..
             } => match kind {
                 GroupKind::Plain => Some(Self::group_box(label, &children, None, aspect, render)),
-                GroupKind::Tuple { size_key } => {
-                    Some(Self::group_box(label, &children, size_key, aspect, render))
-                }
+                GroupKind::Tuple { aspect_key } => Some(Self::group_box(
+                    label, &children, aspect_key, aspect, render,
+                )),
                 GroupKind::Elements(group) => Some(Self::elements_section(
                     &group,
                     &children,

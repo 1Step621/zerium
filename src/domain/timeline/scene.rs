@@ -427,7 +427,7 @@ impl SceneDefinition {
             assets: HashMap::new(),
             properties,
             animations: ScalarAnimations::default(),
-            aspect_ratio_locked: false,
+            aspect_ratio: None,
             effects: Vec::new(),
         })
     }

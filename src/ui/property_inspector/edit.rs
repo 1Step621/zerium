@@ -36,11 +36,9 @@ impl PropertyInspector {
         cx: &mut Context<Self>,
     ) -> bool {
         self.editor.update_if_changed(cx, |editor| {
-            editor.update_selected_scalar(
+            editor.update_selected_property(
                 target.effect_id,
-                &target.property_id,
-                target.element_id,
-                target.scalar_index,
+                PropertyPath::new(&target.property_id, target.element_id, target.scalar_index),
                 value,
             )
         })
@@ -523,12 +521,11 @@ impl PropertyInspector {
         property_id: &str,
         value: PropertyValue,
     ) -> bool {
-        match effect_id {
-            Some(effect_id) => {
-                editor.update_selected_effect_property(effect_id, property_id, value)
-            }
-            None => editor.update_selected_property(property_id, value),
-        }
+        editor.update_selected_property(
+            effect_id,
+            PropertyPath::new(property_id, None, None),
+            value,
+        )
     }
 
     pub(super) fn edit_selected_array(

@@ -50,10 +50,8 @@ fn new_project_id() -> ProjectId {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) enum HistoryKey {
     ItemCreation(ItemId),
-    ItemProperty(ItemId, String),
-    ItemsProperty(Vec<ItemId>, String),
-    EffectProperty(ItemId, EffectInstanceId, String),
-    EffectsProperty(Vec<(ItemId, EffectInstanceId)>, String),
+    Property(Vec<(ItemId, Option<EffectInstanceId>)>, String),
+    AspectRatioLock(Vec<(ItemId, Option<EffectInstanceId>)>),
     AnimationStopValue(
         ItemId,
         Option<EffectInstanceId>,

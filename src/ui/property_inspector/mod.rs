@@ -29,7 +29,7 @@ use gpui::{
 use crate::domain::media::{MediaAsset, MediaKind};
 use crate::domain::plugin::{FileCapability, ItemSchema};
 use crate::domain::property::{
-    PropertyElement, PropertyElementId, PropertySchema, PropertyType, PropertyValue,
+    PropertyElement, PropertyElementId, PropertyPath, PropertySchema, PropertyType, PropertyValue,
     PropertyValueType, ScalarPropertyType,
 };
 use crate::domain::timeline::{

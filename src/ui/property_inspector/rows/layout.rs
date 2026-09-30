@@ -77,7 +77,6 @@ impl PropertyInspector {
         common: &LeafControl,
         spec: &NumericInputSpec,
         input: &Entity<InputState>,
-        size_locked: bool,
         ctx: &RenderCtx,
     ) -> (gpui::AnyElement, bool) {
         let coordinate_animation_enabled = common.animation_enabled;
@@ -92,10 +91,7 @@ impl PropertyInspector {
                 SharedString::from(format!("bind-scene-argument-{}", common.target.key)),
             )
         });
-        let disabled = common.read_only
-            || size_locked
-                && common.target.scalar_index == Some(1)
-                && !coordinate_animation_enabled;
+        let disabled = common.read_only;
         let animation_visible = coordinate_animation_enabled;
         let animation_button = (common.animatable && !is_bound).then(|| {
             Self::coordinate_animation_toggle(
@@ -586,19 +582,12 @@ impl PropertyInspector {
     pub(super) fn scalar_compact_row(
         control: &Control,
         ctx: &RenderCtx,
-        size_locked: bool,
     ) -> Option<(gpui::AnyElement, bool)> {
         match control {
             Control::Number(number) => {
                 let common = &number.common;
                 let input = ctx.store.text(&common.id)?;
-                Some(Self::number_compact_row(
-                    common,
-                    &number.spec,
-                    &input,
-                    size_locked,
-                    ctx,
-                ))
+                Some(Self::number_compact_row(common, &number.spec, &input, ctx))
             }
             Control::Text(text) => {
                 let common = &text.common;
@@ -654,12 +643,12 @@ impl PropertyInspector {
 
     /// Grouped tuple rendering: one property label with per-scalar rows.
     /// A lone child renders as a plain full row, matching single scalars.
-    /// The resolver marks the item-level size tuple with `size_key`; other
-    /// groups cannot accidentally inherit the aspect-ratio constraint.
+    /// The resolver marks the ratio-lock tuple with `aspect_key`; other
+    /// groups do not show a ratio-lock control.
     pub(in crate::ui::property_inspector) fn group_box(
         label: String,
         children: &[Control],
-        size_key: Option<InspectorPath>,
+        aspect_key: Option<InspectorPath>,
         aspect: Option<AspectRatioLockState>,
         ctx: &RenderCtx,
     ) -> gpui::AnyElement {
@@ -668,8 +657,7 @@ impl PropertyInspector {
         {
             return row;
         }
-        let is_size_group = size_key.is_some();
-        let aspect_row = aspect.zip(size_key).map(|(state, key)| {
+        let aspect_row = aspect.zip(aspect_key).map(|(state, key)| {
             div()
                 .w_full()
                 .flex()
@@ -683,12 +671,9 @@ impl PropertyInspector {
                     ctx.editor,
                 ))
         });
-        let size_locked = is_size_group && aspect.is_some_and(|state| state.checked());
         let rows = children
             .iter()
-            .filter_map(|child| {
-                Self::scalar_compact_row(child, ctx, size_locked).map(|(row, _)| row)
-            })
+            .filter_map(|child| Self::scalar_compact_row(child, ctx).map(|(row, _)| row))
             .collect::<Vec<_>>();
         div()
             .w_full()

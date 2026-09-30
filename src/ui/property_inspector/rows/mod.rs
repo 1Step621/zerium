@@ -410,7 +410,7 @@ impl PropertyInspector {
             if group.element_kind != ElementKind::FontFamily {
                 for control in row_controls {
                     let row = if rows_are_tuples {
-                        Self::scalar_compact_row(control, ctx, false)
+                        Self::scalar_compact_row(control, ctx)
                     } else {
                         Self::element_scalar(control, group, element_index, ctx)
                     };
@@ -654,7 +654,6 @@ impl PropertyInspector {
                     &number.common,
                     &number.spec,
                     &input,
-                    false,
                     ctx,
                 ))
             }

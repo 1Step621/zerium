@@ -72,7 +72,7 @@ pub(super) struct EffectGroup {
 #[derive(Clone)]
 pub(super) enum GroupKind {
     Plain,
-    Tuple { size_key: Option<InspectorPath> },
+    Tuple { aspect_key: Option<InspectorPath> },
     Elements(Box<ElementGroup>),
     Effect(EffectGroup),
 }
@@ -201,12 +201,14 @@ impl PropertyOwner<'_> {
         }
     }
 
-    fn is_size(&self, property_id: &str) -> bool {
+    fn has_aspect_lock(&self, property_id: &str) -> bool {
         match self {
-            Self::Item { schema, .. } => schema.is_size_property(property_id),
+            Self::Item { schema, .. } => schema
+                .aspect_lock_property()
+                .is_some_and(|property| property.id() == property_id),
             Self::Effect(effect) => effect
                 .schema()
-                .size_property()
+                .aspect_lock_property()
                 .is_some_and(|property| property.id() == property_id),
         }
     }
@@ -425,7 +427,7 @@ impl PropertyInspector {
         id: ControlId,
         label: String,
         children: Vec<Control>,
-        size_key: Option<InspectorPath>,
+        aspect_key: Option<InspectorPath>,
     ) -> Vec<Control> {
         if children.is_empty() {
             return children;
@@ -434,7 +436,7 @@ impl PropertyInspector {
             id,
             label,
             children,
-            kind: GroupKind::Tuple { size_key },
+            kind: GroupKind::Tuple { aspect_key },
         }]
     }
 
@@ -470,7 +472,7 @@ impl PropertyInspector {
                 ControlId::group(&key),
                 property.label().to_owned(),
                 controls,
-                owner.is_size(property.id()).then(|| key.clone()),
+                owner.has_aspect_lock(property.id()).then(|| key.clone()),
             )
         } else {
             controls
@@ -800,9 +802,9 @@ impl PropertyInspector {
             .iter()
             .map(|(id, effect)| {
                 let item = editor.item(*id)?;
-                let size = item.size_property(*effect)?;
+                let size = item.aspect_lock_property(*effect)?;
                 (size.is_editable(None) && size.is_visible())
-                    .then_some(item.is_aspect_ratio_locked(*effect))
+                    .then_some(item.aspect_ratio(*effect).is_some())
             })
             .collect::<Option<Vec<_>>>()?;
         let value = values[0];

@@ -1,3 +1,4 @@
+mod aspect_ratio;
 mod commands;
 mod document;
 mod editor;
@@ -14,6 +15,7 @@ mod time;
 mod view;
 mod visibility;
 
+pub(crate) use aspect_ratio::AspectRatio;
 pub(crate) use commands::TimelineEditError;
 pub(crate) use document::ResizeEdge;
 pub(crate) use document::TimelineDocument;

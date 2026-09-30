@@ -40,22 +40,6 @@ impl TimelineEditor {
         })
     }
 
-    pub(super) fn scene_instance_property_schema(
-        &self,
-        item_id: ItemId,
-        property_id: &str,
-    ) -> Option<PropertySchema> {
-        let item = self.active_document().item(item_id)?;
-        item.scene_id()?;
-        resolve_property_schema(
-            &self.project().scenes,
-            item,
-            SceneBindingOwner::Item,
-            property_id,
-        )
-        .cloned()
-    }
-
     pub(super) fn animation_schema(
         &self,
         item_id: ItemId,

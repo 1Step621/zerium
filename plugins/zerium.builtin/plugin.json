@@ -21,7 +21,7 @@
       "symbol": "■",
       "shader": { "module": "rectangle" },
       "capabilities": [],
-      "editor": { "position": "position", "size": "size" },
+      "editor": { "position": "position", "size": "size", "aspect_lock": "size" },
       "properties": [
         {
           "id": "position",
@@ -99,7 +99,7 @@
       "symbol": "▲",
       "shader": { "module": "triangle" },
       "capabilities": [],
-      "editor": { "position": "position", "size": "size" },
+      "editor": { "position": "position", "size": "size", "aspect_lock": "size" },
       "properties": [
         {
           "id": "position",
@@ -177,7 +177,7 @@
       "symbol": "●",
       "shader": { "module": "ellipse" },
       "capabilities": [],
-      "editor": { "size": "diameter", "position": "position" },
+      "editor": { "size": "diameter", "aspect_lock": "diameter", "position": "position" },
       "properties": [
         {
           "id": "position",
@@ -245,6 +245,7 @@
       "editor": {
         "position": "position",
         "size": "size",
+        "aspect_lock": "size",
         "points": "points",
         "spline": { "tension": "tension", "closed": "closed" }
       },
@@ -417,7 +418,7 @@
       "symbol": "⬟",
       "shader": { "module": "polygon" },
       "capabilities": [],
-      "editor": { "position": "position", "size": "size", "points": "points" },
+      "editor": { "position": "position", "size": "size", "aspect_lock": "size", "points": "points" },
       "properties": [
         {
           "id": "position",
@@ -516,7 +517,7 @@
       "symbol": "╱",
       "shader": { "module": "line" },
       "capabilities": [],
-      "editor": { "position": "position", "size": "size" },
+      "editor": { "position": "position", "size": "size", "aspect_lock": "size" },
       "properties": [
         {
           "id": "position",
@@ -601,7 +602,7 @@
       "symbol": "★",
       "shader": { "module": "star" },
       "capabilities": [],
-      "editor": { "position": "position", "size": "size" },
+      "editor": { "position": "position", "size": "size", "aspect_lock": "size" },
       "properties": [
         {
           "id": "position",
@@ -717,7 +718,7 @@
           "vertical_alignment": "vertical_alignment"
         }
       ],
-      "editor": { "position": "position", "size": "size", "label": "text" },
+      "editor": { "position": "position", "size": "size", "aspect_lock": "size", "label": "text" },
       "properties": [
         {
           "id": "position",
@@ -892,7 +893,7 @@
         }
       ],
       "audio": { "inputs": ["source"], "volume": "volume" },
-      "editor": { "position": "position", "size": "size" },
+      "editor": { "position": "position", "size": "size", "aspect_lock": "size" },
       "properties": [
         {
           "id": "position",
@@ -976,7 +977,7 @@
           "extensions": ["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"]
         }
       ],
-      "editor": { "position": "position", "size": "size" },
+      "editor": { "position": "position", "size": "size", "aspect_lock": "size" },
       "properties": [
         {
           "id": "position",
@@ -1047,7 +1048,7 @@
           "extensions": ["svg"]
         }
       ],
-      "editor": { "position": "position", "size": "size" },
+      "editor": { "position": "position", "size": "size", "aspect_lock": "size" },
       "properties": [
         {
           "id": "position",
@@ -1250,6 +1251,7 @@
       "editor": {
         "position": "position",
         "size": "size",
+        "aspect_lock": "size",
         "points": "points",
         "spline": { "tension": "tension", "closed": "closed" }
       },
@@ -1412,6 +1414,7 @@
       "label": "拡縮",
       "category": "変形",
       "tags": ["サイズ", "拡大", "縮小", "scale", "resize", "zoom"],
+      "editor": { "aspect_lock": "amount", "aspect_lock_default": true },
       "passes": [{ "type": "render", "shader": { "module": "scale" } }],
       "properties": [
         {

@@ -1,7 +1,7 @@
 use gpui::{CursorStyle, Empty, EntityId};
 
 use crate::domain::{
-    property::{PropertyElementId, PropertyValue, PropertyValues},
+    property::{PropertyElementId, PropertyPath, PropertyValue, PropertyValues},
     timeline::{EffectInstanceId, PropertyAddress, TimelineItem, TimelineTime},
 };
 
@@ -92,7 +92,6 @@ pub(super) struct PreviewResizeOrigin {
     handle: PreviewResizeHandle,
     pointer: [f32; 2],
     size: [f32; 2],
-    aspect_ratio: Option<f32>,
     target: PreviewEditTarget,
     composition_units_per_pixel: f32,
 }
@@ -123,7 +122,6 @@ struct PreviewSizeOverlay {
     property_id: String,
     center: [f32; 2],
     size: [f32; 2],
-    aspect_ratio: Option<f32>,
     target: PreviewEditTarget,
 }
 

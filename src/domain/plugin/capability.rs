@@ -353,6 +353,9 @@ impl AudioCapability {
 pub(super) struct EditorCapability {
     pub(super) position: Option<String>,
     pub(super) size: Option<String>,
+    pub(super) aspect_lock: Option<String>,
+    #[serde(default)]
+    pub(super) aspect_lock_default: bool,
     pub(super) points: Option<String>,
     pub(super) spline: Option<SplineEditorCapability>,
     pub(super) label: Option<String>,
@@ -387,6 +390,7 @@ impl EditorCapability {
         };
         if self.position.is_none()
             && self.size.is_none()
+            && self.aspect_lock.is_none()
             && self.points.is_none()
             && self.label.is_none()
         {
@@ -397,6 +401,7 @@ impl EditorCapability {
         for (kind, property_id) in [
             ("position", self.position.as_deref()),
             ("size", self.size.as_deref()),
+            ("aspect_lock", self.aspect_lock.as_deref()),
         ] {
             let Some(property_id) = property_id else {
                 continue;
@@ -408,6 +413,11 @@ impl EditorCapability {
                     "{owner} '{id}' editor {kind} property '{property_id}' must be a tuple of two f32 values"
                 )));
             }
+        }
+        if self.aspect_lock_default && self.aspect_lock.is_none() {
+            return Err(PluginError::invalid_definition(format!(
+                "{owner} '{id}' aspect_lock_default requires aspect_lock"
+            )));
         }
         if let Some(property_id) = self.points.as_deref() {
             let valid = property(property_id).is_some_and(|property| {

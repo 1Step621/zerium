@@ -72,6 +72,14 @@ and schema resolution validate the scalar and preserve neighboring values when
 editing it. Inspector lookups, animation evaluation, binding projection, and
 persistence validation use these common operations.
 
+Direct property edits use one command for items, effects, and scene instances,
+with `PropertyPath` identifying a whole value or a component. The command
+checks edit permissions, applies any retained aspect ratio, and validates the
+final values and active bindings for every selected owner before writing any
+of them. The document commits those prepared values and removes invalid
+animation paths. An unlinked component edit only requires that component to be
+editable; linked pair edits require both components to be editable.
+
 `domain::animation` owns scalar tracks, ordered value stops, interpolation,
 and animation evaluation. A track contains one interpolation per adjacent stop
 pair. Custom handles belong to `CubicBezier`, rather than optional operations
@@ -85,9 +93,11 @@ coordinates separately. `ui::numeric_property` resolves numeric display
 rules, while `ui::animation_curve::presentation` resolves animation labels from
 a `PropertyAddress`. Both use the same numeric presentation metadata. Inspector
 text inputs and color pickers are stored by their concrete widget types.
-Items and individual effect instances own separate aspect-ratio locks. Locking
-constrains direct size edits only; animation tracks and scene
-arguments keep their own values.
+Items and individual effect instances each retain an optional `AspectRatio`.
+`editor.aspect_lock` identifies the pair to constrain, independently of preview
+`editor.size` handles. Direct edits to either axis preserve the retained ratio
+and jointly respect both constraints, including after a collapse to zero.
+Animation tracks and scene arguments keep their own values.
 
 ## Plugins and persistence
 

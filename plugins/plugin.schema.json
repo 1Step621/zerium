@@ -90,9 +90,12 @@
       "type": "object",
       "additionalProperties": false,
       "minProperties": 1,
+      "dependentRequired": { "aspect_lock_default": ["aspect_lock"] },
       "properties": {
         "position": { "$ref": "#/$defs/wgslId" },
         "size": { "$ref": "#/$defs/wgslId" },
+        "aspect_lock": { "$ref": "#/$defs/wgslId" },
+        "aspect_lock_default": { "type": "boolean", "default": false },
         "points": { "$ref": "#/$defs/wgslId" },
         "spline": {
           "type": "object",

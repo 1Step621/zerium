@@ -52,47 +52,6 @@ impl TimelineEditor {
         Ok(instance_id)
     }
 
-    pub(crate) fn update_selected_effect_property(
-        &mut self,
-        effect_id: EffectInstanceId,
-        property_id: &str,
-        value: PropertyValue,
-    ) -> bool {
-        let Some(effects) = self.selected_effect_instances(effect_id) else {
-            return false;
-        };
-        if effects.iter().any(|(item_id, effect_id)| {
-            !self.value_preserves_active_bindings(*item_id, Some(*effect_id), property_id, &value)
-        }) {
-            return false;
-        }
-        if effects.iter().any(|(item_id, effect_id)| {
-            self.active_document()
-                .item(*item_id)
-                .and_then(|item| item.effects.iter().find(|effect| effect.id == *effect_id))
-                .and_then(|effect| effect.schema().property(property_id))
-                .is_none_or(|property| !property.is_editable(None) || !property.ty.allows(&value))
-        }) {
-            return false;
-        }
-        let key = if effects.len() == 1 {
-            HistoryKey::EffectProperty(effects[0].0, effects[0].1, property_id.to_owned())
-        } else {
-            HistoryKey::EffectsProperty(effects.clone(), property_id.to_owned())
-        };
-        let before = self.history_snapshot_for_edit(Some(&key));
-        let mut changed = false;
-        for (item_id, effect_id) in effects {
-            changed |= self.active_document_mut().update_item_effect_property(
-                item_id,
-                effect_id,
-                property_id,
-                value.clone(),
-            );
-        }
-        self.finish_project_edit_if_changed(changed, before, Some(key))
-    }
-
     pub(in crate::domain::timeline) fn selected_effect_instances(
         &self,
         primary_effect_id: EffectInstanceId,

@@ -245,6 +245,20 @@ impl EffectSchema {
         self.input_space
     }
 
+    pub(crate) fn aspect_lock_property(&self) -> Option<&PropertySchema> {
+        self.editor
+            .as_ref()?
+            .aspect_lock
+            .as_deref()
+            .and_then(|id| self.property(id))
+    }
+
+    pub(crate) fn aspect_lock_default(&self) -> bool {
+        self.editor
+            .as_ref()
+            .is_some_and(|editor| editor.aspect_lock_default)
+    }
+
     pub(crate) fn position_property(&self) -> Option<&PropertySchema> {
         self.editor
             .as_ref()?

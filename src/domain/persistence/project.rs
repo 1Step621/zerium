@@ -338,7 +338,7 @@ pub(super) struct ProjectItem {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     properties: BTreeMap<String, PropertyValue>,
     animations: Vec<ProjectScalarAnimation>,
-    aspect_ratio_locked: bool,
+    aspect_ratio: Option<crate::domain::timeline::AspectRatio>,
     effects: Vec<ProjectEffect>,
 }
 
@@ -384,7 +384,7 @@ impl ProjectItem {
                 item.schema().map(|schema| schema.properties()),
             ),
             animations: capture_animations(&item.animations),
-            aspect_ratio_locked: item.aspect_ratio_locked,
+            aspect_ratio: item.aspect_ratio,
             effects: item
                 .effects
                 .iter()
@@ -473,6 +473,17 @@ impl ProjectItem {
             assets.insert(input_id, asset);
         }
 
+        if self.aspect_ratio.is_some()
+            && plugin_schema
+                .as_ref()
+                .and_then(|schema| schema.aspect_lock_property())
+                .is_none()
+        {
+            return Err(ProjectError::invalid_data(
+                "比率固定の対象がないアイテムに比率が保存されています",
+            ));
+        }
+
         let mut effects = Vec::with_capacity(self.effects.len());
         for effect in self.effects {
             if effect.id == 0 || effect.id == u64::MAX || !effect_ids.insert(effect.id) {
@@ -520,7 +531,7 @@ impl ProjectItem {
                 assets,
                 properties,
                 animations,
-                aspect_ratio_locked: self.aspect_ratio_locked,
+                aspect_ratio: self.aspect_ratio,
                 effects,
             },
         ))
@@ -538,7 +549,7 @@ struct ProjectEffect {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     properties: BTreeMap<String, PropertyValue>,
     animations: Vec<ProjectScalarAnimation>,
-    aspect_ratio_locked: bool,
+    aspect_ratio: Option<crate::domain::timeline::AspectRatio>,
 }
 
 impl ProjectEffect {
@@ -557,7 +568,7 @@ impl ProjectEffect {
                 Some(effect.schema().properties()),
             ),
             animations: capture_animations(&effect.animations),
-            aspect_ratio_locked: effect.aspect_ratio_locked,
+            aspect_ratio: effect.aspect_ratio,
         }
     }
 
@@ -574,6 +585,11 @@ impl ProjectEffect {
                     self.plugin_id, self.effect_id
                 ))
             })?;
+        if self.aspect_ratio.is_some() && schema.aspect_lock_property().is_none() {
+            return Err(ProjectError::invalid_data(
+                "比率固定の対象がないエフェクトに比率が保存されています",
+            ));
+        }
         let properties = load_properties(
             schema.properties(),
             self.properties,
@@ -606,7 +622,7 @@ impl ProjectEffect {
             assets,
             properties,
             animations,
-            aspect_ratio_locked: self.aspect_ratio_locked,
+            aspect_ratio: self.aspect_ratio,
             schema,
         })
     }

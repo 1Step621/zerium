@@ -8,6 +8,7 @@ use crate::domain::property::{
 };
 
 use super::{
+    aspect_ratio::AspectRatio,
     ids::{EffectInstanceId, ItemId, LayerId, SceneId},
     time::{Frame, FrameDuration, TimelineTime},
 };
@@ -125,78 +126,6 @@ pub(super) fn set_size_values(
         .unwrap_or(false)
 }
 
-fn size_with_derived_height(
-    requested: [f32; 2],
-    aspect_ratio: f32,
-    property: &PropertySchema,
-) -> [f32; 2] {
-    if !aspect_ratio.is_finite() || aspect_ratio <= 0. {
-        return requested;
-    }
-    let width = property.configuration_constraints(Some(0));
-    let height = property.configuration_constraints(Some(1));
-    let ratio = f64::from(aspect_ratio);
-    // Intersect both axes in width units before writing either component.
-    // Keep a positive size so a locked ratio survives even schemas allowing zero.
-    let positive = f64::from(f32::MIN_POSITIVE);
-    let minimum = width
-        .min
-        .unwrap_or(positive)
-        .max(positive)
-        .max(height.min.unwrap_or(positive).max(positive) * ratio);
-    let maximum = width
-        .max
-        .unwrap_or(f64::from(f32::MAX))
-        .min(f64::from(f32::MAX))
-        .min(
-            height
-                .max
-                .unwrap_or(f64::from(f32::MAX))
-                .min(f64::from(f32::MAX))
-                * ratio,
-        );
-    if minimum > maximum || !requested[0].is_finite() {
-        return requested;
-    }
-    let width = f64::from(requested[0]).clamp(minimum, maximum);
-    [width as f32, (width / ratio) as f32]
-}
-
-/// Direct size edits use the width as the controlling axis. Animation and scene
-/// binding evaluation write their own values without applying this constraint.
-pub(super) fn locked_size_value(
-    values: &PropertyValues,
-    size_property: Option<&PropertySchema>,
-    locked: bool,
-    property: &PropertySchema,
-    value: PropertyValue,
-) -> PropertyValue {
-    if !locked
-        || size_property.is_none_or(|size| size.id() != property.id())
-        || !property.ty().allows(&value)
-    {
-        return value;
-    }
-    let pair = |value: &PropertyValue| {
-        Some([
-            value.scalar_at(Some(0))?.numeric_scalar()? as f32,
-            value.scalar_at(Some(1))?.numeric_scalar()? as f32,
-        ])
-    };
-    let Some(current) = values.property(property.id()).and_then(pair) else {
-        return value;
-    };
-    if !current
-        .iter()
-        .all(|dimension| dimension.is_finite() && *dimension > 0.)
-    {
-        return value;
-    }
-    let ratio = current[0] / current[1];
-    let requested = pair(&value).expect("validated size property is an f32 pair");
-    PropertyValue::f32_tuple(size_with_derived_height(requested, ratio, property))
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct EffectInstance {
     pub id: EffectInstanceId,
@@ -205,7 +134,7 @@ pub(crate) struct EffectInstance {
     pub assets: HashMap<String, MediaAsset>,
     pub properties: PropertyValues,
     pub animations: ScalarAnimations,
-    pub aspect_ratio_locked: bool,
+    pub aspect_ratio: Option<AspectRatio>,
     pub(crate) schema: Arc<EffectSchema>,
 }
 
@@ -243,7 +172,7 @@ pub(crate) struct TimelineItem {
     pub assets: HashMap<String, MediaAsset>,
     pub properties: PropertyValues,
     pub animations: ScalarAnimations,
-    pub aspect_ratio_locked: bool,
+    pub aspect_ratio: Option<AspectRatio>,
     pub effects: Vec<EffectInstance>,
 }
 
@@ -345,7 +274,7 @@ impl TimelineItem {
             )
     }
 
-    pub(crate) fn size_property(
+    pub(crate) fn aspect_lock_property(
         &self,
         effect_id: Option<EffectInstanceId>,
     ) -> Option<&PropertySchema> {
@@ -355,19 +284,20 @@ impl TimelineItem {
                 .iter()
                 .find(|effect| effect.id == id)?
                 .schema()
-                .size_property(),
-            None => self.schema()?.size_property(),
+                .aspect_lock_property(),
+            None => self.schema()?.aspect_lock_property(),
         }
     }
 
-    pub(crate) fn is_aspect_ratio_locked(&self, effect_id: Option<EffectInstanceId>) -> bool {
+    pub(crate) fn aspect_ratio(&self, effect_id: Option<EffectInstanceId>) -> Option<AspectRatio> {
         match effect_id {
-            Some(id) => self
-                .effects
-                .iter()
-                .find(|effect| effect.id == id)
-                .is_some_and(|effect| effect.aspect_ratio_locked),
-            None => self.aspect_ratio_locked,
+            Some(id) => {
+                self.effects
+                    .iter()
+                    .find(|effect| effect.id == id)?
+                    .aspect_ratio
+            }
+            None => self.aspect_ratio,
         }
     }
 

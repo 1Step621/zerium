@@ -1,15 +1,16 @@
 use super::*;
+use crate::domain::{property::PropertyPath, timeline::AspectRatio};
 
 impl TimelineEditor {
-    pub(crate) fn update_selected_scalar(
+    /// Prepare every final value before mutating the selection. The path defines
+    /// which component is editable and, for linked pairs, which axis drives it.
+    pub(crate) fn update_selected_property(
         &mut self,
-        effect: Option<EffectInstanceId>,
-        property_id: &str,
-        element_id: Option<PropertyElementId>,
-        scalar_index: Option<usize>,
+        effect_id: Option<EffectInstanceId>,
+        path: PropertyPath,
         value: PropertyValue,
     ) -> bool {
-        let Some(targets) = self.selected_property_owners(effect) else {
+        let Some(targets) = self.selected_property_owners(effect_id) else {
             return false;
         };
         let updates: Option<Vec<_>> = targets
@@ -17,112 +18,50 @@ impl TimelineEditor {
             .map(|(id, effect)| {
                 let item = self.active_document().item(*id)?;
                 let owner = effect.map_or(SceneBindingOwner::Item, SceneBindingOwner::Effect);
-                let schema =
-                    resolve_property_schema(&self.project().scenes, item, owner, property_id)?;
-                let current = match effect {
-                    Some(effect) => item
-                        .effects
-                        .iter()
-                        .find(|entry| entry.id == *effect)?
-                        .properties
-                        .property(property_id)?,
-                    None => item
-                        .properties
-                        .property(property_id)
-                        .unwrap_or(schema.default_value()),
-                };
-                let next = current.replaced_at(element_id, scalar_index, value.clone())?;
-                (schema.is_editable(scalar_index)
-                    && schema.ty().allows(&next)
-                    && self.value_preserves_active_bindings(*id, *effect, property_id, &next))
-                .then_some((*id, *effect, next))
+                let schema = resolve_property_schema(
+                    &self.project().scenes,
+                    item,
+                    owner,
+                    path.property_id(),
+                )?;
+                let current = item
+                    .property_values(*effect)?
+                    .property(path.property_id())
+                    .unwrap_or(schema.default_value());
+                let mut next =
+                    current.replaced_at(path.element_id(), path.scalar_index(), value.clone())?;
+                if !schema.is_editable(path.scalar_index()) {
+                    return None;
+                }
+                if let Some(ratio) = item.aspect_ratio(*effect).filter(|_| {
+                    item.aspect_lock_property(*effect)
+                        .is_some_and(|property| property.id() == path.property_id())
+                }) {
+                    if !schema.is_editable(None) {
+                        return None;
+                    }
+                    next = ratio.constrain(schema, &next, path.scalar_index())?;
+                }
+                (schema.accepts_value(&next)
+                    && self.value_preserves_active_bindings(
+                        *id,
+                        *effect,
+                        path.property_id(),
+                        &next,
+                    ))
+                .then_some((*id, *effect, schema.clone(), next))
             })
             .collect();
         let Some(updates) = updates else {
             return false;
         };
-        let key = match effect {
-            Some(_) => HistoryKey::EffectsProperty(
-                targets
-                    .iter()
-                    .map(|(id, effect)| (*id, effect.unwrap()))
-                    .collect(),
-                property_id.to_owned(),
-            ),
-            None => HistoryKey::ItemsProperty(
-                targets.iter().map(|(id, _)| *id).collect(),
-                property_id.to_owned(),
-            ),
-        };
+        let key = HistoryKey::Property(targets, path.property_id().to_owned());
         let before = self.history_snapshot_for_edit(Some(&key));
         let mut changed = false;
-        for (id, effect, value) in updates {
-            changed |= match effect {
-                Some(effect) => self.active_document_mut().update_item_effect_property(
-                    id,
-                    effect,
-                    property_id,
-                    value,
-                ),
-                None => {
-                    if let Some(schema) = self.scene_instance_property_schema(id, property_id) {
-                        self.active_document_mut()
-                            .item_mut(id)
-                            .is_some_and(|item| set_scene_instance_override(item, &schema, value))
-                    } else {
-                        self.active_document_mut()
-                            .update_item_property(id, property_id, value)
-                    }
-                }
-            };
-        }
-        self.finish_project_edit_if_changed(changed, before, Some(key))
-    }
-
-    pub(crate) fn update_selected_property(
-        &mut self,
-        property_id: &str,
-        value: PropertyValue,
-    ) -> bool {
-        let ids = self.selection.sorted_current();
-        if ids.is_empty()
-            || ids
-                .iter()
-                .any(|id| !self.value_preserves_active_bindings(*id, None, property_id, &value))
-            || ids.iter().any(|id| {
-                let Some(item) = self.active_document().item(*id) else {
-                    return true;
-                };
-                let property = resolve_property_schema(
-                    &self.project().scenes,
-                    item,
-                    SceneBindingOwner::Item,
-                    property_id,
-                );
-                property.is_none_or(|property| {
-                    !property.is_editable(None) || !property.ty.allows(&value)
-                })
-            })
-        {
-            return false;
-        }
-        let key = if ids.len() == 1 {
-            HistoryKey::ItemProperty(ids[0], property_id.to_owned())
-        } else {
-            HistoryKey::ItemsProperty(ids.clone(), property_id.to_owned())
-        };
-        let before = self.history_snapshot_for_edit(Some(&key));
-        let mut changed = false;
-        for id in ids {
-            let scene_schema = self.scene_instance_property_schema(id, property_id);
-            changed |= if let Some(schema) = scene_schema {
-                self.active_document_mut()
-                    .item_mut(id)
-                    .is_some_and(|item| set_scene_instance_override(item, &schema, value.clone()))
-            } else {
-                self.active_document_mut()
-                    .update_item_property(id, property_id, value.clone())
-            };
+        for (id, effect, schema, value) in updates {
+            changed |= self
+                .active_document_mut()
+                .set_item_property(id, effect, &schema, value);
         }
         self.finish_project_edit_if_changed(changed, before, Some(key))
     }
@@ -157,33 +96,36 @@ impl TimelineEditor {
         let Some(targets) = self.selected_property_owners(effect_id) else {
             return false;
         };
-        if targets.iter().any(|(id, effect)| {
-            self.active_document()
-                .item(*id)
-                .and_then(|item| item.size_property(*effect))
-                .is_none_or(|property| !property.is_editable(None))
-        }) {
+        let updates: Option<Vec<_>> = targets
+            .iter()
+            .map(|(id, effect)| {
+                let item = self.active_document().item(*id)?;
+                let property = item
+                    .aspect_lock_property(*effect)
+                    .filter(|property| property.is_editable(None))?;
+                let ratio = if locked {
+                    Some(match item.aspect_ratio(*effect) {
+                        Some(ratio) => ratio,
+                        None => AspectRatio::from_value(
+                            item.property_values(*effect)?.property(property.id())?,
+                        )?,
+                    })
+                } else {
+                    None
+                };
+                Some((*id, *effect, ratio))
+            })
+            .collect();
+        let Some(updates) = updates else {
             return false;
-        }
-        let key = match effect_id {
-            Some(_) => HistoryKey::EffectsProperty(
-                targets
-                    .iter()
-                    .map(|(id, effect)| (*id, effect.expect("effect owner")))
-                    .collect(),
-                "aspect_ratio_locked".to_owned(),
-            ),
-            None => HistoryKey::ItemsProperty(
-                targets.iter().map(|(id, _)| *id).collect(),
-                "aspect_ratio_locked".to_owned(),
-            ),
         };
+        let key = HistoryKey::AspectRatioLock(targets);
         let before = self.history_snapshot_for_edit(Some(&key));
         let mut changed = false;
-        for (id, effect) in targets {
+        for (id, effect, ratio) in updates {
             changed |= self
                 .active_document_mut()
-                .update_item_aspect_ratio_locked(id, effect, locked);
+                .set_item_aspect_ratio(id, effect, ratio);
         }
         self.finish_project_edit_if_changed(changed, before, Some(key))
     }

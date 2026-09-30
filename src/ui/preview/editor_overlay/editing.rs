@@ -28,12 +28,11 @@ impl Preview {
             return false;
         };
         match target {
-            PreviewEditTarget::Property => match effect_id {
-                Some(effect_id) => {
-                    editor.update_selected_effect_property(effect_id, property_id, value)
-                }
-                None => editor.update_selected_property(property_id, value),
-            },
+            PreviewEditTarget::Property => editor.update_selected_property(
+                effect_id,
+                PropertyPath::new(property_id, None, None),
+                value,
+            ),
             PreviewEditTarget::Keyframe(progress) => Self::f32_pair(&value).is_some_and(|value| {
                 editor.set_selected_property_animation_pair_stop_at(
                     effect_id,
@@ -87,7 +86,6 @@ impl Preview {
             handle,
             pointer: [f32::from(event.position.x), f32::from(event.position.y)],
             size: overlay.size,
-            aspect_ratio: overlay.aspect_ratio,
             target: overlay.target,
             composition_units_per_pixel,
         });
@@ -113,7 +111,7 @@ impl Preview {
         };
         cx.set_active_drag_cursor_style(origin.handle.cursor(), window);
         let direction = origin.handle.direction();
-        let mut size = [
+        let size = [
             (origin.size[0]
                 + (pointer[0] - origin.pointer[0])
                     * origin.composition_units_per_pixel
@@ -127,22 +125,29 @@ impl Preview {
                     * 2.)
                 .max(1.),
         ];
-        if let Some(aspect_ratio) = origin.aspect_ratio {
-            if origin.handle.changes_width() {
-                size[1] = size[0] / aspect_ratio;
-            } else {
-                size[0] = size[1] * aspect_ratio;
-            }
-        }
         self.editor.update(cx, |editor, cx| {
-            if Self::update_pair_property(
-                editor,
-                origin.item_id,
-                origin.effect_id,
-                &origin.property_id,
-                origin.target,
-                size,
-            ) {
+            let changed = match origin.target {
+                PreviewEditTarget::Property => {
+                    let axis = usize::from(!origin.handle.changes_width());
+                    editor
+                        .selected_item()
+                        .is_some_and(|item| item.id == origin.item_id)
+                        && editor.update_selected_property(
+                            origin.effect_id,
+                            PropertyPath::new(&origin.property_id, None, Some(axis)),
+                            PropertyValue::F32(size[axis]),
+                        )
+                }
+                PreviewEditTarget::Keyframe(_) => Self::update_pair_property(
+                    editor,
+                    origin.item_id,
+                    origin.effect_id,
+                    &origin.property_id,
+                    origin.target,
+                    size,
+                ),
+            };
+            if changed {
                 cx.notify();
             }
         });
@@ -351,14 +356,11 @@ impl Preview {
                             value,
                         )
                     }),
-                PreviewEditTarget::Property => match origin.effect_id {
-                    Some(effect_id) => editor.update_selected_effect_property(
-                        effect_id,
-                        &origin.property_id,
-                        value,
-                    ),
-                    None => editor.update_selected_property(&origin.property_id, value),
-                },
+                PreviewEditTarget::Property => editor.update_selected_property(
+                    origin.effect_id,
+                    PropertyPath::new(&origin.property_id, None, None),
+                    value,
+                ),
             });
             if changed {
                 cx.notify();
@@ -440,7 +442,6 @@ impl Preview {
             property_id: overlay.property_id.clone(),
             center: overlay.center,
             size: overlay.size,
-            aspect_ratio: overlay.aspect_ratio,
             target: overlay.target,
         };
         let direction = handle.direction();

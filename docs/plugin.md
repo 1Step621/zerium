@@ -132,9 +132,17 @@ are saved with the project.
 effects and does not add shader inputs.
 `audio.inputs` refers to video capabilities or to audio files declared in
 `audio.files`; the host mixer reads the `f32` gain property named by `volume`.
-A size property referenced by `editor.size` can use the host's aspect-ratio lock.
-Each item and effect instance owns its own lock, outside the shader ABI. Locking
-constrains direct size edits; animation and scene binding values remain independent.
+`editor.size` declares a preview size handle. Independently, `editor.aspect_lock`
+references an `f32` pair whose inspector controls can retain their ratio. Use
+`"editor": {"aspect_lock": "amount", "aspect_lock_default": true}` for a scale
+pair that starts linked, or `"editor": {"size": "size", "aspect_lock": "size"}`
+for size handles with an initially unlocked ratio. `aspect_lock_default` defaults
+to false and requires `aspect_lock`.
+Each item and effect instance retains its own ratio outside the shader ABI.
+Direct edits to either component update the other and respect both constraints;
+whole-pair edits use the first component as their driver. A zero pair can grow
+again using the retained ratio; enabling a lock on a zero pair uses 1:1.
+Animation and scene binding values remain independent.
 
 A text capability names every property consumed by the host rasterizer:
 

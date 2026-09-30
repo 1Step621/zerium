@@ -6,11 +6,13 @@ use std::{
 use crate::domain::animation::ScalarAnimations;
 use crate::domain::media::ImportedMedia;
 use crate::domain::plugin::{EffectSchema, ItemSchema};
-use crate::domain::property::{PropertyValue, PropertyValues};
+use crate::domain::property::{PropertySchema, PropertyValue, PropertyValues};
 
 use super::{
+    aspect_ratio::AspectRatio,
     ids::{EffectInstanceId, ItemId, LayerId},
     item::{EffectInstance, TimelineItem, TimelineItemKind, set_size_values, size_values},
+    scene::set_scene_instance_override,
     settings::ProjectSettingsError,
     time::{Frame, FrameDuration, FrameRate},
 };
@@ -374,6 +376,14 @@ impl TimelineDocument {
         schema: Arc<ItemSchema>,
     ) -> Option<ItemId> {
         let properties = PropertyValues::from_properties(schema.properties());
+        let aspect_ratio = schema
+            .aspect_lock_default()
+            .then(|| {
+                schema.aspect_lock_property().and_then(|property| {
+                    AspectRatio::from_value(properties.property(property.id())?)
+                })
+            })
+            .flatten();
         let duration =
             FrameDuration::new_saturating(self.frame_rate.seconds_to_frame(DEFAULT_ITEM_SECONDS).0);
         let plugin_id = plugin_id.to_owned();
@@ -391,7 +401,7 @@ impl TimelineDocument {
                 assets: HashMap::new(),
                 properties,
                 animations: ScalarAnimations::default(),
-                aspect_ratio_locked: false,
+                aspect_ratio,
                 effects: Vec::new(),
             })
         })
@@ -640,65 +650,61 @@ impl TimelineDocument {
         removed
     }
 
-    pub(crate) fn update_item_property(
-        &mut self,
-        id: ItemId,
-        property_id: &str,
-        value: PropertyValue,
-    ) -> bool {
-        let Some(item) = self.items.get_mut(&id).map(Arc::make_mut) else {
-            return false;
-        };
-        let Some(schema) = item.schema_arc().cloned() else {
-            return false;
-        };
-        let Some(property) = schema.property(property_id) else {
-            return false;
-        };
-        if !property.is_editable(None) {
-            return false;
-        }
-        let value = super::item::locked_size_value(
-            &item.properties,
-            schema.size_property(),
-            item.aspect_ratio_locked,
-            property,
-            value,
-        );
-        let mut changed = item.properties.set(property, value).unwrap_or(false);
-        if changed {
-            changed |= item.animations.retain_valid(&item.properties);
-        }
-
-        changed
-    }
-
-    pub(crate) fn update_item_aspect_ratio_locked(
+    /// Commit a value whose edit permissions and constraints were checked for
+    /// the entire selection by the command layer.
+    pub(super) fn set_item_property(
         &mut self,
         id: ItemId,
         effect_id: Option<EffectInstanceId>,
-        locked: bool,
+        property: &PropertySchema,
+        value: PropertyValue,
     ) -> bool {
-        let Some(item) = self.items.get_mut(&id).map(Arc::make_mut) else {
-            return false;
-        };
-        if item
-            .size_property(effect_id)
-            .is_none_or(|property| !property.is_editable(None))
-            || item.is_aspect_ratio_locked(effect_id) == locked
-        {
-            return false;
+        let item = self.item_mut(id).expect("prepared item must exist");
+        if effect_id.is_none() && item.scene_id().is_some() {
+            return set_scene_instance_override(item, property, value);
         }
-        match effect_id {
+        let (properties, animations) = match effect_id {
             Some(id) => {
-                item.effects
+                let effect = item
+                    .effects
                     .iter_mut()
                     .find(|effect| effect.id == id)
-                    .expect("validated effect")
-                    .aspect_ratio_locked = locked
+                    .expect("prepared effect must exist");
+                (&mut effect.properties, &mut effect.animations)
             }
-            None => item.aspect_ratio_locked = locked,
+            None => (&mut item.properties, &mut item.animations),
+        };
+        let changed = properties
+            .set(property, value)
+            .expect("prepared value must satisfy its schema");
+        if changed {
+            animations.retain_valid(properties);
         }
+        changed
+    }
+
+    pub(super) fn set_item_aspect_ratio(
+        &mut self,
+        id: ItemId,
+        effect_id: Option<EffectInstanceId>,
+        ratio: Option<AspectRatio>,
+    ) -> bool {
+        let item = self.item_mut(id).expect("prepared item must exist");
+        let current = match effect_id {
+            Some(id) => {
+                &mut item
+                    .effects
+                    .iter_mut()
+                    .find(|effect| effect.id == id)
+                    .expect("prepared effect must exist")
+                    .aspect_ratio
+            }
+            None => &mut item.aspect_ratio,
+        };
+        if *current == ratio {
+            return false;
+        }
+        *current = ratio;
         true
     }
 
@@ -711,6 +717,14 @@ impl TimelineDocument {
         schema: Arc<EffectSchema>,
     ) -> bool {
         let properties = PropertyValues::from_properties(schema.properties());
+        let aspect_ratio = schema
+            .aspect_lock_default()
+            .then(|| {
+                schema.aspect_lock_property().and_then(|property| {
+                    AspectRatio::from_value(properties.property(property.id())?)
+                })
+            })
+            .flatten();
         let Some(item) = self.items.get_mut(&id).map(Arc::make_mut) else {
             return false;
         };
@@ -729,50 +743,10 @@ impl TimelineDocument {
             assets: HashMap::new(),
             properties,
             animations: ScalarAnimations::default(),
-            aspect_ratio_locked: false,
+            aspect_ratio,
             schema,
         });
         true
-    }
-
-    pub(crate) fn update_item_effect_property(
-        &mut self,
-        item_id: ItemId,
-        effect_id: EffectInstanceId,
-        property_id: &str,
-        value: PropertyValue,
-    ) -> bool {
-        let Some(effect) = self
-            .items
-            .get_mut(&item_id)
-            .map(Arc::make_mut)
-            .and_then(|item| {
-                item.effects
-                    .iter_mut()
-                    .find(|effect| effect.id == effect_id)
-            })
-        else {
-            return false;
-        };
-        let schema = effect.schema.clone();
-        let Some(property) = schema.property(property_id) else {
-            return false;
-        };
-        if !property.is_editable(None) {
-            return false;
-        }
-        let value = super::item::locked_size_value(
-            &effect.properties,
-            schema.size_property(),
-            effect.aspect_ratio_locked,
-            property,
-            value,
-        );
-        let mut changed = effect.properties.set(property, value).unwrap_or(false);
-        if changed {
-            changed |= effect.animations.retain_valid(&effect.properties);
-        }
-        changed
     }
 
     pub(crate) fn remove_item_effect(
