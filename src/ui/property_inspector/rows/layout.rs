@@ -92,13 +92,16 @@ impl PropertyInspector {
                 SharedString::from(format!("bind-scene-argument-{}", common.target.key)),
             )
         });
-        let disabled = common.read_only || size_locked && common.target.scalar_index == Some(1);
+        let disabled = common.read_only
+            || size_locked
+                && common.target.scalar_index == Some(1)
+                && !coordinate_animation_enabled;
         let animation_visible = coordinate_animation_enabled;
         let animation_button = (common.animatable && !is_bound).then(|| {
             Self::coordinate_animation_toggle(
                 &common.target,
                 coordinate_animation_enabled,
-                disabled,
+                common.read_only,
                 animation_visible,
                 &ctx.inspector,
             )

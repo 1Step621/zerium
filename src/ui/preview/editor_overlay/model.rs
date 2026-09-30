@@ -150,8 +150,7 @@ impl Preview {
                         position_property.map(|value| value.id()),
                     ),
                     size,
-                    aspect_ratio: item
-                        .aspect_ratio_locked
+                    aspect_ratio: (progress.is_none() && item.is_aspect_ratio_locked(effect_id))
                         .then_some(size[0] / size[1])
                         .filter(|ratio| ratio.is_finite() && *ratio > 0.),
                     target: PreviewEditTarget::from_progress(progress),

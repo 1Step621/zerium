@@ -152,7 +152,7 @@ impl PropertyInspector {
                     .tooltip(if state.mixed {
                         "ロック状態が混在しています。クリックですべてオン"
                     } else if state.multiple {
-                        "各アイテムの現在の縦横比を個別に固定"
+                        "各編集対象の現在の縦横比を個別に固定"
                     } else if checked {
                         "アスペクト比維持を解除"
                     } else {
@@ -160,7 +160,8 @@ impl PropertyInspector {
                     })
                     .on_click(move |checked, _, cx| {
                         editor.update(cx, |editor, cx| {
-                            if editor.update_selected_aspect_ratio_locked(*checked) {
+                            if editor.update_selected_aspect_ratio_locked(state.effect_id, *checked)
+                            {
                                 cx.notify();
                             }
                         });

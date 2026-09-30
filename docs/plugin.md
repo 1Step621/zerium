@@ -132,8 +132,9 @@ are saved with the project.
 effects and does not add shader inputs.
 `audio.inputs` refers to video capabilities or to audio files declared in
 `audio.files`; the host mixer reads the `f32` gain property named by `volume`.
-A media file property referenced by `editor.size` can use the host's aspect-ratio
-lock, which stays in editor state and outside the shader ABI.
+A size property referenced by `editor.size` can use the host's aspect-ratio lock.
+Each item and effect instance owns its own lock, outside the shader ABI. Locking
+constrains direct size edits; animation and scene binding values remain independent.
 
 A text capability names every property consumed by the host rasterizer:
 

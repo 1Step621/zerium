@@ -203,6 +203,7 @@ pub(super) enum SceneArgumentSetting {
 
 #[derive(Clone, Copy)]
 pub(super) struct AspectRatioLockState {
+    pub effect_id: Option<EffectInstanceId>,
     pub value: bool,
     pub mixed: bool,
     pub multiple: bool,

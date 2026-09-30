@@ -169,7 +169,7 @@ impl PropertyInspector {
                 .map(|schema| schema.label().to_owned())
                 .unwrap_or_default()
         };
-        let aspect_ratio_lock = Self::aspect_ratio_lock_state(&item, &selected_items);
+        let aspect_ratio_lock = Self::aspect_ratio_lock_state(self.editor.read(cx), None);
         let available_effects = {
             let editor = self.editor.read(cx);
             editor
@@ -641,9 +641,10 @@ impl PropertyInspector {
                 editor.can_move_selected_effect(effect_id, 1),
             )
         };
+        let aspect = Self::aspect_ratio_lock_state(render.editor.read(cx), Some(effect_id));
         let controls = controls
             .into_iter()
-            .filter_map(|control| Self::control_element(control, None, render))
+            .filter_map(|control| Self::control_element(control, aspect, render))
             .collect::<Vec<_>>();
         let files = if view.multiple {
             Vec::new()

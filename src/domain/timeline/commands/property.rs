@@ -9,24 +9,9 @@ impl TimelineEditor {
         scalar_index: Option<usize>,
         value: PropertyValue,
     ) -> bool {
-        let targets: Vec<_> = match effect {
-            Some(effect) => match self.selected_effect_instances(effect) {
-                Some(targets) => targets
-                    .into_iter()
-                    .map(|(item, effect)| (item, Some(effect)))
-                    .collect(),
-                None => return false,
-            },
-            None => self
-                .selection
-                .sorted_current()
-                .into_iter()
-                .map(|item| (item, None))
-                .collect(),
-        };
-        if targets.is_empty() {
+        let Some(targets) = self.selected_property_owners(effect) else {
             return false;
-        }
+        };
         let updates: Option<Vec<_>> = targets
             .iter()
             .map(|(id, effect)| {
@@ -142,30 +127,63 @@ impl TimelineEditor {
         self.finish_project_edit_if_changed(changed, before, Some(key))
     }
 
-    pub(crate) fn update_selected_aspect_ratio_locked(&mut self, locked: bool) -> bool {
-        let ids = self.selection.sorted_current();
-        if ids.is_empty()
-            || ids.iter().any(|id| {
-                self.active_document()
-                    .item(*id)
-                    .and_then(TimelineItem::schema)
-                    .is_none_or(|schema| {
-                        !schema.supports_aspect_ratio_lock()
-                            || schema
-                                .size_property()
-                                .is_none_or(|property| !property.is_editable(None))
-                    })
-            })
-        {
+    /// Resolve an effect by its position and schema on the primary item, so each
+    /// selected item edits its own corresponding instance.
+    pub(crate) fn selected_property_owners(
+        &self,
+        effect_id: Option<EffectInstanceId>,
+    ) -> Option<Vec<(ItemId, Option<EffectInstanceId>)>> {
+        let targets = match effect_id {
+            Some(id) => self
+                .selected_effect_instances(id)?
+                .into_iter()
+                .map(|(item, effect)| (item, Some(effect)))
+                .collect(),
+            None => self
+                .selection
+                .sorted_current()
+                .into_iter()
+                .map(|item| (item, None))
+                .collect::<Vec<_>>(),
+        };
+        (!targets.is_empty()).then_some(targets)
+    }
+
+    pub(crate) fn update_selected_aspect_ratio_locked(
+        &mut self,
+        effect_id: Option<EffectInstanceId>,
+        locked: bool,
+    ) -> bool {
+        let Some(targets) = self.selected_property_owners(effect_id) else {
+            return false;
+        };
+        if targets.iter().any(|(id, effect)| {
+            self.active_document()
+                .item(*id)
+                .and_then(|item| item.size_property(*effect))
+                .is_none_or(|property| !property.is_editable(None))
+        }) {
             return false;
         }
-        let key = HistoryKey::ItemsProperty(ids.clone(), "aspect_ratio_locked".to_owned());
+        let key = match effect_id {
+            Some(_) => HistoryKey::EffectsProperty(
+                targets
+                    .iter()
+                    .map(|(id, effect)| (*id, effect.expect("effect owner")))
+                    .collect(),
+                "aspect_ratio_locked".to_owned(),
+            ),
+            None => HistoryKey::ItemsProperty(
+                targets.iter().map(|(id, _)| *id).collect(),
+                "aspect_ratio_locked".to_owned(),
+            ),
+        };
         let before = self.history_snapshot_for_edit(Some(&key));
         let mut changed = false;
-        for id in ids {
+        for (id, effect) in targets {
             changed |= self
                 .active_document_mut()
-                .update_item_aspect_ratio_locked(id, locked);
+                .update_item_aspect_ratio_locked(id, effect, locked);
         }
         self.finish_project_edit_if_changed(changed, before, Some(key))
     }

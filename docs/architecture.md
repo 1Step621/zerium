@@ -85,7 +85,8 @@ coordinates separately. `ui::numeric_property` resolves numeric display
 rules, while `ui::animation_curve::presentation` resolves animation labels from
 a `PropertyAddress`. Both use the same numeric presentation metadata. Inspector
 text inputs and color pickers are stored by their concrete widget types.
-Aspect-ratio locking constrains direct size edits only; animation tracks and scene
+Items and individual effect instances own separate aspect-ratio locks. Locking
+constrains direct size edits only; animation tracks and scene
 arguments keep their own values.
 
 ## Plugins and persistence

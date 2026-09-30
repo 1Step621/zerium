@@ -204,7 +204,10 @@ impl PropertyOwner<'_> {
     fn is_size(&self, property_id: &str) -> bool {
         match self {
             Self::Item { schema, .. } => schema.is_size_property(property_id),
-            Self::Effect(_) => false,
+            Self::Effect(effect) => effect
+                .schema()
+                .size_property()
+                .is_some_and(|property| property.id() == property_id),
         }
     }
 }
@@ -789,35 +792,25 @@ impl PropertyInspector {
     }
 
     pub(super) fn aspect_ratio_lock_state(
-        item: &TimelineItem,
-        selected_items: &[TimelineItem],
+        editor: &TimelineEditor,
+        effect_id: Option<EffectInstanceId>,
     ) -> Option<AspectRatioLockState> {
-        if item.scene_id().is_some() {
-            return None;
-        }
-        let size = item.schema()?.size_property()?;
-        if !size.is_editable(None) {
-            return None;
-        }
-        if !Self::property_is_common(selected_items, size.id())
-            || selected_items.iter().any(|selected| {
-                selected.schema().is_none_or(|schema| {
-                    !schema.supports_aspect_ratio_lock()
-                        || schema
-                            .size_property()
-                            .is_none_or(|property| !property.is_editable(None))
-                })
+        let targets = editor.selected_property_owners(effect_id)?;
+        let values = targets
+            .iter()
+            .map(|(id, effect)| {
+                let item = editor.item(*id)?;
+                let size = item.size_property(*effect)?;
+                (size.is_editable(None) && size.is_visible())
+                    .then_some(item.is_aspect_ratio_locked(*effect))
             })
-        {
-            return None;
-        }
+            .collect::<Option<Vec<_>>>()?;
+        let value = values[0];
         Some(AspectRatioLockState {
-            value: item.aspect_ratio_locked,
-            mixed: selected_items
-                .iter()
-                .skip(1)
-                .any(|selected| selected.aspect_ratio_locked != item.aspect_ratio_locked),
-            multiple: selected_items.len() > 1,
+            effect_id,
+            value,
+            mixed: values.iter().any(|locked| *locked != value),
+            multiple: values.len() > 1,
         })
     }
 }

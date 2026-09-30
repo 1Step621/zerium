@@ -301,10 +301,6 @@ impl ItemSchema {
             .and_then(|id| self.property(id))
     }
 
-    pub(crate) fn supports_aspect_ratio_lock(&self) -> bool {
-        self.size_property().is_some()
-    }
-
     pub(crate) fn is_size_property(&self, property_id: &str) -> bool {
         self.editor
             .as_ref()

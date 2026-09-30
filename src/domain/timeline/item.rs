@@ -3,7 +3,9 @@ use std::{collections::HashMap, sync::Arc};
 use crate::domain::animation::{ScalarAnimations, ScalarTrack};
 use crate::domain::media::MediaAsset;
 use crate::domain::plugin::{Capability, EffectSchema, ItemSchema};
-use crate::domain::property::{PropertyElementId, PropertyPath, PropertyValue, PropertyValues};
+use crate::domain::property::{
+    PropertyElementId, PropertyPath, PropertySchema, PropertyValue, PropertyValues,
+};
 
 use super::{
     ids::{EffectInstanceId, ItemId, LayerId, SceneId},
@@ -123,17 +125,14 @@ pub(super) fn set_size_values(
         .unwrap_or(false)
 }
 
-pub(super) fn size_with_derived_height(
+fn size_with_derived_height(
     requested: [f32; 2],
     aspect_ratio: f32,
-    schema: &ItemSchema,
+    property: &PropertySchema,
 ) -> [f32; 2] {
     if !aspect_ratio.is_finite() || aspect_ratio <= 0. {
         return requested;
     }
-    let Some(property) = schema.size_property() else {
-        return requested;
-    };
     let width = property.configuration_constraints(Some(0));
     let height = property.configuration_constraints(Some(1));
     let ratio = f64::from(aspect_ratio);
@@ -163,6 +162,41 @@ pub(super) fn size_with_derived_height(
     [width as f32, (width / ratio) as f32]
 }
 
+/// Direct size edits use the width as the controlling axis. Animation and scene
+/// binding evaluation write their own values without applying this constraint.
+pub(super) fn locked_size_value(
+    values: &PropertyValues,
+    size_property: Option<&PropertySchema>,
+    locked: bool,
+    property: &PropertySchema,
+    value: PropertyValue,
+) -> PropertyValue {
+    if !locked
+        || size_property.is_none_or(|size| size.id() != property.id())
+        || !property.ty().allows(&value)
+    {
+        return value;
+    }
+    let pair = |value: &PropertyValue| {
+        Some([
+            value.scalar_at(Some(0))?.numeric_scalar()? as f32,
+            value.scalar_at(Some(1))?.numeric_scalar()? as f32,
+        ])
+    };
+    let Some(current) = values.property(property.id()).and_then(pair) else {
+        return value;
+    };
+    if !current
+        .iter()
+        .all(|dimension| dimension.is_finite() && *dimension > 0.)
+    {
+        return value;
+    }
+    let ratio = current[0] / current[1];
+    let requested = pair(&value).expect("validated size property is an f32 pair");
+    PropertyValue::f32_tuple(size_with_derived_height(requested, ratio, property))
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct EffectInstance {
     pub id: EffectInstanceId,
@@ -171,6 +205,7 @@ pub(crate) struct EffectInstance {
     pub assets: HashMap<String, MediaAsset>,
     pub properties: PropertyValues,
     pub animations: ScalarAnimations,
+    pub aspect_ratio_locked: bool,
     pub(crate) schema: Arc<EffectSchema>,
 }
 
@@ -310,18 +345,30 @@ impl TimelineItem {
             )
     }
 
-    pub(super) fn current_aspect_ratio(&self, schema: &ItemSchema) -> Option<f32> {
-        let current_size = size_values(&self.properties, schema);
-        let source_size = schema.files().find_map(|file| {
-            self.assets
-                .get(file.id())?
-                .kind
-                .dimensions()
-                .map(|[width, height]| [width as f32, height as f32])
-        });
-        let [width, height] = current_size.or(source_size)?;
-        (width.is_finite() && height.is_finite() && width > 0. && height > 0.)
-            .then_some(width / height)
+    pub(crate) fn size_property(
+        &self,
+        effect_id: Option<EffectInstanceId>,
+    ) -> Option<&PropertySchema> {
+        match effect_id {
+            Some(id) => self
+                .effects
+                .iter()
+                .find(|effect| effect.id == id)?
+                .schema()
+                .size_property(),
+            None => self.schema()?.size_property(),
+        }
+    }
+
+    pub(crate) fn is_aspect_ratio_locked(&self, effect_id: Option<EffectInstanceId>) -> bool {
+        match effect_id {
+            Some(id) => self
+                .effects
+                .iter()
+                .find(|effect| effect.id == id)
+                .is_some_and(|effect| effect.aspect_ratio_locked),
+            None => self.aspect_ratio_locked,
+        }
     }
 
     pub(crate) fn animation_span_frames(&self) -> f64 {

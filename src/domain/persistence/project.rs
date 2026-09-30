@@ -538,6 +538,7 @@ struct ProjectEffect {
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     properties: BTreeMap<String, PropertyValue>,
     animations: Vec<ProjectScalarAnimation>,
+    aspect_ratio_locked: bool,
 }
 
 impl ProjectEffect {
@@ -556,6 +557,7 @@ impl ProjectEffect {
                 Some(effect.schema().properties()),
             ),
             animations: capture_animations(&effect.animations),
+            aspect_ratio_locked: effect.aspect_ratio_locked,
         }
     }
 
@@ -604,6 +606,7 @@ impl ProjectEffect {
             assets,
             properties,
             animations,
+            aspect_ratio_locked: self.aspect_ratio_locked,
             schema,
         })
     }

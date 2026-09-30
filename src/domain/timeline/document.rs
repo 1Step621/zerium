@@ -658,29 +658,13 @@ impl TimelineDocument {
         if !property.is_editable(None) {
             return false;
         }
-        // Resolve a locked size as one value. Writing width first can leave the old
-        // height behind if the derived height is outside its contract.
-        let value = if item.aspect_ratio_locked
-            && schema.is_size_property(property_id)
-            && property.ty().allows(&value)
-            && let Some(ratio) = item.current_aspect_ratio(&schema)
-        {
-            let requested = [
-                value
-                    .scalar_at(Some(0))
-                    .and_then(PropertyValue::numeric_scalar)
-                    .unwrap() as f32,
-                value
-                    .scalar_at(Some(1))
-                    .and_then(PropertyValue::numeric_scalar)
-                    .unwrap() as f32,
-            ];
-            PropertyValue::f32_tuple(super::item::size_with_derived_height(
-                requested, ratio, &schema,
-            ))
-        } else {
-            value
-        };
+        let value = super::item::locked_size_value(
+            &item.properties,
+            schema.size_property(),
+            item.aspect_ratio_locked,
+            property,
+            value,
+        );
         let mut changed = item.properties.set(property, value).unwrap_or(false);
         if changed {
             changed |= item.animations.retain_valid(&item.properties);
@@ -689,22 +673,32 @@ impl TimelineDocument {
         changed
     }
 
-    pub(crate) fn update_item_aspect_ratio_locked(&mut self, id: ItemId, locked: bool) -> bool {
+    pub(crate) fn update_item_aspect_ratio_locked(
+        &mut self,
+        id: ItemId,
+        effect_id: Option<EffectInstanceId>,
+        locked: bool,
+    ) -> bool {
         let Some(item) = self.items.get_mut(&id).map(Arc::make_mut) else {
             return false;
         };
-        let Some(schema) = item.schema_arc().cloned() else {
-            return false;
-        };
-        if !schema.supports_aspect_ratio_lock()
-            || schema
-                .size_property()
-                .is_none_or(|property| !property.is_editable(None))
-            || item.aspect_ratio_locked == locked
+        if item
+            .size_property(effect_id)
+            .is_none_or(|property| !property.is_editable(None))
+            || item.is_aspect_ratio_locked(effect_id) == locked
         {
             return false;
         }
-        item.aspect_ratio_locked = locked;
+        match effect_id {
+            Some(id) => {
+                item.effects
+                    .iter_mut()
+                    .find(|effect| effect.id == id)
+                    .expect("validated effect")
+                    .aspect_ratio_locked = locked
+            }
+            None => item.aspect_ratio_locked = locked,
+        }
         true
     }
 
@@ -735,6 +729,7 @@ impl TimelineDocument {
             assets: HashMap::new(),
             properties,
             animations: ScalarAnimations::default(),
+            aspect_ratio_locked: false,
             schema,
         });
         true
@@ -766,6 +761,13 @@ impl TimelineDocument {
         if !property.is_editable(None) {
             return false;
         }
+        let value = super::item::locked_size_value(
+            &effect.properties,
+            schema.size_property(),
+            effect.aspect_ratio_locked,
+            property,
+            value,
+        );
         let mut changed = effect.properties.set(property, value).unwrap_or(false);
         if changed {
             changed |= effect.animations.retain_valid(&effect.properties);
