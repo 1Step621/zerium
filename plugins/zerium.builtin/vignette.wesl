@@ -1,5 +1,5 @@
-import package::generated::effect::{effect_input, effect_sampler, context, ZeriumVertex, vertex};
-import package::generated::properties_vignette::props;
+import package::generated::host::effect::{effect_input, effect_sampler, context, ZeriumVertex, vertex};
+import package::generated::vignette::props;
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

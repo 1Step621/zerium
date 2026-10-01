@@ -1,44 +1,15 @@
 use crate::domain::{
-    plugin::{PropertyLayout, ShaderKind, abi_size, scalar_abi_size, value_string_count},
+    plugin::{ShaderKind, ShaderProperty, abi_size, scalar_abi_size, value_string_count},
     property::{PropertyType, PropertyValueType, ScalarPropertyType},
 };
 
-#[derive(Clone, PartialEq)]
-struct InterfaceField {
-    id: String,
-    ty: PropertyType,
-    offset: usize,
-}
-
-#[derive(Clone)]
-pub(crate) struct Layout {
-    fields: Vec<InterfaceField>,
-}
-
-impl Layout {
-    pub(crate) fn from_abi(layout: &PropertyLayout) -> Self {
-        Self {
-            fields: layout
-                .fields()
-                .map(|(id, ty, offset)| InterfaceField {
-                    id: id.to_owned(),
-                    ty: ty.clone(),
-                    offset,
-                })
-                .collect(),
-        }
+pub(super) fn interface(fields: &[ShaderProperty], kind: ShaderKind) -> String {
+    if fields.is_empty() {
+        return String::new();
     }
-
-    pub(crate) fn retain_compatible(&mut self, other: &Self) {
-        self.fields.retain(|field| other.fields.contains(field));
-    }
-
-    pub(crate) fn interface(&self, kind: ShaderKind) -> String {
-        generate_property_interface(&self.fields, kind)
-    }
-}
-
-fn generate_property_interface(fields: &[InterfaceField], kind: ShaderKind) -> String {
+    let stores_raw = fields
+        .iter()
+        .any(|field| matches!(field.ty, PropertyType::Array { .. }));
     let struct_name = "ZeriumProps";
     let load_function = "props";
     let accessor_prefix = "get";
@@ -60,12 +31,11 @@ fn generate_property_interface(fields: &[InterfaceField], kind: ShaderKind) -> S
         let value_type = field.ty.value_type();
         value_string_count(value_type) > 0
     }) {
-        source.push_str("struct ZeriumStr {\n    _offset: u32,\n    byte_len: u32,\n};\n\n");
-        source
-            .push_str("fn str_byte(raw: ZeriumRawProps, value: ZeriumStr, index: u32) -> u32 {\n");
+        source.push_str("struct ZeriumStr {\n    _raw: ZeriumRawProps,\n    _offset: u32,\n    byte_len: u32,\n};\n\n");
+        source.push_str("fn str_byte(value: ZeriumStr, index: u32) -> u32 {\n");
         source.push_str("    if index >= value.byte_len { return 0u; }\n");
         source.push_str("    let byte_offset = value._offset + index;\n");
-        source.push_str("    let word = read_u32(raw, byte_offset & 0xfffffffcu);\n");
+        source.push_str("    let word = read_u32(value._raw, byte_offset & 0xfffffffcu);\n");
         source.push_str("    return (word >> ((byte_offset & 3u) * 8u)) & 0xffu;\n}\n\n");
     }
     for (field, tuple_name) in fields.iter().zip(&tuple_names) {
@@ -82,9 +52,10 @@ fn generate_property_interface(fields: &[InterfaceField], kind: ShaderKind) -> S
         }
         source.push_str("};\n\n");
     }
-    source.push_str(&format!(
-        "struct {struct_name} {{\n    _raw: ZeriumRawProps,\n"
-    ));
+    source.push_str(&format!("struct {struct_name} {{\n"));
+    if stores_raw {
+        source.push_str("    _raw: ZeriumRawProps,\n");
+    }
     for (field, tuple_name) in fields.iter().zip(&tuple_names) {
         if matches!(field.ty, PropertyType::Array { .. }) {
             source.push_str(&format!("    {}_len: u32,\n", field.id));
@@ -113,7 +84,10 @@ fn generate_property_interface(fields: &[InterfaceField], kind: ShaderKind) -> S
     source.push_str(&format!(
         "    let raw = {raw_load_function}({raw_arguments});\n"
     ));
-    source.push_str(&format!("    return {struct_name}(raw"));
+    let mut loads = Vec::new();
+    if stores_raw {
+        loads.push("raw".to_owned());
+    }
     for (field, tuple_name) in fields.iter().zip(&tuple_names) {
         let load = if matches!(field.ty, PropertyType::Array { .. }) {
             format!("read_u32(raw, {}u)", field.offset + 4)
@@ -126,10 +100,12 @@ fn generate_property_interface(fields: &[InterfaceField], kind: ShaderKind) -> S
                 &format!("{}u", field.offset),
             )
         };
-        source.push_str(", ");
-        source.push_str(&load);
+        loads.push(load);
     }
-    source.push_str(");\n}\n");
+    source.push_str(&format!(
+        "    return {struct_name}({});\n}}\n",
+        loads.join(", ")
+    ));
 
     for (field, tuple_name) in fields.iter().zip(&tuple_names) {
         let PropertyType::Array { element_type, .. } = &field.ty else {
@@ -190,7 +166,7 @@ const fn scalar_zero(ty: &ScalarPropertyType) -> &'static str {
         ScalarPropertyType::U32 | ScalarPropertyType::Enum(_) => "0u",
         ScalarPropertyType::Bool => "false",
         ScalarPropertyType::Color => "vec4(0.0)",
-        ScalarPropertyType::String => "ZeriumStr(0u, 0u)",
+        ScalarPropertyType::String => "ZeriumStr(ZeriumRawProps(0u, 0u), 0u, 0u)",
     }
 }
 
@@ -223,7 +199,7 @@ fn scalar_load(ty: &ScalarPropertyType, raw: &str, offset: &str) -> String {
              read_f32({raw}, {offset} + 8u), read_f32({raw}, {offset} + 12u))"
         ),
         ScalarPropertyType::String => format!(
-            "ZeriumStr(read_u32({raw}, {offset}), \
+            "ZeriumStr({raw}, read_u32({raw}, {offset}), \
              read_u32({raw}, {offset} + 4u))"
         ),
     }

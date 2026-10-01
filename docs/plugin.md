@@ -94,7 +94,7 @@ An item declares its output `shader` at the top level. Its `capabilities` array
 contains named inputs to that shader. An effect has the same array, and each
 render, compute, or temporal pass can use those inputs. Array order fixes the
 GPU binding order; each `id` is unique within its item or effect and becomes
-the WESL symbol imported from `package::generated::capability_input`.
+the WESL symbol imported from `package::generated::<entity_id>`.
 
 - `media` decodes a video or image file and exposes its pixels as a texture.
 - `text` rasterizes text from referenced properties into a texture.
@@ -130,7 +130,7 @@ capability textures contain scene-linear, premultiplied color. For example:
 }
 ```
 
-The item shader can use `import package::generated::capability_input::{source,
+A shared media shader can use `import package::generated::host::entity::{source,
 capability_sampler};` and sample `source` with `capability_sampler`.
 Every visual media input presents the reader's returned frame resolution to the
 shader in scene-linear, premultiplied color. An input that fills a quad can
@@ -404,31 +404,65 @@ when provided it must label every member exactly once.
 
 ## Generated WESL API
 
-Shader sources name WESL modules. The host API is imported explicitly so editor
-tools can resolve it without seeing Zerium's Rust-side source concatenation:
+Shader sources import the host API and the item/effect interface explicitly:
 
 ```wesl
-import package::generated::item::{context, quad_corner};
-import package::generated::properties_shape::{ZeriumProps, props};
+import package::generated::host::item::{context, quad_corner};
+import package::generated::shape::{ZeriumProps, props};
 ```
 
 The `module` value is a single WGSL identifier. For example, `"module": "shape"`
 loads `shape.wesl` as `package::shape`. Other root-level `.wesl` files may be
 imported as helper modules; `generated` is reserved for host-provided modules.
 
-`properties_<shader>.wesl` is generated from the manifest properties. Run
-`zerium plugin generate` in a plugin directory whenever its manifest or shader
-contract changes. The command writes the host interface modules, property
-modules, and per-module capability interfaces under `generated/`. Shader imports
-are authored in the WESL files and are not rewritten by the generator.
-These generated modules are packaged with the plugin. At runtime,
-`package::generated::capability_input` is selected from the interface for the
-shader being compiled. Zerium links plugin WESL to in-memory WGSL once
-when loading the application and shares that result between preview and export;
-plugin authors do not generate or distribute WGSL. Zerium rejects generated
-files whose manifest fingerprint is stale. A module shared by several items or
-passes gets the property fields whose type and ABI location agree in every use. It
-must use one shader kind and one capability-input layout.
+`generated/<entity_id>.wesl` combines one visual item's or effect's full typed
+property API and capability input declarations. The file is named after the
+item/effect ID, independently of its shader module names. For example:
+
+```wesl
+import package::generated::text::{props, text, capability_sampler};
+import package::generated::outline::props; // render and compute outline passes
+```
+
+Every pass of an effect shares the same generated file. `glow_blur.wesl` and
+`glow.wesl` both import `package::generated::glow`; compute or temporal passes do
+not get separate property or capability interfaces.
+
+A shader shared by multiple entities imports `package::generated::host::entity`.
+For example, the shared `media.wesl` imports this alias while video, image and SVG
+items each have their own generated file and full property layout. When linking,
+Zerium resolves `host::entity` to the current item's or effect's packaged interface.
+
+Run `zerium plugin generate` in a plugin directory whenever its shader contract
+changes. The command writes common host modules (`util`, `item`, `effect`, `compute`,
+`temporal`) under `generated/host/`, and one interface file per visual item/effect
+under `generated/`. Internal `_item`, `_effect`, `_compute`, `_temporal` and
+`_context` also live under `generated/host/`. During linking, `host::_props`
+selects the packaged internal interface for the current pass kind;
+both the host helpers and the entity property loader use this same interface.
+These aliases only select existing files: runtime does not generate WESL
+property or capability declarations.
+
+Visual item/effect IDs must be WGSL identifiers and distinct across both kinds,
+since they share the generated module namespace. Host APIs and aliases live in a
+separate namespace: an effect named `compute` imports its properties from
+`package::generated::compute` and the compute API from
+`package::generated::host::compute`. `item`, `effect`, `util`, `temporal`, `entity`
+and even `host` are also available as entity IDs. Shader module names remain
+independent and may be shared. Generated modules, helper names and fields
+starting with `_` are implementation details, not part of the plugin API.
+Shader imports are authored in the WESL files and are not rewritten by the
+generator.
+
+Zerium links plugin WESL to in-memory WGSL once when loading the application and
+shares that result between preview and export; plugin authors do not generate or
+distribute WGSL. Zerium rejects generated files whose shader-contract fingerprint
+is stale. The fingerprint covers entity IDs and kinds, the set of pass shader
+kinds, full property IDs, shader types and ABI offsets, capability input IDs and
+binding order, and the host interface revision. JSON formatting, display metadata,
+defaults, enum choices and array length limits do not require regeneration.
+Repeating or reordering passes of the same kinds, changing constants, or changing
+shader module names does not duplicate or change the generated entity interface.
 
 ```sh
 zerium plugin generate
@@ -442,8 +476,9 @@ linking and WGSL validation used by the renderer:
 zerium plugin validate path/to/plugin
 ```
 
-The generated property module exposes a typed struct for each shader module.
-All shader kinds use the same loader name:
+A module with properties exposes a typed property struct; a module without
+properties does not generate `ZeriumProps` or `props`. All shader kinds use the
+same loader name:
 
 ```wesl
 let properties = props(instance_index); // item shader
@@ -453,8 +488,11 @@ let properties = props();               // effect pass
 Tuple fields are generated structs with fields `v0`, `v1`, and so on. Arrays use
 `properties.<id>_len` plus `get_<id>(properties, index)`, including arrays
 of strings. A string is represented by `ZeriumStr`; its byte length is
-`value.byte_len`, and `str_byte(properties._raw, value, index)` reads one
-UTF-8 byte. The descriptor layout and backing-buffer offsets remain host-private.
+`value.byte_len`, and `str_byte(value, index)` reads one UTF-8 byte, returning
+zero outside the string. String descriptors carry their own internal backing
+reference, so callers do not pass raw property data. The descriptor layout and
+backing-buffer offsets remain host-private. Use `props`, array accessors and
+`str_byte` instead of raw buffers or property-reading functions.
 
 Host types use the `Zerium` namespace; resource and function names are concise
 and unprefixed. Plugin WESL must not redeclare imported host names.
@@ -466,8 +504,8 @@ instance index; effect passes do not. Composition coordinates are centered,
 with positive X right and positive Y down.
 
 Procedural and media item shaders also receive quad and coordinate helpers such
-as `quad_corner`, `quad_position`, and
-`rotate`.
+as `quad_corner` and `quad_position`. Shared rotation and color helpers live in
+`package::generated::host::util`, including `rotate`, `srgb`, and `scene_color`.
 
 ## Render surfaces and bounds
 
@@ -613,8 +651,9 @@ full surface as their coordinate range.
 Render and compute passes receive `effect_input`, the current pipeline
 input, and `effect_source`, the image captured at the start of the current
 regular pass chain. They also receive `effect_sampler`. Capability inputs are
-imported by ID from `package::generated::capability_input` with
-`capability_sampler`. Compute passes write with `store(position, color)`.
+imported by ID from `package::generated::<entity_id>` (or the `host::entity` alias) with
+`capability_sampler`. Modules without capability inputs do not generate a
+capability sampler. Compute passes write with `store(position, color)`.
 
 A temporal pass must be first and may occur at most once. Its `sampling`
 declaration maps public properties to host-controlled subframe sampling, while
@@ -641,8 +680,11 @@ the past, positive offsets the future, and zero samples the current frame.
 
 Reducer WESL receives `temporal_sample`,
 `temporal_accumulation`, `temporal_sampler`, and
-`info()`. Later render or compute passes consume the reduced
-texture normally.
+`info() -> ZeriumTemporalInfo`. The public info contains `sample_index`,
+`sample_count`, `frame_offset` (in frames), and `sample_progress` (0–1).
+Surface dimensions and scale come from `context()`; GPU property offsets and
+uniform buffers are not part of this API. Later render or compute passes consume
+the reduced texture normally.
 
 Shader identities are derived internally from plugin ID, item/effect ID, and
 pass index. Plugins declare module IDs and entry points, not global pipeline

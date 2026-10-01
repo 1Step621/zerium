@@ -1,5 +1,5 @@
-import package::generated::effect::{ZeriumVertex, vertex, uv_to_position, input_uv_to_position, position_to_uv, sample_or_transparent};
-import package::generated::properties_scale::props;
+import package::generated::host::effect::{ZeriumVertex, vertex, uv_to_position, input_uv_to_position, position_to_uv, sample_or_transparent};
+import package::generated::scale::props;
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

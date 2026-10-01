@@ -7,7 +7,7 @@ fn read_word(properties: ZeriumRawProps, word_index: u32) -> u32 {
     if word_index * 4u >= properties.size {
         return 0u;
     }
-    return property_words[properties.offset + word_index];
+    return _property_words[properties.offset + word_index];
 }
 
 fn read_u32(properties: ZeriumRawProps, byte_offset: u32) -> u32 {

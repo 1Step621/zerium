@@ -1,6 +1,6 @@
-import package::generated::util::scene_color;
-import package::generated::item::{quad_corner, quad_position};
-import package::generated::properties_star::props;
+import package::generated::host::util::scene_color;
+import package::generated::host::item::{quad_corner, quad_position};
+import package::generated::star::props;
 
 const PI: f32 = 3.141592653589793;
 const MAX_STAR_VERTICES: u32 = 32u;

@@ -1,6 +1,5 @@
-import package::generated::item::{quad_corner, quad_uv, quad_position};
-import package::generated::properties_media::props;
-import package::generated::capability_input::{source, capability_sampler};
+import package::generated::host::item::{quad_corner, quad_uv, quad_position};
+import package::generated::host::entity::{props, source, capability_sampler};
 
 struct MediaVertexOutput {
     @builtin(position) position: vec4<f32>,

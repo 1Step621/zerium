@@ -1,7 +1,7 @@
-import package::generated::util::scene_color;
-import package::generated::item::{quad_corner, quad_position};
-import package::generated::properties_spline_path::{ZeriumProps, props, get_points};
+import package::generated::host::util::scene_color;
+import package::generated::host::item::{quad_corner, quad_position};
 import package::spline::{SplineCurve, spline_curve, spline_point, segment_distance, spline_steps, spline_length, spline_segment_count, spline_indices};
+import package::generated::spline_path::{ZeriumProps, props, get_points};
 
 struct SplineVertex {
     @builtin(position) position: vec4<f32>,

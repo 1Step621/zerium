@@ -1,6 +1,6 @@
-import package::generated::util::srgb;
-import package::generated::effect::{effect_input, effect_source, ZeriumVertex, vertex, over};
-import package::generated::properties_glow::props;
+import package::generated::host::util::srgb;
+import package::generated::host::effect::{effect_input, effect_source, ZeriumVertex, vertex, over};
+import package::generated::glow::props;
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

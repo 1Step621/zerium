@@ -111,6 +111,22 @@ The plugin boundary has three responsibilities:
 The plugin ABI exposes ordered values and generated shader data; internal stable
 array IDs are not exposed to plugins.
 
+`plugin::shader_contract` collects one contract per visual item/effect: its
+identity and kind, distinct pass shader kinds, full property fields and ABI
+offsets, and ordered capability input IDs. The generator and loader share this
+representation for compatibility checks and fingerprints. The CLI writes one
+packaged WESL interface per entity, combining properties and capability
+declarations. Every effect pass imports the same `package::generated::<entity_id>`;
+a shader shared by several entities can import the `host::entity` alias instead.
+
+The common API and internal modules live under `package::generated::host`,
+separate from entity IDs. Internal `_item`, `_effect`, `_compute`, `_temporal` and
+`_context` modules contain GPU metadata and decoding. Linking selects the packaged
+internal module for the current shader kind as `host::_props`, used by both host
+helpers and entity property loaders. These aliases do not generate declarations at runtime. Public shaders
+use typed properties, self-contained string accessors and coordinate/context
+helpers.
+
 Plugin item and effect schemas own the property contracts. `PropertyValues`
 stores only current values; edits and loading validate them against the owning
 schema. Project files record
@@ -122,8 +138,8 @@ for project files and the timeline clipboard.
 Item and effect schemas share an ordered array of named shader inputs.
 `media`, `text`, and `render_result` can each produce a scene-linear
 texture, and both item shaders and effect passes import them by ID from the
-same generated capability module. The item's output shader is separate from
-its inputs. Each effect instance owns its imported file assets. Item-only
+same generated interface as their properties. The item's output shader is
+separate from its inputs. Each effect instance owns its imported file assets. Item-only
 `audio` and `editor` declarations stay outside shader capabilities. Rendering
 resolves capability nodes before the owner shader or pass and binds them in
 manifest order.

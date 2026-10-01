@@ -1,6 +1,6 @@
-import package::generated::compute::{effect_input, effect_sampler, context, store};
-import package::generated::properties_glow_blur::props;
+import package::generated::host::compute::{effect_input, effect_sampler, context, store};
 import constants::{direction_x, direction_y, radius_scale};
+import package::generated::glow::props;
 
 // Like gaussian_blur.wesl, blur each axis twice. Different radii stagger the
 // sample positions at large widths; their squared scales still add to one.

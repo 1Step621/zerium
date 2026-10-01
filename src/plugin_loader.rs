@@ -9,7 +9,10 @@ use std::{
 
 use rust_embed::RustEmbed;
 
-use crate::domain::plugin::{Plugin, PluginError, PluginManifest, PluginRegistry};
+use crate::domain::plugin::{
+    Plugin, PluginError, PluginManifest, PluginRegistry, shader_contract_fingerprint,
+    shader_contracts,
+};
 
 #[derive(RustEmbed)]
 #[folder = "plugins/"]
@@ -54,7 +57,7 @@ fn load_bundled_plugin(directory: &str) -> Result<Plugin, PluginError> {
             let path = path.into_owned();
             let relative = path.strip_prefix(&plugin_prefix)?.strip_suffix(".wesl")?;
             let module = if let Some(generated) = relative.strip_prefix("generated/") {
-                (!generated.contains('/')).then(|| format!("package::generated::{generated}"))?
+                format!("package::generated::{}", generated.replace('/', "::"))
             } else {
                 (!relative.contains('/')).then(|| format!("package::{relative}"))?
             };
@@ -64,7 +67,6 @@ fn load_bundled_plugin(directory: &str) -> Result<Plugin, PluginError> {
         .collect::<Result<BTreeMap<_, _>, _>>()?;
     from_parts(
         manifest,
-        &manifest_source,
         &fingerprint,
         modules,
         format!(
@@ -75,15 +77,15 @@ fn load_bundled_plugin(directory: &str) -> Result<Plugin, PluginError> {
 
 fn from_parts(
     manifest: PluginManifest,
-    manifest_source: &str,
     fingerprint: &str,
     modules: BTreeMap<String, String>,
     stale_message: impl Into<String>,
 ) -> Result<Plugin, PluginError> {
-    if fingerprint.trim() != manifest_fingerprint(manifest_source) {
+    let contracts = shader_contracts(&manifest)?;
+    if fingerprint.trim() != shader_contract_fingerprint(&contracts)? {
         return Err(PluginError::invalid_definition(stale_message));
     }
-    if !modules.contains_key("package::generated::util") {
+    if !modules.contains_key("package::generated::host::util") {
         return Err(PluginError::missing_asset(
             "plugin has no generated WESL modules",
         ));
@@ -95,20 +97,14 @@ fn from_parts(
             )));
         }
     }
+    for entity in contracts.keys() {
+        if !modules.contains_key(&format!("package::generated::{entity}")) {
+            return Err(PluginError::missing_asset(format!(
+                "entity '{entity}' has no generated/{entity}.wesl file; run `zerium plugin generate`"
+            )));
+        }
+    }
     Ok(Plugin::new(manifest, modules))
-}
-
-pub(crate) fn manifest_fingerprint(source: &str) -> String {
-    // Bump when the generated interface format or bundled templates change.
-    const GENERATED_INTERFACE_REVISION: &[u8] = b"zerium-plugin-interface-1\0";
-    let hash = GENERATED_INTERFACE_REVISION
-        .iter()
-        .copied()
-        .chain(source.bytes())
-        .fold(0xcbf2_9ce4_8422_2325_u64, |hash, byte| {
-            (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3)
-        });
-    format!("{hash:016x}")
 }
 
 pub(crate) fn load_filesystem_plugin(root: &Path) -> Result<Plugin, PluginError> {
@@ -129,44 +125,63 @@ pub(crate) fn load_filesystem_plugin(root: &Path) -> Result<Plugin, PluginError>
     let manifest = PluginManifest::from_json(&manifest_source)?;
     let generated = root.join("generated");
     let mut modules = BTreeMap::new();
-    for (directory, namespace) in [
-        (root, "package::"),
-        (generated.as_path(), "package::generated::"),
-    ] {
-        for entry in fs::read_dir(directory).map_err(|error| {
-            PluginError::missing_asset(format!(
-                "cannot read WESL directory '{}': {error}",
-                directory.display()
-            ))
-        })? {
-            let path = entry
-                .map_err(|error| PluginError::missing_asset(error.to_string()))?
-                .path();
-            if path.extension().and_then(|extension| extension.to_str()) != Some("wesl") {
-                continue;
-            }
-            let name = path
-                .file_stem()
-                .and_then(|name| name.to_str())
-                .ok_or_else(|| {
-                    PluginError::missing_asset(format!(
-                        "WESL file '{}' has no valid module name",
-                        path.display()
-                    ))
-                })?;
-            let source = fs::read_to_string(&path).map_err(|error| {
-                PluginError::missing_asset(format!("cannot read '{}': {error}", path.display()))
-            })?;
-            modules.insert(format!("{namespace}{name}"), source);
-        }
-    }
+    read_wesl_directory(root, "package::", false, &mut modules)?;
+    read_wesl_directory(&generated, "package::generated::", true, &mut modules)?;
     from_parts(
         manifest,
-        &manifest_source,
         &fingerprint,
         modules,
         "generated WESL is stale; run `zerium plugin generate`",
     )
+}
+
+fn read_wesl_directory(
+    directory: &Path,
+    namespace: &str,
+    recursive: bool,
+    modules: &mut BTreeMap<String, String>,
+) -> Result<(), PluginError> {
+    let entries = fs::read_dir(directory).map_err(|error| {
+        PluginError::missing_asset(format!(
+            "cannot read WESL directory '{}': {error}",
+            directory.display()
+        ))
+    })?;
+    for entry in entries {
+        let entry = entry.map_err(|error| PluginError::missing_asset(error.to_string()))?;
+        let path = entry.path();
+        let file_type = entry
+            .file_type()
+            .map_err(|error| PluginError::missing_asset(error.to_string()))?;
+        if recursive && file_type.is_dir() {
+            let name = entry.file_name();
+            let name = name.to_str().ok_or_else(|| {
+                PluginError::missing_asset(format!(
+                    "WESL directory '{}' has no valid module name",
+                    path.display()
+                ))
+            })?;
+            read_wesl_directory(&path, &format!("{namespace}{name}::"), true, modules)?;
+            continue;
+        }
+        if path.extension().and_then(|extension| extension.to_str()) != Some("wesl") {
+            continue;
+        }
+        let name = path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .ok_or_else(|| {
+                PluginError::missing_asset(format!(
+                    "WESL file '{}' has no valid module name",
+                    path.display()
+                ))
+            })?;
+        let source = fs::read_to_string(&path).map_err(|error| {
+            PluginError::missing_asset(format!("cannot read '{}': {error}", path.display()))
+        })?;
+        modules.insert(format!("{namespace}{name}"), source);
+    }
+    Ok(())
 }
 
 fn bundled_text(path: &str) -> Result<String, PluginError> {

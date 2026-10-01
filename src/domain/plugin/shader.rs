@@ -1,8 +1,9 @@
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use super::{PluginError, identifier::validate_wgsl_identifier};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub(crate) enum ShaderKind {
     Item,
     Effect,
@@ -12,6 +13,15 @@ pub(crate) enum ShaderKind {
 
 impl ShaderKind {
     pub(crate) const ALL: [Self; 4] = [Self::Item, Self::Effect, Self::Compute, Self::Temporal];
+
+    pub(crate) const fn internal_module_name(self) -> &'static str {
+        match self {
+            Self::Item => "_item",
+            Self::Effect => "_effect",
+            Self::Compute => "_compute",
+            Self::Temporal => "_temporal",
+        }
+    }
 
     pub(crate) const fn module_name(self) -> &'static str {
         match self {

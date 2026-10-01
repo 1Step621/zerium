@@ -1,6 +1,5 @@
-import package::generated::item::{quad_corner, quad_uv, quad_position};
-import package::generated::properties_text::props;
-import package::generated::capability_input::{text, capability_sampler};
+import package::generated::host::item::{quad_corner, quad_uv, quad_position};
+import package::generated::text::{props, text, capability_sampler};
 
 struct TextVertexOutput {
     @builtin(position) position: vec4<f32>,

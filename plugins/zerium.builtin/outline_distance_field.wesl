@@ -1,6 +1,6 @@
-import package::generated::compute::{effect_input, effect_source, context, store};
-import package::generated::properties_outline_distance_field::{ZeriumProps, props};
+import package::generated::host::compute::{effect_input, effect_source, context, store};
 import constants::phase;
+import package::generated::outline::{ZeriumProps, props};
 
 fn encode_site(site: vec2<u32>) -> vec4<f32> {
     let x = site.x + 1u;

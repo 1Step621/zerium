@@ -1,6 +1,6 @@
-import package::generated::util::DEG2RAD;
-import package::generated::effect::{ZeriumVertex, vertex, uv_to_position, position_to_uv, sample_or_transparent};
-import package::generated::properties_rotate_3d::props;
+import package::generated::host::util::DEG2RAD;
+import package::generated::host::effect::{ZeriumVertex, vertex, uv_to_position, position_to_uv, sample_or_transparent};
+import package::generated::rotate_3d::props;
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

@@ -1,6 +1,6 @@
-import package::generated::effect::{effect_instance, vertex, uv_to_position, position_to_uv, sample_or_transparent};
-import package::generated::properties_follow_spline::{ZeriumProps, props, get_points};
+import package::generated::host::effect::{input_uv_to_position, vertex, uv_to_position, position_to_uv, sample_or_transparent};
 import package::spline::{SplineCurve, spline_curve, spline_point, spline_steps, spline_length, spline_segment_count, spline_indices};
+import package::generated::follow_spline::{ZeriumProps, props, get_points};
 
 struct FollowVertex {
     @builtin(position) position: vec4<f32>,
@@ -72,7 +72,7 @@ fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> FollowVertex {
     output.position = base.position;
     output.uv = base.uv;
     output.offset = path_position(props())
-        - (effect_instance.input_min + effect_instance.input_size * 0.5);
+        - input_uv_to_position(vec2(0.5));
     return output;
 }
 

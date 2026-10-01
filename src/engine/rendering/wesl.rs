@@ -7,23 +7,38 @@ use wesl::{
 };
 
 use super::RenderError;
-use crate::domain::plugin::{PassConstantSchema, PassConstantValue};
+use crate::domain::plugin::{PassConstantSchema, PassConstantValue, ShaderKind};
 
 pub(super) fn compile(
     modules: &BTreeMap<String, String>,
     module: &str,
+    entity: &str,
+    kind: ShaderKind,
     constants: &[PassConstantSchema],
-    capability_interface: &str,
 ) -> Result<String, RenderError> {
     let mut resolver = VirtualResolver::new();
     for (path, source) in modules {
         add_module(&mut resolver, path, source)?;
     }
-    add_module(
-        &mut resolver,
-        "package::generated::capability_input",
-        capability_interface,
-    )?;
+    // Select packaged interfaces; no WESL declarations are generated at runtime.
+    for (alias, target) in [
+        ("entity", format!("package::generated::{entity}")),
+        (
+            "_props",
+            format!("package::generated::host::{}", kind.internal_module_name()),
+        ),
+    ] {
+        let source = modules.get(&target).ok_or_else(|| {
+            RenderError::backend(format!(
+                "missing WESL module '{target}'; run `zerium plugin generate`"
+            ))
+        })?;
+        add_module(
+            &mut resolver,
+            &format!("package::generated::host::{alias}"),
+            source,
+        )?;
+    }
     let mut constants_resolver = StandardResolver::new(".");
     add_constants(&mut constants_resolver, constants);
     let mut router = Router::new();

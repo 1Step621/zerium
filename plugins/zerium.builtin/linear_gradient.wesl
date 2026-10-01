@@ -1,6 +1,6 @@
-import package::generated::util::{srgb, DEG2RAD};
-import package::generated::effect::{effect_source, effect_sampler, context, ZeriumVertex, vertex};
-import package::generated::properties_linear_gradient::props;
+import package::generated::host::util::{srgb, DEG2RAD};
+import package::generated::host::effect::{effect_source, effect_sampler, context, ZeriumVertex, vertex};
+import package::generated::linear_gradient::props;
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

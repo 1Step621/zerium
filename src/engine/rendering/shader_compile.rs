@@ -10,7 +10,7 @@ use super::{
     wesl,
 };
 use crate::domain::plugin::{
-    Capability, EffectPassSchema, PassConstantSchema, PluginRegistry, ShaderSchema,
+    EffectPassSchema, PassConstantSchema, PluginRegistry, ShaderKind, ShaderSchema,
 };
 
 pub(crate) fn compile_plugins(
@@ -23,23 +23,23 @@ pub(crate) fn compile_plugins(
             compiled.items.push(compile_item_shader(
                 plugins,
                 plugin_id,
+                schema.id(),
                 shader,
                 id,
                 schema.vertex_count(),
-                schema.capabilities(),
             )?);
         }
     }
     for (plugin_id, schema) in plugins.effects() {
-        let interface = super::capability_input::interface(schema.capabilities());
         for (pass_index, pass) in schema.passes().iter().enumerate() {
             let id = EffectShaderId::plugin_pass(plugin_id, schema.id(), pass_index);
             let source: Arc<str> = compile_plugin_shader(
                 plugins,
                 plugin_id,
+                schema.id(),
                 pass.shader_module(),
+                pass.shader_kind(),
                 pass.constants(),
-                &interface,
             )?
             .into();
             let label = format!("{} pass {pass_index}", schema.id());
@@ -102,14 +102,20 @@ pub(crate) fn compile_plugins(
 fn compile_item_shader(
     plugins: &PluginRegistry,
     plugin_id: &str,
+    entity: &str,
     shader: &ShaderSchema,
     id: ItemShaderId,
     vertex_count: u32,
-    capabilities: &[Capability],
 ) -> Result<ItemShaderDescriptor, RenderError> {
-    let interface = super::capability_input::interface(capabilities);
-    let source: Arc<str> =
-        compile_plugin_shader(plugins, plugin_id, shader.module(), &[], &interface)?.into();
+    let source: Arc<str> = compile_plugin_shader(
+        plugins,
+        plugin_id,
+        entity,
+        shader.module(),
+        ShaderKind::Item,
+        &[],
+    )?
+    .into();
     validate_render_shader(&id, &source, shader.vertex_entry(), shader.fragment_entry())?;
     Ok(ItemShaderDescriptor {
         id,
@@ -124,14 +130,15 @@ fn compile_item_shader(
 fn compile_plugin_shader(
     plugins: &PluginRegistry,
     plugin_id: &str,
+    entity: &str,
     module: &str,
+    kind: ShaderKind,
     constants: &[PassConstantSchema],
-    capability_interface: &str,
 ) -> Result<String, RenderError> {
     let plugin = plugins
         .plugin(plugin_id)
         .ok_or_else(|| RenderError::backend(format!("plugin '{plugin_id}' was not loaded")))?;
-    wesl::compile(plugin.modules(), module, constants, capability_interface)
+    wesl::compile(plugin.modules(), module, entity, kind, constants)
 }
 
 fn parse_and_validate_shader(

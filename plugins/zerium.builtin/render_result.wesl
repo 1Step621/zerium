@@ -1,5 +1,5 @@
-import package::generated::item::quad_corner;
-import package::generated::capability_input::render_result;
+import package::generated::host::item::quad_corner;
+import package::generated::render_result::render_result;
 
 struct RenderResultVertexOutput {
     @builtin(position) position: vec4<f32>,

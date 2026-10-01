@@ -1,6 +1,6 @@
-import package::generated::util::{scene_color, DEG2RAD};
-import package::generated::item::{to_ndc, quad_corner, rotate};
-import package::generated::properties_line::props;
+import package::generated::host::util::{scene_color, DEG2RAD, rotate};
+import package::generated::host::item::{to_ndc, quad_corner};
+import package::generated::line::props;
 
 struct LineVertexOutput {
     @builtin(position) position: vec4<f32>,

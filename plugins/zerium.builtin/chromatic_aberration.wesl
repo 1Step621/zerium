@@ -1,6 +1,6 @@
-import package::generated::util::DEG2RAD;
-import package::generated::effect::{effect_input, effect_sampler, context, ZeriumVertex, vertex, straight};
-import package::generated::properties_chromatic_aberration::props;
+import package::generated::host::util::DEG2RAD;
+import package::generated::host::effect::{effect_input, effect_sampler, context, ZeriumVertex, vertex, straight};
+import package::generated::chromatic_aberration::props;
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

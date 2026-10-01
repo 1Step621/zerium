@@ -1,6 +1,5 @@
-import package::generated::capability_input::{behind, capability_sampler};
-import package::generated::effect::{effect_input, effect_sampler, viewport_uv, ZeriumVertex, vertex};
-import package::generated::properties_layer_mask::props;
+import package::generated::host::effect::{effect_input, effect_sampler, viewport_uv, ZeriumVertex, vertex};
+import package::generated::layer_mask::{behind, capability_sampler, props};
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

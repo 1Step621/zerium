@@ -71,17 +71,3 @@ Use `direnv` to enter the shared Rust environment:
 ```sh
 direnv allow
 ```
-
-To develop against sibling `wgpui` and `wgpui-component` checkouts, create a local
-`.cargo/config.toml` (ignored by Git):
-
-```toml
-[patch."https://github.com/1Step621/WGPUI"]
-gpui-ce = { path = "../wgpui" }
-
-[patch."https://github.com/1Step621/WGPUI-Component"]
-ui = { path = "../wgpui-component/crates/ui" }
-```
-
-After publishing library changes, update the Git dependency revisions and regenerate
-`Cargo.lock` without the local overrides before packaging a standalone release.

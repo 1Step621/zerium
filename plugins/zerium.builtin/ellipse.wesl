@@ -1,6 +1,6 @@
-import package::generated::util::scene_color;
-import package::generated::item::{quad_corner, quad_position};
-import package::generated::properties_ellipse::props;
+import package::generated::host::util::scene_color;
+import package::generated::host::item::{quad_corner, quad_position};
+import package::generated::ellipse::props;
 
 struct EllipseVertexOutput {
     @builtin(position) position: vec4<f32>,

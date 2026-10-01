@@ -1,5 +1,5 @@
-import package::generated::compute::{effect_input, context, store};
-import package::generated::properties_pixel_sort::props;
+import package::generated::host::compute::{effect_input, context, store};
+import package::generated::pixel_sort::props;
 
 fn pixel_luminance(color: vec4<f32>) -> f32 {
     return dot(color.rgb, vec3(0.2126, 0.7152, 0.0722));

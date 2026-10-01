@@ -1,6 +1,6 @@
-import package::generated::compute::{effect_input, effect_sampler, context, store};
-import package::generated::properties_gaussian_blur::props;
+import package::generated::host::compute::{effect_input, effect_sampler, context, store};
 import constants::{direction_x, direction_y, radius_scale};
+import package::generated::gaussian_blur::props;
 
 // Each axis is blurred twice at radius / sqrt(2). Convolving the two passes
 // gives the same Gaussian width as one full-radius pass, while filling in

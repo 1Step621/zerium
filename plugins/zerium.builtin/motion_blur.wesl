@@ -1,4 +1,4 @@
-import package::generated::temporal::{temporal_sample, temporal_accumulation, temporal_sampler, info, ZeriumVertex, vertex};
+import package::generated::host::temporal::{temporal_sample, temporal_accumulation, temporal_sampler, info, ZeriumVertex, vertex};
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

@@ -1,6 +1,8 @@
 use std::{collections::BTreeMap, fs, path::Path};
 
-use crate::domain::plugin::{PluginManifest, ShaderKind};
+use crate::domain::plugin::{
+    PluginManifest, ShaderContract, ShaderKind, shader_contract_fingerprint, shader_contracts,
+};
 use crate::engine::rendering::capability_input;
 
 mod property;
@@ -8,12 +10,6 @@ mod property;
 const GENERATED_DIR: &str = "generated";
 const MANIFEST_FINGERPRINT: &str = "manifest.fingerprint";
 const UTIL_INTERFACE: &str = include_str!("wesl/util.wesl");
-
-struct ShaderContract {
-    kind: ShaderKind,
-    properties: property::Layout,
-    capability_interface: String,
-}
 
 pub(crate) fn generate(path: Option<&Path>) -> Result<(), String> {
     let root = path
@@ -35,35 +31,7 @@ pub(crate) fn generate(path: Option<&Path>) -> Result<(), String> {
             .map_err(|error| format!("shader module '{module}' could not be read: {error}"))?;
     }
 
-    let mut contracts = BTreeMap::<String, ShaderContract>::new();
-    for schema in manifest.items() {
-        let layout = property::Layout::from_abi(schema.property_layout());
-        if let Some(shader) = schema.shader() {
-            insert_contract(
-                &mut contracts,
-                shader.module(),
-                ShaderContract {
-                    kind: ShaderKind::Item,
-                    properties: layout.clone(),
-                    capability_interface: capability_input::interface(schema.capabilities()),
-                },
-            )?;
-        }
-    }
-    for schema in manifest.effects() {
-        let layout = property::Layout::from_abi(schema.property_layout());
-        for pass in schema.passes() {
-            insert_contract(
-                &mut contracts,
-                pass.shader_module(),
-                ShaderContract {
-                    kind: pass.shader_kind(),
-                    properties: layout.clone(),
-                    capability_interface: capability_input::interface(schema.capabilities()),
-                },
-            )?;
-        }
-    }
+    let contracts = shader_contracts(&manifest).map_err(|error| error.to_string())?;
 
     let staging = root.join(format!(".{GENERATED_DIR}.tmp-{}", std::process::id()));
     if staging.exists() {
@@ -72,7 +40,7 @@ pub(crate) fn generate(path: Option<&Path>) -> Result<(), String> {
     }
     fs::create_dir(&staging)
         .map_err(|error| format!("cannot create '{}': {error}", staging.display()))?;
-    let result = write_generated(&staging, &manifest_source, &contracts);
+    let result = write_generated(&staging, &contracts);
     if let Err(error) = result {
         let _ = fs::remove_dir_all(&staging);
         return Err(error);
@@ -87,38 +55,42 @@ pub(crate) fn generate(path: Option<&Path>) -> Result<(), String> {
 
 fn write_generated(
     generated: &Path,
-    manifest_source: &str,
     contracts: &BTreeMap<String, ShaderContract>,
 ) -> Result<(), String> {
     write(
         generated,
         MANIFEST_FINGERPRINT,
-        &crate::plugin_loader::manifest_fingerprint(manifest_source),
+        &shader_contract_fingerprint(contracts).map_err(|error| error.to_string())?,
     )?;
-    write(generated, "util.wesl", UTIL_INTERFACE)?;
+    let host = generated.join("host");
+    fs::create_dir(&host)
+        .map_err(|error| format!("cannot create '{}': {error}", host.display()))?;
+    write(&host, "util.wesl", UTIL_INTERFACE)?;
+    write(&host, "_context.wesl", include_str!("wesl/_context.wesl"))?;
     for kind in ShaderKind::ALL {
-        let source = host_interface(kind);
-        write(generated, &format!("{}.wesl", kind.module_name()), &source)?;
+        write(
+            &host,
+            &format!("{}.wesl", kind.module_name()),
+            host_interface(kind),
+        )?;
+        write(
+            &host,
+            &format!("{}.wesl", kind.internal_module_name()),
+            &internal_interface(kind),
+        )?;
     }
     for (module, contract) in contracts {
-        let property_interface = contract.properties.interface(contract.kind);
-        let host = format!(
-            "import package::generated::{}::{{{}}};\n\n",
-            contract.kind.module_name(),
-            property_imports(contract.kind)
-        );
-        write(
-            generated,
-            &format!("properties_{module}.wesl"),
-            &(host + &property_interface),
-        )?;
-        if contract.capability_interface.contains("texture_2d<f32>") {
-            write(
-                generated,
-                &format!("capability_input_{module}.wesl"),
-                &contract.capability_interface,
-            )?;
-        }
+        let property_interface = property::interface(&contract.properties, contract.kind);
+        let host = if contract.properties.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "import package::generated::host::_props::{{{}}};\n\n",
+                property_imports(contract.kind)
+            )
+        };
+        let source = host + &property_interface + "\n" + &capability_interface(&contract.input_ids);
+        write(generated, &format!("{module}.wesl"), &source)?;
     }
     Ok(())
 }
@@ -154,37 +126,43 @@ fn install_generated(root: &Path, staging: &Path) -> Result<(), String> {
     Ok(())
 }
 
-fn insert_contract(
-    contracts: &mut BTreeMap<String, ShaderContract>,
-    module: &str,
-    contract: ShaderContract,
-) -> Result<(), String> {
-    if let Some(existing) = contracts.get_mut(module) {
-        if existing.kind != contract.kind
-            || existing.capability_interface != contract.capability_interface
-        {
-            return Err(format!(
-                "shader module '{module}' is used with incompatible shader contracts"
-            ));
-        }
-        existing.properties.retain_compatible(&contract.properties);
-        return Ok(());
+fn capability_interface(input_ids: &[String]) -> String {
+    if input_ids.is_empty() {
+        return String::new();
     }
-    contracts.insert(module.to_owned(), contract);
-    Ok(())
+    let mut source = String::new();
+    for (binding, id) in input_ids.iter().enumerate() {
+        source.push_str(&format!(
+            "@group(1) @binding({binding})\nvar {id}: texture_2d<f32>;\n\n"
+        ));
+    }
+    source.push_str(&format!(
+        "@group(1) @binding({})\nvar capability_sampler: sampler;\n",
+        capability_input::SAMPLER_BINDING,
+    ));
+    source
 }
 
 fn write(generated: &Path, name: &str, source: &str) -> Result<(), String> {
-    fs::write(generated.join(name), source)
+    fs::write(generated.join(name), format!("{}\n", source.trim_end()))
         .map_err(|error| format!("cannot write '{}': {error}", generated.join(name).display()))
 }
 
-fn host_interface(kind: ShaderKind) -> String {
-    let kind_source = match kind {
+fn host_interface(kind: ShaderKind) -> &'static str {
+    match kind {
         ShaderKind::Item => include_str!("wesl/item.wesl"),
         ShaderKind::Effect => include_str!("wesl/effect.wesl"),
         ShaderKind::Compute => include_str!("wesl/compute.wesl"),
         ShaderKind::Temporal => include_str!("wesl/temporal.wesl"),
+    }
+}
+
+fn internal_interface(kind: ShaderKind) -> String {
+    let kind_source = match kind {
+        ShaderKind::Item => include_str!("wesl/_item.wesl"),
+        ShaderKind::Effect => include_str!("wesl/_effect.wesl"),
+        ShaderKind::Compute => include_str!("wesl/_compute.wesl"),
+        ShaderKind::Temporal => include_str!("wesl/_temporal.wesl"),
     };
     format!("{kind_source}\n{}", include_str!("wesl/raw_props.wesl"))
 }

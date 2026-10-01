@@ -1,5 +1,5 @@
-import package::generated::effect::{effect_input, effect_sampler, ZeriumVertex, vertex, straight};
-import package::generated::properties_color_adjustment::props;
+import package::generated::host::effect::{effect_input, effect_sampler, ZeriumVertex, vertex, straight};
+import package::generated::color_adjustment::props;
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {
