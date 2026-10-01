@@ -91,10 +91,13 @@ impl PropertyInspector {
         let text = div()
             .w_full()
             .min_w_0()
-            .overflow_hidden()
             .text_sm()
-            .whitespace_nowrap()
-            .text_ellipsis()
+            .when(matches!(width, AnimationLabelWidth::Fixed(_)), |this| {
+                this.whitespace_normal()
+            })
+            .when(matches!(width, AnimationLabelWidth::Fill), |this| {
+                this.overflow_hidden().whitespace_nowrap().text_ellipsis()
+            })
             .when(focused, |this| this.text_color(ctx.colors.primary))
             .child(label);
         let label = div()
@@ -129,7 +132,7 @@ impl PropertyInspector {
                 label,
                 common,
                 ctx,
-                AnimationLabelWidth::Fixed(32.),
+                AnimationLabelWidth::Fixed(Self::SCALAR_LABEL_WIDTH),
                 "scalar-label",
             )
         })
