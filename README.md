@@ -53,6 +53,18 @@ Then add it to your system packages:
 
 Under active development: all features, including the project file format, are subject to breaking changes.
 
+## Fonts
+
+The UI uses the system sans-serif family (Segoe UI on Windows and the configured
+fontconfig family on Linux). Missing CJK glyphs use regional fonts, including
+Yu Gothic UI / Meiryo on Windows and Noto Sans CJK JP / Noto Sans JP on Linux.
+Install a Japanese font on Linux if none is available; Zerium does not bundle CJK fonts.
+
+CJK fallback families are selected solely from the system locale, including
+regional tags such as `ja-JP`, `ko-KR`, and `zh-Hant-TW`.
+Text items try explicitly chosen font families in order, then use `sans-serif`.
+Missing glyphs in that family are handled by the font system's regional fallbacks.
+
 ## Acknowledgements
 
 - [AviUtl](https://spring-fragrance.mints.ne.jp/aviutl/)
@@ -71,3 +83,17 @@ Use `direnv` to enter the shared Rust environment:
 ```sh
 direnv allow
 ```
+
+To develop against sibling `wgpui` and `wgpui-component` checkouts, create a local
+`.cargo/config.toml` (ignored by Git):
+
+```toml
+[patch."https://github.com/1Step621/WGPUI"]
+gpui-ce = { path = "../wgpui" }
+
+[patch."https://github.com/1Step621/WGPUI-Component"]
+ui = { path = "../wgpui-component/crates/ui" }
+```
+
+After publishing library changes, update the Git dependency revisions and regenerate
+`Cargo.lock` without the local overrides before packaging a standalone release.

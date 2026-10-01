@@ -7,6 +7,7 @@ use cosmic_text::{
     Align, Attrs, Buffer, Color, Family, FontSystem, Metrics, Shaping, Stretch, Style, SwashCache,
     Weight, Wrap, fontdb,
 };
+use unicode_segmentation::UnicodeSegmentation;
 
 use crate::domain::plugin::{Capability, TextCapability};
 use crate::domain::property::{PropertyValue, PropertyValues};
@@ -73,7 +74,7 @@ impl TextFrameCache {
 
     pub(crate) fn with_byte_budget(byte_budget: usize) -> Self {
         Self {
-            font_system: FontSystem::new(),
+            font_system: gpui::new_font_system(),
             swash_cache: SwashCache::new(),
             frames: HashMap::new(),
             active: HashSet::new(),
@@ -291,8 +292,9 @@ impl TextFrameCache {
         let font_size = (signature.font_size * uniform_scale).max(1.);
         let metrics = Metrics::new(font_size, font_size * 1.2);
         let mut buffer = Buffer::new(&mut self.font_system, metrics);
-        let primary_family = signature
-            .font_families
+        let mut font_families = signature.font_families.clone();
+        font_families.push("sans-serif".into());
+        let primary_family = font_families
             .first()
             .map(String::as_str)
             .unwrap_or_default();
@@ -310,7 +312,7 @@ impl TextFrameCache {
         let font_runs = Self::font_runs(
             &mut self.font_system,
             &signature.content,
-            &signature.font_families,
+            &font_families,
             weight,
             style,
         );
@@ -319,7 +321,7 @@ impl TextFrameCache {
             .map(|(_, family_index)| {
                 Self::attrs_for_family(
                     &self.font_system,
-                    signature.font_families[*family_index].as_str(),
+                    font_families[*family_index].as_str(),
                     weight,
                     style,
                 )
@@ -438,16 +440,29 @@ impl TextFrameCache {
         if text.is_empty() || families.len() < 2 {
             return Vec::new();
         }
+        let fonts = families
+            .iter()
+            .map(|family| {
+                let font_id = font_system.db().query(&fontdb::Query {
+                    families: &[Self::family(family)],
+                    weight,
+                    stretch: Stretch::Normal,
+                    style,
+                })?;
+                font_system.get_font(font_id, weight)
+            })
+            .collect::<Vec<_>>();
         let mut runs = Vec::new();
         let mut current_family = 0;
         let mut run_start = 0;
-        for (index, character) in text.char_indices() {
-            let family = families
+        for (index, grapheme) in text.grapheme_indices(true) {
+            let family = fonts
                 .iter()
-                .position(|family| {
-                    Self::family_supports(font_system, family, character, weight, style)
+                .position(|font| {
+                    font.as_ref()
+                        .is_some_and(|font| Self::font_supports(font, grapheme))
                 })
-                .unwrap_or(0);
+                .unwrap_or(families.len() - 1);
             if index > run_start && family != current_family {
                 runs.push((run_start..index, current_family));
                 run_start = index;
@@ -458,28 +473,13 @@ impl TextFrameCache {
         runs
     }
 
-    fn family_supports(
-        font_system: &mut FontSystem,
-        family_name: &str,
-        character: char,
-        weight: Weight,
-        style: Style,
-    ) -> bool {
-        if character.is_whitespace() {
-            return true;
-        }
-        let family = Self::family(family_name);
-        let Some(font_id) = font_system.db().query(&fontdb::Query {
-            families: &[family],
-            weight,
-            stretch: Stretch::Normal,
-            style,
-        }) else {
-            return false;
-        };
-        font_system
-            .get_font(font_id, weight)
-            .is_some_and(|font| font.as_swash().charmap().map(character) != 0)
+    fn font_supports(font: &cosmic_text::Font, grapheme: &str) -> bool {
+        let charmap = font.as_swash().charmap();
+        grapheme.chars().all(|character| {
+            character.is_control()
+                || matches!(character as u32, 0x200c..=0x200d | 0xfe00..=0xfe0f | 0xe0100..=0xe01ef)
+                || charmap.map(character) != 0
+        })
     }
 
     fn align_vertically(coverage: &mut [u8], width: usize, height: usize, alignment: u32) {
