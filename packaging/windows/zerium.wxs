@@ -17,6 +17,7 @@
 
     <Icon Id="ZeriumIcon" SourceFile="$(var.IconPath)" />
     <UIRef Id="WixUI_Minimal" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtfPath)" />
 
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFilesFolder">

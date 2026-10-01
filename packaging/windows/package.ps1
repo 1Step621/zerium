@@ -31,6 +31,14 @@ $wixBin = (Get-ChildItem "${env:ProgramFiles(x86)}\WiX Toolset v*\bin\candle.exe
 $wixDir = Join-Path $env:RUNNER_TEMP 'wix'
 New-Item -ItemType Directory -Force $wixDir | Out-Null
 
+# Keep the installer agreement in sync with the license shipped in the package.
+$licenseRtfPath = Join-Path $wixDir 'license.rtf'
+$licenseText = [System.IO.File]::ReadAllText((Resolve-Path LICENSE).Path)
+$licenseText = $licenseText.Replace('\', '\\').Replace('{', '\{').Replace('}', '\}')
+$licenseText = $licenseText -replace '\r\n|\r|\n', '\line '
+$licenseRtf = '{\rtf1\ansi\deff0{\fonttbl{\f0\fmodern Courier New;}}\f0\fs18\pard ' + $licenseText + '}'
+[System.IO.File]::WriteAllText($licenseRtfPath, $licenseRtf, [System.Text.Encoding]::ASCII)
+
 & "$wixBin\heat.exe" dir $packageDir `
     -cg ApplicationFiles `
     -dr INSTALLFOLDER `
@@ -41,6 +49,7 @@ New-Item -ItemType Directory -Force $wixDir | Out-Null
     "-dPackageDir=$packageDir" `
     "-dIconPath=$((Resolve-Path assets\zerium.ico).Path)" `
     "-dProductVersion=$msiVersion" `
+    "-dLicenseRtfPath=$licenseRtfPath" `
     packaging\windows\zerium.wxs "$wixDir\files.wxs" `
     -out "$wixDir\"
 & "$wixBin\light.exe" `
