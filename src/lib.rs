@@ -8,12 +8,6 @@
 
 rust_i18n::i18n!("locales", fallback = "en-us");
 
-// Track locale files as Cargo inputs so changes to YAML rebuild the embedded catalog.
-const _: [&str; 2] = [
-    include_str!("../locales/ja-jp.yml"),
-    include_str!("../locales/en-us.yml"),
-];
-
 mod app;
 mod cli;
 mod domain;

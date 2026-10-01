@@ -177,7 +177,7 @@ impl ProjectController {
             modal
                 .title(
                     div()
-                        .font_family(".SystemUIFont")
+                        .font_family(crate::ui::theme::FONT_FAMILY)
                         .font_normal()
                         .child(t!("project.settings").to_string()),
                 )
@@ -333,7 +333,7 @@ impl ProjectController {
             modal
                 .title(
                     div()
-                        .font_family(".SystemUIFont")
+                        .font_family(crate::ui::theme::FONT_FAMILY)
                         .font_normal()
                         .child(t!("project.unsaved_changes").to_string()),
                 )
@@ -593,7 +593,7 @@ impl ProjectController {
             modal
                 .title(
                     div()
-                        .font_family(".SystemUIFont")
+                        .font_family(crate::ui::theme::FONT_FAMILY)
                         .font_normal()
                         .child(t!("project.unsaved_changes").to_string()),
                 )

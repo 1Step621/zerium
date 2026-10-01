@@ -5,6 +5,7 @@ Remove-Item -Recurse -Force $packageDir, dist -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $packageDir, dist | Out-Null
 Copy-Item target\release\zerium.exe $packageDir\zerium.exe
 Copy-Item LICENSE $packageDir\LICENSE
+Copy-Item assets\inter\OFL.txt $packageDir\Inter-OFL.txt
 
 $ffmpegBin = 'target\ffmpeg-sdk\bin'
 Get-ChildItem "$ffmpegBin\*.dll" | Copy-Item -Destination $packageDir

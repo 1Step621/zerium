@@ -12,6 +12,7 @@ rm -rf "$app_dir" dist
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources" dist
 cp target/release/zerium "$app_dir/Contents/MacOS/zerium"
 cp LICENSE "$app_dir/Contents/Resources/LICENSE"
+cp assets/inter/OFL.txt "$app_dir/Contents/Resources/Inter-OFL.txt"
 cp assets/zerium.icns "$app_dir/Contents/Resources/zerium.icns"
 chmod +x "$app_dir/Contents/MacOS/zerium"
 sed "s/__VERSION__/${version}/g" \

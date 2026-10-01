@@ -1,5 +1,19 @@
 use ::ui::{Theme, ThemeMode};
 use gpui::{App, Hsla, rgb, rgba};
+use std::borrow::Cow;
+
+pub(crate) const FONT_FAMILY: &str = "Inter";
+
+const INTER_FONTS: [&[u8]; 8] = [
+    include_bytes!("../../assets/inter/Inter-Regular.otf"),
+    include_bytes!("../../assets/inter/Inter-Italic.otf"),
+    include_bytes!("../../assets/inter/Inter-Medium.otf"),
+    include_bytes!("../../assets/inter/Inter-MediumItalic.otf"),
+    include_bytes!("../../assets/inter/Inter-SemiBold.otf"),
+    include_bytes!("../../assets/inter/Inter-SemiBoldItalic.otf"),
+    include_bytes!("../../assets/inter/Inter-Bold.otf"),
+    include_bytes!("../../assets/inter/Inter-BoldItalic.otf"),
+];
 
 const BACKGROUND: u32 = 0x282c34;
 const SURFACE: u32 = 0x2c313a;
@@ -27,9 +41,13 @@ fn color_with_alpha(hex: u32) -> Hsla {
 }
 
 pub(crate) fn install(cx: &mut App) {
+    cx.text_system()
+        .add_fonts(INTER_FONTS.into_iter().map(Cow::Borrowed).collect())
+        .expect("bundled Inter fonts must be valid");
     Theme::change(ThemeMode::Dark, None, cx);
 
     let theme = Theme::global_mut(cx);
+    theme.font_family = FONT_FAMILY.into();
 
     let colors = &mut theme.colors;
 

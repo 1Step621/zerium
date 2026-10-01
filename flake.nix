@@ -113,6 +113,9 @@
 
                 install -Dm644 LICENSE \
                   "$out/share/doc/zerium/copyright"
+
+                install -Dm644 assets/inter/OFL.txt \
+                  "$out/share/doc/zerium/Inter-OFL.txt"
               '';
 
               meta = {

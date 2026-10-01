@@ -110,7 +110,7 @@ impl ExportController {
             modal
                 .title(
                     div()
-                        .font_family(".SystemUIFont")
+                        .font_family(crate::ui::theme::FONT_FAMILY)
                         .font_normal()
                         .child(t!("export.title").to_string()),
                 )

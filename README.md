@@ -55,8 +55,10 @@ Under active development: all features, including the project file format, are s
 
 ## Fonts
 
-The UI uses the system sans-serif family (Segoe UI on Windows and the configured
-fontconfig family on Linux). Missing CJK glyphs use regional fonts, including
+The UI uses bundled [Inter 4.1](https://github.com/rsms/inter/releases/tag/v4.1)
+as its primary font, with regular, medium, semibold, bold, and italic faces.
+Inter's license is included in `assets/inter/OFL.txt` and distributed packages.
+Missing CJK glyphs use regional fonts, including
 Yu Gothic UI / Meiryo on Windows and Noto Sans CJK JP / Noto Sans JP on Linux.
 Install a Japanese font on Linux if none is available; Zerium does not bundle CJK fonts.
 
