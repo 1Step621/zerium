@@ -74,7 +74,7 @@ impl TextFrameCache {
 
     pub(crate) fn with_byte_budget(byte_budget: usize) -> Self {
         Self {
-            font_system: gpui::new_font_system(),
+            font_system: gpui::new_font_system_with_locale(crate::i18n::locale()),
             swash_cache: SwashCache::new(),
             frames: HashMap::new(),
             active: HashSet::new(),

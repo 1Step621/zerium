@@ -15,7 +15,7 @@ const WINDOW_ICON_PNG: &[u8] = include_bytes!("../../assets/zerium.png");
 
 pub(crate) fn run(initial_project: Option<PathBuf>) {
     crate::i18n::initialize();
-    Application::new()
+    Application::with_locale(crate::i18n::locale())
         .with_assets(::ui::assets::Assets)
         .run(|cx: &mut App| {
             ::ui::init(cx);

@@ -62,10 +62,25 @@ Missing CJK glyphs use regional fonts, including
 Yu Gothic UI / Meiryo on Windows and Noto Sans CJK JP / Noto Sans JP on Linux.
 Install a Japanese font on Linux if none is available; Zerium does not bundle CJK fonts.
 
-CJK fallback families are selected solely from the system locale, including
+CJK fallback families are selected solely from the application locale, including
 regional tags such as `ja-JP`, `ko-KR`, and `zh-Hant-TW`.
 Text items try explicitly chosen font families in order, then use `sans-serif`.
 Missing glyphs in that family are handled by the font system's regional fallbacks.
+
+Zerium uses the system locale by default. Set `ZERIUM_LANGUAGE` to override both
+the UI language and regional font fallbacks. Use a BCP 47 language tag such as
+`ja-JP` or `en-US`. Unavailable translations fall back to English.
+
+```sh
+ZERIUM_LANGUAGE=ja-JP zerium
+```
+
+In Windows PowerShell:
+
+```powershell
+$env:ZERIUM_LANGUAGE = "ja-JP"
+zerium
+```
 
 ## Acknowledgements
 
