@@ -57,7 +57,7 @@ jobs:
         shell: bash
         run: bash packaging/linux/package.sh
 
-      - name: Package macOS app
+      - name: Package macOS release
         if: runner.os == 'macOS'
         shell: bash
         run: bash packaging/macos/package.sh

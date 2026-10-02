@@ -1,16 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-app_dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/Zerium.app"
 pkg_root="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/zerium-pkg"
+app_dir="$pkg_root/Applications/Zerium.app"
 
 version="$({
   awk '/^\[workspace.package\]/{in_package=1; next} /^\[/{in_package=0} in_package && $1 == "version" {gsub(/"/, "", $3); print $3; exit}' Cargo.toml
 })"
-archive_name="zerium-${version}-macos-aarch64.dmg"
 installer_name="zerium-${version}-macos-aarch64.pkg"
 
-rm -rf "$app_dir" "$pkg_root" dist
+rm -rf "$pkg_root" dist
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources" dist
 cp target/release/zerium "$app_dir/Contents/MacOS/zerium"
 cp LICENSE "$app_dir/Contents/Resources/LICENSE"
@@ -28,10 +27,7 @@ dylibbundler \
   -p "@executable_path/../Frameworks/" \
   -s "$(brew --prefix)/lib" \
   -s "$(brew --prefix)/opt/ffmpeg/lib"
-hdiutil create -volname Zerium -srcfolder "$app_dir" -ov -format UDZO "dist/$archive_name"
-
-mkdir -p "$pkg_root/Applications" "$pkg_root/usr/local/bin"
-cp -R "$app_dir" "$pkg_root/Applications/"
+mkdir -p "$pkg_root/usr/local/bin"
 install -m755 packaging/macos/zerium "$pkg_root/usr/local/bin/zerium"
 pkgbuild \
   --root "$pkg_root" \
