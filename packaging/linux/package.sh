@@ -48,17 +48,26 @@ if [[ ! -x "$appimagetool" ]]; then
 fi
 ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$appimagetool" --no-appstream "$appdir" "dist/$appimage_name"
 
-deb_log="${RUNNER_TEMP:-/tmp}/zerium-cargo-deb.log"
-rpm_log="${RUNNER_TEMP:-/tmp}/zerium-cargo-rpm.log"
-cargo deb -p zerium --no-build --output "dist/zerium_${version}-1_amd64.deb" >"$deb_log" 2>&1 &
+export ZERIUM_VERSION="$version"
+deb_log="${RUNNER_TEMP:-/tmp}/zerium-nfpm-deb.log"
+rpm_log="${RUNNER_TEMP:-/tmp}/zerium-nfpm-rpm.log"
+arch_log="${RUNNER_TEMP:-/tmp}/zerium-nfpm-archlinux.log"
+nfpm package --config packaging/linux/nfpm.yaml --packager deb \
+  --target "dist/zerium_${version}-1_amd64.deb" >"$deb_log" 2>&1 &
 deb_pid=$!
-cargo generate-rpm -p crates/zerium --payload-compress gzip -o "dist/zerium-${version}-1.x86_64.rpm" >"$rpm_log" 2>&1 &
+nfpm package --config packaging/linux/nfpm.yaml --packager rpm \
+  --target "dist/zerium-${version}-1.x86_64.rpm" >"$rpm_log" 2>&1 &
 rpm_pid=$!
+nfpm package --config packaging/linux/nfpm.yaml --packager archlinux \
+  --target "dist/zerium-${version}-1-x86_64.pkg.tar.zst" >"$arch_log" 2>&1 &
+arch_pid=$!
 
 deb_status=0
 rpm_status=0
+arch_status=0
 wait "$deb_pid" || deb_status=$?
 wait "$rpm_pid" || rpm_status=$?
+wait "$arch_pid" || arch_status=$?
 if ((deb_status != 0)); then
   cat "$deb_log" >&2
   exit "$deb_status"
@@ -66,4 +75,8 @@ fi
 if ((rpm_status != 0)); then
   cat "$rpm_log" >&2
   exit "$rpm_status"
+fi
+if ((arch_status != 0)); then
+  cat "$arch_log" >&2
+  exit "$arch_status"
 fi

@@ -13,12 +13,10 @@ sudo apt-get install --no-install-recommends -y \
   libxcb1-dev \
   libxkbcommon-dev \
   libxkbcommon-x11-dev \
-  dpkg-dev \
   patchelf \
   pkg-config
 
 ffmpeg_archive="${RUNNER_TEMP:-/tmp}/ffmpeg-n9.0-latest-linux64-gpl-shared-9.0.tar.xz"
-# Dated autobuild releases are pruned by BtbN; the latest tag keeps a stable URL.
 ffmpeg_url="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-linux64-gpl-shared-9.0.tar.xz"
 rm -rf target/ffmpeg-sdk
 mkdir -p target/ffmpeg-sdk
@@ -27,8 +25,17 @@ tar --extract --xz --file "$ffmpeg_archive" --strip-components=1 --directory tar
 printf '%s\n' "FFMPEG_DIR=$GITHUB_WORKSPACE/target/ffmpeg-sdk" >> "$GITHUB_ENV"
 printf '%s\n' 'RUSTFLAGS=-C link-arg=-Wl,-rpath,$ORIGIN/../lib/zerium:$ORIGIN/../lib' >> "$GITHUB_ENV"
 
-cargo install cargo-deb --version 3.8.0 --locked
-cargo install cargo-generate-rpm --version 0.21.0 --locked
+nfpm_dir="${RUNNER_TEMP:-/tmp}/zerium-nfpm"
+nfpm_archive="$nfpm_dir/nfpm.tar.gz"
+mkdir -p "$nfpm_dir"
+curl --fail --location --retry 3 \
+  --output "$nfpm_archive" \
+  "https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_Linux_x86_64.tar.gz"
+printf '%s  %s\n' \
+  '0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783' \
+  "$nfpm_archive" | sha256sum --check
+tar --extract --gzip --file "$nfpm_archive" --directory "$nfpm_dir" nfpm
+printf '%s\n' "$nfpm_dir" >> "$GITHUB_PATH"
 
 appimagetool="${RUNNER_TEMP:-/tmp}/appimagetool"
 curl --fail --location --retry 3 \

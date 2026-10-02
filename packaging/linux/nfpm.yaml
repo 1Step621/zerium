@@ -1,0 +1,103 @@
+name: zerium
+arch: amd64
+platform: linux
+version: ${ZERIUM_VERSION}
+release: "1"
+section: graphics
+priority: optional
+maintainer: onestep621
+description: A video editor with zero limits.
+homepage: https://zerium.pages.dev/
+license: GPL-3.0-or-later
+
+contents:
+  - src: target/release/zerium
+    dst: /usr/bin/zerium
+    file_info:
+      mode: 0755
+  - src: target/ffmpeg-sdk/lib/*.so*
+    dst: /usr/lib/zerium/
+    file_info:
+      mode: 0755
+  - src: packaging/linux/zerium.desktop
+    dst: /usr/share/applications/zerium.desktop
+    file_info:
+      mode: 0644
+  - src: packaging/linux/zerium.xml
+    dst: /usr/share/mime/packages/zerium.xml
+    file_info:
+      mode: 0644
+  - src: assets/zerium.png
+    dst: /usr/share/icons/hicolor/256x256/apps/zerium.png
+    file_info:
+      mode: 0644
+  - src: LICENSE
+    dst: /usr/share/doc/zerium/copyright
+    packager: deb
+    file_info:
+      mode: 0644
+  - src: LICENSE
+    dst: /usr/share/doc/zerium/LICENSE
+    packager: rpm
+    file_info:
+      mode: 0644
+  - src: LICENSE
+    dst: /usr/share/licenses/zerium/LICENSE
+    packager: archlinux
+    file_info:
+      mode: 0644
+  - src: assets/inter/OFL.txt
+    dst: /usr/share/doc/zerium/Inter-OFL.txt
+    file_info:
+      mode: 0644
+
+overrides:
+  deb:
+    depends:
+      - libasound2t64 | libasound2
+      - libdbus-1-3
+      - libfontconfig1
+      - libfreetype6
+      - libvulkan1
+      - libwayland-client0
+      - libx11-6
+      - libx11-xcb1
+      - libxcb1
+      - libxkbcommon0
+      - libxkbcommon-x11-0
+      - libc6
+      - libgcc-s1
+  rpm:
+    depends:
+      - alsa-lib
+      - dbus-libs
+      - fontconfig
+      - freetype
+      - vulkan-loader
+      - libwayland-client
+      - libX11
+      - libX11-xcb
+      - libxcb
+      - libxkbcommon
+      - libxkbcommon-x11
+      - glibc
+      - libgcc
+  archlinux:
+    depends:
+      - alsa-lib
+      - dbus
+      - fontconfig
+      - freetype2
+      - vulkan-icd-loader
+      - wayland
+      - libx11
+      - libxcb
+      - libxkbcommon
+      - libxkbcommon-x11
+      - glibc
+      - gcc-libs
+
+deb:
+  compression: xz
+rpm:
+  compression: gzip
