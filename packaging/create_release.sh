@@ -2,7 +2,7 @@
 set -euo pipefail
 
 version="$({
-  awk '/^\[package\]/{in_package=1; next} /^\[/{in_package=0} in_package && $1 == "version" {gsub(/"/, "", $3); print $3; exit}' Cargo.toml
+  awk '/^\[workspace.package\]/{in_package=1; next} /^\[/{in_package=0} in_package && $1 == "version" {gsub(/"/, "", $3); print $3; exit}' Cargo.toml
 })"
 short_sha="${GITHUB_SHA:0:7}"
 tag="v${version}-${short_sha}"

@@ -1,0 +1,502 @@
+//! Named shader inputs and editor roles for items and effects.
+
+use crate::localized_text::LocalizedText;
+use crate::property::PropertyValueType;
+use std::collections::HashSet;
+
+use serde::Deserialize;
+
+use super::PluginError;
+use super::identifier::{validate_logical_id, validate_wgsl_identifier};
+use crate::property::{PropertySchema, PropertyType, ScalarPropertyType};
+
+pub(super) const MAX_RENDER_RESULT_OFFSET: u32 = 30;
+
+pub(super) fn validate_render_result_properties(
+    owner_kind: &str,
+    owner_id: &str,
+    properties: &[PropertySchema],
+    start_offset: &str,
+    end_offset: &str,
+    hide_original: &str,
+) -> Result<(), PluginError> {
+    let property = |id: &str| properties.iter().find(|property| property.id() == id);
+    for id in [start_offset, end_offset] {
+        let valid = property(id).is_some_and(|property| {
+            property.ty()
+                == &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::U32))
+                && property
+                    .configuration_constraints(None)
+                    .min
+                    .is_some_and(|min| min >= 1.)
+                && property
+                    .configuration_constraints(None)
+                    .max
+                    .is_some_and(|max| max <= f64::from(MAX_RENDER_RESULT_OFFSET))
+        });
+        if !valid {
+            return Err(PluginError::invalid_definition(format!(
+                "{owner_kind} '{owner_id}' render_result property '{id}' must be u32 constrained to 1..={MAX_RENDER_RESULT_OFFSET}",
+            )));
+        }
+    }
+    if property(hide_original).map(PropertySchema::ty)
+        != Some(&PropertyType::Value(PropertyValueType::Scalar(
+            ScalarPropertyType::Bool,
+        )))
+    {
+        return Err(PluginError::invalid_definition(format!(
+            "{owner_kind} '{owner_id}' render_result hide_original property '{hide_original}' must be bool",
+        )));
+    }
+    Ok(())
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash)]
+#[serde(rename_all = "snake_case")]
+pub enum MediaType {
+    Video,
+    Audio,
+    Image,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct FileCapability {
+    id: String,
+    label: LocalizedText,
+    media_type: MediaType,
+    reader: String,
+    #[serde(default)]
+    extensions: Vec<String>,
+}
+
+impl FileCapability {
+    pub fn id(&self) -> &str {
+        &self.id
+    }
+
+    pub fn label(&self) -> &str {
+        self.label.resolve()
+    }
+
+    pub const fn media_type(&self) -> MediaType {
+        self.media_type
+    }
+
+    pub fn reader(&self) -> &str {
+        &self.reader
+    }
+
+    pub fn extensions(&self) -> &[String] {
+        &self.extensions
+    }
+
+    pub(super) fn validate(&self, owner_kind: &str, owner_id: &str) -> Result<(), PluginError> {
+        validate_wgsl_identifier("file input", &self.id)?;
+        if self.label.is_empty() {
+            return Err(PluginError::invalid_definition(format!(
+                "{owner_kind} '{owner_id}' file input '{}' has an empty label",
+                self.id
+            )));
+        }
+        validate_logical_id("media reader", &self.reader)?;
+        let mut extensions = HashSet::new();
+        for extension in &self.extensions {
+            let valid = !extension.is_empty()
+                && extension
+                    .bytes()
+                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit());
+            if !valid {
+                return Err(PluginError::invalid_definition(format!(
+                    "{owner_kind} '{owner_id}' has invalid file extension '{}'",
+                    extension
+                )));
+            }
+            if !extensions.insert(extension) {
+                return Err(PluginError::invalid_definition(format!(
+                    "{owner_kind} '{owner_id}' has duplicate file extension '{}'",
+                    extension
+                )));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Describes where a media input appears in its owner's composition space.
+/// The quad covers the full source UV range.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MediaPlacement {
+    pub position: String,
+    pub size: String,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct TextCapability {
+    pub id: String,
+    pub size: String,
+    pub text: String,
+    pub font_family: String,
+    pub font_size: String,
+    pub color: String,
+    pub outline_width: String,
+    pub outline_color: String,
+    pub bold: String,
+    pub italic: String,
+    pub horizontal_alignment: String,
+    pub vertical_alignment: String,
+}
+
+/// One named texture input produced for an item or effect shader.
+#[allow(clippy::large_enum_variant)]
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum Capability {
+    Media {
+        #[serde(flatten)]
+        file: FileCapability,
+        #[serde(default)]
+        placement: Option<MediaPlacement>,
+    },
+    Text(TextCapability),
+    RenderResult {
+        id: String,
+        start_offset: String,
+        end_offset: String,
+        hide_original: String,
+    },
+}
+
+impl Capability {
+    pub fn id(&self) -> &str {
+        match self {
+            Self::Text(text) => &text.id,
+            Self::RenderResult { id, .. } => id,
+            Self::Media { file, .. } => file.id(),
+        }
+    }
+
+    pub(super) fn validate(
+        &self,
+        owner_kind: &str,
+        owner_id: &str,
+        properties: &[PropertySchema],
+    ) -> Result<(), PluginError> {
+        validate_wgsl_identifier("capability", self.id())?;
+        if self.id() == "capability_sampler" {
+            return Err(PluginError::invalid_definition(format!(
+                "{owner_kind} '{owner_id}' capability ID 'capability_sampler' is reserved"
+            )));
+        }
+        if let Self::Media { file, .. } = self {
+            if file.media_type() == MediaType::Audio {
+                return Err(PluginError::invalid_definition(format!(
+                    "{owner_kind} '{owner_id}' media capability '{}' cannot be audio",
+                    self.id()
+                )));
+            }
+            file.validate(owner_kind, owner_id)?;
+        }
+        let mistyped = |property_id: &str, expected: &str| {
+            PluginError::invalid_definition(format!(
+                "{owner_kind} '{owner_id}' capability property '{}' has the wrong type; expected {expected}",
+                property_id
+            ))
+        };
+        let property = |property_id: &str| {
+            properties
+                .iter()
+                .find(|property| property.id() == property_id)
+                .ok_or_else(|| {
+                    PluginError::invalid_definition(format!(
+                        "{owner_kind} '{owner_id}' capability references missing property '{}'",
+                        property_id
+                    ))
+                })
+        };
+        let tuple_f32_pair = |property_id: &str| {
+            let property = property(property_id)?;
+            match &property.ty {
+                PropertyType::Value(PropertyValueType::Tuple(tuple))
+                    if tuple.scalars().len() == 2
+                        && tuple.scalars().iter().all(|scalar_type| {
+                            *scalar_type == crate::property::ScalarPropertyType::F32
+                        }) =>
+                {
+                    Ok(())
+                }
+                _ => Err(mistyped(property_id, "a tuple of two f32 values")),
+            }
+        };
+        let scalar = |property_id: &str, ty: ScalarPropertyType| {
+            let property = property(property_id)?;
+            if property.ty != PropertyType::Value(PropertyValueType::Scalar(ty.clone())) {
+                return Err(mistyped(property_id, &format!("a {ty:?} type")));
+            }
+            Ok(())
+        };
+        match self {
+            Self::Text(TextCapability {
+                size,
+                text,
+                font_family,
+                font_size,
+                color,
+                outline_width,
+                outline_color,
+                bold,
+                italic,
+                horizontal_alignment,
+                vertical_alignment,
+                ..
+            }) => {
+                tuple_f32_pair(size)?;
+                scalar(text, ScalarPropertyType::String)?;
+                let font_property = property(font_family)?;
+                if !matches!(
+                    font_property.ty(),
+                    PropertyType::Array {
+                        element_type: crate::property::PropertyValueType::Scalar(
+                            ScalarPropertyType::String,
+                        ),
+                        ..
+                    }
+                ) {
+                    return Err(mistyped(font_family, "an array of strings"));
+                }
+                scalar(font_size, ScalarPropertyType::F32)?;
+                scalar(color, ScalarPropertyType::Color)?;
+                scalar(outline_width, ScalarPropertyType::F32)?;
+                scalar(outline_color, ScalarPropertyType::Color)?;
+                scalar(bold, ScalarPropertyType::Bool)?;
+                scalar(italic, ScalarPropertyType::Bool)?;
+                for property_id in [horizontal_alignment, vertical_alignment] {
+                    let property = property(property_id)?;
+                    let scalar_type = match property.ty() {
+                        PropertyType::Value(value_type) => value_type.scalar_at(None),
+                        PropertyType::Array { .. } => None,
+                    };
+                    let Some(ScalarPropertyType::Enum(enumeration)) = scalar_type else {
+                        return Err(mistyped(property_id, "an enum type"));
+                    };
+                    let values = enumeration.values();
+                    if values.len() != 3
+                        || !(values.contains(&0) && values.contains(&1) && values.contains(&2))
+                    {
+                        return Err(mistyped(
+                            property_id,
+                            "an enum containing exactly 0, 1, and 2",
+                        ));
+                    }
+                }
+            }
+            Self::RenderResult {
+                start_offset,
+                end_offset,
+                hide_original,
+                ..
+            } => {
+                validate_render_result_properties(
+                    owner_kind,
+                    owner_id,
+                    properties,
+                    start_offset,
+                    end_offset,
+                    hide_original,
+                )?;
+            }
+            Self::Media { placement, .. } => {
+                if let Some(MediaPlacement { position, size }) = placement {
+                    tuple_f32_pair(position)?;
+                    tuple_f32_pair(size)?;
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct AudioCapability {
+    inputs: Vec<String>,
+    #[serde(default)]
+    files: Vec<FileCapability>,
+    /// Item property read by the host mixer as linear audio gain,
+    /// referenced by ID like [`TemporalSamplingSchema`](super::TemporalSamplingSchema) references its
+    /// sampling properties.
+    volume: String,
+}
+
+impl AudioCapability {
+    pub fn inputs(&self) -> &[String] {
+        &self.inputs
+    }
+
+    pub fn files(&self) -> &[FileCapability] {
+        &self.files
+    }
+
+    pub fn volume_property(&self) -> &str {
+        &self.volume
+    }
+
+    pub fn consumes(&self, input_id: &str) -> bool {
+        self.inputs.iter().any(|id| id == input_id)
+    }
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct EditorCapability {
+    pub(super) position: Option<String>,
+    pub(super) size: Option<String>,
+    pub(super) aspect_lock: Option<String>,
+    #[serde(default)]
+    pub(super) aspect_lock_default: bool,
+    pub(super) points: Option<String>,
+    pub(super) spline: Option<SplineEditorCapability>,
+    pub(super) label: Option<String>,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub(super) struct SplineEditorCapability {
+    pub(super) tension: String,
+    pub(super) closed: String,
+}
+
+impl EditorCapability {
+    fn is_f32_pair(ty: &PropertyValueType) -> bool {
+        matches!(
+            ty,
+            PropertyValueType::Tuple(tuple)
+                if tuple.scalars() == [ScalarPropertyType::F32, ScalarPropertyType::F32]
+        )
+    }
+
+    pub(super) fn validate(
+        &self,
+        owner: &str,
+        id: &str,
+        properties: &[PropertySchema],
+    ) -> Result<(), PluginError> {
+        let property = |property_id: &str| {
+            properties
+                .iter()
+                .find(|property| property.id() == property_id)
+        };
+        if self.position.is_none()
+            && self.size.is_none()
+            && self.aspect_lock.is_none()
+            && self.points.is_none()
+            && self.label.is_none()
+        {
+            return Err(PluginError::invalid_definition(format!(
+                "{owner} '{id}' editor capability must reference at least one property"
+            )));
+        }
+        for (kind, property_id) in [
+            ("position", self.position.as_deref()),
+            ("size", self.size.as_deref()),
+            ("aspect_lock", self.aspect_lock.as_deref()),
+        ] {
+            let Some(property_id) = property_id else {
+                continue;
+            };
+            if !property(property_id).is_some_and(|property| {
+                matches!(property.ty(), PropertyType::Value(ty) if Self::is_f32_pair(ty))
+            }) {
+                return Err(PluginError::invalid_definition(format!(
+                    "{owner} '{id}' editor {kind} property '{property_id}' must be a tuple of two f32 values"
+                )));
+            }
+        }
+        if self.aspect_lock_default && self.aspect_lock.is_none() {
+            return Err(PluginError::invalid_definition(format!(
+                "{owner} '{id}' aspect_lock_default requires aspect_lock"
+            )));
+        }
+        if let Some(property_id) = self.points.as_deref() {
+            let valid = property(property_id).is_some_and(|property| {
+                matches!(
+                    property.ty(),
+                    PropertyType::Array {
+                        element_type,
+                        ..
+                    }
+                        if Self::is_f32_pair(element_type)
+                )
+            });
+            if !valid {
+                return Err(PluginError::invalid_definition(format!(
+                    "{owner} '{id}' editor points property '{property_id}' must be an array of two-f32 tuples"
+                )));
+            }
+            if self.position.is_none() || self.size.is_none() {
+                return Err(PluginError::invalid_definition(format!(
+                    "{owner} '{id}' editor points property requires position and size properties"
+                )));
+            }
+        }
+        if let Some(spline) = &self.spline {
+            if self.points.is_none() {
+                return Err(PluginError::invalid_definition(format!(
+                    "{owner} '{id}' editor spline requires points, position and size properties"
+                )));
+            }
+            for (kind, property_id, expected) in [
+                ("tension", spline.tension.as_str(), ScalarPropertyType::F32),
+                ("closed", spline.closed.as_str(), ScalarPropertyType::Bool),
+            ] {
+                if property(property_id).map(PropertySchema::ty)
+                    != Some(&PropertyType::Value(PropertyValueType::Scalar(expected)))
+                {
+                    return Err(PluginError::invalid_definition(format!(
+                        "{owner} '{id}' editor spline {kind} property '{property_id}' has the wrong type"
+                    )));
+                }
+            }
+        }
+        if let Some(property_id) = self.label.as_deref()
+            && property(property_id).map(|property| property.ty())
+                != Some(&PropertyType::Value(PropertyValueType::Scalar(
+                    ScalarPropertyType::String,
+                )))
+        {
+            return Err(PluginError::invalid_definition(format!(
+                "{owner} '{id}' editor label property '{property_id}' must be a string"
+            )));
+        }
+        Ok(())
+    }
+}
+
+pub const MAX_CAPABILITIES: usize = 8;
+
+pub(super) fn validate_capabilities(
+    owner_kind: &str,
+    owner_id: &str,
+    properties: &[PropertySchema],
+    capabilities: &[Capability],
+) -> Result<(), PluginError> {
+    if capabilities.len() > MAX_CAPABILITIES {
+        return Err(PluginError::invalid_definition(format!(
+            "{owner_kind} '{owner_id}' exceeds {MAX_CAPABILITIES} shader capabilities"
+        )));
+    }
+    let mut ids = HashSet::new();
+    for capability in capabilities {
+        capability.validate(owner_kind, owner_id, properties)?;
+        if !ids.insert(capability.id()) {
+            return Err(PluginError::invalid_definition(format!(
+                "{owner_kind} '{owner_id}' has duplicate capability ID '{}'",
+                capability.id()
+            )));
+        }
+    }
+    Ok(())
+}

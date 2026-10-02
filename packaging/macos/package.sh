@@ -4,7 +4,7 @@ set -euo pipefail
 app_dir="${RUNNER_TEMP:-${TMPDIR:-/tmp}}/Zerium.app"
 
 version="$({
-  awk '/^\[package\]/{in_package=1; next} /^\[/{in_package=0} in_package && $1 == "version" {gsub(/"/, "", $3); print $3; exit}' Cargo.toml
+  awk '/^\[workspace.package\]/{in_package=1; next} /^\[/{in_package=0} in_package && $1 == "version" {gsub(/"/, "", $3); print $3; exit}' Cargo.toml
 })"
 archive_name="zerium-${version}-macos-aarch64.dmg"
 

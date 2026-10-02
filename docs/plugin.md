@@ -2,19 +2,29 @@
 
 A plugin is one directory containing `plugin.json` and WESL modules. Each shader's
 `module` is a module ID, resolved to `<module>.wesl` in the plugin root.
-Zerium validates the complete bundle before registering
-it. Missing shader or generated files, invalid schemas, and shader/API mismatches
+Zerium validates the complete bundle before registering it.
+Missing shader or generated files, invalid schemas, and shader/API mismatches
 are errors.
 
 ```text
 com.example.plugin/
-├── generated/
-│   └── …
+├── generated/       # generated interfaces and compatibility fingerprint
 ├── plugin.json
-├── shape.wesl
-├── blur.wesl
-└── wesl.toml
+└── shape.wesl
 ```
+
+Generate the packaged interfaces after changing the shader contract, then
+validate the bundle before using it:
+
+```sh
+zerium plugin generate path/to/plugin
+zerium plugin validate path/to/plugin
+```
+
+Both commands default to the current directory when the path is omitted. Include
+`generated/` when distributing the plugin; do not edit its files manually.
+
+## Manifest
 
 The root contract is versioned independently from the plugin release:
 
@@ -32,61 +42,29 @@ The root contract is versioned independently from the plugin release:
     },
     "symbol": "■",
     "shader": { "module": "shape" },
+    "output_bounds": {
+      "min": ["viewport::min::x", "viewport::min::y"],
+      "max": ["viewport::max::x", "viewport::max::y"]
+    },
     "capabilities": []
   }]
 }
 ```
 
-`api_version` must be `1` during the current development cycle.
-Each plugin must define at least one item or effect.
-Every user-facing plugin label is a locale map keyed by BCP 47 tags, such as
-`ja-JP` and `en-US`. This applies to item and effect labels and category labels,
-property and scalar labels, enum variant labels, and file input labels. Zerium
-uses the operating-system locale as-is and resolves each label independently:
-it tries the exact locale, then `en-US`, and then the first available
-translation. Unsupported operating-system locales therefore use English when
-the plugin provides it. Plugin validation errors stay in English. Each
-category also has a stable `id` separate from its localized `label`. Catalog
-pickers group by this ID, so localized labels do not split one category into
-separate groups. Plugins can use the same category ID to group entries together.
-The root envelope is deserialized privately. `ItemSchema` and `EffectSchema`
-each validate themselves at their deserialization boundary; the root then
-checks the API version and collection-wide uniqueness before returning a
-`PluginManifest`. Runtime code therefore never observes a partly validated
-manifest or a deserialized top-level schema. Unknown JSON fields are rejected.
+`api_version` must be `1`. A plugin must define at least one item or effect.
+Unknown JSON fields are rejected. The [JSON schema](../plugins/plugin.schema.json)
+provides editor completion; host validation also checks IDs, property/default
+compatibility, and cross-references. The [bundled plugin](../plugins/zerium.builtin/)
+contains complete manifest and shader examples. JSON snippets below describe
+individual declarations or fields unless stated otherwise.
 
-The checked-in [schema](../plugins/plugin.schema.json)
-provides editor completion. Rust validation remains authoritative for rules
-that JSON Schema cannot express, such as unique IDs, text-item requirements,
-property/default compatibility, and cross-references.
-
-## Rust interface boundary
-
-Manifest-backed structs expose behavior and immutable views rather than public
-storage fields. Callers use `ItemSchema::shader`, `capabilities`, `files`, `file`,
-`audio`, and `properties`. Effects expose `capabilities`, `files`, `properties`,
-`passes`, and `render_scale`. The Rust API remains crate-private where possible.
-`PropertySchema` is read-only outside `domain`: UI and rendering code use its
-accessors, while timeline code retains the narrower internal access needed to
-project plugin properties into editable scene arguments. Item and effect
-schemas implement `PluginCatalogEntry`, giving catalog UIs one shared metadata
-interface and one consistent search-term policy.
-
-Shared property contracts live in [`../src/domain/property/`](../src/domain/property/), independently
-of plugin loading: `types` owns the scalar/tuple/array algebra, `value` owns
-checked values and collections, `schema` exposes the read-only model,
-`schema` and `constraints` enforce contracts, and `ui`/`numeric` provide editor
-views. The plugin layer retains shader identifier validation and the runtime ABI
-packer. Property errors are converted to plugin errors at this boundary.
-Animation eligibility and interpolation are explicit operations in
-[`../src/domain/animation/`](../src/domain/animation/), rather than methods added to property types
-from another module.
-
-Public visibility is reserved for plugin loading and immutable schema
-inspection. Editor-derived choices, host capabilities, value projection, and
-other Zerium runtime adapters are crate-private. The
-plugin module denies unreachable public items so private implementation helpers
-cannot accidentally become part of the Rust API.
+All display labels are locale maps keyed by BCP 47 tags, including categories,
+properties, tuple scalars, enum variants, and file inputs. Zerium selects
+`ZERIUM_LANGUAGE`, the system locale, or `en-US`, in that order. Label lookup
+tries a case-insensitive exact locale, then `en-US`, then the first available
+translation ordered by locale key. It does not fall back from a region tag to a
+language-only tag. Category IDs are independent of labels; entries from different
+plugins with the same category ID are grouped together.
 
 ## Item and effect inputs
 
@@ -100,33 +78,21 @@ the WESL symbol imported from `package::generated::<entity_id>`.
 - `text` rasterizes text from referenced properties into a texture.
 - `render_result` composites an inclusive range of layers behind the owner.
 
-These input types use the same rendering rules for items and effects. A missing
-or unavailable media frame supplies a transparent texture in either case.
-Item output shaders and effect passes have distinct internal shader identities.
+At most eight capabilities may be declared, with unique WGSL identifier IDs.
+Their textures contain scene-linear, premultiplied color. Missing media frames
+supply a transparent texture. Each effect instance owns its imported file assets,
+which are saved with the project.
 
-Up to eight capabilities may be declared. Their IDs must be valid WGSL
-identifiers. The IDs are used directly, without a `slot_` prefix. All
-capability textures contain scene-linear, premultiplied color. For example:
+A media capability declaration:
 
 ```json
 {
-  "id": "video",
-  "label": { "ja-JP": "動画", "en-US": "Video" },
-  "category": {
-    "id": "media",
-    "label": { "ja-JP": "メディア", "en-US": "Media" }
-  },
-  "symbol": "▶",
-  "shader": { "module": "media" },
-  "capabilities": [{
-    "type": "media",
-    "id": "source",
-    "label": { "ja-JP": "ソース", "en-US": "Source" },
-    "media_type": "video",
-    "reader": "zerium.ffmpeg",
-    "extensions": ["mp4", "mov"]
-  }],
-  "audio": { "inputs": ["source"], "volume": "volume" }
+  "type": "media",
+  "id": "source",
+  "label": { "ja-JP": "ソース", "en-US": "Source" },
+  "media_type": "video",
+  "reader": "zerium.ffmpeg",
+  "extensions": ["mp4", "mov"]
 }
 ```
 
@@ -139,26 +105,30 @@ The host uses that placement and the output resolution to request enough source
 pixels; fixed-resolution readers can return a smaller frame. Without placement,
 the host requests the render target size. Placement properties must each be a
 tuple of two `f32` values.
-Effects use the same import path. Their passes also receive `effect_input`
-(the current image) and `effect_source` (the image captured at the start of a
-regular pass chain). Each effect instance owns its imported media assets; they
-are saved with the project.
 
-`audio` remains a top-level item role. `editor` can be declared by items or
-effects and does not add shader inputs.
-`audio.inputs` refers to video capabilities or to audio files declared in
-`audio.files`; the host mixer reads the `f32` gain property named by `volume`.
-`editor.size` declares a preview size handle. Independently, `editor.aspect_lock`
-references an `f32` pair whose inspector controls can retain their ratio. Use
-`"editor": {"aspect_lock": "amount", "aspect_lock_default": true}` for a scale
-pair that starts linked, or `"editor": {"size": "size", "aspect_lock": "size"}`
-for size handles with an initially unlocked ratio. `aspect_lock_default` defaults
-to false and requires `aspect_lock`.
-Each item and effect instance retains its own ratio outside the shader ABI.
-Direct edits to either component update the other and respect both constraints;
-whole-pair edits use the first component as their driver. A zero pair can grow
-again using the retained ratio; enabling a lock on a zero pair uses 1:1.
-Animation and scene binding values remain independent.
+### Audio and editor roles
+
+`audio` is a top-level item role, separate from shader capabilities.
+`audio.inputs` references video capabilities or audio files declared in
+`audio.files`; `audio.volume` names an `f32` gain property.
+
+Items and effects can declare an `editor` block without adding shader inputs:
+
+- `position` and `size` reference two-`f32` tuples for preview handles.
+- `points` references an array of two-`f32` tuples and requires position and size.
+  Points are percentages within that rectangle: `[0, 0]` is top-left and
+  `[100, 100]` is bottom-right.
+- `label` references a string.
+- `spline` references an `f32` tension and a `bool` closed flag, alongside points,
+  position, and size. Its preview curve is an editing overlay.
+- `aspect_lock` references a two-`f32` tuple independently of size handles.
+  `aspect_lock_default` defaults to false and requires `aspect_lock`.
+
+For example, `"editor": {"size": "size", "aspect_lock": "size"}` enables size
+handles and an initially unlocked ratio. Direct edits preserve the retained ratio
+when locked; animation and scene bindings remain independent.
+
+### Text
 
 A text capability names every property consumed by the host rasterizer:
 
@@ -180,8 +150,12 @@ A text capability names every property consumed by the host rasterizer:
 }
 ```
 
-The referenced properties must have the expected types. Alignment properties
-must be enums containing exactly `0`, `1`, and `2`.
+The referenced properties must match the rasterizer's types: `size` is a two-`f32`
+tuple, `font_family` is an array of strings, `text` is a string, font size and
+outline width are `f32`, colors are `color`, and bold/italic are `bool`.
+Alignment properties must be enums containing exactly `0`, `1`, and `2`.
+
+### Render result
 
 A `render_result` capability names two `u32` properties containing offsets
 behind the owner's layer. Offset `1` is the layer immediately behind it. The
@@ -200,11 +174,6 @@ that scene.
   "hide_original": "hide_original"
 }
 ```
-
-The bundled [layer-mask effect](../plugins/zerium.builtin/plugin.json) samples
-`behind` and multiplies it by the owner's alpha. Its `invert_mask` setting
-uses the transparent part of the owner instead; it is off by default. Shader
-and media capabilities can be combined with it in one effect.
 
 ## Properties
 
@@ -232,45 +201,32 @@ and animated independently, but are not modeled as separate property lanes.
 }
 ```
 
-`type` and `default` each use a single key for their variant. A scalar type is
-`{"value":"f32"}` and its default is `{"f32":0}`; tuples and arrays use
-`tuple` and `array` default values. Each `configurations` entry
-describes one scalar position instead: its `scene_bindable` permission,
-`editable`/`animatable` flags, `constraints`, and `ui` hints.
-`scene_bindable` defaults to true and is checked per scalar, so tuple
-scalars are published and connected independently.
+Scalar types are `f32`, `i32`, `u32`, `bool`, `color`, `string`, and finite
+`enum` contracts. `type` and `default` each use one variant key: a scalar type
+`{"value":"f32"}` has default `{"f32":0}`. Tuples contain 2–64 arbitrary
+scalars; tuple and array defaults use `tuple` and `array` keys. Tuples cannot
+contain tuples or arrays, and arrays cannot contain arrays.
 
-`label` and `default` belong to the property contract, while each scalar's
-`scene_bindable` permission and numeric `constraints` belong to its
-`configurations` entry. `ui` only
-contains presentation hints: `label`, `unit`, `step`,
-`visible`, `enum_variants`, `multiline`, and `editor`. Numeric values use the same canonical
-unit in projects, shaders, and editor controls.
-Constraints are enforced for defaults, direct edits, array elements, loaded
-projects, and animation endpoints.
+`configurations` is required: one entry for a scalar, one per tuple scalar, or
+one per scalar position in an array element. Each entry has these settings:
 
-Scalar types are `f32`, `i32`, `u32`, `bool`, `color`, `string`, and finite `enum` contracts. Color is one scalar, edited with a color picker even inside tuples and arrays. Numeric inputs address numeric scalars by their tuple index; RGBA components are not flattened into numeric input indices.
-Preview editor behaviors reference properties from an item or effect `editor` block, for
-example `"editor": { "position": "position", "size": "size", "points":
-"points", "label": "text" }`. Position and size references require two-`f32`
-tuples. The points reference requires an array of two-`f32` tuples and also
-requires position and size references; each point is expressed as a percentage
-within its size, with `[0, 0]` at the top-left and `[100, 100]` at the
-bottom-right. The label reference requires a string. This follows the same
-property-ID wiring used by text rasterization, audio gain, and temporal
-sampling. A spline editor can also reference `"spline": { "tension":
-"tension", "closed": "closed" }` alongside points, position and size.
-`tension` must be `f32` and `closed` must be `bool`. The preview overlays the
-sampled curve while editing, using the existing point handles; the curve is
-not part of the rendered output.
-The property inspector chooses the preview editing target: item body or an effect
-with an `editor` block. Effects may still use presentation hints such as
-`multiline`.
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| `editable` | `true` | Allow direct edits; false also disables animation editing. |
+| `animatable` | `false` | Allow animation of numeric or color scalars. |
+| `scene_bindable` | `true` | Allow the scalar to be exposed as a scene argument. |
+| `constraints` | Unrestricted | Validate defaults, edits, loaded values, and animation endpoints. |
+| `ui` | Scalar defaults | Presentation hints: label, unit, step, visibility, enum labels, multiline, editor. |
 
-An array of strings uses the ordinary array inspector with a text input for each
-element by default.
-Use the specialized font-family editor when the values represent fallback
-fonts:
+Numeric bounds belong in each scalar's `constraints`, not on the tuple.
+Numeric units are the same in projects, shaders, and controls. Missing tuple
+scalar labels use their one-based index; a tuple is visible if any scalar is
+visible. Color is one scalar with a color picker, not four numeric coordinates.
+
+### Arrays
+
+String arrays use text inputs by default. Use `ui.editor: "font_family"` for a
+system-font picker when the values represent fallback fonts:
 
 ```json
 {
@@ -291,40 +247,32 @@ An array must declare `append_default` with a tagged element value, without an
 `id`. The inspector uses that fixed value when adding an element, regardless of
 the existing elements. The value must match the element type and scalar constraints.
 
-Without `ui.editor`, entries can be added, edited, reordered, and removed as
-ordinary strings. Empty and duplicate strings are valid list values. With
-`"editor": "font_family"`, the same stored type uses the system-font picker.
-Like every other array, it uses the declared `min_items`/`max_items` bounds and
-supports scene binding through its individual elements. Arrays are not themselves
-scene-argument values, and nested arrays are not part of the type algebra.
+Empty and duplicate strings are valid values. Arrays support scene
+binding through individual elements, but an array itself is not a scene-argument
+value. Plugins receive ordered values without the editor's stable element IDs.
 
-Tuples contain 2–64 arbitrary scalars, including colors, strings, and enums. Their structure prevents
-nested tuples and arrays:
+Array types keep `element_type`, `min_items`, and `max_items` inside `array`.
+`min_items` defaults to zero; `max_items` is required. For example, this property
+starts with three points and appends the origin:
 
 ```json
 {
-  "type": {"value": ["f32", "bool", "string", {"enum": [2, 7]}]},
-  "default": {"tuple": [{"f32": 0}, {"bool": true}, {"string": "Label"}, {"enum": 7}]}
-}
-```
-
-Array definitions keep `element_type`, `min_items`, and `max_items` inside the `array`
-object. `min_items` defaults to zero; `max_items` is required.
-Arrays contain a scalar or tuple value type, so arrays of tuples are valid
-without allowing nested arrays:
-
-```json
-{
+  "id": "points",
+  "label": {"en-US": "Points"},
   "type": {"array": {"element_type": ["f32", "f32"], "min_items": 3, "max_items": 1024}},
   "default": {"array": [
     {"id": 1, "value": {"tuple": [{"f32": 0}, {"f32": 0}]}},
     {"id": 2, "value": {"tuple": [{"f32": 100}, {"f32": 0}]}},
     {"id": 3, "value": {"tuple": [{"f32": 50}, {"f32": 100}]}}
-  ]}
+  ]},
+  "append_default": {"tuple": [{"f32": 0}, {"f32": 0}]},
+  "configurations": [{}, {}]
 }
 ```
 
-Finite choices are types, not UI options:
+### Enums and animation
+
+Finite choices are declared in the type:
 
 ```json
 {
@@ -336,67 +284,10 @@ Finite choices are types, not UI options:
 }
 ```
 
-`editable` defaults to true. Set it to `false` for plugin properties whose values are produced by the
-plugin and must be displayed without allowing direct edits. Tuple properties specify one object per scalar
-in `configurations`; each object has its own `scene_bindable`,
-`editable`, and `animatable` settings. Disabling `editable` also disables animation
-editing for the property or scalar. `scene_bindable` defaults to true and remains independent, so a
-scalar can still be exposed through a scene binding when the plugin uses that as its input path.
-Scene arguments themselves are scalars, preserving enum membership;
-tuple scalars are published and connected independently.
-
-### Tuple metadata and animation
-
-`configurations` specifies metadata for each tuple scalar, including inside an array
-element. The list must match the tuple length. Each scalar object contains its
-`scene_bindable`, `editable`, `animatable`, `constraints`, and `ui`
-settings; UI properties
-(`label`, `unit`, `step`, `visible`, `enum_variants`, and `multiline`) stay
-inside that scalar's `ui`. Missing labels use the one-based scalar index, and
-omitted UI metadata uses the scalar defaults. A tuple is visible if any scalar
-is visible. Numeric bounds belong inside each scalar's `constraints`; tuple-level
-`min`/`max` are rejected. The `font_family` editor remains an
-array-of-strings setting.
-`scene_bindable` and `animatable` are scalar permissions: standalone scalar
-properties use one `configurations` entry, while tuple properties use one
-entry per tuple scalar. The same scalar metadata applies to every element in
-an array of tuples.
-
-```json
-{
-  "id": "entry",
-  "label": {"en-US": "Entry"},
-  "type": {"value": ["f32", {"enum": [2, 7]}, "string", "color"]},
-  "default": {"tuple": [
-    {"f32": 1}, {"enum": 2}, {"string": "Caption"}, {"color": [1, 1, 1, 1]}
-  ]},
-  "configurations": [
-    {
-      "animatable": true,
-      "constraints": {"min": 0, "max": 10},
-      "ui": {"label": {"en-US": "Width"}, "unit": "px"}
-    },
-    {"ui": {"label": {"en-US": "Mode"}, "enum_variants": {"2": {"en-US": "Low"}, "7": {"en-US": "High"}}}},
-    {"ui": {"label": {"en-US": "Caption"}, "multiline": true}},
-    {
-      "animatable": true,
-      "constraints": {"min": 0, "max": 1},
-      "ui": {"label": {"en-US": "Tint"}}
-    }
-  ]
-}
-```
-
-Every animation track addresses one scalar: a standalone scalar, a tuple scalar,
-or a scalar within an array element. Array elements have editor-side stable IDs,
-but plugins receive only their ordered values. Numeric scalars and colors interpolate;
-bools, strings, and enums remain static. A mixed tuple can animate its eligible
-scalars independently. An animatable scalar must be numeric or a color;
-boolean, string, and enum scalars remain static.
-Colors share one curve across RGBA. Integer endpoints retain their integer type
-and interpolate with rounding, without conversion of endpoints to `f32`.
-Array structure is not animated. Tracks store a structural target and typed
-endpoints with a curve; there is no separate animation layout.
+Each animation track addresses one scalar, including tuple and array-element
+scalars. Numeric values and colors interpolate; bools, strings, enums, and array
+structure remain static. Colors share one curve across RGBA, and integer
+interpolation rounds while retaining integer endpoints.
 
 Enum membership is retained in runtime values and scene bindings. Its GPU
 representation is `u32`. `ui.enum_variants` may be omitted to show numeric labels;
@@ -404,7 +295,8 @@ when provided it must label every member exactly once.
 
 ## Generated WESL API
 
-Shader sources import the host API and the item/effect interface explicitly:
+Shader sources import the host API and the item/effect interface explicitly.
+For an item with properties:
 
 ```wesl
 import package::generated::host::item::{context, quad_corner};
@@ -415,66 +307,25 @@ The `module` value is a single WGSL identifier. For example, `"module": "shape"`
 loads `shape.wesl` as `package::shape`. Other root-level `.wesl` files may be
 imported as helper modules; `generated` is reserved for host-provided modules.
 
-`generated/<entity_id>.wesl` combines one visual item's or effect's full typed
-property API and capability input declarations. The file is named after the
-item/effect ID, independently of its shader module names. For example:
+`generated/<entity_id>.wesl` contains one visual item's or effect's full typed
+property API and capability declarations. Every effect pass shares that file,
+regardless of shader kind. A shader shared by multiple entities imports
+`package::generated::host::entity`, which resolves to the current owner's
+interface.
 
-```wesl
-import package::generated::text::{props, text, capability_sampler};
-import package::generated::outline::props; // render and compute outline passes
-```
+Visual item/effect IDs must be WGSL identifiers and distinct across both kinds.
+Host APIs have a separate namespace, so an effect named `compute` imports its
+properties from `package::generated::compute` and the compute helpers from
+`package::generated::host::compute`. An entity named `host` is also valid.
+Modules, fields, and helpers starting with `_` are private implementation details.
 
-Every pass of an effect shares the same generated file. `glow_blur.wesl` and
-`glow.wesl` both import `package::generated::glow`; compute or temporal passes do
-not get separate property or capability interfaces.
-
-A shader shared by multiple entities imports `package::generated::host::entity`.
-For example, the shared `media.wesl` imports this alias while video, image and SVG
-items each have their own generated file and full property layout. When linking,
-Zerium resolves `host::entity` to the current item's or effect's packaged interface.
-
-Run `zerium plugin generate` in a plugin directory whenever its shader contract
-changes. The command writes common host modules (`util`, `item`, `effect`, `compute`,
-`temporal`) under `generated/host/`, and one interface file per visual item/effect
-under `generated/`. Internal `_item`, `_effect`, `_compute`, `_temporal` and
-`_context` also live under `generated/host/`. During linking, `host::_props`
-selects the packaged internal interface for the current pass kind;
-both the host helpers and the entity property loader use this same interface.
-These aliases only select existing files: runtime does not generate WESL
-property or capability declarations.
-
-Visual item/effect IDs must be WGSL identifiers and distinct across both kinds,
-since they share the generated module namespace. Host APIs and aliases live in a
-separate namespace: an effect named `compute` imports its properties from
-`package::generated::compute` and the compute API from
-`package::generated::host::compute`. `item`, `effect`, `util`, `temporal`, `entity`
-and even `host` are also available as entity IDs. Shader module names remain
-independent and may be shared. Generated modules, helper names and fields
-starting with `_` are implementation details, not part of the plugin API.
-Shader imports are authored in the WESL files and are not rewritten by the
-generator.
-
-Zerium links plugin WESL to in-memory WGSL once when loading the application and
-shares that result between preview and export; plugin authors do not generate or
-distribute WGSL. Zerium rejects generated files whose shader-contract fingerprint
-is stale. The fingerprint covers entity IDs and kinds, the set of pass shader
-kinds, full property IDs, shader types and ABI offsets, capability input IDs and
-binding order, and the host interface revision. JSON formatting, display metadata,
-defaults, enum choices and array length limits do not require regeneration.
-Repeating or reordering passes of the same kinds, changing constants, or changing
-shader module names does not duplicate or change the generated entity interface.
-
-```sh
-zerium plugin generate
-# or: zerium plugin generate path/to/plugin
-```
-
-Before opening the application, a plugin can be checked with the same WESL
-linking and WGSL validation used by the renderer:
-
-```sh
-zerium plugin validate path/to/plugin
-```
+Regenerate when entity IDs or kinds, pass shader kinds, property IDs/types/order,
+or capability IDs/order change, or when the host API is updated. The compatibility
+fingerprint describes this shader contract rather than the raw JSON. Formatting,
+labels, defaults, enum choices, and array length limits do not require regeneration.
+Generated declarations are packaged files; they are not generated at runtime.
+Zerium links WESL to in-memory WGSL when loading and shares it between preview and
+export. Plugins distribute WESL and generated interfaces, not WGSL.
 
 A module with properties exposes a typed property struct; a module without
 properties does not generate `ZeriumProps` or `props`. All shader kinds use the
@@ -486,16 +337,11 @@ let properties = props();               // effect pass
 ```
 
 Tuple fields are generated structs with fields `v0`, `v1`, and so on. Arrays use
-`properties.<id>_len` plus `get_<id>(properties, index)`, including arrays
-of strings. A string is represented by `ZeriumStr`; its byte length is
-`value.byte_len`, and `str_byte(value, index)` reads one UTF-8 byte, returning
-zero outside the string. String descriptors carry their own internal backing
-reference, so callers do not pass raw property data. The descriptor layout and
-backing-buffer offsets remain host-private. Use `props`, array accessors and
-`str_byte` instead of raw buffers or property-reading functions.
-
-Host types use the `Zerium` namespace; resource and function names are concise
-and unprefixed. Plugin WESL must not redeclare imported host names.
+`properties.<id>_len` and `get_<id>(properties, index)`. Strings use `ZeriumStr`:
+`value.byte_len` is the UTF-8 byte length, and `str_byte(value, index)` returns a
+byte or zero outside the string. Import `str_byte` from the entity interface
+alongside `props`. Use these typed accessors; raw buffers and ABI
+offsets are private.
 
 Every shader receives `ZeriumContext` through `context`. It contains the
 physical surface `output_size`, fixed `composition_size`, logical
@@ -533,24 +379,18 @@ Three- and four-component `f32` tuples also expose `::v2` and `::v3`.
 The declaration must include all four edges:
 
 ```json
-"output_bounds": {
-  "min": ["input::min::x - p::radius", "input::min::y - p::radius"],
-  "max": ["input::max::x + p::radius", "input::max::y + p::radius"]
+{
+  "output_bounds": {
+    "min": ["input::min::x - p::radius", "input::min::y - p::radius"],
+    "max": ["input::max::x + p::radius", "input::max::y + p::radius"]
+  }
 }
 ```
 
-For a full-frame item, set the edges to `viewport::min::x`,
-`viewport::min::y`, `viewport::max::x`, and `viewport::max::y`.
-For an effect that preserves its input rectangle, use the corresponding
-`input::*` variables. Items can compute a
-rotated quad from their position, size, and angle properties; effects can
-compute transformed rectangles from the input edges. Edges may chain
-`;`-separated assignments to share locals (e.g.
-`rx = p::rotation::v0 * 0.017453292519943295; sx = math::sin(rx); ...`);
-the built-in `rotate_3d` effect projects its input rectangle through a 3D
-rotation this way, using `min((...))` / `max((...))` over the four projected
-corners. There are no other built-in bounds functions: everything else is
-plain arithmetic over the variables above plus `min`, `max`, and `math::*`.
+For a full-frame item, use `viewport::*` edges as in the manifest example. To
+preserve an effect's input rectangle, use `input::*`. Expressions may chain
+`;`-separated assignments to reuse local calculations. The bundled plugin
+contains rotated and projected bounds examples.
 
 Invalid, reversed, or non-finite results fail the render rather than producing
 an unbounded texture allocation. Media `placement` independently controls the
@@ -563,36 +403,6 @@ the output rectangle, so the shader can sample it with output UVs. With
 `"source"`, the input keeps its own rectangle; shaders can use
 `uv_to_position` and `position_to_uv` to map between them. The default is
 `"output"`; source-space effects must have exactly one render pass.
-
-The built-in `translate` effect moves item surface metadata without resampling
-its pixels when it has no capability inputs. On a scene, its render pass still
-runs within the fixed viewport. The built-in scale, rotation, perspective, and
-spline-follow effects use `"source"` input space and render into the rectangle
-declared by `output_bounds`. Perspective projections that cross the camera
-plane or exceed the GPU texture limit report a render resource error.
-
-The built-in `spline_path` item and `follow_spline` effect use the same point
-convention as `polygon`: each point is a percentage of the path's `size`,
-relative to its `position`. The effect has its own points; matching its
-position, size, points, and tension to a path item makes another item follow the
-drawn curve when `progress` is animated. Tension runs from -100% (looser) through
-0% (the original Catmull–Rom shape) to 100% (straight segments between points).
-Both support `closed`, which adds a smooth segment from the last point back to
-the first (for three or more points). Match `closed` as well when following a
-drawn path. Progress runs from 0 to 100 and follows the sampled curve at
-approximately constant speed; on a closed path, 100% returns to the first point.
-The path item can fill a closed curve with `fill_enabled` and `fill_color`.
-`stroke_start` and `stroke_end` select a section of the stroke by cumulative
-curve length, with 0–100% covering the complete path. An equal or reversed
-range draws no stroke; fill remains independent. Setting `width` to zero
-produces a fill-only path.
-The follow effect reserves a center range and padding in its bounds program;
-scene effects remain viewport-sized. Curve subdivision
-adapts to the path's size and bend (8–256 pieces per span, targeting 0.125
-composition pixel chord error), with the same sampling used for drawing and
-motion. Neighboring spans share the tangent at each point. The curve may
-extend outside the point quad by up to a quarter of its size per axis at
--100% tension, so the item and effect reserve that area with `size_outset`.
 
 For spatial effects, `uv_to_position` converts an output UV to a composition
 position, while `position_to_uv` converts a composition position to the input
@@ -645,8 +455,7 @@ dispatch dimensions.
 Effect shaders process the output surface declared by `output_bounds`. Shader
 coordinates and `context().output_size` refer to that surface for item effects,
 and to the viewport for scene effects. The renderer does not scan input alpha
-to determine effect bounds. The built-in linear gradient and pixel sort use the
-full surface as their coordinate range.
+to determine effect bounds.
 
 Render and compute passes receive `effect_input`, the current pipeline
 input, and `effect_source`, the image captured at the start of the current
@@ -682,11 +491,8 @@ Reducer WESL receives `temporal_sample`,
 `temporal_accumulation`, `temporal_sampler`, and
 `info() -> ZeriumTemporalInfo`. The public info contains `sample_index`,
 `sample_count`, `frame_offset` (in frames), and `sample_progress` (0–1).
-Surface dimensions and scale come from `context()`; GPU property offsets and
-uniform buffers are not part of this API. Later render or compute passes consume
-the reduced texture normally.
+Surface dimensions and scale come from `context()`. Later render or compute
+passes consume the reduced texture normally.
 
-Shader identities are derived internally from plugin ID, item/effect ID, and
-pass index. Plugins declare module IDs and entry points, not global pipeline
-IDs. Render entry points default to `vertex_main` and `fragment_main`; compute
+Render entry points default to `vertex_main` and `fragment_main`; compute
 defaults to `compute_main`.

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 version="$({
-  awk '/^\[package\]/{in_package=1; next} /^\[/{in_package=0} in_package && $1 == "version" {gsub(/"/, "", $3); print $3; exit}' Cargo.toml
+  awk '/^\[workspace.package\]/{in_package=1; next} /^\[/{in_package=0} in_package && $1 == "version" {gsub(/"/, "", $3); print $3; exit}' Cargo.toml
 })"
 archive_name="zerium-${version}-linux-x86_64.tar.xz"
 appimage_name="zerium-${version}-linux-x86_64.AppImage"
@@ -50,9 +50,9 @@ ARCH=x86_64 APPIMAGE_EXTRACT_AND_RUN=1 "$appimagetool" --no-appstream "$appdir" 
 
 deb_log="${RUNNER_TEMP:-/tmp}/zerium-cargo-deb.log"
 rpm_log="${RUNNER_TEMP:-/tmp}/zerium-cargo-rpm.log"
-cargo deb --no-build --output "dist/zerium_${version}-1_amd64.deb" >"$deb_log" 2>&1 &
+cargo deb -p zerium --no-build --output "dist/zerium_${version}-1_amd64.deb" >"$deb_log" 2>&1 &
 deb_pid=$!
-cargo generate-rpm --payload-compress gzip -o "dist/zerium-${version}-1.x86_64.rpm" >"$rpm_log" 2>&1 &
+cargo generate-rpm -p crates/zerium --payload-compress gzip -o "dist/zerium-${version}-1.x86_64.rpm" >"$rpm_log" 2>&1 &
 rpm_pid=$!
 
 deb_status=0

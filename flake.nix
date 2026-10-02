@@ -48,7 +48,8 @@
         pkgs.wayland
       ];
 
-      cargoToml = fromTOML (builtins.readFile ./Cargo.toml);
+      workspaceToml = fromTOML (builtins.readFile ./Cargo.toml);
+      cargoToml = fromTOML (builtins.readFile ./crates/zerium/Cargo.toml);
     in
     {
       packages = forAllSystems (
@@ -64,7 +65,7 @@
             src = ./.;
 
             pname = cargoToml.package.name;
-            version = cargoToml.package.version;
+            version = workspaceToml.workspace.package.version;
 
             strictDeps = true;
             doCheck = false;

@@ -8880,7 +8880,6 @@ dependencies = [
  "ffmpeg-next",
  "futures",
  "gpui-ce",
- "naga",
  "pollster 0.4.0",
  "resvg",
  "rtrb",
@@ -8893,8 +8892,33 @@ dependencies = [
  "thiserror 2.0.20",
  "ui",
  "unicode-segmentation",
- "wesl",
  "wgpu",
+ "zerium-core",
+ "zerium-shader",
+]
+
+[[package]]
+name = "zerium-core"
+version = "0.1.0"
+dependencies = [
+ "evalexpr",
+ "naga",
+ "rust-i18n",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "zerium-shader"
+version = "0.1.0"
+dependencies = [
+ "naga",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "wesl",
+ "zerium-core",
 ]
 
 [[package]]
