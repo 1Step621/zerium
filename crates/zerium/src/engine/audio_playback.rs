@@ -481,95 +481,69 @@ fn build_output_stream(
     underrun: Arc<AudioUnderrunState>,
     levels: SharedAudioLevels,
 ) -> Result<cpal::Stream, AudioPlaybackError> {
-    let config = supported.config();
-    let channels = usize::from(config.channels).max(1);
-    let error_events = events.clone();
-    let error_callback = move |error: cpal::StreamError| {
-        push_event(
-            &error_events,
-            AudioPlaybackEvent::DeviceFailed(error.to_string()),
-        );
-    };
+    macro_rules! build_stream {
+        ($sample:ty) => {
+            build_output_stream_for_format::<$sample>(
+                device,
+                supported,
+                consumer,
+                played_sample_frames,
+                events,
+                underrun,
+                levels,
+            )
+        };
+    }
     match supported.sample_format() {
-        cpal::SampleFormat::F32 => {
-            let mut consumer = consumer;
-            let underrun = underrun.clone();
-            let levels = levels.clone();
-            device
-                .build_output_stream(
-                    &config,
-                    move |output: &mut [f32], _| {
-                        fill_output(
-                            output,
-                            channels,
-                            &mut consumer,
-                            &played_sample_frames,
-                            &underrun,
-                            &levels,
-                            |sample| sample,
-                        )
-                    },
-                    error_callback,
-                    None,
-                )
-                .map_err(|error| {
-                    AudioPlaybackError::Stream(format!("Failed to create audio output: {error}"))
-                })
-        }
-        cpal::SampleFormat::I16 => {
-            let mut consumer = consumer;
-            let underrun = underrun.clone();
-            let levels = levels.clone();
-            device
-                .build_output_stream(
-                    &config,
-                    move |output: &mut [i16], _| {
-                        fill_output(
-                            output,
-                            channels,
-                            &mut consumer,
-                            &played_sample_frames,
-                            &underrun,
-                            &levels,
-                            |sample| (sample * f32::from(i16::MAX)) as i16,
-                        )
-                    },
-                    error_callback,
-                    None,
-                )
-                .map_err(|error| {
-                    AudioPlaybackError::Stream(format!("Failed to create audio output: {error}"))
-                })
-        }
-        cpal::SampleFormat::U16 => {
-            let mut consumer = consumer;
-            let underrun = underrun.clone();
-            let levels = levels.clone();
-            device
-                .build_output_stream(
-                    &config,
-                    move |output: &mut [u16], _| {
-                        fill_output(
-                            output,
-                            channels,
-                            &mut consumer,
-                            &played_sample_frames,
-                            &underrun,
-                            &levels,
-                            |sample| ((sample * 0.5 + 0.5) * f32::from(u16::MAX)) as u16,
-                        )
-                    },
-                    error_callback,
-                    None,
-                )
-                .map_err(|error| {
-                    AudioPlaybackError::Stream(format!("Failed to create audio output: {error}"))
-                })
-        }
+        cpal::SampleFormat::I8 => build_stream!(i8),
+        cpal::SampleFormat::I16 => build_stream!(i16),
+        cpal::SampleFormat::I32 => build_stream!(i32),
+        cpal::SampleFormat::I64 => build_stream!(i64),
+        cpal::SampleFormat::U8 => build_stream!(u8),
+        cpal::SampleFormat::U16 => build_stream!(u16),
+        cpal::SampleFormat::U32 => build_stream!(u32),
+        cpal::SampleFormat::U64 => build_stream!(u64),
+        cpal::SampleFormat::F32 => build_stream!(f32),
+        cpal::SampleFormat::F64 => build_stream!(f64),
         format => Err(AudioPlaybackError::Configuration(format!(
             "Unsupported audio output sample format: {format:?}"
         ))),
     }
+}
+
+fn build_output_stream_for_format<T: cpal::SizedSample + cpal::FromSample<f32>>(
+    device: &cpal::Device,
+    supported: &cpal::SupportedStreamConfig,
+    mut consumer: rtrb::Consumer<f32>,
+    played_sample_frames: Arc<AtomicU64>,
+    events: Arc<Mutex<VecDeque<AudioPlaybackEvent>>>,
+    underrun: Arc<AudioUnderrunState>,
+    levels: SharedAudioLevels,
+) -> Result<cpal::Stream, AudioPlaybackError> {
+    let config = supported.config();
+    let channels = usize::from(config.channels).max(1);
+    device
+        .build_output_stream(
+            &config,
+            move |output: &mut [T], _| {
+                fill_output(
+                    output,
+                    channels,
+                    &mut consumer,
+                    &played_sample_frames,
+                    &underrun,
+                    &levels,
+                    |sample| T::from_sample(sample.clamp(-1., 1.)),
+                )
+            },
+            move |error| {
+                push_event(&events, AudioPlaybackEvent::DeviceFailed(error.to_string()));
+            },
+            None,
+        )
+        .map_err(|error| {
+            AudioPlaybackError::Stream(format!("Failed to create audio output: {error}"))
+        })
 }
 
 fn fill_output<T: Copy>(

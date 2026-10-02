@@ -75,6 +75,7 @@ sys-locale = "0.3.2"
 thiserror.workspace = true
 ui = { git = "https://github.com/1Step621/WGPUI-Component", branch = "fix/input-selection-replacement" }
 unicode-segmentation = "1.12"
+url = "2"
 wgpu = { version = "30", default-features = false }
 zerium-core.workspace = true
 zerium-shader.workspace = true

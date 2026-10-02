@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::{cell::RefCell, path::PathBuf, rc::Rc};
 
 use ::ui::Root;
 use gpui::{
@@ -15,23 +15,48 @@ const WINDOW_ICON_PNG: &[u8] = include_bytes!("../../../../assets/zerium.png");
 
 pub(crate) fn run(initial_project: Option<PathBuf>) {
     crate::i18n::initialize();
-    Application::with_locale(crate::i18n::locale())
+    let application = Application::with_locale(crate::i18n::locale());
+    let open_project = Rc::new(RefCell::new(None::<Box<dyn FnMut(PathBuf)>>));
+    application.on_open_urls({
+        let open_project = open_project.clone();
+        move |urls| {
+            let path = urls.into_iter().find_map(|url| {
+                let path = url::Url::parse(&url).ok()?.to_file_path().ok()?;
+                path.extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| {
+                        extension.eq_ignore_ascii_case(zerium_core::persistence::PROJECT_EXTENSION)
+                    })
+                    .then_some(path)
+            });
+            if let Some(path) = path
+                && let Some(open_project) = open_project.borrow_mut().as_mut()
+            {
+                open_project(path);
+            }
+        }
+    });
+    application
         .with_assets(::ui::assets::Assets)
-        .run(|cx: &mut App| {
+        .run(move |cx: &mut App| {
             ::ui::init(cx);
             crate::ui::theme::install(cx);
             cx.bind_keys([
                 KeyBinding::new(
-                    "ctrl-c",
+                    "secondary-c",
                     CopySelectedItems,
                     Some(WORKSPACE_SHORTCUT_KEY_CONTEXT),
                 ),
                 KeyBinding::new(
-                    "ctrl-x",
+                    "secondary-x",
                     CutSelectedItems,
                     Some(WORKSPACE_SHORTCUT_KEY_CONTEXT),
                 ),
-                KeyBinding::new("ctrl-v", PasteItems, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
+                KeyBinding::new(
+                    "secondary-v",
+                    PasteItems,
+                    Some(WORKSPACE_SHORTCUT_KEY_CONTEXT),
+                ),
                 KeyBinding::new(
                     "delete",
                     DeleteSelectedItem,
@@ -44,20 +69,28 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                 ),
                 KeyBinding::new("left", PreviousFrame, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
                 KeyBinding::new("right", NextFrame, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
-                KeyBinding::new("ctrl-z", Undo, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
-                KeyBinding::new("ctrl-shift-z", Redo, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
-                KeyBinding::new("ctrl-y", Redo, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
+                KeyBinding::new("secondary-z", Undo, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
                 KeyBinding::new(
-                    "ctrl-shift-e",
+                    "secondary-shift-z",
+                    Redo,
+                    Some(WORKSPACE_SHORTCUT_KEY_CONTEXT),
+                ),
+                KeyBinding::new("secondary-y", Redo, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
+                KeyBinding::new(
+                    "secondary-shift-e",
                     OpenExportDialog,
                     Some(WORKSPACE_SHORTCUT_KEY_CONTEXT),
                 ),
                 KeyBinding::new("i", OpenItemPicker, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
                 KeyBinding::new("e", OpenEffectPicker, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
-                KeyBinding::new("ctrl-n", NewProject, Some(WORKSPACE_KEY_CONTEXT)),
-                KeyBinding::new("ctrl-o", OpenProject, Some(WORKSPACE_KEY_CONTEXT)),
-                KeyBinding::new("ctrl-s", SaveProject, Some(WORKSPACE_KEY_CONTEXT)),
-                KeyBinding::new("ctrl-shift-s", SaveProjectAs, Some(WORKSPACE_KEY_CONTEXT)),
+                KeyBinding::new("secondary-n", NewProject, Some(WORKSPACE_KEY_CONTEXT)),
+                KeyBinding::new("secondary-o", OpenProject, Some(WORKSPACE_KEY_CONTEXT)),
+                KeyBinding::new("secondary-s", SaveProject, Some(WORKSPACE_KEY_CONTEXT)),
+                KeyBinding::new(
+                    "secondary-shift-s",
+                    SaveProjectAs,
+                    Some(WORKSPACE_KEY_CONTEXT),
+                ),
             ]);
             let bounds = Bounds::centered(None, size(px(1180.), px(780.)), cx);
             cx.open_window(
@@ -180,6 +213,23 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             project.open_path(path, cx);
                         });
                     }
+                    let mut app = cx.to_async();
+                    let window_handle = window.window_handle();
+                    *open_project.borrow_mut() = Some(Box::new({
+                        let project_controller = project_controller.clone();
+                        move |path| {
+                            if let Err(error) = app.update_window(window_handle, |_, window, cx| {
+                                project_controller.update(cx, |project, cx| {
+                                    project.request_open_path(path, window, cx);
+                                });
+                                window.activate_window();
+                            }) {
+                                eprintln!(
+                                    "failed to open project from system notification: {error}"
+                                );
+                            }
+                        }
+                    }));
                     let close_project_controller = project_controller.clone();
                     let close_export_controller = export_controller.clone();
                     let close_window_lifetime_guard = preview.read(cx).window_lifetime_guard();

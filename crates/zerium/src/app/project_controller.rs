@@ -18,10 +18,11 @@ use zerium_core::{
     timeline::{Frame, FrameRate, ProjectResolution},
 };
 
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 enum PendingProjectChange {
     New,
     Open,
+    OpenPath(PathBuf),
 }
 
 pub(crate) struct ProjectController {
@@ -53,6 +54,15 @@ impl ProjectController {
 
     pub(crate) fn request_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         self.request_project_change(PendingProjectChange::Open, window, cx);
+    }
+
+    pub(crate) fn request_open_path(
+        &mut self,
+        path: PathBuf,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.request_project_change(PendingProjectChange::OpenPath(path), window, cx);
     }
 
     pub(crate) fn open_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
@@ -328,6 +338,7 @@ impl ProjectController {
         let controller = cx.entity();
         window.open_modal(cx, move |modal: Modal, _, _| {
             let confirm_controller = controller.clone();
+            let operation = operation.clone();
             modal
                 .title(
                     div()
@@ -343,7 +354,7 @@ impl ProjectController {
                 )
                 .on_ok(move |_, window, cx| {
                     confirm_controller.update(cx, |controller, cx| {
-                        controller.perform_project_change(operation, window, cx);
+                        controller.perform_project_change(operation.clone(), window, cx);
                     });
                     true
                 })
@@ -360,6 +371,7 @@ impl ProjectController {
         match operation {
             PendingProjectChange::New => self.new_project(cx),
             PendingProjectChange::Open => self.choose_open_path(window, cx),
+            PendingProjectChange::OpenPath(path) => self.open_path(path, cx),
         }
     }
 

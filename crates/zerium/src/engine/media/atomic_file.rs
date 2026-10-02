@@ -80,7 +80,7 @@ impl AtomicFileTransaction {
             .open(&self.temporary)?
             .sync_all()?;
 
-        atomic_replace(&self.temporary, &self.destination)?;
+        fs::rename(&self.temporary, &self.destination)?;
         sync_parent(&self.destination)?;
         self.committed = true;
         Ok(())
@@ -93,24 +93,6 @@ impl Drop for AtomicFileTransaction {
             let _ = fs::remove_file(&self.temporary);
         }
     }
-}
-
-#[cfg(not(windows))]
-fn atomic_replace(source: &Path, destination: &Path) -> io::Result<()> {
-    fs::rename(source, destination)
-}
-
-#[cfg(windows)]
-fn atomic_replace(source: &Path, destination: &Path) -> io::Result<()> {
-    // std does not expose ReplaceFileW. Refuse to destroy an existing file;
-    // callers can choose a new destination until a native atomic replace is added.
-    if destination.exists() {
-        return Err(io::Error::new(
-            io::ErrorKind::AlreadyExists,
-            "atomic replacement of an existing file is unavailable on this platform",
-        ));
-    }
-    fs::rename(source, destination)
 }
 
 #[cfg(not(windows))]
