@@ -4,14 +4,10 @@ use std::collections::HashSet;
 
 use gpui::{App, ClipboardItem, Context, Window};
 
-use crate::{
-    domain::{
-        persistence::{
-            DecodedTimelineClipboard, decode_timeline_clipboard, encode_timeline_clipboard,
-        },
-        timeline::{Frame, LayerId, TimelineEditor},
-    },
-    ui::TimelineEditorEntityExt as _,
+use crate::ui::TimelineEditorEntityExt as _;
+use zerium_core::{
+    persistence::{DecodedTimelineClipboard, decode_timeline_clipboard, encode_timeline_clipboard},
+    timeline::{Frame, LayerId, TimelineEditor},
 };
 
 use super::Timeline;

@@ -15,7 +15,15 @@ A video editor with zero limits.
 
 ## Install
 
-Available formats include MSI, DMG, AppImage, DEB, RPM, ELF binaries, and Nix packages.
+Available formats include MSI, DMG, PKG, AppImage, DEB, RPM, ELF binaries, and Nix packages.
+
+The Windows MSI adds Zerium to PATH; open a new terminal after installation.
+On macOS, use the PKG to install both the app and `/usr/local/bin/zerium`.
+Linux DEB, RPM, and Nix packages also provide the `zerium` command. For example:
+
+```sh
+zerium plugin validate path/to/plugin
+```
 
 ### Nix
 

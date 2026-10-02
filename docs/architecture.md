@@ -28,8 +28,7 @@ The application is a binary-only crate; `main.rs` owns startup and CLI dispatch.
 
 Within the application, `app` composes the runtime, `ui` translates user input
 into core commands, and `engine` handles media, audio, rendering, export, and
-project I/O. Engine code must not depend on UI entities. The internal `domain`
-alias refers to `zerium-core`.
+project I/O. Engine code must not depend on UI entities.
 
 ## Project state and editing
 

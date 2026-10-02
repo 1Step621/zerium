@@ -22,10 +22,10 @@ use gpui::{
 };
 
 use crate::{
-    domain::plugin::PluginRegistry,
     project_session::{ProjectSession, ProjectSessionId},
     ui::session::UiNotifications,
 };
+use zerium_core::plugin::PluginRegistry;
 
 #[derive(Clone)]
 struct FileImportTarget {

@@ -8,7 +8,7 @@ use std::{
 
 use thiserror::Error;
 
-use crate::domain::timeline::{FrameRate, ItemId, TimelineItem, TimelineTime};
+use zerium_core::timeline::{FrameRate, ItemId, TimelineItem, TimelineTime};
 
 use super::reader::{AudioDecoderSession, AudioFormat, MediaError, MediaReaderRegistry};
 

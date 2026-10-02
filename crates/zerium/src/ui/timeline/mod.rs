@@ -15,12 +15,12 @@ use gpui::{
 };
 
 use crate::{
-    domain::timeline::{
-        Frame, FrameDuration, FrameRate, ItemId, LayerId, PropertyAddress, ResizeEdge, SceneId,
-        TimelineEditError, TimelineEditor, TimelineItem, TimelineTime,
-    },
     engine::media::MediaReaderRegistry,
     project_session::{ProjectActivity, ProjectSession, ProjectSessionId},
+};
+use zerium_core::timeline::{
+    Frame, FrameDuration, FrameRate, ItemId, LayerId, PropertyAddress, ResizeEdge, SceneId,
+    TimelineEditError, TimelineEditor, TimelineItem, TimelineTime,
 };
 
 use super::{

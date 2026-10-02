@@ -10,11 +10,9 @@ use std::{
 
 use ffmpeg_next as ffmpeg;
 
-use crate::{
-    domain::media::{MediaAsset, MediaKind, VideoFrameRate},
-    domain::plugin::MediaType,
-    engine::frame::RgbaFrame,
-};
+use crate::engine::frame::RgbaFrame;
+use zerium_core::media::{MediaAsset, MediaKind, VideoFrameRate};
+use zerium_core::plugin::MediaType;
 
 use super::{
     ffmpeg::fit_dimensions,

@@ -430,7 +430,7 @@ impl PropertyInspector {
         let resolution = control::ControlResolution {
             item,
             selected_items,
-            playhead: crate::domain::timeline::TimelineTime::from_frame(editor.playhead()),
+            playhead: zerium_core::timeline::TimelineTime::from_frame(editor.playhead()),
             editing_scene,
             arguments: scene_arguments,
         };
@@ -515,7 +515,7 @@ impl PropertyInspector {
     ) {
         let selected_items = {
             let editor = editor.read(cx);
-            let time = crate::domain::timeline::TimelineTime::from_frame(editor.playhead());
+            let time = zerium_core::timeline::TimelineTime::from_frame(editor.playhead());
             editor
                 .selected_items()
                 .into_iter()

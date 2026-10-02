@@ -7,7 +7,7 @@ use std::{
 
 use rust_embed::RustEmbed;
 
-use crate::domain::plugin::{Plugin, PluginError, PluginManifest, PluginRegistry};
+use zerium_core::plugin::{Plugin, PluginError, PluginManifest, PluginRegistry};
 
 #[derive(RustEmbed)]
 #[folder = "../../plugins/"]

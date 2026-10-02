@@ -1,6 +1,6 @@
 use gpui::{CursorStyle, Empty, EntityId};
 
-use crate::domain::{
+use zerium_core::{
     property::{PropertyElementId, PropertyPath, PropertyValue, PropertyValues},
     timeline::{EffectInstanceId, PropertyAddress, TimelineItem, TimelineTime},
 };
@@ -73,7 +73,7 @@ enum PreviewDragKind {
 #[derive(Clone)]
 pub(super) struct PreviewEditorDrag {
     preview_id: EntityId,
-    item_id: crate::domain::timeline::ItemId,
+    item_id: zerium_core::timeline::ItemId,
     effect_id: Option<EffectInstanceId>,
     kind: PreviewDragKind,
 }
@@ -86,7 +86,7 @@ impl Render for PreviewEditorDrag {
 
 #[derive(Clone)]
 pub(super) struct PreviewResizeOrigin {
-    item_id: crate::domain::timeline::ItemId,
+    item_id: zerium_core::timeline::ItemId,
     effect_id: Option<EffectInstanceId>,
     property_id: String,
     handle: PreviewResizeHandle,
@@ -118,7 +118,7 @@ struct PreviewPointsProperty {
 
 #[derive(Clone)]
 struct PreviewSizeOverlay {
-    item_id: crate::domain::timeline::ItemId,
+    item_id: zerium_core::timeline::ItemId,
     property_id: String,
     center: [f32; 2],
     size: [f32; 2],
@@ -127,7 +127,7 @@ struct PreviewSizeOverlay {
 
 #[derive(Clone)]
 struct PreviewPointOverlay {
-    item_id: crate::domain::timeline::ItemId,
+    item_id: zerium_core::timeline::ItemId,
     center: [f32; 2],
     size: [f32; 2],
     points: PreviewPointsProperty,
@@ -155,7 +155,7 @@ pub(super) struct PreviewPositionOrigin {
 
 #[derive(Clone)]
 pub(super) struct PreviewPointOrigin {
-    item_id: crate::domain::timeline::ItemId,
+    item_id: zerium_core::timeline::ItemId,
     effect_id: Option<EffectInstanceId>,
     property_id: String,
     element_id: PropertyElementId,

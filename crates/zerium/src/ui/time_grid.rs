@@ -1,4 +1,4 @@
-use crate::domain::timeline::{Frame, FrameRate};
+use zerium_core::timeline::{Frame, FrameRate};
 
 const TARGET_RULER_TICK_SPACING: f64 = 90.;
 const TARGET_FRAME_GRID_SPACING: f64 = 10.;

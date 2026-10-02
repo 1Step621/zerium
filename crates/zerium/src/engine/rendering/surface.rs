@@ -1,7 +1,7 @@
 //! Logical composition-space bounds, independent of the texture resolution.
 
-use crate::domain::plugin::{OutputBoundsSchema, program_context};
-use crate::domain::property::PropertyValues;
+use zerium_core::plugin::{OutputBoundsSchema, program_context};
+use zerium_core::property::PropertyValues;
 
 use super::RenderSize;
 

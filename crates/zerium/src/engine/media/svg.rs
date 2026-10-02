@@ -10,12 +10,10 @@ use std::{
 
 use resvg::{tiny_skia, usvg};
 
-use crate::{
-    domain::{
-        media::{MediaAsset, MediaKind},
-        plugin::MediaType,
-    },
-    engine::frame::RgbaFrame,
+use crate::engine::frame::RgbaFrame;
+use zerium_core::{
+    media::{MediaAsset, MediaKind},
+    plugin::MediaType,
 };
 
 use super::reader::{ImageDecoderSession, MediaError, MediaProbe, MediaReader, VideoDecodeSize};

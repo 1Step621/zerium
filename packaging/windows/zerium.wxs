@@ -48,6 +48,23 @@
     </DirectoryRef>
 
     <DirectoryRef Id="INSTALLFOLDER">
+      <Component Id="CommandLinePath" Guid="{CD6876B2-8D2C-4A88-B348-4BF67E56F0DA}">
+        <Environment
+          Id="ZeriumPath"
+          Name="PATH"
+          Value="[INSTALLFOLDER]"
+          Action="set"
+          Part="last"
+          System="yes"
+          Permanent="no" />
+        <RegistryValue
+          Root="HKLM"
+          Key="Software\Zerium"
+          Name="cli"
+          Type="integer"
+          Value="1"
+          KeyPath="yes" />
+      </Component>
       <Component Id="ProjectFileAssociation" Guid="{7B9C4B9A-4E17-4F7E-8B6A-8B7B7C3D7B14}">
         <RegistryKey Root="HKLM" Key="Software\Classes\.zero">
           <RegistryValue Type="string" Value="Zerium.Project" KeyPath="yes" />
@@ -70,6 +87,7 @@
       <ComponentGroupRef Id="ApplicationFiles" />
       <ComponentRef Id="ApplicationShortcut" />
       <ComponentRef Id="ProjectFileAssociation" />
+      <ComponentRef Id="CommandLinePath" />
     </Feature>
   </Product>
 </Wix>

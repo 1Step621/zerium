@@ -1,4 +1,4 @@
-use crate::domain::timeline::{Frame, FrameRate};
+use zerium_core::timeline::{Frame, FrameRate};
 
 use super::super::time_grid;
 

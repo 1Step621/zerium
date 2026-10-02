@@ -103,7 +103,7 @@ struct CapabilitySource<'a> {
     item_id: ItemId,
     effect_id: Option<EffectInstanceId>,
     capabilities: &'a [Capability],
-    properties: &'a crate::domain::property::PropertyValues,
+    properties: &'a zerium_core::property::PropertyValues,
     label: &'a str,
 }
 

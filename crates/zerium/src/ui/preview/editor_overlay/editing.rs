@@ -3,7 +3,7 @@ use super::*;
 impl Preview {
     fn update_pair_property(
         editor: &mut TimelineEditor,
-        item_id: crate::domain::timeline::ItemId,
+        item_id: zerium_core::timeline::ItemId,
         effect_id: Option<EffectInstanceId>,
         property_id: &str,
         target: PreviewEditTarget,
@@ -211,7 +211,7 @@ impl Preview {
     pub(super) fn position_handle(
         &self,
         position: PreviewPositionOverlay,
-        resolution: crate::domain::timeline::ProjectResolution,
+        resolution: zerium_core::timeline::ProjectResolution,
         composition_units_per_pixel: f32,
         color: Hsla,
         cx: &Context<Self>,
@@ -372,7 +372,7 @@ impl Preview {
         &self,
         overlay: PreviewPointOverlay,
         effect_id: Option<EffectInstanceId>,
-        resolution: crate::domain::timeline::ProjectResolution,
+        resolution: zerium_core::timeline::ProjectResolution,
         composition_units_per_pixel: f32,
         color: Hsla,
         cx: &Context<Self>,

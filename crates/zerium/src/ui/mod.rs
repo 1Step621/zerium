@@ -1,6 +1,6 @@
 use gpui::{Context, Entity};
 
-use crate::domain::timeline::TimelineEditor;
+use zerium_core::timeline::TimelineEditor;
 
 pub(crate) mod animation_curve;
 pub(crate) mod explorer;

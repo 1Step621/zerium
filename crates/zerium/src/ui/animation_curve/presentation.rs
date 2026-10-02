@@ -1,8 +1,8 @@
-use crate::domain::{
+use crate::ui::numeric_property::numeric_input_spec;
+use zerium_core::{
     property::{PropertySchema, ScalarPropertyType},
     timeline::{PropertyAddress, TimelineEditor, TimelineItem},
 };
-use crate::ui::numeric_property::numeric_input_spec;
 
 #[derive(Clone)]
 pub(super) struct AnimationPresentation {

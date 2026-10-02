@@ -1,4 +1,4 @@
-use crate::domain::property::{PropertySchema, PropertyType, PropertyValue, ScalarPropertyType};
+use zerium_core::property::{PropertySchema, PropertyType, PropertyValue, ScalarPropertyType};
 
 pub(super) fn snap_to_step(value: f64, step: f64) -> f64 {
     if !step.is_finite() || step <= 0. {

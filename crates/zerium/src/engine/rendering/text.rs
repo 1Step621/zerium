@@ -9,10 +9,10 @@ use cosmic_text::{
 };
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::domain::plugin::{Capability, TextCapability};
-use crate::domain::property::{PropertyValue, PropertyValues};
-use crate::domain::timeline::{EffectInstanceId, ItemId, TimelineItem};
 use crate::engine::frame::RgbaFrame;
+use zerium_core::plugin::{Capability, TextCapability};
+use zerium_core::property::{PropertyValue, PropertyValues};
+use zerium_core::timeline::{EffectInstanceId, ItemId, TimelineItem};
 
 use super::{RenderError, RenderSize};
 

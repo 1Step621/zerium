@@ -21,7 +21,7 @@ impl PropertyInspector {
     fn selected_item_at_playhead(&self, cx: &App) -> Option<TimelineItem> {
         let editor = self.editor.read(cx);
         editor.selected_item().map(|item| {
-            item.evaluated_at_time(crate::domain::timeline::TimelineTime::from_frame(
+            item.evaluated_at_time(zerium_core::timeline::TimelineTime::from_frame(
                 editor.playhead(),
             ))
         })

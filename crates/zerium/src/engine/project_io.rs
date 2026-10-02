@@ -2,13 +2,11 @@
 
 use std::{fs, path::Path};
 
-use crate::{
-    domain::{
-        persistence::{self, LoadedProject, ProjectError},
-        plugin::PluginRegistry,
-        timeline::TimelineSnapshot,
-    },
-    engine::media::AtomicFileTransaction,
+use crate::engine::media::AtomicFileTransaction;
+use zerium_core::{
+    persistence::{self, LoadedProject, ProjectError},
+    plugin::PluginRegistry,
+    timeline::TimelineSnapshot,
 };
 
 pub(crate) fn save(snapshot: &TimelineSnapshot, path: &Path) -> Result<(), ProjectError> {

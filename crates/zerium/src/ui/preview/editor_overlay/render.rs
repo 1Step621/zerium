@@ -7,7 +7,7 @@ impl Preview {
         &self,
         overlay: PreviewSizeOverlay,
         effect_id: Option<EffectInstanceId>,
-        resolution: crate::domain::timeline::ProjectResolution,
+        resolution: zerium_core::timeline::ProjectResolution,
         composition_units_per_pixel: f32,
         color: Hsla,
         cx: &Context<Self>,
@@ -57,7 +57,7 @@ impl Preview {
 
     fn path_overlay(
         positions: Vec<[f32; 2]>,
-        resolution: crate::domain::timeline::ProjectResolution,
+        resolution: zerium_core::timeline::ProjectResolution,
         color: Hsla,
     ) -> impl IntoElement {
         canvas(
@@ -92,7 +92,7 @@ impl Preview {
     pub(in crate::ui::preview) fn editor_overlay(
         &self,
         overlay: PreviewEditorOverlay,
-        resolution: crate::domain::timeline::ProjectResolution,
+        resolution: zerium_core::timeline::ProjectResolution,
         composition_units_per_pixel: f32,
         color: Hsla,
         cx: &Context<Self>,

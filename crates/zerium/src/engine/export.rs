@@ -9,25 +9,21 @@ use std::{
 
 use thiserror::Error;
 
-use crate::{
-    domain::{
-        media::{MediaAsset, MediaKind, VideoFrameRate},
-        timeline::{
-            EffectInstanceId, Frame, FrameRate, ItemId, TimelineSnapshot, TimelineTime,
-            TimelineView,
-        },
+use crate::engine::{
+    frame::RgbaFrame,
+    media::{
+        AtomicFileTransaction, AudioFormat, AudioGainEvaluation, AudioTimelineGraph,
+        FfmpegFileEncoder, MediaInputId, MediaReaderRegistry, VideoColorSpec, VideoDecodeSize,
+        VideoEncoderSettings, VideoOutputSpec, VisualDecoderSession, sample_boundary,
     },
-    engine::{
-        frame::RgbaFrame,
-        media::{
-            AtomicFileTransaction, AudioFormat, AudioGainEvaluation, AudioTimelineGraph,
-            FfmpegFileEncoder, MediaInputId, MediaReaderRegistry, VideoColorSpec, VideoDecodeSize,
-            VideoEncoderSettings, VideoOutputSpec, VisualDecoderSession, sample_boundary,
-        },
-        rendering::{
-            ExportFramePipeline, FrameRenderer, RenderQuality, RenderScene, RenderSize,
-            TextFrameCache,
-        },
+    rendering::{
+        ExportFramePipeline, FrameRenderer, RenderQuality, RenderScene, RenderSize, TextFrameCache,
+    },
+};
+use zerium_core::{
+    media::{MediaAsset, MediaKind, VideoFrameRate},
+    timeline::{
+        EffectInstanceId, Frame, FrameRate, ItemId, TimelineSnapshot, TimelineTime, TimelineView,
     },
 };
 

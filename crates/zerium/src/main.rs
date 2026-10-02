@@ -6,7 +6,6 @@
 rust_i18n::i18n!("../../locales", fallback = "en-us");
 
 mod app;
-use zerium_core as domain;
 mod engine;
 mod i18n;
 mod plugin_loader;

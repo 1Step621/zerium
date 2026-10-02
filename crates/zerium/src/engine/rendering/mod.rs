@@ -21,20 +21,17 @@ use thiserror::Error;
 mod text;
 pub(crate) use text::{TextFrameCache, TextFrameRequest, TextSourceId};
 
-use crate::{
-    domain::{
-        plugin::{
-            Capability, ComputeDispatchDimension, EffectInputSpace, EffectPassSchema, ItemSchema,
-        },
-        timeline::{
-            EffectInstance, EffectInstanceId, EvaluatedSceneNode, ItemId, LayerId,
-            ProjectResolution, RenderResultSettings, TimelineItem, TimelineItemKind, TimelineTime,
-            TimelineView,
-        },
-    },
-    engine::frame::RgbaFrame,
-};
+use crate::engine::frame::RgbaFrame;
 use bytemuck::{Pod, Zeroable};
+use zerium_core::{
+    plugin::{
+        Capability, ComputeDispatchDimension, EffectInputSpace, EffectPassSchema, ItemSchema,
+    },
+    timeline::{
+        EffectInstance, EffectInstanceId, EvaluatedSceneNode, ItemId, LayerId, ProjectResolution,
+        RenderResultSettings, TimelineItem, TimelineItemKind, TimelineTime, TimelineView,
+    },
+};
 
 /// All blending and effects operate in scene-linear light with enough headroom
 /// for grading and glow. Conversion to display encoding happens only in the final pass.

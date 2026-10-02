@@ -1,9 +1,22 @@
 $ErrorActionPreference = 'Stop'
 
+if (-not $env:EDITBIN) {
+    throw 'EDITBIN is not set; install_dependencies.ps1 must run first.'
+}
+
 $packageDir = Join-Path $env:RUNNER_TEMP 'zerium-package'
 Remove-Item -Recurse -Force $packageDir, dist -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $packageDir, dist | Out-Null
 Copy-Item target\release\zerium.exe $packageDir\zerium.exe
+# Rust's MSVC entry point works for both subsystems. Change only the copy's
+# PE subsystem so terminal invocations get a console without compiling again.
+$cliPath = Join-Path $packageDir 'zerium.com'
+Copy-Item target\release\zerium.exe $cliPath
+& $env:EDITBIN /NOLOGO /SUBSYSTEM:CONSOLE $cliPath
+if ($LASTEXITCODE -ne 0) {
+    Remove-Item $cliPath
+    throw 'Failed to set the Zerium CLI console subsystem.'
+}
 Copy-Item LICENSE $packageDir\LICENSE
 Copy-Item assets\inter\OFL.txt $packageDir\Inter-OFL.txt
 

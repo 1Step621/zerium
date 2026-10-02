@@ -11,7 +11,7 @@ use gpui::{
     Subscription, Task, Window, div, prelude::*, px,
 };
 
-use crate::domain::plugin::PluginCatalogEntry;
+use zerium_core::plugin::PluginCatalogEntry;
 
 #[derive(Clone)]
 pub(crate) struct SearchPickerEntry<T> {

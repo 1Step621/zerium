@@ -1,9 +1,7 @@
 use gpui::{Context, Entity};
 
-use crate::{
-    domain::timeline::TimelineEditor,
-    ui::{animation_curve::AnimationSelection, transport::TransportController},
-};
+use crate::ui::{animation_curve::AnimationSelection, transport::TransportController};
+use zerium_core::timeline::TimelineEditor;
 
 use crate::project_session::{ProjectSession, ProjectSessionId};
 

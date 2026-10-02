@@ -1,11 +1,9 @@
 use std::sync::Arc;
 
-use crate::{
-    domain::timeline::{Frame, FrameRate, TimelineItem},
-    engine::media::{
-        AudioFormat, AudioGainEvaluation, AudioTimelineGraph, MediaReaderRegistry, sample_boundary,
-    },
+use crate::engine::media::{
+    AudioFormat, AudioGainEvaluation, AudioTimelineGraph, MediaReaderRegistry, sample_boundary,
 };
+use zerium_core::timeline::{Frame, FrameRate, TimelineItem};
 
 const SAMPLE_FRAMES: usize = 2_048;
 const FORMAT: AudioFormat = AudioFormat {

@@ -1161,7 +1161,7 @@ impl NumericSettingDraft {
         Some(self)
     }
 
-    fn to_domain(self, number: &NumericInput) -> Option<crate::domain::property::NumericSettings> {
+    fn to_domain(self, number: &NumericInput) -> Option<zerium_core::property::NumericSettings> {
         let default = number.value_from_number(self.default)?;
         let min = match self.min {
             Some(value) => Some(number.value_from_number(value)?),
@@ -1171,7 +1171,7 @@ impl NumericSettingDraft {
             Some(value) => Some(number.value_from_number(value)?),
             None => None,
         };
-        crate::domain::property::NumericSettings::from_values(default, min, max)
+        zerium_core::property::NumericSettings::from_values(default, min, max)
     }
 
     fn formatted(self, number: &NumericInput) -> NumericSettingText {

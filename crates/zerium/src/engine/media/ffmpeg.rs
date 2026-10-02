@@ -12,11 +12,11 @@ use std::{
     time::{Duration, SystemTime, UNIX_EPOCH},
 };
 
-use crate::domain::{
+use crate::engine::frame::RgbaFrame;
+use zerium_core::{
     media::{MediaAsset, MediaKind, VideoFrameRate},
     plugin::MediaType,
 };
-use crate::engine::frame::RgbaFrame;
 
 use super::{
     atomic_file::AtomicFileTransaction,

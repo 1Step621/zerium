@@ -9,20 +9,18 @@ use std::{
 
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 
-use crate::{
-    domain::{
-        media::{MediaAsset, MediaKind, MediaSourceId},
-        plugin::Capability,
-        timeline::{Frame, FrameRate, LayerId, TimelineItem, TimelineTime},
+use crate::engine::{
+    cache::{BudgetedTimestampCache, TimestampCacheHit},
+    frame::RgbaFrame,
+    media::{
+        DecodedVideoFrame, MediaError, MediaInputId, MediaReaderRegistry, VideoDecodeSize,
+        VideoProxy, VideoProxyRequest, VisualDecoderSession, estimate_max_keyframe_gap,
     },
-    engine::{
-        cache::{BudgetedTimestampCache, TimestampCacheHit},
-        frame::RgbaFrame,
-        media::{
-            DecodedVideoFrame, MediaError, MediaInputId, MediaReaderRegistry, VideoDecodeSize,
-            VideoProxy, VideoProxyRequest, VisualDecoderSession, estimate_max_keyframe_gap,
-        },
-    },
+};
+use zerium_core::{
+    media::{MediaAsset, MediaKind, MediaSourceId},
+    plugin::Capability,
+    timeline::{Frame, FrameRate, LayerId, TimelineItem, TimelineTime},
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

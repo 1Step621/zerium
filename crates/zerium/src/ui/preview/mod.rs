@@ -17,7 +17,6 @@ mod editor_overlay;
 use editor_overlay::{PreviewEditorDrag, PreviewEditorDragState};
 
 use crate::{
-    domain::timeline::{Frame, LayerId, TimelineEditor, TimelineItem, TimelineTime},
     engine::{
         audio_meter::AudioLevelSampler,
         media::{MediaInputId, MediaReaderRegistry, VideoDecodeSize},
@@ -35,6 +34,7 @@ use crate::{
         transport::{ScrubSource, TransportController},
     },
 };
+use zerium_core::timeline::{Frame, LayerId, TimelineEditor, TimelineItem, TimelineTime};
 
 pub(crate) struct PreviewDependencies {
     editor: Entity<TimelineEditor>,

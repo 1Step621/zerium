@@ -23,7 +23,7 @@ use gpui::{
     relative,
 };
 
-use crate::domain::{
+use zerium_core::{
     animation::{BezierHandle, EasingDirection, EasingFamily, SegmentInterpolation},
     timeline::{Frame, FrameDuration, FrameRate, PropertyAddress, TimelineEditor, TimelineTime},
 };

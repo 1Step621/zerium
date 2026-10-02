@@ -4,12 +4,12 @@ use std::time::Instant;
 use gpui::{App, Context, Entity};
 
 use crate::{
-    domain::timeline::{Frame, TimelineEditor},
     engine::audio_playback::{
         AudioPlaybackEngine, AudioPlaybackError, AudioPlaybackEvent, PlaybackClock,
     },
     engine::video_playback::VideoPlaybackMode,
 };
+use zerium_core::timeline::{Frame, TimelineEditor};
 
 use super::{TimelineEditorEntityExt, session::UiNotifications};
 

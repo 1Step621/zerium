@@ -26,16 +26,6 @@ use gpui::{
     SharedString, Subscription, Task, Window, div, prelude::*, px,
 };
 
-use crate::domain::media::{MediaAsset, MediaKind};
-use crate::domain::plugin::{FileCapability, ItemSchema};
-use crate::domain::property::{
-    PropertyElement, PropertyElementId, PropertyPath, PropertySchema, PropertyType, PropertyValue,
-    PropertyValueType, ScalarPropertyType,
-};
-use crate::domain::timeline::{
-    EffectInstance, EffectInstanceId, ItemId, PropertyAddress, SceneArgument, SceneArgumentPreset,
-    SceneBindingOwner, SceneBindingTarget, SceneId, TimelineEditor, TimelineItem, TimelineTime,
-};
 use crate::engine::media::MediaReaderRegistry;
 use crate::project_session::{ProjectActivity, ProjectSession, ProjectSessionId};
 use crate::ui::TimelineEditorEntityExt as _;
@@ -44,6 +34,16 @@ use crate::ui::pane::pane_header;
 use crate::ui::search_picker::{SearchPicker, SearchPickerEntry};
 use crate::ui::session::UiNotifications;
 use path::InspectorPath;
+use zerium_core::media::{MediaAsset, MediaKind};
+use zerium_core::plugin::{FileCapability, ItemSchema};
+use zerium_core::property::{
+    PropertyElement, PropertyElementId, PropertyPath, PropertySchema, PropertyType, PropertyValue,
+    PropertyValueType, ScalarPropertyType,
+};
+use zerium_core::timeline::{
+    EffectInstance, EffectInstanceId, ItemId, PropertyAddress, SceneArgument, SceneArgumentPreset,
+    SceneBindingOwner, SceneBindingTarget, SceneId, TimelineEditor, TimelineItem, TimelineTime,
+};
 
 pub(super) type EffectPickerTarget = (String, String);
 

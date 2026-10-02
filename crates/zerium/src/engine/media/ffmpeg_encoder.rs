@@ -3,7 +3,8 @@ use std::path::{Path, PathBuf};
 use ffmpeg_next as ffmpeg;
 use thiserror::Error;
 
-use crate::{domain::media::VideoFrameRate, engine::frame::RgbaFrame};
+use crate::engine::frame::RgbaFrame;
+use zerium_core::media::VideoFrameRate;
 
 use super::reader::AudioFormat;
 

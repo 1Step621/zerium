@@ -126,7 +126,7 @@ impl PropertyInspector {
     fn selected_view(&self, cx: &mut Context<Self>) -> Option<SelectionView> {
         let selected_items = {
             let editor = self.editor.read(cx);
-            let time = crate::domain::timeline::TimelineTime::from_frame(editor.playhead());
+            let time = zerium_core::timeline::TimelineTime::from_frame(editor.playhead());
             editor
                 .selected_items()
                 .into_iter()

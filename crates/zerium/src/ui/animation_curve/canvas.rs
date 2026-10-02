@@ -88,7 +88,7 @@ impl AnimationCurveEditor {
                     if index > 0
                         && let Some(handle) = state
                             .curve
-                            .handle_position(index, crate::domain::animation::BezierHandle::In)
+                            .handle_position(index, zerium_core::animation::BezierHandle::In)
                     {
                         handle_path.move_to(to_point(*stop));
                         handle_path.line_to(to_point(handle));
@@ -96,7 +96,7 @@ impl AnimationCurveEditor {
                     if index + 1 < stops.len()
                         && let Some(handle) = state
                             .curve
-                            .handle_position(index, crate::domain::animation::BezierHandle::Out)
+                            .handle_position(index, zerium_core::animation::BezierHandle::Out)
                     {
                         handle_path.move_to(to_point(*stop));
                         handle_path.line_to(to_point(handle));

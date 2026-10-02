@@ -8,13 +8,11 @@ use std::{
 
 use thiserror::Error;
 
-use crate::{
-    domain::{
-        media::{ImportedMedia, MediaAsset, MediaKind},
-        plugin::{MediaType, PluginManifest},
-        timeline::{EffectInstanceId, ItemId},
-    },
-    engine::frame::RgbaFrame,
+use crate::engine::frame::RgbaFrame;
+use zerium_core::{
+    media::{ImportedMedia, MediaAsset, MediaKind},
+    plugin::{MediaType, PluginManifest},
+    timeline::{EffectInstanceId, ItemId},
 };
 
 use super::ffmpeg::{FfmpegMediaReader, READER_ID as FFMPEG_READER_ID};
@@ -225,7 +223,7 @@ struct RegisteredFileSource {
     source_id: String,
     source_label: String,
     kind: FileSourceKind,
-    input: crate::domain::plugin::FileCapability,
+    input: zerium_core::plugin::FileCapability,
 }
 
 pub(crate) struct MediaReaderRegistry {
@@ -449,7 +447,7 @@ impl MediaReaderRegistry {
 }
 
 pub(crate) fn bundled_media_readers(
-    plugins: &crate::domain::plugin::PluginRegistry,
+    plugins: &zerium_core::plugin::PluginRegistry,
 ) -> Result<Arc<MediaReaderRegistry>, MediaError> {
     let mut registry = MediaReaderRegistry::new();
     registry.register_reader(FFMPEG_READER_ID, Arc::new(FfmpegMediaReader))?;

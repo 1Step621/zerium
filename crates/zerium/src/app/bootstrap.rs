@@ -80,8 +80,8 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                     let media_readers = crate::engine::media::bundled_media_readers(&plugins)
                         .expect("bundled media readers must be valid");
                     let editor = cx.new(|_| {
-                        crate::domain::timeline::TimelineEditor::new(
-                            crate::domain::timeline::FrameRate::FPS_30,
+                        zerium_core::timeline::TimelineEditor::new(
+                            zerium_core::timeline::FrameRate::FPS_30,
                             plugins.clone(),
                         )
                     });

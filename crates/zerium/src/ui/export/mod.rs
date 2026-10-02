@@ -10,7 +10,6 @@ use futures::StreamExt as _;
 use gpui::{Context, Entity, SharedString, Subscription, Task, Window, div, prelude::*, px};
 
 use crate::{
-    domain::timeline::{TimelineEditor, TimelineView},
     engine::{
         export::{ExportError, ExportProgress, ExportSettings, export_timeline},
         media::MediaReaderRegistry,
@@ -19,6 +18,7 @@ use crate::{
     project_session::{ProjectActivity, ProjectOperation, ProjectSession, ProjectSessionId},
     ui::session::UiNotifications,
 };
+use zerium_core::timeline::{TimelineEditor, TimelineView};
 
 enum ExportState {
     Idle,

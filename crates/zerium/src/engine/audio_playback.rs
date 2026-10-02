@@ -12,13 +12,10 @@ use thiserror::Error;
 
 use cpal::traits::{DeviceTrait as _, HostTrait as _, StreamTrait as _};
 
-use crate::{
-    domain::timeline::{Frame, FrameRate, ItemId, TimelineItem, TimelineTime},
-    engine::media::{
-        AudioFormat, AudioGainEvaluation, AudioTimelineError, AudioTimelineGraph,
-        MediaReaderRegistry,
-    },
+use crate::engine::media::{
+    AudioFormat, AudioGainEvaluation, AudioTimelineError, AudioTimelineGraph, MediaReaderRegistry,
 };
+use zerium_core::timeline::{Frame, FrameRate, ItemId, TimelineItem, TimelineTime};
 
 const AUDIO_BUFFER_MILLIS: u64 = 200;
 const MIX_BLOCK_SAMPLE_FRAMES: usize = 2_048;

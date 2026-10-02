@@ -10,14 +10,12 @@ use ::ui::{
 use gpui::{App, Context, Entity, PathPromptOptions, Task, Window, div, prelude::*};
 
 use crate::{
-    app::project_runtime::ProjectRuntime,
-    domain::{
-        persistence::PROJECT_EXTENSION,
-        timeline::{Frame, FrameRate, ProjectResolution},
-    },
-    engine::project_io,
-    project_session::ProjectActivity,
+    app::project_runtime::ProjectRuntime, engine::project_io, project_session::ProjectActivity,
     ui::session::UiNotifications,
+};
+use zerium_core::{
+    persistence::PROJECT_EXTENSION,
+    timeline::{Frame, FrameRate, ProjectResolution},
 };
 
 #[derive(Clone, Copy)]

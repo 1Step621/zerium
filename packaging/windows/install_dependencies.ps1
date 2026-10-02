@@ -13,6 +13,12 @@ Remove-Item -Recurse -Force target\ffmpeg-extract
 
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 $vsInstall = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+$editbin = Get-ChildItem (Join-Path $vsInstall 'VC\Tools\MSVC\*\bin\Hostx64\x64\editbin.exe') -File |
+    Sort-Object FullName | Select-Object -Last 1
+if (-not $editbin) {
+    throw 'The x64 MSVC editbin tool was not found on the runner.'
+}
+"EDITBIN=$($editbin.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
 $vcRuntime = Get-ChildItem (Join-Path $vsInstall 'VC\Redist\MSVC\*\x64\Microsoft.VC*.CRT') -Directory |
     Sort-Object FullName | Select-Object -Last 1
 if (-not $vcRuntime) {
