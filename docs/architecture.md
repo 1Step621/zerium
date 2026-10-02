@@ -24,7 +24,7 @@ zerium (application, UI, media, audio, GPU rendering)
 Core and shader do not depend on GPUI, WGPU, FFmpeg, audio devices, or application
 code. They are unpublished workspace libraries, not a stable SDK. Public items
 serve cross-crate use; implementation helpers stay private or crate-visible.
-The application's public Rust entry point is `zerium::run`.
+The application is a binary-only crate; `main.rs` owns startup and CLI dispatch.
 
 Within the application, `app` composes the runtime, `ui` translates user input
 into core commands, and `engine` handles media, audio, rendering, export, and
