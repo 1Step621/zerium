@@ -106,6 +106,16 @@ impl Workspace {
             .update(cx, |timeline, cx| timeline.toggle_playback(cx));
     }
 
+    fn toggle_playback_in_place(
+        &mut self,
+        _: &TogglePlaybackInPlace,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.timeline
+            .update(cx, |timeline, cx| timeline.toggle_playback_in_place(cx));
+    }
+
     fn previous_frame(&mut self, _: &PreviousFrame, _window: &mut Window, cx: &mut Context<Self>) {
         self.timeline
             .update(cx, |timeline, cx| timeline.step_frame(-1, cx));
@@ -219,6 +229,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::paste_items))
             .on_action(cx.listener(Self::delete_selected_item))
             .on_action(cx.listener(Self::toggle_playback))
+            .on_action(cx.listener(Self::toggle_playback_in_place))
             .on_action(cx.listener(Self::previous_frame))
             .on_action(cx.listener(Self::next_frame))
             .on_action(cx.listener(Self::undo))

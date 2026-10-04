@@ -6,6 +6,7 @@ gpui::actions!(
         CutSelectedItems,
         PasteItems,
         TogglePlayback,
+        TogglePlaybackInPlace,
         PreviousFrame,
         NextFrame,
         Undo,

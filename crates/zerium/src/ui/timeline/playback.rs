@@ -29,6 +29,11 @@ impl Timeline {
             .update(cx, |transport, cx| transport.toggle_playback(cx));
     }
 
+    pub(crate) fn toggle_playback_in_place(&mut self, cx: &mut Context<Self>) {
+        self.transport
+            .update(cx, |transport, cx| transport.toggle_playback_in_place(cx));
+    }
+
     pub(crate) fn undo(&mut self, cx: &mut Context<Self>) {
         self.stop_playback(cx);
         self.finish_playhead_scrub(cx);

@@ -9,7 +9,7 @@ _version: 1
 "common.delete": "Delete"
 "common.cancel": "Cancel"
 "timeline.main_scene": "Main"
-"timeline.pause": "Pause"
+"timeline.stop": "Stop"
 "timeline.play": "Play"
 "timeline.previous_frame": "Previous frame"
 "timeline.next_frame": "Next frame"

@@ -55,7 +55,7 @@ impl Timeline {
             IconName::Play
         };
         let playback_tooltip = if self.transport.read(cx).is_playing() {
-            t!("timeline.pause").to_string()
+            t!("timeline.stop").to_string()
         } else {
             t!("timeline.play").to_string()
         };

@@ -67,6 +67,11 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                     TogglePlayback,
                     Some(WORKSPACE_SHORTCUT_KEY_CONTEXT),
                 ),
+                KeyBinding::new(
+                    "shift-space",
+                    TogglePlaybackInPlace,
+                    Some(WORKSPACE_SHORTCUT_KEY_CONTEXT),
+                ),
                 KeyBinding::new("left", PreviousFrame, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
                 KeyBinding::new("right", NextFrame, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
                 KeyBinding::new("secondary-z", Undo, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),

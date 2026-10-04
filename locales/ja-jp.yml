@@ -9,7 +9,7 @@ _version: 1
 "common.delete": "削除"
 "common.cancel": "キャンセル"
 "timeline.main_scene": "メイン"
-"timeline.pause": "一時停止"
+"timeline.stop": "停止"
 "timeline.play": "再生"
 "timeline.previous_frame": "前のフレーム"
 "timeline.next_frame": "次のフレーム"

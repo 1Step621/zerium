@@ -23,6 +23,7 @@ pub(crate) enum ScrubSource {
 
 #[derive(Clone, Copy, Debug)]
 struct PlaybackSession {
+    start_frame: Frame,
     start_seconds: f64,
     started_at: Instant,
     uses_audio_clock: bool,
@@ -84,6 +85,14 @@ impl TransportController {
         }
     }
 
+    pub(crate) fn toggle_playback_in_place(&mut self, cx: &mut Context<Self>) {
+        if self.is_playing() {
+            self.stop_in_place(cx);
+        } else {
+            self.play(cx);
+        }
+    }
+
     fn play(&mut self, cx: &mut Context<Self>) {
         self.stop_audio(cx);
         let (start_frame, frame_rate, items) = {
@@ -114,6 +123,7 @@ impl TransportController {
             }
         };
         self.mode = TransportMode::Playing(PlaybackSession {
+            start_frame,
             start_seconds: frame_rate.frame_to_seconds(start_frame),
             started_at: Instant::now(),
             uses_audio_clock: clock == PlaybackClock::Audio,
@@ -128,6 +138,18 @@ impl TransportController {
     }
 
     pub(crate) fn stop(&mut self, cx: &mut Context<Self>) -> bool {
+        let start_frame = match self.mode {
+            TransportMode::Playing(playback) => Some(playback.start_frame),
+            _ => None,
+        };
+        let stopped = self.stop_in_place(cx);
+        if let Some(frame) = start_frame {
+            self.set_playhead(frame, cx);
+        }
+        stopped
+    }
+
+    fn stop_in_place(&mut self, cx: &mut Context<Self>) -> bool {
         if matches!(self.mode, TransportMode::Stopped) {
             return false;
         }
@@ -168,23 +190,21 @@ impl TransportController {
     }
 
     pub(crate) fn seek(&mut self, frame: Frame, cx: &mut Context<Self>) -> bool {
-        if matches!(self.mode, TransportMode::Playing(_)) {
-            self.stop(cx);
-            let changed = self.set_playhead(frame, cx);
-            self.play(cx);
-            return changed;
-        }
+        let stopped = self.is_playing() && self.stop_in_place(cx);
         self.editor
             .update_if_changed(cx, |editor| editor.seek(frame))
+            || stopped
     }
 
     pub(crate) fn set_playhead(&mut self, frame: Frame, cx: &mut Context<Self>) -> bool {
+        let stopped = self.is_playing() && self.stop_in_place(cx);
         self.editor
             .update_if_changed(cx, |editor| editor.set_playhead(frame))
+            || stopped
     }
 
     pub(crate) fn step(&mut self, delta: i64, cx: &mut Context<Self>) {
-        self.stop(cx);
+        self.stop_in_place(cx);
         self.editor
             .update_if_changed(cx, |editor| editor.step_playhead(delta));
     }
@@ -216,7 +236,6 @@ impl TransportController {
         let mut frame = frame_rate.seconds_to_frame(seconds);
         if frame >= end {
             self.stop(cx);
-            self.set_playhead(end, cx);
             return;
         }
         let items = self.editor.read(cx).visible_items();
@@ -265,7 +284,6 @@ impl TransportController {
         frame = frame_rate.seconds_to_frame(seconds);
         if frame >= end {
             self.stop(cx);
-            self.set_playhead(end, cx);
             return;
         }
         self.mode = TransportMode::Playing(playback);
