@@ -1,5 +1,5 @@
 import package::generated::host::util::scene_color;
-import package::generated::host::item::{quad_corner, quad_position};
+import package::generated::host::item::{placement_center, quad_corner, quad_position};
 import package::spline::{SplineCurve, spline_curve, spline_point, segment_distance, spline_steps, spline_length, spline_segment_count, spline_indices};
 import package::generated::spline_path::{ZeriumProps, props, get_points};
 
@@ -17,6 +17,11 @@ fn vertex_main(
 ) -> SplineVertex {
     let properties = props(instance_index);
     let size = vec2(properties.size.v0, properties.size.v1);
+    let position = placement_center(
+        vec2(properties.position.v0, properties.position.v1),
+        size,
+        vec2(properties.origin.v0, properties.origin.v1),
+    );
     let corner = quad_corner(vertex_index);
     // At tension -100, the curve can exceed the point quad by at most 1/4
     // of its size per axis. Allow a small margin for floating-point rounding.
@@ -24,7 +29,7 @@ fn vertex_main(
     var output: SplineVertex;
     output.position = quad_position(
         instance_index,
-        vec2(properties.position.v0, properties.position.v1),
+        position,
         corner,
         size + 2.0 * padding,
     );

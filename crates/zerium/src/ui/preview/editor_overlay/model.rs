@@ -42,7 +42,8 @@ impl Preview {
             EditorCapability::Size {
                 property: id,
                 position,
-            } => Some((property(id)?, position.as_str())),
+                origin,
+            } => Some((property(id)?, position.as_str(), origin.as_deref())),
             _ => None,
         });
         let points_editor = editors.iter().find_map(|editor| match editor {
@@ -50,7 +51,13 @@ impl Preview {
                 property: id,
                 position,
                 size,
-            } => Some((property(id)?, position.as_str(), size.as_str())),
+                origin,
+            } => Some((
+                property(id)?,
+                position.as_str(),
+                size.as_str(),
+                origin.as_deref(),
+            )),
             _ => None,
         });
         let spline_editor = editors.iter().find_map(|editor| match editor {
@@ -60,15 +67,16 @@ impl Preview {
                 size,
                 tension,
                 closed,
-            } => Some((points, position, size, tension, closed)),
+                origin,
+            } => Some((points, position, size, tension, closed, origin.as_deref())),
             _ => None,
         });
         let current_properties = Self::overlay_properties(&current, effect_id)?;
 
         let spline_path = (|| {
-            let (points, position, size, tension, closed) = spline_editor?;
+            let (points, position, size, tension, closed, origin) = spline_editor?;
             let size = Self::item_size(&current, effect_id, size)?;
-            let center = Self::item_position(&current, effect_id, position);
+            let center = Self::item_center(&current, effect_id, position, size, origin);
             let PropertyValue::Array(elements) = current_properties.property(points)? else {
                 return None;
             };
@@ -137,8 +145,8 @@ impl Preview {
         }
 
         let mut sizes = Vec::new();
-        if let Some((property, position)) =
-            size_editor.filter(|(property, _)| property.is_editable(None))
+        if let Some((property, position, origin)) =
+            size_editor.filter(|(property, _, _)| property.is_editable(None))
         {
             let progresses = Self::animation_progresses(selected, effect_id, property.id(), None);
             let progresses = if progresses.is_empty() {
@@ -157,16 +165,17 @@ impl Preview {
                 sizes.push(PreviewSizeOverlay {
                     item_id: selected.id,
                     property_id: property.id().to_owned(),
-                    center: Self::item_position(&item, effect_id, position),
+                    center: Self::item_center(&item, effect_id, position, size, origin),
                     size,
+                    origin: Self::item_origin(&item, effect_id, origin),
                     target: PreviewEditTarget::from_progress(progress),
                 });
             }
         }
 
         let mut points = Vec::new();
-        if let Some((property, position, size)) =
-            points_editor.filter(|(property, _, _)| property.is_editable(None))
+        if let Some((property, position, size, origin)) =
+            points_editor.filter(|(property, _, _, _)| property.is_editable(None))
             && let Some(PropertyValue::Array(elements)) = current_properties.property(property.id())
         {
             for (index, element) in elements.iter().enumerate() {
@@ -206,7 +215,7 @@ impl Preview {
                     };
                     points.push(PreviewPointOverlay {
                         item_id: selected.id,
-                        center: Self::item_position(&item, effect_id, position),
+                        center: Self::item_center(&item, effect_id, position, size, origin),
                         size,
                         points: PreviewPointsProperty {
                             property_id: property.id().to_owned(),

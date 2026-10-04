@@ -1,6 +1,9 @@
 //! Plugin declarations for the logical area produced by a visual operation.
 
-use evalexpr::{ContextWithMutableVariables, HashMapContext, Node, Value};
+use evalexpr::{
+    ContextWithMutableFunctions, ContextWithMutableVariables, EvalexprError, Function,
+    HashMapContext, Node, Value,
+};
 use serde::Deserialize;
 use std::collections::HashSet;
 
@@ -36,8 +39,8 @@ fn validate_program(
     let defaults = PropertyValues::from_properties(properties);
     let mut names = HashSet::new();
     for (name, value) in defaults.iter() {
-        let aliases = property_aliases(name, value);
-        for alias in aliases {
+        let aliases = property_variables(name, value);
+        for (alias, _) in aliases {
             if !names.insert(alias) {
                 return Err(PluginError::invalid_definition(format!(
                     "{owner} '{id}' bounds program has ambiguous property variables"
@@ -77,17 +80,33 @@ fn validate_program(
     Ok(())
 }
 
-fn property_aliases(id: &str, value: &PropertyValue) -> Vec<String> {
+fn bound_scalar(value: &PropertyValue) -> Option<f64> {
     match value {
-        PropertyValue::F32(_) => vec![format!("p::{id}")],
-        PropertyValue::Tuple(values) => values
-            .iter()
-            .enumerate()
-            .filter(|(_, value)| matches!(value, PropertyValue::F32(_)))
-            .map(|(index, _)| format!("p::{id}::v{index}"))
-            .collect(),
-        _ => Vec::new(),
+        PropertyValue::Enum(value) => Some(f64::from(*value)),
+        _ => value.numeric_scalar(),
     }
+}
+
+fn property_variables<'a>(
+    id: &'a str,
+    value: &'a PropertyValue,
+) -> impl Iterator<Item = (String, f64)> + 'a {
+    let (scalars, tuple) = match value {
+        PropertyValue::Tuple(values) => (values.as_slice(), true),
+        value => (std::slice::from_ref(value), false),
+    };
+    scalars
+        .iter()
+        .enumerate()
+        .filter_map(move |(index, value)| {
+            let value = bound_scalar(value)?;
+            let name = if tuple {
+                format!("p::{id}::v{index}")
+            } else {
+                format!("p::{id}")
+            };
+            Some((name, value))
+        })
 }
 
 pub fn program_context(
@@ -98,6 +117,23 @@ pub fn program_context(
     values: &PropertyValues,
 ) -> HashMapContext {
     let mut context = HashMapContext::new();
+    context
+        .set_function(
+            "placement_center".to_owned(),
+            Function::new(|arguments: &Value| {
+                let arguments = arguments.as_fixed_len_tuple(3)?;
+                let position = arguments[0].as_number()?;
+                let size = arguments[1].as_number()?;
+                let origin = arguments[2].as_number()?;
+                if !(0. ..=2.).contains(&origin) || origin.fract() != 0. {
+                    return Err(EvalexprError::CustomMessage(
+                        "placement origin must be an integer in 0..=2".to_owned(),
+                    ));
+                }
+                Ok(Value::from_float(position + (1. - origin) * size * 0.5))
+            }),
+        )
+        .expect("bounds function names are static identifiers");
     for (prefix, min, max) in [
         ("input", input_min, input_max),
         ("viewport", viewport_min, viewport_max),
@@ -114,22 +150,8 @@ pub fn program_context(
         }
     }
     for (id, value) in values.iter() {
-        match value {
-            PropertyValue::F32(value) => {
-                set_bound_variable(&mut context, format!("p::{id}"), f64::from(*value));
-            }
-            PropertyValue::Tuple(values) => {
-                for (value, index) in values.iter().zip(0..) {
-                    if let PropertyValue::F32(value) = value {
-                        set_bound_variable(
-                            &mut context,
-                            format!("p::{id}::v{index}"),
-                            f64::from(*value),
-                        );
-                    }
-                }
-            }
-            _ => {}
+        for (name, value) in property_variables(id, value) {
+            set_bound_variable(&mut context, name, value);
         }
     }
     context

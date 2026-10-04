@@ -1,10 +1,12 @@
 //! Shared semantic validation for declarative schemas.
 
-use crate::localized_text::LocalizedText;
 use std::collections::HashSet;
 
-use super::PluginError;
+use crate::localized_text::LocalizedText;
+use crate::property::{PropertySchema, PropertyType, PropertyValueType, ScalarPropertyType};
 
+use super::PluginError;
+use super::abi::validate_property_names;
 use super::identifier::validate_logical_id;
 
 pub(super) fn validate_catalog_entry(
@@ -59,8 +61,26 @@ pub(super) fn validate_search_tags(
     Ok(())
 }
 
-use super::abi::validate_property_names;
-use crate::property::PropertySchema;
+/// Two placement axes, each selecting start (0), center (1), or end (2).
+pub(super) fn validate_origin_property(
+    context: &str,
+    properties: &[PropertySchema],
+    id: &str,
+) -> Result<(), PluginError> {
+    validate_property_reference(
+        context,
+        properties,
+        id,
+        "a tuple of two enums each containing exactly 0..=2",
+        |property| {
+            matches!(property.ty(), PropertyType::Value(PropertyValueType::Tuple(tuple))
+            if tuple.scalars().len() == 2 && tuple.scalars().iter().all(|ty| {
+                matches!(ty, ScalarPropertyType::Enum(enumeration)
+                    if enumeration.values().len() == 3 && (0..=2).all(|value| enumeration.values().contains(&value)))
+            }))
+        },
+    )
+}
 
 pub(super) fn validate_property_schemas(
     owner_kind: &str,

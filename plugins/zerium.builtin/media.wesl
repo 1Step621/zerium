@@ -1,4 +1,4 @@
-import package::generated::host::item::{quad_corner, quad_uv, quad_position};
+import package::generated::host::item::{placement_center, quad_corner, quad_uv, quad_position};
 import package::generated::host::entity::{props, source, capability_sampler};
 
 struct MediaVertexOutput {
@@ -12,8 +12,12 @@ fn vertex_main(
     @builtin(instance_index) instance_index: u32,
 ) -> MediaVertexOutput {
     let properties = props(instance_index);
-    let position = vec2(properties.position.v0, properties.position.v1);
     let size = vec2(properties.size.v0, properties.size.v1);
+    let position = placement_center(
+        vec2(properties.position.v0, properties.position.v1),
+        size,
+        vec2(properties.origin.v0, properties.origin.v1),
+    );
     let corner = quad_corner(vertex_index);
     var output: MediaVertexOutput;
     output.position = quad_position(

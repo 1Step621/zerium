@@ -24,6 +24,7 @@ impl Preview {
             PreviewResizeHandle::Bottom,
         ]
         .into_iter()
+        .filter(|handle| handle.resize_scale(overlay.origin).is_some())
         .map(|handle| {
             self.resize_handle(
                 &overlay,

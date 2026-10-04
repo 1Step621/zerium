@@ -3,7 +3,7 @@ use std::collections::HashSet;
 
 use serde::Deserialize;
 
-use super::validation::validate_property_reference;
+use super::validation::{validate_origin_property, validate_property_reference};
 use super::{PluginError, TimeMappingProperties};
 use crate::property::{PropertySchema, PropertyType, PropertyValueType, ScalarPropertyType};
 
@@ -22,6 +22,7 @@ pub enum EditorCapability {
     Size {
         property: String,
         position: String,
+        origin: Option<String>,
     },
     AspectLock {
         property: String,
@@ -32,11 +33,13 @@ pub enum EditorCapability {
         property: String,
         position: String,
         size: String,
+        origin: Option<String>,
     },
     Spline {
         points: String,
         position: String,
         size: String,
+        origin: Option<String>,
         tension: String,
         closed: String,
     },
@@ -104,6 +107,11 @@ impl EditorCapability {
                 &|property| matches!(property.ty(), PropertyType::Value(ty) if pair(ty)),
             )
         };
+        let check_origin = |id: &Option<String>| {
+            id.as_deref().map_or(Ok(()), |id| {
+                validate_origin_property(&context, properties, id)
+            })
+        };
         let points = |property: &str, position: &str, size: &str| {
             check(
                 property,
@@ -131,23 +139,34 @@ impl EditorCapability {
             }
             .validate(owner, id, properties),
             Self::Position { property } | Self::AspectLock { property, .. } => tuple(property),
-            Self::Size { property, position } => {
+            Self::Size {
+                property,
+                position,
+                origin,
+            } => {
                 tuple(property)?;
-                tuple(position)
+                tuple(position)?;
+                check_origin(origin)
             }
             Self::Points {
                 property,
                 position,
                 size,
-            } => points(property, position, size),
+                origin,
+            } => {
+                points(property, position, size)?;
+                check_origin(origin)
+            }
             Self::Spline {
                 points: property,
                 position,
                 size,
+                origin,
                 tension,
                 closed,
             } => {
                 points(property, position, size)?;
+                check_origin(origin)?;
                 scalar(tension, ScalarPropertyType::F32)?;
                 scalar(closed, ScalarPropertyType::Bool)
             }

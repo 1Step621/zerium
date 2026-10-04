@@ -79,6 +79,9 @@ impl Preview {
         if event.button != MouseButton::Left || composition_units_per_pixel <= 0. {
             return;
         }
+        let Some(resize_scale) = handle.resize_scale(overlay.origin) else {
+            return;
+        };
         self.editor_drag = PreviewEditorDragState::Resize(PreviewResizeOrigin {
             item_id: overlay.item_id,
             effect_id,
@@ -86,6 +89,7 @@ impl Preview {
             handle,
             pointer: [f32::from(event.position.x), f32::from(event.position.y)],
             size: overlay.size,
+            resize_scale,
             target: overlay.target,
             composition_units_per_pixel,
         });
@@ -110,25 +114,16 @@ impl Preview {
             _ => return,
         };
         cx.set_active_drag_cursor_style(origin.handle.cursor(), window);
-        let direction = origin.handle.direction();
-        let size = [
-            (origin.size[0]
-                + (pointer[0] - origin.pointer[0])
-                    * origin.composition_units_per_pixel
-                    * direction[0]
-                    * 2.)
-                .max(1.),
-            (origin.size[1]
-                + (pointer[1] - origin.pointer[1])
-                    * origin.composition_units_per_pixel
-                    * direction[1]
-                    * 2.)
-                .max(1.),
-        ];
+        let axis = usize::from(!origin.handle.changes_width());
+        let mut size = origin.size;
+        size[axis] = (size[axis]
+            + (pointer[axis] - origin.pointer[axis])
+                * origin.composition_units_per_pixel
+                * origin.resize_scale)
+            .max(1.);
         self.editor.update(cx, |editor, cx| {
             let changed = match origin.target {
                 PreviewEditTarget::Property => {
-                    let axis = usize::from(!origin.handle.changes_width());
                     editor
                         .selected_item()
                         .is_some_and(|item| item.id == origin.item_id)
@@ -437,13 +432,7 @@ impl Preview {
             effect_id,
             kind: PreviewDragKind::Resize(handle),
         };
-        let begin_overlay = PreviewSizeOverlay {
-            item_id: overlay.item_id,
-            property_id: overlay.property_id.clone(),
-            center: overlay.center,
-            size: overlay.size,
-            target: overlay.target,
-        };
+        let begin_overlay = overlay.clone();
         let direction = handle.direction();
         div()
             .id(SharedString::from(format!(

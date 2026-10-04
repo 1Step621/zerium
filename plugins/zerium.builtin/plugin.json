@@ -7,12 +7,12 @@
       "id": "rectangle",
       "output_bounds": {
         "min": [
-          "p::position::v0 - (math::abs(p::size::v0) * 1 / 2 + 0)",
-          "p::position::v1 - (math::abs(p::size::v1) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
         ],
         "max": [
-          "p::position::v0 + (math::abs(p::size::v0) * 1 / 2 + 0)",
-          "p::position::v1 + (math::abs(p::size::v1) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
         ]
       },
       "label": { "ja-JP": "四角形", "en-US": "Rectangle" },
@@ -26,7 +26,12 @@
       "capabilities": [],
       "editor": [
         { "type": "position", "property": "position" },
-        { "type": "size", "property": "size", "position": "position" },
+        {
+          "type": "size",
+          "property": "size",
+          "position": "position",
+          "origin": "origin"
+        },
         { "type": "aspect_lock", "property": "size" }
       ],
       "properties": [
@@ -45,6 +50,34 @@
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "origin",
+          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
+          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
+          "label": { "ja-JP": "原点", "en-US": "Origin" },
+          "configurations": [
+            {
+              "ui": {
+                "label": { "ja-JP": "X", "en-US": "X" },
+                "enum_variants": {
+                  "0": { "ja-JP": "左", "en-US": "Left" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "右", "en-US": "Right" }
+                }
+              }
+            },
+            {
+              "ui": {
+                "label": { "ja-JP": "Y", "en-US": "Y" },
+                "enum_variants": {
+                  "0": { "ja-JP": "上", "en-US": "Top" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "下", "en-US": "Bottom" }
+                }
+              }
             }
           ]
         },
@@ -98,12 +131,12 @@
       "id": "triangle",
       "output_bounds": {
         "min": [
-          "p::position::v0 - (math::abs(p::size::v0) * 1 / 2 + 0)",
-          "p::position::v1 - (math::abs(p::size::v1) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
         ],
         "max": [
-          "p::position::v0 + (math::abs(p::size::v0) * 1 / 2 + 0)",
-          "p::position::v1 + (math::abs(p::size::v1) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
         ]
       },
       "label": { "ja-JP": "三角形", "en-US": "Triangle" },
@@ -117,7 +150,12 @@
       "capabilities": [],
       "editor": [
         { "type": "position", "property": "position" },
-        { "type": "size", "property": "size", "position": "position" },
+        {
+          "type": "size",
+          "property": "size",
+          "position": "position",
+          "origin": "origin"
+        },
         { "type": "aspect_lock", "property": "size" }
       ],
       "properties": [
@@ -136,6 +174,34 @@
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "origin",
+          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
+          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
+          "label": { "ja-JP": "原点", "en-US": "Origin" },
+          "configurations": [
+            {
+              "ui": {
+                "label": { "ja-JP": "X", "en-US": "X" },
+                "enum_variants": {
+                  "0": { "ja-JP": "左", "en-US": "Left" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "右", "en-US": "Right" }
+                }
+              }
+            },
+            {
+              "ui": {
+                "label": { "ja-JP": "Y", "en-US": "Y" },
+                "enum_variants": {
+                  "0": { "ja-JP": "上", "en-US": "Top" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "下", "en-US": "Bottom" }
+                }
+              }
             }
           ]
         },
@@ -189,12 +255,12 @@
       "id": "ellipse",
       "output_bounds": {
         "min": [
-          "p::position::v0 - (math::abs(p::diameter::v0) * 1 / 2 + 0)",
-          "p::position::v1 - (math::abs(p::diameter::v1) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::diameter::v0, p::origin::v0) - (math::abs(p::diameter::v0) / 2)",
+          "placement_center(p::position::v1, p::diameter::v1, p::origin::v1) - (math::abs(p::diameter::v1) / 2)"
         ],
         "max": [
-          "p::position::v0 + (math::abs(p::diameter::v0) * 1 / 2 + 0)",
-          "p::position::v1 + (math::abs(p::diameter::v1) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::diameter::v0, p::origin::v0) + (math::abs(p::diameter::v0) / 2)",
+          "placement_center(p::position::v1, p::diameter::v1, p::origin::v1) + (math::abs(p::diameter::v1) / 2)"
         ]
       },
       "label": { "ja-JP": "楕円", "en-US": "Ellipse" },
@@ -208,7 +274,12 @@
       "capabilities": [],
       "editor": [
         { "type": "position", "property": "position" },
-        { "type": "size", "property": "diameter", "position": "position" },
+        {
+          "type": "size",
+          "property": "diameter",
+          "position": "position",
+          "origin": "origin"
+        },
         { "type": "aspect_lock", "property": "diameter" }
       ],
       "properties": [
@@ -227,6 +298,34 @@
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "origin",
+          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
+          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
+          "label": { "ja-JP": "原点", "en-US": "Origin" },
+          "configurations": [
+            {
+              "ui": {
+                "label": { "ja-JP": "X", "en-US": "X" },
+                "enum_variants": {
+                  "0": { "ja-JP": "左", "en-US": "Left" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "右", "en-US": "Right" }
+                }
+              }
+            },
+            {
+              "ui": {
+                "label": { "ja-JP": "Y", "en-US": "Y" },
+                "enum_variants": {
+                  "0": { "ja-JP": "上", "en-US": "Top" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "下", "en-US": "Bottom" }
+                }
+              }
             }
           ]
         },
@@ -267,12 +366,12 @@
       "id": "spline_path",
       "output_bounds": {
         "min": [
-          "p::position::v0 - (math::abs(p::size::v0) * 1.504 / 2 + math::abs(p::width))",
-          "p::position::v1 - (math::abs(p::size::v1) * 1.504 / 2 + math::abs(p::width))"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) * 1.504 / 2 + math::abs(p::width))",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) * 1.504 / 2 + math::abs(p::width))"
         ],
         "max": [
-          "p::position::v0 + (math::abs(p::size::v0) * 1.504 / 2 + math::abs(p::width))",
-          "p::position::v1 + (math::abs(p::size::v1) * 1.504 / 2 + math::abs(p::width))"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) * 1.504 / 2 + math::abs(p::width))",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) * 1.504 / 2 + math::abs(p::width))"
         ]
       },
       "label": { "ja-JP": "スプラインパス", "en-US": "Spline Path" },
@@ -286,10 +385,29 @@
       "capabilities": [],
       "editor": [
         { "type": "position", "property": "position" },
-        { "type": "size", "property": "size", "position": "position" },
+        {
+          "type": "size",
+          "property": "size",
+          "position": "position",
+          "origin": "origin"
+        },
         { "type": "aspect_lock", "property": "size" },
-        { "type": "spline", "points": "points", "position": "position", "size": "size", "tension": "tension", "closed": "closed" },
-        { "type": "points", "property": "points", "position": "position", "size": "size" }
+        {
+          "type": "spline",
+          "points": "points",
+          "position": "position",
+          "size": "size",
+          "tension": "tension",
+          "closed": "closed",
+          "origin": "origin"
+        },
+        {
+          "type": "points",
+          "property": "points",
+          "position": "position",
+          "size": "size",
+          "origin": "origin"
+        }
       ],
       "properties": [
         {
@@ -307,6 +425,34 @@
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "origin",
+          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
+          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
+          "label": { "ja-JP": "原点", "en-US": "Origin" },
+          "configurations": [
+            {
+              "ui": {
+                "label": { "ja-JP": "X", "en-US": "X" },
+                "enum_variants": {
+                  "0": { "ja-JP": "左", "en-US": "Left" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "右", "en-US": "Right" }
+                }
+              }
+            },
+            {
+              "ui": {
+                "label": { "ja-JP": "Y", "en-US": "Y" },
+                "enum_variants": {
+                  "0": { "ja-JP": "上", "en-US": "Top" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "下", "en-US": "Bottom" }
+                }
+              }
             }
           ]
         },
@@ -460,12 +606,12 @@
       "id": "polygon",
       "output_bounds": {
         "min": [
-          "p::position::v0 - (math::abs(p::size::v0) * 1 / 2 + 0)",
-          "p::position::v1 - (math::abs(p::size::v1) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
         ],
         "max": [
-          "p::position::v0 + (math::abs(p::size::v0) * 1 / 2 + 0)",
-          "p::position::v1 + (math::abs(p::size::v1) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
         ]
       },
       "label": { "ja-JP": "多角形", "en-US": "Polygon" },
@@ -479,9 +625,20 @@
       "capabilities": [],
       "editor": [
         { "type": "position", "property": "position" },
-        { "type": "size", "property": "size", "position": "position" },
+        {
+          "type": "size",
+          "property": "size",
+          "position": "position",
+          "origin": "origin"
+        },
         { "type": "aspect_lock", "property": "size" },
-        { "type": "points", "property": "points", "position": "position", "size": "size" }
+        {
+          "type": "points",
+          "property": "points",
+          "position": "position",
+          "size": "size",
+          "origin": "origin"
+        }
       ],
       "properties": [
         {
@@ -499,6 +656,34 @@
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "origin",
+          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
+          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
+          "label": { "ja-JP": "原点", "en-US": "Origin" },
+          "configurations": [
+            {
+              "ui": {
+                "label": { "ja-JP": "X", "en-US": "X" },
+                "enum_variants": {
+                  "0": { "ja-JP": "左", "en-US": "Left" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "右", "en-US": "Right" }
+                }
+              }
+            },
+            {
+              "ui": {
+                "label": { "ja-JP": "Y", "en-US": "Y" },
+                "enum_variants": {
+                  "0": { "ja-JP": "上", "en-US": "Top" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "下", "en-US": "Bottom" }
+                }
+              }
             }
           ]
         },
@@ -581,12 +766,12 @@
       "id": "line",
       "output_bounds": {
         "min": [
-          "p::position::v0 - ((math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) * 1 / 2 + 0)",
-          "p::position::v1 - ((math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - ((math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - ((math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2)"
         ],
         "max": [
-          "p::position::v0 + ((math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) * 1 / 2 + 0)",
-          "p::position::v1 + ((math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + ((math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + ((math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2)"
         ]
       },
       "label": { "ja-JP": "直線", "en-US": "Line" },
@@ -600,7 +785,12 @@
       "capabilities": [],
       "editor": [
         { "type": "position", "property": "position" },
-        { "type": "size", "property": "size", "position": "position" },
+        {
+          "type": "size",
+          "property": "size",
+          "position": "position",
+          "origin": "origin"
+        },
         { "type": "aspect_lock", "property": "size" }
       ],
       "properties": [
@@ -619,6 +809,34 @@
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "origin",
+          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
+          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
+          "label": { "ja-JP": "原点", "en-US": "Origin" },
+          "configurations": [
+            {
+              "ui": {
+                "label": { "ja-JP": "X", "en-US": "X" },
+                "enum_variants": {
+                  "0": { "ja-JP": "左", "en-US": "Left" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "右", "en-US": "Right" }
+                }
+              }
+            },
+            {
+              "ui": {
+                "label": { "ja-JP": "Y", "en-US": "Y" },
+                "enum_variants": {
+                  "0": { "ja-JP": "上", "en-US": "Top" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "下", "en-US": "Bottom" }
+                }
+              }
             }
           ]
         },
@@ -679,12 +897,12 @@
       "id": "star",
       "output_bounds": {
         "min": [
-          "p::position::v0 - (math::abs(p::size::v0) * 1 / 2 + 0)",
-          "p::position::v1 - (math::abs(p::size::v1) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
         ],
         "max": [
-          "p::position::v0 + (math::abs(p::size::v0) * 1 / 2 + 0)",
-          "p::position::v1 + (math::abs(p::size::v1) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
         ]
       },
       "label": { "ja-JP": "星", "en-US": "Star" },
@@ -698,7 +916,12 @@
       "capabilities": [],
       "editor": [
         { "type": "position", "property": "position" },
-        { "type": "size", "property": "size", "position": "position" },
+        {
+          "type": "size",
+          "property": "size",
+          "position": "position",
+          "origin": "origin"
+        },
         { "type": "aspect_lock", "property": "size" }
       ],
       "properties": [
@@ -717,6 +940,34 @@
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "origin",
+          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
+          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
+          "label": { "ja-JP": "原点", "en-US": "Origin" },
+          "configurations": [
+            {
+              "ui": {
+                "label": { "ja-JP": "X", "en-US": "X" },
+                "enum_variants": {
+                  "0": { "ja-JP": "左", "en-US": "Left" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "右", "en-US": "Right" }
+                }
+              }
+            },
+            {
+              "ui": {
+                "label": { "ja-JP": "Y", "en-US": "Y" },
+                "enum_variants": {
+                  "0": { "ja-JP": "上", "en-US": "Top" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "下", "en-US": "Bottom" }
+                }
+              }
             }
           ]
         },
@@ -792,12 +1043,12 @@
       "id": "text",
       "output_bounds": {
         "min": [
-          "p::position::v0 - (math::abs(p::size::v0) * 1 / 2 + 0)",
-          "p::position::v1 - (math::abs(p::size::v1) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
         ],
         "max": [
-          "p::position::v0 + (math::abs(p::size::v0) * 1 / 2 + 0)",
-          "p::position::v1 + (math::abs(p::size::v1) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
         ]
       },
       "label": { "ja-JP": "テキスト", "en-US": "Text" },
@@ -827,7 +1078,12 @@
       ],
       "editor": [
         { "type": "position", "property": "position" },
-        { "type": "size", "property": "size", "position": "position" },
+        {
+          "type": "size",
+          "property": "size",
+          "position": "position",
+          "origin": "origin"
+        },
         { "type": "aspect_lock", "property": "size" },
         { "type": "label", "property": "text" }
       ],
@@ -847,6 +1103,34 @@
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "origin",
+          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
+          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
+          "label": { "ja-JP": "原点", "en-US": "Origin" },
+          "configurations": [
+            {
+              "ui": {
+                "label": { "ja-JP": "X", "en-US": "X" },
+                "enum_variants": {
+                  "0": { "ja-JP": "左", "en-US": "Left" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "右", "en-US": "Right" }
+                }
+              }
+            },
+            {
+              "ui": {
+                "label": { "ja-JP": "Y", "en-US": "Y" },
+                "enum_variants": {
+                  "0": { "ja-JP": "上", "en-US": "Top" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "下", "en-US": "Bottom" }
+                }
+              }
             }
           ]
         },
@@ -983,12 +1267,12 @@
       "id": "video",
       "output_bounds": {
         "min": [
-          "p::position::v0 - (math::abs(p::size::v0) * 1 / 2 + 0)",
-          "p::position::v1 - (math::abs(p::size::v1) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
         ],
         "max": [
-          "p::position::v0 + (math::abs(p::size::v0) * 1 / 2 + 0)",
-          "p::position::v1 + (math::abs(p::size::v1) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
         ]
       },
       "label": { "ja-JP": "動画", "en-US": "Video" },
@@ -1011,24 +1295,40 @@
             "playback_speed": "playback_speed",
             "end_behavior": "end_behavior"
           },
-          "placement": { "position": "position", "size": "size" }
+          "placement": {
+            "position": "position",
+            "size": "size",
+            "origin": "origin"
+          }
         }
       ],
-      "audio": [{
-        "id": "source",
-        "file": "source",
-        "reader": "zerium.ffmpeg",
-        "volume": "volume",
-        "source_start": "source_start",
-        "source_duration": "source_duration",
-        "playback_speed": "playback_speed",
-        "end_behavior": "end_behavior",
-        "preserve_pitch": "preserve_pitch"
-      }],
+      "audio": [
+        {
+          "id": "source",
+          "file": "source",
+          "reader": "zerium.ffmpeg",
+          "volume": "volume",
+          "source_start": "source_start",
+          "source_duration": "source_duration",
+          "playback_speed": "playback_speed",
+          "end_behavior": "end_behavior",
+          "preserve_pitch": "preserve_pitch"
+        }
+      ],
       "editor": [
-        { "type": "timeline", "source_start": "source_start", "source_duration": "source_duration", "playback_speed": "playback_speed" },
+        {
+          "type": "timeline",
+          "source_start": "source_start",
+          "source_duration": "source_duration",
+          "playback_speed": "playback_speed"
+        },
         { "type": "position", "property": "position" },
-        { "type": "size", "property": "size", "position": "position" },
+        {
+          "type": "size",
+          "property": "size",
+          "position": "position",
+          "origin": "origin"
+        },
         { "type": "aspect_lock", "property": "size" }
       ],
       "properties": [
@@ -1047,6 +1347,34 @@
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "origin",
+          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
+          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
+          "label": { "ja-JP": "原点", "en-US": "Origin" },
+          "configurations": [
+            {
+              "ui": {
+                "label": { "ja-JP": "X", "en-US": "X" },
+                "enum_variants": {
+                  "0": { "ja-JP": "左", "en-US": "Left" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "右", "en-US": "Right" }
+                }
+              }
+            },
+            {
+              "ui": {
+                "label": { "ja-JP": "Y", "en-US": "Y" },
+                "enum_variants": {
+                  "0": { "ja-JP": "上", "en-US": "Top" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "下", "en-US": "Bottom" }
+                }
+              }
             }
           ]
         },
@@ -1153,7 +1481,7 @@
         },
         {
           "id": "source",
-          "label": {"ja-JP": "動画", "en-US": "Video"},
+          "label": { "ja-JP": "動画", "en-US": "Video" },
           "type": {
             "file": {
               "extensions": ["mp4", "mov", "mkv", "webm", "avi", "m4v", "gif"]
@@ -1168,12 +1496,12 @@
       "id": "image",
       "output_bounds": {
         "min": [
-          "p::position::v0 - (math::abs(p::size::v0) * 1 / 2 + 0)",
-          "p::position::v1 - (math::abs(p::size::v1) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
         ],
         "max": [
-          "p::position::v0 + (math::abs(p::size::v0) * 1 / 2 + 0)",
-          "p::position::v1 + (math::abs(p::size::v1) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
         ]
       },
       "label": { "ja-JP": "画像", "en-US": "Image" },
@@ -1190,12 +1518,21 @@
           "id": "source",
           "file": "source",
           "reader": "zerium.ffmpeg",
-          "placement": { "position": "position", "size": "size" }
+          "placement": {
+            "position": "position",
+            "size": "size",
+            "origin": "origin"
+          }
         }
       ],
       "editor": [
         { "type": "position", "property": "position" },
-        { "type": "size", "property": "size", "position": "position" },
+        {
+          "type": "size",
+          "property": "size",
+          "position": "position",
+          "origin": "origin"
+        },
         { "type": "aspect_lock", "property": "size" }
       ],
       "properties": [
@@ -1214,6 +1551,34 @@
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "origin",
+          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
+          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
+          "label": { "ja-JP": "原点", "en-US": "Origin" },
+          "configurations": [
+            {
+              "ui": {
+                "label": { "ja-JP": "X", "en-US": "X" },
+                "enum_variants": {
+                  "0": { "ja-JP": "左", "en-US": "Left" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "右", "en-US": "Right" }
+                }
+              }
+            },
+            {
+              "ui": {
+                "label": { "ja-JP": "Y", "en-US": "Y" },
+                "enum_variants": {
+                  "0": { "ja-JP": "上", "en-US": "Top" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "下", "en-US": "Bottom" }
+                }
+              }
             }
           ]
         },
@@ -1243,7 +1608,7 @@
         },
         {
           "id": "source",
-          "label": {"ja-JP": "画像", "en-US": "Image"},
+          "label": { "ja-JP": "画像", "en-US": "Image" },
           "type": {
             "file": {
               "extensions": ["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"]
@@ -1258,12 +1623,12 @@
       "id": "svg",
       "output_bounds": {
         "min": [
-          "p::position::v0 - (math::abs(p::size::v0) * 1 / 2 + 0)",
-          "p::position::v1 - (math::abs(p::size::v1) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
         ],
         "max": [
-          "p::position::v0 + (math::abs(p::size::v0) * 1 / 2 + 0)",
-          "p::position::v1 + (math::abs(p::size::v1) * 1 / 2 + 0)"
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
         ]
       },
       "label": { "ja-JP": "SVG", "en-US": "SVG" },
@@ -1280,12 +1645,21 @@
           "id": "source",
           "file": "source",
           "reader": "zerium.svg",
-          "placement": { "position": "position", "size": "size" }
+          "placement": {
+            "position": "position",
+            "size": "size",
+            "origin": "origin"
+          }
         }
       ],
       "editor": [
         { "type": "position", "property": "position" },
-        { "type": "size", "property": "size", "position": "position" },
+        {
+          "type": "size",
+          "property": "size",
+          "position": "position",
+          "origin": "origin"
+        },
         { "type": "aspect_lock", "property": "size" }
       ],
       "properties": [
@@ -1304,6 +1678,34 @@
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "origin",
+          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
+          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
+          "label": { "ja-JP": "原点", "en-US": "Origin" },
+          "configurations": [
+            {
+              "ui": {
+                "label": { "ja-JP": "X", "en-US": "X" },
+                "enum_variants": {
+                  "0": { "ja-JP": "左", "en-US": "Left" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "右", "en-US": "Right" }
+                }
+              }
+            },
+            {
+              "ui": {
+                "label": { "ja-JP": "Y", "en-US": "Y" },
+                "enum_variants": {
+                  "0": { "ja-JP": "上", "en-US": "Top" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "下", "en-US": "Bottom" }
+                }
+              }
             }
           ]
         },
@@ -1333,7 +1735,7 @@
         },
         {
           "id": "source",
-          "label": {"ja-JP": "SVG", "en-US": "SVG"},
+          "label": { "ja-JP": "SVG", "en-US": "SVG" },
           "type": {
             "file": {
               "extensions": ["svg"]
@@ -1358,19 +1760,26 @@
       "tags": ["音楽", "サウンド", "music", "sound"],
       "symbol": "♪",
       "capabilities": [],
-      "audio": [{
-        "id": "source",
-        "file": "source",
-        "reader": "zerium.ffmpeg",
-        "volume": "volume",
-        "source_start": "source_start",
-        "source_duration": "source_duration",
-        "playback_speed": "playback_speed",
-        "end_behavior": "end_behavior",
-        "preserve_pitch": "preserve_pitch"
-      }],
+      "audio": [
+        {
+          "id": "source",
+          "file": "source",
+          "reader": "zerium.ffmpeg",
+          "volume": "volume",
+          "source_start": "source_start",
+          "source_duration": "source_duration",
+          "playback_speed": "playback_speed",
+          "end_behavior": "end_behavior",
+          "preserve_pitch": "preserve_pitch"
+        }
+      ],
       "editor": [
-        { "type": "timeline", "source_start": "source_start", "source_duration": "source_duration", "playback_speed": "playback_speed" }
+        {
+          "type": "timeline",
+          "source_start": "source_start",
+          "source_duration": "source_duration",
+          "playback_speed": "playback_speed"
+        }
       ],
       "properties": [
         {
@@ -1452,7 +1861,7 @@
         },
         {
           "id": "source",
-          "label": {"ja-JP": "音声", "en-US": "Audio"},
+          "label": { "ja-JP": "音声", "en-US": "Audio" },
           "type": {
             "file": {
               "extensions": ["wav", "mp3", "m4a", "aac", "flac", "ogg", "opus"]
@@ -1596,8 +2005,20 @@
         { "type": "position", "property": "position" },
         { "type": "size", "property": "size", "position": "position" },
         { "type": "aspect_lock", "property": "size" },
-        { "type": "spline", "points": "points", "position": "position", "size": "size", "tension": "tension", "closed": "closed" },
-        { "type": "points", "property": "points", "position": "position", "size": "size" }
+        {
+          "type": "spline",
+          "points": "points",
+          "position": "position",
+          "size": "size",
+          "tension": "tension",
+          "closed": "closed"
+        },
+        {
+          "type": "points",
+          "property": "points",
+          "position": "position",
+          "size": "size"
+        }
       ],
       "passes": [{ "type": "render", "shader": { "module": "follow_spline" } }],
       "properties": [

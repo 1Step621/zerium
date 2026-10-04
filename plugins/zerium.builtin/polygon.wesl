@@ -1,5 +1,5 @@
 import package::generated::host::util::scene_color;
-import package::generated::host::item::{quad_corner, quad_uv, quad_position};
+import package::generated::host::item::{placement_center, quad_corner, quad_uv, quad_position};
 import package::generated::polygon::{props, get_points};
 
 struct PolygonVertexOutput {
@@ -15,8 +15,12 @@ fn vertex_main(
     @builtin(instance_index) instance_index: u32,
 ) -> PolygonVertexOutput {
     let properties = props(instance_index);
-    let position = vec2(properties.position.v0, properties.position.v1);
     let size = vec2(properties.size.v0, properties.size.v1);
+    let position = placement_center(
+        vec2(properties.position.v0, properties.position.v1),
+        size,
+        vec2(properties.origin.v0, properties.origin.v1),
+    );
     let corner = quad_corner(vertex_index);
     let local = quad_uv(corner);
 

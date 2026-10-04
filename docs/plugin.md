@@ -33,21 +33,23 @@ The root contract is versioned independently from the plugin release:
   "$schema": "https://raw.githubusercontent.com/1Step621/zerium/refs/heads/main/plugins/plugin.schema.json",
   "api_version": 1,
   "id": "com.example.plugin",
-  "items": [{
-    "id": "shape",
-    "label": { "ja-JP": "図形", "en-US": "Shape" },
-    "category": {
-      "id": "example",
-      "label": { "ja-JP": "サンプル", "en-US": "Example" }
-    },
-    "symbol": "■",
-    "shader": { "module": "shape" },
-    "output_bounds": {
-      "min": ["viewport::min::x", "viewport::min::y"],
-      "max": ["viewport::max::x", "viewport::max::y"]
-    },
-    "capabilities": []
-  }]
+  "items": [
+    {
+      "id": "shape",
+      "label": { "ja-JP": "図形", "en-US": "Shape" },
+      "category": {
+        "id": "example",
+        "label": { "ja-JP": "サンプル", "en-US": "Example" }
+      },
+      "symbol": "■",
+      "shader": { "module": "shape" },
+      "output_bounds": {
+        "min": ["viewport::min::x", "viewport::min::y"],
+        "max": ["viewport::max::x", "viewport::max::y"]
+      },
+      "capabilities": []
+    }
+  ]
 }
 ```
 
@@ -147,15 +149,15 @@ to control each stream independently.
 Items and effects can declare an `editor` array without adding shader inputs.
 Each entry has a `type` and all property references consumed by that feature:
 
-| Type | References | Behavior |
-| --- | --- | --- |
-| `timeline` | `source_start`, `source_duration`, `playback_speed` | Item trim/stretch; independent of readers and EOF policy |
-| `position` | `property` | Preview position handle for a two-`f32` tuple |
-| `size` | `property`, `position` | Preview size handles centered at its own declared position |
-| `aspect_lock` | `property` | Ratio-lock toggle for a two-`f32` tuple; optional `default` is false |
-| `points` | `property`, `position`, `size` | Vertex handles for an array of two-`f32` tuples in its own rectangle |
-| `spline` | `points`, `position`, `size`, `tension`, `closed` | Preview curve; tension is `f32`, closed is `bool` |
-| `label` | `property` | Item display label from a string property |
+| Type          | References                                          | Behavior                                                             |
+| ------------- | --------------------------------------------------- | -------------------------------------------------------------------- |
+| `timeline`    | `source_start`, `source_duration`, `playback_speed` | Item trim/stretch; independent of readers and EOF policy             |
+| `position`    | `property`                                          | Preview position handle for a two-`f32` tuple                        |
+| `size`        | `property`, `position`                              | Preview size handles centered at its own declared position           |
+| `aspect_lock` | `property`                                          | Ratio-lock toggle for a two-`f32` tuple; optional `default` is false |
+| `points`      | `property`, `position`, `size`                      | Vertex handles for an array of two-`f32` tuples in its own rectangle |
+| `spline`      | `points`, `position`, `size`, `tension`, `closed`   | Preview curve; tension is `f32`, closed is `bool`                    |
+| `label`       | `property`                                          | Item display label from a string property                            |
 
 Position and size references are two-`f32` tuples. Points are percentages within
 the declared rectangle: `[0, 0]` is top-left and `[100, 100]` is bottom-right.
@@ -188,6 +190,23 @@ To display a spline curve with editable vertices, declare both features:
   { "type": "points", "property": "points", "position": "position", "size": "size" }
 ]
 ```
+
+Size, points, and spline editors can each reference an optional `origin`
+property: a tuple of two enums, each containing exactly `0`, `1`, and `2`.
+The first component selects left/center/right, and the second selects
+top/center/bottom. Without this reference, the editor uses the center.
+Each editor consumes its own reference, independently of other editors and
+rendering capabilities. Media `placement` can reference the same origin tuple.
+
+The bundled visual items expose this as a normal **Origin** property with X and
+Y dropdowns. Each component can be edited or bound to a scene argument separately,
+using the usual tuple property controls. Position is the selected origin's
+composition coordinate. Changing an origin keeps the position value, so the item
+shifts; resizing keeps that coordinate fixed. Size handles on an edge coinciding
+with the origin are omitted. The shader helper
+`item::placement_center(position, size, origin)` takes the unpadded local size and
+an origin `vec2<u32>` to compute the quad center. Construct this vector from the
+tuple's `v0` and `v1` fields. Bounds expressions must apply the same offset.
 
 ### Text
 
@@ -292,13 +311,13 @@ reader returns temporal media. There is no item-level `video` block.
 }]
 ```
 
-| Role key | Property type | Meaning |
-| --- | --- | --- |
-| `source_start` | `f32` | Source interval start in seconds |
-| `source_duration` | `f32` | Source interval length in seconds |
-| `playback_speed` | `f32` | Playback multiplier, 0.25–4 |
-| `end_behavior` | Enum `[0, 1, 2]` | Stop, loop, hold |
-| `preserve_pitch` (audio only) | `bool` | Keep audio pitch when changing speed |
+| Role key                      | Property type    | Meaning                              |
+| ----------------------------- | ---------------- | ------------------------------------ |
+| `source_start`                | `f32`            | Source interval start in seconds     |
+| `source_duration`             | `f32`            | Source interval length in seconds    |
+| `playback_speed`              | `f32`            | Playback multiplier, 0.25–4          |
+| `end_behavior`                | Enum `[0, 1, 2]` | Stop, loop, hold                     |
+| `preserve_pitch` (audio only) | `bool`           | Keep audio pitch when changing speed |
 
 When `playback` is present, all four references are required and distinct.
 The same requirement applies to each `audio` entry, which also requires
@@ -324,11 +343,13 @@ steps use the usual property schema. For example, the property referenced by
   "label": { "en-US": "Playback speed", "ja-JP": "再生速度" },
   "type": { "value": "f32" },
   "default": { "f32": 1 },
-  "configurations": [{
-    "scene_bindable": false,
-    "constraints": { "min": 0.25, "max": 4 },
-    "ui": { "unit": "×", "step": 0.01, "drag_step": 0.01 }
-  }]
+  "configurations": [
+    {
+      "scene_bindable": false,
+      "constraints": { "min": 0.25, "max": 4 },
+      "ui": { "unit": "×", "step": 0.01, "drag_step": 0.01 }
+    }
+  ]
 }
 ```
 
@@ -353,18 +374,18 @@ end property or playback record. API and project format versions remain `1`.
 {
   "id": "position",
   "label": { "ja-JP": "位置", "en-US": "Position" },
-  "type": {"value": ["f32", "f32"]},
-  "default": {"tuple": [{"f32": 0}, {"f32": 0}]},
+  "type": { "value": ["f32", "f32"] },
+  "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
   "configurations": [
     {
       "animatable": true,
-      "constraints": {"min": -1000000, "max": 1000000},
-      "ui": {"label": {"ja-JP": "X", "en-US": "X"}, "unit": "px", "step": 1}
+      "constraints": { "min": -1000000, "max": 1000000 },
+      "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px", "step": 1 }
     },
     {
       "animatable": true,
-      "constraints": {"min": -1000000, "max": 1000000},
-      "ui": {"label": {"ja-JP": "Y", "en-US": "Y"}, "unit": "px", "step": 1}
+      "constraints": { "min": -1000000, "max": 1000000 },
+      "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px", "step": 1 }
     }
   ]
 }
@@ -379,13 +400,13 @@ contain tuples or arrays, and arrays cannot contain arrays.
 `configurations` is required: one entry for a scalar, one per tuple scalar, or
 one per scalar position in an array element. Each entry has these settings:
 
-| Setting | Default | Purpose |
-| --- | --- | --- |
-| `editable` | `true` | Allow direct edits; false also disables animation editing. |
-| `animatable` | `false` | Allow animation of numeric or color scalars. |
-| `scene_bindable` | `true` | Allow the scalar to be exposed as a scene argument. |
-| `constraints` | Unrestricted | Validate defaults, edits, loaded values, and animation endpoints. |
-| `ui` | Scalar defaults | Presentation hints: label, unit, step, visibility, enum labels, multiline, editor. |
+| Setting          | Default         | Purpose                                                                            |
+| ---------------- | --------------- | ---------------------------------------------------------------------------------- |
+| `editable`       | `true`          | Allow direct edits; false also disables animation editing.                         |
+| `animatable`     | `false`         | Allow animation of numeric or color scalars.                                       |
+| `scene_bindable` | `true`          | Allow the scalar to be exposed as a scene argument.                                |
+| `constraints`    | Unrestricted    | Validate defaults, edits, loaded values, and animation endpoints.                  |
+| `ui`             | Scalar defaults | Presentation hints: label, unit, step, visibility, enum labels, multiline, editor. |
 
 Numeric bounds belong in each scalar's `constraints`, not on the tuple.
 Numeric units are the same in projects, shaders, and controls. Missing tuple
@@ -399,12 +420,14 @@ system-font picker when the values represent fallback fonts:
 
 ```json
 {
-  "type": {"array": {"element_type": "string", "max_items": 1024}},
-  "default": {"array": []},
-  "append_default": {"string": ""},
-  "configurations": [{
-    "ui": { "editor": "font_family" }
-  }]
+  "type": { "array": { "element_type": "string", "max_items": 1024 } },
+  "default": { "array": [] },
+  "append_default": { "string": "" },
+  "configurations": [
+    {
+      "ui": { "editor": "font_family" }
+    }
+  ]
 }
 ```
 
@@ -427,14 +450,22 @@ starts with three points and appends the origin:
 ```json
 {
   "id": "points",
-  "label": {"en-US": "Points"},
-  "type": {"array": {"element_type": ["f32", "f32"], "min_items": 3, "max_items": 1024}},
-  "default": {"array": [
-    {"id": 1, "value": {"tuple": [{"f32": 0}, {"f32": 0}]}},
-    {"id": 2, "value": {"tuple": [{"f32": 100}, {"f32": 0}]}},
-    {"id": 3, "value": {"tuple": [{"f32": 50}, {"f32": 100}]}}
-  ]},
-  "append_default": {"tuple": [{"f32": 0}, {"f32": 0}]},
+  "label": { "en-US": "Points" },
+  "type": {
+    "array": {
+      "element_type": ["f32", "f32"],
+      "min_items": 3,
+      "max_items": 1024
+    }
+  },
+  "default": {
+    "array": [
+      { "id": 1, "value": { "tuple": [{ "f32": 0 }, { "f32": 0 }] } },
+      { "id": 2, "value": { "tuple": [{ "f32": 100 }, { "f32": 0 }] } },
+      { "id": 3, "value": { "tuple": [{ "f32": 50 }, { "f32": 100 }] } }
+    ]
+  },
+  "append_default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
   "configurations": [{}, {}]
 }
 ```
@@ -447,9 +478,16 @@ Finite choices are declared in the type:
 {
   "type": { "value": { "enum": [0, 1] } },
   "default": { "enum": 0 },
-  "configurations": [{
-    "ui": { "enum_variants": { "0": {"en-US": "Outside"}, "1": {"en-US": "Inside"} } }
-  }]
+  "configurations": [
+    {
+      "ui": {
+        "enum_variants": {
+          "0": { "en-US": "Outside" },
+          "1": { "en-US": "Inside" }
+        }
+      }
+    }
+  ]
 }
 ```
 
@@ -545,7 +583,23 @@ Expressions can use arithmetic, parentheses, and functions such as `min`,
 rectangle, `{prefix}::{min,max,center,size}::{x,y}` variables are available
 (e.g. `input::min::x`). An `f32` property `radius` is `p::radius`;
 an `f32` pair `position` exposes `p::position::v0` and `p::position::v1`.
-Three- and four-component `f32` tuples also expose `::v2` and `::v3`.
+Integer and enum properties also expose their numeric values using these aliases.
+Three- and four-component numeric tuples also expose `::v2` and `::v3`.
+
+`placement_center(position, size, origin)` converts an origin coordinate to
+its center coordinate on either axis, matching WESL's `item::placement_center`.
+Pass the position and unpadded local size on that axis, and its origin value
+(`0` for start, `1` for center, `2` for end). The function accepts integer or
+floating-point numbers; the origin must be an integer in this range.
+For example, a rectangle's left edge is:
+
+```text
+placement_center(p::position::v0, p::size::v0, p::origin::v0) - math::abs(p::size::v0) / 2
+```
+
+Use `p::position::v1`, `p::size::v1`, and `p::origin::v1` for the vertical axis.
+
+This function is available in item and effect bounds, including scene effects.
 The declaration must include all four edges:
 
 ```json
@@ -588,30 +642,36 @@ top-level shader and no implicit render pass.
 ```json
 {
   "id": "blur",
-  "label": {"en-US": "Blur"},
-  "category": {"id": "blur", "label": {"en-US": "Blur"}},
+  "label": { "en-US": "Blur" },
+  "category": { "id": "blur", "label": { "en-US": "Blur" } },
   "output_bounds": {
     "min": ["input::min::x - p::radius * 4", "input::min::y - p::radius * 4"],
     "max": ["input::max::x + p::radius * 4", "input::max::y + p::radius * 4"]
   },
-  "properties": [{
-    "id": "radius",
-    "label": {"en-US": "Radius"},
-    "type": { "value": "f32" },
-    "default": { "f32": 8 },
-    "configurations": [{
-      "animatable": true
-    }]
-  }],
-  "passes": [{
-    "type": "compute",
-    "shader": { "module": "blur" },
-    "dispatch": ["width", "height", "one"],
-    "constants": [
-      { "id": "direction_x", "value": { "f32": 1 } },
-      { "id": "direction_y", "value": { "f32": 0 } }
-    ]
-  }]
+  "properties": [
+    {
+      "id": "radius",
+      "label": { "en-US": "Radius" },
+      "type": { "value": "f32" },
+      "default": { "f32": 8 },
+      "configurations": [
+        {
+          "animatable": true
+        }
+      ]
+    }
+  ],
+  "passes": [
+    {
+      "type": "compute",
+      "shader": { "module": "blur" },
+      "dispatch": ["width", "height", "one"],
+      "constants": [
+        { "id": "direction_x", "value": { "f32": 1 } },
+        { "id": "direction_y", "value": { "f32": 0 } }
+      ]
+    }
+  ]
 }
 ```
 

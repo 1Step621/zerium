@@ -1,5 +1,5 @@
 import package::generated::host::util::{scene_color, DEG2RAD, rotate};
-import package::generated::host::item::{to_ndc, quad_corner};
+import package::generated::host::item::{placement_center, to_ndc, quad_corner};
 import package::generated::line::props;
 
 struct LineVertexOutput {
@@ -16,8 +16,12 @@ fn vertex_main(
     @builtin(instance_index) instance_index: u32,
 ) -> LineVertexOutput {
     let properties = props(instance_index);
-    let position = vec2(properties.position.v0, properties.position.v1);
     let size = vec2(properties.size.v0, properties.size.v1);
+    let position = placement_center(
+        vec2(properties.position.v0, properties.position.v1),
+        size,
+        vec2(properties.origin.v0, properties.origin.v1),
+    );
     let local = quad_corner(vertex_index);
     let half_size = size * 0.5;
     let angle = properties.angle * DEG2RAD;

@@ -35,6 +35,13 @@ impl PreviewResizeHandle {
     const fn changes_width(self) -> bool {
         matches!(self, Self::Left | Self::Right)
     }
+
+    fn resize_scale(self, origin: [f32; 2]) -> Option<f32> {
+        let axis = usize::from(!self.changes_width());
+        let side = (self.direction()[axis] + 1.) * 0.5;
+        let distance = side - origin[axis];
+        (distance != 0.).then(|| distance.recip())
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -92,6 +99,7 @@ pub(super) struct PreviewResizeOrigin {
     handle: PreviewResizeHandle,
     pointer: [f32; 2],
     size: [f32; 2],
+    resize_scale: f32,
     target: PreviewEditTarget,
     composition_units_per_pixel: f32,
 }
@@ -122,6 +130,7 @@ struct PreviewSizeOverlay {
     property_id: String,
     center: [f32; 2],
     size: [f32; 2],
+    origin: [f32; 2],
     target: PreviewEditTarget,
 }
 
@@ -241,6 +250,37 @@ impl Preview {
             .and_then(Self::f32_pair)
             .filter(|value| value.iter().all(|value| value.is_finite()))
             .unwrap_or([0., 0.])
+    }
+
+    fn item_origin(
+        item: &TimelineItem,
+        effect_id: Option<EffectInstanceId>,
+        property_id: Option<&str>,
+    ) -> [f32; 2] {
+        property_id
+            .and_then(|id| Self::overlay_properties(item, effect_id)?.property(id))
+            .and_then(|value| {
+                let PropertyValue::Tuple(values) = value else {
+                    return None;
+                };
+                let [PropertyValue::Enum(x), PropertyValue::Enum(y)] = values.as_slice() else {
+                    return None;
+                };
+                Some([*x as f32 * 0.5, *y as f32 * 0.5])
+            })
+            .unwrap_or([0.5, 0.5])
+    }
+
+    fn item_center(
+        item: &TimelineItem,
+        effect_id: Option<EffectInstanceId>,
+        position: &str,
+        size: [f32; 2],
+        origin: Option<&str>,
+    ) -> [f32; 2] {
+        let position = Self::item_position(item, effect_id, position);
+        let origin = Self::item_origin(item, effect_id, origin);
+        [0, 1].map(|axis| position[axis] + (0.5 - origin[axis]) * size[axis])
     }
 
     fn position_at_progress(

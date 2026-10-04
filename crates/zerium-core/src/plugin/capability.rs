@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use super::PluginError;
 use super::identifier::{validate_logical_id, validate_wgsl_identifier};
-use super::validation::validate_property_reference;
+use super::validation::{validate_origin_property, validate_property_reference};
 use crate::property::{PropertySchema, PropertyType, ScalarPropertyType};
 
 pub(super) const MAX_RENDER_RESULT_OFFSET: u32 = 30;
@@ -60,6 +60,7 @@ pub(super) fn validate_render_result_properties(
 pub struct MediaPlacement {
     pub position: String,
     pub size: String,
+    pub origin: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -234,9 +235,17 @@ impl Capability {
                         .playback_properties()
                         .validate(owner_kind, owner_id, properties)?;
                 }
-                if let Some(MediaPlacement { position, size }) = placement {
+                if let Some(MediaPlacement {
+                    position,
+                    size,
+                    origin,
+                }) = placement
+                {
                     tuple_f32_pair(position)?;
                     tuple_f32_pair(size)?;
+                    if let Some(origin) = origin {
+                        validate_origin_property(&context, properties, origin)?;
+                    }
                 }
             }
         }

@@ -42,6 +42,13 @@ fn quad_uv(corner: vec2<f32>) -> vec2<f32> {
     return corner * 0.5 + vec2(0.5);
 }
 
+// Each axis selects start (0), center (1), or end (2). Position is the
+// selected origin's composition coordinate; size is the unpadded local size.
+fn placement_center(position: vec2<f32>, size: vec2<f32>, origin: vec2<u32>) -> vec2<f32> {
+    let anchor = vec2<f32>(origin) * 0.5;
+    return position + (vec2(0.5) - anchor) * size;
+}
+
 fn quad_position(
     instance_index: u32,
     center: vec2<f32>,

@@ -1,5 +1,5 @@
 import package::generated::host::util::scene_color;
-import package::generated::host::item::{quad_corner, quad_position};
+import package::generated::host::item::{placement_center, quad_corner, quad_position};
 import package::generated::ellipse::props;
 
 struct EllipseVertexOutput {
@@ -14,8 +14,12 @@ fn vertex_main(
     @builtin(instance_index) instance_index: u32,
 ) -> EllipseVertexOutput {
     let properties = props(instance_index);
-    let position = vec2(properties.position.v0, properties.position.v1);
     let diameter = vec2(properties.diameter.v0, properties.diameter.v1);
+    let position = placement_center(
+        vec2(properties.position.v0, properties.position.v1),
+        diameter,
+        vec2(properties.origin.v0, properties.origin.v1),
+    );
     let local = quad_corner(vertex_index);
 
     var output: EllipseVertexOutput;

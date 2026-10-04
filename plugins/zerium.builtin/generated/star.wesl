@@ -6,13 +6,19 @@ struct ZeriumPropsTuple0 {
 };
 
 struct ZeriumPropsTuple1 {
+    v0: u32,
+    v1: u32,
+};
+
+struct ZeriumPropsTuple2 {
     v0: f32,
     v1: f32,
 };
 
 struct ZeriumProps {
     position: ZeriumPropsTuple0,
-    size: ZeriumPropsTuple1,
+    origin: ZeriumPropsTuple1,
+    size: ZeriumPropsTuple2,
     points: u32,
     inner_radius: f32,
     rotation: f32,
@@ -21,5 +27,5 @@ struct ZeriumProps {
 
 fn props(instance_index: u32) -> ZeriumProps {
     let raw = item_props(instance_index);
-    return ZeriumProps(ZeriumPropsTuple0(read_f32(raw, 0u), read_f32(raw, 0u + 4u)), ZeriumPropsTuple1(read_f32(raw, 8u), read_f32(raw, 8u + 4u)), read_u32(raw, 16u), read_f32(raw, 20u), read_f32(raw, 24u), vec4(read_f32(raw, 28u), read_f32(raw, 28u + 4u), read_f32(raw, 28u + 8u), read_f32(raw, 28u + 12u)));
+    return ZeriumProps(ZeriumPropsTuple0(read_f32(raw, 0u), read_f32(raw, 0u + 4u)), ZeriumPropsTuple1(read_u32(raw, 8u), read_u32(raw, 8u + 4u)), ZeriumPropsTuple2(read_f32(raw, 16u), read_f32(raw, 16u + 4u)), read_u32(raw, 24u), read_f32(raw, 28u), read_f32(raw, 32u), vec4(read_f32(raw, 36u), read_f32(raw, 36u + 4u), read_f32(raw, 36u + 8u), read_f32(raw, 36u + 12u)));
 }
