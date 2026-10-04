@@ -73,14 +73,27 @@ pub(super) struct EffectGroup {
 
 #[derive(Clone)]
 pub(super) enum GroupKind {
-    Plain,
-    Tuple { aspect_key: Option<InspectorPath> },
+    Plain(Vec<EditorControl>),
     Elements(Box<ElementGroup>),
     Effect(EffectGroup),
 }
 
+/// Controls declared by editor capabilities, independent of property values.
+#[derive(Clone)]
+pub(super) enum EditorControl {
+    AspectRatioLock {
+        key: InspectorPath,
+        effect_id: Option<EffectInstanceId>,
+        locked: bool,
+        mixed: bool,
+        read_only: bool,
+        multiple: bool,
+    },
+}
+
 #[derive(Clone)]
 pub(super) enum Control {
+    File(LeafControl),
     Group {
         id: ControlId,
         label: String,
@@ -97,6 +110,7 @@ pub(super) enum Control {
 impl Control {
     pub(super) fn id(&self) -> &ControlId {
         match self {
+            Self::File(file) => &file.id,
             Self::Group { id, .. } => id,
             Self::Number(control) => &control.common.id,
             Self::Text(control) => &control.common.id,
@@ -113,6 +127,7 @@ impl Control {
             Self::Bool(control) => Some(control),
             Self::Choice(control) => Some(&control.common),
             Self::Color(control) => Some(control),
+            Self::File(control) => Some(control),
             Self::Group { .. } => None,
         }
     }
@@ -124,6 +139,7 @@ impl Control {
             Self::Bool(control) => Some(control),
             Self::Choice(control) => Some(&mut control.common),
             Self::Color(control) => Some(control),
+            Self::File(control) => Some(control),
             Self::Group { .. } => None,
         }
     }
@@ -202,18 +218,6 @@ impl PropertyOwner<'_> {
             Self::Effect(effect) => Some(effect.id),
         }
     }
-
-    fn has_aspect_lock(&self, property_id: &str) -> bool {
-        match self {
-            Self::Item { schema, .. } => schema
-                .aspect_lock_property()
-                .is_some_and(|property| property.id() == property_id),
-            Self::Effect(effect) => effect
-                .schema()
-                .aspect_lock_property()
-                .is_some_and(|property| property.id() == property_id),
-        }
-    }
 }
 
 impl PropertyInspector {
@@ -278,16 +282,11 @@ impl PropertyInspector {
     }
 
     pub(super) fn format_value(value: impl Into<f64>) -> String {
-        let value = value.into();
-        if value.fract() == 0. {
-            format!("{value:.0}")
-        } else {
-            format!("{value:.2}")
-        }
+        value.into().to_string()
     }
 
-    pub(super) fn normalize_field_value(spec: &NumericInputSpec, value: f64) -> f64 {
-        snap_to_step(value, spec.step).clamp(spec.min, spec.max)
+    pub(super) fn numeric_value_text(value: &PropertyValue) -> String {
+        value.numeric_text().unwrap_or_default()
     }
 
     pub(super) fn drag_sensitivity(min: f64, max: f64, step: f64) -> f64 {
@@ -314,7 +313,7 @@ impl PropertyInspector {
         .into()
     }
 
-    fn scalar_common(
+    fn leaf_control(
         key: &InspectorPath,
         property: &PropertySchema,
         value: PropertyValue,
@@ -345,7 +344,7 @@ impl PropertyInspector {
         }
     }
 
-    fn scalar_controls(
+    fn leaf_controls(
         key: InspectorPath,
         property: &PropertySchema,
         value: &PropertyValue,
@@ -360,7 +359,14 @@ impl PropertyInspector {
             || property.label().to_owned(),
             |(index, _)| format!("{} {}", property.label(), index + 1),
         );
-        let ty = property.ty().value_type();
+        if matches!(property.ty(), PropertyType::File(_)) {
+            let mut common =
+                Self::leaf_control(&key, property, value.clone(), effect_id, None, None, label);
+            Self::resolve_common(resolution, &mut common, property.ty(), false);
+            common.read_only |= resolution.selected_items.len() > 1;
+            return vec![Control::File(common)];
+        }
+        let ty = property.ty().value_type().expect("value or array property");
         ty.scalars()
             .filter_map(|(scalar_index, scalar_type)| {
                 let value = value.scalar_at(scalar_index)?.clone();
@@ -381,7 +387,7 @@ impl PropertyInspector {
                     },
                 );
                 let scalar_key = key.scalar(element.map(|(index, _)| index), scalar_index);
-                let common = Self::scalar_common(
+                let common = Self::leaf_control(
                     &scalar_key,
                     property,
                     value.clone(),
@@ -429,7 +435,7 @@ impl PropertyInspector {
         id: ControlId,
         label: String,
         children: Vec<Control>,
-        aspect_key: Option<InspectorPath>,
+        extensions: Vec<EditorControl>,
     ) -> Vec<Control> {
         if children.is_empty() {
             return children;
@@ -438,7 +444,52 @@ impl PropertyInspector {
             id,
             label,
             children,
-            kind: GroupKind::Tuple { aspect_key },
+            kind: GroupKind::Plain(extensions),
+        }]
+    }
+
+    fn editor_controls(
+        owner: &PropertyOwner<'_>,
+        property: &PropertySchema,
+        resolution: &ControlResolution<'_>,
+    ) -> Vec<EditorControl> {
+        let effect_id = owner.effect_id();
+        let effect_index = effect_id.and_then(|id| {
+            resolution
+                .item
+                .effects
+                .iter()
+                .position(|effect| effect.id == id)
+        });
+        let states: Option<Vec<_>> = resolution
+            .selected_items
+            .iter()
+            .map(|item| {
+                let effect = match effect_id {
+                    Some(_) => Some(item.effects.get(effect_index?)?.id),
+                    None => None,
+                };
+                let declared = item.aspect_lock_property(effect)?;
+                if declared.id() != property.id() {
+                    return None;
+                }
+                Some((
+                    item.aspect_ratio(effect).is_some(),
+                    !declared.is_editable(None),
+                ))
+            })
+            .collect();
+        let Some(states) = states.filter(|states| !states.is_empty()) else {
+            return Vec::new();
+        };
+        let locked = states[0].0;
+        vec![EditorControl::AspectRatioLock {
+            key: owner.key(property),
+            effect_id,
+            locked,
+            mixed: states.iter().any(|(state, _)| *state != locked),
+            read_only: states.iter().any(|(_, read_only)| *read_only),
+            multiple: states.len() > 1,
         }]
     }
 
@@ -454,7 +505,7 @@ impl PropertyInspector {
         let Some(value) = owner.value(property.id()) else {
             return Vec::new();
         };
-        let controls = Self::scalar_controls(
+        let controls = Self::leaf_controls(
             key.clone(),
             property,
             value,
@@ -474,7 +525,7 @@ impl PropertyInspector {
                 ControlId::group(&key),
                 property.label().to_owned(),
                 controls,
-                owner.has_aspect_lock(property.id()).then(|| key.clone()),
+                Self::editor_controls(owner, property, resolution),
             )
         } else {
             controls
@@ -498,7 +549,8 @@ impl PropertyInspector {
         else {
             return None;
         };
-        let PropertyValue::Array(values) = owner.value(property.id())? else {
+        let value = owner.value(property.id())?;
+        let PropertyValue::Array(values) = value else {
             return None;
         };
         let element_kind = match element_type {
@@ -528,7 +580,7 @@ impl PropertyInspector {
             .iter()
             .enumerate()
             .map(|(element_index, element)| {
-                let row_controls = Self::scalar_controls(
+                let row_controls = Self::leaf_controls(
                     key.clone(),
                     property,
                     element.value(),
@@ -540,7 +592,7 @@ impl PropertyInspector {
                     id: ControlId::group(&key.scalar(Some(element_index), None)),
                     label: t!("rows.element", index = element_index + 1).to_string(),
                     children: row_controls,
-                    kind: GroupKind::Plain,
+                    kind: GroupKind::Plain(Vec::new()),
                 }
             })
             .collect();
@@ -595,7 +647,7 @@ impl PropertyInspector {
         resolution: &ControlResolution<'_>,
     ) -> Vec<Control> {
         let key = InspectorPath::scene_property(scene_id.get(), property.id());
-        let controls = Self::scalar_controls(key.clone(), property, value, None, None, resolution);
+        let controls = Self::leaf_controls(key.clone(), property, value, None, None, resolution);
         if matches!(
             property.ty(),
             PropertyType::Value(PropertyValueType::Tuple(_))
@@ -608,7 +660,7 @@ impl PropertyInspector {
                 ControlId::group(&key),
                 property.label().to_owned(),
                 controls,
-                None,
+                Vec::new(),
             )
         } else {
             controls
@@ -637,7 +689,7 @@ impl PropertyInspector {
     fn resolve_common(
         resolution: &ControlResolution<'_>,
         common: &mut LeafControl,
-        scalar_type: ScalarPropertyType,
+        ty: &PropertyType,
         animation_visible: bool,
     ) {
         common.animation_enabled = common.target.animation_enabled(resolution.item);
@@ -652,21 +704,12 @@ impl PropertyInspector {
                 common.target.element_id,
                 common.target.scalar_index,
             ),
-            &PropertyType::Value(PropertyValueType::Scalar(scalar_type)),
+            ty,
             resolution.arguments,
         );
-        if matches!(common.value, PropertyValue::Bool(_))
-            && common.target.effect_id.is_none()
-            && let PropertyValue::Bool(value) = common.value
-        {
-            common.mixed = resolution.selected_items.iter().skip(1).any(|selected| {
-                selected
-                    .properties
-                    .property(&common.target.property_id)
-                    .and_then(|value| value.scalar_at(common.target.scalar_index))
-                    != Some(&PropertyValue::Bool(value))
-            });
-        }
+        common.mixed = resolution.selected_items.iter().skip(1).any(|item| {
+            common.target.selected_value(resolution.item, item).as_ref() != Some(&common.value)
+        });
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -703,13 +746,15 @@ impl PropertyInspector {
 
     fn resolve_leaf(resolution: &ControlResolution<'_>, control: &mut Control) {
         match control {
-            Control::Group { .. } => {}
+            Control::Group { .. } | Control::File(_) => {}
             Control::Number(number) => {
                 let animation_enabled = number.common.target.animation_enabled(resolution.item);
                 Self::resolve_common(
                     resolution,
                     &mut number.common,
-                    number.spec.scalar_type.clone(),
+                    &PropertyType::Value(PropertyValueType::Scalar(
+                        number.spec.scalar_type.clone(),
+                    )),
                     animation_enabled,
                 );
                 number.common.animation_enabled = animation_enabled;
@@ -730,21 +775,27 @@ impl PropertyInspector {
             Control::Text(text) => Self::resolve_common(
                 resolution,
                 &mut text.common,
-                ScalarPropertyType::String,
+                &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::String)),
                 false,
             ),
-            Control::Bool(boolean) => {
-                Self::resolve_common(resolution, boolean, ScalarPropertyType::Bool, false)
-            }
-            Control::Choice(choice) => {
-                Self::resolve_common(resolution, &mut choice.common, choice.ty.clone(), false)
-            }
+            Control::Bool(boolean) => Self::resolve_common(
+                resolution,
+                boolean,
+                &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Bool)),
+                false,
+            ),
+            Control::Choice(choice) => Self::resolve_common(
+                resolution,
+                &mut choice.common,
+                &PropertyType::Value(PropertyValueType::Scalar(choice.ty.clone())),
+                false,
+            ),
             Control::Color(color) => {
                 let animation_enabled = color.target.animation_enabled(resolution.item);
                 Self::resolve_common(
                     resolution,
                     color,
-                    ScalarPropertyType::Color,
+                    &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Color)),
                     animation_enabled,
                 );
                 color.animation_enabled = animation_enabled;
@@ -792,29 +843,6 @@ impl PropertyInspector {
             target,
             connected,
             compatible,
-        })
-    }
-
-    pub(super) fn aspect_ratio_lock_state(
-        editor: &TimelineEditor,
-        effect_id: Option<EffectInstanceId>,
-    ) -> Option<AspectRatioLockState> {
-        let targets = editor.selected_property_owners(effect_id)?;
-        let values = targets
-            .iter()
-            .map(|(id, effect)| {
-                let item = editor.item(*id)?;
-                let size = item.aspect_lock_property(*effect)?;
-                (size.is_editable(None) && size.is_visible())
-                    .then_some(item.aspect_ratio(*effect).is_some())
-            })
-            .collect::<Option<Vec<_>>>()?;
-        let value = values[0];
-        Some(AspectRatioLockState {
-            effect_id,
-            value,
-            mixed: values.iter().any(|locked| *locked != value),
-            multiple: values.len() > 1,
         })
     }
 }

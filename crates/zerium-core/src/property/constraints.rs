@@ -33,9 +33,10 @@ impl PropertyConstraints {
             PropertyValue::Color(values) => values
                 .iter()
                 .all(|value| self.allows_number(f64::from(*value))),
-            PropertyValue::Bool(_) | PropertyValue::String(_) | PropertyValue::Enum(_) => {
-                self.min.is_none() && self.max.is_none()
-            }
+            PropertyValue::File(_)
+            | PropertyValue::Bool(_)
+            | PropertyValue::String(_)
+            | PropertyValue::Enum(_) => self.min.is_none() && self.max.is_none(),
         }
     }
 
@@ -45,78 +46,90 @@ impl PropertyConstraints {
             && !self.max.is_some_and(|max| value > max)
     }
 
+    /// The representable numeric interval inside the declared wire bounds.
+    pub fn numeric_bounds(&self, ty: &ScalarPropertyType) -> Option<(f64, f64)> {
+        if !self.bounds_valid() {
+            return None;
+        }
+        let (native_min, native_max) = match ty {
+            ScalarPropertyType::F32 | ScalarPropertyType::Color => {
+                if self
+                    .min
+                    .into_iter()
+                    .chain(self.max)
+                    .any(|value| value.abs() > f64::from(f32::MAX))
+                {
+                    return None;
+                }
+                (f64::from(f32::MIN), f64::from(f32::MAX))
+            }
+            ScalarPropertyType::I32 => (f64::from(i32::MIN), f64::from(i32::MAX)),
+            ScalarPropertyType::U32 => (0., f64::from(u32::MAX)),
+            _ => return None,
+        };
+        let min = self.min.unwrap_or(native_min).max(native_min);
+        let max = self.max.unwrap_or(native_max).min(native_max);
+        let (min, max) = match ty {
+            ScalarPropertyType::F32 | ScalarPropertyType::Color => {
+                let lower = min as f32;
+                let upper = max as f32;
+                (
+                    f64::from(if f64::from(lower) < min {
+                        lower.next_up()
+                    } else {
+                        lower
+                    }),
+                    f64::from(if f64::from(upper) > max {
+                        upper.next_down()
+                    } else {
+                        upper
+                    }),
+                )
+            }
+            _ => (min.ceil(), max.floor()),
+        };
+        (min <= max).then_some((min, max))
+    }
+
     pub fn clamp_value(&self, value: &PropertyValue) -> Option<PropertyValue> {
         match value {
             PropertyValue::F32(value) => {
-                let value = self.clamp_f64(f64::from(*value));
-                let value = value as f32;
-                value.is_finite().then_some(PropertyValue::F32(value))
+                self.clamp_number(f64::from(*value), ScalarPropertyType::F32)
             }
-            PropertyValue::I32(value) => Some(PropertyValue::I32(self.clamp_i32(*value)?)),
-            PropertyValue::U32(value) => Some(PropertyValue::U32(self.clamp_u32(*value)?)),
+            PropertyValue::I32(value) => {
+                self.clamp_number(f64::from(*value), ScalarPropertyType::I32)
+            }
+            PropertyValue::U32(value) => {
+                self.clamp_number(f64::from(*value), ScalarPropertyType::U32)
+            }
             PropertyValue::Tuple(_) | PropertyValue::Array(_) => None,
             PropertyValue::Color(values) => {
-                let mut constrained = *values;
-                for value in &mut constrained {
-                    *value = self.clamp_f64(f64::from(*value)) as f32;
-                    if !value.is_finite() {
-                        return None;
-                    }
+                if !values.iter().all(|value| value.is_finite()) {
+                    return None;
                 }
-                Some(PropertyValue::Color(constrained))
+                let (min, max) = self.numeric_bounds(&ScalarPropertyType::Color)?;
+                Some(PropertyValue::Color(
+                    values.map(|value| f64::from(value).clamp(min, max) as f32),
+                ))
             }
-            PropertyValue::Enum(value) if self.min.is_none() && self.max.is_none() => {
-                Some(PropertyValue::Enum(*value))
+            PropertyValue::File(_)
+            | PropertyValue::Enum(_)
+            | PropertyValue::Bool(_)
+            | PropertyValue::String(_)
+                if self.min.is_none() && self.max.is_none() =>
+            {
+                Some(value.clone())
             }
-            PropertyValue::Bool(value) if self.min.is_none() && self.max.is_none() => {
-                Some(PropertyValue::Bool(*value))
-            }
-            PropertyValue::String(value) if self.min.is_none() && self.max.is_none() => {
-                Some(PropertyValue::String(value.clone()))
-            }
-            PropertyValue::Bool(_) | PropertyValue::String(_) | PropertyValue::Enum(_) => None,
+            _ => None,
         }
     }
 
-    fn clamp_f64(&self, value: f64) -> f64 {
-        let value = self.min.map_or(value, |min| value.max(min));
-        self.max.map_or(value, |max| value.min(max))
-    }
-
-    fn clamp_i32(&self, value: i32) -> Option<i32> {
-        let mut value = i64::from(value);
-        if let Some(min) = self.min
-            && (value as f64) < min
-        {
-            value = min.ceil() as i64;
+    fn clamp_number(&self, value: f64, ty: ScalarPropertyType) -> Option<PropertyValue> {
+        if !value.is_finite() {
+            return None;
         }
-        if let Some(max) = self.max
-            && (value as f64) > max
-        {
-            value = max.floor() as i64;
-        }
-        i32::try_from(value).ok()
-    }
-
-    fn clamp_u32(&self, value: u32) -> Option<u32> {
-        let mut value = u64::from(value);
-        if let Some(min) = self.min
-            && (value as f64) < min
-        {
-            if min > f64::from(u32::MAX) {
-                return None;
-            }
-            value = min.max(0.0).ceil() as u64;
-        }
-        if let Some(max) = self.max
-            && (value as f64) > max
-        {
-            if max < 0.0 {
-                return None;
-            }
-            value = max.min(f64::from(u32::MAX)).floor() as u64;
-        }
-        u32::try_from(value).ok()
+        let (min, max) = self.numeric_bounds(&ty)?;
+        ty.value_from_number(value.clamp(min, max))
     }
 
     pub(super) fn validate(
@@ -158,35 +171,12 @@ impl PropertyConstraints {
             return true;
         }
         match value_type {
-            PropertyValueType::Scalar(ty) => self.valid_for_scalar(ty),
-            PropertyValueType::Tuple(_) => false,
+            Some(PropertyValueType::Scalar(ty)) => self.valid_for_scalar(ty),
+            Some(PropertyValueType::Tuple(_)) | None => false,
         }
     }
 
     fn valid_for_scalar(&self, ty: &ScalarPropertyType) -> bool {
-        match ty {
-            ScalarPropertyType::F32 | ScalarPropertyType::Color => self
-                .min
-                .into_iter()
-                .chain(self.max)
-                .all(|value| (value as f32).is_finite()),
-            ScalarPropertyType::I32 => {
-                let lower = self.min.unwrap_or(f64::from(i32::MIN)).ceil();
-                let upper = self.max.unwrap_or(f64::from(i32::MAX)).floor();
-                lower <= upper && upper >= f64::from(i32::MIN) && lower <= f64::from(i32::MAX)
-            }
-            ScalarPropertyType::U32 => {
-                let lower = self.min.unwrap_or(0.0).max(0.0).ceil();
-                let upper = self
-                    .max
-                    .unwrap_or(f64::from(u32::MAX))
-                    .min(f64::from(u32::MAX))
-                    .floor();
-                lower <= upper
-            }
-            ScalarPropertyType::Bool | ScalarPropertyType::String | ScalarPropertyType::Enum(_) => {
-                false
-            }
-        }
+        self.numeric_bounds(ty).is_some()
     }
 }

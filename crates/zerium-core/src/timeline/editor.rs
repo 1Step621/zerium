@@ -14,7 +14,7 @@ use crate::{
 };
 
 use super::{
-    document::{ResizeEdge, TimelineDocument},
+    document::{ResizeEdge, ResizeMode, TimelineDocument},
     evaluation::{
         evaluated_scene_argument_values, evaluated_visible_document_items_at_time,
         visibility_filtered_document_items,
@@ -84,8 +84,8 @@ pub(super) enum HistoryKey {
         Option<usize>,
         usize,
     ),
-    ItemResize(ItemId, ResizeEdge),
-    ItemsResize(Vec<ItemId>, ResizeEdge),
+    ItemResize(ItemId, ResizeEdge, ResizeMode),
+    ItemsResize(Vec<ItemId>, ResizeEdge, ResizeMode),
     ItemMove(ItemId),
     ItemsMove(Vec<ItemId>),
     SceneName(SceneId),

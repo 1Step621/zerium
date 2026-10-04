@@ -115,6 +115,13 @@ impl PropertySchema {
         &self.ty
     }
 
+    pub fn file_type(&self) -> Option<&super::FilePropertyType> {
+        match &self.ty {
+            PropertyType::File(ty) => Some(ty),
+            _ => None,
+        }
+    }
+
     pub fn default_value(&self) -> &PropertyValue {
         &self.default
     }
@@ -207,6 +214,9 @@ impl PropertySchema {
             return Err(self.validation_error(owner_kind, owner_id, "id must not be empty"));
         }
 
+        if self.label.is_empty() {
+            return Err(self.validation_error(owner_kind, owner_id, "label must not be empty"));
+        }
         if let PropertyType::Array {
             min_items,
             max_items,
@@ -229,7 +239,31 @@ impl PropertySchema {
             }
         }
 
-        let component_type = self.ty.value_type();
+        if let PropertyType::File(file) = &self.ty {
+            file.validate()
+                .map_err(|error| self.validation_error(owner_kind, owner_id, &error.to_string()))?;
+            if self.default != PropertyValue::File(None)
+                || self.append_default.is_some()
+                || self.configurations.len() != 1
+                || self.configuration(None).animatable
+                || self.configuration(None).scene_bindable
+            {
+                return Err(self.validation_error(owner_kind, owner_id, "file properties require an empty default, one configuration, and no animation or scene bindings"));
+            }
+            let configuration = self.configuration(None);
+            configuration.constraints.validate(
+                owner_kind,
+                owner_id,
+                &self.id,
+                &self.ty,
+                Some(&self.default),
+            )?;
+            configuration
+                .ui
+                .validate(owner_kind, owner_id, &self.id, &self.ty)?;
+            return Ok(());
+        }
+        let component_type = self.ty.value_type().expect("value or array property");
         let scalar_types = match component_type {
             PropertyValueType::Scalar(scalar) => std::slice::from_ref(scalar),
             PropertyValueType::Tuple(tuple) => tuple.scalars(),
@@ -253,9 +287,6 @@ impl PropertySchema {
                 owner_id,
                 "default does not match its type",
             ));
-        }
-        if self.label.is_empty() {
-            return Err(self.validation_error(owner_kind, owner_id, "label must not be empty"));
         }
 
         for (index, (configuration, ty)) in self.configurations.iter().zip(scalar_types).enumerate()
@@ -284,14 +315,14 @@ impl PropertySchema {
                     "array property requires append_default",
                 ));
             }
-            (PropertyType::Value(_), Some(_)) => {
+            (PropertyType::Value(_) | PropertyType::File(_), Some(_)) => {
                 return Err(self.validation_error(
                     owner_kind,
                     owner_id,
                     "append_default requires an array property",
                 ));
             }
-            (PropertyType::Value(_), None) => return Ok(()),
+            (PropertyType::Value(_) | PropertyType::File(_), None) => return Ok(()),
             (PropertyType::Array { element_type, .. }, Some(value)) => (element_type, value),
         };
         let tuple = matches!(element_type, PropertyValueType::Tuple(_));

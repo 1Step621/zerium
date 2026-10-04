@@ -21,7 +21,7 @@ use crate::engine::{
     },
 };
 use zerium_core::{
-    media::{MediaAsset, MediaKind, VideoFrameRate},
+    media::{MediaAsset, VideoFrameRate},
     timeline::{
         EffectInstanceId, Frame, FrameRate, ItemId, TimelineSnapshot, TimelineTime, TimelineView,
     },
@@ -106,7 +106,7 @@ pub(crate) fn export_timeline(
     .validate()
     .map_err(ExportError::encoding)?;
     let audio_graph = AudioTimelineGraph::new(
-        timeline.visible_items(),
+        &timeline.visible_items(),
         frame_rate,
         EXPORT_AUDIO_FORMAT,
         &media_readers,
@@ -326,21 +326,18 @@ fn decode_texture_frame(
     else {
         return Ok(None);
     };
-    let assets = match effect_id {
-        Some(effect_id) => {
-            let Some(effect) = item.effects.iter().find(|effect| effect.id == effect_id) else {
-                return Ok(None);
-            };
-            &effect.assets
-        }
-        None => &item.assets,
-    };
-    let Some(asset) = assets.get(input_id) else {
+    let Some((asset, playback)) = item.media_input(effect_id, input_id) else {
         return Ok(None);
     };
-    if matches!(asset.kind, MediaKind::Audio { .. }) {
-        return Ok(None);
-    }
+    let local_seconds = item.local_seconds(time, timeline.frame_rate());
+    let presentation_time = if asset.kind.is_temporal() {
+        let Some(sample) = playback.sample(local_seconds, asset.duration) else {
+            return Ok(None);
+        };
+        sample.time
+    } else {
+        Duration::ZERO
+    };
     let id = MediaInputId {
         item_id,
         effect_id,
@@ -348,30 +345,21 @@ fn decode_texture_frame(
     };
     let decoder = match decoders.entry(id) {
         std::collections::hash_map::Entry::Occupied(mut entry) => {
-            if entry.get().asset != *asset {
+            if entry.get().asset != asset {
                 entry.insert(ExportDecoder {
                     asset: asset.clone(),
-                    decoder: media_readers.open_visual_decoder(asset)?,
+                    decoder: media_readers.open_visual_decoder(&asset)?,
                 });
             }
             entry.into_mut()
         }
         std::collections::hash_map::Entry::Vacant(entry) => {
-            let decoder = media_readers.open_visual_decoder(asset)?;
+            let decoder = media_readers.open_visual_decoder(&asset)?;
             entry.insert(ExportDecoder {
                 asset: asset.clone(),
                 decoder,
             })
         }
-    };
-    let local_frames = (time.frames() - item.start.get() as f64).max(0.);
-    let local_seconds = local_frames / timeline.frame_rate().frames_per_second();
-    let presentation_time = match asset.kind {
-        MediaKind::Video { .. } => {
-            looped_presentation_time(local_seconds, decoder.decoder.stream_duration())?
-        }
-        MediaKind::Image { .. } => Duration::ZERO,
-        MediaKind::Audio { .. } => unreachable!("audio inputs were skipped above"),
     };
     let decode_size = RenderScene::media_raster_size_for_input(
         &item,
@@ -389,18 +377,4 @@ fn decode_texture_frame(
         cancelled,
     )?;
     Ok(Some(Arc::new(decoded.frame)))
-}
-
-fn looped_presentation_time(
-    local_seconds: f64,
-    stream_duration: Duration,
-) -> Result<Duration, ExportError> {
-    let duration = stream_duration.as_secs_f64();
-    if !local_seconds.is_finite() || local_seconds < 0. || !duration.is_finite() || duration <= 0. {
-        return Err(ExportError::encoding(
-            "Invalid video stream presentation timestamp",
-        ));
-    }
-    Duration::try_from_secs_f64(local_seconds.rem_euclid(duration))
-        .map_err(|_| ExportError::encoding("Invalid video stream presentation timestamp"))
 }

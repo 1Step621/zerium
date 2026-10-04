@@ -149,7 +149,7 @@ impl SegmentInterpolation {
 fn cubic_bezier_progress(progress: f32, x1: f32, y1: f32, x2: f32, y2: f32) -> f32 {
     let mut low = 0.;
     let mut high = 1.;
-    for _ in 0..16 {
+    for _ in 0..24 {
         let t = (low + high) * 0.5;
         if cubic(0., x1, x2, 1., t) < progress {
             low = t;

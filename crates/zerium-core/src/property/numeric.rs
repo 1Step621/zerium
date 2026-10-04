@@ -1,6 +1,6 @@
 //! Numeric value conversion and validated editor settings.
 
-use super::{PropertyConstraints, PropertyValue};
+use super::{PropertyConstraints, PropertyValue, ScalarPropertyType};
 
 impl PropertyValue {
     pub fn numeric_scalar(&self) -> Option<f64> {
@@ -12,17 +12,41 @@ impl PropertyValue {
         }
     }
 
+    pub fn numeric_text(&self) -> Option<String> {
+        match self {
+            Self::F32(value) => Some(value.to_string()),
+            Self::I32(value) => Some(value.to_string()),
+            Self::U32(value) => Some(value.to_string()),
+            _ => None,
+        }
+    }
+
     pub fn with_numeric_scalar(&self, value: f64) -> Option<Self> {
+        let ty = match self {
+            Self::F32(_) => ScalarPropertyType::F32,
+            Self::I32(_) => ScalarPropertyType::I32,
+            Self::U32(_) => ScalarPropertyType::U32,
+            _ => return None,
+        };
+        ty.value_from_number(value)
+    }
+}
+
+impl ScalarPropertyType {
+    /// Checked numeric conversion. Integer adjustments round to the nearest integer.
+    pub fn value_from_number(&self, value: f64) -> Option<PropertyValue> {
         if !value.is_finite() {
             return None;
         }
         match self {
-            Self::F32(_) if value.abs() <= f64::from(f32::MAX) => Some(Self::F32(value as f32)),
-            Self::I32(_) if (f64::from(i32::MIN)..=f64::from(i32::MAX)).contains(&value) => {
-                Some(Self::I32(value.round() as i32))
+            Self::F32 if value.abs() <= f64::from(f32::MAX) => {
+                Some(PropertyValue::F32(value as f32))
             }
-            Self::U32(_) if (0. ..=f64::from(u32::MAX)).contains(&value) => {
-                Some(Self::U32(value.round() as u32))
+            Self::I32 if (f64::from(i32::MIN)..=f64::from(i32::MAX)).contains(&value) => {
+                Some(PropertyValue::I32(value.round() as i32))
+            }
+            Self::U32 if (0. ..=f64::from(u32::MAX)).contains(&value) => {
+                Some(PropertyValue::U32(value.round() as u32))
             }
             _ => None,
         }

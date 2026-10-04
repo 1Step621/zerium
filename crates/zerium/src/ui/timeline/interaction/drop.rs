@@ -78,7 +78,7 @@ impl Timeline {
                     file.path().to_path_buf(),
                     file.plugin_id().to_owned(),
                     file.item_id().to_owned(),
-                    file.input_id().to_owned(),
+                    file.property_id().to_owned(),
                 )
             })
             .collect::<Vec<_>>();
@@ -95,13 +95,17 @@ impl Timeline {
                 .background_spawn(async move {
                     imports
                         .into_iter()
-                        .map(|(path, plugin_id, item_id, input_id)| {
+                        .map(|(path, plugin_id, item_id, property_id)| {
                             let name = path
                                 .file_name()
                                 .map(|name| name.to_string_lossy().into_owned())
                                 .unwrap_or_else(|| path.display().to_string());
-                            let result =
-                                media_readers.probe_for_item(path, &plugin_id, &item_id, &input_id);
+                            let result = media_readers.probe_for_item(
+                                path,
+                                &plugin_id,
+                                &item_id,
+                                &property_id,
+                            );
                             (name, plugin_id, item_id, result)
                         })
                         .collect::<Vec<_>>()
@@ -130,7 +134,7 @@ impl Timeline {
                                 continue;
                             }
                         };
-                    if let Err(error) = editor.set_item_asset(item_id, imported) {
+                    if let Err(error) = editor.set_item_file(item_id, imported) {
                         editor.remove_item(item_id);
                         errors.push(format!("{name}: {error}"));
                         continue;

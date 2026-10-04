@@ -11,14 +11,13 @@ use std::{
 use ffmpeg_next as ffmpeg;
 
 use crate::engine::frame::RgbaFrame;
-use zerium_core::media::{MediaAsset, MediaKind, VideoFrameRate};
-use zerium_core::plugin::MediaType;
+use zerium_core::media::{MediaAsset, MediaKind, MediaMetadata, MediaTarget, VideoFrameRate};
 
 use super::{
     ffmpeg::fit_dimensions,
     reader::{
         AudioDecoderSession, AudioFormat, DecodedAudioBlock, DecodedVideoFrame, MediaError,
-        MediaProbe, VideoDecodeSize, VideoDecoderSession,
+        VideoDecodeSize, VideoDecoderSession,
     },
 };
 
@@ -197,79 +196,75 @@ pub(crate) fn estimate_max_keyframe_gap(path: &Path) -> Option<u64> {
     Some(max_gap)
 }
 
-pub(super) fn probe(path: &Path, media_type: MediaType) -> Result<MediaProbe, MediaError> {
+pub(super) fn probe(path: &Path, target: MediaTarget) -> Result<Option<MediaMetadata>, MediaError> {
     initialize_ffmpeg()?;
     let input = ffmpeg::format::input(path).map_err(|error| {
         MediaError::external(format!("Failed to parse '{}': {error}", path.display()))
     })?;
-    let video = input.streams().best(ffmpeg::media::Type::Video);
-    let audio = input.streams().best(ffmpeg::media::Type::Audio);
-    if media_type == MediaType::Image {
-        let stream = video.ok_or_else(|| MediaError::external("Image stream was not found"))?;
-        let decoder = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
-            .and_then(|context| context.decoder().video())
-            .map_err(|error| {
-                MediaError::external(format!("Failed to get image information: {error}"))
-            })?;
-        if decoder.width() == 0 || decoder.height() == 0 {
-            return Err(MediaError::external("Failed to get image dimensions"));
-        }
-        return Ok(MediaProbe {
+    let stream_type = match target {
+        MediaTarget::Visual => ffmpeg::media::Type::Video,
+        MediaTarget::Audio => ffmpeg::media::Type::Audio,
+    };
+    let Some(stream) = input.streams().best(stream_type) else {
+        return Ok(None);
+    };
+    let context =
+        ffmpeg::codec::context::Context::from_parameters(stream.parameters()).map_err(|error| {
+            MediaError::external(format!("Failed to get media information: {error}"))
+        })?;
+    // FFmpeg's image demuxers identify still files from their contents. The file
+    // property itself places no restriction on how a reader interprets it.
+    let still_image = target == MediaTarget::Visual
+        && input
+            .format()
+            .name()
+            .split(',')
+            .any(|name| name == "image2" || name.ends_with("_pipe"));
+    if still_image {
+        let decoder = context.decoder().video().map_err(MediaError::external)?;
+        return Ok(Some(MediaMetadata {
             duration: Duration::from_secs(5),
             kind: MediaKind::Image {
                 width: decoder.width(),
                 height: decoder.height(),
             },
-            video_duration: Some(Duration::from_secs(5)),
-        });
+        }));
     }
-
-    let duration = media_duration(&input)
-        .and_then(|seconds| Duration::try_from_secs_f64(seconds).ok())
+    let duration = stream_duration(&stream)
+        .or_else(|| {
+            media_duration(&input).and_then(|seconds| Duration::try_from_secs_f64(seconds).ok())
+        })
         .ok_or_else(|| MediaError::external("Failed to get media duration"))?;
-    let video_duration = video.as_ref().and_then(stream_duration);
-    let kind = if let Some(stream) = video {
-        let decoder = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
-            .and_then(|context| context.decoder().video())
-            .map_err(|error| {
-                MediaError::external(format!("Failed to get video information: {error}"))
-            })?;
-        let frame_rate = video_frame_rate(stream.avg_frame_rate())
-            .or_else(|| video_frame_rate(stream.rate()))
-            .ok_or_else(|| MediaError::external("Failed to get video frame rate"))?;
-        let frame_count = u64::try_from(stream.frames())
-            .ok()
-            .filter(|frames| *frames > 0)
-            .unwrap_or_else(|| {
-                (duration.as_secs_f64() * frame_rate.frames_per_second())
-                    .ceil()
-                    .clamp(1., u64::MAX as f64) as u64
-            });
-        MediaKind::Video {
-            width: decoder.width(),
-            height: decoder.height(),
-            frame_rate,
-            frame_count,
-            has_audio: audio.is_some(),
+    let kind = match target {
+        MediaTarget::Visual => {
+            let decoder = context.decoder().video().map_err(MediaError::external)?;
+            let frame_rate = video_frame_rate(stream.avg_frame_rate())
+                .or_else(|| video_frame_rate(stream.rate()))
+                .ok_or_else(|| MediaError::external("Failed to get video frame rate"))?;
+            let frame_count = u64::try_from(stream.frames())
+                .ok()
+                .filter(|frames| *frames > 0)
+                .unwrap_or_else(|| {
+                    (duration.as_secs_f64() * frame_rate.frames_per_second())
+                        .ceil()
+                        .clamp(1., u64::MAX as f64) as u64
+                });
+            MediaKind::Video {
+                width: decoder.width(),
+                height: decoder.height(),
+                frame_rate,
+                frame_count,
+            }
         }
-    } else if let Some(stream) = audio {
-        let decoder = ffmpeg::codec::context::Context::from_parameters(stream.parameters())
-            .and_then(|context| context.decoder().audio())
-            .map_err(|error| {
-                MediaError::external(format!("Failed to get audio information: {error}"))
-            })?;
-        MediaKind::Audio {
-            channels: Some(u32::from(decoder.channels())).filter(|channels| *channels > 0),
-            sample_rate: Some(decoder.rate()).filter(|rate| *rate > 0),
+        MediaTarget::Audio => {
+            let decoder = context.decoder().audio().map_err(MediaError::external)?;
+            MediaKind::Audio {
+                channels: Some(u32::from(decoder.channels())).filter(|channels| *channels > 0),
+                sample_rate: Some(decoder.rate()).filter(|rate| *rate > 0),
+            }
         }
-    } else {
-        return Err(MediaError::external("No video or audio stream was found"));
     };
-    Ok(MediaProbe {
-        duration,
-        kind,
-        video_duration,
-    })
+    Ok(Some(MediaMetadata { duration, kind }))
 }
 
 fn stream_duration(stream: &ffmpeg::Stream<'_>) -> Option<Duration> {
@@ -387,6 +382,7 @@ impl FfmpegAudioDecoder {
             ))
         })?;
         self.decoder.flush();
+        self.resampler = None;
         self.pending.clear();
         self.next_sample_frame = Some(sample_frame);
         self.discard_before = Some(sample_frame);
@@ -431,14 +427,15 @@ impl FfmpegAudioDecoder {
 
     fn append_frame(
         &mut self,
-        decoded: &ffmpeg::frame::Audio,
+        decoded: &mut ffmpeg::frame::Audio,
         format: AudioFormat,
     ) -> Result<(), MediaError> {
-        let source_layout = if decoded.channel_layout().is_empty() {
-            ffmpeg::ChannelLayout::default(i32::from(decoded.channels()))
-        } else {
-            decoded.channel_layout()
-        };
+        if decoded.channel_layout().is_empty() {
+            decoded.set_channel_layout(ffmpeg::ChannelLayout::default(i32::from(
+                decoded.channels(),
+            )));
+        }
+        let source_layout = decoded.channel_layout();
         let target_layout = ffmpeg::ChannelLayout::default(i32::from(format.channels));
         let input_changed = self.resampler.as_ref().is_none_or(|resampler| {
             let input = resampler.input();
@@ -482,22 +479,44 @@ impl FfmpegAudioDecoder {
                 .round()
                 .clamp(0., u64::MAX as f64) as u64
             });
-        let sample_frames = converted.samples();
-        self.decoded_cursor = frame_start.saturating_add(sample_frames as u64);
-        let skip_frames = self
-            .discard_before
-            .map(|target| target.saturating_sub(frame_start) as usize)
-            .unwrap_or(0)
-            .min(sample_frames);
-        if skip_frames == sample_frames {
-            return Ok(());
-        }
-        self.discard_before = None;
-        let channels = usize::from(format.channels);
-        let samples = converted.plane::<f32>(0);
-        self.pending
-            .extend(samples[skip_frames * channels..].iter().copied());
+        self.append_samples(&converted, frame_start, format);
         Ok(())
+    }
+
+    fn append_samples(&mut self, samples: &ffmpeg::frame::Audio, start: u64, format: AudioFormat) {
+        let skip = self
+            .discard_before
+            .map_or(0, |target| target.saturating_sub(start) as usize)
+            .min(samples.samples());
+        self.decoded_cursor = start.saturating_add(samples.samples() as u64);
+        if skip < samples.samples() {
+            self.discard_before = None;
+            self.pending.extend(
+                samples.plane::<f32>(0)[skip * usize::from(format.channels)..]
+                    .iter()
+                    .copied(),
+            );
+        }
+    }
+
+    fn drain_resampler(&mut self, format: AudioFormat) -> Result<(), MediaError> {
+        let Some(mut resampler) = self.resampler.take() else {
+            return Ok(());
+        };
+        loop {
+            let mut output = ffmpeg::frame::Audio::new(
+                ffmpeg::format::Sample::F32(ffmpeg::format::sample::Type::Packed),
+                4096,
+                ffmpeg::ChannelLayout::default(i32::from(format.channels)),
+            );
+            let delay = resampler.flush(&mut output).map_err(|error| {
+                MediaError::external(format!("Failed to drain audio resampler: {error}"))
+            })?;
+            self.append_samples(&output, self.decoded_cursor, format);
+            if delay.is_none() || output.samples() == 0 {
+                return Ok(());
+            }
+        }
     }
 }
 
@@ -534,19 +553,14 @@ impl AudioDecoderSession for FfmpegAudioDecoder {
             .checked_mul(channels)
             .ok_or_else(|| MediaError::external("Audio block is too large"))?;
         while self.pending.len() < requested_samples {
-            let Some(decoded) = self.next_decoded_frame()? else {
+            let Some(mut decoded) = self.next_decoded_frame()? else {
+                self.drain_resampler(format)?;
                 break;
             };
-            self.append_frame(&decoded, format)?;
+            self.append_frame(&mut decoded, format)?;
         }
         let returned_samples = requested_samples.min(self.pending.len());
         let returned_samples = returned_samples - returned_samples % channels;
-        if returned_samples == 0 {
-            return Err(MediaError::external(format!(
-                "Failed to get audio from '{}'",
-                self.asset.path.display()
-            )));
-        }
         let samples = self.pending.drain(..returned_samples).collect::<Vec<_>>();
         let returned_frames = returned_samples / channels;
         self.next_sample_frame = Some(start_sample_frame.saturating_add(returned_frames as u64));
@@ -793,10 +807,6 @@ fn presentation_duration(
 }
 
 impl VideoDecoderSession for FfmpegVideoDecoder {
-    fn stream_duration(&self) -> Duration {
-        self.stream_duration
-    }
-
     fn decode_at(
         &mut self,
         presentation_time: Duration,

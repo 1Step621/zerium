@@ -4,11 +4,12 @@ use std::{
 };
 
 use crate::animation::ScalarAnimations;
-use crate::media::ImportedMedia;
+use crate::media::ImportedFile;
 use crate::plugin::{EffectSchema, ItemSchema};
 use crate::property::{PropertySchema, PropertyValue, PropertyValues};
 
 use super::{
+    TimeMapping, TimelineEditError,
     aspect_ratio::AspectRatio,
     ids::{EffectInstanceId, ItemId, LayerId},
     item::{EffectInstance, TimelineItem, TimelineItemKind, set_size_values, size_values},
@@ -25,6 +26,13 @@ pub enum ResizeEdge {
     Right,
 }
 
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ResizeMode {
+    #[default]
+    Trim,
+    Stretch,
+}
+
 impl ResizeEdge {
     pub(super) fn item_frame(self, item: &TimelineItem) -> u64 {
         match self {
@@ -33,10 +41,17 @@ impl ResizeEdge {
         }
     }
 
-    fn delta_bounds(self, item: &TimelineItem, previous_end: u64, next_start: u64) -> (i128, i128) {
+    fn delta_bounds(
+        self,
+        item: &TimelineItem,
+        previous_end: u64,
+        next_start: u64,
+        frame_rate: FrameRate,
+        mode: ResizeMode,
+    ) -> (i128, i128) {
         let start = item.start.get();
         let end = item.end_exclusive().get();
-        match self {
+        let (mut lower, mut upper) = match self {
             Self::Left => (
                 i128::from(previous_end) - i128::from(start),
                 i128::from(end.saturating_sub(1)) - i128::from(start),
@@ -45,10 +60,55 @@ impl ResizeEdge {
                 i128::from(start.saturating_add(1)) - i128::from(end),
                 i128::from(next_start) - i128::from(end),
             ),
+        };
+        if let Some(mapping) = item.timeline_mapping() {
+            match mode {
+                ResizeMode::Trim => match self {
+                    Self::Left => {
+                        let available = i128::from(mapping.extend_left_frames(frame_rate));
+                        lower = lower.max(-available);
+                    }
+                    Self::Right => {}
+                },
+                ResizeMode::Stretch => {
+                    let (min_speed, max_speed) = item.timeline_speed_bounds();
+                    let minimum = i128::from(
+                        mapping
+                            .with_speed(max_speed)
+                            .expect("validated speed bounds")
+                            .timeline_duration(frame_rate)
+                            .get(),
+                    );
+                    let maximum = i128::from(
+                        mapping
+                            .with_speed(min_speed)
+                            .expect("validated speed bounds")
+                            .timeline_duration(frame_rate)
+                            .get(),
+                    );
+                    let duration = i128::from(item.duration.get());
+                    let (min_delta, max_delta) = match self {
+                        Self::Left => (duration - maximum, duration - minimum),
+                        Self::Right => (minimum - duration, maximum - duration),
+                    };
+                    lower = lower.max(min_delta);
+                    upper = upper.min(max_delta);
+                }
+            }
         }
+        (lower, upper)
     }
 
-    fn resize_by(self, item: &mut TimelineItem, delta: i128) {
+    fn resize_by(
+        self,
+        item: &mut TimelineItem,
+        delta: i128,
+        frame_rate: FrameRate,
+        mode: ResizeMode,
+    ) -> Option<()> {
+        if delta == 0 {
+            return Some(());
+        }
         let start = item.start.get();
         let end = item.end_exclusive().get();
         let (new_start, new_end) = match self {
@@ -56,10 +116,26 @@ impl ResizeEdge {
             Self::Right => (start, (i128::from(end) + delta) as u64),
         };
         let duration = FrameDuration::new_saturating(new_end - new_start);
-        match self {
-            Self::Left => item.trim_left_to(Frame(new_start), duration),
-            Self::Right => item.trim_right_to(duration),
+        match mode {
+            ResizeMode::Trim => match self {
+                Self::Left => item.trim_left_to(Frame(new_start), duration, frame_rate)?,
+                Self::Right => item.trim_right_to(duration, frame_rate)?,
+            },
+            ResizeMode::Stretch => {
+                if let Some(mapping) = item.timeline_mapping() {
+                    let (min_speed, max_speed) = item.timeline_speed_bounds();
+                    let mapping = mapping.with_speed(
+                        (mapping.source_span() * frame_rate.frames_per_second()
+                            / duration.get() as f64)
+                            .clamp(min_speed, max_speed),
+                    )?;
+                    item.store_timeline_mapping(mapping)?;
+                }
+                item.start = Frame(new_start);
+                item.duration = duration;
+            }
         }
+        Some(())
     }
 }
 
@@ -384,8 +460,13 @@ impl TimelineDocument {
                 })
             })
             .flatten();
-        let duration =
-            FrameDuration::new_saturating(self.frame_rate.seconds_to_frame(DEFAULT_ITEM_SECONDS).0);
+        let duration = schema
+            .timeline()
+            .and_then(|timeline| TimeMapping::from_properties(timeline, &properties).ok())
+            .map_or_else(
+                || self.frame_rate.seconds_to_duration(DEFAULT_ITEM_SECONDS),
+                |mapping| mapping.timeline_duration(self.frame_rate),
+            );
         let plugin_id = plugin_id.to_owned();
         let item_id = item_id.to_owned();
         self.add_item_from(layer, start, duration, move |id, start, duration| {
@@ -398,8 +479,8 @@ impl TimelineDocument {
                     item_id,
                     schema,
                 },
-                assets: HashMap::new(),
                 properties,
+                media_inputs: Default::default(),
                 animations: ScalarAnimations::default(),
                 aspect_ratio,
                 effects: Vec::new(),
@@ -527,10 +608,7 @@ impl TimelineDocument {
         taken
     }
 
-    pub fn set_item_asset(&mut self, id: ItemId, imported: ImportedMedia) -> bool {
-        if imported.asset.validate().is_err() {
-            return false;
-        }
+    pub fn set_item_file(&mut self, id: ItemId, imported: ImportedFile) -> bool {
         let Some(item) = self.items.get(&id) else {
             return false;
         };
@@ -539,28 +617,46 @@ impl TimelineDocument {
         {
             return false;
         }
-        let Some(file) = item
+        let Some(property) = item
             .schema()
-            .and_then(|schema| schema.file(&imported.input_id))
+            .and_then(|schema| schema.file_property(&imported.property_id))
         else {
             return false;
         };
-        if file.reader() != imported.asset.reader_id
-            || file.media_type() != imported.asset.kind.media_type()
+        let first_file = item.properties.files().next().is_none();
+        let schema = item.schema_arc().expect("plugin item").clone();
+        let initial_duration = first_file.then(|| imported.initial_duration()).flatten();
+        let mut item = item.as_ref().clone();
+        if !item.media_inputs.replace_file(
+            schema.media_sources(),
+            &imported.property_id,
+            imported.inputs,
+        ) || item
+            .properties
+            .set(property, PropertyValue::File(Some(imported.path)))
+            .is_err()
         {
             return false;
         }
-        let duration = FrameDuration::new_saturating(
-            self.frame_rate
-                .seconds_to_frame(imported.asset.duration.as_secs_f64())
-                .get(),
-        );
-        let first_asset = item.assets.is_empty();
-        let duration = if first_asset {
-            duration
-        } else {
-            FrameDuration::new_saturating(item.duration.get().max(duration.get()))
-        };
+        let dimensions = schema
+            .media_sources()
+            .filter(|source| source.file == imported.property_id)
+            .filter_map(|source| item.media_inputs.asset(source, &item.properties))
+            .find_map(|asset| asset.kind.dimensions());
+        if let Some(source_duration) = initial_duration
+            && let Some(mapping) = item.timeline_mapping()
+        {
+            let Ok(mapping) =
+                TimeMapping::new(0., source_duration.as_secs_f32(), mapping.speed() as f32)
+            else {
+                return false;
+            };
+            let Some(mapping) = item.store_timeline_mapping(mapping) else {
+                return false;
+            };
+            item.trim_duration_to(mapping.timeline_duration(self.frame_rate));
+        }
+        let duration = item.duration;
         let Some(layer) = self.item_layers.get(&id).copied() else {
             return false;
         };
@@ -568,17 +664,9 @@ impl TimelineDocument {
         else {
             return false;
         };
-        let Some(item) = self.items.get_mut(&id).map(Arc::make_mut) else {
-            return false;
-        };
-        item.trim_right_to(duration);
         item.start = start;
-        if first_asset {
-            let dimensions = imported
-                .asset
-                .kind
-                .dimensions()
-                .map(|[width, height]| [width as f32, height as f32]);
+        if first_file {
+            let dimensions = dimensions.map(|[width, height]| [width as f32, height as f32]);
             if let Some(source_size) = dimensions
                 && let Some(schema) = item.schema_arc().cloned()
                 && let Some(bounds) = size_values(&item.properties, &schema)
@@ -591,24 +679,25 @@ impl TimelineDocument {
                 );
             }
         }
-        item.assets.insert(imported.input_id, imported.asset);
+        if item.validate_playback().is_err() {
+            return false;
+        }
+        self.items.insert(id, Arc::new(item));
         #[cfg(debug_assertions)]
         self.assert_consistent();
         true
     }
 
-    pub fn set_effect_asset(
+    pub fn set_effect_file(
         &mut self,
         item_id: ItemId,
         effect_id: EffectInstanceId,
-        imported: ImportedMedia,
+        imported: ImportedFile,
     ) -> bool {
-        if imported.asset.validate().is_err() {
-            return false;
-        }
-        let Some(item) = self.items.get_mut(&item_id).map(Arc::make_mut) else {
+        let Some(original) = self.items.get(&item_id) else {
             return false;
         };
+        let mut item = original.as_ref().clone();
         let Some(effect) = item
             .effects
             .iter_mut()
@@ -619,15 +708,22 @@ impl TimelineDocument {
         if effect.plugin_id != imported.plugin_id || effect.effect_id != imported.source_id {
             return false;
         }
-        let compatible = effect.schema().files().any(|file| {
-            file.id() == imported.input_id
-                && file.reader() == imported.asset.reader_id
-                && file.media_type() == imported.asset.kind.media_type()
-        });
-        if !compatible {
+        let Some(property) = effect.schema.file_property(&imported.property_id) else {
+            return false;
+        };
+        if !effect.media_inputs.replace_file(
+            effect.schema.media_sources(),
+            &imported.property_id,
+            imported.inputs,
+        ) || effect
+            .properties
+            .set(property, PropertyValue::File(Some(imported.path)))
+            .is_err()
+            || item.validate_playback().is_err()
+        {
             return false;
         }
-        effect.assets.insert(imported.input_id, imported.asset);
+        self.items.insert(item_id, Arc::new(item));
         true
     }
 
@@ -650,16 +746,71 @@ impl TimelineDocument {
         removed
     }
 
+    /// Prepare ordinary property edits, including their effects on timeline placement,
+    /// before committing the complete selection.
+    pub(super) fn set_properties(
+        &mut self,
+        edits: &[(
+            ItemId,
+            Option<EffectInstanceId>,
+            PropertySchema,
+            PropertyValue,
+        )],
+    ) -> Result<bool, TimelineEditError> {
+        let mut updates = HashMap::new();
+        for (id, effect, property, value) in edits {
+            let original = self
+                .items
+                .get(id)
+                .ok_or(TimelineEditError::ItemNotFound(*id))?;
+            let item = updates
+                .entry(*id)
+                .or_insert_with(|| original.as_ref().clone());
+            Self::set_item_property(item, *effect, property, value.clone());
+        }
+        for (id, item) in &mut updates {
+            item.synchronize_timeline(self.items[id].timeline_mapping(), self.frame_rate)?;
+            item.validate_playback()?;
+            item.start
+                .get()
+                .checked_add(item.duration.get())
+                .ok_or(TimelineEditError::PlacementUnavailable)?;
+        }
+        for ids in self.layer_items.values() {
+            let mut items = ids
+                .iter()
+                .filter_map(|id| {
+                    updates
+                        .get(id)
+                        .or_else(|| self.items.get(id).map(AsRef::as_ref))
+                })
+                .collect::<Vec<_>>();
+            items.sort_unstable_by_key(|item| item.start);
+            if items
+                .windows(2)
+                .any(|pair| pair[0].end_exclusive() > pair[1].start)
+            {
+                return Err(TimelineEditError::PlacementUnavailable);
+            }
+        }
+        let mut changed = false;
+        for (id, item) in updates {
+            if self.items[&id].as_ref() != &item {
+                self.items.insert(id, Arc::new(item));
+                changed = true;
+            }
+        }
+        Ok(changed)
+    }
+
     /// Commit a value whose edit permissions and constraints were checked for
     /// the entire selection by the command layer.
-    pub(super) fn set_item_property(
-        &mut self,
-        id: ItemId,
+    fn set_item_property(
+        item: &mut TimelineItem,
         effect_id: Option<EffectInstanceId>,
         property: &PropertySchema,
         value: PropertyValue,
     ) -> bool {
-        let item = self.item_mut(id).expect("prepared item must exist");
         if effect_id.is_none() && item.scene_id().is_some() {
             return set_scene_instance_override(item, property, value);
         }
@@ -679,6 +830,26 @@ impl TimelineDocument {
             .expect("prepared value must satisfy its schema");
         if changed {
             animations.retain_valid(properties);
+            if property.file_type().is_some() {
+                match effect_id {
+                    Some(id) => {
+                        let effect = item
+                            .effects
+                            .iter_mut()
+                            .find(|effect| effect.id == id)
+                            .expect("prepared effect");
+                        effect
+                            .media_inputs
+                            .invalidate_file(effect.schema.media_sources(), property.id());
+                    }
+                    None => {
+                        if let TimelineItemKind::Plugin { schema, .. } = &item.kind {
+                            item.media_inputs
+                                .invalidate_file(schema.media_sources(), property.id());
+                        }
+                    }
+                }
+            }
         }
         changed
     }
@@ -740,8 +911,8 @@ impl TimelineDocument {
             id: instance_id,
             plugin_id: plugin_id.to_owned(),
             effect_id: effect_id.to_owned(),
-            assets: HashMap::new(),
             properties,
+            media_inputs: Default::default(),
             animations: ScalarAnimations::default(),
             aspect_ratio,
             schema,
@@ -788,6 +959,7 @@ impl TimelineDocument {
         anchor_id: ItemId,
         edge: ResizeEdge,
         pointer: Frame,
+        mode: ResizeMode,
     ) -> bool {
         if origins.is_empty() {
             return false;
@@ -820,7 +992,6 @@ impl TimelineDocument {
                 .get(&layer)
                 .into_iter()
                 .flatten()
-                .filter(|candidate| !moving.contains(candidate))
                 .filter_map(|candidate| self.items.get(candidate))
             {
                 if candidate.end_exclusive().get() <= start {
@@ -831,19 +1002,33 @@ impl TimelineDocument {
                 }
             }
 
-            let (lower, upper) = edge.delta_bounds(origin, previous_end, next_start);
+            let (lower, upper) =
+                edge.delta_bounds(origin, previous_end, next_start, self.frame_rate, mode);
             minimum_delta = minimum_delta.max(lower);
             maximum_delta = maximum_delta.min(upper);
         }
 
+        if minimum_delta > maximum_delta {
+            return false;
+        }
         let delta = requested_delta.clamp(minimum_delta, maximum_delta);
         let mut changed = false;
 
-        for origin in origins {
-            let mut item = origin.clone();
-            edge.resize_by(&mut item, delta);
-            if self.items[&origin.id].as_ref() != &item {
-                self.items.insert(origin.id, Arc::new(item));
+        let updates = origins
+            .iter()
+            .map(|origin| {
+                let mut item = origin.clone();
+                edge.resize_by(&mut item, delta, self.frame_rate, mode)?;
+                item.validate_playback().ok()?;
+                Some(item)
+            })
+            .collect::<Option<Vec<_>>>();
+        let Some(updates) = updates else {
+            return false;
+        };
+        for item in updates {
+            if self.items[&item.id].as_ref() != &item {
+                self.items.insert(item.id, Arc::new(item));
                 changed = true;
             }
         }

@@ -7,8 +7,8 @@ use super::CatalogCategory;
 use super::OutputBoundsSchema;
 use super::PluginError;
 use super::abi::PropertyLayout;
-use super::capability::EditorCapability;
-use super::capability::{Capability, FileCapability, validate_capabilities};
+use super::capability::{Capability, validate_capabilities};
+use super::editor::{EditorCapability, validate_editors};
 use super::identifier::validate_wgsl_identifier;
 use super::shader::{ShaderKind, ShaderSchema, validate_shader_module};
 use super::validation::{validate_catalog_entry, validate_property_schemas};
@@ -39,7 +39,7 @@ pub struct EffectSchema {
     render_scale: u32,
     output_bounds: OutputBoundsSchema,
     input_space: EffectInputSpace,
-    editor: Option<EditorCapability>,
+    editor: Vec<EditorCapability>,
     capabilities: Vec<Capability>,
     properties: Vec<PropertySchema>,
     passes: Vec<EffectPassSchema>,
@@ -59,7 +59,8 @@ struct EffectSchemaDefinition {
     output_bounds: OutputBoundsSchema,
     #[serde(default)]
     input_space: EffectInputSpace,
-    editor: Option<EditorCapability>,
+    #[serde(default)]
+    editor: Vec<EditorCapability>,
     #[serde(default)]
     capabilities: Vec<Capability>,
     properties: Vec<PropertySchema>,
@@ -251,73 +252,45 @@ impl EffectSchema {
         self.input_space
     }
 
+    pub fn editor(&self) -> &[EditorCapability] {
+        &self.editor
+    }
+
     pub fn aspect_lock_property(&self) -> Option<&PropertySchema> {
-        self.editor
-            .as_ref()?
-            .aspect_lock
-            .as_deref()
-            .and_then(|id| self.property(id))
+        let (property, _) = self.editor.iter().find_map(EditorCapability::aspect_lock)?;
+        self.property(property)
     }
 
     pub fn aspect_lock_default(&self) -> bool {
         self.editor
-            .as_ref()
-            .is_some_and(|editor| editor.aspect_lock_default)
-    }
-
-    pub fn position_property(&self) -> Option<&PropertySchema> {
-        self.editor
-            .as_ref()?
-            .position
-            .as_deref()
-            .and_then(|id| self.property(id))
-    }
-
-    pub fn size_property(&self) -> Option<&PropertySchema> {
-        self.editor
-            .as_ref()?
-            .size
-            .as_deref()
-            .and_then(|id| self.property(id))
-    }
-
-    pub fn points_property(&self) -> Option<&PropertySchema> {
-        self.editor
-            .as_ref()?
-            .points
-            .as_deref()
-            .and_then(|id| self.property(id))
-    }
-
-    pub fn spline_properties(&self) -> Option<(&PropertySchema, &PropertySchema)> {
-        let spline = self.editor.as_ref()?.spline.as_ref()?;
-        Some((
-            self.property(&spline.tension)?,
-            self.property(&spline.closed)?,
-        ))
-    }
-
-    pub fn has_editor(&self) -> bool {
-        self.editor.as_ref().is_some_and(|editor| {
-            editor.position.is_some() || editor.size.is_some() || editor.points.is_some()
-        })
+            .iter()
+            .find_map(EditorCapability::aspect_lock)
+            .is_some_and(|(_, default)| default)
     }
 
     pub fn properties(&self) -> &[PropertySchema] {
         &self.properties
     }
 
-    pub fn files(&self) -> impl Iterator<Item = &FileCapability> {
-        self.capabilities
+    pub fn file_properties(&self) -> impl Iterator<Item = &PropertySchema> {
+        self.properties
             .iter()
-            .filter_map(|capability| match capability {
-                Capability::Media { file, .. } => Some(file),
-                _ => None,
-            })
+            .filter(|property| property.file_type().is_some())
+    }
+
+    pub fn file_property(&self, id: &str) -> Option<&PropertySchema> {
+        self.property(id)
+            .filter(|property| property.file_type().is_some())
     }
 
     pub fn capabilities(&self) -> &[Capability] {
         &self.capabilities
+    }
+
+    pub fn media_sources(&self) -> impl Iterator<Item = crate::media::MediaSource<'_>> {
+        self.capabilities
+            .iter()
+            .filter_map(Capability::media_source)
     }
 
     pub fn property_layout(&self) -> &PropertyLayout {
@@ -334,6 +307,8 @@ impl EffectSchema {
         validate_property_schemas("effect", &self.id, &self.properties)?;
         self.output_bounds
             .validate("effect", &self.id, &self.properties)?;
+        validate_capabilities("effect", &self.id, &self.properties, &self.capabilities)?;
+        validate_editors("effect", &self.id, &self.properties, &self.editor)?;
         if self.input_space == EffectInputSpace::Source
             && (self.passes.len() != 1
                 || !matches!(self.passes[0], EffectPassSchema::Render { .. }))
@@ -349,10 +324,6 @@ impl EffectSchema {
                 self.id
             )));
         }
-        if let Some(editor) = &self.editor {
-            editor.validate("effect", &self.id, &self.properties)?;
-        }
-        validate_capabilities("effect", &self.id, &self.properties, &self.capabilities)?;
         if self.passes.is_empty() {
             return Err(PluginError::invalid_definition(format!(
                 "effect '{}' must define at least one pass",

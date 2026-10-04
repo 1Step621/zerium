@@ -19,7 +19,7 @@ impl AnimationPresentation {
     ) -> Option<Self> {
         let property = animation_property(editor, item, address)?;
         let scalar_index = address.scalar_index;
-        let value_type = property.ty().value_type();
+        let value_type = property.ty().value_type()?;
         let scalar_type = value_type.scalar_at(scalar_index)?.clone();
         let element_index = address.element_id.and_then(|id| {
             item.property_values(address.effect_id)?

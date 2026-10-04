@@ -16,7 +16,7 @@ cosmic-text = "0.18.2"
 cpal = "0.15"
 directories = "5"
 evalexpr.workspace = true
-ffmpeg-next = { version = "9", default-features = false, features = ["format", "software-resampling", "software-scaling"] }
+ffmpeg-next = { version = "9", default-features = false, features = ["format", "filter", "software-resampling", "software-scaling"] }
 futures = "0.3"
 gpui = { package = "gpui-ce", git = "https://github.com/1Step621/WGPUI", branch = "fix/input-selection-replacement" }
 pollster = "0.4"

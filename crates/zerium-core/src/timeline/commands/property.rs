@@ -2,16 +2,26 @@ use super::*;
 use crate::{property::PropertyPath, timeline::AspectRatio};
 
 impl TimelineEditor {
-    /// Prepare every final value before mutating the selection. The path defines
-    /// which component is editable and, for linked pairs, which axis drives it.
     pub fn update_selected_property(
         &mut self,
         effect_id: Option<EffectInstanceId>,
         path: PropertyPath,
         value: PropertyValue,
     ) -> bool {
+        self.edit_selected_property(effect_id, path, value)
+            .unwrap_or(false)
+    }
+
+    /// Prepare every final value before mutating the selection. The path defines
+    /// which component is editable and, for linked pairs, which axis drives it.
+    pub fn edit_selected_property(
+        &mut self,
+        effect_id: Option<EffectInstanceId>,
+        path: PropertyPath,
+        value: PropertyValue,
+    ) -> Result<bool, TimelineEditError> {
         let Some(targets) = self.selected_property_owners(effect_id) else {
-            return false;
+            return Ok(false);
         };
         let updates: Option<Vec<_>> = targets
             .iter()
@@ -53,17 +63,12 @@ impl TimelineEditor {
             })
             .collect();
         let Some(updates) = updates else {
-            return false;
+            return Ok(false);
         };
         let key = HistoryKey::Property(targets, path.property_id().to_owned());
         let before = self.history_snapshot_for_edit(Some(&key));
-        let mut changed = false;
-        for (id, effect, schema, value) in updates {
-            changed |= self
-                .active_document_mut()
-                .set_item_property(id, effect, &schema, value);
-        }
-        self.finish_project_edit_if_changed(changed, before, Some(key))
+        let changed = self.active_document_mut().set_properties(&updates)?;
+        Ok(self.finish_project_edit_if_changed(changed, before, Some(key)))
     }
 
     /// Resolve an effect by its position and schema on the primary item, so each

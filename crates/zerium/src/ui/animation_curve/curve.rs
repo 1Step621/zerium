@@ -149,7 +149,7 @@ impl AnimationCurveEditor {
         let (value_min, value_max, stops, axis_suffix) = if let Some(values) = numeric_stops {
             let minimum = values.iter().copied().min_by(f64::total_cmp)?;
             let maximum = values.iter().copied().max_by(f64::total_cmp)?;
-            let padding = if (maximum - minimum).abs() <= f64::EPSILON {
+            let padding = if maximum == minimum {
                 (presentation.step * 10.).max(minimum.abs() * 0.1).max(1.)
             } else {
                 0.
@@ -159,7 +159,7 @@ impl AnimationCurveEditor {
             let stops = values
                 .into_iter()
                 .enumerate()
-                .map(|(index, value)| [index as f32, ((value - from) / (to - from)) as f32])
+                .map(|(index, value)| [index as f32, Self::normalized_value(value, from, to)])
                 .collect();
             (from, to, stops, presentation.suffix.clone())
         } else {

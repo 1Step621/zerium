@@ -175,6 +175,14 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             cx,
                         )
                     });
+                    let scene_settings = cx.new(|cx| {
+                        crate::ui::scene_settings::SceneSettings::new(
+                            editor.clone(),
+                            notifications.clone(),
+                            window,
+                            cx,
+                        )
+                    });
                     let property_inspector = cx.new(|cx| {
                         crate::ui::property_inspector::PropertyInspector::new(
                             editor.clone(),
@@ -248,11 +256,32 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             cx.observe(&export_controller, |_, _, cx| cx.notify());
                         let notification_subscription =
                             cx.observe(&notifications, |_, _, cx| cx.notify());
+                        let inspector_subscription = cx.subscribe_in(
+                            &property_inspector,
+                            window,
+                            |this,
+                             _,
+                             event: &crate::ui::property_inspector::SceneArgumentRequested,
+                             window,
+                             cx| {
+                                let opened = this.scene_settings.update(cx, |settings, cx| {
+                                    settings.reveal_argument(event.scene_id, &event.argument_id, cx)
+                                });
+                                if opened {
+                                    this.inspector_tab =
+                                        super::workspace::InspectorTab::SceneSettings;
+                                    this.focus_handle.focus(window, cx);
+                                    cx.notify();
+                                }
+                            },
+                        );
                         Workspace {
                             timeline,
                             explorer,
                             preview,
                             property_inspector,
+                            scene_settings,
+                            inspector_tab: Default::default(),
                             animation_curve,
                             project_controller,
                             export_controller,
@@ -264,6 +293,7 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             _project_subscription: project_subscription,
                             _export_subscription: export_subscription,
                             _notification_subscription: notification_subscription,
+                            _inspector_subscription: inspector_subscription,
                         }
                     });
                     window.on_window_should_close(cx, move |window, cx| {

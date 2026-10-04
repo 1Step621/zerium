@@ -74,6 +74,57 @@ impl PropertyInspector {
         (switch, mixed)
     }
 
+    pub(super) fn editor_control(control: &EditorControl, ctx: &RenderCtx) -> Div {
+        match control {
+            EditorControl::AspectRatioLock {
+                key,
+                effect_id,
+                locked,
+                mixed,
+                read_only,
+                multiple,
+            } => {
+                let editor = ctx.editor.clone();
+                let effect_id = *effect_id;
+                let checked = *locked && !mixed;
+                div()
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .child(
+                        div()
+                            .text_xs()
+                            .text_color(ctx.colors.muted_foreground)
+                            .child(t!("edit.aspect_lock").to_string()),
+                    )
+                    .child(
+                        Switch::new(SharedString::from(format!("aspect-ratio-lock-{key}")))
+                            .small()
+                            .checked(checked)
+                            .disabled(*read_only)
+                            .tooltip(if *mixed {
+                                t!("edit.ratio_mixed")
+                            } else if *multiple {
+                                t!("edit.lock_each_ratio")
+                            } else if checked {
+                                t!("edit.unlock_ratio")
+                            } else {
+                                t!("edit.lock_ratio")
+                            })
+                            .on_click(move |checked, _, cx| {
+                                editor.update(cx, |editor, cx| {
+                                    if editor
+                                        .update_selected_aspect_ratio_locked(effect_id, *checked)
+                                    {
+                                        cx.notify();
+                                    }
+                                });
+                            }),
+                    )
+            }
+        }
+    }
+
     pub(super) fn draggable_number_input(
         target: &PropertyTarget,
         spec: &NumericInputSpec,
@@ -86,94 +137,31 @@ impl PropertyInspector {
             id: input_id,
             animation_stop,
         } = presentation;
-        let element_id = SharedString::from(format!("value-drag-{input_id:?}"));
-        let drag = PropertyValueDrag {
-            inspector_id: ctx.inspector.entity_id(),
-            input_id: input_id.clone(),
-        };
-        let drag_inspector = ctx.inspector.clone();
-        let drag_target = target.clone();
-        let drag_spec = spec.clone();
-        let drag_input_id = input_id;
-        let drag_animation_stop = animation_stop;
-        let drag_input = input.clone();
         let value_input = NumberInput::new(input)
             .small()
             .min_w_0()
             .disabled(disabled)
             .suffix(div().text_sm().child(spec.suffix.clone()));
 
-        div()
-            .id(element_id)
-            .w_0()
-            .min_w_0()
-            .flex_1()
-            .flex()
-            .when(!disabled, |this| {
-                this.on_mouse_down(MouseButton::Left, move |event, _, cx| {
-                    drag_inspector.update(cx, |inspector, cx| {
-                        inspector.prepare_value_drag(
-                            &drag_target,
-                            &drag_spec,
-                            &drag_input_id,
-                            drag_animation_stop.clone(),
-                            event,
-                            cx,
-                        );
-                    });
-                })
-            })
-            .when(!disabled, |this| {
-                this.on_drag(drag, move |drag, _, window, cx| {
-                    cx.stop_propagation();
-                    drag_input.update(cx, |input, cx| input.unselect(window, cx));
-                    cx.new(|_| drag.clone())
-                })
-            })
-            .child(value_input)
-            .into_any_element()
-    }
-
-    pub(super) fn aspect_ratio_control(
-        key: InspectorPath,
-        state: AspectRatioLockState,
-        muted_color: gpui::Hsla,
-        editor: &Entity<TimelineEditor>,
-    ) -> Div {
-        let editor = editor.clone();
-        let checked = state.checked();
-        div()
-            .flex()
-            .items_center()
-            .gap_2()
-            .child(
-                div()
-                    .text_xs()
-                    .text_color(muted_color)
-                    .child(t!("edit.aspect_lock").to_string()),
-            )
-            .child(
-                Switch::new(SharedString::from(format!("aspect-ratio-lock-{key}")))
-                    .small()
-                    .checked(checked)
-                    .tooltip(if state.mixed {
-                        t!("edit.ratio_mixed")
-                    } else if state.multiple {
-                        t!("edit.lock_each_ratio")
-                    } else if checked {
-                        t!("edit.unlock_ratio")
-                    } else {
-                        t!("edit.lock_ratio")
-                    })
-                    .on_click(move |checked, _, cx| {
-                        editor.update(cx, |editor, cx| {
-                            if editor.update_selected_aspect_ratio_locked(state.effect_id, *checked)
-                            {
-                                cx.notify();
-                            }
-                        });
-                    }),
-            )
+        let target = target.clone();
+        let spec = spec.clone();
+        let prepare_id = input_id.clone();
+        crate::ui::number_input::number_input_drag(
+            &ctx.inspector,
+            input,
+            value_input,
+            disabled,
+            move |this, event, cx| {
+                this.prepare_value_drag(
+                    &target,
+                    &spec,
+                    &prepare_id,
+                    animation_stop.clone(),
+                    event,
+                    cx,
+                )
+            },
+        )
     }
 
     pub(super) fn number_editor(

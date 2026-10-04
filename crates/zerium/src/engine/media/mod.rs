@@ -1,4 +1,5 @@
 mod atomic_file;
+mod audio_source;
 mod audio_timeline;
 mod ffmpeg;
 mod ffmpeg_encoder;
@@ -8,7 +9,7 @@ mod svg;
 
 pub(crate) use atomic_file::AtomicFileTransaction;
 pub(crate) use audio_timeline::{
-    AudioGainEvaluation, AudioTimelineError, AudioTimelineGraph, sample_boundary,
+    AudioClipId, AudioGainEvaluation, AudioTimelineError, AudioTimelineGraph, sample_boundary,
 };
 pub(crate) use ffmpeg_encoder::{
     FfmpegFileEncoder, VideoColorSpec, VideoEncoderSettings, VideoOutputSpec,

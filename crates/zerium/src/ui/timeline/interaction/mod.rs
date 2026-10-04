@@ -205,7 +205,13 @@ impl Timeline {
             pointer = self.snap_frame(pointer, None, &drag.origins, cx);
         }
         self.editor.update_if_changed(cx, |editor| {
-            editor.resize_items(drag.origins.as_ref(), drag.anchor_id, drag.edge, pointer)
+            editor.resize_items(
+                drag.origins.as_ref(),
+                drag.anchor_id,
+                drag.edge,
+                pointer,
+                drag.mode.get(),
+            )
         });
     }
 
@@ -274,18 +280,11 @@ impl Timeline {
         self.prepare_item_move(item_id, event, cx);
     }
 
-    pub(super) fn select_item(
-        &mut self,
-        item_id: ItemId,
-        event: &MouseDownEvent,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn begin_item_resize(&mut self, item_id: ItemId, cx: &mut Context<Self>) {
         self.cursor_layer = self.editor.read(cx).item_layer(item_id);
         self.editor.update(cx, |editor, cx| {
             editor.finish_history_group();
-            let changed = if event.modifiers.shift {
-                editor.toggle_item_selection(item_id)
-            } else if editor.is_item_selected(item_id) {
+            let changed = if editor.is_item_selected(item_id) {
                 false
             } else {
                 editor.select(item_id)

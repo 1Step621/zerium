@@ -13,18 +13,15 @@ use std::{
 };
 
 use crate::engine::frame::RgbaFrame;
-use zerium_core::{
-    media::{MediaAsset, MediaKind, VideoFrameRate},
-    plugin::MediaType,
-};
+use zerium_core::media::{MediaAsset, MediaKind, MediaMetadata, MediaTarget, VideoFrameRate};
 
 use super::{
     atomic_file::AtomicFileTransaction,
     ffmpeg_encoder::{FfmpegFileEncoder, VideoColorSpec, VideoEncoderSettings, VideoOutputSpec},
     ffmpeg_next::{self, FfmpegAudioDecoder, FfmpegVideoDecoder},
     reader::{
-        AudioDecoderSession, ImageDecoderSession, MediaError, MediaProbe, MediaReader,
-        VideoDecodeSize, VideoDecoderSession, VideoProxy, VideoProxyRequest,
+        AudioDecoderSession, ImageDecoderSession, MediaError, MediaReader, VideoDecodeSize,
+        VideoDecoderSession, VideoProxy, VideoProxyRequest,
     },
 };
 
@@ -40,8 +37,8 @@ const PROXY_TEMP_STALE_AFTER: Duration = Duration::from_secs(24 * 60 * 60);
 pub(super) struct FfmpegMediaReader;
 
 impl MediaReader for FfmpegMediaReader {
-    fn probe(&self, path: &Path, media_type: MediaType) -> Result<Option<MediaProbe>, MediaError> {
-        ffmpeg_next::probe(path, media_type).map(Some)
+    fn probe(&self, path: &Path, target: MediaTarget) -> Result<Option<MediaMetadata>, MediaError> {
+        ffmpeg_next::probe(path, target)
     }
 
     fn open_video_decoder(
@@ -74,7 +71,7 @@ impl MediaReader for FfmpegMediaReader {
         &self,
         asset: &MediaAsset,
     ) -> Result<Box<dyn AudioDecoderSession>, MediaError> {
-        if !asset.kind.has_audio() {
+        if !matches!(asset.kind, MediaKind::Audio { .. }) {
             return Err(MediaError::external("This media asset has no audio stream"));
         }
         Ok(Box::new(FfmpegAudioDecoder::open(asset.clone())?))
@@ -168,8 +165,8 @@ fn create_video_proxy_in(
             "Proxy video dimensions must be at least 2 pixels",
         ));
     }
-    let video_stream_duration = ffmpeg_next::probe(&asset.path, MediaType::Video)?
-        .video_duration
+    let video_stream_duration = ffmpeg_next::probe(&asset.path, MediaTarget::Visual)?
+        .map(|probe| probe.duration)
         .unwrap_or(asset.duration);
     let remaining_duration = video_stream_duration
         .checked_sub(request.source_start)
@@ -216,7 +213,7 @@ fn create_video_proxy_in(
         request.source_start,
         duration,
     )?;
-    ffmpeg_next::probe(transaction.temporary_path(), MediaType::Video)?;
+    ffmpeg_next::probe(transaction.temporary_path(), MediaTarget::Visual)?;
     transaction.commit().map_err(|error| {
         MediaError::external(format!(
             "Failed to commit proxy to cache '{}': {error}",
@@ -549,11 +546,11 @@ fn capped_frame_rate(source: VideoFrameRate, max_frames_per_second: u32) -> Vide
 }
 
 fn proxy_asset(asset: &MediaAsset, path: PathBuf) -> Result<MediaAsset, MediaError> {
-    let probe = ffmpeg_next::probe(&path, MediaType::Video)?;
+    let probe = ffmpeg_next::probe(&path, MediaTarget::Visual)?
+        .ok_or_else(|| MediaError::external("Proxy has no video stream"))?;
     Ok(MediaAsset {
         reader_id: asset.reader_id.clone(),
         path,
-        name: asset.name.clone(),
         duration: probe.duration,
         kind: probe.kind,
     })

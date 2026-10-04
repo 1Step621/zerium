@@ -45,7 +45,7 @@ impl AudioLevelSampler {
     ) -> [f32; 2] {
         if self.frame_rate != Some(frame_rate) || self.items != items {
             self.graph = AudioTimelineGraph::new(
-                items.clone(),
+                &items,
                 frame_rate,
                 FORMAT,
                 &self.media_readers,

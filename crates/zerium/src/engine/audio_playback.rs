@@ -13,9 +13,48 @@ use thiserror::Error;
 use cpal::traits::{DeviceTrait as _, HostTrait as _, StreamTrait as _};
 
 use crate::engine::media::{
-    AudioFormat, AudioGainEvaluation, AudioTimelineError, AudioTimelineGraph, MediaReaderRegistry,
+    AudioClipId, AudioFormat, AudioGainEvaluation, AudioTimelineError, AudioTimelineGraph,
+    MediaReaderRegistry,
 };
-use zerium_core::timeline::{Frame, FrameRate, ItemId, TimelineItem, TimelineTime};
+use zerium_core::media::{MediaAsset, MediaPlayback};
+use zerium_core::timeline::{Frame, FrameDuration, FrameRate, ItemId, TimelineItem, TimelineTime};
+
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct AudioSourcePlan {
+    item_id: ItemId,
+    input_id: String,
+    asset: MediaAsset,
+    start: Frame,
+    duration: FrameDuration,
+    playback: MediaPlayback,
+    preserve_pitch: bool,
+}
+
+pub(crate) fn audio_plan(items: &[TimelineItem]) -> Vec<AudioSourcePlan> {
+    let mut plan = Vec::new();
+    for item in items {
+        let Some(schema) = item.schema() else {
+            continue;
+        };
+        for input in schema.audio() {
+            if let Some((asset, playback, preserve_pitch)) = item.audio_input(input.id()) {
+                plan.push(AudioSourcePlan {
+                    item_id: item.id,
+                    input_id: input.id().to_owned(),
+                    asset,
+                    start: item.start,
+                    duration: item.duration,
+                    playback,
+                    preserve_pitch,
+                });
+            }
+        }
+    }
+    plan.sort_unstable_by(|a, b| {
+        (a.item_id.get(), &a.input_id).cmp(&(b.item_id.get(), &b.input_id))
+    });
+    plan
+}
 
 const AUDIO_BUFFER_MILLIS: u64 = 200;
 const MIX_BLOCK_SAMPLE_FRAMES: usize = 2_048;
@@ -83,7 +122,7 @@ struct AudioPlaybackSession {
     start_seconds: f64,
     sample_rate: u32,
     levels: SharedAudioLevels,
-    gains: HashMap<ItemId, Arc<AtomicU32>>,
+    gains: HashMap<AudioClipId, Arc<AtomicU32>>,
     events: Arc<Mutex<VecDeque<AudioPlaybackEvent>>>,
     underrun: Arc<AudioUnderrunState>,
     underrun_reported: bool,
@@ -170,12 +209,8 @@ impl AudioPlaybackEngine {
             channels: supported.channels(),
         };
         let seed_time = TimelineTime::from_frames(start_seconds * frame_rate.frames_per_second());
-        let seed_gains = items
-            .iter()
-            .map(|item| (item.id, item.evaluated_at_time(seed_time).audio_gain()))
-            .collect::<Vec<_>>();
         let mut graph = AudioTimelineGraph::new(
-            items,
+            &items,
             frame_rate,
             format,
             &self.media_readers,
@@ -186,11 +221,7 @@ impl AudioPlaybackEngine {
             return Ok(PlaybackClock::Wall);
         }
         let gains = graph.live_gains();
-        for (id, gain) in seed_gains {
-            if let Some(slot) = gains.get(&id) {
-                slot.store(gain.to_bits(), Ordering::Relaxed);
-            }
-        }
+        update_gain_slots(&gains, &items, seed_time);
 
         let channels = usize::from(format.channels);
         let capacity = u64::from(format.sample_rate)
@@ -327,14 +358,7 @@ impl AudioPlaybackEngine {
             return;
         };
         let time = TimelineTime::from_frames(time_seconds * frame_rate.frames_per_second());
-        for item in items {
-            if let Some(gain) = session.gains.get(&item.id) {
-                gain.store(
-                    item.evaluated_at_time(time).audio_gain().to_bits(),
-                    Ordering::Relaxed,
-                );
-            }
-        }
+        update_gain_slots(&session.gains, items, time);
     }
 
     pub(crate) fn request_stop(&mut self) -> bool {
@@ -608,5 +632,37 @@ fn poll_underrun(
 fn push_event(events: &Mutex<VecDeque<AudioPlaybackEvent>>, event: AudioPlaybackEvent) {
     if let Ok(mut events) = events.lock() {
         events.push_back(event);
+    }
+}
+
+/// Update each input independently while evaluating animation once per item.
+fn update_gain_slots(
+    gains: &HashMap<AudioClipId, Arc<AtomicU32>>,
+    items: &[TimelineItem],
+    time: TimelineTime,
+) {
+    for item in items {
+        let Some(schema) = item.schema() else {
+            continue;
+        };
+        if schema.audio().is_empty() {
+            continue;
+        }
+        let evaluated = item.evaluated_at_time(time);
+        for input in schema.audio() {
+            let id = AudioClipId {
+                item_id: item.id,
+                input_id: input.id().to_owned(),
+            };
+            if let Some(slot) = gains.get(&id) {
+                slot.store(
+                    evaluated
+                        .audio_gain(input.id())
+                        .expect("validated audio input")
+                        .to_bits(),
+                    Ordering::Relaxed,
+                );
+            }
+        }
     }
 }

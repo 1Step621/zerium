@@ -1,13 +1,14 @@
-use std::{collections::HashMap, sync::Arc};
+use std::sync::Arc;
 
 use crate::animation::{ScalarAnimations, ScalarTrack};
-use crate::media::MediaAsset;
+use crate::media::{MediaAsset, MediaInputs, MediaPlayback};
 use crate::plugin::{Capability, EffectSchema, ItemSchema};
 use crate::property::{
     PropertyElementId, PropertyPath, PropertySchema, PropertyValue, PropertyValues,
 };
 
 use super::{
+    FrameRate, TimeMapping,
     aspect_ratio::AspectRatio,
     ids::{EffectInstanceId, ItemId, LayerId, SceneId},
     time::{Frame, FrameDuration, TimelineTime},
@@ -95,15 +96,6 @@ fn concise_label(value: &str) -> Option<String> {
     Some(shortened)
 }
 
-fn asset_label(asset: &MediaAsset) -> Option<String> {
-    asset
-        .path
-        .file_stem()
-        .and_then(|name| name.to_str())
-        .and_then(concise_label)
-        .or_else(|| concise_label(&asset.name))
-}
-
 pub(super) fn size_values(values: &PropertyValues, schema: &ItemSchema) -> Option<[f32; 2]> {
     let property = schema.size_property()?;
     let value = values.property(&property.id)?;
@@ -131,8 +123,8 @@ pub struct EffectInstance {
     pub id: EffectInstanceId,
     pub plugin_id: String,
     pub effect_id: String,
-    pub assets: HashMap<String, MediaAsset>,
     pub properties: PropertyValues,
+    pub media_inputs: MediaInputs,
     pub animations: ScalarAnimations,
     pub aspect_ratio: Option<AspectRatio>,
     pub schema: Arc<EffectSchema>,
@@ -169,14 +161,18 @@ pub struct TimelineItem {
     pub start: Frame,
     pub duration: FrameDuration,
     pub kind: TimelineItemKind,
-    pub assets: HashMap<String, MediaAsset>,
     pub properties: PropertyValues,
+    pub media_inputs: MediaInputs,
     pub animations: ScalarAnimations,
     pub aspect_ratio: Option<AspectRatio>,
     pub effects: Vec<EffectInstance>,
 }
 
 impl TimelineItem {
+    pub fn local_seconds(&self, time: TimelineTime, frame_rate: FrameRate) -> f64 {
+        (time.frames() - self.start.get() as f64) / frame_rate.frames_per_second()
+    }
+
     pub fn schema(&self) -> Option<&ItemSchema> {
         self.schema_arc().map(AsRef::as_ref)
     }
@@ -209,10 +205,6 @@ impl TimelineItem {
         }
     }
 
-    pub fn media(&self, input_id: &str) -> Option<&MediaAsset> {
-        self.assets.get(input_id)
-    }
-
     /// Derives the display label owned by a plugin-backed item.
     /// Scene-instance labels are resolved by `TimelineEditor` from their `SceneId`.
     pub fn intrinsic_label(&self) -> Option<String> {
@@ -229,9 +221,9 @@ impl TimelineItem {
         }
 
         let asset_labels = schema
-            .files()
-            .filter_map(|file| self.assets.get(file.id()))
-            .filter_map(asset_label)
+            .file_properties()
+            .filter_map(|property| self.properties.property(property.id())?.file())
+            .filter_map(|path| path.file_stem()?.to_str().and_then(concise_label))
             .collect::<Vec<_>>();
         if !asset_labels.is_empty()
             && let Some(label) = concise_label(&asset_labels.join(" + "))
@@ -251,14 +243,12 @@ impl TimelineItem {
             .symbol()
     }
 
-    /// Linear audio gain read through the audio capability's volume reference.
-    pub fn audio_gain(&self) -> f32 {
-        let Some(audio) = self.schema().and_then(ItemSchema::audio) else {
-            return 1.;
-        };
+    /// Linear gain read through this audio input's volume reference.
+    pub fn audio_gain(&self, input_id: &str) -> Option<f32> {
+        let audio = self.schema()?.audio_input(input_id)?;
         match self.properties.property(audio.volume_property()) {
-            Some(PropertyValue::F32(value)) => value.max(0.),
-            _ => 1.,
+            Some(PropertyValue::F32(value)) => Some(value.max(0.)),
+            _ => unreachable!("validated audio volume property"),
         }
     }
 
@@ -314,19 +304,196 @@ impl TimelineItem {
         self.start.get() as f64 + f64::from(progress.clamp(0., 1.)) * self.animation_span_frames()
     }
 
-    pub(super) fn trim_left_to(&mut self, start: Frame, duration: FrameDuration) {
+    /// Resolve a loaded visual input using only its owner's media declaration.
+    pub fn media_input(
+        &self,
+        effect_id: Option<EffectInstanceId>,
+        input_id: &str,
+    ) -> Option<(MediaAsset, MediaPlayback)> {
+        let (capabilities, properties, inputs) = match effect_id {
+            Some(id) => {
+                let effect = self.effects.iter().find(|effect| effect.id == id)?;
+                (
+                    effect.schema().capabilities(),
+                    &effect.properties,
+                    &effect.media_inputs,
+                )
+            }
+            None => (
+                self.schema()?.capabilities(),
+                &self.properties,
+                &self.media_inputs,
+            ),
+        };
+        let capability = capabilities
+            .iter()
+            .find(|capability| capability.id() == input_id)?;
+        let asset = inputs.asset(capability.media_source()?, properties)?;
+        let clock =
+            capability
+                .playback_properties()
+                .map_or_else(MediaPlayback::default, |playback| {
+                    MediaPlayback::from_properties(playback, properties)
+                        .expect("validated media playback properties")
+                });
+        Some((asset, clock))
+    }
+
+    /// Resolve a loaded audio input using only its own audio declaration.
+    pub fn audio_input(&self, input_id: &str) -> Option<(MediaAsset, MediaPlayback, bool)> {
+        let input = self.schema()?.audio_input(input_id)?;
+        let asset = self
+            .media_inputs
+            .asset(input.media_source(), &self.properties)?;
+        let playback =
+            MediaPlayback::from_properties(input.playback_properties(), &self.properties)
+                .expect("validated audio playback properties");
+        let Some(PropertyValue::Bool(preserve_pitch)) =
+            self.properties.property(input.preserve_pitch_property())
+        else {
+            unreachable!("validated preserve_pitch property")
+        };
+        Some((asset, playback, *preserve_pitch))
+    }
+
+    pub(super) fn timeline_mapping(&self) -> Option<TimeMapping> {
+        Some(
+            TimeMapping::from_properties(self.schema()?.timeline()?, &self.properties)
+                .expect("validated timeline time mapping"),
+        )
+    }
+
+    pub(crate) fn validate_playback(&self) -> Result<(), super::TimelineEditError> {
+        if self.schema().is_some_and(|schema| {
+            !self
+                .media_inputs
+                .validate(schema.media_sources(), &self.properties)
+        }) || (self.schema().is_none() && !self.media_inputs.is_empty())
+            || self.effects.iter().any(|effect| {
+                !effect
+                    .media_inputs
+                    .validate(effect.schema.media_sources(), &effect.properties)
+            })
+        {
+            return Err(super::TimelineEditError::IncompatibleMedia);
+        }
+        let owners = self
+            .schema()
+            .map(|schema| (schema.capabilities(), &self.properties))
+            .into_iter()
+            .chain(
+                self.effects
+                    .iter()
+                    .map(|effect| (effect.schema().capabilities(), &effect.properties)),
+            );
+        for (capabilities, properties) in owners {
+            for ids in capabilities
+                .iter()
+                .filter_map(Capability::playback_properties)
+            {
+                MediaPlayback::from_properties(ids, properties)?;
+            }
+        }
+        if let Some(schema) = self.schema() {
+            for audio in schema.audio() {
+                MediaPlayback::from_properties(audio.playback_properties(), &self.properties)?;
+            }
+            if let Some(timeline) = schema.timeline() {
+                TimeMapping::from_properties(timeline, &self.properties)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Update a candidate item; callers validate it before committing to the document.
+    pub(super) fn store_timeline_mapping(&mut self, mapping: TimeMapping) -> Option<TimeMapping> {
+        let schema = self.schema_arc()?.clone();
+        let ids = schema.timeline()?;
+        for (id, value) in mapping.property_values(ids) {
+            self.properties.set(schema.property(id)?, value).ok()?;
+        }
+        TimeMapping::from_properties(ids, &self.properties).ok()
+    }
+
+    pub(super) fn timeline_speed_bounds(&self) -> (f64, f64) {
+        let (min, max) = self
+            .schema()
+            .and_then(|schema| schema.property(schema.timeline()?.playback_speed))
+            .and_then(|property| {
+                property
+                    .configuration_constraints(None)
+                    .numeric_bounds(&crate::property::ScalarPropertyType::F32)
+            })
+            .unwrap_or((TimeMapping::MIN_SPEED, TimeMapping::MAX_SPEED));
+        (
+            min.max(TimeMapping::MIN_SPEED),
+            max.min(TimeMapping::MAX_SPEED),
+        )
+    }
+
+    pub(super) fn trim_left_to(
+        &mut self,
+        start: Frame,
+        duration: FrameDuration,
+        frame_rate: FrameRate,
+    ) -> Option<()> {
+        if let Some(mapping) = self.timeline_mapping() {
+            let delta = start.get() as f64 - self.start.get() as f64;
+            self.store_timeline_mapping(
+                mapping.trim_start(delta / frame_rate.frames_per_second()),
+            )?;
+        }
         let old_span = self.animation_span_frames();
         let new_span = duration.get().saturating_sub(1).max(1) as f64;
         self.remap_animations((old_span - new_span) / old_span, 1.);
         self.start = start;
         self.duration = duration;
+        Some(())
     }
 
-    pub(super) fn trim_right_to(&mut self, duration: FrameDuration) {
+    pub(super) fn trim_right_to(
+        &mut self,
+        duration: FrameDuration,
+        frame_rate: FrameRate,
+    ) -> Option<()> {
+        if let Some(mapping) = self.timeline_mapping() {
+            let span = duration.get() as f64 / frame_rate.frames_per_second() * mapping.speed();
+            self.store_timeline_mapping(mapping.with_span(span))?;
+        }
+        self.trim_duration_to(duration);
+        Some(())
+    }
+
+    pub(super) fn trim_duration_to(&mut self, duration: FrameDuration) {
         let old_span = self.animation_span_frames();
         let new_span = duration.get().saturating_sub(1).max(1) as f64;
         self.remap_animations(0., new_span / old_span);
         self.duration = duration;
+    }
+
+    /// Synchronize timeline placement after the usual property edit.
+    pub(super) fn synchronize_timeline(
+        &mut self,
+        previous: Option<TimeMapping>,
+        frame_rate: FrameRate,
+    ) -> Result<(), super::TimelineEditError> {
+        let Some(previous) = previous else {
+            return Ok(());
+        };
+        let ids = self
+            .schema()
+            .and_then(ItemSchema::timeline)
+            .expect("timeline capability is unchanged during property edits");
+        let mapping = TimeMapping::from_properties(ids, &self.properties)?;
+        if previous.source_span() != mapping.source_span() || previous.speed() != mapping.speed() {
+            let duration = mapping.timeline_duration(frame_rate);
+            if previous.speed() == mapping.speed() {
+                self.trim_duration_to(duration);
+            } else {
+                self.duration = duration;
+            }
+        }
+        Ok(())
     }
 
     fn remap_animations(&mut self, start: f64, end: f64) {

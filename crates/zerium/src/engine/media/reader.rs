@@ -10,8 +10,11 @@ use thiserror::Error;
 
 use crate::engine::frame::RgbaFrame;
 use zerium_core::{
-    media::{ImportedMedia, MediaAsset, MediaKind},
-    plugin::{MediaType, PluginManifest},
+    media::{
+        ImportedFile, MediaAsset, MediaInputMetadata, MediaInputReference, MediaKind,
+        MediaMetadata, MediaTarget,
+    },
+    plugin::PluginManifest,
     timeline::{EffectInstanceId, ItemId},
 };
 
@@ -36,13 +39,6 @@ pub(crate) struct DecodedAudioBlock {
     pub format: AudioFormat,
     /// Interleaved `f32` samples in channel order.
     pub samples: Arc<[f32]>,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct MediaProbe {
-    pub duration: Duration,
-    pub kind: MediaKind,
-    pub video_duration: Option<Duration>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -75,8 +71,6 @@ pub(crate) struct DecodedVideoFrame {
 }
 
 pub(crate) trait VideoDecoderSession: Send {
-    fn stream_duration(&self) -> Duration;
-
     /// Returns the frame whose presentation interval contains `presentation_time`,
     /// or the closest following frame when the stream has a timestamp gap.
     fn decode_at(
@@ -112,13 +106,6 @@ pub(crate) enum VisualDecoderSession {
 }
 
 impl VisualDecoderSession {
-    pub(crate) fn stream_duration(&self) -> Duration {
-        match self {
-            Self::Video(decoder) => decoder.stream_duration(),
-            Self::Image { duration, .. } => *duration,
-        }
-    }
-
     pub(crate) fn decode_at(
         &mut self,
         presentation_time: Duration,
@@ -158,6 +145,7 @@ pub(crate) trait AudioDecoderSession: Send {
     fn stream_duration(&self) -> Duration;
 
     /// Decodes `sample_frames` frames. One frame contains one sample per channel.
+    /// A short or empty block indicates the end of the stream.
     fn decode_sample_frames(
         &mut self,
         start_seconds: f64,
@@ -167,7 +155,7 @@ pub(crate) trait AudioDecoderSession: Send {
 }
 
 pub(crate) trait MediaReader: Send + Sync {
-    fn probe(&self, path: &Path, media_type: MediaType) -> Result<Option<MediaProbe>, MediaError>;
+    fn probe(&self, path: &Path, target: MediaTarget) -> Result<Option<MediaMetadata>, MediaError>;
 
     fn open_video_decoder(
         &self,
@@ -223,7 +211,9 @@ struct RegisteredFileSource {
     source_id: String,
     source_label: String,
     kind: FileSourceKind,
-    input: zerium_core::plugin::FileCapability,
+    property_id: String,
+    extensions: Vec<String>,
+    inputs: Vec<(MediaInputReference, String)>,
 }
 
 pub(crate) struct MediaReaderRegistry {
@@ -259,11 +249,11 @@ impl MediaReaderRegistry {
 
     pub(crate) fn register_plugin(&mut self, manifest: &PluginManifest) -> Result<(), MediaError> {
         for item in manifest.items() {
-            for input in item.files() {
+            for input in item.file_properties() {
                 if self.file_sources.iter().any(|registered| {
                     registered.plugin_id == manifest.id()
                         && registered.source_id == item.id()
-                        && registered.input.id() == input.id()
+                        && registered.property_id == input.id()
                 }) {
                     return Err(MediaError::external(format!(
                         "File input '{}:{}:{}' is already registered",
@@ -277,18 +267,38 @@ impl MediaReaderRegistry {
                     source_id: item.id().to_owned(),
                     source_label: item.label().to_owned(),
                     kind: FileSourceKind::Item,
-                    input: input.clone(),
+                    property_id: input.id().to_owned(),
+                    extensions: input
+                        .file_type()
+                        .expect("file property")
+                        .extensions()
+                        .to_vec(),
+                    inputs: item
+                        .media_sources()
+                        .filter(|source| source.file == input.id())
+                        .map(|source| (source.input, source.reader.to_owned()))
+                        .collect(),
                 });
             }
         }
         for effect in manifest.effects() {
-            for input in effect.files() {
+            for input in effect.file_properties() {
                 self.file_sources.push(RegisteredFileSource {
                     plugin_id: manifest.id().to_owned(),
                     source_id: effect.id().to_owned(),
                     source_label: effect.label().to_owned(),
                     kind: FileSourceKind::Effect,
-                    input: input.clone(),
+                    property_id: input.id().to_owned(),
+                    extensions: input
+                        .file_type()
+                        .expect("file property")
+                        .extensions()
+                        .to_vec(),
+                    inputs: effect
+                        .media_sources()
+                        .filter(|source| source.file == input.id())
+                        .map(|source| (source.input, source.reader.to_owned()))
+                        .collect(),
                 });
             }
         }
@@ -300,9 +310,9 @@ impl MediaReaderRegistry {
         path: impl AsRef<Path>,
         plugin_id: &str,
         item_id: &str,
-        input_id: &str,
-    ) -> Result<ImportedMedia, MediaError> {
-        self.probe_registered(path, plugin_id, item_id, input_id, FileSourceKind::Item)
+        property_id: &str,
+    ) -> Result<ImportedFile, MediaError> {
+        self.probe_registered(path, plugin_id, item_id, property_id, FileSourceKind::Item)
     }
 
     pub(crate) fn probe_for_effect(
@@ -310,9 +320,15 @@ impl MediaReaderRegistry {
         path: impl AsRef<Path>,
         plugin_id: &str,
         effect_id: &str,
-        input_id: &str,
-    ) -> Result<ImportedMedia, MediaError> {
-        self.probe_registered(path, plugin_id, effect_id, input_id, FileSourceKind::Effect)
+        property_id: &str,
+    ) -> Result<ImportedFile, MediaError> {
+        self.probe_registered(
+            path,
+            plugin_id,
+            effect_id,
+            property_id,
+            FileSourceKind::Effect,
+        )
     }
 
     fn probe_registered(
@@ -320,9 +336,9 @@ impl MediaReaderRegistry {
         path: impl AsRef<Path>,
         plugin_id: &str,
         source_id: &str,
-        input_id: &str,
+        property_id: &str,
         kind: FileSourceKind,
-    ) -> Result<ImportedMedia, MediaError> {
+    ) -> Result<ImportedFile, MediaError> {
         let path = path.as_ref();
         let metadata = fs::metadata(path).map_err(|error| {
             MediaError::external(format!(
@@ -343,20 +359,20 @@ impl MediaReaderRegistry {
                 definition.plugin_id == plugin_id
                     && definition.source_id == source_id
                     && definition.kind == kind
-                    && definition.input.id() == input_id
+                    && definition.property_id == property_id
             })
             .ok_or_else(|| {
                 MediaError::invalid_input(format!(
-                    "File input '{plugin_id}:{source_id}:{input_id}' is not registered"
+                    "File input '{plugin_id}:{source_id}:{property_id}' is not registered"
                 ))
             })?;
-        let file = &definition.input;
-        if !file.extensions().is_empty()
+        if !definition.extensions.is_empty()
             && !path
                 .extension()
                 .and_then(|extension| extension.to_str())
                 .is_some_and(|extension| {
-                    file.extensions()
+                    definition
+                        .extensions
                         .iter()
                         .any(|allowed| allowed.eq_ignore_ascii_case(extension))
                 })
@@ -367,40 +383,47 @@ impl MediaReaderRegistry {
                 definition.source_label
             )));
         }
-        let reader = self.readers.get(file.reader()).ok_or_else(|| {
-            MediaError::ReaderUnavailable(format!(
-                "Media reader '{}' is not registered",
-                file.reader()
-            ))
-        })?;
-        let probe = reader.probe(path, file.media_type())?.ok_or_else(|| {
-            MediaError::external(format!(
-                "'{}' cannot be loaded by this input",
-                path.display()
-            ))
-        })?;
-        if probe.kind.media_type() != file.media_type() {
+        // Several inputs may share a file and a reader. Probe each reading target
+        // once; a visual and an audio stream are deliberately separate results.
+        let mut probes = HashMap::new();
+        let mut inputs = Vec::new();
+        for (input, reader_id) in &definition.inputs {
+            let key = (reader_id, input.target());
+            if let std::collections::hash_map::Entry::Vacant(entry) = probes.entry(key) {
+                let reader = self.readers.get(reader_id).ok_or_else(|| {
+                    MediaError::ReaderUnavailable(format!(
+                        "Media reader '{reader_id}' is not registered"
+                    ))
+                })?;
+                let metadata = reader.probe(path, input.target())?;
+                if metadata
+                    .as_ref()
+                    .is_some_and(|metadata| !metadata.accepts(input.target()))
+                {
+                    return Err(MediaError::invalid_input(format!(
+                        "Media reader '{reader_id}' returned invalid metadata for {input:?}"
+                    )));
+                }
+                entry.insert(metadata);
+            }
+            inputs.push(MediaInputMetadata {
+                input: input.clone(),
+                metadata: probes[&key].clone(),
+            });
+        }
+        if !inputs.is_empty() && inputs.iter().all(|input| input.metadata.is_none()) {
             return Err(MediaError::external(format!(
-                "Selected file type does not match '{}'",
+                "'{}' has no stream supported by '{}'",
+                path.display(),
                 definition.source_label
             )));
         }
-        let name = path
-            .file_name()
-            .and_then(|name| name.to_str())
-            .unwrap_or("Media")
-            .to_owned();
-        Ok(ImportedMedia {
+        Ok(ImportedFile {
             plugin_id: definition.plugin_id.clone(),
             source_id: definition.source_id.clone(),
-            input_id: definition.input.id().to_owned(),
-            asset: MediaAsset {
-                reader_id: file.reader().to_owned(),
-                path: path.to_path_buf(),
-                name,
-                duration: probe.duration,
-                kind: probe.kind,
-            },
+            property_id: definition.property_id.to_owned(),
+            path: path.to_owned(),
+            inputs,
         })
     }
 

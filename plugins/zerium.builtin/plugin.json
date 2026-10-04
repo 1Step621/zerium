@@ -24,11 +24,11 @@
       "symbol": "■",
       "shader": { "module": "rectangle" },
       "capabilities": [],
-      "editor": {
-        "position": "position",
-        "size": "size",
-        "aspect_lock": "size"
-      },
+      "editor": [
+        { "type": "position", "property": "position" },
+        { "type": "size", "property": "size", "position": "position" },
+        { "type": "aspect_lock", "property": "size" }
+      ],
       "properties": [
         {
           "id": "position",
@@ -115,11 +115,11 @@
       "symbol": "▲",
       "shader": { "module": "triangle" },
       "capabilities": [],
-      "editor": {
-        "position": "position",
-        "size": "size",
-        "aspect_lock": "size"
-      },
+      "editor": [
+        { "type": "position", "property": "position" },
+        { "type": "size", "property": "size", "position": "position" },
+        { "type": "aspect_lock", "property": "size" }
+      ],
       "properties": [
         {
           "id": "position",
@@ -206,11 +206,11 @@
       "symbol": "●",
       "shader": { "module": "ellipse" },
       "capabilities": [],
-      "editor": {
-        "size": "diameter",
-        "aspect_lock": "diameter",
-        "position": "position"
-      },
+      "editor": [
+        { "type": "position", "property": "position" },
+        { "type": "size", "property": "diameter", "position": "position" },
+        { "type": "aspect_lock", "property": "diameter" }
+      ],
       "properties": [
         {
           "id": "position",
@@ -284,13 +284,13 @@
       "symbol": "〰",
       "shader": { "module": "spline_path" },
       "capabilities": [],
-      "editor": {
-        "position": "position",
-        "size": "size",
-        "aspect_lock": "size",
-        "points": "points",
-        "spline": { "tension": "tension", "closed": "closed" }
-      },
+      "editor": [
+        { "type": "position", "property": "position" },
+        { "type": "size", "property": "size", "position": "position" },
+        { "type": "aspect_lock", "property": "size" },
+        { "type": "spline", "points": "points", "position": "position", "size": "size", "tension": "tension", "closed": "closed" },
+        { "type": "points", "property": "points", "position": "position", "size": "size" }
+      ],
       "properties": [
         {
           "id": "position",
@@ -477,12 +477,12 @@
       "symbol": "⬟",
       "shader": { "module": "polygon" },
       "capabilities": [],
-      "editor": {
-        "position": "position",
-        "size": "size",
-        "aspect_lock": "size",
-        "points": "points"
-      },
+      "editor": [
+        { "type": "position", "property": "position" },
+        { "type": "size", "property": "size", "position": "position" },
+        { "type": "aspect_lock", "property": "size" },
+        { "type": "points", "property": "points", "position": "position", "size": "size" }
+      ],
       "properties": [
         {
           "id": "position",
@@ -598,11 +598,11 @@
       "symbol": "╱",
       "shader": { "module": "line" },
       "capabilities": [],
-      "editor": {
-        "position": "position",
-        "size": "size",
-        "aspect_lock": "size"
-      },
+      "editor": [
+        { "type": "position", "property": "position" },
+        { "type": "size", "property": "size", "position": "position" },
+        { "type": "aspect_lock", "property": "size" }
+      ],
       "properties": [
         {
           "id": "position",
@@ -696,11 +696,11 @@
       "symbol": "★",
       "shader": { "module": "star" },
       "capabilities": [],
-      "editor": {
-        "position": "position",
-        "size": "size",
-        "aspect_lock": "size"
-      },
+      "editor": [
+        { "type": "position", "property": "position" },
+        { "type": "size", "property": "size", "position": "position" },
+        { "type": "aspect_lock", "property": "size" }
+      ],
       "properties": [
         {
           "id": "position",
@@ -825,12 +825,12 @@
           "vertical_alignment": "vertical_alignment"
         }
       ],
-      "editor": {
-        "position": "position",
-        "size": "size",
-        "aspect_lock": "size",
-        "label": "text"
-      },
+      "editor": [
+        { "type": "position", "property": "position" },
+        { "type": "size", "property": "size", "position": "position" },
+        { "type": "aspect_lock", "property": "size" },
+        { "type": "label", "property": "text" }
+      ],
       "properties": [
         {
           "id": "position",
@@ -1003,22 +1003,34 @@
         {
           "type": "media",
           "id": "source",
-          "label": { "ja-JP": "動画", "en-US": "Video" },
+          "file": "source",
           "reader": "zerium.ffmpeg",
-          "media_type": "video",
-          "placement": {
-            "position": "position",
-            "size": "size"
+          "playback": {
+            "source_start": "source_start",
+            "source_duration": "source_duration",
+            "playback_speed": "playback_speed",
+            "end_behavior": "end_behavior"
           },
-          "extensions": ["mp4", "mov", "mkv", "webm", "avi", "m4v", "gif"]
+          "placement": { "position": "position", "size": "size" }
         }
       ],
-      "audio": { "inputs": ["source"], "volume": "volume" },
-      "editor": {
-        "position": "position",
-        "size": "size",
-        "aspect_lock": "size"
-      },
+      "audio": [{
+        "id": "source",
+        "file": "source",
+        "reader": "zerium.ffmpeg",
+        "volume": "volume",
+        "source_start": "source_start",
+        "source_duration": "source_duration",
+        "playback_speed": "playback_speed",
+        "end_behavior": "end_behavior",
+        "preserve_pitch": "preserve_pitch"
+      }],
+      "editor": [
+        { "type": "timeline", "source_start": "source_start", "source_duration": "source_duration", "playback_speed": "playback_speed" },
+        { "type": "position", "property": "position" },
+        { "type": "size", "property": "size", "position": "position" },
+        { "type": "aspect_lock", "property": "size" }
+      ],
       "properties": [
         {
           "id": "position",
@@ -1074,6 +1086,81 @@
               "ui": { "step": 0.01 }
             }
           ]
+        },
+        {
+          "id": "source_start",
+          "label": { "ja-JP": "ソース開始", "en-US": "Source start" },
+          "type": { "value": "f32" },
+          "default": { "f32": 0 },
+          "configurations": [
+            {
+              "scene_bindable": false,
+              "constraints": { "min": 0 },
+              "ui": { "unit": "s", "step": 0.1, "drag_step": 0.01 }
+            }
+          ]
+        },
+        {
+          "id": "source_duration",
+          "label": { "ja-JP": "ソース長", "en-US": "Source duration" },
+          "type": { "value": "f32" },
+          "default": { "f32": 5 },
+          "configurations": [
+            {
+              "scene_bindable": false,
+              "constraints": { "min": 0 },
+              "ui": { "unit": "s", "step": 0.1, "drag_step": 0.01 }
+            }
+          ]
+        },
+        {
+          "id": "playback_speed",
+          "label": { "ja-JP": "再生速度", "en-US": "Playback speed" },
+          "type": { "value": "f32" },
+          "default": { "f32": 1 },
+          "configurations": [
+            {
+              "scene_bindable": false,
+              "constraints": { "min": 0.25, "max": 4 },
+              "ui": { "unit": "×", "step": 0.01, "drag_step": 0.01 }
+            }
+          ]
+        },
+        {
+          "id": "end_behavior",
+          "label": { "ja-JP": "終端動作", "en-US": "End behavior" },
+          "type": { "value": { "enum": [0, 1, 2] } },
+          "default": { "enum": 0 },
+          "configurations": [
+            {
+              "scene_bindable": false,
+              "ui": {
+                "enum_variants": {
+                  "0": { "ja-JP": "停止", "en-US": "Stop" },
+                  "1": { "ja-JP": "ループ", "en-US": "Loop" },
+                  "2": { "ja-JP": "保持", "en-US": "Hold" }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "preserve_pitch",
+          "label": { "ja-JP": "ピッチを維持", "en-US": "Preserve pitch" },
+          "type": { "value": "bool" },
+          "default": { "bool": true },
+          "configurations": [{ "scene_bindable": false }]
+        },
+        {
+          "id": "source",
+          "label": {"ja-JP": "動画", "en-US": "Video"},
+          "type": {
+            "file": {
+              "extensions": ["mp4", "mov", "mkv", "webm", "avi", "m4v", "gif"]
+            }
+          },
+          "default": { "file": null },
+          "configurations": [{ "scene_bindable": false }]
         }
       ]
     },
@@ -1101,21 +1188,16 @@
         {
           "type": "media",
           "id": "source",
-          "label": { "ja-JP": "画像", "en-US": "Image" },
+          "file": "source",
           "reader": "zerium.ffmpeg",
-          "media_type": "image",
-          "placement": {
-            "position": "position",
-            "size": "size"
-          },
-          "extensions": ["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"]
+          "placement": { "position": "position", "size": "size" }
         }
       ],
-      "editor": {
-        "position": "position",
-        "size": "size",
-        "aspect_lock": "size"
-      },
+      "editor": [
+        { "type": "position", "property": "position" },
+        { "type": "size", "property": "size", "position": "position" },
+        { "type": "aspect_lock", "property": "size" }
+      ],
       "properties": [
         {
           "id": "position",
@@ -1158,6 +1240,17 @@
               }
             }
           ]
+        },
+        {
+          "id": "source",
+          "label": {"ja-JP": "画像", "en-US": "Image"},
+          "type": {
+            "file": {
+              "extensions": ["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"]
+            }
+          },
+          "default": { "file": null },
+          "configurations": [{ "scene_bindable": false }]
         }
       ]
     },
@@ -1185,21 +1278,16 @@
         {
           "type": "media",
           "id": "source",
-          "label": { "ja-JP": "SVG", "en-US": "SVG" },
+          "file": "source",
           "reader": "zerium.svg",
-          "media_type": "image",
-          "placement": {
-            "position": "position",
-            "size": "size"
-          },
-          "extensions": ["svg"]
+          "placement": { "position": "position", "size": "size" }
         }
       ],
-      "editor": {
-        "position": "position",
-        "size": "size",
-        "aspect_lock": "size"
-      },
+      "editor": [
+        { "type": "position", "property": "position" },
+        { "type": "size", "property": "size", "position": "position" },
+        { "type": "aspect_lock", "property": "size" }
+      ],
       "properties": [
         {
           "id": "position",
@@ -1242,6 +1330,17 @@
               }
             }
           ]
+        },
+        {
+          "id": "source",
+          "label": {"ja-JP": "SVG", "en-US": "SVG"},
+          "type": {
+            "file": {
+              "extensions": ["svg"]
+            }
+          },
+          "default": { "file": null },
+          "configurations": [{ "scene_bindable": false }]
         }
       ]
     },
@@ -1259,19 +1358,20 @@
       "tags": ["音楽", "サウンド", "music", "sound"],
       "symbol": "♪",
       "capabilities": [],
-      "audio": {
-        "files": [
-          {
-            "id": "source",
-            "label": { "ja-JP": "音声", "en-US": "Audio" },
-            "reader": "zerium.ffmpeg",
-            "media_type": "audio",
-            "extensions": ["wav", "mp3", "m4a", "aac", "flac", "ogg", "opus"]
-          }
-        ],
-        "inputs": ["source"],
-        "volume": "volume"
-      },
+      "audio": [{
+        "id": "source",
+        "file": "source",
+        "reader": "zerium.ffmpeg",
+        "volume": "volume",
+        "source_start": "source_start",
+        "source_duration": "source_duration",
+        "playback_speed": "playback_speed",
+        "end_behavior": "end_behavior",
+        "preserve_pitch": "preserve_pitch"
+      }],
+      "editor": [
+        { "type": "timeline", "source_start": "source_start", "source_duration": "source_duration", "playback_speed": "playback_speed" }
+      ],
       "properties": [
         {
           "id": "volume",
@@ -1285,6 +1385,81 @@
               "ui": { "step": 0.01 }
             }
           ]
+        },
+        {
+          "id": "source_start",
+          "label": { "ja-JP": "ソース開始", "en-US": "Source start" },
+          "type": { "value": "f32" },
+          "default": { "f32": 0 },
+          "configurations": [
+            {
+              "scene_bindable": false,
+              "constraints": { "min": 0 },
+              "ui": { "unit": "s", "step": 0.1, "drag_step": 0.01 }
+            }
+          ]
+        },
+        {
+          "id": "source_duration",
+          "label": { "ja-JP": "ソース長", "en-US": "Source duration" },
+          "type": { "value": "f32" },
+          "default": { "f32": 5 },
+          "configurations": [
+            {
+              "scene_bindable": false,
+              "constraints": { "min": 0 },
+              "ui": { "unit": "s", "step": 0.1, "drag_step": 0.01 }
+            }
+          ]
+        },
+        {
+          "id": "playback_speed",
+          "label": { "ja-JP": "再生速度", "en-US": "Playback speed" },
+          "type": { "value": "f32" },
+          "default": { "f32": 1 },
+          "configurations": [
+            {
+              "scene_bindable": false,
+              "constraints": { "min": 0.25, "max": 4 },
+              "ui": { "unit": "×", "step": 0.01, "drag_step": 0.01 }
+            }
+          ]
+        },
+        {
+          "id": "end_behavior",
+          "label": { "ja-JP": "終端動作", "en-US": "End behavior" },
+          "type": { "value": { "enum": [0, 1, 2] } },
+          "default": { "enum": 0 },
+          "configurations": [
+            {
+              "scene_bindable": false,
+              "ui": {
+                "enum_variants": {
+                  "0": { "ja-JP": "停止", "en-US": "Stop" },
+                  "1": { "ja-JP": "ループ", "en-US": "Loop" },
+                  "2": { "ja-JP": "保持", "en-US": "Hold" }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "preserve_pitch",
+          "label": { "ja-JP": "ピッチを維持", "en-US": "Preserve pitch" },
+          "type": { "value": "bool" },
+          "default": { "bool": true },
+          "configurations": [{ "scene_bindable": false }]
+        },
+        {
+          "id": "source",
+          "label": {"ja-JP": "音声", "en-US": "Audio"},
+          "type": {
+            "file": {
+              "extensions": ["wav", "mp3", "m4a", "aac", "flac", "ogg", "opus"]
+            }
+          },
+          "default": { "file": null },
+          "configurations": [{ "scene_bindable": false }]
         }
       ]
     },
@@ -1417,13 +1592,13 @@
         "label": { "ja-JP": "変形", "en-US": "Transform" }
       },
       "tags": ["経路", "パス", "移動", "spline", "path", "motion"],
-      "editor": {
-        "position": "position",
-        "size": "size",
-        "aspect_lock": "size",
-        "points": "points",
-        "spline": { "tension": "tension", "closed": "closed" }
-      },
+      "editor": [
+        { "type": "position", "property": "position" },
+        { "type": "size", "property": "size", "position": "position" },
+        { "type": "aspect_lock", "property": "size" },
+        { "type": "spline", "points": "points", "position": "position", "size": "size", "tension": "tension", "closed": "closed" },
+        { "type": "points", "property": "points", "position": "position", "size": "size" }
+      ],
       "passes": [{ "type": "render", "shader": { "module": "follow_spline" } }],
       "properties": [
         {
@@ -1603,7 +1778,9 @@
         "label": { "ja-JP": "変形", "en-US": "Transform" }
       },
       "tags": ["サイズ", "拡大", "縮小", "scale", "resize", "zoom"],
-      "editor": { "aspect_lock": "amount", "aspect_lock_default": true },
+      "editor": [
+        { "type": "aspect_lock", "property": "amount", "default": true }
+      ],
       "passes": [{ "type": "render", "shader": { "module": "scale" } }],
       "properties": [
         {

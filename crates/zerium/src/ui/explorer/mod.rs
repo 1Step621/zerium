@@ -31,7 +31,7 @@ use zerium_core::plugin::PluginRegistry;
 struct FileImportTarget {
     plugin_id: String,
     item_id: String,
-    input_id: String,
+    property_id: String,
 }
 
 #[derive(Clone)]
@@ -57,8 +57,8 @@ impl ExplorerDraggedFile {
         &self.target.item_id
     }
 
-    pub(crate) fn input_id(&self) -> &str {
-        &self.target.input_id
+    pub(crate) fn property_id(&self) -> &str {
+        &self.target.property_id
     }
 }
 
@@ -213,16 +213,17 @@ impl Explorer {
     fn import_target(&self, path: &Path) -> Option<FileImportTarget> {
         let extension = path.extension()?.to_str()?;
         self.plugins.items().find_map(|(plugin_id, item)| {
-            item.files().find_map(|input| {
-                (input.extensions().is_empty()
-                    || input
+            item.file_properties().find_map(|input| {
+                let file = input.file_type()?;
+                (file.extensions().is_empty()
+                    || file
                         .extensions()
                         .iter()
                         .any(|allowed| allowed.eq_ignore_ascii_case(extension)))
                 .then(|| FileImportTarget {
                     plugin_id: plugin_id.to_owned(),
                     item_id: item.id().to_owned(),
-                    input_id: input.id().to_owned(),
+                    property_id: input.id().to_owned(),
                 })
             })
         })

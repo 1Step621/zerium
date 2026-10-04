@@ -387,12 +387,14 @@ impl Timeline {
             origins: resize_origins.clone(),
             anchor_id: item_id,
             edge: ResizeEdge::Left,
+            mode: Cell::new(ResizeMode::Trim),
         };
         let right_drag = ResizeTimelineItem {
             timeline_id,
             origins: resize_origins,
             anchor_id: item_id,
             edge: ResizeEdge::Right,
+            mode: Cell::new(ResizeMode::Trim),
         };
         Some(
             div()
@@ -477,12 +479,17 @@ impl Timeline {
                         .bg(state.colors.primary.opacity(0.35))
                         .on_mouse_down(
                             MouseButton::Left,
-                            cx.listener(move |this, event, _, cx| {
-                                this.select_item(item_id, event, cx);
+                            cx.listener(move |this, _, _, cx| {
+                                this.begin_item_resize(item_id, cx);
                             }),
                         )
-                        .on_drag(left_drag, |drag, _, _, cx| {
+                        .on_drag(left_drag, |drag, _, window, cx| {
                             cx.stop_propagation();
+                            drag.mode.set(if window.modifiers().shift {
+                                ResizeMode::Stretch
+                            } else {
+                                ResizeMode::Trim
+                            });
                             cx.new(|_| drag.clone())
                         }),
                 )
@@ -498,12 +505,17 @@ impl Timeline {
                         .bg(state.colors.primary.opacity(0.35))
                         .on_mouse_down(
                             MouseButton::Left,
-                            cx.listener(move |this, event, _, cx| {
-                                this.select_item(item_id, event, cx);
+                            cx.listener(move |this, _, _, cx| {
+                                this.begin_item_resize(item_id, cx);
                             }),
                         )
-                        .on_drag(right_drag, |drag, _, _, cx| {
+                        .on_drag(right_drag, |drag, _, window, cx| {
                             cx.stop_propagation();
+                            drag.mode.set(if window.modifiers().shift {
+                                ResizeMode::Stretch
+                            } else {
+                                ResizeMode::Trim
+                            });
                             cx.new(|_| drag.clone())
                         }),
                 )

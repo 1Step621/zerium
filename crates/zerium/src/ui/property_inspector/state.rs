@@ -1,6 +1,16 @@
 use super::*;
 use crate::ui::property_inspector::control::{AnimationStopControl, Control, ControlTree};
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(super) struct InspectorInputStructure {
+    pub item_id: Option<ItemId>,
+    pub effect_ids: Vec<EffectInstanceId>,
+    pub array_lengths: Vec<(Option<u64>, String, usize)>,
+    pub item_scene_arguments: Vec<String>,
+    pub active_scene: Option<SceneId>,
+    pub active_scene_arguments: Vec<String>,
+}
+
 pub(super) struct TextState {
     pub input: Entity<InputState>,
     pub _subscriptions: Vec<Subscription>,
@@ -17,8 +27,7 @@ pub(super) struct ControlStore {
     pub color_pickers: HashMap<ControlId, ColorState>,
     pub tree: ControlTree,
     pub input_structure: Option<InspectorInputStructure>,
-    pub value_drag_origin: Option<PropertyValueDragOrigin>,
-    pub scene_argument_value_drag_origin: Option<SceneArgumentValueDragOrigin>,
+    pub number_drag_origin: Option<Rc<PropertyValueDragOrigin>>,
 }
 
 impl ControlStore {
@@ -186,14 +195,14 @@ impl PropertyInspector {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(value) = stop.value.numeric_scalar() else {
+        if stop.value.numeric_scalar().is_none() {
             return;
-        };
+        }
         let spec = control.spec.clone();
         let binding = AnimationStopBinding::new(item_id, control.common.target.effect_id, stop);
         self.ensure_text(
             stop.id.clone(),
-            Self::format_value(value),
+            Self::numeric_value_text(&stop.value),
             false,
             |input, window, cx| {
                 let change_binding = binding.clone();
@@ -316,18 +325,18 @@ impl PropertyInspector {
     ) {
         debug_assert!(seen.insert(control.id().clone()), "duplicate control id");
         match control {
+            Control::File(_) => {}
             Control::Group { children, .. } => {
                 for child in children {
                     self.ensure_control_states(item, child, seen, window, cx);
                 }
             }
             Control::Number(number) => {
-                let text = number
-                    .common
-                    .value
-                    .numeric_scalar()
-                    .map(Self::format_value)
-                    .unwrap_or_default();
+                let text = if number.common.mixed {
+                    String::new()
+                } else {
+                    Self::numeric_value_text(&number.common.value)
+                };
                 self.ensure_number_text(item.id, number, text, window, cx);
             }
             Control::Text(text_control) => {
@@ -434,24 +443,28 @@ impl PropertyInspector {
             editing_scene,
             arguments: scene_arguments,
         };
-        let mut item_controls = if let Some(scene_id) = item.scene_id() {
-            let values = editor
-                .evaluated_scene_argument_values_at(item, resolution.playhead)
-                .unwrap_or_default();
-            editor
-                .scene(scene_id)
-                .map(|scene| {
-                    Self::scene_argument_value_controls(
-                        scene_id,
-                        &scene.arguments,
-                        &values,
-                        &resolution,
-                    )
-                })
-                .unwrap_or_default()
-        } else {
-            Self::item_controls(item, &resolution)
-        };
+        if self.source == PropertySource::SceneArguments {
+            let roots = if let Some(scene_id) = item.scene_id() {
+                let values = editor
+                    .evaluated_scene_argument_values_at(item, resolution.playhead)
+                    .unwrap_or_default();
+                editor
+                    .scene(scene_id)
+                    .map(|scene| {
+                        Self::scene_argument_value_controls(
+                            scene_id,
+                            &scene.arguments,
+                            &values,
+                            &resolution,
+                        )
+                    })
+                    .unwrap_or_default()
+            } else {
+                Vec::new()
+            };
+            return ControlTree { roots };
+        }
+        let mut item_controls = Self::item_controls(item, &resolution);
         if item.scene_id().is_none() {
             item_controls
                 .retain(|control| Self::property_is_common(selected_items, control.property_id()));
@@ -504,7 +517,6 @@ impl PropertyInspector {
         cx: &mut Context<Self>,
     ) {
         self.ensure_tree_states(item, window, cx);
-        self.ensure_active_scene_argument_names(window, cx);
     }
 
     pub(super) fn sync_from_editor(
@@ -527,17 +539,9 @@ impl PropertyInspector {
             let editor = editor.read(cx);
             Self::current_input_structure(editor, selected_item.as_ref())
         };
-        let previous_item_id = self
-            .store
-            .input_structure
-            .as_ref()
-            .and_then(|structure| structure.item_id);
         if self.store.input_structure.as_ref() != Some(&input_structure) {
             self.reset_input_state();
             self.store.input_structure = Some(input_structure);
-        }
-        if previous_item_id != selected_item.as_ref().map(|item| item.id) {
-            self.file_error = None;
         }
         let scene_arguments = self.active_scene_argument_options(&*cx);
         let editing_scene =

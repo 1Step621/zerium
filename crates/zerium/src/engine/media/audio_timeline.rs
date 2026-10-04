@@ -10,7 +10,10 @@ use thiserror::Error;
 
 use zerium_core::timeline::{FrameRate, ItemId, TimelineItem, TimelineTime};
 
-use super::reader::{AudioDecoderSession, AudioFormat, MediaError, MediaReaderRegistry};
+use super::{
+    audio_source::AudioSource,
+    reader::{AudioFormat, MediaError, MediaReaderRegistry},
+};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct AudioClipId {
@@ -36,12 +39,6 @@ pub(crate) enum AudioTimelineError {
         #[source]
         error: MediaError,
     },
-    #[error(
-        "Audio input '{}' (item {:?}) returned invalid data",
-        clip.input_id,
-        clip.item_id
-    )]
-    InvalidDecoderOutput { clip: AudioClipId },
     #[error("Audio render range is too large")]
     RangeTooLarge,
 }
@@ -51,9 +48,8 @@ struct AudioClip {
     item: TimelineItem,
     start_sample_frame: u64,
     end_sample_frame: u64,
-    source_sample_frames: u64,
     live_gain: Arc<AtomicU32>,
-    decoder: Box<dyn AudioDecoderSession>,
+    source: AudioSource,
 }
 
 pub(crate) struct AudioTimelineGraph {
@@ -64,24 +60,19 @@ pub(crate) struct AudioTimelineGraph {
     active: Vec<usize>,
     next_clip: usize,
     previous_end: Option<u64>,
-    live_gains: HashMap<ItemId, Arc<AtomicU32>>,
 }
 
 impl AudioTimelineGraph {
     pub(crate) fn new(
-        items: Vec<TimelineItem>,
+        items: &[TimelineItem],
         frame_rate: FrameRate,
         format: AudioFormat,
         media_readers: &MediaReaderRegistry,
         gain_evaluation: AudioGainEvaluation,
     ) -> Result<Self, AudioTimelineError> {
         let mut clips = Vec::new();
-        let mut live_gains = HashMap::new();
         for item in items {
             let Some(schema) = item.schema() else {
-                continue;
-            };
-            let Some(audio) = schema.audio().cloned() else {
                 continue;
             };
             let start_sample_frame =
@@ -91,39 +82,34 @@ impl AudioTimelineGraph {
                 frame_rate,
                 format.sample_rate,
             );
-            let live_gain = live_gains
-                .entry(item.id)
-                .or_insert_with(|| Arc::new(AtomicU32::new(item.audio_gain().to_bits())))
-                .clone();
-            for (input_id, asset) in &item.assets {
-                if !audio.consumes(input_id) || !asset.kind.has_audio() {
+            for input in schema.audio() {
+                let Some((asset, playback, preserve_pitch)) = item.audio_input(input.id()) else {
                     continue;
-                }
-                let decoder = media_readers.open_audio_decoder(asset).map_err(|error| {
+                };
+                let id = AudioClipId {
+                    item_id: item.id,
+                    input_id: input.id().to_owned(),
+                };
+                let live_gain = Arc::new(AtomicU32::new(
+                    item.audio_gain(input.id())
+                        .expect("validated audio input")
+                        .to_bits(),
+                ));
+                let decoder = media_readers.open_audio_decoder(&asset).map_err(|error| {
                     AudioTimelineError::Media {
-                        clip: AudioClipId {
-                            item_id: item.id,
-                            input_id: input_id.clone(),
-                        },
+                        clip: id.clone(),
                         error,
                     }
                 })?;
-                let source_sample_frames = seconds_to_sample_frame(
-                    decoder.stream_duration().as_secs_f64(),
-                    format.sample_rate,
-                )
-                .max(1);
+                let source =
+                    AudioSource::new(decoder, playback, preserve_pitch, asset.duration, format);
                 clips.push(AudioClip {
-                    id: AudioClipId {
-                        item_id: item.id,
-                        input_id: input_id.clone(),
-                    },
+                    id,
                     item: item.clone(),
                     start_sample_frame,
                     end_sample_frame,
-                    source_sample_frames,
-                    live_gain: live_gain.clone(),
-                    decoder,
+                    live_gain,
+                    source,
                 });
             }
         }
@@ -136,7 +122,6 @@ impl AudioTimelineGraph {
             active: Vec::new(),
             next_clip: 0,
             previous_end: None,
-            live_gains,
         })
     }
 
@@ -144,8 +129,11 @@ impl AudioTimelineGraph {
         self.clips.is_empty()
     }
 
-    pub(crate) fn live_gains(&self) -> HashMap<ItemId, Arc<AtomicU32>> {
-        self.live_gains.clone()
+    pub(crate) fn live_gains(&self) -> HashMap<AudioClipId, Arc<AtomicU32>> {
+        self.clips
+            .iter()
+            .map(|clip| (clip.id.clone(), clip.live_gain.clone()))
+            .collect()
     }
 
     pub(crate) fn render(
@@ -162,8 +150,7 @@ impl AudioTimelineGraph {
             .checked_mul(channels)
             .ok_or(AudioTimelineError::RangeTooLarge)?;
         let mut mix = vec![0.; sample_count];
-        let active = self.active.clone();
-        for index in active {
+        for &index in &self.active {
             let clip = &mut self.clips[index];
             let intersection_start = block_start.max(clip.start_sample_frame);
             let intersection_end = block_end.min(clip.end_sample_frame);
@@ -225,62 +212,35 @@ fn mix_clip(
     gain_evaluation: AudioGainEvaluation,
 ) -> Result<(), AudioTimelineError> {
     let channels = usize::from(format.channels);
-    let mut remaining = usize::try_from(intersection_end.saturating_sub(intersection_start))
+    let frame_count = usize::try_from(intersection_end.saturating_sub(intersection_start))
         .map_err(|_| AudioTimelineError::RangeTooLarge)?;
-    let timeline_source_offset = intersection_start.saturating_sub(clip.start_sample_frame);
-    let mut source_frame = timeline_source_offset % clip.source_sample_frames;
-    let mut target_frame = usize::try_from(intersection_start.saturating_sub(block_start))
+    let source_offset = intersection_start.saturating_sub(clip.start_sample_frame);
+    let samples = clip
+        .source
+        .read(source_offset, frame_count)
+        .map_err(|error| AudioTimelineError::Media {
+            clip: clip.id.clone(),
+            error,
+        })?;
+    let target_frame = usize::try_from(intersection_start.saturating_sub(block_start))
         .map_err(|_| AudioTimelineError::RangeTooLarge)?;
-
-    while remaining > 0 {
-        let until_loop_end =
-            usize::try_from(clip.source_sample_frames.saturating_sub(source_frame))
-                .unwrap_or(usize::MAX);
-        let requested = remaining.min(until_loop_end.max(1));
-        let source_seconds = source_frame as f64 / f64::from(format.sample_rate);
-        let decoded = clip
-            .decoder
-            .decode_sample_frames(source_seconds, requested, format)
-            .map_err(|error| AudioTimelineError::Media {
-                clip: clip.id.clone(),
-                error,
-            })?;
-        if decoded.format != format || !decoded.samples.len().is_multiple_of(channels) {
-            return Err(AudioTimelineError::InvalidDecoderOutput {
-                clip: clip.id.clone(),
-            });
-        }
-        let decoded_frames = (decoded.samples.len() / channels).min(requested);
-        if decoded_frames == 0 {
-            return Err(AudioTimelineError::InvalidDecoderOutput {
-                clip: clip.id.clone(),
-            });
-        }
-        let timeline_frame = block_start.saturating_add(target_frame as u64);
-        let gain_start = gain_at(clip, timeline_frame, format, frame_rate, gain_evaluation);
-        let gain_end = gain_at(
-            clip,
-            timeline_frame.saturating_add(decoded_frames as u64),
-            format,
-            frame_rate,
-            gain_evaluation,
-        );
-        let mix_start = target_frame
-            .checked_mul(channels)
-            .ok_or(AudioTimelineError::RangeTooLarge)?;
-        for frame in 0..decoded_frames {
-            let progress = frame as f32 / decoded_frames.max(1) as f32;
-            let gain = gain_start + (gain_end - gain_start) * progress;
-            for channel in 0..channels {
-                mix[mix_start + frame * channels + channel] +=
-                    decoded.samples[frame * channels + channel] * gain;
-            }
-        }
-        remaining -= decoded_frames;
-        target_frame += decoded_frames;
-        source_frame = source_frame.saturating_add(decoded_frames as u64);
-        if decoded_frames < requested || source_frame >= clip.source_sample_frames {
-            source_frame = 0;
+    let gain_start = gain_at(
+        clip,
+        intersection_start,
+        format,
+        frame_rate,
+        gain_evaluation,
+    );
+    let gain_end = gain_at(clip, intersection_end, format, frame_rate, gain_evaluation);
+    let mix_start = target_frame
+        .checked_mul(channels)
+        .ok_or(AudioTimelineError::RangeTooLarge)?;
+    for frame in 0..frame_count {
+        let progress = frame as f32 / frame_count.max(1) as f32;
+        let gain = gain_start + (gain_end - gain_start) * progress;
+        for channel in 0..channels {
+            mix[mix_start + frame * channels + channel] +=
+                samples[frame * channels + channel] * gain;
         }
     }
     Ok(())
@@ -298,7 +258,10 @@ fn gain_at(
         AudioGainEvaluation::TimelineAnimation => {
             let seconds = sample_frame as f64 / f64::from(format.sample_rate);
             let time = TimelineTime::from_frames(seconds * frame_rate.frames_per_second());
-            clip.item.evaluated_at_time(time).audio_gain()
+            clip.item
+                .evaluated_at_time(time)
+                .audio_gain(&clip.id.input_id)
+                .expect("validated audio input")
         }
     }
 }
@@ -309,10 +272,4 @@ pub(crate) fn sample_boundary(frame: u64, frame_rate: FrameRate, sample_rate: u3
         .saturating_mul(u128::from(frame_rate.denominator()))
         / u128::from(frame_rate.numerator());
     u64::try_from(samples).unwrap_or(u64::MAX)
-}
-
-fn seconds_to_sample_frame(seconds: f64, sample_rate: u32) -> u64 {
-    (seconds.max(0.) * f64::from(sample_rate))
-        .round()
-        .clamp(0., u64::MAX as f64) as u64
 }

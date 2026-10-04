@@ -8,13 +8,13 @@ use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
 use crate::animation::{BezierHandle, ScalarAnimations, ScalarTrack, SegmentInterpolation};
-use crate::media::ImportedMedia;
+use crate::media::ImportedFile;
 use crate::property::{
     PropertyConfiguration, PropertyElementId, PropertySchema, PropertyType, PropertyValue,
 };
 
 use super::{
-    document::{ResizeEdge, TimelineDocument},
+    document::{ResizeEdge, ResizeMode, TimelineDocument},
     editor::{HistoryKey, HistorySnapshot, TimelineEditor},
     ids::{EffectInstanceId, ItemId, LayerId, SceneId},
     item::TimelineItem,
@@ -117,6 +117,10 @@ pub enum TimelineEditError {
     ItemNotFound(ItemId),
     #[error("File type does not match the item input")]
     IncompatibleMedia,
+    #[error("Playback speed must be between 25% and 400%")]
+    InvalidPlaybackSpeed,
+    #[error("Source interval must have a finite nonnegative start and a finite positive duration")]
+    InvalidSourceRange,
 }
 
 mod animation;

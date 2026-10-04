@@ -1,11 +1,12 @@
 use super::*;
 
 impl AnimationCurveEditor {
+    pub(super) fn normalized_value(value: f64, minimum: f64, maximum: f64) -> f32 {
+        ((value - minimum) / (maximum - minimum)) as f32
+    }
+
     pub(super) fn nice_value_step(range: f64) -> f64 {
         let rough_step = range.abs() / 5.;
-        if !rough_step.is_finite() || rough_step <= f64::EPSILON {
-            return 1.;
-        }
         let magnitude = 10_f64.powf(rough_step.log10().floor());
         let fraction = rough_step / magnitude;
         let nice_fraction = if fraction <= 1. {
@@ -22,20 +23,24 @@ impl AnimationCurveEditor {
 
     pub(super) fn value_grid(minimum: f64, maximum: f64) -> Vec<(f64, f32)> {
         let range = maximum - minimum;
-        if !range.is_finite() || range <= f64::EPSILON {
+        if range == 0. {
             return vec![(minimum, 0.5)];
         }
-
         let step = Self::nice_value_step(range);
         let first = (minimum / step).ceil() * step;
-        let count = ((maximum - first) / step).floor().max(0.) as usize + 1;
-        (0..count.min(32))
-            .map(|index| {
+        let count = ((maximum - first) / step).floor().max(0.) as usize;
+        let ticks = (0..=count.min(31))
+            .filter_map(|index| {
                 let value = first + index as f64 * step;
-                let normalized = (value - minimum) / (maximum - minimum);
-                (value, normalized as f32)
+                (value.is_finite() && (minimum..=maximum).contains(&value))
+                    .then(|| (value, Self::normalized_value(value, minimum, maximum)))
             })
-            .collect()
+            .collect::<Vec<_>>();
+        if ticks.is_empty() {
+            vec![(minimum, 0.), (maximum, 1.)]
+        } else {
+            ticks
+        }
     }
 
     pub(super) fn time_grid(

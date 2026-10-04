@@ -1,5 +1,5 @@
 use rust_i18n::t;
-use std::{collections::HashSet, rc::Rc, sync::Arc};
+use std::{cell::Cell, collections::HashSet, rc::Rc, sync::Arc};
 
 use ::ui::{
     ActiveTheme as _, Colorize as _, Icon, IconName, Sizable as _, ThemeColor,
@@ -19,8 +19,8 @@ use crate::{
     project_session::{ProjectActivity, ProjectSession, ProjectSessionId},
 };
 use zerium_core::timeline::{
-    Frame, FrameDuration, FrameRate, ItemId, LayerId, PropertyAddress, ResizeEdge, SceneId,
-    TimelineEditError, TimelineEditor, TimelineItem, TimelineTime,
+    Frame, FrameDuration, FrameRate, ItemId, LayerId, PropertyAddress, ResizeEdge, ResizeMode,
+    SceneId, TimelineEditError, TimelineEditor, TimelineItem, TimelineTime,
 };
 
 use super::{
@@ -59,6 +59,8 @@ struct ResizeTimelineItem {
     origins: Rc<[TimelineItem]>,
     anchor_id: ItemId,
     edge: ResizeEdge,
+    // GPUI retains this payload; the entity returned at drag start is only a preview.
+    mode: Cell<ResizeMode>,
 }
 
 impl Render for ResizeTimelineItem {
@@ -569,6 +571,7 @@ impl Timeline {
             self.editor.read(cx).frame_rate(),
         )
     }
+
     fn seek_to_x(&mut self, position_x: f32, window: &mut Window, cx: &mut Context<Self>) {
         let frame = self.pointer_frame(position_x, window, cx);
         self.transport
@@ -625,7 +628,7 @@ impl Timeline {
         self.stop_playback(cx);
         self.editor.update(cx, |editor, cx| {
             if editor
-                .group_selected_as_scene(&t!("timeline.new_scene").to_string())
+                .group_selected_as_scene(t!("timeline.new_scene").as_ref())
                 .is_some()
             {
                 cx.notify();

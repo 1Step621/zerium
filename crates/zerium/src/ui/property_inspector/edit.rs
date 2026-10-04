@@ -18,6 +18,19 @@ impl ArrayEdit {
 }
 
 impl PropertyInspector {
+    pub(super) fn request_scene_argument_settings(
+        &self,
+        argument_id: &str,
+        cx: &mut Context<Self>,
+    ) {
+        if let Some(scene_id) = self.editor.read(cx).active_scene_id() {
+            cx.emit(SceneArgumentRequested {
+                scene_id,
+                argument_id: argument_id.to_owned(),
+            });
+        }
+    }
+
     fn selected_item_at_playhead(&self, cx: &App) -> Option<TimelineItem> {
         let editor = self.editor.read(cx);
         editor.selected_item().map(|item| {
@@ -37,13 +50,26 @@ impl PropertyInspector {
         value: PropertyValue,
         cx: &mut Context<Self>,
     ) -> bool {
-        self.editor.update_if_changed(cx, |editor| {
-            editor.update_selected_property(
+        let result = self.editor.update(cx, |editor, cx| {
+            let result = editor.edit_selected_property(
                 target.effect_id,
                 PropertyPath::new(&target.property_id, target.element_id, target.scalar_index),
                 value,
-            )
-        })
+            );
+            if result == Ok(true) {
+                cx.notify();
+            }
+            result
+        });
+        match result {
+            Ok(changed) => changed,
+            Err(error) => {
+                self.notifications.update(cx, |notifications, cx| {
+                    notifications.push(t!("inspector.edit_failed", error = error).to_string(), cx)
+                });
+                false
+            }
+        }
     }
 
     fn live_numeric_value(item: &TimelineItem, target: &PropertyTarget) -> Option<f64> {
@@ -56,30 +82,10 @@ impl PropertyInspector {
         value: f64,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(updated) = self.selected_item_at_playhead(cx).and_then(|item| {
-            let current = match target.effect_id {
-                Some(effect_id) => item
-                    .effects
-                    .iter()
-                    .find(|effect| effect.id == effect_id)?
-                    .properties
-                    .property(&target.property_id)?,
-                None => item.properties.property(&target.property_id)?,
-            };
-            let current = match target.element_id {
-                Some(id) => match current {
-                    PropertyValue::Array(values) => values
-                        .iter()
-                        .find(|element| element.element_id() == id)?
-                        .value(),
-                    _ => return None,
-                },
-                None => current,
-            };
-            current
-                .scalar_at(target.scalar_index)?
-                .with_numeric_scalar(value)
-        }) else {
+        let Some(updated) = self
+            .selected_item_at_playhead(cx)
+            .and_then(|item| target.value(&item)?.with_numeric_scalar(value))
+        else {
             return false;
         };
         self.set_scalar(target, updated, cx)
@@ -104,8 +110,8 @@ impl PropertyInspector {
         let input_value = input.read(cx).value().to_string();
         let current_value = self
             .selected_item_at_playhead(cx)
-            .and_then(|item| Self::live_numeric_value(&item, target));
-        if current_value.is_some_and(|value| input_value == Self::format_value(value)) {
+            .and_then(|item| target.value(&item).and_then(PropertyValue::numeric_text));
+        if current_value.is_some_and(|value| input_value == value) {
             return;
         }
         let Some(number) = NumericInput::new(spec.scalar_type.clone()) else {
@@ -130,20 +136,14 @@ impl PropertyInspector {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let value = input.read(cx).value().parse::<f64>().unwrap_or(spec.min);
-        let value = Self::normalize_field_value(
-            spec,
-            match event {
-                NumberInputEvent::Step {
-                    action: StepAction::Increment,
-                    ..
-                } => value + spec.step,
-                NumberInputEvent::Step {
-                    action: StepAction::Decrement,
-                    ..
-                } => value - spec.step,
-            },
-        );
+        let value = spec
+            .parse_number(&input.read(cx).value())
+            .or_else(|| {
+                self.selected_item_at_playhead(cx)
+                    .and_then(|item| Self::live_numeric_value(&item, target))
+            })
+            .unwrap_or(spec.min);
+        let value = spec.stepped_value(value, event);
         self.update_numeric_scalar(target, value, cx);
     }
 
@@ -234,8 +234,8 @@ impl PropertyInspector {
         }
         let input_value = input.read(cx).value().to_string();
         let current = Self::animation_stop_value(self.editor.read(cx), binding)
-            .and_then(|value| value.numeric_scalar());
-        if current.is_some_and(|value| input_value == Self::format_value(value)) {
+            .and_then(|value| value.numeric_text());
+        if current.is_some_and(|value| input_value == value) {
             return;
         }
         let Some(value) = NumericInput::new(spec.scalar_type.clone())
@@ -256,20 +256,14 @@ impl PropertyInspector {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let value = input.read(cx).value().parse::<f64>().unwrap_or(spec.min);
-        let value = Self::normalize_field_value(
-            spec,
-            match event {
-                NumberInputEvent::Step {
-                    action: StepAction::Increment,
-                    ..
-                } => value + spec.step,
-                NumberInputEvent::Step {
-                    action: StepAction::Decrement,
-                    ..
-                } => value - spec.step,
-            },
-        );
+        let value = spec
+            .parse_number(&input.read(cx).value())
+            .or_else(|| {
+                Self::animation_stop_value(self.editor.read(cx), binding)
+                    .and_then(|value| value.numeric_scalar())
+            })
+            .unwrap_or(spec.min);
+        let value = spec.stepped_value(value, event);
         self.update_animation_stop_numeric(binding, value, cx);
     }
 
@@ -360,38 +354,35 @@ impl PropertyInspector {
 
     pub(super) fn handle_value_drag(
         &mut self,
-        drag: &PropertyValueDrag,
+        origin: &PropertyValueDragOrigin,
         pointer_x: f32,
         fine_adjustment: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if drag.inspector_id != cx.entity_id() || self.editor.read(cx).selected_item().is_none() {
+        if self.editor.read(cx).selected_item().is_none() {
             return;
         }
-        let Some(origin) = self
-            .store
-            .value_drag_origin
-            .as_ref()
-            .filter(|origin| origin.input_id == drag.input_id)
-            .cloned()
-        else {
-            return;
-        };
-        let sensitivity = origin.sensitivity * if fine_adjustment { 0.1 } else { 1. };
-        let value = snap_to_step(
-            origin.start_value + f64::from(pointer_x - origin.start_x) * sensitivity,
-            origin.step,
-        )
-        .clamp(origin.min, origin.max);
+        let value = origin
+            .adjustment
+            .value_at(pointer_x, fine_adjustment)
+            .clamp(origin.min, origin.max);
 
         if let Some(binding) = &origin.animation_stop {
             self.update_animation_stop_numeric(binding, value, cx);
         } else {
             self.update_numeric_scalar(&origin.target, value, cx);
         }
-        if let Some(input) = self.store.text_inputs.get(&drag.input_id) {
-            Self::set_input_value(&input.input, Self::format_value(value), window, cx);
+        if let Some(input) = self.store.text_inputs.get(&origin.input_id) {
+            let displayed = match origin.animation_stop.as_ref() {
+                Some(binding) => Self::animation_stop_value(self.editor.read(cx), binding),
+                None => self
+                    .selected_item_at_playhead(cx)
+                    .and_then(|item| origin.target.value(&item).cloned()),
+            }
+            .map(|value| Self::numeric_value_text(&value))
+            .unwrap_or_else(|| Self::format_value(value));
+            Self::set_input_value(&input.input, displayed, window, cx);
         }
     }
 
@@ -404,62 +395,35 @@ impl PropertyInspector {
         event: &MouseDownEvent,
         cx: &mut Context<Self>,
     ) {
-        self.editor
-            .update(cx, |editor, _| editor.finish_history_group());
         let input = self.store.text_inputs.get(input_id);
         let start_value = input
-            .and_then(|state| state.input.read(cx).value().parse::<f64>().ok())
+            .and_then(|state| spec.parse_number(&state.input.read(cx).value()))
+            .or_else(|| match animation_stop.as_ref() {
+                Some(binding) => Self::animation_stop_value(self.editor.read(cx), binding)
+                    .and_then(|value| value.numeric_scalar()),
+                None => self
+                    .selected_item_at_playhead(cx)
+                    .and_then(|item| Self::live_numeric_value(&item, target)),
+            })
             .unwrap_or(spec.min);
-        self.store.value_drag_origin = Some(PropertyValueDragOrigin {
-            target: target.clone(),
-            input_id: input_id.clone(),
-            animation_stop,
-            start_x: f32::from(event.position.x),
-            start_value,
-            min: spec.min,
-            max: spec.max,
-            step: spec.step,
-            sensitivity: Self::drag_sensitivity(spec.min, spec.max, spec.step),
-        });
-    }
-
-    pub(super) fn finish_value_drag(&mut self, cx: &mut Context<Self>) {
-        self.store.value_drag_origin = None;
-        self.store.scene_argument_value_drag_origin = None;
-        self.editor
-            .update(cx, |editor, _| editor.finish_history_group());
-    }
-
-    pub(super) fn select_number_animation(
-        &mut self,
-        target: &PropertyTarget,
-        cx: &mut Context<Self>,
-    ) {
-        self.editor.update(cx, |editor, cx| {
-            if editor.set_active_edit_effect(target.effect_id) {
-                cx.notify();
-            }
-        });
-        let selected_items = self.editor.read(cx).selected_items();
-        let address = match selected_items.as_slice() {
-            [item] if target.animation_enabled(item) => Some(target.address(item.id)),
-            _ => None,
-        };
-        self.animation_selection
-            .update(cx, |selection, cx| match address {
-                Some(address) => selection.select(address, cx),
-                None => selection.clear(cx),
-            });
-    }
-
-    pub(super) fn set_number_animation_enabled(
-        &mut self,
-        target: &PropertyTarget,
-        enabled: bool,
-        _window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.set_animation_enabled(target, enabled, _window, cx);
+        self.begin_number_drag(
+            Rc::new(PropertyValueDragOrigin {
+                target: target.clone(),
+                input_id: input_id.clone(),
+                animation_stop,
+                adjustment: crate::ui::numeric_property::NumericDrag {
+                    start_x: f32::from(event.position.x),
+                    start_value,
+                    step: spec.step,
+                    sensitivity: spec
+                        .drag_step
+                        .unwrap_or_else(|| Self::drag_sensitivity(spec.min, spec.max, spec.step)),
+                },
+                min: spec.min,
+                max: spec.max,
+            }),
+            cx,
+        );
     }
 
     pub(super) fn select_animation(&mut self, property: &PropertyTarget, cx: &mut Context<Self>) {
@@ -594,7 +558,7 @@ impl PropertyInspector {
     pub(super) fn choose_file(
         &mut self,
         effect_id: Option<EffectInstanceId>,
-        input_id: String,
+        property_id: String,
         _: &gpui::ClickEvent,
         _: &mut Window,
         cx: &mut Context<Self>,
@@ -611,7 +575,11 @@ impl PropertyInspector {
                 let Some(effect) = item.effects.iter().find(|effect| effect.id == effect_id) else {
                     return;
                 };
-                if !effect.schema().files().any(|file| file.id() == input_id) {
+                if !effect
+                    .schema()
+                    .file_property(&property_id)
+                    .is_some_and(|file| file.is_editable(None) && file.is_visible())
+                {
                     return;
                 }
                 (effect.plugin_id.clone(), effect.effect_id.clone())
@@ -620,7 +588,10 @@ impl PropertyInspector {
                 let Some(schema) = item.schema() else {
                     return;
                 };
-                if schema.file(&input_id).is_none() {
+                if !schema
+                    .file_property(&property_id)
+                    .is_some_and(|file| file.is_editable(None) && file.is_visible())
+                {
                     return;
                 }
                 (
@@ -629,7 +600,7 @@ impl PropertyInspector {
                 )
             }
         };
-        let expected_input_id = input_id;
+        let expected_property_id = property_id;
         let receiver = cx.prompt_for_paths(PathPromptOptions {
             files: true,
             directories: false,
@@ -637,7 +608,6 @@ impl PropertyInspector {
             prompt: Some(t!("edit.choose_file").to_string().into()),
         });
         self.loading_file = true;
-        self.file_error = None;
         let editor = self.editor.clone();
         let media_readers = self.media_readers.clone();
         let session = self.session.clone();
@@ -655,7 +625,6 @@ impl PropertyInspector {
                         inspector.update(cx, |inspector, cx| {
                             let message = t!("edit.select_file_failed", error = error).to_string();
                             inspector.loading_file = false;
-                            inspector.file_error = Some(message.clone().into());
                             inspector.notifications.update(cx, |notifications, cx| {
                                 notifications.push(message, cx);
                             });
@@ -674,7 +643,6 @@ impl PropertyInspector {
                         inspector.update(cx, |inspector, cx| {
                             let message = t!("edit.file_picker_failed", error = error).to_string();
                             inspector.loading_file = false;
-                            inspector.file_error = Some(message.clone().into());
                             inspector.notifications.update(cx, |notifications, cx| {
                                 notifications.push(message, cx);
                             });
@@ -708,7 +676,7 @@ impl PropertyInspector {
             };
             let probe_plugin_id = expected_plugin_id.clone();
             let probe_source_id = expected_source_id.clone();
-            let probe_input_id = expected_input_id.clone();
+            let probe_property_id = expected_property_id.clone();
             let result = cx
                 .background_spawn(async move {
                     match effect_id {
@@ -716,13 +684,13 @@ impl PropertyInspector {
                             path,
                             &probe_plugin_id,
                             &probe_source_id,
-                            &probe_input_id,
+                            &probe_property_id,
                         ),
                         None => media_readers.probe_for_item(
                             path,
                             &probe_plugin_id,
                             &probe_source_id,
-                            &probe_input_id,
+                            &probe_property_id,
                         ),
                     }
                 })
@@ -733,35 +701,30 @@ impl PropertyInspector {
             if let Some(inspector) = inspector.upgrade() {
                 inspector.update(cx, |inspector, cx| {
                     inspector.loading_file = false;
-                    match result {
+                    let error = match result {
                         Ok(imported)
                             if imported.plugin_id == expected_plugin_id
                                 && imported.source_id == expected_source_id
-                                && imported.input_id == expected_input_id =>
+                                && imported.property_id == expected_property_id =>
                         {
                             let result = editor.update(cx, |editor, cx| {
                                 let result = match effect_id {
                                     Some(effect_id) => {
-                                        editor.set_effect_asset(item_id, effect_id, imported)
+                                        editor.set_effect_file(item_id, effect_id, imported)
                                     }
-                                    None => editor.set_item_asset(item_id, imported),
+                                    None => editor.set_item_file(item_id, imported),
                                 };
                                 if result.is_ok() {
                                     cx.notify();
                                 }
                                 result
                             });
-                            if let Err(error) = result {
-                                inspector.file_error = Some(error.to_string().into());
-                            }
+                            result.err().map(|error| error.to_string())
                         }
-                        Ok(_) => {
-                            inspector.file_error =
-                                Some(t!("edit.mismatched_file").to_string().into());
-                        }
-                        Err(error) => inspector.file_error = Some(error.to_string().into()),
-                    }
-                    if let Some(error) = inspector.file_error.clone() {
+                        Ok(_) => Some(t!("edit.mismatched_file").to_string()),
+                        Err(error) => Some(error.to_string()),
+                    };
+                    if let Some(error) = error {
                         inspector.notifications.update(cx, |notifications, cx| {
                             notifications.push(error, cx);
                         });

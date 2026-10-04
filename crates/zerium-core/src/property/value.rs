@@ -41,6 +41,7 @@ impl PropertyElement {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PropertyValue {
+    File(Option<std::path::PathBuf>),
     F32(f32),
     I32(i32),
     U32(u32),
@@ -53,6 +54,13 @@ pub enum PropertyValue {
 }
 
 impl PropertyValue {
+    pub fn file(&self) -> Option<&std::path::Path> {
+        match self {
+            Self::File(path) => path.as_deref(),
+            _ => None,
+        }
+    }
+
     pub fn scalar_at(&self, scalar_index: Option<usize>) -> Option<&Self> {
         match (self, scalar_index) {
             (Self::Tuple(values), Some(index)) => values.get(index),
@@ -148,6 +156,11 @@ impl PropertyValues {
 
     pub fn property(&self, id: &str) -> Option<&PropertyValue> {
         self.values.get(id)
+    }
+
+    pub fn files(&self) -> impl Iterator<Item = (&str, &std::path::Path)> {
+        self.iter()
+            .filter_map(|(id, value)| value.file().map(|path| (id, path)))
     }
 
     pub fn property_mut(&mut self, id: &str) -> Option<&mut PropertyValue> {

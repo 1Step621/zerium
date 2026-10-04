@@ -12,13 +12,14 @@ mod scene;
 mod selection;
 mod settings;
 mod time;
+mod time_mapping;
 mod view;
 mod visibility;
 
 pub use aspect_ratio::AspectRatio;
 pub use commands::TimelineEditError;
-pub use document::ResizeEdge;
 pub use document::TimelineDocument;
+pub use document::{ResizeEdge, ResizeMode};
 pub use editor::TimelineEditor;
 pub use evaluation::EvaluatedSceneNode;
 pub use ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId};
@@ -31,4 +32,5 @@ pub use scene::{
 };
 pub use settings::ProjectResolution;
 pub use time::{Frame, FrameDuration, FrameRate, TimelineTime};
+pub use time_mapping::TimeMapping;
 pub use view::{TimelineSnapshot, TimelineView};

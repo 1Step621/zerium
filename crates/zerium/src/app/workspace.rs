@@ -1,11 +1,12 @@
 use rust_i18n::t;
 
 use ::ui::{
-    ActiveTheme as _, ContextModal as _, Root, Sizable as _,
+    ActiveTheme as _, ContextModal as _, Root, Selectable as _, Sizable as _,
     button::{Button, ButtonVariants as _},
     menu::{PopupMenuItem, popup_menu::PopupMenuExt as _},
     notification::Notification,
     resizable::{h_resizable, resizable_panel, v_resizable},
+    tab::Tab,
 };
 use gpui::{Context, FocusHandle, Render, Subscription, Window, div, prelude::*, px};
 
@@ -15,11 +16,24 @@ pub(super) const WORKSPACE_KEY_CONTEXT: &str = "ZeriumWorkspace";
 pub(super) const WORKSPACE_SHORTCUT_KEY_CONTEXT: &str = "ZeriumWorkspace && !Input";
 pub(super) const MENU_BAR_HEIGHT: f32 = 30.;
 
+#[derive(Clone, Copy, Default, PartialEq, Eq)]
+pub(super) enum InspectorTab {
+    #[default]
+    Properties,
+    SceneSettings,
+}
+
+impl InspectorTab {
+    const ALL: [Self; 2] = [Self::Properties, Self::SceneSettings];
+}
+
 pub(super) struct Workspace {
     pub(super) timeline: gpui::Entity<crate::ui::timeline::Timeline>,
     pub(super) explorer: gpui::Entity<crate::ui::explorer::Explorer>,
     pub(super) preview: gpui::Entity<crate::ui::preview::Preview>,
+    pub(super) scene_settings: gpui::Entity<crate::ui::scene_settings::SceneSettings>,
     pub(super) property_inspector: gpui::Entity<crate::ui::property_inspector::PropertyInspector>,
+    pub(super) inspector_tab: InspectorTab,
     pub(super) animation_curve: gpui::Entity<crate::ui::animation_curve::AnimationCurveEditor>,
     pub(super) project_controller: gpui::Entity<crate::app::project_controller::ProjectController>,
     pub(super) export_controller: gpui::Entity<crate::ui::export::ExportController>,
@@ -31,6 +45,7 @@ pub(super) struct Workspace {
     pub(super) _project_subscription: Subscription,
     pub(super) _export_subscription: Subscription,
     pub(super) _notification_subscription: Subscription,
+    pub(super) _inspector_subscription: Subscription,
 }
 
 impl Workspace {
@@ -137,8 +152,10 @@ impl Workspace {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.inspector_tab = InspectorTab::Properties;
         self.property_inspector
             .update(cx, |inspector, cx| inspector.open_effect_picker(window, cx));
+        cx.notify();
     }
 
     fn new_project(&mut self, _: &NewProject, window: &mut Window, cx: &mut Context<Self>) {
@@ -404,7 +421,7 @@ impl Render for Workspace {
                                         resizable_panel()
                                             .size(px(420.))
                                             .size_range(px(420.)..px(600.))
-                                            .child(self.property_inspector.clone()),
+                                            .child(self.inspector_panel(cx)),
                                     ),
                             ),
                         )
@@ -427,5 +444,47 @@ impl Render for Workspace {
             .when_some(drawer_layer, |this, layer| this.child(layer))
             .when_some(modal_layer, |this, layer| this.child(layer))
             .when_some(notification_layer, |this, layer| this.child(layer))
+    }
+}
+
+impl Workspace {
+    fn inspector_panel(&self, cx: &mut Context<Self>) -> gpui::Div {
+        let labels = [
+            t!("inspector.properties").to_string(),
+            t!("args.scene_settings").to_string(),
+        ];
+        let tabs =
+            InspectorTab::ALL
+                .into_iter()
+                .zip(labels)
+                .enumerate()
+                .map(|(index, (tab, label))| {
+                    Tab::new(label)
+                        .id(index)
+                        .small()
+                        .selected(self.inspector_tab == tab)
+                        .on_click(cx.listener(move |this, _, window, cx| {
+                            this.inspector_tab = tab;
+                            this.focus_handle.focus(window, cx);
+                            cx.notify();
+                        }))
+                });
+        let content = match self.inspector_tab {
+            InspectorTab::Properties => self.property_inspector.clone().into_any_element(),
+            InspectorTab::SceneSettings => self.scene_settings.clone().into_any_element(),
+        };
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(
+                crate::ui::pane::pane_header(cx.theme().colors)
+                    .id("inspector-tabs")
+                    .px_0()
+                    .gap_0()
+                    .justify_start()
+                    .children(tabs),
+            )
+            .child(div().flex_1().min_h_0().overflow_hidden().child(content))
     }
 }

@@ -1,6 +1,8 @@
 use rust_i18n::t;
 
-use super::control::{Control, ElementGroup, ElementKind, LeafControl, NumberControl};
+use super::control::{
+    Control, EditorControl, ElementGroup, ElementKind, LeafControl, NumberControl,
+};
 use super::edit::ArrayEdit;
 use super::state::ControlStore;
 use super::*;
@@ -16,7 +18,7 @@ pub(super) struct RenderCtx<'a> {
     pub store: &'a ControlStore,
     pub font_names: &'a [String],
     pub item_id: ItemId,
-    pub active_scene_name_input: Option<Entity<InputState>>,
+    pub loading_file: bool,
 }
 
 struct DraggableNumberInput {
@@ -184,29 +186,40 @@ impl PropertyInspector {
             .tooltip(t!("rows.bind_tooltip").to_string())
             .popup_menu(move |menu, _, _| {
                 if let Some((argument_id, _)) = &binding.connected {
+                    let settings_inspector = menu_inspector.clone();
+                    let settings_id = argument_id.clone();
                     let inspector = menu_inspector.clone();
                     let argument_id = argument_id.clone();
                     let target = binding.target.clone();
-                    return menu.item(PopupMenuItem::new(t!("rows.unbind").to_string()).on_click(
-                        move |_, _, cx| {
-                            inspector.update(cx, |inspector, cx| {
-                                let result = inspector.editor.update(cx, |editor, cx| {
-                                    let result =
-                                        editor.disconnect_scene_argument(&argument_id, &target);
-                                    if result.is_ok() {
-                                        cx.notify();
-                                    }
-                                    result
-                                });
-                                if result.is_err() {
-                                    inspector.notifications.update(cx, |notifications, cx| {
-                                        notifications
-                                            .push(t!("rows.unbind_failed").to_string(), cx);
+                    return menu
+                        .item(
+                            PopupMenuItem::new(t!("rows.open_argument_settings").to_string())
+                                .on_click(move |_, _, cx| {
+                                    settings_inspector.update(cx, |inspector, cx| {
+                                        inspector.request_scene_argument_settings(&settings_id, cx)
                                     });
-                                }
-                            });
-                        },
-                    ));
+                                }),
+                        )
+                        .item(PopupMenuItem::new(t!("rows.unbind").to_string()).on_click(
+                            move |_, _, cx| {
+                                inspector.update(cx, |inspector, cx| {
+                                    let result = inspector.editor.update(cx, |editor, cx| {
+                                        let result =
+                                            editor.disconnect_scene_argument(&argument_id, &target);
+                                        if result.is_ok() {
+                                            cx.notify();
+                                        }
+                                        result
+                                    });
+                                    if result.is_err() {
+                                        inspector.notifications.update(cx, |notifications, cx| {
+                                            notifications
+                                                .push(t!("rows.unbind_failed").to_string(), cx);
+                                        });
+                                    }
+                                });
+                            },
+                        ));
                 }
 
                 binding
@@ -226,7 +239,9 @@ impl PropertyInspector {
                                     }
                                     result
                                 });
-                                if result.is_err() {
+                                if result.is_ok() {
+                                    inspector.request_scene_argument_settings(&argument_id, cx);
+                                } else {
                                     inspector.notifications.update(cx, |notifications, cx| {
                                         notifications.push(t!("rows.bind_failed").to_string(), cx);
                                     });
@@ -263,7 +278,7 @@ impl PropertyInspector {
         )
         .on_click(move |_, window, cx| {
             inspector.update(cx, |inspector, cx| {
-                inspector.set_number_animation_enabled(&target, !enabled, window, cx);
+                inspector.set_animation_enabled(&target, !enabled, window, cx);
             });
         })
     }
@@ -293,7 +308,7 @@ impl PropertyInspector {
             button.on_click(move |_, window, cx| {
                 cx.stop_propagation();
                 inspector.update(cx, |inspector, cx| {
-                    inspector.set_number_animation_enabled(&target, !enabled, window, cx);
+                    inspector.set_animation_enabled(&target, !enabled, window, cx);
                 });
             })
         })
@@ -691,7 +706,7 @@ impl PropertyInspector {
                     .is_some_and(|binding| binding.connected.is_some());
                 Some((row, bound))
             }
-            Control::Group { .. } => None,
+            Control::Group { .. } | Control::File(_) => None,
         }
     }
 
@@ -750,7 +765,7 @@ impl PropertyInspector {
                         .flex_1()
                         .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                             select_inspector.update(cx, |inspector, cx| {
-                                inspector.select_number_animation(&select_target, cx);
+                                inspector.select_animation(&select_target, cx);
                             });
                         })
                         .child(value_input),

@@ -76,12 +76,15 @@ impl ShaderContract {
                     id: id.to_owned(),
                     ty: ty.clone(),
                     offset,
-                    shader_type: match ty {
-                        PropertyType::Value(ty) => {
-                            ShaderPropertyType::Value(ShaderValueType::from_property(ty))
-                        }
-                        PropertyType::Array { element_type, .. } => {
-                            ShaderPropertyType::Array(ShaderValueType::from_property(element_type))
+                    shader_type: {
+                        let value = ShaderValueType::from_property(
+                            ty.value_type()
+                                .expect("ABI fields have a shader value type"),
+                        );
+                        if matches!(ty, PropertyType::Array { .. }) {
+                            ShaderPropertyType::Array(value)
+                        } else {
+                            ShaderPropertyType::Value(value)
                         }
                     },
                 })
@@ -158,7 +161,7 @@ pub fn shader_contract_fingerprint(
     contracts: &BTreeMap<String, ShaderContract>,
 ) -> Result<String, PluginError> {
     // Bump when host templates or the generated interface format change.
-    const GENERATED_INTERFACE_REVISION: &[u8] = b"zerium-shader-contract-5\0";
+    const GENERATED_INTERFACE_REVISION: &[u8] = b"zerium-shader-contract-1\0";
     let signature = serde_json::to_vec(&(MAX_CAPABILITIES, contracts)).map_err(|error| {
         PluginError::invalid_definition(format!("cannot encode shader contracts: {error}"))
     })?;

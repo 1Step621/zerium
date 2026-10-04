@@ -78,56 +78,136 @@
     "file": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "label", "media_type", "reader"],
       "properties": {
-        "id": { "$ref": "#/$defs/wgslId" },
-        "label": { "$ref": "#/$defs/localizedText" },
-        "media_type": { "enum": ["video", "audio", "image"] },
-        "reader": { "$ref": "#/$defs/logicalId" },
-        "extensions": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": { "type": "string", "pattern": "^[a-z0-9]+$" }
-        }
+        "extensions": {"type": "array", "uniqueItems": true, "items": {"type": "string", "pattern": "^[a-z0-9]+$"}}
+      }
+    },
+    "mediaPlayback": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_start", "source_duration", "playback_speed", "end_behavior"],
+      "properties": {
+        "source_start": { "$ref": "#/$defs/wgslId" },
+        "source_duration": { "$ref": "#/$defs/wgslId" },
+        "playback_speed": { "$ref": "#/$defs/wgslId" },
+        "end_behavior": { "$ref": "#/$defs/wgslId" }
       }
     },
     "audioCapability": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["inputs", "volume"],
+      "required": [
+        "id",
+        "file",
+        "reader",
+        "volume",
+        "source_start",
+        "source_duration",
+        "playback_speed",
+        "end_behavior",
+        "preserve_pitch"
+      ],
       "properties": {
-        "inputs": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": { "$ref": "#/$defs/wgslSuffix" }
-        },
-        "volume": { "$ref": "#/$defs/wgslId" },
-        "files": { "type": "array", "items": { "$ref": "#/$defs/file" } }
+        "id": { "$ref": "#/$defs/logicalId" },
+        "file": { "$ref": "#/$defs/wgslId" },
+        "reader": { "$ref": "#/$defs/logicalId" },
+        "volume": {"$ref": "#/$defs/wgslId"},
+        "source_start": {"$ref": "#/$defs/wgslId"},
+        "source_duration": {"$ref": "#/$defs/wgslId"},
+        "playback_speed": {"$ref": "#/$defs/wgslId"},
+        "end_behavior": {"$ref": "#/$defs/wgslId"},
+        "preserve_pitch": {"$ref": "#/$defs/wgslId"}
       }
     },
     "editorCapability": {
-      "type": "object",
-      "additionalProperties": false,
-      "minProperties": 1,
-      "dependentRequired": { "aspect_lock_default": ["aspect_lock"] },
-      "properties": {
-        "position": { "$ref": "#/$defs/wgslId" },
-        "size": { "$ref": "#/$defs/wgslId" },
-        "aspect_lock": { "$ref": "#/$defs/wgslId" },
-        "aspect_lock_default": { "type": "boolean", "default": false },
-        "points": { "$ref": "#/$defs/wgslId" },
-        "spline": {
+      "oneOf": [
+        {
           "type": "object",
           "additionalProperties": false,
-          "required": ["tension", "closed"],
+          "required": ["type", "source_start", "source_duration", "playback_speed"],
           "properties": {
-            "tension": { "$ref": "#/$defs/wgslId" },
-            "closed": { "$ref": "#/$defs/wgslId" }
+            "type": {"const": "timeline"},
+            "source_start": {"$ref": "#/$defs/wgslId"},
+            "source_duration": {"$ref": "#/$defs/wgslId"},
+            "playback_speed": {"$ref": "#/$defs/wgslId"}
           }
         },
-        "label": { "$ref": "#/$defs/wgslId" }
-      }
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "property"],
+          "properties": {
+            "type": {"const": "position"},
+            "property": {"$ref": "#/$defs/wgslId"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "property", "position"],
+          "properties": {
+            "type": {"const": "size"},
+            "property": {"$ref": "#/$defs/wgslId"},
+            "position": {"$ref": "#/$defs/wgslId"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "property"],
+          "properties": {
+            "type": {"const": "aspect_lock"},
+            "property": {"$ref": "#/$defs/wgslId"},
+            "default": {"type": "boolean", "default": false}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "property", "position", "size"],
+          "properties": {
+            "type": {"const": "points"},
+            "property": {"$ref": "#/$defs/wgslId"},
+            "position": {"$ref": "#/$defs/wgslId"},
+            "size": {"$ref": "#/$defs/wgslId"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "points", "position", "size", "tension", "closed"],
+          "properties": {
+            "type": {"const": "spline"},
+            "points": {"$ref": "#/$defs/wgslId"},
+            "position": {"$ref": "#/$defs/wgslId"},
+            "size": {"$ref": "#/$defs/wgslId"},
+            "tension": {"$ref": "#/$defs/wgslId"},
+            "closed": {"$ref": "#/$defs/wgslId"}
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "property"],
+          "properties": {
+            "type": {"const": "label"},
+            "property": {"$ref": "#/$defs/wgslId"}
+          }
+        }
+      ]
+    },
+    "editorCapabilities": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/editorCapability" },
+      "allOf": [
+        {"contains": {"properties": {"type": {"const": "timeline"}}, "required": ["type"]}, "minContains": 0, "maxContains": 1},
+        {"contains": {"properties": {"type": {"const": "position"}}, "required": ["type"]}, "minContains": 0, "maxContains": 1},
+        {"contains": {"properties": {"type": {"const": "size"}}, "required": ["type"]}, "minContains": 0, "maxContains": 1},
+        {"contains": {"properties": {"type": {"const": "aspect_lock"}}, "required": ["type"]}, "minContains": 0, "maxContains": 1},
+        {"contains": {"properties": {"type": {"const": "label"}}, "required": ["type"]}, "minContains": 0, "maxContains": 1},
+        {"contains": {"properties": {"type": {"const": "points"}}, "required": ["type"]}, "minContains": 0, "maxContains": 1},
+        {"contains": {"properties": {"type": {"const": "spline"}}, "required": ["type"]}, "minContains": 0, "maxContains": 1}
+      ]
     },
     "scalarType": {
       "oneOf": [
@@ -166,7 +246,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["value"],
-          "properties": { "value": { "$ref": "#/$defs/arrayValueType" } }
+          "properties": {"value": {"$ref": "#/$defs/arrayValueType"}}
         },
         {
           "type": "object",
@@ -178,20 +258,18 @@
               "additionalProperties": false,
               "required": ["element_type", "max_items"],
               "properties": {
-                "element_type": { "$ref": "#/$defs/arrayValueType" },
-                "min_items": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 1000000
-                },
-                "max_items": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 1000000
-                }
+                "element_type": {"$ref": "#/$defs/arrayValueType"},
+                "min_items": {"type": "integer", "minimum": 0, "maximum": 1000000},
+                "max_items": {"type": "integer", "minimum": 1, "maximum": 1000000}
               }
             }
           }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["file"],
+          "properties": {"file": {"$ref": "#/$defs/file"}}
         }
       ]
     },
@@ -199,22 +277,35 @@
       "type": "object",
       "additionalProperties": false,
       "required": ["id", "label", "type", "default", "configurations"],
-      "if": { "properties": { "type": { "required": ["array"] } } },
-      "then": { "required": ["append_default"] },
-      "else": { "not": { "required": ["append_default"] } },
+      "if": {"properties": {"type": {"required": ["array"]}}},
+      "then": {"required": ["append_default"]},
+      "else": {"not": {"required": ["append_default"]}},
       "properties": {
-        "id": { "$ref": "#/$defs/wgslId" },
-        "label": { "$ref": "#/$defs/localizedText" },
-        "type": { "$ref": "#/$defs/propertyType" },
-        "default": { "$ref": "#/$defs/propertyValue" },
-        "append_default": { "$ref": "#/$defs/propertyValue" },
-        "configurations": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 64,
-          "items": { "$ref": "#/$defs/configuration" }
+        "id": {"$ref": "#/$defs/wgslId"},
+        "label": {"$ref": "#/$defs/localizedText"},
+        "type": {"$ref": "#/$defs/propertyType"},
+        "default": {"$ref": "#/$defs/propertyValue"},
+        "append_default": {"$ref": "#/$defs/propertyValue"},
+        "configurations": {"type": "array", "minItems": 1, "maxItems": 64, "items": {"$ref": "#/$defs/configuration"}}
+      },
+      "allOf": [
+        {
+          "if": {"properties": {"type": {"required": ["file"]}}},
+          "then": {
+            "properties": {
+              "default": {"const": {"file": null}},
+              "configurations": {
+                "minItems": 1,
+                "maxItems": 1,
+                "items": {
+                  "properties": {"scene_bindable": {"const": false}, "animatable": {"const": false}},
+                  "required": ["scene_bindable"]
+                }
+              }
+            }
+          }
         }
-      }
+      ]
     },
     "outputBounds": {
       "type": "object",
@@ -264,8 +355,8 @@
         },
         "symbol": { "type": "string", "minLength": 1 },
         "capabilities": { "$ref": "#/$defs/capabilities" },
-        "audio": { "$ref": "#/$defs/audioCapability" },
-        "editor": { "$ref": "#/$defs/editorCapability" },
+        "audio": { "type": "array", "items": { "$ref": "#/$defs/audioCapability" } },
+        "editor": { "$ref": "#/$defs/editorCapabilities" },
         "output_bounds": { "$ref": "#/$defs/outputBounds" },
         "properties": {
           "type": "array",
@@ -430,7 +521,7 @@
         "render_scale": { "type": "integer", "minimum": 1, "maximum": 4 },
         "output_bounds": { "$ref": "#/$defs/outputBounds" },
         "input_space": { "enum": ["output", "source"] },
-        "editor": { "$ref": "#/$defs/editorCapability" },
+        "editor": { "$ref": "#/$defs/editorCapabilities", "not": { "contains": { "properties": { "type": { "enum": ["timeline", "label"] } }, "required": ["type"] } } },
         "capabilities": { "$ref": "#/$defs/capabilities" },
         "properties": {
           "type": "array",
@@ -467,6 +558,7 @@
         "label": { "$ref": "#/$defs/localizedText" },
         "unit": { "type": "string" },
         "step": { "type": "number", "exclusiveMinimum": 0 },
+        "drag_step": { "type": "number", "exclusiveMinimum": 0 },
         "visible": { "type": "boolean" },
         "multiline": { "type": "boolean" },
         "editor": { "enum": ["font_family"] },
@@ -495,46 +587,27 @@
       "type": "object",
       "minProperties": 1,
       "maxProperties": 1,
-      "propertyNames": {
-        "enum": [
-          "f32",
-          "i32",
-          "u32",
-          "enum",
-          "bool",
-          "tuple",
-          "color",
-          "string",
-          "array"
-        ]
-      }
+      "propertyNames": {"enum": ["f32", "i32", "u32", "enum", "bool", "tuple", "color", "string", "array", "file"]},
+      "properties": {"file": {"type": "null"}}
     },
     "capability": {
       "oneOf": [
         {
           "type": "object",
           "additionalProperties": false,
-          "required": ["type", "id", "label", "media_type", "reader"],
+          "required": ["type", "id", "file", "reader"],
           "properties": {
-            "type": { "const": "media" },
-            "id": { "$ref": "#/$defs/wgslId" },
-            "label": { "$ref": "#/$defs/localizedText" },
-            "media_type": { "enum": ["video", "image"] },
-            "reader": { "$ref": "#/$defs/logicalId" },
+            "type": {"const": "media"},
+            "id": {"$ref": "#/$defs/wgslId"},
+            "playback": {"$ref": "#/$defs/mediaPlayback"},
             "placement": {
               "type": "object",
               "additionalProperties": false,
               "required": ["position", "size"],
-              "properties": {
-                "position": { "$ref": "#/$defs/wgslId" },
-                "size": { "$ref": "#/$defs/wgslId" }
-              }
+              "properties": {"position": {"$ref": "#/$defs/wgslId"}, "size": {"$ref": "#/$defs/wgslId"}}
             },
-            "extensions": {
-              "type": "array",
-              "uniqueItems": true,
-              "items": { "type": "string", "pattern": "^[a-z0-9]+$" }
-            }
+            "file": {"$ref": "#/$defs/wgslId"},
+            "reader": {"$ref": "#/$defs/logicalId"}
           }
         },
         {
@@ -556,37 +629,31 @@
             "vertical_alignment"
           ],
           "properties": {
-            "type": { "const": "text" },
-            "size": { "$ref": "#/$defs/wgslId" },
-            "text": { "$ref": "#/$defs/wgslId" },
-            "font_family": { "$ref": "#/$defs/wgslId" },
-            "font_size": { "$ref": "#/$defs/wgslId" },
-            "color": { "$ref": "#/$defs/wgslId" },
-            "outline_width": { "$ref": "#/$defs/wgslId" },
-            "outline_color": { "$ref": "#/$defs/wgslId" },
-            "bold": { "$ref": "#/$defs/wgslId" },
-            "italic": { "$ref": "#/$defs/wgslId" },
-            "horizontal_alignment": { "$ref": "#/$defs/wgslId" },
-            "vertical_alignment": { "$ref": "#/$defs/wgslId" },
-            "id": { "$ref": "#/$defs/wgslId" }
+            "type": {"const": "text"},
+            "size": {"$ref": "#/$defs/wgslId"},
+            "text": {"$ref": "#/$defs/wgslId"},
+            "font_family": {"$ref": "#/$defs/wgslId"},
+            "font_size": {"$ref": "#/$defs/wgslId"},
+            "color": {"$ref": "#/$defs/wgslId"},
+            "outline_width": {"$ref": "#/$defs/wgslId"},
+            "outline_color": {"$ref": "#/$defs/wgslId"},
+            "bold": {"$ref": "#/$defs/wgslId"},
+            "italic": {"$ref": "#/$defs/wgslId"},
+            "horizontal_alignment": {"$ref": "#/$defs/wgslId"},
+            "vertical_alignment": {"$ref": "#/$defs/wgslId"},
+            "id": {"$ref": "#/$defs/wgslId"}
           }
         },
         {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "type",
-            "id",
-            "start_offset",
-            "end_offset",
-            "hide_original"
-          ],
+          "required": ["type", "id", "start_offset", "end_offset", "hide_original"],
           "properties": {
-            "type": { "const": "render_result" },
-            "start_offset": { "$ref": "#/$defs/wgslId" },
-            "end_offset": { "$ref": "#/$defs/wgslId" },
-            "hide_original": { "$ref": "#/$defs/wgslId" },
-            "id": { "$ref": "#/$defs/wgslId" }
+            "type": {"const": "render_result"},
+            "start_offset": {"$ref": "#/$defs/wgslId"},
+            "end_offset": {"$ref": "#/$defs/wgslId"},
+            "hide_original": {"$ref": "#/$defs/wgslId"},
+            "id": {"$ref": "#/$defs/wgslId"}
           }
         }
       ]

@@ -18,8 +18,7 @@ use crate::engine::{
     },
 };
 use zerium_core::{
-    media::{MediaAsset, MediaKind, MediaSourceId},
-    plugin::Capability,
+    media::{MediaAsset, MediaKind},
     timeline::{Frame, FrameRate, LayerId, TimelineItem, TimelineTime},
 };
 
@@ -157,7 +156,7 @@ impl VideoDecodeRequest {
 
     fn proxy_key(&self, chunk_seconds: u64) -> VideoProxyKey {
         VideoProxyKey {
-            source: self.asset.source_id(),
+            source: self.asset.clone(),
             chunk: self.asset_time.as_secs() / chunk_seconds,
         }
     }
@@ -165,14 +164,14 @@ impl VideoDecodeRequest {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct VideoProxyKey {
-    source: MediaSourceId,
+    source: MediaAsset,
     chunk: u64,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct VideoFrameSequence {
-    original_source: MediaSourceId,
-    decoded_source: MediaSourceId,
+    original_source: MediaAsset,
+    decoded_source: MediaAsset,
     source_start: Duration,
     size: VideoDecodeSize,
 }
@@ -185,8 +184,8 @@ impl VideoFrameSequence {
         size: VideoDecodeSize,
     ) -> Self {
         Self {
-            original_source: original.source_id(),
-            decoded_source: decoded.source_id(),
+            original_source: original.clone(),
+            decoded_source: decoded.clone(),
             source_start,
             size,
         }
@@ -369,7 +368,7 @@ struct VideoProxyManager {
     generating: Option<InFlightVideoProxy>,
     next_generation: u64,
     failed_attempts: HashMap<VideoProxyKey, u8>,
-    keyframe_gaps: HashMap<MediaSourceId, Option<u64>>,
+    keyframe_gaps: HashMap<MediaAsset, Option<u64>>,
     error: Option<String>,
     notifications: Vec<String>,
 }
@@ -402,7 +401,7 @@ impl VideoProxyManager {
         asset_time: Duration,
     ) -> Option<(MediaAsset, Duration)> {
         let key = VideoProxyKey {
-            source: asset.source_id(),
+            source: asset.clone(),
             chunk: asset_time.as_secs() / Self::CHUNK_SECONDS,
         };
         self.proxies
@@ -420,11 +419,11 @@ impl VideoProxyManager {
     }
 
     fn max_keyframe_gap(&mut self, asset: &MediaAsset) -> Option<u64> {
-        if let Some(cached) = self.keyframe_gaps.get(&asset.source_id()) {
+        if let Some(cached) = self.keyframe_gaps.get(&asset.clone()) {
             return *cached;
         }
         let gap = estimate_max_keyframe_gap(&asset.path);
-        self.keyframe_gaps.insert(asset.source_id(), gap);
+        self.keyframe_gaps.insert(asset.clone(), gap);
         gap
     }
 
@@ -458,7 +457,7 @@ impl VideoProxyManager {
         }
         Some(VideoProxyJob {
             key: VideoProxyKey {
-                source: request.asset.source_id(),
+                source: request.asset.clone(),
                 chunk,
             },
             source: request.asset.clone(),
@@ -629,6 +628,7 @@ impl VideoPlaybackEngine {
 
     const MAX_DECODE_BATCH_BYTES: u64 = 64 * 1024 * 1024;
     const FRAME_CACHE_BUDGET_BYTES: usize = 512 * 1024 * 1024;
+
     pub(crate) fn new(
         media_readers: Arc<MediaReaderRegistry>,
     ) -> (Self, UnboundedReceiver<VideoPlaybackEvent>) {
@@ -905,41 +905,39 @@ impl VideoPlaybackEngine {
             } else {
                 timeline_rate.frame_to_seconds(local_frame)
             };
-            let mut push_assets = |effect_id, assets: &HashMap<String, MediaAsset>| {
-                for (input_id, asset) in assets {
-                    if matches!(asset.kind, MediaKind::Audio { .. }) {
+            let owners = std::iter::once((
+                None,
+                item.schema()
+                    .map_or(&[][..], |schema| schema.capabilities()),
+            ))
+            .chain(
+                item.effects
+                    .iter()
+                    .map(|effect| (Some(effect.id), effect.schema().capabilities())),
+            );
+            for (effect_id, capabilities) in owners {
+                for capability in capabilities {
+                    let input_id = capability.id();
+                    let Some((asset, playback)) = item.media_input(effect_id, input_id) else {
                         continue;
-                    }
-                    let asset_time =
-                        Duration::try_from_secs_f64(asset.looped_seconds(local_seconds))
-                            .unwrap_or_default();
+                    };
+                    let asset_time = if asset.kind.is_temporal() {
+                        let Some(sample) = playback.sample(local_seconds, asset.duration) else {
+                            continue;
+                        };
+                        sample.time
+                    } else {
+                        Duration::ZERO
+                    };
                     requests.push(VideoDecodeRequest {
                         input: MediaInputId {
                             item_id: item.id,
                             effect_id,
-                            input_id: input_id.clone(),
+                            input_id: input_id.to_owned(),
                         },
                         asset_time,
-                        asset: asset.clone(),
+                        asset,
                     });
-                }
-            };
-            if item.schema().is_some_and(|schema| {
-                schema
-                    .capabilities()
-                    .iter()
-                    .any(|cap| matches!(cap, Capability::Media { .. }))
-            }) {
-                push_assets(None, &item.assets);
-            }
-            for effect in &item.effects {
-                if effect
-                    .schema()
-                    .capabilities()
-                    .iter()
-                    .any(|cap| matches!(cap, Capability::Media { .. }))
-                {
-                    push_assets(Some(effect.id), &effect.assets);
                 }
             }
         }

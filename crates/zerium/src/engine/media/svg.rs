@@ -11,12 +11,9 @@ use std::{
 use resvg::{tiny_skia, usvg};
 
 use crate::engine::frame::RgbaFrame;
-use zerium_core::{
-    media::{MediaAsset, MediaKind},
-    plugin::MediaType,
-};
+use zerium_core::media::{MediaAsset, MediaKind, MediaMetadata, MediaTarget};
 
-use super::reader::{ImageDecoderSession, MediaError, MediaProbe, MediaReader, VideoDecodeSize};
+use super::reader::{ImageDecoderSession, MediaError, MediaReader, VideoDecodeSize};
 
 pub(super) const READER_ID: &str = "zerium.svg";
 const IMAGE_DURATION: Duration = Duration::from_secs(5);
@@ -24,17 +21,16 @@ const IMAGE_DURATION: Duration = Duration::from_secs(5);
 pub(super) struct SvgMediaReader;
 
 impl MediaReader for SvgMediaReader {
-    fn probe(&self, path: &Path, media_type: MediaType) -> Result<Option<MediaProbe>, MediaError> {
-        if media_type != MediaType::Image {
+    fn probe(&self, path: &Path, target: MediaTarget) -> Result<Option<MediaMetadata>, MediaError> {
+        if target != MediaTarget::Visual {
             return Ok(None);
         }
         let tree = read_tree(path)?;
         let width = dimension(tree.size().width())?;
         let height = dimension(tree.size().height())?;
-        Ok(Some(MediaProbe {
+        Ok(Some(MediaMetadata {
             duration: IMAGE_DURATION,
             kind: MediaKind::Image { width, height },
-            video_duration: None,
         }))
     }
 

@@ -1,16 +1,16 @@
 use super::*;
 
 impl TimelineEditor {
-    pub fn set_effect_asset(
+    pub fn set_effect_file(
         &mut self,
         item_id: ItemId,
         effect_id: EffectInstanceId,
-        imported: ImportedMedia,
+        imported: ImportedFile,
     ) -> Result<(), TimelineEditError> {
         let before = self.history_snapshot();
         if !self
             .active_document_mut()
-            .set_effect_asset(item_id, effect_id, imported)
+            .set_effect_file(item_id, effect_id, imported)
         {
             return Err(TimelineEditError::IncompatibleMedia);
         }

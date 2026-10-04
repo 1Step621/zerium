@@ -234,12 +234,10 @@ impl Preview {
     fn item_position(
         item: &TimelineItem,
         effect_id: Option<EffectInstanceId>,
-        property_id: Option<&str>,
+        property_id: &str,
     ) -> [f32; 2] {
-        property_id
-            .and_then(|property_id| {
-                Self::overlay_properties(item, effect_id)?.property(property_id)
-            })
+        Self::overlay_properties(item, effect_id)
+            .and_then(|properties| properties.property(property_id))
             .and_then(Self::f32_pair)
             .filter(|value| value.iter().all(|value| value.is_finite()))
             .unwrap_or([0., 0.])

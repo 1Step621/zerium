@@ -5,11 +5,12 @@ use gpui::{App, Context, Entity};
 
 use crate::{
     engine::audio_playback::{
-        AudioPlaybackEngine, AudioPlaybackError, AudioPlaybackEvent, PlaybackClock,
+        AudioPlaybackEngine, AudioPlaybackError, AudioPlaybackEvent, AudioSourcePlan,
+        PlaybackClock, audio_plan,
     },
     engine::video_playback::VideoPlaybackMode,
 };
-use zerium_core::timeline::{Frame, TimelineEditor};
+use zerium_core::timeline::{Frame, FrameRate, TimelineEditor};
 
 use super::{TimelineEditorEntityExt, session::UiNotifications};
 
@@ -39,6 +40,8 @@ pub(crate) struct TransportController {
     audio: Entity<AudioPlaybackEngine>,
     notifications: Entity<UiNotifications>,
     mode: TransportMode,
+    audio_plan: Vec<AudioSourcePlan>,
+    audio_frame_rate: FrameRate,
 }
 
 impl TransportController {
@@ -52,6 +55,8 @@ impl TransportController {
             audio,
             notifications,
             mode: TransportMode::Stopped,
+            audio_plan: Vec::new(),
+            audio_frame_rate: FrameRate::FPS_30,
         }
     }
 
@@ -91,9 +96,11 @@ impl TransportController {
             };
             (start_frame, editor.frame_rate(), editor.visible_items())
         };
-        let clock: Result<PlaybackClock, AudioPlaybackError> = self
-            .audio
-            .update(cx, |audio, _| audio.play(items, start_frame, frame_rate));
+        let clock: Result<PlaybackClock, AudioPlaybackError> = self.audio.update(cx, |audio, _| {
+            audio.play(items.clone(), start_frame, frame_rate)
+        });
+        self.audio_plan = audio_plan(&items);
+        self.audio_frame_rate = frame_rate;
         let clock = match clock {
             Ok(clock) => clock,
             Err(error) => {
@@ -211,6 +218,29 @@ impl TransportController {
             self.stop(cx);
             self.set_playhead(end, cx);
             return;
+        }
+        let items = self.editor.read(cx).visible_items();
+        let plan = audio_plan(&items);
+        if plan != self.audio_plan || frame_rate != self.audio_frame_rate {
+            let clock = self
+                .audio
+                .update(cx, |audio, _| audio.play(items, frame, frame_rate));
+            playback.start_seconds = seconds;
+            playback.started_at = Instant::now();
+            playback.uses_audio_clock = match clock {
+                Ok(clock) => clock == PlaybackClock::Audio,
+                Err(error) => {
+                    self.notifications.update(cx, |notifications, cx| {
+                        notifications.push(
+                            t!("transport.start_playback_failed", error = error).to_string(),
+                            cx,
+                        )
+                    });
+                    false
+                }
+            };
+            self.audio_plan = plan;
+            self.audio_frame_rate = frame_rate;
         }
         if !playback.uses_audio_clock && frame_rate.seconds_to_frame(seconds) < end {
             match self

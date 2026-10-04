@@ -12,10 +12,10 @@ impl TimelineEditor {
         remove_bindings_for_items(scene, item_ids);
     }
 
-    pub fn set_item_asset(
+    pub fn set_item_file(
         &mut self,
         id: ItemId,
-        imported: ImportedMedia,
+        imported: ImportedFile,
     ) -> Result<(), TimelineEditError> {
         let item = self
             .active_document()
@@ -25,21 +25,24 @@ impl TimelineEditor {
             && item.item_id() == Some(imported.source_id.as_str())
             && item
                 .schema()
-                .and_then(|schema| schema.file(&imported.input_id))
-                .is_some_and(|file| {
-                    file.reader() == imported.asset.reader_id
-                        && file.media_type() == imported.asset.kind.media_type()
-                });
+                .and_then(|schema| schema.file_property(&imported.property_id))
+                .is_some();
         if !compatible {
             return Err(TimelineEditError::IncompatibleMedia);
         }
-        let key = HistoryKey::ItemCreation(id);
-        let before = self.history_snapshot_for_edit(Some(&key));
-        let changed = self.active_document_mut().set_item_asset(id, imported);
+        // Attach the initial import to creation; each replacement is its own edit.
+        let key = item
+            .properties
+            .files()
+            .next()
+            .is_none()
+            .then_some(HistoryKey::ItemCreation(id));
+        let before = self.history_snapshot_for_edit(key.as_ref());
+        let changed = self.active_document_mut().set_item_file(id, imported);
         if !changed {
             return Err(TimelineEditError::PlacementUnavailable);
         }
-        self.finish_project_edit_if_changed(true, before, Some(key));
+        self.finish_project_edit_if_changed(true, before, key);
         Ok(())
     }
 
@@ -175,6 +178,7 @@ impl TimelineEditor {
         anchor_id: ItemId,
         edge: ResizeEdge,
         pointer: Frame,
+        mode: ResizeMode,
     ) -> bool {
         if origins.is_empty()
             || origins
@@ -187,14 +191,14 @@ impl TimelineEditor {
         ids.sort_unstable_by_key(|id| id.get());
         ids.dedup();
         let key = if ids.len() == 1 {
-            HistoryKey::ItemResize(ids[0], edge)
+            HistoryKey::ItemResize(ids[0], edge, mode)
         } else {
-            HistoryKey::ItemsResize(ids, edge)
+            HistoryKey::ItemsResize(ids, edge, mode)
         };
         let before = self.history_snapshot_for_edit(Some(&key));
         let changed = self
             .active_document_mut()
-            .resize_items_from(origins, anchor_id, edge, pointer);
+            .resize_items_from(origins, anchor_id, edge, pointer, mode);
         self.finish_project_edit_if_changed(changed, before, Some(key))
     }
 

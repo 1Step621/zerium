@@ -161,6 +161,7 @@ impl PropertyValueType {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PropertyType {
+    File(super::FilePropertyType),
     Value(PropertyValueType),
     Array {
         element_type: PropertyValueType,
@@ -175,17 +176,21 @@ fn is_zero(value: &u32) -> bool {
 }
 
 impl PropertyType {
-    pub fn value_type(&self) -> &PropertyValueType {
+    pub fn value_type(&self) -> Option<&PropertyValueType> {
         match self {
             Self::Value(ty)
             | Self::Array {
                 element_type: ty, ..
-            } => ty,
+            } => Some(ty),
+            Self::File(_) => None,
         }
     }
 
     pub fn allows(&self, value: &PropertyValue) -> bool {
         match self {
+            Self::File(_) => {
+                matches!(value, PropertyValue::File(path) if path.as_ref().is_none_or(|path| !path.as_os_str().is_empty()))
+            }
             Self::Value(ty) => ty.allows(value),
             Self::Array {
                 element_type,

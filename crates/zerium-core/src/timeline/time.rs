@@ -104,6 +104,12 @@ impl FrameRate {
         Frame::new(frames.round().clamp(0., u64::MAX as f64) as u64)
     }
 
+    /// Round an occupied interval up to whole frames, with at least one frame.
+    pub fn seconds_to_duration(self, seconds: f64) -> FrameDuration {
+        let frames = (seconds * self.frames_per_second() - 1e-7).ceil();
+        FrameDuration::new_saturating(frames.clamp(1., u64::MAX as f64) as u64)
+    }
+
     pub fn frame_to_seconds(self, frame: Frame) -> f64 {
         frame.get() as f64 * f64::from(self.denominator) / f64::from(self.numerator)
     }

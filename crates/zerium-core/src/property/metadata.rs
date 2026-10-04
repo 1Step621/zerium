@@ -35,6 +35,8 @@ pub struct PropertyUi {
     unit: String,
     #[serde(skip_serializing_if = "is_one")]
     step: f32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    drag_step: Option<f32>,
     #[serde(skip_serializing_if = "is_true")]
     visible: bool,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -51,6 +53,7 @@ impl Default for PropertyUi {
             label: None,
             unit: String::new(),
             step: 1.,
+            drag_step: None,
             visible: true,
             enum_variants: BTreeMap::new(),
             multiline: false,
@@ -90,6 +93,10 @@ impl PropertyUi {
         self.step
     }
 
+    pub const fn drag_step(&self) -> Option<f32> {
+        self.drag_step
+    }
+
     pub fn is_visible(&self) -> bool {
         self.visible
     }
@@ -119,6 +126,12 @@ impl PropertyUi {
             ))
         };
 
+        if self
+            .drag_step
+            .is_some_and(|step| !step.is_finite() || step <= 0.)
+        {
+            return Err(invalid("UI drag_step must be positive"));
+        }
         if !self.step.is_finite() || self.step <= 0. {
             return Err(invalid("UI step must be positive"));
         }
@@ -153,7 +166,8 @@ impl PropertyUi {
         invalid: impl Fn(&str) -> PropertyError,
     ) -> Result<(), PropertyError> {
         let value_type = ty.value_type();
-        let PropertyValueType::Scalar(ScalarPropertyType::Enum(enumeration)) = value_type else {
+        let Some(PropertyValueType::Scalar(ScalarPropertyType::Enum(enumeration))) = value_type
+        else {
             return self
                 .enum_variants
                 .is_empty()

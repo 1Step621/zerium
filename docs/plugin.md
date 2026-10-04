@@ -59,7 +59,7 @@ contains complete manifest and shader examples. JSON snippets below describe
 individual declarations or fields unless stated otherwise.
 
 All display labels are locale maps keyed by BCP 47 tags, including categories,
-properties, tuple scalars, enum variants, and file inputs. Zerium selects
+properties, tuple scalars, and enum variants. Zerium selects
 `ZERIUM_LANGUAGE`, the system locale, or `en-US`, in that order. Label lookup
 tries a case-insensitive exact locale, then `en-US`, then the first available
 translation ordered by locale key. It does not fall back from a region tag to a
@@ -75,13 +75,14 @@ GPU binding order; each `id` is unique within its item or effect and becomes
 the WESL symbol imported from `package::generated::<entity_id>`.
 
 - `media` decodes a video or image file and exposes its pixels as a texture.
+  Video inputs can reference source-clock properties in an optional `playback`
+  block, independently for each input on either an item or an effect.
 - `text` rasterizes text from referenced properties into a texture.
 - `render_result` composites an inclusive range of layers behind the owner.
 
 At most eight capabilities may be declared, with unique WGSL identifier IDs.
 Their textures contain scene-linear, premultiplied color. Missing media frames
-supply a transparent texture. Each effect instance owns its imported file assets,
-which are saved with the project.
+supply a transparent texture. File values belong to their item or effect properties and are saved with the project.
 
 A media capability declaration:
 
@@ -89,12 +90,38 @@ A media capability declaration:
 {
   "type": "media",
   "id": "source",
-  "label": { "ja-JP": "ソース", "en-US": "Source" },
-  "media_type": "video",
-  "reader": "zerium.ffmpeg",
-  "extensions": ["mp4", "mov"]
+  "file": "source_file",
+  "reader": "zerium.ffmpeg"
 }
 ```
+
+The `file` field references a file property; the capability ID names the shader
+texture and may differ from the property ID. Multiple capabilities can consume
+the same file property with different readers and playback settings.
+Probed metadata is saved separately from property values so the decoded stream
+information remains available when reopening a project. Paths and readers are resolved from
+the property and capability declarations, rather than duplicated in metadata.
+
+```json
+{
+  "id": "source_file",
+  "label": { "ja-JP": "ソース", "en-US": "Source" },
+  "type": {
+    "file": {
+      "extensions": ["mp4", "mov"]
+    }
+  },
+  "default": { "file": null },
+  "configurations": [{ "scene_bindable": false }]
+}
+```
+
+File properties contain an optional file path. Readers belong to media and audio
+inputs; each input keeps its own probed metadata. They require one configuration, an empty default, and no animation or
+scene bindings. `editable` and `ui.visible` work like other properties. Files
+cannot be tuple coordinates or array elements. Paths are saved relative to the
+project file when possible. Files are host resources and do not occupy bytes or
+fields in the shader property ABI; capabilities expose their decoded content.
 
 A shared media shader can use `import package::generated::host::entity::{source,
 capability_sampler};` and sample `source` with `capability_sampler`.
@@ -109,24 +136,58 @@ tuple of two `f32` values.
 ### Audio and editor roles
 
 `audio` is a top-level item role, separate from shader capabilities.
-`audio.inputs` references video capabilities or audio files declared in
-`audio.files`; `audio.volume` names an `f32` gain property.
+It is an array of inputs. Each entry declares an `id` and `reader`, and references
+properties through `file`, `volume`, `source_start`, `source_duration`,
+`playback_speed`, `end_behavior`, and `preserve_pitch`. `file` names a file
+property; `volume` names an `f32` linear gain property. Audio inputs read audio
+streams independently of visual inputs and each other. A missing audio stream contributes silence. Inputs may
+share property references to synchronize settings, or use different properties
+to control each stream independently.
 
-Items and effects can declare an `editor` block without adding shader inputs:
+Items and effects can declare an `editor` array without adding shader inputs.
+Each entry has a `type` and all property references consumed by that feature:
 
-- `position` and `size` reference two-`f32` tuples for preview handles.
-- `points` references an array of two-`f32` tuples and requires position and size.
-  Points are percentages within that rectangle: `[0, 0]` is top-left and
-  `[100, 100]` is bottom-right.
-- `label` references a string.
-- `spline` references an `f32` tension and a `bool` closed flag, alongside points,
-  position, and size. Its preview curve is an editing overlay.
-- `aspect_lock` references a two-`f32` tuple independently of size handles.
-  `aspect_lock_default` defaults to false and requires `aspect_lock`.
+| Type | References | Behavior |
+| --- | --- | --- |
+| `timeline` | `source_start`, `source_duration`, `playback_speed` | Item trim/stretch; independent of readers and EOF policy |
+| `position` | `property` | Preview position handle for a two-`f32` tuple |
+| `size` | `property`, `position` | Preview size handles centered at its own declared position |
+| `aspect_lock` | `property` | Ratio-lock toggle for a two-`f32` tuple; optional `default` is false |
+| `points` | `property`, `position`, `size` | Vertex handles for an array of two-`f32` tuples in its own rectangle |
+| `spline` | `points`, `position`, `size`, `tension`, `closed` | Preview curve; tension is `f32`, closed is `bool` |
+| `label` | `property` | Item display label from a string property |
 
-For example, `"editor": {"size": "size", "aspect_lock": "size"}` enables size
-handles and an initially unlocked ratio. Direct edits preserve the retained ratio
-when locked; animation and scene bindings remain independent.
+Position and size references are two-`f32` tuples. Points are percentages within
+the declared rectangle: `[0, 0]` is top-left and `[100, 100]` is bottom-right.
+Size, points, and spline editors do not inherit geometry from other entries.
+A spline editor displays a curve. Declare a points editor as well to enable
+dragging its vertices; each entry uses its own property references.
+Each feature can be declared once. Timeline and label editors are supported
+only on items. An omitted or empty array adds no editor features. The old object
+form is not accepted.
+
+For example:
+
+```json
+"editor": [
+  { "type": "size", "property": "size", "position": "position" },
+  { "type": "aspect_lock", "property": "size" }
+]
+```
+
+This enables size handles and an initially unlocked ratio. Direct edits preserve
+the retained ratio when locked; animation and scene bindings remain independent.
+The inspector adds a lock toggle to the referenced tuple as an editor extension.
+No additional property declaration is needed.
+
+To display a spline curve with editable vertices, declare both features:
+
+```json
+"editor": [
+  { "type": "spline", "points": "points", "position": "position", "size": "size", "tension": "tension", "closed": "closed" },
+  { "type": "points", "property": "points", "position": "position", "size": "size" }
+]
+```
 
 ### Text
 
@@ -179,6 +240,114 @@ that scene.
 
 Every property has one identity and one value. Tuple coordinates can be edited
 and animated independently, but are not modeled as separate property lanes.
+
+The property inspector renders only declared properties, in declaration order,
+and editor extensions. File selection is the editor for a file property.
+For example, the `aspect_lock` editor declares the ratio-lock toggle
+attached to its tuple. Playback controls are ordinary properties referenced by
+a media input or the audio role. Undeclared metadata rows and hints are not added.
+Scene schema authoring has its own pane; scene-instance argument values have a
+separate editing dialog.
+
+Each visual media input declares its optional source clock in `playback`.
+Audio playback and timeline editing declare their own explicit references in
+`audio` entries and `timeline` editor entries. No role falls back to another
+role's references.
+Referencing the same property IDs synchronizes these roles without duplicating
+values or inspector controls; different IDs allow independent clocks. Each
+input, including an effect's media input, uses its owner's property values.
+Without `playback`, a video starts at source time zero, runs at 1× speed, and
+stops at EOF. Images always provide a static texture; playback settings apply only when the
+reader returns temporal media. There is no item-level `video` block.
+
+```json
+"capabilities": [{
+  "type": "media",
+  "id": "source",
+  "file": "source_file",
+  "reader": "zerium.ffmpeg",
+  "playback": {
+    "source_start": "source_start",
+    "source_duration": "source_duration",
+    "playback_speed": "rate",
+    "end_behavior": "end_behavior"
+  }
+}],
+"audio": [{
+  "id": "sound",
+  "file": "source_file",
+  "reader": "zerium.ffmpeg",
+  "volume": "volume",
+  "source_start": "source_start",
+  "source_duration": "source_duration",
+  "playback_speed": "rate",
+  "end_behavior": "end_behavior",
+  "preserve_pitch": "preserve_pitch"
+}],
+"editor": [{
+  "type": "timeline",
+  "source_start": "source_start",
+  "source_duration": "source_duration",
+  "playback_speed": "rate"
+}]
+```
+
+| Role key | Property type | Meaning |
+| --- | --- | --- |
+| `source_start` | `f32` | Source interval start in seconds |
+| `source_duration` | `f32` | Source interval length in seconds |
+| `playback_speed` | `f32` | Playback multiplier, 0.25–4 |
+| `end_behavior` | Enum `[0, 1, 2]` | Stop, loop, hold |
+| `preserve_pitch` (audio only) | `bool` | Keep audio pitch when changing speed |
+
+When `playback` is present, all four references are required and distinct.
+The same requirement applies to each `audio` entry, which also requires
+`preserve_pitch`. Audio input IDs must be unique within an item.
+The `timeline` editor requires only the three time mapping references. All referenced
+time settings must set `scene_bindable: false` and cannot be animated because
+time mappings are evaluated independently of property animation.
+
+The timeline does not restrict an interval to a reader's actual stream length.
+Each visual or audio input applies its own EOF policy: stop gives transparent
+video or silent audio, loop wraps the stream, and hold gives a held video frame
+or silent audio. Changing EOF policy does not modify the interval or clip length.
+Without the `timeline` editor, source property edits do not change the timeline
+length, and trim/stretch change only placement and animation timing.
+
+Property IDs, labels, units, visibility, constraints, defaults, and numeric
+steps use the usual property schema. For example, the property referenced by
+`playback_speed` above is:
+
+```json
+{
+  "id": "rate",
+  "label": { "en-US": "Playback speed", "ja-JP": "再生速度" },
+  "type": { "value": "f32" },
+  "default": { "f32": 1 },
+  "configurations": [{
+    "scene_bindable": false,
+    "constraints": { "min": 0.25, "max": 4 },
+    "ui": { "unit": "×", "step": 0.01, "drag_step": 0.01 }
+  }]
+}
+```
+
+`ui.drag_step` optionally sets the numeric change per horizontal pixel; `ui.step` sets the step-button increment. Shift uses one tenth
+of the normal adjustment. Dragging quantizes the adjustment relative to the
+initial value, and step buttons add or subtract the configured increment;
+values between increments retain their offset. Edits to the duration referenced
+by the `timeline` editor keep speed fixed and update the timeline duration; edits to
+its speed keep the source interval fixed and update the timeline duration.
+On the first file import, a timeline mapping is initialized from the longest
+temporal stream read from that file, at the current speed. Static streams do not
+extend the clip. Further file imports and replacements preserve the edited time
+mapping and placement. Without the `timeline` editor, file imports preserve the
+existing timeline length. Timeline edits validate the declared property
+constraints and clip placement atomically for the selection; there is no
+media-length validation or clamping. Trim and stretch write only the three
+properties referenced by the `timeline` editor.
+The source end is computed as start + duration; there is no separately stored
+end property or playback record. API and project format versions remain `1`.
 
 ```json
 {
@@ -285,8 +454,9 @@ Finite choices are declared in the type:
 ```
 
 Each animation track addresses one scalar, including tuple and array-element
-scalars. Numeric values and colors interpolate; bools, strings, enums, and array
-structure remain static. Colors share one curve across RGBA, and integer
+scalars. `f32`, `i32`, `u32`, and colors interpolate; bools, strings, enums,
+and array structure remain static. Track positions, Bezier handles, easing,
+and floating-point interpolation use f32. Colors share one curve across RGBA, and integer
 interpolation rounds while retaining integer endpoints.
 
 Enum membership is retained in runtime values and scene bindings. Its GPU

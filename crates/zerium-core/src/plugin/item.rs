@@ -1,7 +1,6 @@
 //! Item schemas and their runtime property ABI.
 
 use crate::localized_text::LocalizedText;
-use crate::property::PropertyValueType;
 use std::collections::HashSet;
 
 use serde::{Deserialize, Deserializer, de::Error as _};
@@ -11,11 +10,12 @@ use super::OutputBoundsSchema;
 use super::PluginError;
 use super::abi::PropertyLayout;
 use super::capability::{
-    AudioCapability, Capability, EditorCapability, FileCapability, MediaType, validate_capabilities,
+    AudioCapability, Capability, TimeMappingProperties, validate_capabilities,
 };
+use super::editor::{EditorCapability, validate_editors};
 use super::shader::ShaderSchema;
 use super::validation::{validate_catalog_entry, validate_property_schemas};
-use crate::property::{PropertySchema, PropertyType, ScalarPropertyType};
+use crate::property::PropertySchema;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct ItemSchema {
@@ -27,8 +27,8 @@ pub struct ItemSchema {
     shader: Option<ShaderSchema>,
     vertex_count: u32,
     capabilities: Vec<Capability>,
-    audio: Option<AudioCapability>,
-    editor: Option<EditorCapability>,
+    audio: Vec<AudioCapability>,
+    editor: Vec<EditorCapability>,
     output_bounds: OutputBoundsSchema,
     properties: Vec<PropertySchema>,
     property_abi: PropertyLayout,
@@ -49,8 +49,10 @@ struct ItemSchemaDefinition {
     vertex_count: u32,
     #[serde(default)]
     capabilities: Vec<Capability>,
-    audio: Option<AudioCapability>,
-    editor: Option<EditorCapability>,
+    #[serde(default)]
+    audio: Vec<AudioCapability>,
+    #[serde(default)]
+    editor: Vec<EditorCapability>,
     output_bounds: OutputBoundsSchema,
     #[serde(default)]
     properties: Vec<PropertySchema>,
@@ -140,34 +142,46 @@ impl ItemSchema {
         &self.property_abi
     }
 
-    pub fn files(&self) -> impl Iterator<Item = &FileCapability> {
-        self.capabilities
+    pub fn file_properties(&self) -> impl Iterator<Item = &PropertySchema> {
+        self.properties
             .iter()
-            .filter_map(|capability| match capability {
-                Capability::Media { file, .. } => Some(file),
-                _ => None,
-            })
-            .chain(self.audio.iter().flat_map(AudioCapability::files))
+            .filter(|property| property.file_type().is_some())
     }
 
-    pub fn audio(&self) -> Option<&AudioCapability> {
-        self.audio.as_ref()
+    pub fn audio(&self) -> &[AudioCapability] {
+        &self.audio
     }
 
-    pub fn file(&self, id: &str) -> Option<&FileCapability> {
-        self.files().find(|file| file.id() == id)
+    pub fn audio_input(&self, id: &str) -> Option<&AudioCapability> {
+        self.audio.iter().find(|input| input.id() == id)
+    }
+
+    pub fn timeline(&self) -> Option<TimeMappingProperties<'_>> {
+        self.editor
+            .iter()
+            .find_map(EditorCapability::timeline_properties)
+    }
+
+    pub fn file_property(&self, id: &str) -> Option<&PropertySchema> {
+        self.property(id)
+            .filter(|property| property.file_type().is_some())
     }
 
     pub(super) fn validate(&self) -> Result<(), PluginError> {
         self.category.validate("item", &self.id)?;
         validate_catalog_entry("item", &self.id, &self.label, &self.tags)?;
+        validate_property_schemas("item", &self.id, &self.properties)?;
+        self.output_bounds
+            .validate("item", &self.id, &self.properties)?;
+        validate_capabilities("item", &self.id, &self.properties, &self.capabilities)?;
+        validate_editors("item", &self.id, &self.properties, &self.editor)?;
         if self.symbol.trim().is_empty() {
             return Err(PluginError::invalid_definition(format!(
                 "item '{}' symbol must not be empty",
                 self.id
             )));
         }
-        if self.shader.is_none() && self.audio.is_none() && self.editor.is_none() {
+        if self.shader.is_none() && self.audio.is_empty() && self.editor.is_empty() {
             return Err(PluginError::invalid_definition(format!(
                 "item '{}' must define a shader, audio role, or editor role",
                 self.id
@@ -187,139 +201,61 @@ impl ItemSchema {
                 self.id
             )));
         }
-        validate_capabilities("item", &self.id, &self.properties, &self.capabilities)?;
-        let mut file_ids = HashSet::new();
-        for file in self.files() {
-            file.validate("item", &self.id)?;
-            if !file_ids.insert(file.id()) {
+        let mut audio_inputs = HashSet::new();
+        for input in &self.audio {
+            input.validate(&self.id, &self.properties)?;
+            if !audio_inputs.insert(input.id()) {
                 return Err(PluginError::invalid_definition(format!(
-                    "item '{}' has duplicate file input '{}'",
+                    "item '{}' has duplicate audio input '{}'",
                     self.id,
-                    file.id()
+                    input.id()
                 )));
             }
-        }
-        if let Some(audio) = self.audio() {
-            if audio.inputs().is_empty() {
-                return Err(PluginError::invalid_definition(format!(
-                    "audio item '{}' must consume at least one file input",
-                    self.id
-                )));
-            }
-            let mut audio_inputs = HashSet::new();
-            for input_id in audio.inputs() {
-                if !audio_inputs.insert(input_id) {
-                    return Err(PluginError::invalid_definition(format!(
-                        "audio item '{}' consumes file input '{}' more than once",
-                        self.id, input_id
-                    )));
-                }
-                let Some(file) = self.file(input_id) else {
-                    return Err(PluginError::invalid_definition(format!(
-                        "audio item '{}' consumes unknown file input '{}'",
-                        self.id, input_id
-                    )));
-                };
-                if !matches!(file.media_type(), MediaType::Video | MediaType::Audio) {
-                    return Err(PluginError::invalid_definition(format!(
-                        "audio item '{}' consumes non-audio file input '{}'",
-                        self.id, input_id
-                    )));
-                }
-            }
-            if self
-                .property(audio.volume_property())
-                .map(|property| &property.ty)
-                != Some(&PropertyType::Value(PropertyValueType::Scalar(
-                    ScalarPropertyType::F32,
-                )))
-            {
-                return Err(PluginError::invalid_definition(format!(
-                    "audio item '{}' volume property '{}' has the wrong type; expected an f32",
-                    self.id,
-                    audio.volume_property()
-                )));
-            }
-        }
-        for file in self.files() {
-            match file.media_type() {
-                MediaType::Audio
-                    if !self.audio().is_some_and(|audio| audio.consumes(file.id())) =>
-                {
-                    return Err(PluginError::invalid_definition(format!(
-                        "audio item '{}' must define the audio capability",
-                        self.id
-                    )));
-                }
-                _ => {}
-            }
-        }
-
-        validate_property_schemas("item", &self.id, &self.properties)?;
-        self.output_bounds
-            .validate("item", &self.id, &self.properties)?;
-        if let Some(editor) = &self.editor {
-            editor.validate("item", &self.id, &self.properties)?;
         }
         Ok(())
+    }
+
+    pub fn media_sources(&self) -> impl Iterator<Item = crate::media::MediaSource<'_>> {
+        self.capabilities
+            .iter()
+            .filter_map(Capability::media_source)
+            .chain(self.audio.iter().map(AudioCapability::media_source))
     }
 
     pub fn property(&self, id: &str) -> Option<&PropertySchema> {
         self.properties.iter().find(|property| property.id == id)
     }
 
-    pub fn size_property(&self) -> Option<&PropertySchema> {
-        self.editor
-            .as_ref()?
-            .size
-            .as_deref()
-            .and_then(|id| self.property(id))
+    pub fn editor(&self) -> &[EditorCapability] {
+        &self.editor
     }
 
     pub fn aspect_lock_property(&self) -> Option<&PropertySchema> {
-        self.editor
-            .as_ref()?
-            .aspect_lock
-            .as_deref()
-            .and_then(|id| self.property(id))
+        let (property, _) = self.editor.iter().find_map(EditorCapability::aspect_lock)?;
+        self.property(property)
     }
 
     pub fn aspect_lock_default(&self) -> bool {
         self.editor
-            .as_ref()
-            .is_some_and(|editor| editor.aspect_lock_default)
+            .iter()
+            .find_map(EditorCapability::aspect_lock)
+            .is_some_and(|(_, default)| default)
     }
 
-    pub fn position_property(&self) -> Option<&PropertySchema> {
-        self.editor
-            .as_ref()?
-            .position
-            .as_deref()
-            .and_then(|id| self.property(id))
-    }
-
-    pub fn points_property(&self) -> Option<&PropertySchema> {
-        self.editor
-            .as_ref()?
-            .points
-            .as_deref()
-            .and_then(|id| self.property(id))
-    }
-
-    pub fn spline_properties(&self) -> Option<(&PropertySchema, &PropertySchema)> {
-        let spline = self.editor.as_ref()?.spline.as_ref()?;
-        Some((
-            self.property(&spline.tension)?,
-            self.property(&spline.closed)?,
-        ))
+    pub fn size_property(&self) -> Option<&PropertySchema> {
+        let property = self.editor.iter().find_map(|editor| match editor {
+            EditorCapability::Size { property, .. } => Some(property),
+            _ => None,
+        })?;
+        self.property(property)
     }
 
     pub fn label_property(&self) -> Option<&PropertySchema> {
-        self.editor
-            .as_ref()?
-            .label
-            .as_deref()
-            .and_then(|id| self.property(id))
+        let property = self.editor.iter().find_map(|editor| match editor {
+            EditorCapability::Label { property } => Some(property),
+            _ => None,
+        })?;
+        self.property(property)
     }
 }
 

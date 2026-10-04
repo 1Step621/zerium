@@ -3,13 +3,11 @@ use super::ProjectError;
 use std::{
     collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
-    time::Duration,
 };
 
 use serde::{Deserialize, Serialize};
 
 use crate::animation::{ScalarAnimations, ScalarTrack};
-use crate::media::{MediaAsset, MediaKind};
 use crate::plugin::PluginRegistry;
 use crate::property::materialized_property_values;
 use crate::property::{PropertyPath, PropertySchema, PropertyValue, PropertyValues};
@@ -261,6 +259,7 @@ pub(super) fn load_items(
 fn capture_property_overrides(
     values: &PropertyValues,
     schema: Option<&[PropertySchema]>,
+    project_path: &Path,
 ) -> BTreeMap<String, PropertyValue> {
     values
         .iter()
@@ -269,7 +268,13 @@ fn capture_property_overrides(
                 .and_then(|schema| schema.iter().find(|property| property.id() == *id))
                 .is_none_or(|property| property.default_value() != *value)
         })
-        .map(|(id, value)| (id.to_owned(), value.clone()))
+        .map(|(id, value)| {
+            let mut value = value.clone();
+            if let PropertyValue::File(Some(path)) = &mut value {
+                *path = make_relative(path, project_path);
+            }
+            (id.to_owned(), value)
+        })
         .collect()
 }
 
@@ -328,9 +333,10 @@ pub(super) struct ProjectItem {
     start: u64,
     duration: u64,
     kind: ProjectItemKind,
-    assets: BTreeMap<String, ProjectMediaAsset>,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     properties: BTreeMap<String, PropertyValue>,
+    #[serde(default, skip_serializing_if = "crate::media::MediaInputs::is_empty")]
+    media_inputs: crate::media::MediaInputs,
     animations: Vec<ProjectScalarAnimation>,
     aspect_ratio: Option<crate::timeline::AspectRatio>,
     effects: Vec<ProjectEffect>,
@@ -368,15 +374,12 @@ impl ProjectItem {
                     item_id: item.item_id().unwrap_or_default().to_owned(),
                 },
             },
-            assets: item
-                .assets
-                .iter()
-                .map(|(id, asset)| (id.clone(), ProjectMediaAsset::capture(asset, project_path)))
-                .collect(),
             properties: capture_property_overrides(
                 &item.properties,
                 item.schema().map(|schema| schema.properties()),
+                project_path,
             ),
+            media_inputs: item.media_inputs.clone(),
             animations: capture_animations(&item.animations),
             aspect_ratio: item.aspect_ratio,
             effects: item
@@ -446,27 +449,10 @@ impl ProjectItem {
                 "item"
             },
             initial,
+            project_path,
         )?;
         let animation_base = materialized_property_values(&properties, property_schema);
         let animations = load_animations(property_schema, &animation_base, self.animations)?;
-
-        let mut assets = std::collections::HashMap::with_capacity(self.assets.len());
-        for (input_id, asset) in self.assets {
-            let asset = asset.into_media(project_path)?;
-            if let Some(schema) = plugin_schema.as_deref() {
-                let capability = schema.file(&input_id).ok_or_else(|| {
-                    ProjectError::invalid_data(format!("Unknown file input '{input_id}'"))
-                })?;
-                if capability.reader() != asset.reader_id
-                    || capability.media_type() != asset.kind.media_type()
-                {
-                    return Err(ProjectError::invalid_data(format!(
-                        "File input '{input_id}' does not match the plugin definition"
-                    )));
-                }
-            }
-            assets.insert(input_id, asset);
-        }
 
         if self.aspect_ratio.is_some()
             && plugin_schema
@@ -499,37 +485,37 @@ impl ProjectItem {
             ));
         }
 
-        Ok((
-            LayerId::new(self.layer),
-            TimelineItem {
-                id: ItemId(self.id),
-                start: Frame::new(self.start),
-                duration,
-                kind: match self.kind {
-                    ProjectItemKind::Scene {
-                        project_high,
-                        project_low,
+        let item = TimelineItem {
+            id: ItemId(self.id),
+            start: Frame::new(self.start),
+            duration,
+            kind: match self.kind {
+                ProjectItemKind::Scene {
+                    project_high,
+                    project_low,
+                    scene_id,
+                } => TimelineItemKind::Scene {
+                    scene_id: SceneId::new(
+                        ProjectId::from_parts(project_high, project_low)
+                            .expect("scene project identity was validated"),
                         scene_id,
-                    } => TimelineItemKind::Scene {
-                        scene_id: SceneId::new(
-                            ProjectId::from_parts(project_high, project_low)
-                                .expect("scene project identity was validated"),
-                            scene_id,
-                        ),
-                    },
-                    ProjectItemKind::Plugin { plugin_id, item_id } => TimelineItemKind::Plugin {
-                        plugin_id,
-                        item_id,
-                        schema: plugin_schema.expect("plugin items were required to have a schema"),
-                    },
+                    ),
                 },
-                assets,
-                properties,
-                animations,
-                aspect_ratio: self.aspect_ratio,
-                effects,
+                ProjectItemKind::Plugin { plugin_id, item_id } => TimelineItemKind::Plugin {
+                    plugin_id,
+                    item_id,
+                    schema: plugin_schema.expect("plugin items were required to have a schema"),
+                },
             },
-        ))
+            properties,
+            media_inputs: self.media_inputs,
+            animations,
+            aspect_ratio: self.aspect_ratio,
+            effects,
+        };
+        item.validate_playback()
+            .map_err(|error| ProjectError::invalid_data(error.to_string()))?;
+        Ok((LayerId::new(self.layer), item))
     }
 }
 
@@ -540,9 +526,9 @@ struct ProjectEffect {
     plugin_id: String,
     effect_id: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    assets: BTreeMap<String, ProjectMediaAsset>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     properties: BTreeMap<String, PropertyValue>,
+    #[serde(default, skip_serializing_if = "crate::media::MediaInputs::is_empty")]
+    media_inputs: crate::media::MediaInputs,
     animations: Vec<ProjectScalarAnimation>,
     aspect_ratio: Option<crate::timeline::AspectRatio>,
 }
@@ -553,15 +539,12 @@ impl ProjectEffect {
             id: effect.id.get(),
             plugin_id: effect.plugin_id.clone(),
             effect_id: effect.effect_id.clone(),
-            assets: effect
-                .assets
-                .iter()
-                .map(|(id, asset)| (id.clone(), ProjectMediaAsset::capture(asset, project_path)))
-                .collect(),
             properties: capture_property_overrides(
                 &effect.properties,
                 Some(effect.schema().properties()),
+                project_path,
             ),
+            media_inputs: effect.media_inputs.clone(),
             animations: capture_animations(&effect.animations),
             aspect_ratio: effect.aspect_ratio,
         }
@@ -590,30 +573,15 @@ impl ProjectEffect {
             self.properties,
             "effect",
             PropertyValues::from_properties(schema.properties()),
+            project_path,
         )?;
         let animations = load_animations(schema.properties(), &properties, self.animations)?;
-        let mut assets = HashMap::new();
-        for (input_id, stored) in self.assets {
-            let file = schema
-                .files()
-                .find(|file| file.id() == input_id)
-                .ok_or_else(|| {
-                    ProjectError::invalid_data(format!("Effect input '{input_id}' was not found"))
-                })?;
-            let asset = stored.into_media(project_path)?;
-            if file.reader() != asset.reader_id || file.media_type() != asset.kind.media_type() {
-                return Err(ProjectError::invalid_data(format!(
-                    "Effect input '{input_id}' does not match the media"
-                )));
-            }
-            assets.insert(input_id, asset);
-        }
         Ok(EffectInstance {
             id: EffectInstanceId::new(self.id),
             plugin_id: self.plugin_id,
             effect_id: self.effect_id,
-            assets,
             properties,
+            media_inputs: self.media_inputs,
             animations,
             aspect_ratio: self.aspect_ratio,
             schema,
@@ -698,8 +666,12 @@ fn load_properties(
     values: BTreeMap<String, PropertyValue>,
     owner: &str,
     mut loaded: PropertyValues,
+    project_path: &Path,
 ) -> Result<PropertyValues, ProjectError> {
-    for (id, value) in values {
+    for (id, mut value) in values {
+        if let PropertyValue::File(Some(path)) = &mut value {
+            *path = resolve_path(path, project_path);
+        }
         let property = schema
             .iter()
             .find(|property| property.id == id)
@@ -714,48 +686,6 @@ fn load_properties(
         })?;
     }
     Ok(loaded)
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-struct ProjectMediaAsset {
-    reader_id: String,
-    path: PathBuf,
-    name: String,
-    duration_seconds: u64,
-    duration_nanoseconds: u32,
-    kind: MediaKind,
-}
-
-impl ProjectMediaAsset {
-    fn capture(asset: &MediaAsset, project_path: &Path) -> Self {
-        let path = make_relative(&asset.path, project_path);
-        Self {
-            reader_id: asset.reader_id.clone(),
-            path,
-            name: asset.name.clone(),
-            duration_seconds: asset.duration.as_secs(),
-            duration_nanoseconds: asset.duration.subsec_nanos(),
-            kind: asset.kind.clone(),
-        }
-    }
-
-    fn into_media(self, project_path: &Path) -> Result<MediaAsset, ProjectError> {
-        if self.duration_nanoseconds >= 1_000_000_000 {
-            return Err(ProjectError::invalid_data("Media duration is invalid"));
-        }
-        let asset = MediaAsset {
-            reader_id: self.reader_id,
-            path: resolve_path(&self.path, project_path),
-            name: self.name,
-            duration: Duration::new(self.duration_seconds, self.duration_nanoseconds),
-            kind: self.kind,
-        };
-        asset.validate().map_err(|error| {
-            ProjectError::invalid_data(format!("Media information is invalid: {error}"))
-        })?;
-        Ok(asset)
-    }
 }
 
 pub(super) fn validate_no_overlaps(items: &[(LayerId, TimelineItem)]) -> Result<(), ProjectError> {

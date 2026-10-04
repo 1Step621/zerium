@@ -1,6 +1,5 @@
 //! Named shader inputs and editor roles for items and effects.
 
-use crate::localized_text::LocalizedText;
 use crate::property::PropertyValueType;
 use std::collections::HashSet;
 
@@ -8,6 +7,7 @@ use serde::Deserialize;
 
 use super::PluginError;
 use super::identifier::{validate_logical_id, validate_wgsl_identifier};
+use super::validation::validate_property_reference;
 use crate::property::{PropertySchema, PropertyType, ScalarPropertyType};
 
 pub(super) const MAX_RENDER_RESULT_OFFSET: u32 = 30;
@@ -20,108 +20,37 @@ pub(super) fn validate_render_result_properties(
     end_offset: &str,
     hide_original: &str,
 ) -> Result<(), PluginError> {
-    let property = |id: &str| properties.iter().find(|property| property.id() == id);
+    let context = format!("{owner_kind} '{owner_id}' render_result");
     for id in [start_offset, end_offset] {
-        let valid = property(id).is_some_and(|property| {
+        validate_property_reference(
+            &context,
+            properties,
+            id,
+            &format!("u32 constrained to 1..={MAX_RENDER_RESULT_OFFSET}"),
+            |property| {
+                property.ty()
+                    == &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::U32))
+                    && property
+                        .configuration_constraints(None)
+                        .min
+                        .is_some_and(|min| min >= 1.)
+                    && property
+                        .configuration_constraints(None)
+                        .max
+                        .is_some_and(|max| max <= f64::from(MAX_RENDER_RESULT_OFFSET))
+            },
+        )?;
+    }
+    validate_property_reference(
+        &context,
+        properties,
+        hide_original,
+        "a bool value",
+        |property| {
             property.ty()
-                == &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::U32))
-                && property
-                    .configuration_constraints(None)
-                    .min
-                    .is_some_and(|min| min >= 1.)
-                && property
-                    .configuration_constraints(None)
-                    .max
-                    .is_some_and(|max| max <= f64::from(MAX_RENDER_RESULT_OFFSET))
-        });
-        if !valid {
-            return Err(PluginError::invalid_definition(format!(
-                "{owner_kind} '{owner_id}' render_result property '{id}' must be u32 constrained to 1..={MAX_RENDER_RESULT_OFFSET}",
-            )));
-        }
-    }
-    if property(hide_original).map(PropertySchema::ty)
-        != Some(&PropertyType::Value(PropertyValueType::Scalar(
-            ScalarPropertyType::Bool,
-        )))
-    {
-        return Err(PluginError::invalid_definition(format!(
-            "{owner_kind} '{owner_id}' render_result hide_original property '{hide_original}' must be bool",
-        )));
-    }
-    Ok(())
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum MediaType {
-    Video,
-    Audio,
-    Image,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct FileCapability {
-    id: String,
-    label: LocalizedText,
-    media_type: MediaType,
-    reader: String,
-    #[serde(default)]
-    extensions: Vec<String>,
-}
-
-impl FileCapability {
-    pub fn id(&self) -> &str {
-        &self.id
-    }
-
-    pub fn label(&self) -> &str {
-        self.label.resolve()
-    }
-
-    pub const fn media_type(&self) -> MediaType {
-        self.media_type
-    }
-
-    pub fn reader(&self) -> &str {
-        &self.reader
-    }
-
-    pub fn extensions(&self) -> &[String] {
-        &self.extensions
-    }
-
-    pub(super) fn validate(&self, owner_kind: &str, owner_id: &str) -> Result<(), PluginError> {
-        validate_wgsl_identifier("file input", &self.id)?;
-        if self.label.is_empty() {
-            return Err(PluginError::invalid_definition(format!(
-                "{owner_kind} '{owner_id}' file input '{}' has an empty label",
-                self.id
-            )));
-        }
-        validate_logical_id("media reader", &self.reader)?;
-        let mut extensions = HashSet::new();
-        for extension in &self.extensions {
-            let valid = !extension.is_empty()
-                && extension
-                    .bytes()
-                    .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit());
-            if !valid {
-                return Err(PluginError::invalid_definition(format!(
-                    "{owner_kind} '{owner_id}' has invalid file extension '{}'",
-                    extension
-                )));
-            }
-            if !extensions.insert(extension) {
-                return Err(PluginError::invalid_definition(format!(
-                    "{owner_kind} '{owner_id}' has duplicate file extension '{}'",
-                    extension
-                )));
-            }
-        }
-        Ok(())
-    }
+                == &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Bool))
+        },
+    )
 }
 
 /// Describes where a media input appears in its owner's composition space.
@@ -156,10 +85,12 @@ pub struct TextCapability {
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Capability {
     Media {
-        #[serde(flatten)]
-        file: FileCapability,
+        id: String,
+        file: String,
+        reader: String,
         #[serde(default)]
         placement: Option<MediaPlacement>,
+        playback: Option<MediaPlaybackSchema>,
     },
     Text(TextCapability),
     RenderResult {
@@ -175,7 +106,30 @@ impl Capability {
         match self {
             Self::Text(text) => &text.id,
             Self::RenderResult { id, .. } => id,
-            Self::Media { file, .. } => file.id(),
+            Self::Media { id, .. } => id,
+        }
+    }
+
+    pub fn media_source(&self) -> Option<crate::media::MediaSource<'_>> {
+        match self {
+            Self::Media {
+                id, file, reader, ..
+            } => Some(crate::media::MediaSource {
+                input: crate::media::MediaInputReference::Media(id.clone()),
+                file,
+                reader,
+            }),
+            _ => None,
+        }
+    }
+
+    pub fn playback_properties(&self) -> Option<PlaybackProperties<'_>> {
+        match self {
+            Self::Media {
+                playback: Some(playback),
+                ..
+            } => Some(playback.playback_properties()),
+            _ => None,
         }
     }
 
@@ -191,52 +145,21 @@ impl Capability {
                 "{owner_kind} '{owner_id}' capability ID 'capability_sampler' is reserved"
             )));
         }
-        if let Self::Media { file, .. } = self {
-            if file.media_type() == MediaType::Audio {
-                return Err(PluginError::invalid_definition(format!(
-                    "{owner_kind} '{owner_id}' media capability '{}' cannot be audio",
-                    self.id()
-                )));
-            }
-            file.validate(owner_kind, owner_id)?;
-        }
-        let mistyped = |property_id: &str, expected: &str| {
-            PluginError::invalid_definition(format!(
-                "{owner_kind} '{owner_id}' capability property '{}' has the wrong type; expected {expected}",
-                property_id
-            ))
-        };
-        let property = |property_id: &str| {
-            properties
-                .iter()
-                .find(|property| property.id() == property_id)
-                .ok_or_else(|| {
-                    PluginError::invalid_definition(format!(
-                        "{owner_kind} '{owner_id}' capability references missing property '{}'",
-                        property_id
-                    ))
-                })
+        let context = format!("{owner_kind} '{owner_id}' capability '{}'", self.id());
+        let check = |property_id: &str, expected: &str, valid: &dyn Fn(&PropertySchema) -> bool| {
+            validate_property_reference(&context, properties, property_id, expected, valid)
         };
         let tuple_f32_pair = |property_id: &str| {
-            let property = property(property_id)?;
-            match &property.ty {
-                PropertyType::Value(PropertyValueType::Tuple(tuple))
-                    if tuple.scalars().len() == 2
-                        && tuple.scalars().iter().all(|scalar_type| {
-                            *scalar_type == crate::property::ScalarPropertyType::F32
-                        }) =>
-                {
-                    Ok(())
-                }
-                _ => Err(mistyped(property_id, "a tuple of two f32 values")),
-            }
+            check(
+                property_id,
+                "a tuple of two f32 values",
+                &|property| matches!(property.ty(), PropertyType::Value(PropertyValueType::Tuple(tuple)) if tuple.scalars() == [ScalarPropertyType::F32, ScalarPropertyType::F32]),
+            )
         };
         let scalar = |property_id: &str, ty: ScalarPropertyType| {
-            let property = property(property_id)?;
-            if property.ty != PropertyType::Value(PropertyValueType::Scalar(ty.clone())) {
-                return Err(mistyped(property_id, &format!("a {ty:?} type")));
-            }
-            Ok(())
+            check(property_id, &format!("a {ty:?} value"), &|property| {
+                property.ty() == &PropertyType::Value(PropertyValueType::Scalar(ty.clone()))
+            })
         };
         match self {
             Self::Text(TextCapability {
@@ -255,18 +178,17 @@ impl Capability {
             }) => {
                 tuple_f32_pair(size)?;
                 scalar(text, ScalarPropertyType::String)?;
-                let font_property = property(font_family)?;
-                if !matches!(
-                    font_property.ty(),
-                    PropertyType::Array {
-                        element_type: crate::property::PropertyValueType::Scalar(
-                            ScalarPropertyType::String,
-                        ),
-                        ..
-                    }
-                ) {
-                    return Err(mistyped(font_family, "an array of strings"));
-                }
+                check(font_family, "an array of strings", &|property| {
+                    matches!(
+                        property.ty(),
+                        PropertyType::Array {
+                            element_type: crate::property::PropertyValueType::Scalar(
+                                ScalarPropertyType::String,
+                            ),
+                            ..
+                        }
+                    )
+                })?;
                 scalar(font_size, ScalarPropertyType::F32)?;
                 scalar(color, ScalarPropertyType::Color)?;
                 scalar(outline_width, ScalarPropertyType::F32)?;
@@ -274,23 +196,11 @@ impl Capability {
                 scalar(bold, ScalarPropertyType::Bool)?;
                 scalar(italic, ScalarPropertyType::Bool)?;
                 for property_id in [horizontal_alignment, vertical_alignment] {
-                    let property = property(property_id)?;
-                    let scalar_type = match property.ty() {
-                        PropertyType::Value(value_type) => value_type.scalar_at(None),
-                        PropertyType::Array { .. } => None,
-                    };
-                    let Some(ScalarPropertyType::Enum(enumeration)) = scalar_type else {
-                        return Err(mistyped(property_id, "an enum type"));
-                    };
-                    let values = enumeration.values();
-                    if values.len() != 3
-                        || !(values.contains(&0) && values.contains(&1) && values.contains(&2))
-                    {
-                        return Err(mistyped(
-                            property_id,
-                            "an enum containing exactly 0, 1, and 2",
-                        ));
-                    }
+                    check(
+                        property_id,
+                        "an enum containing exactly 0, 1, and 2",
+                        &|property| matches!(property.ty(), PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Enum(enumeration))) if enumeration.values().len() == 3 && [0, 1, 2].iter().all(|value| enumeration.values().contains(value))),
+                    )?;
                 }
             }
             Self::RenderResult {
@@ -308,7 +218,22 @@ impl Capability {
                     hide_original,
                 )?;
             }
-            Self::Media { placement, .. } => {
+            Self::Media {
+                file,
+                reader,
+                placement,
+                playback,
+                ..
+            } => {
+                validate_logical_id("media reader", reader)?;
+                check(file, "a file property", &|property| {
+                    property.file_type().is_some()
+                })?;
+                if let Some(playback) = playback {
+                    playback
+                        .playback_properties()
+                        .validate(owner_kind, owner_id, properties)?;
+                }
                 if let Some(MediaPlacement { position, size }) = placement {
                     tuple_f32_pair(position)?;
                     tuple_f32_pair(size)?;
@@ -319,159 +244,192 @@ impl Capability {
     }
 }
 
+/// One named audio stream and its independently referenced playback settings.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct AudioCapability {
-    inputs: Vec<String>,
-    #[serde(default)]
-    files: Vec<FileCapability>,
-    /// Item property read by the host mixer as linear audio gain,
-    /// referenced by ID like [`TemporalSamplingSchema`](super::TemporalSamplingSchema) references its
-    /// sampling properties.
+    id: String,
+    file: String,
+    reader: String,
     volume: String,
+    source_start: String,
+    source_duration: String,
+    playback_speed: String,
+    end_behavior: String,
+    preserve_pitch: String,
 }
 
 impl AudioCapability {
-    pub fn inputs(&self) -> &[String] {
-        &self.inputs
+    pub fn id(&self) -> &str {
+        &self.id
     }
 
-    pub fn files(&self) -> &[FileCapability] {
-        &self.files
+    pub fn media_source(&self) -> crate::media::MediaSource<'_> {
+        crate::media::MediaSource {
+            input: crate::media::MediaInputReference::Audio(self.id.clone()),
+            file: &self.file,
+            reader: &self.reader,
+        }
+    }
+
+    pub fn playback_properties(&self) -> PlaybackProperties<'_> {
+        PlaybackProperties {
+            source_start: &self.source_start,
+            source_duration: &self.source_duration,
+            playback_speed: &self.playback_speed,
+            end_behavior: &self.end_behavior,
+        }
+    }
+
+    pub fn preserve_pitch_property(&self) -> &str {
+        &self.preserve_pitch
     }
 
     pub fn volume_property(&self) -> &str {
         &self.volume
     }
 
-    pub fn consumes(&self, input_id: &str) -> bool {
-        self.inputs.iter().any(|id| id == input_id)
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub(super) struct EditorCapability {
-    pub(super) position: Option<String>,
-    pub(super) size: Option<String>,
-    pub(super) aspect_lock: Option<String>,
-    #[serde(default)]
-    pub(super) aspect_lock_default: bool,
-    pub(super) points: Option<String>,
-    pub(super) spline: Option<SplineEditorCapability>,
-    pub(super) label: Option<String>,
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub(super) struct SplineEditorCapability {
-    pub(super) tension: String,
-    pub(super) closed: String,
-}
-
-impl EditorCapability {
-    fn is_f32_pair(ty: &PropertyValueType) -> bool {
-        matches!(
-            ty,
-            PropertyValueType::Tuple(tuple)
-                if tuple.scalars() == [ScalarPropertyType::F32, ScalarPropertyType::F32]
-        )
-    }
-
     pub(super) fn validate(
         &self,
+        id: &str,
+        properties: &[PropertySchema],
+    ) -> Result<(), PluginError> {
+        validate_logical_id("audio input", &self.id)?;
+        validate_logical_id("audio reader", &self.reader)?;
+        let context = format!("item '{id}' audio input '{}'", self.id());
+        let check = |property_id: &str, expected: &str, valid: &dyn Fn(&PropertySchema) -> bool| {
+            validate_property_reference(&context, properties, property_id, expected, valid)
+        };
+        check(&self.file, "a file property", &|property| {
+            property.file_type().is_some()
+        })?;
+        check(&self.volume, "an f32 value", &|property| {
+            property.ty()
+                == &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::F32))
+        })?;
+        self.playback_properties()
+            .validate("item", id, properties)?;
+        check(
+            &self.preserve_pitch,
+            "a bool value without animation or scene bindings",
+            &|property| {
+                property.ty()
+                    == &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Bool))
+                    && !property.is_animatable(None)
+                    && !property.is_scene_bindable(None)
+            },
+        )?;
+        Ok(())
+    }
+}
+
+/// Property references for one visual media input's source clock.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct MediaPlaybackSchema {
+    source_start: String,
+    source_duration: String,
+    playback_speed: String,
+    end_behavior: String,
+}
+
+impl MediaPlaybackSchema {
+    pub fn playback_properties(&self) -> PlaybackProperties<'_> {
+        PlaybackProperties {
+            source_start: &self.source_start,
+            source_duration: &self.source_duration,
+            playback_speed: &self.playback_speed,
+            end_behavior: &self.end_behavior,
+        }
+    }
+}
+
+/// Ordinary property IDs read independently by each source clock.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PlaybackProperties<'a> {
+    pub source_start: &'a str,
+    pub source_duration: &'a str,
+    pub playback_speed: &'a str,
+    pub end_behavior: &'a str,
+}
+
+/// Property references for a time mapping, with no input or EOF policy.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TimeMappingProperties<'a> {
+    pub source_start: &'a str,
+    pub source_duration: &'a str,
+    pub playback_speed: &'a str,
+}
+
+impl TimeMappingProperties<'_> {
+    pub(super) fn validate(
+        self,
         owner: &str,
         id: &str,
         properties: &[PropertySchema],
     ) -> Result<(), PluginError> {
-        let property = |property_id: &str| {
-            properties
-                .iter()
-                .find(|property| property.id() == property_id)
-        };
-        if self.position.is_none()
-            && self.size.is_none()
-            && self.aspect_lock.is_none()
-            && self.points.is_none()
-            && self.label.is_none()
-        {
-            return Err(PluginError::invalid_definition(format!(
-                "{owner} '{id}' editor capability must reference at least one property"
-            )));
-        }
-        for (kind, property_id) in [
-            ("position", self.position.as_deref()),
-            ("size", self.size.as_deref()),
-            ("aspect_lock", self.aspect_lock.as_deref()),
+        let mut ids = HashSet::new();
+        for (role, property_id) in [
+            ("source_start", self.source_start),
+            ("source_duration", self.source_duration),
+            ("playback_speed", self.playback_speed),
         ] {
-            let Some(property_id) = property_id else {
-                continue;
-            };
-            if !property(property_id).is_some_and(|property| {
-                matches!(property.ty(), PropertyType::Value(ty) if Self::is_f32_pair(ty))
-            }) {
-                return Err(PluginError::invalid_definition(format!(
-                    "{owner} '{id}' editor {kind} property '{property_id}' must be a tuple of two f32 values"
-                )));
-            }
+            validate_property_reference(
+                &format!("{owner} '{id}' time mapping role '{role}'"),
+                properties,
+                property_id,
+                "a distinct f32 property without animation or scene bindings",
+                |property| {
+                    ids.insert(property_id)
+                        && property.ty()
+                            == &PropertyType::Value(PropertyValueType::Scalar(
+                                ScalarPropertyType::F32,
+                            ))
+                        && !property.is_animatable(None)
+                        && !property.is_scene_bindable(None)
+                },
+            )?;
         }
-        if self.aspect_lock_default && self.aspect_lock.is_none() {
-            return Err(PluginError::invalid_definition(format!(
-                "{owner} '{id}' aspect_lock_default requires aspect_lock"
-            )));
-        }
-        if let Some(property_id) = self.points.as_deref() {
-            let valid = property(property_id).is_some_and(|property| {
-                matches!(
-                    property.ty(),
-                    PropertyType::Array {
-                        element_type,
-                        ..
-                    }
-                        if Self::is_f32_pair(element_type)
-                )
-            });
-            if !valid {
-                return Err(PluginError::invalid_definition(format!(
-                    "{owner} '{id}' editor points property '{property_id}' must be an array of two-f32 tuples"
-                )));
-            }
-            if self.position.is_none() || self.size.is_none() {
-                return Err(PluginError::invalid_definition(format!(
-                    "{owner} '{id}' editor points property requires position and size properties"
-                )));
-            }
-        }
-        if let Some(spline) = &self.spline {
-            if self.points.is_none() {
-                return Err(PluginError::invalid_definition(format!(
-                    "{owner} '{id}' editor spline requires points, position and size properties"
-                )));
-            }
-            for (kind, property_id, expected) in [
-                ("tension", spline.tension.as_str(), ScalarPropertyType::F32),
-                ("closed", spline.closed.as_str(), ScalarPropertyType::Bool),
-            ] {
-                if property(property_id).map(PropertySchema::ty)
-                    != Some(&PropertyType::Value(PropertyValueType::Scalar(expected)))
-                {
-                    return Err(PluginError::invalid_definition(format!(
-                        "{owner} '{id}' editor spline {kind} property '{property_id}' has the wrong type"
-                    )));
-                }
-            }
-        }
-        if let Some(property_id) = self.label.as_deref()
-            && property(property_id).map(|property| property.ty())
-                != Some(&PropertyType::Value(PropertyValueType::Scalar(
-                    ScalarPropertyType::String,
-                )))
-        {
-            return Err(PluginError::invalid_definition(format!(
-                "{owner} '{id}' editor label property '{property_id}' must be a string"
-            )));
-        }
+        let defaults = crate::property::PropertyValues::from_properties(properties);
+        crate::timeline::TimeMapping::from_properties(self, &defaults).map_err(|_| {
+            PluginError::invalid_definition(format!(
+                "{owner} '{id}' has invalid default time mapping values"
+            ))
+        })?;
         Ok(())
+    }
+}
+
+impl<'a> PlaybackProperties<'a> {
+    pub fn time_mapping(self) -> TimeMappingProperties<'a> {
+        TimeMappingProperties {
+            source_start: self.source_start,
+            source_duration: self.source_duration,
+            playback_speed: self.playback_speed,
+        }
+    }
+
+    pub(super) fn validate(
+        self,
+        owner: &str,
+        id: &str,
+        properties: &[PropertySchema],
+    ) -> Result<(), PluginError> {
+        self.time_mapping().validate(owner, id, properties)?;
+        let enumeration =
+            ScalarPropertyType::Enum(vec![0, 1, 2].try_into().expect("unique variants"));
+        validate_property_reference(
+            &format!("{owner} '{id}' playback"),
+            properties,
+            self.end_behavior,
+            "an enum [0, 1, 2] property without animation or scene bindings",
+            |property| {
+                property.ty()
+                    == &PropertyType::Value(PropertyValueType::Scalar(enumeration.clone()))
+                    && !property.is_animatable(None)
+                    && !property.is_scene_bindable(None)
+            },
+        )
     }
 }
 

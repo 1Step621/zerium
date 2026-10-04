@@ -61,6 +61,7 @@ pub(super) fn validate_search_tags(
 
 use super::abi::validate_property_names;
 use crate::property::PropertySchema;
+
 pub(super) fn validate_property_schemas(
     owner_kind: &str,
     owner_id: &str,
@@ -76,4 +77,28 @@ pub(super) fn validate_property_schemas(
             .iter()
             .map(|property| (property.id(), property.ty())),
     )
+}
+
+/// Resolve a property reference and check the requirements of its consumer.
+pub(super) fn validate_property_reference(
+    context: &str,
+    properties: &[PropertySchema],
+    property_id: &str,
+    expected: &str,
+    valid: impl FnOnce(&PropertySchema) -> bool,
+) -> Result<(), PluginError> {
+    let property = properties
+        .iter()
+        .find(|property| property.id() == property_id)
+        .ok_or_else(|| {
+            PluginError::invalid_definition(format!(
+                "{context} references missing property '{property_id}'"
+            ))
+        })?;
+    if !valid(property) {
+        return Err(PluginError::invalid_definition(format!(
+            "{context} property '{property_id}' must be {expected}"
+        )));
+    }
+    Ok(())
 }

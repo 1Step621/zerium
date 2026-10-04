@@ -1,3 +1,4 @@
+use ::ui::{ContextModal as _, modal::Modal};
 use rust_i18n::t;
 
 use super::control::{Control, ControlTree, EffectGroup, GroupKind};
@@ -8,17 +9,12 @@ pub(super) struct SelectionView {
     pub item: TimelineItem,
     pub item_label: String,
     pub selected_count: usize,
-    pub aspect_ratio_lock: Option<AspectRatioLockState>,
     pub tree: ControlTree,
-    pub scene_arguments: Vec<SceneArgumentOption>,
-    pub file_inputs: Vec<(FileCapability, Option<MediaAsset>)>,
     pub available_effects: Vec<SearchPickerEntry<EffectPickerTarget>>,
     pub multiple: bool,
-    pub editing_scene: bool,
     pub has_visual: bool,
     pub items_hidden: bool,
     pub item_visibility_mixed: bool,
-    pub kind_label: String,
 }
 
 impl Render for PropertyInspector {
@@ -29,49 +25,19 @@ impl Render for PropertyInspector {
         div()
             .relative()
             .track_focus(&self.focus_handle)
-            .size_full()
+            .w_full()
+            .when(self.source == PropertySource::Plugin, |this| this.h_full())
             .flex()
             .flex_col()
             .overflow_hidden()
-            .on_drag_move(cx.listener(
-                |this, event: &DragMoveEvent<PropertyValueDrag>, window, cx| {
-                    if !this.focus_handle.is_focused(window) {
-                        this.focus_handle.focus(window, cx);
-                    }
-                    let drag = event.drag(cx).clone();
-                    cx.set_active_drag_cursor_style(CursorStyle::ResizeLeftRight, window);
-                    this.handle_value_drag(
-                        &drag,
-                        f32::from(event.event.position.x),
-                        event.event.modifiers.shift,
-                        window,
-                        cx,
-                    );
-                },
-            ))
-            .on_drag_move(cx.listener(
-                |this, event: &DragMoveEvent<SceneArgumentValueDrag>, window, cx| {
-                    if !this.focus_handle.is_focused(window) {
-                        this.focus_handle.focus(window, cx);
-                    }
-                    let drag = event.drag(cx).clone();
-                    cx.set_active_drag_cursor_style(CursorStyle::ResizeLeftRight, window);
-                    this.handle_scene_argument_value_drag(
-                        &drag,
-                        f32::from(event.event.position.x),
-                        event.event.modifiers.shift,
-                        window,
-                        cx,
-                    );
-                },
-            ))
+            .on_drag_move(cx.listener(Self::handle_number_drag))
             .on_mouse_up(
                 MouseButton::Left,
-                cx.listener(|this, _, _, cx| this.finish_value_drag(cx)),
+                cx.listener(|this, _, _, cx| this.finish_number_drag(cx)),
             )
             .on_mouse_up_out(
                 MouseButton::Left,
-                cx.listener(|this, _, _, cx| this.finish_value_drag(cx)),
+                cx.listener(|this, _, _, cx| this.finish_number_drag(cx)),
             )
             .bg(colors.background)
             .text_color(colors.foreground)
@@ -105,12 +71,6 @@ impl PropertyInspector {
         selection: &'a SelectionView,
         cx: &mut Context<Self>,
     ) -> RenderCtx<'a> {
-        let active_scene_name_input = self.editor.read(cx).active_scene_id().and_then(|scene_id| {
-            self.store
-                .text_inputs
-                .get(&ControlId::scene_name(scene_id))
-                .map(|state| state.input.clone())
-        });
         RenderCtx {
             colors: cx.theme().colors,
             editor: &self.editor,
@@ -118,8 +78,8 @@ impl PropertyInspector {
             inspector: cx.entity(),
             store: &self.store,
             font_names: &self.font_names,
+            loading_file: self.loading_file,
             item_id: selection.item.id,
-            active_scene_name_input,
         }
     }
 
@@ -142,8 +102,6 @@ impl PropertyInspector {
         let multiple = selected_items.len() > 1;
         let hidden_state = self.editor.read(cx).selected_items_hidden_state();
         let schema = Self::selected_schema(&item);
-        let scene_arguments = self.active_scene_argument_options(cx);
-        let editing_scene = self.editor.read(cx).active_scene_id().is_some() && !multiple;
         let effects = if multiple {
             Self::common_effects(&selected_items)
         } else {
@@ -152,26 +110,6 @@ impl PropertyInspector {
         let has_visual = schema
             .is_some_and(|schema| schema.shader().is_some() && (!multiple || !effects.is_empty()))
             || (item.scene_id().is_some() && !multiple);
-        let file_inputs = (!multiple)
-            .then_some(schema)
-            .flatten()
-            .map(|schema| {
-                schema
-                    .files()
-                    .map(|input| (input.clone(), item.media(input.id()).cloned()))
-                    .collect()
-            })
-            .unwrap_or_default();
-        let kind_label = if multiple {
-            t!("inspector.multiple").to_string()
-        } else if item.scene_id().is_some() {
-            t!("inspector.scene").to_string()
-        } else {
-            schema
-                .map(|schema| schema.label().to_owned())
-                .unwrap_or_default()
-        };
-        let aspect_ratio_lock = Self::aspect_ratio_lock_state(self.editor.read(cx), None);
         let available_effects = {
             let editor = self.editor.read(cx);
             editor
@@ -190,17 +128,12 @@ impl PropertyInspector {
             item,
             item_label,
             selected_count: selected_items.len(),
-            aspect_ratio_lock,
             tree: self.store.tree.clone(),
-            scene_arguments,
-            file_inputs,
             available_effects,
             multiple,
-            editing_scene,
             has_visual,
             items_hidden: hidden_state == Some(true),
             item_visibility_mixed: hidden_state.is_none() && multiple,
-            kind_label,
         })
     }
 
@@ -226,11 +159,9 @@ impl PropertyInspector {
                     argument.schema.label().to_owned()
                 };
                 SceneArgumentOption {
-                    scene_id,
                     id: argument.schema.id().to_owned(),
                     label,
                     schema: argument.schema.clone(),
-                    binding_count: argument.bindings.len(),
                     bindings: argument.bindings.clone(),
                 }
             })
@@ -244,10 +175,25 @@ impl PropertyInspector {
     ) -> gpui::AnyElement {
         let render = self.render_context(&view, cx);
         let active_effect = self.editor.read(cx).active_edit_effect();
+        if self.source == PropertySource::SceneArguments {
+            return div()
+                .id("scene-instance-arguments")
+                .w_full()
+                .max_h(px(450.))
+                .overflow_y_scroll()
+                .flex()
+                .flex_col()
+                .gap_3()
+                .children(
+                    view.tree
+                        .roots
+                        .iter()
+                        .cloned()
+                        .filter_map(|control| Self::control_element(control, &render)),
+                )
+                .into_any_element();
+        }
         let header = Self::selection_header(&view, &render, active_effect);
-        let scene_settings = view
-            .editing_scene
-            .then(|| self.scene_settings_element(&view.scene_arguments, &render));
         let mut controls = Vec::new();
         let mut effect_controls = Vec::new();
         for control in view.tree.roots.iter().cloned() {
@@ -260,9 +206,7 @@ impl PropertyInspector {
                     effect_controls.push(self.effect_element(effect, children, &view, &render, cx))
                 }
                 control => {
-                    if let Some(control) =
-                        Self::control_element(control, view.aspect_ratio_lock, &render)
-                    {
+                    if let Some(control) = Self::control_element(control, &render) {
                         controls.push(control);
                     }
                 }
@@ -289,12 +233,6 @@ impl PropertyInspector {
                     ))
                 })
         });
-        let files = view
-            .file_inputs
-            .iter()
-            .cloned()
-            .map(|file| self.file_input_element(None, file, &render))
-            .collect::<Vec<_>>();
         let item_editor = render.editor.clone();
         let item_controls = div()
             .w_full()
@@ -304,18 +242,7 @@ impl PropertyInspector {
             .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                 Self::activate_edit_target(&item_editor, None, cx);
             })
-            .child(Self::kind_row(view.kind_label.clone(), render.colors))
-            .children(controls)
-            .children(files)
-            .when_some(self.file_error.clone(), |this, error| {
-                this.child(
-                    div()
-                        .w_full()
-                        .text_sm()
-                        .text_color(render.colors.danger)
-                        .child(error),
-                )
-            });
+            .children(controls);
         div()
             .size_full()
             .flex()
@@ -324,6 +251,7 @@ impl PropertyInspector {
             .child(
                 div()
                     .id("property-inspector-scroll")
+                    .track_scroll(&self.scroll_handle)
                     .w_full()
                     .flex_1()
                     .min_h_0()
@@ -332,22 +260,6 @@ impl PropertyInspector {
                     .overflow_y_scroll()
                     .gap_3()
                     .p_3()
-                    .when_some(scene_settings, |this, section| this.child(section))
-                    .when(view.editing_scene, |this| {
-                        this.child(
-                            div()
-                                .w_full()
-                                .h(px(1.))
-                                .flex_none()
-                                .bg(render.colors.border),
-                        )
-                        .child(
-                            div()
-                                .text_sm()
-                                .text_color(render.colors.muted_foreground)
-                                .child(t!("inspector.item_settings").to_string()),
-                        )
-                    })
                     .child(item_controls)
                     .when_some(effects, |this, effects| this.child(effects)),
             )
@@ -415,11 +327,7 @@ impl PropertyInspector {
         });
     }
 
-    fn control_element(
-        control: Control,
-        aspect: Option<AspectRatioLockState>,
-        render: &RenderCtx,
-    ) -> Option<gpui::AnyElement> {
+    fn control_element(control: Control, render: &RenderCtx) -> Option<gpui::AnyElement> {
         match control {
             Control::Group {
                 label,
@@ -427,10 +335,9 @@ impl PropertyInspector {
                 kind,
                 ..
             } => match kind {
-                GroupKind::Plain => Some(Self::group_box(label, &children, None, aspect, render)),
-                GroupKind::Tuple { aspect_key } => Some(Self::group_box(
-                    label, &children, aspect_key, aspect, render,
-                )),
+                GroupKind::Plain(extensions) => {
+                    Some(Self::group_box(label, &children, &extensions, render))
+                }
                 GroupKind::Elements(group) => Some(Self::elements_section(
                     &group,
                     &children,
@@ -451,6 +358,7 @@ impl PropertyInspector {
     ) -> Div {
         let editor = render.editor.clone();
         let title_editor = render.editor.clone();
+        let inspector = render.inspector.clone();
         pane_header(render.colors)
             .child(
                 div()
@@ -476,6 +384,20 @@ impl PropertyInspector {
                         view.item_label.clone()
                     }),
             )
+            .when(view.item.scene_id().is_some() && !view.multiple, |this| {
+                this.child(
+                    Button::new("scene-instance-arguments")
+                        .small()
+                        .compact()
+                        .ghost()
+                        .label(t!("args.scene_arguments").to_string())
+                        .on_click(move |_, window, cx| {
+                            inspector.update(cx, |inspector, cx| {
+                                inspector.open_scene_arguments(window, cx)
+                            })
+                        }),
+                )
+            })
             .child(
                 Button::new("toggle-selected-item-visibility")
                     .small()
@@ -505,6 +427,35 @@ impl PropertyInspector {
             )
     }
 
+    fn open_scene_arguments(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let editor = self.editor.clone();
+        let animation = self.animation_selection.clone();
+        let readers = self.media_readers.clone();
+        let session = self.session.clone();
+        let notifications = self.notifications.clone();
+        let arguments = cx.new(|cx| {
+            let mut panel = Self::new(
+                editor.clone(),
+                animation,
+                readers,
+                session,
+                notifications,
+                window,
+                cx,
+            );
+            panel.source = PropertySource::SceneArguments;
+            panel.reset_input_state();
+            panel.sync_from_editor(&editor, window, cx);
+            panel
+        });
+        window.open_modal(cx, move |modal: Modal, _, _| {
+            modal
+                .title(t!("args.scene_arguments").to_string())
+                .width(px(520.))
+                .child(arguments.clone())
+        });
+    }
+
     fn activate_edit_target(
         editor: &Entity<TimelineEditor>,
         effect_id: Option<EffectInstanceId>,
@@ -515,125 +466,6 @@ impl PropertyInspector {
                 cx.notify();
             }
         });
-    }
-
-    fn kind_row(label: String, colors: ThemeColor) -> Div {
-        div()
-            .w_full()
-            .flex()
-            .items_center()
-            .gap_3()
-            .child(Self::property_label_column(
-                t!("inspector.kind").to_string(),
-            ))
-            .child(
-                div()
-                    .text_sm()
-                    .text_color(colors.muted_foreground)
-                    .child(label),
-            )
-    }
-
-    fn file_input_element(
-        &self,
-        effect_id: Option<EffectInstanceId>,
-        (input, media): (FileCapability, Option<MediaAsset>),
-        render: &RenderCtx<'_>,
-    ) -> gpui::AnyElement {
-        let input_id = input.id().to_owned();
-        let choose_input_id = input_id.clone();
-        let inspector = render.inspector.clone();
-        let button_label = if self.loading_file {
-            t!("inspector.loading").to_string()
-        } else if media.is_some() {
-            t!("inspector.change_file").to_string()
-        } else {
-            t!("inspector.choose_file").to_string()
-        };
-        let details = media.as_ref().map(Self::media_details);
-
-        div()
-            .w_full()
-            .flex()
-            .items_start()
-            .gap_3()
-            .child(Self::property_label_column(input.label().to_owned()))
-            .child(
-                div()
-                    .min_w_0()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(
-                        Button::new(SharedString::from(format!(
-                            "select-file-{effect_id:?}-{input_id}"
-                        )))
-                        .small()
-                        .label(button_label)
-                        .disabled(self.loading_file)
-                        .on_click(move |event, window, cx| {
-                            inspector.update(cx, |inspector, cx| {
-                                inspector.choose_file(
-                                    effect_id,
-                                    choose_input_id.clone(),
-                                    event,
-                                    window,
-                                    cx,
-                                );
-                            });
-                        }),
-                    )
-                    .when_some(details, |this, details| {
-                        this.child(
-                            div()
-                                .whitespace_normal()
-                                .text_sm()
-                                .text_color(render.colors.muted_foreground)
-                                .child(details),
-                        )
-                    }),
-            )
-            .into_any_element()
-    }
-
-    fn media_details(media: &MediaAsset) -> String {
-        let duration = media.duration.as_secs_f64();
-        let minutes = (duration / 60.).floor() as u64;
-        let seconds = duration - minutes as f64 * 60.;
-        let format = match &media.kind {
-            MediaKind::Video {
-                width,
-                height,
-                frame_rate,
-                has_audio,
-                ..
-            } => format!(
-                "{width} × {height} · {:.3} fps{}",
-                frame_rate.frames_per_second(),
-                if *has_audio {
-                    t!("inspector.audio_available")
-                } else {
-                    "".into()
-                }
-            ),
-            MediaKind::Audio {
-                channels,
-                sample_rate,
-            } => match (channels, sample_rate) {
-                (Some(channels), Some(sample_rate)) => format!("{channels} ch・{sample_rate} Hz"),
-                (Some(channels), None) => format!("{channels} ch"),
-                (None, Some(sample_rate)) => format!("{sample_rate} Hz"),
-                (None, None) => t!("inspector.audio_stream").to_string(),
-            },
-            MediaKind::Image { width, height } => {
-                format!("{width} × {height} · {}", t!("inspector.image"))
-            }
-        };
-        format!(
-            "{minutes:02}:{seconds:06.3} · {format}\n{}",
-            media.path.display()
-        )
     }
 
     fn effect_element(
@@ -654,33 +486,10 @@ impl PropertyInspector {
                 editor.can_move_selected_effect(effect_id, 1),
             )
         };
-        let aspect = Self::aspect_ratio_lock_state(render.editor.read(cx), Some(effect_id));
         let controls = controls
             .into_iter()
-            .filter_map(|control| Self::control_element(control, aspect, render))
+            .filter_map(|control| Self::control_element(control, render))
             .collect::<Vec<_>>();
-        let files = if view.multiple {
-            Vec::new()
-        } else {
-            view.item
-                .effects
-                .iter()
-                .find(|instance| instance.id == effect_id)
-                .map(|instance| {
-                    instance
-                        .schema()
-                        .files()
-                        .map(|input| {
-                            self.file_input_element(
-                                Some(effect_id),
-                                (input.clone(), instance.assets.get(input.id()).cloned()),
-                                render,
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .unwrap_or_default()
-        };
 
         div()
             .w_full()
@@ -704,7 +513,6 @@ impl PropertyInspector {
                 render,
             ))
             .children(controls)
-            .children(files)
             .into_any_element()
     }
 

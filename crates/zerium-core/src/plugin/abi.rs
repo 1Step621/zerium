@@ -33,10 +33,12 @@ impl PropertyLayout {
     ) -> Result<Self, PluginError> {
         let declarations = declarations.into_iter().collect::<Vec<_>>();
         validate_property_names(owner_kind, owner_id, declarations.iter().copied())?;
-
         let mut fields = Vec::with_capacity(declarations.len());
         let mut header_size = 0_usize;
         for &(id, ty) in &declarations {
+            if matches!(ty, PropertyType::File(_)) {
+                continue;
+            }
             let size = header_abi_size(ty);
             let next = header_size.checked_add(size).ok_or_else(|| {
                 PluginError::invalid_definition(format!(
@@ -178,6 +180,9 @@ pub(super) fn validate_property_names<'a>(
                 "{owner_kind} '{owner_id}' has duplicate property ID '{id}'"
             )));
         }
+        if matches!(ty, PropertyType::File(_)) {
+            continue;
+        }
         let field = if matches!(ty, PropertyType::Array { .. }) {
             format!("{id}_len")
         } else {
@@ -201,6 +206,7 @@ fn property_budget_error(owner_kind: &str, owner_id: &str) -> PluginError {
 
 fn header_abi_size(ty: &PropertyType) -> usize {
     match ty {
+        PropertyType::File(_) => 0,
         PropertyType::Array { .. } => 8,
         PropertyType::Value(value_type) => abi_size(value_type),
     }
@@ -218,10 +224,13 @@ pub fn value_string_count(ty: &PropertyValueType) -> usize {
 }
 
 fn max_dynamic_size(ty: &PropertyType) -> Result<usize, PluginError> {
-    let value_type = ty.value_type();
+    let Some(value_type) = ty.value_type() else {
+        return Ok(0);
+    };
     let payload = value_string_count(value_type) * aligned_size(MAX_STRING_BYTES);
     match ty {
         PropertyType::Value(_) => Ok(payload),
+        PropertyType::File(_) => Ok(0),
         PropertyType::Array {
             element_type,
             max_items,
@@ -231,6 +240,7 @@ fn max_dynamic_size(ty: &PropertyType) -> Result<usize, PluginError> {
             .ok_or_else(|| PluginError::invalid_definition("property ABI maximum size overflows")),
     }
 }
+
 pub const fn scalar_abi_size(ty: &ScalarPropertyType) -> usize {
     let word_count = match ty {
         ScalarPropertyType::F32
@@ -258,6 +268,7 @@ fn value_payload_size(value: &PropertyValue) -> usize {
         _ => 0,
     }
 }
+
 fn dynamic_value_size(ty: &PropertyType, value: &PropertyValue) -> Result<usize, PluginError> {
     match (ty, value) {
         (PropertyType::Array { element_type, .. }, PropertyValue::Array(values)) => {

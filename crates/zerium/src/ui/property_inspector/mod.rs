@@ -1,28 +1,29 @@
 mod control;
 mod edit;
+mod number_drag;
 mod path;
 mod render;
 mod rows;
-mod scene_args;
 mod state;
-use crate::ui::numeric_property::{
-    NumericInput, NumericInputSpec, numeric_input_spec, snap_to_step,
-};
+use crate::ui::numeric_property::{NumericInput, NumericInputSpec, numeric_input_spec};
 
-use std::collections::{HashMap, HashSet};
+use std::{
+    collections::{HashMap, HashSet},
+    rc::Rc,
+};
 
 use ::ui::{
     ActiveTheme as _, Disableable as _, Icon, IconName, Selectable as _, Sizable as _, ThemeColor,
     button::{Button, ButtonVariants as _},
     color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState},
-    input::{Input, InputEvent, InputState, NumberInput, NumberInputEvent, StepAction},
+    input::{Input, InputEvent, InputState, NumberInput, NumberInputEvent},
     menu::{PopupMenuItem, popup_menu::PopupMenuExt as _},
     popover::Popover,
     switch::Switch,
 };
 use gpui::{
-    App, Context, CursorStyle, DismissEvent, Div, DragMoveEvent, Empty, Entity, EntityId,
-    FocusHandle, Focusable as _, MouseButton, MouseDownEvent, PathPromptOptions, Render, Rgba,
+    App, Context, CursorStyle, DismissEvent, Div, DragMoveEvent, Entity, FocusHandle,
+    Focusable as _, MouseButton, MouseDownEvent, PathPromptOptions, Render, Rgba, ScrollHandle,
     SharedString, Subscription, Task, Window, div, prelude::*, px,
 };
 
@@ -33,19 +34,26 @@ use crate::ui::animation_curve::AnimationSelection;
 use crate::ui::pane::pane_header;
 use crate::ui::search_picker::{SearchPicker, SearchPickerEntry};
 use crate::ui::session::UiNotifications;
+use number_drag::PropertyValueDragOrigin;
 use path::InspectorPath;
-use zerium_core::media::{MediaAsset, MediaKind};
-use zerium_core::plugin::{FileCapability, ItemSchema};
+use zerium_core::plugin::ItemSchema;
 use zerium_core::property::{
     PropertyElement, PropertyElementId, PropertyPath, PropertySchema, PropertyType, PropertyValue,
     PropertyValueType, ScalarPropertyType,
 };
 use zerium_core::timeline::{
-    EffectInstance, EffectInstanceId, ItemId, PropertyAddress, SceneArgument, SceneArgumentPreset,
-    SceneBindingOwner, SceneBindingTarget, SceneId, TimelineEditor, TimelineItem, TimelineTime,
+    EffectInstance, EffectInstanceId, ItemId, PropertyAddress, SceneArgument, SceneBindingOwner,
+    SceneBindingTarget, SceneId, TimelineEditor, TimelineItem, TimelineTime,
 };
 
 pub(super) type EffectPickerTarget = (String, String);
+
+pub(crate) struct SceneArgumentRequested {
+    pub scene_id: SceneId,
+    pub argument_id: String,
+}
+
+impl gpui::EventEmitter<SceneArgumentRequested> for PropertyInspector {}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum ControlId {
@@ -56,24 +64,6 @@ enum ControlId {
     },
     Group(InspectorPath),
     EffectGroup(EffectInstanceId),
-    SceneName(SceneId),
-    SceneArgumentName {
-        scene_id: SceneId,
-        argument_id: String,
-    },
-    SceneArgumentDefault {
-        scene_id: SceneId,
-        argument_id: String,
-    },
-    SceneArgumentSetting {
-        scene_id: SceneId,
-        argument_id: String,
-        setting: SceneArgumentSetting,
-    },
-    SceneArgumentColor {
-        scene_id: SceneId,
-        argument_id: String,
-    },
 }
 
 impl ControlId {
@@ -92,45 +82,8 @@ impl ControlId {
         Self::Group(path.clone())
     }
 
-    fn scene_name(scene_id: SceneId) -> Self {
-        Self::SceneName(scene_id)
-    }
-
     fn effect_group(effect_id: EffectInstanceId) -> Self {
         Self::EffectGroup(effect_id)
-    }
-
-    fn scene_argument_name(scene_id: SceneId, argument_id: &str) -> Self {
-        Self::SceneArgumentName {
-            scene_id,
-            argument_id: argument_id.to_owned(),
-        }
-    }
-
-    fn scene_argument_default(scene_id: SceneId, argument_id: &str) -> Self {
-        Self::SceneArgumentDefault {
-            scene_id,
-            argument_id: argument_id.to_owned(),
-        }
-    }
-
-    fn scene_argument_setting(
-        scene_id: SceneId,
-        argument_id: &str,
-        setting: SceneArgumentSetting,
-    ) -> Self {
-        Self::SceneArgumentSetting {
-            scene_id,
-            argument_id: argument_id.to_owned(),
-            setting,
-        }
-    }
-
-    fn scene_argument_color(scene_id: SceneId, argument_id: &str) -> Self {
-        Self::SceneArgumentColor {
-            scene_id,
-            argument_id: argument_id.to_owned(),
-        }
     }
 }
 
@@ -146,6 +99,15 @@ struct PropertyTarget {
 impl PropertyTarget {
     fn value<'a>(&self, item: &'a TimelineItem) -> Option<&'a PropertyValue> {
         self.address(item.id).value(item)
+    }
+
+    fn selected_value(&self, primary: &TimelineItem, item: &TimelineItem) -> Option<PropertyValue> {
+        let mut target = self.clone();
+        if let Some(id) = self.effect_id {
+            let index = primary.effects.iter().position(|effect| effect.id == id)?;
+            target.effect_id = Some(item.effects.get(index)?.id);
+        }
+        target.value(item).cloned()
     }
 
     fn address(&self, item_id: ItemId) -> PropertyAddress {
@@ -179,11 +141,9 @@ impl PropertyTarget {
 
 #[derive(Clone)]
 pub(super) struct SceneArgumentOption {
-    pub scene_id: SceneId,
     pub id: String,
     pub label: String,
     pub schema: PropertySchema,
-    pub binding_count: usize,
     pub bindings: Vec<SceneBindingTarget>,
 }
 
@@ -192,27 +152,6 @@ pub(super) struct SceneFieldBinding {
     pub target: SceneBindingTarget,
     pub connected: Option<(String, String)>,
     pub compatible: Vec<(String, String)>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(super) enum SceneArgumentSetting {
-    Default,
-    Min,
-    Max,
-}
-
-#[derive(Clone, Copy)]
-pub(super) struct AspectRatioLockState {
-    pub effect_id: Option<EffectInstanceId>,
-    pub value: bool,
-    pub mixed: bool,
-    pub multiple: bool,
-}
-
-impl AspectRatioLockState {
-    pub(super) fn checked(self) -> bool {
-        self.value && !self.mixed
-    }
 }
 
 #[derive(Clone)]
@@ -248,66 +187,14 @@ impl AnimationStopBinding {
     }
 }
 
-#[derive(Clone)]
-struct PropertyValueDrag {
-    pub inspector_id: EntityId,
-    pub input_id: ControlId,
-}
-
-#[derive(Clone)]
-struct PropertyValueDragOrigin {
-    pub target: PropertyTarget,
-    pub input_id: ControlId,
-    pub animation_stop: Option<AnimationStopBinding>,
-    pub start_x: f32,
-    pub start_value: f64,
-    pub min: f64,
-    pub max: f64,
-    pub step: f64,
-    pub sensitivity: f64,
-}
-
-#[derive(Clone)]
-pub(super) struct SceneArgumentValueDrag {
-    pub inspector_id: EntityId,
-    pub scene_id: SceneId,
-    pub argument_id: String,
-    pub setting: SceneArgumentSetting,
-}
-
-impl Render for SceneArgumentValueDrag {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        Empty
-    }
-}
-
-pub(super) struct SceneArgumentValueDragOrigin {
-    pub scene_id: SceneId,
-    pub argument_id: String,
-    pub setting: SceneArgumentSetting,
-    pub start_x: f32,
-    pub start_value: f64,
-    number: NumericInput,
-    pub sensitivity: f64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct InspectorInputStructure {
-    pub item_id: Option<ItemId>,
-    pub effect_ids: Vec<EffectInstanceId>,
-    pub array_lengths: Vec<(Option<u64>, String, usize)>,
-    pub item_scene_arguments: Vec<String>,
-    pub active_scene: Option<SceneId>,
-    pub active_scene_arguments: Vec<String>,
-}
-
-impl Render for PropertyValueDrag {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        Empty
-    }
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum PropertySource {
+    Plugin,
+    SceneArguments,
 }
 
 pub(crate) struct PropertyInspector {
+    source: PropertySource,
     pub(super) editor: Entity<TimelineEditor>,
     pub(super) animation_selection: Entity<AnimationSelection>,
     pub(super) media_readers: std::sync::Arc<MediaReaderRegistry>,
@@ -315,11 +202,10 @@ pub(crate) struct PropertyInspector {
     pub(super) session_id: ProjectSessionId,
     pub(super) notifications: Entity<UiNotifications>,
     pub(super) focus_handle: FocusHandle,
+    scroll_handle: ScrollHandle,
     store: state::ControlStore,
     pub(super) font_names: Vec<String>,
-    pub(super) expanded_scene_arguments: HashSet<(SceneId, String)>,
     pub(super) loading_file: bool,
-    pub(super) file_error: Option<SharedString>,
     pub(super) _file_task: Task<()>,
     pub(super) effect_picker: Option<Entity<SearchPicker<EffectPickerTarget>>>,
     pub(super) _editor_subscription: Subscription,
@@ -375,12 +261,12 @@ impl PropertyInspector {
             this.session_id = session_id;
             this._file_task = Task::ready(());
             this.loading_file = false;
-            this.file_error = None;
             this.reset_input_state();
             cx.notify();
         });
 
         let mut inspector = Self {
+            source: PropertySource::Plugin,
             editor,
             animation_selection,
             media_readers,
@@ -388,6 +274,7 @@ impl PropertyInspector {
             session_id,
             notifications,
             focus_handle: cx.focus_handle(),
+            scroll_handle: ScrollHandle::new(),
             store: state::ControlStore::default(),
             font_names: {
                 let mut names = cx.text_system().all_font_names();
@@ -395,9 +282,7 @@ impl PropertyInspector {
                 names.dedup();
                 names
             },
-            expanded_scene_arguments: HashSet::new(),
             loading_file: false,
-            file_error: None,
             _file_task: Task::ready(()),
             effect_picker: None,
             _editor_subscription: editor_subscription,

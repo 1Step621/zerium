@@ -9,7 +9,19 @@ pub fn interpolate_scalar(
     if !progress.is_finite() {
         return None;
     }
-    let lerp = |from: f32, to: f32| from + (to - from) * progress;
+    let lerp = |from: f32, to: f32| {
+        if progress == 0. {
+            return from;
+        }
+        if progress == 1. {
+            return to;
+        }
+        if from.is_sign_positive() != to.is_sign_positive() {
+            from * (1. - progress) + to * progress
+        } else {
+            from + (to - from) * progress
+        }
+    };
     match (from_value, to_value) {
         (PropertyValue::F32(from), PropertyValue::F32(to)) => {
             Some(PropertyValue::F32(lerp(*from, *to)))

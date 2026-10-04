@@ -18,6 +18,8 @@ impl PropertyAddress {
     }
 
     pub fn value<'a>(&self, item: &'a super::TimelineItem) -> Option<&'a PropertyValue> {
-        self.path().value(item.property_values(self.effect_id)?)
+        item.property_values(self.effect_id)?
+            .property(&self.property_id)?
+            .scalar(self.element_id, self.scalar_index)
     }
 }

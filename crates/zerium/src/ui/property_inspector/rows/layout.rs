@@ -3,6 +3,70 @@ use rust_i18n::t;
 use super::*;
 
 impl PropertyInspector {
+    pub(super) fn file_full_row(common: &LeafControl, render: &RenderCtx<'_>) -> gpui::AnyElement {
+        let effect_id = common.target.effect_id;
+        let property_id = common.target.property_id.clone();
+        let path = common.value.file();
+        let choose_property_id = property_id.clone();
+        let inspector = render.inspector.clone();
+        let button_label = if render.loading_file {
+            t!("inspector.loading").to_string()
+        } else if path.is_some() || common.mixed {
+            t!("inspector.change_file").to_string()
+        } else {
+            t!("inspector.choose_file").to_string()
+        };
+        let details = if common.mixed {
+            Some(t!("rows.mixed").to_string())
+        } else {
+            path.map(|path| path.display().to_string())
+        };
+
+        div()
+            .w_full()
+            .flex()
+            .items_start()
+            .gap_3()
+            .child(Self::property_label_column(common.label.clone()))
+            .child(
+                div()
+                    .min_w_0()
+                    .flex_1()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
+                    .child(
+                        Button::new(SharedString::from(format!(
+                            "select-file-{effect_id:?}-{property_id}"
+                        )))
+                        .small()
+                        .label(button_label)
+                        .disabled(render.loading_file || common.read_only)
+                        .on_click(move |event, window, cx| {
+                            inspector.update(cx, |inspector, cx| {
+                                inspector.choose_file(
+                                    effect_id,
+                                    choose_property_id.clone(),
+                                    event,
+                                    window,
+                                    cx,
+                                );
+                            });
+                        }),
+                    )
+                    .when_some(details, |this, details| {
+                        this.child(
+                            div()
+                                .whitespace_normal()
+                                .text_sm()
+                                .text_color(render.colors.muted_foreground)
+                                .child(details),
+                        )
+                    }),
+            )
+            .into_any_element()
+    }
+
     pub(super) fn number_full_row(
         common: &LeafControl,
         spec: &NumericInputSpec,
@@ -63,7 +127,7 @@ impl PropertyInspector {
                                 .when(!common.read_only, |this| {
                                     this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
                                         select_inspector.update(cx, |inspector, cx| {
-                                            inspector.select_number_animation(&select_target, cx);
+                                            inspector.select_animation(&select_target, cx);
                                         });
                                     })
                                 })
@@ -119,7 +183,7 @@ impl PropertyInspector {
             .when(!common.read_only, |this| {
                 this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
                     select_inspector.update(cx, |inspector, cx| {
-                        inspector.select_number_animation(&select_target, cx);
+                        inspector.select_animation(&select_target, cx);
                     });
                 })
             })
@@ -575,6 +639,7 @@ impl PropertyInspector {
                     ctx,
                 ))
             }
+            Control::File(file) => Some(Self::file_full_row(file, ctx)),
             Control::Group { .. } => None,
         }
     }
@@ -639,40 +704,24 @@ impl PropertyInspector {
                     ctx,
                 ))
             }
-            Control::Group { .. } => None,
+            Control::Group { .. } | Control::File(_) => None,
         }
     }
 
     /// Grouped tuple rendering: one property label with per-scalar rows.
     /// A lone child renders as a plain full row, matching single scalars.
-    /// The resolver marks the ratio-lock tuple with `aspect_key`; other
-    /// groups do not show a ratio-lock control.
     pub(in crate::ui::property_inspector) fn group_box(
         label: String,
         children: &[Control],
-        aspect_key: Option<InspectorPath>,
-        aspect: Option<AspectRatioLockState>,
+        extensions: &[EditorControl],
         ctx: &RenderCtx,
     ) -> gpui::AnyElement {
-        if let [child] = children
+        if extensions.is_empty()
+            && let [child] = children
             && let Some(row) = Self::scalar_full_row(child, ctx)
         {
             return row;
         }
-        let aspect_row = aspect.zip(aspect_key).map(|(state, key)| {
-            div()
-                .w_full()
-                .flex()
-                .items_center()
-                .justify_end()
-                .gap_2()
-                .child(Self::aspect_ratio_control(
-                    key,
-                    state,
-                    ctx.colors.muted_foreground,
-                    ctx.editor,
-                ))
-        });
         let rows = children
             .iter()
             .filter_map(|child| Self::scalar_compact_row(child, ctx).map(|(row, _)| row))
@@ -697,7 +746,14 @@ impl PropertyInspector {
                     .flex_1()
                     .flex_col()
                     .gap_1()
-                    .when_some(aspect_row, |this, row| this.child(row))
+                    .children(extensions.iter().map(|extension| {
+                        div()
+                            .w_full()
+                            .flex()
+                            .items_center()
+                            .justify_end()
+                            .child(Self::editor_control(extension, ctx))
+                    }))
                     .children(rows),
             )
             .into_any_element()
