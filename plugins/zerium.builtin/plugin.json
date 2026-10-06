@@ -1482,13 +1482,15 @@
         {
           "id": "source",
           "label": { "ja-JP": "動画", "en-US": "Video" },
-          "type": {
-            "file": {
-              "extensions": ["mp4", "mov", "mkv", "webm", "avi", "m4v", "gif"]
-            }
-          },
+          "type": { "value": "file" },
           "default": { "file": null },
-          "configurations": [{ "scene_bindable": false }]
+          "configurations": [
+            {
+              "ui": {
+                "extensions": ["mp4", "mov", "mkv", "webm", "avi", "m4v", "gif"]
+              }
+            }
+          ]
         }
       ]
     },
@@ -1609,13 +1611,23 @@
         {
           "id": "source",
           "label": { "ja-JP": "画像", "en-US": "Image" },
-          "type": {
-            "file": {
-              "extensions": ["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"]
-            }
-          },
+          "type": { "value": "file" },
           "default": { "file": null },
-          "configurations": [{ "scene_bindable": false }]
+          "configurations": [
+            {
+              "ui": {
+                "extensions": [
+                  "png",
+                  "jpg",
+                  "jpeg",
+                  "webp",
+                  "bmp",
+                  "tif",
+                  "tiff"
+                ]
+              }
+            }
+          ]
         }
       ]
     },
@@ -1736,13 +1748,9 @@
         {
           "id": "source",
           "label": { "ja-JP": "SVG", "en-US": "SVG" },
-          "type": {
-            "file": {
-              "extensions": ["svg"]
-            }
-          },
+          "type": { "value": "file" },
           "default": { "file": null },
-          "configurations": [{ "scene_bindable": false }]
+          "configurations": [{ "ui": { "extensions": ["svg"] } }]
         }
       ]
     },
@@ -1862,13 +1870,23 @@
         {
           "id": "source",
           "label": { "ja-JP": "音声", "en-US": "Audio" },
-          "type": {
-            "file": {
-              "extensions": ["wav", "mp3", "m4a", "aac", "flac", "ogg", "opus"]
-            }
-          },
+          "type": { "value": "file" },
           "default": { "file": null },
-          "configurations": [{ "scene_bindable": false }]
+          "configurations": [
+            {
+              "ui": {
+                "extensions": [
+                  "wav",
+                  "mp3",
+                  "m4a",
+                  "aac",
+                  "flac",
+                  "ogg",
+                  "opus"
+                ]
+              }
+            }
+          ]
         }
       ]
     },

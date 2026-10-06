@@ -67,7 +67,7 @@ pub(super) fn numeric_input_spec(
     property: &PropertySchema,
     scalar_index: Option<usize>,
 ) -> Option<NumericInputSpec> {
-    let scalar_type = property.ty().value_type()?.scalar_at(scalar_index)?.clone();
+    let scalar_type = property.ty().value_type().scalar_at(scalar_index)?.clone();
     if !property.configuration_ui(scalar_index).is_visible() {
         return None;
     }

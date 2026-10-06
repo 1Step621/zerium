@@ -6,7 +6,7 @@ pub(crate) struct ProjectSessionId(u64);
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum ProjectActivity {
     Import,
-    Probe,
+    SelectFile,
     Save,
     Load,
     Export,

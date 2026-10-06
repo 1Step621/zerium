@@ -1,7 +1,7 @@
 use std::sync::Arc;
 
 use crate::animation::{ScalarAnimations, ScalarTrack};
-use crate::media::{MediaAsset, MediaInputs, MediaPlayback};
+use crate::media::{MediaAsset, MediaMetadataCache, MediaPlayback};
 use crate::plugin::{Capability, EffectSchema, ItemSchema};
 use crate::property::{
     PropertyElementId, PropertyPath, PropertySchema, PropertyValue, PropertyValues,
@@ -124,7 +124,6 @@ pub struct EffectInstance {
     pub plugin_id: String,
     pub effect_id: String,
     pub properties: PropertyValues,
-    pub media_inputs: MediaInputs,
     pub animations: ScalarAnimations,
     pub aspect_ratio: Option<AspectRatio>,
     pub schema: Arc<EffectSchema>,
@@ -162,7 +161,6 @@ pub struct TimelineItem {
     pub duration: FrameDuration,
     pub kind: TimelineItemKind,
     pub properties: PropertyValues,
-    pub media_inputs: MediaInputs,
     pub animations: ScalarAnimations,
     pub aspect_ratio: Option<AspectRatio>,
     pub effects: Vec<EffectInstance>,
@@ -309,26 +307,19 @@ impl TimelineItem {
         &self,
         effect_id: Option<EffectInstanceId>,
         input_id: &str,
+        cache: &MediaMetadataCache,
     ) -> Option<(MediaAsset, MediaPlayback)> {
-        let (capabilities, properties, inputs) = match effect_id {
+        let (capabilities, properties) = match effect_id {
             Some(id) => {
                 let effect = self.effects.iter().find(|effect| effect.id == id)?;
-                (
-                    effect.schema().capabilities(),
-                    &effect.properties,
-                    &effect.media_inputs,
-                )
+                (effect.schema().capabilities(), &effect.properties)
             }
-            None => (
-                self.schema()?.capabilities(),
-                &self.properties,
-                &self.media_inputs,
-            ),
+            None => (self.schema()?.capabilities(), &self.properties),
         };
         let capability = capabilities
             .iter()
             .find(|capability| capability.id() == input_id)?;
-        let asset = inputs.asset(capability.media_source()?, properties)?;
+        let asset = capability.media_source()?.asset(properties, cache)?;
         let clock =
             capability
                 .playback_properties()
@@ -340,11 +331,13 @@ impl TimelineItem {
     }
 
     /// Resolve a loaded audio input using only its own audio declaration.
-    pub fn audio_input(&self, input_id: &str) -> Option<(MediaAsset, MediaPlayback, bool)> {
+    pub fn audio_input(
+        &self,
+        input_id: &str,
+        cache: &MediaMetadataCache,
+    ) -> Option<(MediaAsset, MediaPlayback, bool)> {
         let input = self.schema()?.audio_input(input_id)?;
-        let asset = self
-            .media_inputs
-            .asset(input.media_source(), &self.properties)?;
+        let asset = input.media_source().asset(&self.properties, cache)?;
         let playback =
             MediaPlayback::from_properties(input.playback_properties(), &self.properties)
                 .expect("validated audio playback properties");
@@ -364,19 +357,6 @@ impl TimelineItem {
     }
 
     pub(crate) fn validate_playback(&self) -> Result<(), super::TimelineEditError> {
-        if self.schema().is_some_and(|schema| {
-            !self
-                .media_inputs
-                .validate(schema.media_sources(), &self.properties)
-        }) || (self.schema().is_none() && !self.media_inputs.is_empty())
-            || self.effects.iter().any(|effect| {
-                !effect
-                    .media_inputs
-                    .validate(effect.schema.media_sources(), &effect.properties)
-            })
-        {
-            return Err(super::TimelineEditError::IncompatibleMedia);
-        }
         let owners = self
             .schema()
             .map(|schema| (schema.capabilities(), &self.properties))

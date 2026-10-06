@@ -92,6 +92,30 @@ fn apply_scene_arguments(
     }
 }
 
+/// Visit every source item after applying scene instance arguments, without
+/// visibility or time clipping. Scene instances themselves are included so
+/// their effects remain available to consumers of project resources.
+pub(crate) fn visit_source_items(
+    items: Vec<(LayerId, TimelineItem)>,
+    scenes: &HashMap<SceneId, SceneDefinition>,
+    visit: &mut impl FnMut(&TimelineItem),
+) {
+    for (_, item) in items {
+        visit(&item);
+        if let Some(scene) = item.scene_id().and_then(|id| scenes.get(&id)) {
+            let mut children = scene.document().source_items();
+            apply_scene_arguments(
+                scene,
+                scenes,
+                &item,
+                TimelineTime::from_frame(item.start),
+                &mut children,
+            );
+            visit_source_items(children, scenes, visit);
+        }
+    }
+}
+
 /// Global clip retained on every evaluated render node. Scene clips are
 /// intersected with all parent scene-instance clips.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

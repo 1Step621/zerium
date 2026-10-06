@@ -3,31 +3,38 @@ use rust_i18n::t;
 use super::*;
 
 impl PropertyInspector {
-    pub(super) fn file_full_row(common: &LeafControl, render: &RenderCtx<'_>) -> gpui::AnyElement {
+    pub(super) fn file_row(
+        common: &LeafControl,
+        render: &RenderCtx<'_>,
+        compact: bool,
+    ) -> gpui::AnyElement {
         let effect_id = common.target.effect_id;
         let property_id = common.target.property_id.clone();
-        let path = common.value.file();
-        let choose_property_id = property_id.clone();
+        let address = common.target.address(render.item_id);
+        let disabled = render.selecting_file
+            || common.read_only
+            || common
+                .binding
+                .as_ref()
+                .is_some_and(|binding| binding.connected.is_some());
+        let has_override =
+            effect_id.is_none() && render.scene_file_overrides.contains(&property_id);
         let inspector = render.inspector.clone();
-        let button_label = if render.loading_file {
-            t!("inspector.loading").to_string()
-        } else if path.is_some() || common.mixed {
-            t!("inspector.change_file").to_string()
-        } else {
-            t!("inspector.choose_file").to_string()
-        };
-        let details = if common.mixed {
-            Some(t!("rows.mixed").to_string())
-        } else {
-            path.map(|path| path.display().to_string())
-        };
 
         div()
             .w_full()
             .flex()
             .items_start()
             .gap_3()
-            .child(Self::property_label_column(common.label.clone()))
+            .when(!compact, |this| {
+                this.child(Self::property_label_column(common.label.clone()))
+            })
+            .when_some(
+                compact
+                    .then(|| Self::animation_scalar_label(common, render))
+                    .flatten(),
+                |this, label| this.child(label),
+            )
             .child(
                 div()
                     .min_w_0()
@@ -35,35 +42,38 @@ impl PropertyInspector {
                     .flex()
                     .flex_col()
                     .gap_1()
-                    .child(
-                        Button::new(SharedString::from(format!(
-                            "select-file-{effect_id:?}-{property_id}"
-                        )))
-                        .small()
-                        .label(button_label)
-                        .disabled(render.loading_file || common.read_only)
-                        .on_click(move |event, window, cx| {
-                            inspector.update(cx, |inspector, cx| {
-                                inspector.choose_file(
-                                    effect_id,
-                                    choose_property_id.clone(),
-                                    event,
-                                    window,
-                                    cx,
-                                );
-                            });
-                        }),
-                    )
-                    .when_some(details, |this, details| {
+                    .child(crate::ui::file_input::file_picker(
+                        &render.file_input,
+                        SharedString::from(format!("file-{:?}", common.id)),
+                        crate::ui::file_input::FileTarget::Property(address.clone()),
+                        common.value.file(),
+                        common.mixed,
+                        render.selecting_file,
+                        disabled,
+                    ))
+                    .when(has_override, |this| {
                         this.child(
-                            div()
-                                .whitespace_normal()
-                                .text_sm()
-                                .text_color(render.colors.muted_foreground)
-                                .child(details),
+                            Button::new(SharedString::from(format!("reset-file-{:?}", common.id)))
+                                .small()
+                                .compact()
+                                .ghost()
+                                .label(t!("inspector.use_default").to_string())
+                                .disabled(disabled)
+                                .on_click(move |_, _, cx| {
+                                    inspector.update(cx, |inspector, cx| {
+                                        inspector.reset_property(address.clone(), cx)
+                                    })
+                                }),
                         )
                     }),
             )
+            .when_some(common.binding.clone(), |row, binding| {
+                row.child(Self::scene_binding_button(
+                    binding,
+                    &render.inspector,
+                    SharedString::from(format!("file-binding-{:?}", common.id)),
+                ))
+            })
             .into_any_element()
     }
 
@@ -639,7 +649,7 @@ impl PropertyInspector {
                     ctx,
                 ))
             }
-            Control::File(file) => Some(Self::file_full_row(file, ctx)),
+            Control::File(file) => Some(Self::file_row(file, ctx, false)),
             Control::Group { .. } => None,
         }
     }
@@ -704,7 +714,13 @@ impl PropertyInspector {
                     ctx,
                 ))
             }
-            Control::Group { .. } | Control::File(_) => None,
+            Control::File(file) => Some((
+                Self::file_row(file, ctx, true),
+                file.binding
+                    .as_ref()
+                    .is_some_and(|binding| binding.connected.is_some()),
+            )),
+            Control::Group { .. } => None,
         }
     }
 

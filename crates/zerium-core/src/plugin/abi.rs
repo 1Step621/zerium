@@ -36,7 +36,7 @@ impl PropertyLayout {
         let mut fields = Vec::with_capacity(declarations.len());
         let mut header_size = 0_usize;
         for &(id, ty) in &declarations {
-            if matches!(ty, PropertyType::File(_)) {
+            if !ty.has_shader_values() {
                 continue;
             }
             let size = header_abi_size(ty);
@@ -180,7 +180,7 @@ pub(super) fn validate_property_names<'a>(
                 "{owner_kind} '{owner_id}' has duplicate property ID '{id}'"
             )));
         }
-        if matches!(ty, PropertyType::File(_)) {
+        if !ty.has_shader_values() {
             continue;
         }
         let field = if matches!(ty, PropertyType::Array { .. }) {
@@ -206,7 +206,6 @@ fn property_budget_error(owner_kind: &str, owner_id: &str) -> PluginError {
 
 fn header_abi_size(ty: &PropertyType) -> usize {
     match ty {
-        PropertyType::File(_) => 0,
         PropertyType::Array { .. } => 8,
         PropertyType::Value(value_type) => abi_size(value_type),
     }
@@ -224,13 +223,10 @@ pub fn value_string_count(ty: &PropertyValueType) -> usize {
 }
 
 fn max_dynamic_size(ty: &PropertyType) -> Result<usize, PluginError> {
-    let Some(value_type) = ty.value_type() else {
-        return Ok(0);
-    };
+    let value_type = ty.value_type();
     let payload = value_string_count(value_type) * aligned_size(MAX_STRING_BYTES);
     match ty {
         PropertyType::Value(_) => Ok(payload),
-        PropertyType::File(_) => Ok(0),
         PropertyType::Array {
             element_type,
             max_items,
@@ -243,6 +239,7 @@ fn max_dynamic_size(ty: &PropertyType) -> Result<usize, PluginError> {
 
 pub const fn scalar_abi_size(ty: &ScalarPropertyType) -> usize {
     let word_count = match ty {
+        ScalarPropertyType::File => 0,
         ScalarPropertyType::F32
         | ScalarPropertyType::I32
         | ScalarPropertyType::U32
@@ -293,6 +290,7 @@ fn pack_scalar(
     value: &PropertyValue,
 ) -> Result<(), PluginError> {
     match (ty, value) {
+        (ScalarPropertyType::File, PropertyValue::File(_)) => {}
         (ScalarPropertyType::F32, PropertyValue::F32(value)) => {
             write_u32(bytes, offset, value.to_bits());
         }

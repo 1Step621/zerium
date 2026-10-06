@@ -261,12 +261,12 @@ pub(crate) struct VideoPlaybackEvent(VideoPlaybackEventKind);
 enum VideoPlaybackEventKind {
     Decoded {
         input: MediaInputId,
-        result: VideoWorkerResult,
+        result: Box<VideoWorkerResult>,
     },
     ProxyGenerated {
         generation: u64,
         key: VideoProxyKey,
-        result: Result<VideoProxy, MediaError>,
+        result: Box<Result<VideoProxy, MediaError>>,
     },
 }
 
@@ -289,14 +289,14 @@ fn video_worker_main(
         if request.cancel.load(Ordering::Acquire) {
             let _ = events.unbounded_send(VideoPlaybackEvent(VideoPlaybackEventKind::Decoded {
                 input: input.clone(),
-                result: VideoWorkerResult {
+                result: Box::new(VideoWorkerResult {
                     generation: request.generation,
                     sequence: request.sequence,
                     source: request.source,
                     presentation_time: request.presentation_time,
                     size: request.size,
                     result: Err(MediaError::Cancelled),
-                },
+                }),
             }));
             continue;
         }
@@ -313,14 +313,14 @@ fn video_worker_main(
                     let _ = events.unbounded_send(VideoPlaybackEvent(
                         VideoPlaybackEventKind::Decoded {
                             input: input.clone(),
-                            result: VideoWorkerResult {
+                            result: Box::new(VideoWorkerResult {
                                 generation: request.generation,
                                 sequence: request.sequence,
                                 source: request.source,
                                 presentation_time: request.presentation_time,
                                 size: request.size,
                                 result: Err(error),
-                            },
+                            }),
                         },
                     ));
                     continue;
@@ -340,14 +340,14 @@ fn video_worker_main(
         if events
             .unbounded_send(VideoPlaybackEvent(VideoPlaybackEventKind::Decoded {
                 input: input.clone(),
-                result: VideoWorkerResult {
+                result: Box::new(VideoWorkerResult {
                     generation: request.generation,
                     sequence: request.sequence,
                     source: request.source,
                     presentation_time: request.presentation_time,
                     size: request.size,
                     result,
-                },
+                }),
             }))
             .is_err()
         {
@@ -529,7 +529,7 @@ impl VideoProxyManager {
                         VideoPlaybackEventKind::ProxyGenerated {
                             generation,
                             key,
-                            result,
+                            result: Box::new(result),
                         },
                     ));
                 });
@@ -666,6 +666,7 @@ impl VideoPlaybackEngine {
         &mut self,
         time: TimelineTime,
         active_items: &[(LayerId, TimelineItem)],
+        cache: &zerium_core::media::MediaMetadataCache,
         frame_rate: FrameRate,
         size_for_input: impl Fn(&MediaInputId) -> VideoDecodeSize,
     ) -> Vec<(MediaInputId, RequestedVideoFrame)> {
@@ -676,6 +677,7 @@ impl VideoPlaybackEngine {
         let mut recorded = Vec::new();
         for request in self.current_requests(
             active_items,
+            cache,
             time.nearest_frame(),
             frame_rate,
             playback_seconds,
@@ -893,6 +895,7 @@ impl VideoPlaybackEngine {
     fn current_requests(
         &self,
         active_items: &[(LayerId, TimelineItem)],
+        cache: &zerium_core::media::MediaMetadataCache,
         playhead: Frame,
         timeline_rate: FrameRate,
         playback_seconds: Option<f64>,
@@ -918,7 +921,8 @@ impl VideoPlaybackEngine {
             for (effect_id, capabilities) in owners {
                 for capability in capabilities {
                     let input_id = capability.id();
-                    let Some((asset, playback)) = item.media_input(effect_id, input_id) else {
+                    let Some((asset, playback)) = item.media_input(effect_id, input_id, cache)
+                    else {
                         continue;
                     };
                     let asset_time = if asset.kind.is_temporal() {
@@ -1030,7 +1034,7 @@ impl VideoPlaybackEngine {
     pub(crate) fn handle_event(&mut self, event: VideoPlaybackEvent) -> VideoPlaybackSnapshot {
         match event.0 {
             VideoPlaybackEventKind::Decoded { input, result } => {
-                if self.finish_decode(&input, result) {
+                if self.finish_decode(&input, *result) {
                     self.decode_input_if_needed(&input);
                 }
             }
@@ -1040,7 +1044,7 @@ impl VideoPlaybackEngine {
                 result,
             } => {
                 let events = self.events.clone();
-                if self.proxy.finish_current(generation, key, result, &events) {
+                if self.proxy.finish_current(generation, key, *result, &events) {
                     self.revision = self.revision.saturating_add(1);
                 }
             }

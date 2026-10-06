@@ -33,6 +33,7 @@ use zerium_core::{
     timeline::{SceneArgumentPreset, SceneId, TimelineEditor},
 };
 
+use crate::ui::file_input::{FileInputController, FileTarget};
 use crate::ui::session::UiNotifications;
 use number_drag::NumberDragOrigin;
 use numeric::{NumericSetting, NumericSettingDraft};
@@ -102,6 +103,8 @@ impl ControlId {
 pub(crate) struct SceneSettings {
     editor: Entity<TimelineEditor>,
     notifications: Entity<UiNotifications>,
+    file_input: Entity<FileInputController>,
+    _file_subscription: Subscription,
     scene_id: Option<SceneId>,
     store: SettingsStore,
     expanded_scene_arguments: HashSet<(SceneId, String)>,
@@ -114,6 +117,7 @@ impl SceneSettings {
     pub(crate) fn new(
         editor: Entity<TimelineEditor>,
         notifications: Entity<UiNotifications>,
+        file_input: Entity<FileInputController>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
@@ -123,6 +127,8 @@ impl SceneSettings {
         let mut this = Self {
             editor,
             notifications,
+            _file_subscription: cx.observe(&file_input, |_, _, cx| cx.notify()),
+            file_input,
             scene_id: None,
             store: SettingsStore::default(),
             expanded_scene_arguments: HashSet::new(),

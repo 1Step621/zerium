@@ -227,9 +227,7 @@ impl Capability {
                 ..
             } => {
                 validate_logical_id("media reader", reader)?;
-                check(file, "a file property", &|property| {
-                    property.file_type().is_some()
-                })?;
+                check(file, "a file property", &|property| property.is_file())?;
                 if let Some(playback) = playback {
                     playback
                         .playback_properties()
@@ -310,7 +308,7 @@ impl AudioCapability {
             validate_property_reference(&context, properties, property_id, expected, valid)
         };
         check(&self.file, "a file property", &|property| {
-            property.file_type().is_some()
+            property.is_file()
         })?;
         check(&self.volume, "an f32 value", &|property| {
             property.ty()

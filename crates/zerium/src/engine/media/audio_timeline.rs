@@ -65,6 +65,7 @@ pub(crate) struct AudioTimelineGraph {
 impl AudioTimelineGraph {
     pub(crate) fn new(
         items: &[TimelineItem],
+        cache: &zerium_core::media::MediaMetadataCache,
         frame_rate: FrameRate,
         format: AudioFormat,
         media_readers: &MediaReaderRegistry,
@@ -83,7 +84,8 @@ impl AudioTimelineGraph {
                 format.sample_rate,
             );
             for input in schema.audio() {
-                let Some((asset, playback, preserve_pitch)) = item.audio_input(input.id()) else {
+                let Some((asset, playback, preserve_pitch)) = item.audio_input(input.id(), cache)
+                else {
                     continue;
                 };
                 let id = AudioClipId {

@@ -16,7 +16,7 @@ use crate::engine::media::{
     AudioClipId, AudioFormat, AudioGainEvaluation, AudioTimelineError, AudioTimelineGraph,
     MediaReaderRegistry,
 };
-use zerium_core::media::{MediaAsset, MediaPlayback};
+use zerium_core::media::{MediaAsset, MediaMetadataCache, MediaPlayback};
 use zerium_core::timeline::{Frame, FrameDuration, FrameRate, ItemId, TimelineItem, TimelineTime};
 
 #[derive(Clone, Debug, PartialEq)]
@@ -30,14 +30,17 @@ pub(crate) struct AudioSourcePlan {
     preserve_pitch: bool,
 }
 
-pub(crate) fn audio_plan(items: &[TimelineItem]) -> Vec<AudioSourcePlan> {
+pub(crate) fn audio_plan(
+    items: &[TimelineItem],
+    cache: &MediaMetadataCache,
+) -> Vec<AudioSourcePlan> {
     let mut plan = Vec::new();
     for item in items {
         let Some(schema) = item.schema() else {
             continue;
         };
         for input in schema.audio() {
-            if let Some((asset, playback, preserve_pitch)) = item.audio_input(input.id()) {
+            if let Some((asset, playback, preserve_pitch)) = item.audio_input(input.id(), cache) {
                 plan.push(AudioSourcePlan {
                     item_id: item.id,
                     input_id: input.id().to_owned(),
@@ -136,6 +139,7 @@ struct RetiringAudioWorker {
 }
 
 struct PendingAudioPlayback {
+    cache: Arc<MediaMetadataCache>,
     items: Vec<TimelineItem>,
     frame_rate: FrameRate,
 }
@@ -164,13 +168,23 @@ impl AudioPlaybackEngine {
         items: Vec<TimelineItem>,
         start_frame: Frame,
         frame_rate: FrameRate,
+        cache: Arc<MediaMetadataCache>,
     ) -> Result<PlaybackClock, AudioPlaybackError> {
         self.request_stop();
         if !self.retiring.is_empty() {
-            self.pending = Some(PendingAudioPlayback { items, frame_rate });
+            self.pending = Some(PendingAudioPlayback {
+                items,
+                frame_rate,
+                cache,
+            });
             return Ok(PlaybackClock::Wall);
         }
-        self.start(items, frame_rate.frame_to_seconds(start_frame), frame_rate)
+        self.start(
+            items,
+            frame_rate.frame_to_seconds(start_frame),
+            frame_rate,
+            cache,
+        )
     }
 
     pub(crate) fn resume_pending(
@@ -178,7 +192,7 @@ impl AudioPlaybackEngine {
         seconds: f64,
     ) -> Option<Result<PlaybackClock, AudioPlaybackError>> {
         let pending = self.take_pending_if_ready()?;
-        Some(self.start(pending.items, seconds, pending.frame_rate))
+        Some(self.start(pending.items, seconds, pending.frame_rate, pending.cache))
     }
 
     fn take_pending_if_ready(&mut self) -> Option<PendingAudioPlayback> {
@@ -194,6 +208,7 @@ impl AudioPlaybackEngine {
         items: Vec<TimelineItem>,
         start_seconds: f64,
         frame_rate: FrameRate,
+        cache: Arc<MediaMetadataCache>,
     ) -> Result<PlaybackClock, AudioPlaybackError> {
         let host = cpal::default_host();
         let device = host
@@ -211,6 +226,7 @@ impl AudioPlaybackEngine {
         let seed_time = TimelineTime::from_frames(start_seconds * frame_rate.frames_per_second());
         let mut graph = AudioTimelineGraph::new(
             &items,
+            &cache,
             frame_rate,
             format,
             &self.media_readers,

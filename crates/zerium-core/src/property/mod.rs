@@ -2,7 +2,6 @@
 use thiserror::Error;
 
 mod constraints;
-mod file;
 mod metadata;
 mod numeric;
 mod path;
@@ -11,7 +10,6 @@ mod types;
 mod value;
 
 pub use constraints::PropertyConstraints;
-pub use file::FilePropertyType;
 pub use metadata::PropertyUi;
 pub use numeric::NumericSettings;
 pub use path::PropertyPath;

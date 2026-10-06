@@ -20,6 +20,30 @@ impl TimelineEditor {
         path: PropertyPath,
         value: PropertyValue,
     ) -> Result<bool, TimelineEditError> {
+        self.edit_selected_property_with(effect_id, path, |_, _| Some(value.clone()))
+    }
+
+    pub fn reset_selected_property(
+        &mut self,
+        effect_id: Option<EffectInstanceId>,
+        path: PropertyPath,
+    ) -> Result<bool, TimelineEditError> {
+        let default_path = path.clone();
+        self.edit_selected_property_with(effect_id, path, |schema, _| {
+            schema
+                .default_value()
+                .element(default_path.element_id())?
+                .scalar_at(default_path.scalar_index())
+                .cloned()
+        })
+    }
+
+    fn edit_selected_property_with(
+        &mut self,
+        effect_id: Option<EffectInstanceId>,
+        path: PropertyPath,
+        value: impl Fn(&PropertySchema, &PropertyValue) -> Option<PropertyValue>,
+    ) -> Result<bool, TimelineEditError> {
         let Some(targets) = self.selected_property_owners(effect_id) else {
             return Ok(false);
         };
@@ -38,8 +62,11 @@ impl TimelineEditor {
                     .property_values(*effect)?
                     .property(path.property_id())
                     .unwrap_or(schema.default_value());
-                let mut next =
-                    current.replaced_at(path.element_id(), path.scalar_index(), value.clone())?;
+                let mut next = current.replaced_at(
+                    path.element_id(),
+                    path.scalar_index(),
+                    value(schema, current)?,
+                )?;
                 if !schema.is_editable(path.scalar_index()) {
                     return None;
                 }

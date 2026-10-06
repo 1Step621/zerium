@@ -3,15 +3,12 @@
 //! This sibling module keeps the read-oriented editor API compact. The editor
 //! internals it needs are visible only inside `timeline`.
 
-use crate::property::PropertyValueType;
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
 use crate::animation::{BezierHandle, ScalarAnimations, ScalarTrack, SegmentInterpolation};
 use crate::media::ImportedFile;
-use crate::property::{
-    PropertyConfiguration, PropertyElementId, PropertySchema, PropertyType, PropertyValue,
-};
+use crate::property::{PropertyConfiguration, PropertyElementId, PropertySchema, PropertyValue};
 
 use super::{
     document::{ResizeEdge, ResizeMode, TimelineDocument},
@@ -78,14 +75,21 @@ fn remove_scene_instances(document: &mut TimelineDocument, scene_id: SceneId) ->
     instance_ids
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
 pub enum SceneArgumentEditError {
+    #[error("No scene is active")]
     NoActiveScene,
+    #[error("Scene argument was not found")]
     ArgumentNotFound,
+    #[error("Binding target was not found")]
     TargetNotFound,
+    #[error("Binding target is already connected")]
     TargetAlreadyBound,
+    #[error("Binding target is animated")]
     TargetAnimated,
+    #[error("Binding target does not support scene arguments")]
     TargetNotBindable,
+    #[error("Value or binding does not match the argument type")]
     IncompatibleContract,
 }
 

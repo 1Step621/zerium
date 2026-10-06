@@ -29,7 +29,7 @@ pub(super) struct NumericSettingDraft {
 impl NumericSettingDraft {
     pub(super) fn for_schema(schema: &PropertySchema) -> Option<Self> {
         let constraints = schema.configuration_constraints(None);
-        let ty = schema.ty().value_type()?.scalar_at(None)?;
+        let ty = schema.ty().value_type().scalar_at(None)?;
         let (min, max) = constraints.numeric_bounds(ty)?;
         Some(Self {
             default: schema.default_value().numeric_scalar()?,

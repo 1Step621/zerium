@@ -480,7 +480,6 @@ impl TimelineDocument {
                     schema,
                 },
                 properties,
-                media_inputs: Default::default(),
                 animations: ScalarAnimations::default(),
                 aspect_ratio,
                 effects: Vec::new(),
@@ -608,7 +607,7 @@ impl TimelineDocument {
         taken
     }
 
-    pub fn set_item_file(&mut self, id: ItemId, imported: ImportedFile) -> bool {
+    pub fn import_item_file(&mut self, id: ItemId, imported: ImportedFile) -> bool {
         let Some(item) = self.items.get(&id) else {
             return false;
         };
@@ -623,17 +622,15 @@ impl TimelineDocument {
         else {
             return false;
         };
-        let first_file = item.properties.files().next().is_none();
         let schema = item.schema_arc().expect("plugin item").clone();
-        let initial_duration = first_file.then(|| imported.initial_duration()).flatten();
+        let initial_duration = imported.file.initial_duration();
         let mut item = item.as_ref().clone();
-        if !item.media_inputs.replace_file(
-            schema.media_sources(),
-            &imported.property_id,
-            imported.inputs,
-        ) || item
+        if item
             .properties
-            .set(property, PropertyValue::File(Some(imported.path)))
+            .set(
+                property,
+                PropertyValue::File(Some(imported.file.path.clone())),
+            )
             .is_err()
         {
             return false;
@@ -641,7 +638,7 @@ impl TimelineDocument {
         let dimensions = schema
             .media_sources()
             .filter(|source| source.file == imported.property_id)
-            .filter_map(|source| item.media_inputs.asset(source, &item.properties))
+            .filter_map(|source| imported.file.asset(source.reader, source.input.target()))
             .find_map(|asset| asset.kind.dimensions());
         if let Some(source_duration) = initial_duration
             && let Some(mapping) = item.timeline_mapping()
@@ -665,19 +662,17 @@ impl TimelineDocument {
             return false;
         };
         item.start = start;
-        if first_file {
-            let dimensions = dimensions.map(|[width, height]| [width as f32, height as f32]);
-            if let Some(source_size) = dimensions
-                && let Some(schema) = item.schema_arc().cloned()
-                && let Some(bounds) = size_values(&item.properties, &schema)
-            {
-                let scale = (bounds[0] / source_size[0]).min(bounds[1] / source_size[1]);
-                set_size_values(
-                    &mut item.properties,
-                    &schema,
-                    [source_size[0] * scale, source_size[1] * scale],
-                );
-            }
+        let dimensions = dimensions.map(|[width, height]| [width as f32, height as f32]);
+        if let Some(source_size) = dimensions
+            && let Some(schema) = item.schema_arc().cloned()
+            && let Some(bounds) = size_values(&item.properties, &schema)
+        {
+            let scale = (bounds[0] / source_size[0]).min(bounds[1] / source_size[1]);
+            set_size_values(
+                &mut item.properties,
+                &schema,
+                [source_size[0] * scale, source_size[1] * scale],
+            );
         }
         if item.validate_playback().is_err() {
             return false;
@@ -685,45 +680,6 @@ impl TimelineDocument {
         self.items.insert(id, Arc::new(item));
         #[cfg(debug_assertions)]
         self.assert_consistent();
-        true
-    }
-
-    pub fn set_effect_file(
-        &mut self,
-        item_id: ItemId,
-        effect_id: EffectInstanceId,
-        imported: ImportedFile,
-    ) -> bool {
-        let Some(original) = self.items.get(&item_id) else {
-            return false;
-        };
-        let mut item = original.as_ref().clone();
-        let Some(effect) = item
-            .effects
-            .iter_mut()
-            .find(|effect| effect.id == effect_id)
-        else {
-            return false;
-        };
-        if effect.plugin_id != imported.plugin_id || effect.effect_id != imported.source_id {
-            return false;
-        }
-        let Some(property) = effect.schema.file_property(&imported.property_id) else {
-            return false;
-        };
-        if !effect.media_inputs.replace_file(
-            effect.schema.media_sources(),
-            &imported.property_id,
-            imported.inputs,
-        ) || effect
-            .properties
-            .set(property, PropertyValue::File(Some(imported.path)))
-            .is_err()
-            || item.validate_playback().is_err()
-        {
-            return false;
-        }
-        self.items.insert(item_id, Arc::new(item));
         true
     }
 
@@ -830,26 +786,6 @@ impl TimelineDocument {
             .expect("prepared value must satisfy its schema");
         if changed {
             animations.retain_valid(properties);
-            if property.file_type().is_some() {
-                match effect_id {
-                    Some(id) => {
-                        let effect = item
-                            .effects
-                            .iter_mut()
-                            .find(|effect| effect.id == id)
-                            .expect("prepared effect");
-                        effect
-                            .media_inputs
-                            .invalidate_file(effect.schema.media_sources(), property.id());
-                    }
-                    None => {
-                        if let TimelineItemKind::Plugin { schema, .. } = &item.kind {
-                            item.media_inputs
-                                .invalidate_file(schema.media_sources(), property.id());
-                        }
-                    }
-                }
-            }
         }
         changed
     }
@@ -912,7 +848,6 @@ impl TimelineDocument {
             plugin_id: plugin_id.to_owned(),
             effect_id: effect_id.to_owned(),
             properties,
-            media_inputs: Default::default(),
             animations: ScalarAnimations::default(),
             aspect_ratio,
             schema,

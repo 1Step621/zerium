@@ -115,11 +115,12 @@ impl PropertySchema {
         &self.ty
     }
 
-    pub fn file_type(&self) -> Option<&super::FilePropertyType> {
-        match &self.ty {
-            PropertyType::File(ty) => Some(ty),
-            _ => None,
-        }
+    /// Whether this is a standalone file scalar, as required by media inputs.
+    pub fn is_file(&self) -> bool {
+        matches!(
+            self.ty,
+            PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::File))
+        )
     }
 
     pub fn default_value(&self) -> &PropertyValue {
@@ -239,31 +240,7 @@ impl PropertySchema {
             }
         }
 
-        if let PropertyType::File(file) = &self.ty {
-            file.validate()
-                .map_err(|error| self.validation_error(owner_kind, owner_id, &error.to_string()))?;
-            if self.default != PropertyValue::File(None)
-                || self.append_default.is_some()
-                || self.configurations.len() != 1
-                || self.configuration(None).animatable
-                || self.configuration(None).scene_bindable
-            {
-                return Err(self.validation_error(owner_kind, owner_id, "file properties require an empty default, one configuration, and no animation or scene bindings"));
-            }
-            let configuration = self.configuration(None);
-            configuration.constraints.validate(
-                owner_kind,
-                owner_id,
-                &self.id,
-                &self.ty,
-                Some(&self.default),
-            )?;
-            configuration
-                .ui
-                .validate(owner_kind, owner_id, &self.id, &self.ty)?;
-            return Ok(());
-        }
-        let component_type = self.ty.value_type().expect("value or array property");
+        let component_type = self.ty.value_type();
         let scalar_types = match component_type {
             PropertyValueType::Scalar(scalar) => std::slice::from_ref(scalar),
             PropertyValueType::Tuple(tuple) => tuple.scalars(),
@@ -315,14 +292,14 @@ impl PropertySchema {
                     "array property requires append_default",
                 ));
             }
-            (PropertyType::Value(_) | PropertyType::File(_), Some(_)) => {
+            (PropertyType::Value(_), Some(_)) => {
                 return Err(self.validation_error(
                     owner_kind,
                     owner_id,
                     "append_default requires an array property",
                 ));
             }
-            (PropertyType::Value(_) | PropertyType::File(_), None) => return Ok(()),
+            (PropertyType::Value(_), None) => return Ok(()),
             (PropertyType::Array { element_type, .. }, Some(value)) => (element_type, value),
         };
         let tuple = matches!(element_type, PropertyValueType::Tuple(_));

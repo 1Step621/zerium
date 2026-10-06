@@ -111,6 +111,7 @@ pub(super) type ScopedHistoryKey = (Option<SceneId>, HistoryKey);
 pub struct TimelineEditor {
     pub(super) plugins: Arc<PluginRegistry>,
     project: Arc<TimelineProject>,
+    media_cache: Arc<crate::media::MediaMetadataCache>,
     pub(super) scene_path: Vec<SceneId>,
     pub(super) next_scene_id: Option<u64>,
     pub(super) next_effect_id: Option<u64>,
@@ -161,6 +162,7 @@ impl TimelineEditor {
                 scenes: HashMap::new(),
                 resolution,
             }),
+            media_cache: Arc::default(),
             scene_path: Vec::new(),
             next_scene_id: Some(1),
             next_effect_id,
@@ -216,6 +218,7 @@ impl TimelineEditor {
     pub fn snapshot(&self) -> TimelineSnapshot {
         TimelineSnapshot {
             project: self.project.clone(),
+            media_cache: self.media_cache.clone(),
             playhead: self.playhead,
             project_revision: self.project_revision,
         }
@@ -305,6 +308,7 @@ impl TimelineEditor {
             project.resolution = resolution;
             project.scenes.clear();
         }
+        self.media_cache = Arc::default();
         self.scene_path.clear();
         self.next_scene_id = Some(1);
         self.next_effect_id = Self::next_effect_id(&self.project().document, std::iter::empty());
@@ -339,6 +343,33 @@ impl TimelineEditor {
         self.project_mut().scenes = scenes;
         self.next_effect_id =
             Self::next_effect_id(&self.project().document, self.project().scenes.values());
+    }
+
+    pub fn media_cache(&self) -> &Arc<crate::media::MediaMetadataCache> {
+        &self.media_cache
+    }
+
+    pub fn cache_media_file(&mut self, file: &crate::media::ProbedFile) -> bool {
+        let changed = Arc::make_mut(&mut self.media_cache).record(file);
+        if changed {
+            self.advance_render_revision();
+        }
+        changed
+    }
+
+    pub fn import_media_cache(&mut self, cache: &crate::media::MediaMetadataCache) {
+        let mut changed = false;
+        for file in cache.files() {
+            changed |= Arc::make_mut(&mut self.media_cache).record_missing(file);
+        }
+        if changed {
+            self.advance_render_revision();
+        }
+    }
+
+    pub(crate) fn replace_media_cache(&mut self, cache: crate::media::MediaMetadataCache) {
+        self.media_cache = Arc::new(cache);
+        self.advance_render_revision();
     }
 
     pub fn render_revision(&self) -> u64 {

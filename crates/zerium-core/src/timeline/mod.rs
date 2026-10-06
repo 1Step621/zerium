@@ -17,7 +17,7 @@ mod view;
 mod visibility;
 
 pub use aspect_ratio::AspectRatio;
-pub use commands::TimelineEditError;
+pub use commands::{SceneArgumentEditError, TimelineEditError};
 pub use document::TimelineDocument;
 pub use document::{ResizeEdge, ResizeMode};
 pub use editor::TimelineEditor;

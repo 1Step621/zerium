@@ -443,32 +443,10 @@ impl PropertyInspector {
             editing_scene,
             arguments: scene_arguments,
         };
-        if self.source == PropertySource::SceneArguments {
-            let roots = if let Some(scene_id) = item.scene_id() {
-                let values = editor
-                    .evaluated_scene_argument_values_at(item, resolution.playhead)
-                    .unwrap_or_default();
-                editor
-                    .scene(scene_id)
-                    .map(|scene| {
-                        Self::scene_argument_value_controls(
-                            scene_id,
-                            &scene.arguments,
-                            &values,
-                            &resolution,
-                        )
-                    })
-                    .unwrap_or_default()
-            } else {
-                Vec::new()
-            };
-            return ControlTree { roots };
-        }
-        let mut item_controls = Self::item_controls(item, &resolution);
-        if item.scene_id().is_none() {
-            item_controls
-                .retain(|control| Self::property_is_common(selected_items, control.property_id()));
-        }
+        let mut item_controls = Self::item_controls(editor, item, &resolution);
+        item_controls.retain(|control| {
+            Self::property_is_common(editor, selected_items, control.property_id())
+        });
         if multiple {
             for control in &mut item_controls {
                 control.disable_animation();

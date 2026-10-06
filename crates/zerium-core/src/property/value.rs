@@ -4,7 +4,7 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use super::{PropertyError, schema::PropertySchema};
+use super::{PropertyError, PropertyPath, schema::PropertySchema};
 pub(crate) const MAX_STRING_BYTES: usize = 4_096;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -58,6 +58,53 @@ impl PropertyValue {
         match self {
             Self::File(path) => path.as_deref(),
             _ => None,
+        }
+    }
+
+    /// Leaf values with stable array element IDs and structural tuple indices.
+    pub fn scalars(
+        &self,
+    ) -> impl Iterator<Item = (Option<PropertyElementId>, Option<usize>, &Self)> {
+        let array = match self {
+            Self::Array(elements) => Some(elements.as_slice()),
+            _ => None,
+        };
+        array
+            .is_none()
+            .then_some((None, self))
+            .into_iter()
+            .chain(
+                array
+                    .into_iter()
+                    .flatten()
+                    .map(|element| (Some(element.element_id()), element.value())),
+            )
+            .flat_map(|(element_id, value)| {
+                let (scalars, tuple) = match value {
+                    Self::Tuple(values) => (values.as_slice(), true),
+                    value => (std::slice::from_ref(value), false),
+                };
+                scalars
+                    .iter()
+                    .enumerate()
+                    .map(move |(index, value)| (element_id, tuple.then_some(index), value))
+            })
+    }
+
+    pub fn map_file_paths(&mut self, map: &mut impl FnMut(&std::path::Path) -> std::path::PathBuf) {
+        match self {
+            Self::File(Some(path)) => *path = map(path),
+            Self::Tuple(values) => {
+                for value in values {
+                    value.map_file_paths(map);
+                }
+            }
+            Self::Array(elements) => {
+                for element in elements {
+                    element.value_mut().map_file_paths(map);
+                }
+            }
+            _ => {}
         }
     }
 
@@ -158,9 +205,16 @@ impl PropertyValues {
         self.values.get(id)
     }
 
-    pub fn files(&self) -> impl Iterator<Item = (&str, &std::path::Path)> {
-        self.iter()
-            .filter_map(|(id, value)| value.file().map(|path| (id, path)))
+    pub fn files(&self) -> impl Iterator<Item = (PropertyPath, &std::path::Path)> {
+        self.iter().flat_map(|(id, value)| {
+            value
+                .scalars()
+                .filter_map(move |(element_id, scalar_index, value)| {
+                    value
+                        .file()
+                        .map(|path| (PropertyPath::new(id, element_id, scalar_index), path))
+                })
+        })
     }
 
     pub fn property_mut(&mut self, id: &str) -> Option<&mut PropertyValue> {

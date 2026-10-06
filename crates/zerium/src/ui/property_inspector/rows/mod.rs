@@ -18,7 +18,9 @@ pub(super) struct RenderCtx<'a> {
     pub store: &'a ControlStore,
     pub font_names: &'a [String],
     pub item_id: ItemId,
-    pub loading_file: bool,
+    pub selecting_file: bool,
+    pub file_input: Entity<FileInputController>,
+    pub scene_file_overrides: std::collections::HashSet<String>,
 }
 
 struct DraggableNumberInput {
@@ -173,16 +175,14 @@ impl PropertyInspector {
         key: SharedString,
     ) -> gpui::AnyElement {
         let menu_inspector = inspector.clone();
-        let button_label = binding.connected.as_ref().map_or_else(
-            || t!("rows.argument").to_string(),
-            |(_, label)| format!("→ {label}"),
-        );
         Button::new(key)
             .small()
             .compact()
             .ghost()
-            .label(button_label)
-            .dropdown_caret(true)
+            .icon(IconName::Link)
+            .when_some(binding.connected.as_ref(), |button, (_, label)| {
+                button.label(label.clone())
+            })
             .tooltip(t!("rows.bind_tooltip").to_string())
             .popup_menu(move |menu, _, _| {
                 if let Some((argument_id, _)) = &binding.connected {
@@ -231,21 +231,7 @@ impl PropertyInspector {
                         let target = binding.target.clone();
                         menu.item(PopupMenuItem::new(label.clone()).on_click(move |_, _, cx| {
                             inspector.update(cx, |inspector, cx| {
-                                let result = inspector.editor.update(cx, |editor, cx| {
-                                    let result =
-                                        editor.connect_scene_argument(&argument_id, target.clone());
-                                    if result.is_ok() {
-                                        cx.notify();
-                                    }
-                                    result
-                                });
-                                if result.is_ok() {
-                                    inspector.request_scene_argument_settings(&argument_id, cx);
-                                } else {
-                                    inspector.notifications.update(cx, |notifications, cx| {
-                                        notifications.push(t!("rows.bind_failed").to_string(), cx);
-                                    });
-                                }
+                                inspector.bind_scene_argument(&argument_id, target.clone(), cx);
                             });
                         }))
                     })
@@ -706,7 +692,8 @@ impl PropertyInspector {
                     .is_some_and(|binding| binding.connected.is_some());
                 Some((row, bound))
             }
-            Control::Group { .. } | Control::File(_) => None,
+            Control::File(_) => Self::scalar_compact_row(control, ctx),
+            Control::Group { .. } => None,
         }
     }
 

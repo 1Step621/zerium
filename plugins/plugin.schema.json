@@ -75,17 +75,6 @@
         "entry": { "$ref": "#/$defs/wgslId" }
       }
     },
-    "file": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "extensions": {
-          "type": "array",
-          "uniqueItems": true,
-          "items": { "type": "string", "pattern": "^[a-z0-9]+$" }
-        }
-      }
-    },
     "mediaPlayback": {
       "type": "object",
       "additionalProperties": false,
@@ -284,7 +273,7 @@
     },
     "scalarType": {
       "oneOf": [
-        { "enum": ["f32", "i32", "u32", "bool", "color", "string"] },
+        { "enum": ["f32", "i32", "u32", "bool", "color", "string", "file"] },
         { "$ref": "#/$defs/enumType" }
       ]
     },
@@ -345,12 +334,6 @@
               }
             }
           }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["file"],
-          "properties": { "file": { "$ref": "#/$defs/file" } }
         }
       ]
     },
@@ -373,28 +356,7 @@
           "maxItems": 64,
           "items": { "$ref": "#/$defs/configuration" }
         }
-      },
-      "allOf": [
-        {
-          "if": { "properties": { "type": { "required": ["file"] } } },
-          "then": {
-            "properties": {
-              "default": { "const": { "file": null } },
-              "configurations": {
-                "minItems": 1,
-                "maxItems": 1,
-                "items": {
-                  "properties": {
-                    "scene_bindable": { "const": false },
-                    "animatable": { "const": false }
-                  },
-                  "required": ["scene_bindable"]
-                }
-              }
-            }
-          }
-        }
-      ]
+      }
     },
     "outputBounds": {
       "type": "object",
@@ -651,10 +613,13 @@
         { "$ref": "#/$defs/enumType" }
       ]
     },
-    "numericConstraints": {
+    "propertyConstraints": {
       "type": "object",
       "additionalProperties": false,
-      "properties": { "min": { "type": "number" }, "max": { "type": "number" } }
+      "properties": {
+        "min": { "type": "number" },
+        "max": { "type": "number" }
+      }
     },
     "scalarUi": {
       "type": "object",
@@ -667,6 +632,11 @@
         "visible": { "type": "boolean" },
         "multiline": { "type": "boolean" },
         "editor": { "enum": ["font_family"] },
+        "extensions": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "type": "string", "pattern": "^[a-z0-9]+$" }
+        },
         "enum_variants": {
           "type": "object",
           "minProperties": 1,
@@ -684,7 +654,7 @@
         "scene_bindable": { "type": "boolean", "default": true },
         "editable": { "type": "boolean", "default": true },
         "animatable": { "type": "boolean", "default": false },
-        "constraints": { "$ref": "#/$defs/numericConstraints" },
+        "constraints": { "$ref": "#/$defs/propertyConstraints" },
         "ui": { "$ref": "#/$defs/scalarUi" }
       }
     },
@@ -706,7 +676,7 @@
           "file"
         ]
       },
-      "properties": { "file": { "type": "null" } }
+      "properties": { "file": { "type": ["string", "null"], "minLength": 1 } }
     },
     "capability": {
       "oneOf": [

@@ -14,6 +14,7 @@ const FORMAT: AudioFormat = AudioFormat {
 pub(crate) struct AudioLevelSampler {
     media_readers: Arc<MediaReaderRegistry>,
     items: Vec<TimelineItem>,
+    media_cache: Arc<zerium_core::media::MediaMetadataCache>,
     frame_rate: Option<FrameRate>,
     graph: Option<AudioTimelineGraph>,
     cached: Option<(Frame, [f32; 2])>,
@@ -24,6 +25,7 @@ impl AudioLevelSampler {
         Self {
             media_readers,
             items: Vec::new(),
+            media_cache: Arc::default(),
             frame_rate: None,
             graph: None,
             cached: None,
@@ -42,16 +44,22 @@ impl AudioLevelSampler {
         items: Vec<TimelineItem>,
         frame: Frame,
         frame_rate: FrameRate,
+        cache: Arc<zerium_core::media::MediaMetadataCache>,
     ) -> [f32; 2] {
-        if self.frame_rate != Some(frame_rate) || self.items != items {
+        if self.frame_rate != Some(frame_rate)
+            || self.items != items
+            || !Arc::ptr_eq(&self.media_cache, &cache)
+        {
             self.graph = AudioTimelineGraph::new(
                 &items,
+                &cache,
                 frame_rate,
                 FORMAT,
                 &self.media_readers,
                 AudioGainEvaluation::TimelineAnimation,
             )
             .ok();
+            self.media_cache = cache;
             self.items = items;
             self.frame_rate = Some(frame_rate);
             self.cached = None;

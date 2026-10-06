@@ -15,6 +15,7 @@ const TIMELINE_CLIPBOARD_FORMAT_VERSION: u32 = 1;
 
 #[derive(Debug)]
 pub struct DecodedTimelineClipboard {
+    pub media_cache: crate::media::MediaMetadataCache,
     pub source_scene: Option<SceneId>,
     pub items: Vec<(LayerId, TimelineItem)>,
     pub scene_bindings: Vec<(String, SceneBindingTarget)>,
@@ -24,6 +25,7 @@ pub fn encode_timeline_clipboard(
     items: &[(LayerId, TimelineItem)],
     source_scene: Option<SceneId>,
     scene_bindings: &[(String, SceneBindingTarget)],
+    cache: &crate::media::MediaMetadataCache,
 ) -> Result<String, ProjectError> {
     let file = TimelineClipboardFile {
         format: TIMELINE_CLIPBOARD_FORMAT.to_owned(),
@@ -35,6 +37,15 @@ pub fn encode_timeline_clipboard(
             .map(|(layer, item)| ProjectItem::capture(item, *layer, Path::new("")))
             .collect(),
         scene_bindings: scene_bindings.to_vec(),
+        media_cache: cache.retained_paths(
+            items
+                .iter()
+                .flat_map(|(_, item)| {
+                    std::iter::once(&item.properties)
+                        .chain(item.effects.iter().map(|effect| &effect.properties))
+                })
+                .flat_map(|properties| properties.files().map(|(_, path)| path)),
+        ),
     };
     serde_json::to_string(&file).map_err(|error| {
         ProjectError::encode(
@@ -104,6 +115,7 @@ pub fn decode_timeline_clipboard(
         scene_bindings.push((argument_id, binding));
     }
     Ok(DecodedTimelineClipboard {
+        media_cache: file.media_cache,
         source_scene,
         items,
         scene_bindings,
@@ -113,6 +125,8 @@ pub fn decode_timeline_clipboard(
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct TimelineClipboardFile {
+    #[serde(default)]
+    media_cache: crate::media::MediaMetadataCache,
     format: String,
     format_version: u32,
     source_scene: Option<[u64; 3]>,

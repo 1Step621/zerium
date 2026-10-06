@@ -1,11 +1,11 @@
-//! Type-aware numeric constraint algebra for property defaults and bindings.
+//! Scalar constraints for property defaults, edits, and bindings.
 
 use serde::{Deserialize, Serialize};
 
 use super::PropertyError;
 use crate::property::{PropertyType, PropertyValue, PropertyValueType, ScalarPropertyType};
 
-/// Wire bounds use f64 so every i32/u32 endpoint is represented exactly.
+/// Numeric wire bounds use f64 so every i32/u32 endpoint is represented exactly.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PropertyConstraints {
@@ -116,7 +116,7 @@ impl PropertyConstraints {
             | PropertyValue::Enum(_)
             | PropertyValue::Bool(_)
             | PropertyValue::String(_)
-                if self.min.is_none() && self.max.is_none() =>
+                if self.allows(value) =>
             {
                 Some(value.clone())
             }
@@ -171,8 +171,8 @@ impl PropertyConstraints {
             return true;
         }
         match value_type {
-            Some(PropertyValueType::Scalar(ty)) => self.valid_for_scalar(ty),
-            Some(PropertyValueType::Tuple(_)) | None => false,
+            PropertyValueType::Scalar(ty) => self.valid_for_scalar(ty),
+            PropertyValueType::Tuple(_) => false,
         }
     }
 

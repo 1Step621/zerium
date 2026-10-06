@@ -13,6 +13,8 @@ struct SceneSettingsRenderCtx<'a> {
     editor: &'a Entity<TimelineEditor>,
     settings: Entity<SceneSettings>,
     active_scene_name_input: Option<Entity<InputState>>,
+    file_input: Entity<FileInputController>,
+    selecting_file: bool,
 }
 
 impl Render for SceneSettings {
@@ -40,6 +42,8 @@ impl Render for SceneSettings {
             colors: cx.theme().colors,
             editor: &self.editor,
             settings: cx.entity(),
+            file_input: self.file_input.clone(),
+            selecting_file: self.file_input.read(cx).is_selecting(),
             active_scene_name_input: self.scene_id.and_then(|id| {
                 self.store
                     .text_inputs
@@ -185,6 +189,7 @@ impl SceneSettings {
                             (t!("args.boolean").to_string(), SceneArgumentPreset::Boolean),
                             (t!("args.color").to_string(), SceneArgumentPreset::Color),
                             (t!("args.string").to_string(), SceneArgumentPreset::Text),
+                            (t!("args.file").to_string(), SceneArgumentPreset::File),
                         ]
                         .into_iter()
                         .fold(menu, |menu, (label, ty)| {
@@ -416,6 +421,20 @@ impl SceneSettings {
                 render.editor,
             ));
         }
+        if let PropertyValue::File(file) = argument.schema.default_value() {
+            details = details.child(crate::ui::file_input::file_picker(
+                &render.file_input,
+                SharedString::from(format!("argument-file-{}", argument.id)),
+                FileTarget::Argument {
+                    scene_id: argument.scene_id,
+                    argument_id: argument.id.clone(),
+                },
+                file.as_deref(),
+                false,
+                render.selecting_file,
+                false,
+            ));
+        }
         details.into_any_element()
     }
 
@@ -543,7 +562,8 @@ impl SceneSettings {
                         if editor.update_scene_argument_default(
                             &argument_id,
                             PropertyValue::Bool(*checked),
-                        ) {
+                        ) == Ok(true)
+                        {
                             cx.notify();
                         }
                     });

@@ -27,6 +27,7 @@ pub struct LoadedProject {
     scenes: HashMap<SceneId, SceneDefinition>,
     resolution: ProjectResolution,
     playhead: Frame,
+    media_cache: crate::media::MediaMetadataCache,
 }
 
 impl LoadedProject {
@@ -38,6 +39,7 @@ impl LoadedProject {
             self.resolution,
             self.playhead,
         );
+        editor.replace_media_cache(self.media_cache);
     }
 }
 
@@ -70,6 +72,8 @@ struct ProjectFile {
     playhead: u64,
     items: Vec<ProjectItem>,
     scenes: Vec<ProjectScene>,
+    #[serde(default)]
+    media_cache: crate::media::MediaMetadataCache,
 }
 
 impl ProjectFile {
@@ -102,11 +106,30 @@ impl ProjectFile {
             playhead: snapshot.playhead().get(),
             items,
             scenes,
+            media_cache: snapshot
+                .media_cache()
+                .retained_paths(
+                    snapshot
+                        .items()
+                        .chain(snapshot.scenes().flat_map(|scene| scene.items()))
+                        .flat_map(|item| {
+                            std::iter::once(&item.properties)
+                                .chain(item.effects.iter().map(|effect| &effect.properties))
+                        })
+                        .flat_map(|properties| properties.files().map(|(_, path)| path))
+                        .chain(snapshot.scenes().flat_map(|scene| {
+                            scene
+                                .arguments
+                                .iter()
+                                .filter_map(|arg| arg.schema.default_value().file())
+                        })),
+                )
+                .mapped_paths(|path| make_relative(path, project_path)),
         })
     }
 
     fn into_loaded(
-        self,
+        mut self,
         project_path: &Path,
         plugins: &PluginRegistry,
     ) -> Result<LoadedProject, ProjectError> {
@@ -122,6 +145,14 @@ impl ProjectFile {
             .ok_or_else(|| ProjectError::invalid_data("Invalid frame rate"))?;
         let resolution = ProjectResolution::new(self.resolution[0], self.resolution[1])
             .ok_or_else(|| ProjectError::invalid_data("Invalid resolution"))?;
+        for scene in &mut self.scenes {
+            for argument in &mut scene.arguments {
+                argument
+                    .schema
+                    .default
+                    .map_file_paths(&mut |path| resolve_path(path, project_path));
+            }
+        }
         let mut scene_ids = HashSet::new();
         let mut scene_schemas = HashMap::new();
         for scene in &self.scenes {
@@ -147,7 +178,7 @@ impl ProjectFile {
                     })?;
                 if argument.schema.clone().for_scene_argument().is_none() {
                     return Err(ProjectError::invalid_data(format!(
-                        "Scene '{}' argument '{}' must use a supported scalar type",
+                        "Scene '{}' argument '{}' must use a supported argument type",
                         scene.name, argument.schema.id
                     )));
                 }
@@ -210,6 +241,9 @@ impl ProjectFile {
             scenes,
             resolution,
             playhead: Frame::new(self.playhead),
+            media_cache: self
+                .media_cache
+                .mapped_paths(|path| resolve_path(path, project_path)),
         })
     }
 }
@@ -270,9 +304,7 @@ fn capture_property_overrides(
         })
         .map(|(id, value)| {
             let mut value = value.clone();
-            if let PropertyValue::File(Some(path)) = &mut value {
-                *path = make_relative(path, project_path);
-            }
+            value.map_file_paths(&mut |path| make_relative(path, project_path));
             (id.to_owned(), value)
         })
         .collect()
@@ -295,7 +327,7 @@ impl ProjectScene {
             arguments: scene
                 .arguments
                 .iter()
-                .map(ProjectSceneArgument::capture)
+                .map(|argument| ProjectSceneArgument::capture(argument, project_path))
                 .collect(),
             items: capture_items(scene.items(), |id| scene.item_layer(id), project_path)?,
         })
@@ -310,16 +342,20 @@ struct ProjectSceneArgument {
 }
 
 impl ProjectSceneArgument {
-    fn capture(argument: &SceneArgument) -> Self {
+    fn capture(argument: &SceneArgument, project_path: &Path) -> Self {
+        let mut schema = argument.schema.clone();
+        schema
+            .default
+            .map_file_paths(&mut |path| make_relative(path, project_path));
         Self {
-            schema: argument.schema.clone(),
+            schema,
             bindings: argument.bindings.clone(),
         }
     }
 
     fn into_domain(self) -> Result<SceneArgument, ProjectError> {
         let schema = self.schema.for_scene_argument().ok_or_else(|| {
-            ProjectError::invalid_data("Scene argument must use a supported scalar type")
+            ProjectError::invalid_data("Scene argument must use a supported argument type")
         })?;
         Ok(SceneArgument::new(schema, self.bindings))
     }
@@ -335,8 +371,6 @@ pub(super) struct ProjectItem {
     kind: ProjectItemKind,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     properties: BTreeMap<String, PropertyValue>,
-    #[serde(default, skip_serializing_if = "crate::media::MediaInputs::is_empty")]
-    media_inputs: crate::media::MediaInputs,
     animations: Vec<ProjectScalarAnimation>,
     aspect_ratio: Option<crate::timeline::AspectRatio>,
     effects: Vec<ProjectEffect>,
@@ -379,7 +413,6 @@ impl ProjectItem {
                 item.schema().map(|schema| schema.properties()),
                 project_path,
             ),
-            media_inputs: item.media_inputs.clone(),
             animations: capture_animations(&item.animations),
             aspect_ratio: item.aspect_ratio,
             effects: item
@@ -508,7 +541,6 @@ impl ProjectItem {
                 },
             },
             properties,
-            media_inputs: self.media_inputs,
             animations,
             aspect_ratio: self.aspect_ratio,
             effects,
@@ -527,8 +559,6 @@ struct ProjectEffect {
     effect_id: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     properties: BTreeMap<String, PropertyValue>,
-    #[serde(default, skip_serializing_if = "crate::media::MediaInputs::is_empty")]
-    media_inputs: crate::media::MediaInputs,
     animations: Vec<ProjectScalarAnimation>,
     aspect_ratio: Option<crate::timeline::AspectRatio>,
 }
@@ -544,7 +574,6 @@ impl ProjectEffect {
                 Some(effect.schema().properties()),
                 project_path,
             ),
-            media_inputs: effect.media_inputs.clone(),
             animations: capture_animations(&effect.animations),
             aspect_ratio: effect.aspect_ratio,
         }
@@ -581,7 +610,6 @@ impl ProjectEffect {
             plugin_id: self.plugin_id,
             effect_id: self.effect_id,
             properties,
-            media_inputs: self.media_inputs,
             animations,
             aspect_ratio: self.aspect_ratio,
             schema,
@@ -669,9 +697,7 @@ fn load_properties(
     project_path: &Path,
 ) -> Result<PropertyValues, ProjectError> {
     for (id, mut value) in values {
-        if let PropertyValue::File(Some(path)) = &mut value {
-            *path = resolve_path(path, project_path);
-        }
+        value.map_file_paths(&mut |path| resolve_path(path, project_path));
         let property = schema
             .iter()
             .find(|property| property.id == id)

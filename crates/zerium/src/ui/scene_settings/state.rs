@@ -187,7 +187,7 @@ impl SceneSettings {
                 let color = Rgba::from(*color);
                 let value = PropertyValue::Color([color.r, color.g, color.b, color.a]);
                 this.editor.update(cx, |editor, cx| {
-                    if editor.update_scene_argument_default(&edited_id, value) {
+                    if editor.update_scene_argument_default(&edited_id, value) == Ok(true) {
                         cx.notify();
                     }
                 });

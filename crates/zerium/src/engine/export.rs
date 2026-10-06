@@ -14,7 +14,8 @@ use crate::engine::{
     media::{
         AtomicFileTransaction, AudioFormat, AudioGainEvaluation, AudioTimelineGraph,
         FfmpegFileEncoder, MediaInputId, MediaReaderRegistry, VideoColorSpec, VideoDecodeSize,
-        VideoEncoderSettings, VideoOutputSpec, VisualDecoderSession, sample_boundary,
+        VideoEncoderSettings, VideoOutputSpec, VisualDecoderSession, item_readings, refresh_files,
+        sample_boundary,
     },
     rendering::{
         ExportFramePipeline, FrameRenderer, RenderQuality, RenderScene, RenderSize, TextFrameCache,
@@ -96,6 +97,19 @@ pub(crate) fn export_timeline(
             "There are no items to export on the timeline".to_owned(),
         ));
     }
+    let (files, errors) = refresh_files(
+        &mut item_readings(&timeline.visible_items()),
+        timeline.media_cache(),
+        &media_readers,
+    );
+    if let Some(error) = errors.into_iter().next() {
+        return Err(error.into());
+    }
+    let mut cache = timeline.media_cache().clone();
+    for file in files {
+        cache.record(&file);
+    }
+    let timeline = timeline.with_media_cache(cache);
     let frame_rate = timeline.frame_rate();
     let size = RenderSize::from(timeline.resolution());
     let output_spec = VideoOutputSpec {
@@ -107,6 +121,7 @@ pub(crate) fn export_timeline(
     .map_err(ExportError::encoding)?;
     let audio_graph = AudioTimelineGraph::new(
         &timeline.visible_items(),
+        timeline.media_cache(),
         frame_rate,
         EXPORT_AUDIO_FORMAT,
         &media_readers,
@@ -326,7 +341,8 @@ fn decode_texture_frame(
     else {
         return Ok(None);
     };
-    let Some((asset, playback)) = item.media_input(effect_id, input_id) else {
+    let Some((asset, playback)) = item.media_input(effect_id, input_id, timeline.media_cache())
+    else {
         return Ok(None);
     };
     let local_seconds = item.local_seconds(time, timeline.frame_rate());

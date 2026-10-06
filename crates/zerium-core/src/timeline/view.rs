@@ -5,6 +5,7 @@ use super::{
     evaluation::{
         EvaluatedSceneNode, document_items, evaluated_document_graph_at_time,
         evaluated_document_items_at_time, evaluated_visible_document_graph_at_time,
+        visit_source_items,
     },
     ids::{ItemId, LayerId, ProjectId},
     item::TimelineItem,
@@ -22,6 +23,7 @@ use super::{
 #[derive(Clone)]
 pub struct TimelineSnapshot {
     pub(super) project: Arc<TimelineProject>,
+    pub(super) media_cache: Arc<crate::media::MediaMetadataCache>,
     pub(super) playhead: Frame,
     pub(super) project_revision: u64,
 }
@@ -30,6 +32,7 @@ pub struct TimelineSnapshot {
 /// snapshots. Rendering and export depend on this view instead of the editor's
 /// command/history implementation.
 pub trait TimelineView {
+    fn media_cache(&self) -> &crate::media::MediaMetadataCache;
     fn resolution(&self) -> ProjectResolution;
     fn frame_rate(&self) -> FrameRate;
     fn playhead(&self) -> Frame;
@@ -43,6 +46,11 @@ pub trait TimelineView {
 }
 
 impl TimelineSnapshot {
+    pub fn with_media_cache(mut self, cache: crate::media::MediaMetadataCache) -> Self {
+        self.media_cache = Arc::new(cache);
+        self
+    }
+
     pub fn project_revision(&self) -> u64 {
         self.project_revision
     }
@@ -59,6 +67,17 @@ impl TimelineSnapshot {
         self.project.document.items()
     }
 
+    /// Visit all argument-resolved source items, including unused scenes and
+    /// scene-instance effects. Unlike rendering, this traversal does not clip
+    /// items to a time range or assign runtime identities.
+    pub fn visit_resolved_items(&self, mut visit: impl FnMut(&TimelineItem)) {
+        for document in std::iter::once(&self.project.document)
+            .chain(self.project.scenes.values().map(|scene| scene.document()))
+        {
+            visit_source_items(document.source_items(), &self.project.scenes, &mut visit);
+        }
+    }
+
     pub fn item_layer(&self, id: ItemId) -> Option<LayerId> {
         self.project.document.item_layer(id)
     }
@@ -69,6 +88,10 @@ impl TimelineSnapshot {
 }
 
 impl TimelineView for TimelineSnapshot {
+    fn media_cache(&self) -> &crate::media::MediaMetadataCache {
+        &self.media_cache
+    }
+
     fn resolution(&self) -> ProjectResolution {
         self.project.resolution
     }
@@ -104,6 +127,10 @@ impl TimelineView for TimelineSnapshot {
 }
 
 impl TimelineView for TimelineEditor {
+    fn media_cache(&self) -> &crate::media::MediaMetadataCache {
+        TimelineEditor::media_cache(self)
+    }
+
     fn resolution(&self) -> ProjectResolution {
         TimelineEditor::resolution(self)
     }

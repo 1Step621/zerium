@@ -95,7 +95,7 @@ impl TransportController {
 
     fn play(&mut self, cx: &mut Context<Self>) {
         self.stop_audio(cx);
-        let (start_frame, frame_rate, items) = {
+        let (start_frame, frame_rate, items, cache) = {
             let editor = self.editor.read(cx);
             let playhead = editor.playhead();
             let start_frame = if playhead >= editor.end_frame_exclusive() {
@@ -103,12 +103,17 @@ impl TransportController {
             } else {
                 playhead
             };
-            (start_frame, editor.frame_rate(), editor.visible_items())
+            (
+                start_frame,
+                editor.frame_rate(),
+                editor.visible_items(),
+                editor.media_cache().clone(),
+            )
         };
         let clock: Result<PlaybackClock, AudioPlaybackError> = self.audio.update(cx, |audio, _| {
-            audio.play(items.clone(), start_frame, frame_rate)
+            audio.play(items.clone(), start_frame, frame_rate, cache.clone())
         });
-        self.audio_plan = audio_plan(&items);
+        self.audio_plan = audio_plan(&items, &cache);
         self.audio_frame_rate = frame_rate;
         let clock = match clock {
             Ok(clock) => clock,
@@ -239,11 +244,12 @@ impl TransportController {
             return;
         }
         let items = self.editor.read(cx).visible_items();
-        let plan = audio_plan(&items);
+        let cache = self.editor.read(cx).media_cache().clone();
+        let plan = audio_plan(&items, &cache);
         if plan != self.audio_plan || frame_rate != self.audio_frame_rate {
             let clock = self
                 .audio
-                .update(cx, |audio, _| audio.play(items, frame, frame_rate));
+                .update(cx, |audio, _| audio.play(items, frame, frame_rate, cache));
             playback.start_seconds = seconds;
             playback.started_at = Instant::now();
             playback.uses_audio_clock = match clock {

@@ -8901,6 +8901,7 @@ dependencies = [
  "gpui-ce",
  "pollster 0.4.0",
  "resvg",
+ "rfd",
  "rtrb",
  "rust-embed",
  "rust-i18n",

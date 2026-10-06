@@ -273,14 +273,11 @@ impl EffectSchema {
     }
 
     pub fn file_properties(&self) -> impl Iterator<Item = &PropertySchema> {
-        self.properties
-            .iter()
-            .filter(|property| property.file_type().is_some())
+        self.properties.iter().filter(|property| property.is_file())
     }
 
     pub fn file_property(&self, id: &str) -> Option<&PropertySchema> {
-        self.property(id)
-            .filter(|property| property.file_type().is_some())
+        self.property(id).filter(|property| property.is_file())
     }
 
     pub fn capabilities(&self) -> &[Capability] {

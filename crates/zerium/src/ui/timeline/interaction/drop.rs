@@ -84,6 +84,7 @@ impl Timeline {
             .collect::<Vec<_>>();
         let editor = self.editor.clone();
         let media_readers = self.media_readers.clone();
+        let plugins = self.editor.read(cx).plugin_registry_arc();
         let session = self.session.clone();
         let operation = session.update(cx, |session, cx| {
             let operation = session.begin(ProjectActivity::Import);
@@ -100,8 +101,9 @@ impl Timeline {
                                 .file_name()
                                 .map(|name| name.to_string_lossy().into_owned())
                                 .unwrap_or_else(|| path.display().to_string());
-                            let result = media_readers.probe_for_item(
+                            let result = media_readers.prepare_import(
                                 path,
+                                &plugins,
                                 &plugin_id,
                                 &item_id,
                                 &property_id,
@@ -134,7 +136,7 @@ impl Timeline {
                                 continue;
                             }
                         };
-                    if let Err(error) = editor.set_item_file(item_id, imported) {
+                    if let Err(error) = editor.import_item_file(item_id, imported) {
                         editor.remove_item(item_id);
                         errors.push(format!("{name}: {error}"));
                         continue;

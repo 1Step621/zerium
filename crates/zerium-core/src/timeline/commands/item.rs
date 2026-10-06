@@ -12,7 +12,9 @@ impl TimelineEditor {
         remove_bindings_for_items(scene, item_ids);
     }
 
-    pub fn set_item_file(
+    /// Initialize a newly placed item from an imported source. File edits on
+    /// existing items go through the ordinary property commands.
+    pub fn import_item_file(
         &mut self,
         id: ItemId,
         imported: ImportedFile,
@@ -30,18 +32,14 @@ impl TimelineEditor {
         if !compatible {
             return Err(TimelineEditError::IncompatibleMedia);
         }
-        // Attach the initial import to creation; each replacement is its own edit.
-        let key = item
-            .properties
-            .files()
-            .next()
-            .is_none()
-            .then_some(HistoryKey::ItemCreation(id));
+        let key = Some(HistoryKey::ItemCreation(id));
         let before = self.history_snapshot_for_edit(key.as_ref());
-        let changed = self.active_document_mut().set_item_file(id, imported);
+        let file = imported.file.clone();
+        let changed = self.active_document_mut().import_item_file(id, imported);
         if !changed {
             return Err(TimelineEditError::PlacementUnavailable);
         }
+        self.cache_media_file(&file);
         self.finish_project_edit_if_changed(true, before, key);
         Ok(())
     }

@@ -1,4 +1,3 @@
-use ::ui::{ContextModal as _, modal::Modal};
 use rust_i18n::t;
 
 use super::control::{Control, ControlTree, EffectGroup, GroupKind};
@@ -25,8 +24,7 @@ impl Render for PropertyInspector {
         div()
             .relative()
             .track_focus(&self.focus_handle)
-            .w_full()
-            .when(self.source == PropertySource::Plugin, |this| this.h_full())
+            .size_full()
             .flex()
             .flex_col()
             .overflow_hidden()
@@ -78,7 +76,21 @@ impl PropertyInspector {
             inspector: cx.entity(),
             store: &self.store,
             font_names: &self.font_names,
-            loading_file: self.loading_file,
+            selecting_file: self.file_input.read(cx).is_selecting(),
+            file_input: self.file_input.clone(),
+            scene_file_overrides: self
+                .editor
+                .read(cx)
+                .selected_item_ids()
+                .filter_map(|id| self.editor.read(cx).item(id))
+                .filter(|item| item.scene_id().is_some())
+                .flat_map(|item| {
+                    item.properties
+                        .iter()
+                        .filter(|(_, value)| matches!(value, PropertyValue::File(_)))
+                        .map(|(id, _)| id.to_owned())
+                })
+                .collect(),
             item_id: selection.item.id,
         }
     }
@@ -175,24 +187,6 @@ impl PropertyInspector {
     ) -> gpui::AnyElement {
         let render = self.render_context(&view, cx);
         let active_effect = self.editor.read(cx).active_edit_effect();
-        if self.source == PropertySource::SceneArguments {
-            return div()
-                .id("scene-instance-arguments")
-                .w_full()
-                .max_h(px(450.))
-                .overflow_y_scroll()
-                .flex()
-                .flex_col()
-                .gap_3()
-                .children(
-                    view.tree
-                        .roots
-                        .iter()
-                        .cloned()
-                        .filter_map(|control| Self::control_element(control, &render)),
-                )
-                .into_any_element();
-        }
         let header = Self::selection_header(&view, &render, active_effect);
         let mut controls = Vec::new();
         let mut effect_controls = Vec::new();
@@ -358,7 +352,6 @@ impl PropertyInspector {
     ) -> Div {
         let editor = render.editor.clone();
         let title_editor = render.editor.clone();
-        let inspector = render.inspector.clone();
         pane_header(render.colors)
             .child(
                 div()
@@ -384,20 +377,6 @@ impl PropertyInspector {
                         view.item_label.clone()
                     }),
             )
-            .when(view.item.scene_id().is_some() && !view.multiple, |this| {
-                this.child(
-                    Button::new("scene-instance-arguments")
-                        .small()
-                        .compact()
-                        .ghost()
-                        .label(t!("args.scene_arguments").to_string())
-                        .on_click(move |_, window, cx| {
-                            inspector.update(cx, |inspector, cx| {
-                                inspector.open_scene_arguments(window, cx)
-                            })
-                        }),
-                )
-            })
             .child(
                 Button::new("toggle-selected-item-visibility")
                     .small()
@@ -425,35 +404,6 @@ impl PropertyInspector {
                         });
                     }),
             )
-    }
-
-    fn open_scene_arguments(&self, window: &mut Window, cx: &mut Context<Self>) {
-        let editor = self.editor.clone();
-        let animation = self.animation_selection.clone();
-        let readers = self.media_readers.clone();
-        let session = self.session.clone();
-        let notifications = self.notifications.clone();
-        let arguments = cx.new(|cx| {
-            let mut panel = Self::new(
-                editor.clone(),
-                animation,
-                readers,
-                session,
-                notifications,
-                window,
-                cx,
-            );
-            panel.source = PropertySource::SceneArguments;
-            panel.reset_input_state();
-            panel.sync_from_editor(&editor, window, cx);
-            panel
-        });
-        window.open_modal(cx, move |modal: Modal, _, _| {
-            modal
-                .title(t!("args.scene_arguments").to_string())
-                .width(px(520.))
-                .child(arguments.clone())
-        });
     }
 
     fn activate_edit_target(

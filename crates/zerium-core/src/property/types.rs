@@ -47,6 +47,7 @@ impl From<EnumPropertyType> for Vec<u32> {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ScalarPropertyType {
+    File,
     F32,
     I32,
     U32,
@@ -61,8 +62,15 @@ impl ScalarPropertyType {
         matches!(self, Self::F32 | Self::I32 | Self::U32 | Self::Color)
     }
 
+    pub const fn is_shader_value(&self) -> bool {
+        !matches!(self, Self::File)
+    }
+
     pub fn allows(&self, value: &PropertyValue) -> bool {
         match (self, value) {
+            (Self::File, PropertyValue::File(path)) => path
+                .as_ref()
+                .is_none_or(|path| !path.as_os_str().is_empty()),
             (Self::F32, PropertyValue::F32(value)) => value.is_finite(),
             (Self::I32, PropertyValue::I32(_))
             | (Self::U32, PropertyValue::U32(_))
@@ -161,7 +169,6 @@ impl PropertyValueType {
 #[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
 #[serde(rename_all = "snake_case")]
 pub enum PropertyType {
-    File(super::FilePropertyType),
     Value(PropertyValueType),
     Array {
         element_type: PropertyValueType,
@@ -176,21 +183,23 @@ fn is_zero(value: &u32) -> bool {
 }
 
 impl PropertyType {
-    pub fn value_type(&self) -> Option<&PropertyValueType> {
+    pub fn value_type(&self) -> &PropertyValueType {
         match self {
             Self::Value(ty)
             | Self::Array {
                 element_type: ty, ..
-            } => Some(ty),
-            Self::File(_) => None,
+            } => ty,
         }
+    }
+
+    pub fn has_shader_values(&self) -> bool {
+        self.value_type()
+            .scalars()
+            .any(|(_, ty)| ty.is_shader_value())
     }
 
     pub fn allows(&self, value: &PropertyValue) -> bool {
         match self {
-            Self::File(_) => {
-                matches!(value, PropertyValue::File(path) if path.as_ref().is_none_or(|path| !path.as_os_str().is_empty()))
-            }
             Self::Value(ty) => ty.allows(value),
             Self::Array {
                 element_type,

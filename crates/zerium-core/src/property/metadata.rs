@@ -1,6 +1,9 @@
 //! Presentation metadata for property controls.
 
-use std::collections::{BTreeMap, BTreeSet, HashSet};
+use std::{
+    collections::{BTreeMap, BTreeSet, HashSet},
+    path::Path,
+};
 
 use serde::{Deserialize, Serialize};
 
@@ -45,6 +48,8 @@ pub struct PropertyUi {
     multiline: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     editor: Option<PropertyEditor>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    extensions: Vec<String>,
 }
 
 impl Default for PropertyUi {
@@ -58,6 +63,7 @@ impl Default for PropertyUi {
             enum_variants: BTreeMap::new(),
             multiline: false,
             editor: None,
+            extensions: Vec::new(),
         }
     }
 }
@@ -65,6 +71,23 @@ impl Default for PropertyUi {
 impl PropertyUi {
     pub fn is_default(&self) -> bool {
         self == &Self::default()
+    }
+
+    /// Suggested file extensions for selection and automatic import routing.
+    pub fn extensions(&self) -> &[String] {
+        &self.extensions
+    }
+
+    pub fn matches_file(&self, path: &Path) -> bool {
+        self.extensions.is_empty()
+            || path
+                .extension()
+                .and_then(|extension| extension.to_str())
+                .is_some_and(|extension| {
+                    self.extensions
+                        .iter()
+                        .any(|allowed| allowed.eq_ignore_ascii_case(extension))
+                })
     }
 
     pub fn enum_options(&self, ty: &EnumPropertyType) -> Vec<(u32, String)> {
@@ -157,6 +180,24 @@ impl PropertyUi {
             ));
         }
 
+        let mut seen = HashSet::new();
+        if !self.extensions.is_empty()
+            && (!matches!(
+                ty.value_type(),
+                PropertyValueType::Scalar(ScalarPropertyType::File)
+            ) || !self.extensions.iter().all(|extension| {
+                !extension.is_empty()
+                    && extension
+                        .bytes()
+                        .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+                    && seen.insert(extension)
+            }))
+        {
+            return Err(invalid(
+                "ui.extensions requires a file type and unique lowercase extensions",
+            ));
+        }
+
         self.validate_enum_variants(ty, invalid)
     }
 
@@ -166,8 +207,7 @@ impl PropertyUi {
         invalid: impl Fn(&str) -> PropertyError,
     ) -> Result<(), PropertyError> {
         let value_type = ty.value_type();
-        let Some(PropertyValueType::Scalar(ScalarPropertyType::Enum(enumeration))) = value_type
-        else {
+        let PropertyValueType::Scalar(ScalarPropertyType::Enum(enumeration)) = value_type else {
             return self
                 .enum_variants
                 .is_empty()

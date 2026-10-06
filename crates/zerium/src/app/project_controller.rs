@@ -579,7 +579,9 @@ impl ProjectController {
                     .iter()
                     .map(|activity| match activity {
                         ProjectActivity::Import => t!("project.import_activity").to_string(),
-                        ProjectActivity::Probe => t!("project.probe_activity").to_string(),
+                        ProjectActivity::SelectFile => {
+                            t!("project.select_file_activity").to_string()
+                        }
                         ProjectActivity::Save => t!("project.save_activity").to_string(),
                         ProjectActivity::Load => t!("project.load_activity").to_string(),
                         ProjectActivity::Export => t!("project.export_activity").to_string(),

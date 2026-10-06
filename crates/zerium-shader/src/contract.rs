@@ -26,22 +26,29 @@ enum ShaderPropertyType {
 #[derive(Clone, PartialEq, Eq, Serialize)]
 enum ShaderValueType {
     Scalar(&'static str),
-    Tuple(Vec<&'static str>),
+    Tuple(Vec<Option<&'static str>>),
 }
 
 impl ShaderValueType {
     fn from_property(ty: &PropertyValueType) -> Self {
         match ty {
             PropertyValueType::Scalar(ty) => Self::Scalar(scalar_type(ty)),
-            PropertyValueType::Tuple(tuple) => {
-                Self::Tuple(tuple.scalars().iter().map(scalar_type).collect())
-            }
+            PropertyValueType::Tuple(tuple) => Self::Tuple(
+                tuple
+                    .scalars()
+                    .iter()
+                    .map(|ty| ty.is_shader_value().then(|| scalar_type(ty)))
+                    .collect(),
+            ),
         }
     }
 }
 
 fn scalar_type(ty: &ScalarPropertyType) -> &'static str {
     match ty {
+        ScalarPropertyType::File => {
+            unreachable!("file properties have no shader representation")
+        }
         ScalarPropertyType::F32 => "f32",
         ScalarPropertyType::I32 => "i32",
         ScalarPropertyType::U32 | ScalarPropertyType::Enum(_) => "u32",
@@ -77,10 +84,7 @@ impl ShaderContract {
                     ty: ty.clone(),
                     offset,
                     shader_type: {
-                        let value = ShaderValueType::from_property(
-                            ty.value_type()
-                                .expect("ABI fields have a shader value type"),
-                        );
+                        let value = ShaderValueType::from_property(ty.value_type());
                         if matches!(ty, PropertyType::Array { .. }) {
                             ShaderPropertyType::Array(value)
                         } else {

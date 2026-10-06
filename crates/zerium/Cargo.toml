@@ -21,6 +21,7 @@ futures = "0.3"
 gpui = { package = "gpui-ce", git = "https://github.com/1Step621/WGPUI", branch = "fix/input-selection-replacement" }
 pollster = "0.4"
 resvg = "0.47"
+rfd = "0.17.2"
 rtrb = "0.3"
 rust-embed = { version = "8.12", features = ["debug-embed"] }
 rust-i18n.workspace = true

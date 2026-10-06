@@ -32,6 +32,7 @@ impl SceneSettings {
                 }
                 ControlId::ArgumentDefault { argument_id, .. } => {
                     editor.update_scene_argument_default(argument_id, PropertyValue::String(value))
+                        == Ok(true)
                 }
                 _ => false,
             };

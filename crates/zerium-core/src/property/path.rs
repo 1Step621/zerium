@@ -39,9 +39,11 @@ impl PropertyPath {
     pub fn property_id(&self) -> &str {
         &self.property_id
     }
+
     pub const fn element_id(&self) -> Option<PropertyElementId> {
         self.element_id
     }
+
     pub const fn scalar_index(&self) -> Option<usize> {
         self.scalar_index
     }
@@ -60,18 +62,26 @@ impl PropertyPath {
 }
 
 impl PropertySchema {
+    pub fn scalar_type(
+        &self,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
+    ) -> Option<&ScalarPropertyType> {
+        let value_type = match (element_id, self.ty()) {
+            (Some(_), PropertyType::Array { element_type, .. })
+            | (None, PropertyType::Value(element_type)) => element_type,
+            _ => return None,
+        };
+        value_type.scalar_at(scalar_index)
+    }
+
     pub fn resolve_scalar<'a>(
         &'a self,
         value: &'a PropertyValue,
         element_id: Option<PropertyElementId>,
         scalar_index: Option<usize>,
     ) -> Option<ResolvedPropertyScalar<'a>> {
-        let value_type = match (element_id, self.ty()) {
-            (Some(_), PropertyType::Array { element_type, .. })
-            | (None, PropertyType::Value(element_type)) => element_type,
-            _ => return None,
-        };
-        let ty = value_type.scalar_at(scalar_index)?;
+        let ty = self.scalar_type(element_id, scalar_index)?;
         let value = value.scalar(element_id, scalar_index)?;
         ty.allows(value).then_some(ResolvedPropertyScalar {
             value,

@@ -18,6 +18,46 @@ impl ArrayEdit {
 }
 
 impl PropertyInspector {
+    pub(super) fn reset_property(&mut self, address: PropertyAddress, cx: &mut Context<Self>) {
+        let result = self.editor.update(cx, |editor, cx| {
+            if editor.selected_item().map(|item| item.id) != Some(address.item_id) {
+                return Ok(false);
+            }
+            let result = editor.reset_selected_property(address.effect_id, address.path());
+            if result.as_ref().is_ok_and(|changed| *changed) {
+                cx.notify();
+            }
+            result
+        });
+        if let Err(error) = result {
+            self.notifications.update(cx, |notifications, cx| {
+                notifications.push(t!("inspector.edit_failed", error = error).to_string(), cx)
+            });
+        }
+    }
+
+    pub(super) fn bind_scene_argument(
+        &mut self,
+        argument_id: &str,
+        target: SceneBindingTarget,
+        cx: &mut Context<Self>,
+    ) {
+        let result = self.editor.update(cx, |editor, cx| {
+            let result = editor.connect_scene_argument(argument_id, target);
+            if result.is_ok() {
+                cx.notify();
+            }
+            result
+        });
+        if result.is_err() {
+            self.notifications.update(cx, |notifications, cx| {
+                notifications.push(t!("rows.bind_failed").to_string(), cx)
+            });
+        } else {
+            self.request_scene_argument_settings(argument_id, cx);
+        }
+    }
+
     pub(super) fn request_scene_argument_settings(
         &self,
         argument_id: &str,
@@ -553,191 +593,5 @@ impl PropertyInspector {
             return false;
         }
         Self::update_elements(editor, effect_id, property_id, updated)
-    }
-
-    pub(super) fn choose_file(
-        &mut self,
-        effect_id: Option<EffectInstanceId>,
-        property_id: String,
-        _: &gpui::ClickEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.loading_file {
-            return;
-        }
-        let Some(item) = self.editor.read(cx).selected_item() else {
-            return;
-        };
-        let item_id = item.id;
-        let (expected_plugin_id, expected_source_id) = match effect_id {
-            Some(effect_id) => {
-                let Some(effect) = item.effects.iter().find(|effect| effect.id == effect_id) else {
-                    return;
-                };
-                if !effect
-                    .schema()
-                    .file_property(&property_id)
-                    .is_some_and(|file| file.is_editable(None) && file.is_visible())
-                {
-                    return;
-                }
-                (effect.plugin_id.clone(), effect.effect_id.clone())
-            }
-            None => {
-                let Some(schema) = item.schema() else {
-                    return;
-                };
-                if !schema
-                    .file_property(&property_id)
-                    .is_some_and(|file| file.is_editable(None) && file.is_visible())
-                {
-                    return;
-                }
-                (
-                    item.plugin_id().unwrap_or_default().to_owned(),
-                    item.item_id().unwrap_or_default().to_owned(),
-                )
-            }
-        };
-        let expected_property_id = property_id;
-        let receiver = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some(t!("edit.choose_file").to_string().into()),
-        });
-        self.loading_file = true;
-        let editor = self.editor.clone();
-        let media_readers = self.media_readers.clone();
-        let session = self.session.clone();
-        let operation = session.update(cx, |session, cx| {
-            let operation = session.begin(ProjectActivity::Probe);
-            cx.notify();
-            operation
-        });
-        self._file_task = cx.spawn(async move |inspector, cx| {
-            let path = match receiver.await {
-                Ok(Ok(Some(paths))) => paths.into_iter().next(),
-                Ok(Ok(None)) => None,
-                Ok(Err(error)) => {
-                    if let Some(inspector) = inspector.upgrade() {
-                        inspector.update(cx, |inspector, cx| {
-                            let message = t!("edit.select_file_failed", error = error).to_string();
-                            inspector.loading_file = false;
-                            inspector.notifications.update(cx, |notifications, cx| {
-                                notifications.push(message, cx);
-                            });
-                            cx.notify();
-                        });
-                    }
-                    session.update(cx, |session, cx| {
-                        if session.finish(operation) {
-                            cx.notify();
-                        }
-                    });
-                    return;
-                }
-                Err(error) => {
-                    if let Some(inspector) = inspector.upgrade() {
-                        inspector.update(cx, |inspector, cx| {
-                            let message = t!("edit.file_picker_failed", error = error).to_string();
-                            inspector.loading_file = false;
-                            inspector.notifications.update(cx, |notifications, cx| {
-                                notifications.push(message, cx);
-                            });
-                            cx.notify();
-                        });
-                    }
-                    session.update(cx, |session, cx| {
-                        if session.finish(operation) {
-                            cx.notify();
-                        }
-                    });
-                    return;
-                }
-            };
-            if !session.update(cx, |session, _| session.operation_is_current(operation)) {
-                return;
-            }
-            let Some(path) = path else {
-                if let Some(inspector) = inspector.upgrade() {
-                    inspector.update(cx, |inspector, cx| {
-                        inspector.loading_file = false;
-                        cx.notify();
-                    });
-                }
-                session.update(cx, |session, cx| {
-                    if session.finish(operation) {
-                        cx.notify();
-                    }
-                });
-                return;
-            };
-            let probe_plugin_id = expected_plugin_id.clone();
-            let probe_source_id = expected_source_id.clone();
-            let probe_property_id = expected_property_id.clone();
-            let result = cx
-                .background_spawn(async move {
-                    match effect_id {
-                        Some(_) => media_readers.probe_for_effect(
-                            path,
-                            &probe_plugin_id,
-                            &probe_source_id,
-                            &probe_property_id,
-                        ),
-                        None => media_readers.probe_for_item(
-                            path,
-                            &probe_plugin_id,
-                            &probe_source_id,
-                            &probe_property_id,
-                        ),
-                    }
-                })
-                .await;
-            if !session.update(cx, |session, _| session.operation_is_current(operation)) {
-                return;
-            }
-            if let Some(inspector) = inspector.upgrade() {
-                inspector.update(cx, |inspector, cx| {
-                    inspector.loading_file = false;
-                    let error = match result {
-                        Ok(imported)
-                            if imported.plugin_id == expected_plugin_id
-                                && imported.source_id == expected_source_id
-                                && imported.property_id == expected_property_id =>
-                        {
-                            let result = editor.update(cx, |editor, cx| {
-                                let result = match effect_id {
-                                    Some(effect_id) => {
-                                        editor.set_effect_file(item_id, effect_id, imported)
-                                    }
-                                    None => editor.set_item_file(item_id, imported),
-                                };
-                                if result.is_ok() {
-                                    cx.notify();
-                                }
-                                result
-                            });
-                            result.err().map(|error| error.to_string())
-                        }
-                        Ok(_) => Some(t!("edit.mismatched_file").to_string()),
-                        Err(error) => Some(error.to_string()),
-                    };
-                    if let Some(error) = error {
-                        inspector.notifications.update(cx, |notifications, cx| {
-                            notifications.push(error, cx);
-                        });
-                    }
-                    cx.notify();
-                });
-            }
-            session.update(cx, |session, cx| {
-                if session.finish(operation) {
-                    cx.notify();
-                }
-            });
-        });
-        cx.notify();
     }
 }

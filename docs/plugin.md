@@ -108,22 +108,53 @@ the property and capability declarations, rather than duplicated in metadata.
 {
   "id": "source_file",
   "label": { "ja-JP": "ソース", "en-US": "Source" },
-  "type": {
-    "file": {
-      "extensions": ["mp4", "mov"]
-    }
-  },
+  "type": { "value": "file" },
   "default": { "file": null },
-  "configurations": [{ "scene_bindable": false }]
+  "configurations": [{ "ui": { "extensions": ["mp4", "mov"] } }]
 }
 ```
 
-File properties contain an optional file path. Readers belong to media and audio
-inputs; each input keeps its own probed metadata. They require one configuration, an empty default, and no animation or
-scene bindings. `editable` and `ui.visible` work like other properties. Files
-cannot be tuple coordinates or array elements. Paths are saved relative to the
-project file when possible. Files are host resources and do not occupy bytes or
-fields in the shader property ABI; capabilities expose their decoded content.
+File properties contain an optional file path. Extension filters belong to each
+scalar configuration’s `ui.extensions`. They guide file selection and automatic
+import routing without restricting property values, defaults, or scene bindings.
+On Windows and Linux the file dialog offers suggested extensions and all files;
+on macOS it stays unrestricted because the native dialog merges filters.
+Readers belong to media and audio inputs. Derived metadata is cached once per project and per
+file, reader, and reading target; it is not part of the property value or its
+override identity.
+File is a scalar type and can be used in tuples and arrays. Each scalar has its
+own configuration; file scalars cannot be animated. `editable` and
+`ui.visible` work like other properties. Paths in all file scalars are saved
+relative to the project file when possible.
+
+For example, a file with a numeric setting uses
+`"type": {"value": ["file", "f32"]}`. A file list uses
+`"type": {"array": {"element_type": "file", "max_items": 16}}`
+and an `append_default` of `{"file": null}`. The same array form supports tuples
+as its `element_type`. File selection, clearing, and scene binding target each
+individual scalar, keeping other tuple values and array element IDs unchanged.
+
+File arguments can bind to file properties with different extension suggestions.
+Binding is a document edit and does not require the source files to be available. Reader
+metadata is refreshed in the background and before export, using file size
+and modification time to detect changes. Already cached results remain usable
+for offline editing when the source is unavailable. Assigning a path does not
+require successful decoding; reader failures are reported separately. File
+arguments can be cleared, and instance overrides can be reset to follow the
+scene default.
+
+Choosing a file on an existing item, directly or through an argument, preserves
+its edited time mapping and placement. Importing a file as a new timeline item
+initializes its duration and size from successfully read metadata; if reading
+fails, the item retains its defaults and the background refresher reports the
+failure.
+
+Files are host resources and do not occupy bytes or fields in the shader property
+ABI; capabilities expose their decoded content. Mixed tuples retain their other
+scalars and their original `vN` indices in the shader interface. Properties with
+only file scalars are omitted from that interface. Media and audio capabilities
+still reference standalone file properties; declaring a file tuple or array does
+not create multiple media inputs.
 
 A shared media shader can use `import package::generated::host::entity::{source,
 capability_sampler};` and sample `source` with `capability_sampler`.
@@ -404,7 +435,7 @@ one per scalar position in an array element. Each entry has these settings:
 | ---------------- | --------------- | ---------------------------------------------------------------------------------- |
 | `editable`       | `true`          | Allow direct edits; false also disables animation editing.                         |
 | `animatable`     | `false`         | Allow animation of numeric or color scalars.                                       |
-| `scene_bindable` | `true`          | Allow the scalar to be exposed as a scene argument.                                |
+| `scene_bindable` | `true`          | Allow the scalar or file to be exposed as a scene argument.                                |
 | `constraints`    | Unrestricted    | Validate defaults, edits, loaded values, and animation endpoints.                  |
 | `ui`             | Scalar defaults | Presentation hints: label, unit, step, visibility, enum labels, multiline, editor. |
 

@@ -191,6 +191,10 @@ pub(super) enum PropertyOwner<'a> {
         schema: &'a ItemSchema,
     },
     Effect(&'a EffectInstance),
+    Scene {
+        id: SceneId,
+        values: &'a HashMap<String, PropertyValue>,
+    },
 }
 
 impl PropertyOwner<'_> {
@@ -202,6 +206,7 @@ impl PropertyOwner<'_> {
                 property,
             ),
             Self::Effect(effect) => PropertyInspector::effect_property_key(effect, property),
+            Self::Scene { id, .. } => InspectorPath::scene_property(id.get(), property.id()),
         }
     }
 
@@ -209,12 +214,13 @@ impl PropertyOwner<'_> {
         match self {
             Self::Item { item, .. } => item.properties.property(property_id),
             Self::Effect(effect) => effect.properties.property(property_id),
+            Self::Scene { values, .. } => values.get(property_id),
         }
     }
 
     fn effect_id(&self) -> Option<EffectInstanceId> {
         match self {
-            Self::Item { .. } => None,
+            Self::Item { .. } | Self::Scene { .. } => None,
             Self::Effect(effect) => Some(effect.id),
         }
     }
@@ -240,24 +246,28 @@ impl PropertyInspector {
         item.schema()
     }
 
-    pub(super) fn property_is_common(items: &[TimelineItem], property_id: &str) -> bool {
-        let Some(primary) = items.first() else {
-            return false;
+    pub(super) fn property_is_common(
+        editor: &TimelineEditor,
+        items: &[TimelineItem],
+        property_id: &str,
+    ) -> bool {
+        let schema = |item: &TimelineItem| {
+            PropertyAddress {
+                item_id: item.id,
+                effect_id: None,
+                property_id: property_id.to_owned(),
+                element_id: None,
+                scalar_index: None,
+            }
+            .schema(editor)
         };
-        let Some(primary_property) = primary
-            .schema()
-            .and_then(|schema| schema.property(property_id))
-        else {
+        let Some(primary_property) = items.first().and_then(schema) else {
             return false;
         };
         items.iter().skip(1).all(|item| {
-            let Some(property) = item
-                .schema()
-                .and_then(|schema| schema.property(property_id))
-            else {
-                return false;
-            };
-            property.is_visible() && property.ty() == primary_property.ty()
+            schema(item).is_some_and(|property| {
+                property.is_visible() && property.ty() == primary_property.ty()
+            })
         })
     }
 
@@ -359,14 +369,7 @@ impl PropertyInspector {
             || property.label().to_owned(),
             |(index, _)| format!("{} {}", property.label(), index + 1),
         );
-        if matches!(property.ty(), PropertyType::File(_)) {
-            let mut common =
-                Self::leaf_control(&key, property, value.clone(), effect_id, None, None, label);
-            Self::resolve_common(resolution, &mut common, property.ty(), false);
-            common.read_only |= resolution.selected_items.len() > 1;
-            return vec![Control::File(common)];
-        }
-        let ty = property.ty().value_type().expect("value or array property");
+        let ty = property.ty().value_type();
         ty.scalars()
             .filter_map(|(scalar_index, scalar_type)| {
                 let value = value.scalar_at(scalar_index)?.clone();
@@ -404,6 +407,7 @@ impl PropertyInspector {
                         common,
                         spec: numeric_input_spec(property, scalar_index)?,
                     }),
+                    (ScalarPropertyType::File, PropertyValue::File(_)) => Control::File(common),
                     (ScalarPropertyType::Color, PropertyValue::Color(_)) => Control::Color(common),
                     (ScalarPropertyType::Bool, PropertyValue::Bool(_)) => Control::Bool(common),
                     (ScalarPropertyType::String, PropertyValue::String(_)) => {
@@ -425,7 +429,7 @@ impl PropertyInspector {
                     }
                     _ => return None,
                 };
-                Self::resolve_leaf(resolution, &mut control);
+                Self::resolve_leaf(resolution, &mut control, scalar_type);
                 Some(control)
             })
             .collect()
@@ -613,9 +617,27 @@ impl PropertyInspector {
     }
 
     pub(super) fn item_controls(
+        editor: &TimelineEditor,
         item: &TimelineItem,
         resolution: &ControlResolution<'_>,
     ) -> Vec<Control> {
+        if let Some(id) = item.scene_id() {
+            let Some(scene) = editor.scene(id) else {
+                return Vec::new();
+            };
+            let values = editor
+                .evaluated_scene_argument_values_at(item, resolution.playhead)
+                .unwrap_or_default();
+            let owner = PropertyOwner::Scene {
+                id,
+                values: &values,
+            };
+            return scene
+                .arguments
+                .iter()
+                .flat_map(|argument| Self::owner_controls(&owner, &argument.schema, resolution))
+                .collect();
+        }
         let Some(schema) = Self::selected_schema(item) else {
             return Vec::new();
         };
@@ -637,52 +659,6 @@ impl PropertyInspector {
             .properties()
             .iter()
             .flat_map(|property| Self::owner_controls(&owner, property, resolution))
-            .collect()
-    }
-
-    fn scene_value_controls(
-        scene_id: SceneId,
-        property: &PropertySchema,
-        value: &PropertyValue,
-        resolution: &ControlResolution<'_>,
-    ) -> Vec<Control> {
-        let key = InspectorPath::scene_property(scene_id.get(), property.id());
-        let controls = Self::leaf_controls(key.clone(), property, value, None, None, resolution);
-        if matches!(
-            property.ty(),
-            PropertyType::Value(PropertyValueType::Tuple(_))
-                | PropertyType::Array {
-                    element_type: PropertyValueType::Tuple(_),
-                    ..
-                }
-        ) {
-            Self::group_controls(
-                ControlId::group(&key),
-                property.label().to_owned(),
-                controls,
-                Vec::new(),
-            )
-        } else {
-            controls
-        }
-    }
-
-    pub(super) fn scene_argument_value_controls(
-        scene_id: SceneId,
-        arguments: &[SceneArgument],
-        values: &HashMap<String, PropertyValue>,
-        resolution: &ControlResolution<'_>,
-    ) -> Vec<Control> {
-        arguments
-            .iter()
-            .flat_map(|argument| {
-                values
-                    .get(argument.schema.id())
-                    .map(|value| {
-                        Self::scene_value_controls(scene_id, &argument.schema, value, resolution)
-                    })
-                    .unwrap_or_default()
-            })
             .collect()
     }
 
@@ -744,9 +720,22 @@ impl PropertyInspector {
             .collect()
     }
 
-    fn resolve_leaf(resolution: &ControlResolution<'_>, control: &mut Control) {
+    fn resolve_leaf(
+        resolution: &ControlResolution<'_>,
+        control: &mut Control,
+        scalar_type: &ScalarPropertyType,
+    ) {
         match control {
-            Control::Group { .. } | Control::File(_) => {}
+            Control::Group { .. } => {}
+            Control::File(common) => {
+                Self::resolve_common(
+                    resolution,
+                    common,
+                    &PropertyType::Value(PropertyValueType::Scalar(scalar_type.clone())),
+                    false,
+                );
+                common.read_only |= resolution.selected_items.len() > 1;
+            }
             Control::Number(number) => {
                 let animation_enabled = number.common.target.animation_enabled(resolution.item);
                 Self::resolve_common(

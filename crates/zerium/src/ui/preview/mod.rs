@@ -267,8 +267,12 @@ impl Preview {
                     let items = items_by_time
                         .entry(time_bits)
                         .or_insert_with(|| editor.active_items_at_time(request.time));
-                    for (input, requested) in
-                        playback.record_media_requests(request.time, items, frame_rate, |input| {
+                    for (input, requested) in playback.record_media_requests(
+                        request.time,
+                        items,
+                        editor.media_cache(),
+                        frame_rate,
+                        |input| {
                             let target = items
                                 .iter()
                                 .find(|(_, item)| item.id == input.item_id)
@@ -290,8 +294,8 @@ impl Preview {
                                 max_width: target.width,
                                 max_height: target.height,
                             }
-                        })
-                    {
+                        },
+                    ) {
                         recorded.insert((time_bits, input), requested);
                     }
                 }
@@ -568,8 +572,12 @@ impl Render for Preview {
             self.transport.read(cx).audio_levels(cx)
         } else {
             let editor = self.editor.read(cx);
-            self.audio_level_sampler
-                .levels_at(editor.visible_items(), frame, editor.frame_rate())
+            self.audio_level_sampler.levels_at(
+                editor.visible_items(),
+                frame,
+                editor.frame_rate(),
+                editor.media_cache().clone(),
+            )
         };
         let error = self
             .render_runtime

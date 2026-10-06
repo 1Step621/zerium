@@ -115,7 +115,7 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                         .expect("bundled plugin shaders must compile");
                     let render_runtime =
                         cx.new(|_| crate::engine::rendering::RenderRuntime::new(plugin_shaders));
-                    let media_readers = crate::engine::media::bundled_media_readers(&plugins)
+                    let media_readers = crate::engine::media::bundled_media_readers()
                         .expect("bundled media readers must be valid");
                     let editor = cx.new(|_| {
                         zerium_core::timeline::TimelineEditor::new(
@@ -180,10 +180,29 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             cx,
                         )
                     });
+                    let media_metadata = cx.new(|cx| {
+                        crate::app::media_metadata::MediaMetadataController::new(
+                            editor.clone(),
+                            media_readers.clone(),
+                            session.clone(),
+                            notifications.clone(),
+                            cx,
+                        )
+                    });
+                    let file_input = cx.new(|cx| {
+                        crate::ui::file_input::FileInputController::new(
+                            editor.clone(),
+                            media_metadata.clone(),
+                            session.clone(),
+                            notifications.clone(),
+                            cx,
+                        )
+                    });
                     let scene_settings = cx.new(|cx| {
                         crate::ui::scene_settings::SceneSettings::new(
                             editor.clone(),
                             notifications.clone(),
+                            file_input.clone(),
                             window,
                             cx,
                         )
@@ -192,7 +211,7 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                         crate::ui::property_inspector::PropertyInspector::new(
                             editor.clone(),
                             animation_selection.clone(),
-                            media_readers.clone(),
+                            file_input.clone(),
                             session.clone(),
                             notifications.clone(),
                             window,

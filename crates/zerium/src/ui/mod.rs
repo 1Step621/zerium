@@ -5,6 +5,7 @@ use zerium_core::timeline::TimelineEditor;
 pub(crate) mod animation_curve;
 pub(crate) mod explorer;
 pub(crate) mod export;
+pub(crate) mod file_input;
 mod number_input;
 mod numeric_property;
 pub(crate) mod pane;

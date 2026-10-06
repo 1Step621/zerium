@@ -116,6 +116,7 @@ pub(crate) fn project_scene_binding_value(
     let mut projected = schema.clone();
     projected.ty = PropertyType::Value(PropertyValueType::Scalar(resolved.ty.clone()));
     projected.configurations = vec![resolved.configuration.clone()];
+    projected.append_default = None;
     let value = projected.constrained_value(resolved.value)?;
     projected.default = value.clone();
     Some((projected, value))
@@ -227,7 +228,10 @@ pub(crate) fn apply_scene_binding_to_item(
                 .as_deref()
                 .and_then(|schema| schema.property(property_id))
                 .unwrap_or(binding_schema);
-            let current = item.properties.property(property_id)?;
+            let current = item
+                .properties
+                .property(property_id)
+                .unwrap_or(binding_schema.default_value());
             let value = current.replaced_at(target.element_id(), target.scalar_index(), value)?;
             item.properties.set(target_schema, value).ok()
         }
@@ -242,18 +246,21 @@ pub enum SceneArgumentPreset {
     Boolean,
     Color,
     Text,
+    File,
 }
 
 impl SceneArgumentPreset {
-    pub const fn scalar(self) -> ScalarPropertyType {
-        match self {
+    pub fn ty(self) -> PropertyType {
+        let scalar = match self {
+            Self::File => ScalarPropertyType::File,
             Self::Number => ScalarPropertyType::F32,
             Self::SignedInteger => ScalarPropertyType::I32,
             Self::UnsignedInteger => ScalarPropertyType::U32,
             Self::Boolean => ScalarPropertyType::Bool,
             Self::Color => ScalarPropertyType::Color,
             Self::Text => ScalarPropertyType::String,
-        }
+        };
+        PropertyType::Value(PropertyValueType::Scalar(scalar))
     }
 }
 
@@ -425,7 +432,6 @@ impl SceneDefinition {
             duration,
             kind: TimelineItemKind::Scene { scene_id: self.id },
             properties,
-            media_inputs: Default::default(),
             animations: ScalarAnimations::default(),
             aspect_ratio: None,
             effects: Vec::new(),

@@ -550,6 +550,9 @@ fn proxy_asset(asset: &MediaAsset, path: PathBuf) -> Result<MediaAsset, MediaErr
         .ok_or_else(|| MediaError::external("Proxy has no video stream"))?;
     Ok(MediaAsset {
         reader_id: asset.reader_id.clone(),
+        revision: Some(
+            zerium_core::media::FileRevision::read(&path).map_err(MediaError::external)?,
+        ),
         path,
         duration: probe.duration,
         kind: probe.kind,
@@ -557,22 +560,12 @@ fn proxy_asset(asset: &MediaAsset, path: PathBuf) -> Result<MediaAsset, MediaErr
 }
 
 fn proxy_cache_key(asset: &MediaAsset) -> Result<u64, MediaError> {
-    let metadata = fs::metadata(&asset.path).map_err(|error| {
-        MediaError::external(format!(
-            "Failed to get information for media file '{}': {error}",
-            asset.path.display()
-        ))
-    })?;
+    let revision =
+        zerium_core::media::FileRevision::read(&asset.path).map_err(MediaError::external)?;
     let mut hasher = DefaultHasher::new();
     asset.reader_id.hash(&mut hasher);
     asset.path.hash(&mut hasher);
-    metadata.len().hash(&mut hasher);
-    metadata
-        .modified()
-        .ok()
-        .and_then(|modified| modified.duration_since(UNIX_EPOCH).ok())
-        .map(|duration| duration.as_nanos())
-        .hash(&mut hasher);
+    revision.hash(&mut hasher);
     Ok(hasher.finish())
 }
 

@@ -1,6 +1,6 @@
 use std::{
     collections::HashMap,
-    fmt, fs,
+    fmt,
     path::Path,
     sync::{Arc, atomic::AtomicBool},
     time::Duration,
@@ -11,14 +11,15 @@ use thiserror::Error;
 use crate::engine::frame::RgbaFrame;
 use zerium_core::{
     media::{
-        ImportedFile, MediaAsset, MediaInputMetadata, MediaInputReference, MediaKind,
-        MediaMetadata, MediaTarget,
+        ImportedFile, MediaAsset, MediaKind, MediaMetadata, MediaMetadataCache, MediaTarget,
+        ProbedFile,
     },
-    plugin::PluginManifest,
+    plugin::PluginRegistry,
     timeline::{EffectInstanceId, ItemId},
 };
 
 use super::ffmpeg::{FfmpegMediaReader, READER_ID as FFMPEG_READER_ID};
+use super::metadata::{FileReadings, refresh_file};
 use super::svg::{READER_ID as SVG_READER_ID, SvgMediaReader};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -199,33 +200,14 @@ pub(crate) trait MediaReader: Send + Sync {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum FileSourceKind {
-    Item,
-    Effect,
-}
-
-#[derive(Clone)]
-struct RegisteredFileSource {
-    plugin_id: String,
-    source_id: String,
-    source_label: String,
-    kind: FileSourceKind,
-    property_id: String,
-    extensions: Vec<String>,
-    inputs: Vec<(MediaInputReference, String)>,
-}
-
 pub(crate) struct MediaReaderRegistry {
     readers: HashMap<String, Arc<dyn MediaReader>>,
-    file_sources: Vec<RegisteredFileSource>,
 }
 
 impl MediaReaderRegistry {
     pub(crate) fn new() -> Self {
         Self {
             readers: HashMap::new(),
-            file_sources: Vec::new(),
         }
     }
 
@@ -247,189 +229,65 @@ impl MediaReaderRegistry {
         Ok(())
     }
 
-    pub(crate) fn register_plugin(&mut self, manifest: &PluginManifest) -> Result<(), MediaError> {
-        for item in manifest.items() {
-            for input in item.file_properties() {
-                if self.file_sources.iter().any(|registered| {
-                    registered.plugin_id == manifest.id()
-                        && registered.source_id == item.id()
-                        && registered.property_id == input.id()
-                }) {
-                    return Err(MediaError::external(format!(
-                        "File input '{}:{}:{}' is already registered",
-                        manifest.id(),
-                        item.id(),
-                        input.id()
-                    )));
-                }
-                self.file_sources.push(RegisteredFileSource {
-                    plugin_id: manifest.id().to_owned(),
-                    source_id: item.id().to_owned(),
-                    source_label: item.label().to_owned(),
-                    kind: FileSourceKind::Item,
-                    property_id: input.id().to_owned(),
-                    extensions: input
-                        .file_type()
-                        .expect("file property")
-                        .extensions()
-                        .to_vec(),
-                    inputs: item
-                        .media_sources()
-                        .filter(|source| source.file == input.id())
-                        .map(|source| (source.input, source.reader.to_owned()))
-                        .collect(),
-                });
-            }
-        }
-        for effect in manifest.effects() {
-            for input in effect.file_properties() {
-                self.file_sources.push(RegisteredFileSource {
-                    plugin_id: manifest.id().to_owned(),
-                    source_id: effect.id().to_owned(),
-                    source_label: effect.label().to_owned(),
-                    kind: FileSourceKind::Effect,
-                    property_id: input.id().to_owned(),
-                    extensions: input
-                        .file_type()
-                        .expect("file property")
-                        .extensions()
-                        .to_vec(),
-                    inputs: effect
-                        .media_sources()
-                        .filter(|source| source.file == input.id())
-                        .map(|source| (source.input, source.reader.to_owned()))
-                        .collect(),
-                });
-            }
-        }
-        Ok(())
-    }
-
-    pub(crate) fn probe_for_item(
+    /// Initialize placement from available readings. The background refresher
+    /// retries and reports missing readings after the file property is committed.
+    pub(crate) fn prepare_import(
         &self,
         path: impl AsRef<Path>,
+        plugins: &PluginRegistry,
         plugin_id: &str,
         item_id: &str,
         property_id: &str,
     ) -> Result<ImportedFile, MediaError> {
-        self.probe_registered(path, plugin_id, item_id, property_id, FileSourceKind::Item)
-    }
-
-    pub(crate) fn probe_for_effect(
-        &self,
-        path: impl AsRef<Path>,
-        plugin_id: &str,
-        effect_id: &str,
-        property_id: &str,
-    ) -> Result<ImportedFile, MediaError> {
-        self.probe_registered(
-            path,
-            plugin_id,
-            effect_id,
-            property_id,
-            FileSourceKind::Effect,
-        )
-    }
-
-    fn probe_registered(
-        &self,
-        path: impl AsRef<Path>,
-        plugin_id: &str,
-        source_id: &str,
-        property_id: &str,
-        kind: FileSourceKind,
-    ) -> Result<ImportedFile, MediaError> {
         let path = path.as_ref();
-        let metadata = fs::metadata(path).map_err(|error| {
-            MediaError::external(format!(
-                "Failed to open media file '{}': {error}",
-                path.display()
-            ))
+        let item = plugins.item(plugin_id, item_id).ok_or_else(|| {
+            MediaError::invalid_input(format!("Item '{plugin_id}:{item_id}' is not registered"))
         })?;
-        if !metadata.is_file() {
-            return Err(MediaError::external(format!(
-                "'{}' is not a file",
-                path.display()
+        if item.file_property(property_id).is_none() {
+            return Err(MediaError::invalid_input(format!(
+                "File property '{property_id}' was not found"
             )));
         }
-        let definition = self
-            .file_sources
-            .iter()
-            .find(|definition| {
-                definition.plugin_id == plugin_id
-                    && definition.source_id == source_id
-                    && definition.kind == kind
-                    && definition.property_id == property_id
-            })
-            .ok_or_else(|| {
-                MediaError::invalid_input(format!(
-                    "File input '{plugin_id}:{source_id}:{property_id}' is not registered"
-                ))
-            })?;
-        if !definition.extensions.is_empty()
-            && !path
-                .extension()
-                .and_then(|extension| extension.to_str())
-                .is_some_and(|extension| {
-                    definition
-                        .extensions
-                        .iter()
-                        .any(|allowed| allowed.eq_ignore_ascii_case(extension))
-                })
-        {
-            return Err(MediaError::external(format!(
-                "'{}' is an unsupported file format for '{}'",
-                path.display(),
-                definition.source_label
-            )));
-        }
-        // Several inputs may share a file and a reader. Probe each reading target
-        // once; a visual and an audio stream are deliberately separate results.
-        let mut probes = HashMap::new();
-        let mut inputs = Vec::new();
-        for (input, reader_id) in &definition.inputs {
-            let key = (reader_id, input.target());
-            if let std::collections::hash_map::Entry::Vacant(entry) = probes.entry(key) {
-                let reader = self.readers.get(reader_id).ok_or_else(|| {
-                    MediaError::ReaderUnavailable(format!(
-                        "Media reader '{reader_id}' is not registered"
-                    ))
-                })?;
-                let metadata = reader.probe(path, input.target())?;
-                if metadata
-                    .as_ref()
-                    .is_some_and(|metadata| !metadata.accepts(input.target()))
-                {
-                    return Err(MediaError::invalid_input(format!(
-                        "Media reader '{reader_id}' returned invalid metadata for {input:?}"
-                    )));
-                }
-                entry.insert(metadata);
-            }
-            inputs.push(MediaInputMetadata {
-                input: input.clone(),
-                metadata: probes[&key].clone(),
-            });
-        }
-        if !inputs.is_empty() && inputs.iter().all(|input| input.metadata.is_none()) {
-            return Err(MediaError::external(format!(
-                "'{}' has no stream supported by '{}'",
-                path.display(),
-                definition.source_label
-            )));
-        }
-        Ok(ImportedFile {
-            plugin_id: definition.plugin_id.clone(),
-            source_id: definition.source_id.clone(),
-            property_id: definition.property_id.to_owned(),
+        let mut sources = FileReadings::new(
+            item.media_sources()
+                .filter(|source| source.file == property_id)
+                .map(|source| (source.reader.to_owned(), source.input.target())),
+        );
+        let (file, _) = refresh_file(path, &mut sources, &MediaMetadataCache::default(), self);
+        let file = file.unwrap_or_else(|| ProbedFile {
             path: path.to_owned(),
-            inputs,
+            revision: None,
+            media: Vec::new(),
+        });
+        Ok(ImportedFile {
+            plugin_id: plugin_id.to_owned(),
+            source_id: item_id.to_owned(),
+            property_id: property_id.to_owned(),
+            file,
         })
+    }
+
+    pub(super) fn probe(
+        &self,
+        path: &Path,
+        reader: &str,
+        target: MediaTarget,
+    ) -> Result<Option<MediaMetadata>, MediaError> {
+        let metadata = self.reader_for(reader)?.probe(path, target)?;
+        if metadata
+            .as_ref()
+            .is_some_and(|metadata| !metadata.accepts(target))
+        {
+            return Err(MediaError::invalid_input(format!(
+                "Media reader '{reader}' returned invalid metadata"
+            )));
+        }
+        Ok(metadata)
     }
 
     fn reader_for(&self, reader_id: &str) -> Result<&Arc<dyn MediaReader>, MediaError> {
         self.readers.get(reader_id).ok_or_else(|| {
-            MediaError::external(format!("Media reader '{reader_id}' is not registered"))
+            MediaError::ReaderUnavailable(format!("Media reader '{reader_id}' is not registered"))
         })
     }
 
@@ -469,15 +327,10 @@ impl MediaReaderRegistry {
     }
 }
 
-pub(crate) fn bundled_media_readers(
-    plugins: &zerium_core::plugin::PluginRegistry,
-) -> Result<Arc<MediaReaderRegistry>, MediaError> {
+pub(crate) fn bundled_media_readers() -> Result<Arc<MediaReaderRegistry>, MediaError> {
     let mut registry = MediaReaderRegistry::new();
     registry.register_reader(FFMPEG_READER_ID, Arc::new(FfmpegMediaReader))?;
     registry.register_reader(SVG_READER_ID, Arc::new(SvgMediaReader))?;
-    for manifest in plugins.manifests() {
-        registry.register_plugin(manifest)?;
-    }
     Ok(Arc::new(registry))
 }
 

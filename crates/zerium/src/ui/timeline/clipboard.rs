@@ -49,8 +49,12 @@ impl Timeline {
                         .map(|binding| (argument.schema.id().to_owned(), binding))
                 })
                 .collect::<Vec<_>>();
-            let Ok(metadata) = encode_timeline_clipboard(&items, source_scene, &scene_bindings)
-            else {
+            let Ok(metadata) = encode_timeline_clipboard(
+                &items,
+                source_scene,
+                &scene_bindings,
+                editor.media_cache(),
+            ) else {
                 return false;
             };
             (items.len(), metadata)
@@ -130,6 +134,7 @@ impl Timeline {
                 target_start,
             );
             if pasted.is_some() {
+                editor.import_media_cache(&clipboard.media_cache);
                 cx.notify();
             }
             pasted.is_some()

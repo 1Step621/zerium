@@ -353,23 +353,28 @@ impl TimelineEditor {
             SceneArgumentPreset::Boolean => PropertyValue::Bool(false),
             SceneArgumentPreset::Color => PropertyValue::Color([0., 0., 0., 1.]),
             SceneArgumentPreset::Text => PropertyValue::String(String::new()),
+            SceneArgumentPreset::File => PropertyValue::File(None),
         };
         let schema = PropertySchema {
             id: argument_id.clone(),
             label: label.into(),
-            ty: PropertyType::Value(PropertyValueType::Scalar(preset.scalar())),
+            ty: preset.ty(),
             default,
             append_default: None,
             configurations: vec![PropertyConfiguration {
                 scene_bindable: true,
                 editable: true,
-                animatable: preset.scalar().is_interpolatable(),
+                animatable: preset
+                    .ty()
+                    .value_type()
+                    .scalars()
+                    .all(|(_, ty)| ty.is_interpolatable()),
                 ..Default::default()
             }],
         };
         let schema = schema
             .for_scene_argument()
-            .expect("supported scene argument types must produce a scalar schema");
+            .expect("supported scene argument types must produce an argument schema");
         scene.arguments.push(SceneArgument::new(schema, Vec::new()));
         self.finish_project_edit(Some(before), None);
         Some(argument_id)
@@ -501,25 +506,24 @@ impl TimelineEditor {
         &mut self,
         argument_id: &str,
         value: PropertyValue,
-    ) -> bool {
-        let Some(scene_id) = self.active_scene_id() else {
-            return false;
-        };
+    ) -> Result<bool, SceneArgumentEditError> {
+        let scene_id = self
+            .active_scene_id()
+            .ok_or(SceneArgumentEditError::NoActiveScene)?;
         let key = HistoryKey::SceneArgumentSettings(scene_id, argument_id.to_owned());
-        let Some(argument) = self
+        let argument = self
             .project()
             .scenes
             .get(&scene_id)
             .and_then(|scene| scene.argument(argument_id))
-        else {
-            return false;
-        };
+            .ok_or(SceneArgumentEditError::ArgumentNotFound)?;
         let bindings = argument.bindings.clone();
-        let Some(next_schema) = argument.schema.with_scene_default(&value) else {
-            return false;
-        };
+        let next_schema = argument
+            .schema
+            .with_scene_default(&value)
+            .ok_or(SceneArgumentEditError::IncompatibleContract)?;
         if next_schema == argument.schema {
-            return false;
+            return Ok(false);
         }
         let applied_default = next_schema.default_value().clone();
         let before = self.history_snapshot_for_edit(Some(&key));
@@ -539,7 +543,7 @@ impl TimelineEditor {
         }
 
         self.finish_project_edit(before, Some(key));
-        true
+        Ok(true)
     }
 
     pub fn connect_scene_argument(

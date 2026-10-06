@@ -23,14 +23,14 @@ use ::ui::{
 };
 use gpui::{
     App, Context, CursorStyle, DismissEvent, Div, DragMoveEvent, Entity, FocusHandle,
-    Focusable as _, MouseButton, MouseDownEvent, PathPromptOptions, Render, Rgba, ScrollHandle,
-    SharedString, Subscription, Task, Window, div, prelude::*, px,
+    Focusable as _, MouseButton, MouseDownEvent, Render, Rgba, ScrollHandle, SharedString,
+    Subscription, Window, div, prelude::*, px,
 };
 
-use crate::engine::media::MediaReaderRegistry;
-use crate::project_session::{ProjectActivity, ProjectSession, ProjectSessionId};
+use crate::project_session::{ProjectSession, ProjectSessionId};
 use crate::ui::TimelineEditorEntityExt as _;
 use crate::ui::animation_curve::AnimationSelection;
+use crate::ui::file_input::FileInputController;
 use crate::ui::pane::pane_header;
 use crate::ui::search_picker::{SearchPicker, SearchPickerEntry};
 use crate::ui::session::UiNotifications;
@@ -42,7 +42,7 @@ use zerium_core::property::{
     PropertyValueType, ScalarPropertyType,
 };
 use zerium_core::timeline::{
-    EffectInstance, EffectInstanceId, ItemId, PropertyAddress, SceneArgument, SceneBindingOwner,
+    EffectInstance, EffectInstanceId, ItemId, PropertyAddress, SceneBindingOwner,
     SceneBindingTarget, SceneId, TimelineEditor, TimelineItem, TimelineTime,
 };
 
@@ -187,17 +187,10 @@ impl AnimationStopBinding {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq)]
-enum PropertySource {
-    Plugin,
-    SceneArguments,
-}
-
 pub(crate) struct PropertyInspector {
-    source: PropertySource,
     pub(super) editor: Entity<TimelineEditor>,
     pub(super) animation_selection: Entity<AnimationSelection>,
-    pub(super) media_readers: std::sync::Arc<MediaReaderRegistry>,
+    pub(super) file_input: Entity<FileInputController>,
     pub(super) session: Entity<ProjectSession>,
     pub(super) session_id: ProjectSessionId,
     pub(super) notifications: Entity<UiNotifications>,
@@ -205,8 +198,7 @@ pub(crate) struct PropertyInspector {
     scroll_handle: ScrollHandle,
     store: state::ControlStore,
     pub(super) font_names: Vec<String>,
-    pub(super) loading_file: bool,
-    pub(super) _file_task: Task<()>,
+    _file_subscription: Subscription,
     pub(super) effect_picker: Option<Entity<SearchPicker<EffectPickerTarget>>>,
     pub(super) _editor_subscription: Subscription,
     pub(super) _animation_selection_subscription: Subscription,
@@ -241,7 +233,7 @@ impl PropertyInspector {
     pub(crate) fn new(
         editor: Entity<TimelineEditor>,
         animation_selection: Entity<AnimationSelection>,
-        media_readers: std::sync::Arc<MediaReaderRegistry>,
+        file_input: Entity<FileInputController>,
         session: Entity<ProjectSession>,
         notifications: Entity<UiNotifications>,
         window: &mut Window,
@@ -259,17 +251,14 @@ impl PropertyInspector {
                 return;
             }
             this.session_id = session_id;
-            this._file_task = Task::ready(());
-            this.loading_file = false;
             this.reset_input_state();
             cx.notify();
         });
 
         let mut inspector = Self {
-            source: PropertySource::Plugin,
             editor,
             animation_selection,
-            media_readers,
+            file_input: file_input.clone(),
             session,
             session_id,
             notifications,
@@ -282,8 +271,7 @@ impl PropertyInspector {
                 names.dedup();
                 names
             },
-            loading_file: false,
-            _file_task: Task::ready(()),
+            _file_subscription: cx.observe(&file_input, |_, _, cx| cx.notify()),
             effect_picker: None,
             _editor_subscription: editor_subscription,
             _animation_selection_subscription: animation_selection_subscription,

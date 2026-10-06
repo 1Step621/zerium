@@ -1,18 +1,17 @@
+mod metadata_cache;
 mod playback;
 
+pub use metadata_cache::{FileRevision, MediaMetadataCache, ProbedFile};
 pub use playback::{MediaEndBehavior, MediaPlayback, MediaSample};
 
 use crate::property::PropertyValues;
-use std::{
-    collections::{BTreeMap, HashSet},
-    path::{Path, PathBuf},
-    time::Duration,
-};
+use std::{path::PathBuf, time::Duration};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum MediaTarget {
     Visual,
     Audio,
@@ -109,6 +108,7 @@ impl MediaKind {
 pub struct MediaAsset {
     pub reader_id: String,
     pub path: PathBuf,
+    pub revision: Option<FileRevision>,
     pub duration: Duration,
     pub kind: MediaKind,
 }
@@ -195,15 +195,6 @@ impl MediaMetadata {
         Ok(())
     }
 
-    fn asset(&self, path: &Path, reader: &str) -> MediaAsset {
-        MediaAsset {
-            reader_id: reader.to_owned(),
-            path: path.to_owned(),
-            duration: self.duration,
-            kind: self.kind.clone(),
-        }
-    }
-
     pub fn accepts(&self, target: MediaTarget) -> bool {
         matches!(
             (target, &self.kind),
@@ -215,127 +206,27 @@ impl MediaMetadata {
     }
 }
 
+/// One reader's interpretation of a file. A missing stream is a successful
+/// probe, e.g. a video without audio.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct MediaInputMetadata {
-    pub input: MediaInputReference,
-    /// A missing stream is valid, e.g. a video without an audio track.
+pub struct FileMediaMetadata {
+    pub reader: String,
+    pub target: MediaTarget,
     pub metadata: Option<MediaMetadata>,
 }
 
-/// Derived input metadata. File paths and readers are always resolved from
-/// properties and capabilities. The metadata is saved for offline editing.
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(try_from = "Vec<MediaInputMetadata>", into = "Vec<MediaInputMetadata>")]
-pub struct MediaInputs(BTreeMap<MediaInputReference, MediaMetadata>);
-
-impl TryFrom<Vec<MediaInputMetadata>> for MediaInputs {
-    type Error = &'static str;
-
-    fn try_from(inputs: Vec<MediaInputMetadata>) -> Result<Self, Self::Error> {
-        let mut result = Self::default();
-        for input in inputs {
-            let metadata = input
-                .metadata
-                .ok_or("persisted media input metadata must not be null")?;
-            if !metadata.accepts(input.input.target()) {
-                return Err("invalid media input metadata");
-            }
-            if result.0.insert(input.input, metadata).is_some() {
-                return Err("duplicate media input metadata");
-            }
-        }
-        Ok(result)
-    }
-}
-
-impl From<MediaInputs> for Vec<MediaInputMetadata> {
-    fn from(inputs: MediaInputs) -> Self {
-        inputs
-            .0
-            .into_iter()
-            .map(|(input, metadata)| MediaInputMetadata {
-                input,
-                metadata: Some(metadata),
-            })
-            .collect()
-    }
-}
-
-impl MediaInputs {
-    pub fn is_empty(&self) -> bool {
-        self.0.is_empty()
-    }
-
+impl MediaSource<'_> {
     pub fn asset(
         &self,
-        source: MediaSource<'_>,
         properties: &PropertyValues,
+        cache: &MediaMetadataCache,
     ) -> Option<MediaAsset> {
-        let path = properties.property(source.file)?.file()?;
-        Some(self.0.get(&source.input)?.asset(path, source.reader))
-    }
-
-    pub fn validate<'a>(
-        &self,
-        sources: impl Iterator<Item = MediaSource<'a>>,
-        properties: &PropertyValues,
-    ) -> bool {
-        let sources = sources.collect::<Vec<_>>();
-        // Metadata is validated on construction/import; only ownership can change.
-        self.0.keys().all(|input| {
-            sources.iter().any(|source| {
-                source.input == *input
-                    && properties
-                        .property(source.file)
-                        .and_then(|value| value.file())
-                        .is_some()
-            })
-        })
-    }
-
-    pub fn invalidate_file<'a>(
-        &mut self,
-        sources: impl Iterator<Item = MediaSource<'a>>,
-        property: &str,
-    ) {
-        for source in sources.filter(|source| source.file == property) {
-            self.0.remove(&source.input);
-        }
-    }
-
-    /// Replace all interpretations of one file as a single validated operation.
-    pub fn replace_file<'a>(
-        &mut self,
-        sources: impl Iterator<Item = MediaSource<'a>>,
-        property: &str,
-        inputs: Vec<MediaInputMetadata>,
-    ) -> bool {
-        let mut remaining = sources
-            .filter(|source| source.file == property)
-            .map(|source| source.input)
-            .collect::<HashSet<_>>();
-        if inputs.iter().any(|input| {
-            !remaining.remove(&input.input)
-                || input
-                    .metadata
-                    .as_ref()
-                    .is_some_and(|metadata| !metadata.accepts(input.input.target()))
-        }) || !remaining.is_empty()
-        {
-            return false;
-        }
-        for input in inputs {
-            match input.metadata {
-                Some(metadata) => {
-                    self.0.insert(input.input, metadata);
-                }
-                None => {
-                    self.0.remove(&input.input);
-                }
-            }
-        }
-        true
+        cache.asset(
+            properties.property(self.file)?.file()?,
+            self.reader,
+            self.input.target(),
+        )
     }
 }
 
@@ -344,19 +235,5 @@ pub struct ImportedFile {
     pub plugin_id: String,
     pub source_id: String,
     pub property_id: String,
-    pub path: PathBuf,
-    pub inputs: Vec<MediaInputMetadata>,
-}
-
-impl ImportedFile {
-    /// The complete temporal extent of a newly imported file. Static inputs do
-    /// not extend the clip. This is an initial value, not an editing constraint.
-    pub fn initial_duration(&self) -> Option<Duration> {
-        self.inputs
-            .iter()
-            .filter_map(|input| input.metadata.as_ref())
-            .filter(|metadata| metadata.kind.is_temporal())
-            .map(|metadata| metadata.duration)
-            .max()
-    }
+    pub file: ProbedFile,
 }
