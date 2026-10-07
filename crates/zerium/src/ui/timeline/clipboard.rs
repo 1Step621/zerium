@@ -35,26 +35,7 @@ impl Timeline {
             items.sort_unstable_by_key(|(layer, item)| {
                 (layer.get(), item.start.get(), item.id.get())
             });
-            let source_scene = editor.active_scene_id();
-            let scene_bindings = source_scene
-                .and_then(|scene_id| editor.scene(scene_id))
-                .into_iter()
-                .flat_map(|scene| &scene.arguments)
-                .flat_map(|argument| {
-                    argument
-                        .bindings
-                        .iter()
-                        .filter(|binding| selected.contains(&binding.item_id()))
-                        .cloned()
-                        .map(|binding| (argument.schema.id().to_owned(), binding))
-                })
-                .collect::<Vec<_>>();
-            let Ok(metadata) = encode_timeline_clipboard(
-                &items,
-                source_scene,
-                &scene_bindings,
-                editor.media_cache(),
-            ) else {
+            let Ok(metadata) = encode_timeline_clipboard(&items, editor) else {
                 return false;
             };
             (items.len(), metadata)

@@ -4,13 +4,14 @@ use crate::property::{PropertySchema, PropertyValues, materialized_property_valu
 use std::collections::BTreeSet;
 
 impl ScalarAnimations {
-    pub fn evaluated_values(
+    pub fn evaluated_values<'a>(
         &self,
         base: &PropertyValues,
-        schema: &[PropertySchema],
+        schema: impl IntoIterator<Item = &'a PropertySchema>,
         progress: f32,
     ) -> PropertyValues {
-        let mut values = materialized_property_values(base, schema);
+        let schema = schema.into_iter().collect::<Vec<_>>();
+        let mut values = materialized_property_values(base, schema.iter().copied());
         let mut animated_properties = BTreeSet::new();
         for (address, track) in self.tracks() {
             let property_id = address.property_id();

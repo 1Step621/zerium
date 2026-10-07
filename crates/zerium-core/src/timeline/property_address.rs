@@ -1,6 +1,48 @@
 use crate::property::{PropertyElementId, PropertyPath, PropertyValue};
 
-use super::ids::{EffectInstanceId, ItemId};
+use std::collections::HashMap;
+
+use super::{
+    TimelineItem,
+    ids::{EffectInstanceId, ItemId, SceneId},
+    scene::SceneDefinition,
+};
+use crate::property::PropertySchema;
+
+/// The property contract of an item or effect, including scene instance inputs.
+pub(super) fn property_schemas<'a>(
+    scenes: &'a HashMap<SceneId, SceneDefinition>,
+    item: &'a TimelineItem,
+    effect_id: Option<EffectInstanceId>,
+) -> impl Iterator<Item = &'a PropertySchema> {
+    let properties = match effect_id {
+        Some(id) => item
+            .effects
+            .iter()
+            .find(|effect| effect.id == id)
+            .map(|effect| effect.schema().properties()),
+        None => item.schema().map(|schema| schema.properties()),
+    };
+    let scene = effect_id
+        .is_none()
+        .then(|| item.scene_id())
+        .flatten()
+        .and_then(|id| scenes.get(&id));
+    properties.into_iter().flatten().chain(
+        scene
+            .into_iter()
+            .flat_map(|scene| scene.arguments.iter().map(|argument| &argument.schema)),
+    )
+}
+
+pub(super) fn resolve_property_schema<'a>(
+    scenes: &'a HashMap<SceneId, SceneDefinition>,
+    item: &'a TimelineItem,
+    effect_id: Option<EffectInstanceId>,
+    property_id: &str,
+) -> Option<&'a PropertySchema> {
+    property_schemas(scenes, item, effect_id).find(|property| property.id() == property_id)
+}
 
 /// Identifies a property value independently of any inspector row or widget.
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -21,17 +63,7 @@ impl PropertyAddress {
         &self,
         editor: &'a super::TimelineEditor,
     ) -> Option<&'a crate::property::PropertySchema> {
-        let item = editor.item(self.item_id)?;
-        let owner = self.effect_id.map_or(
-            super::SceneBindingOwner::Item,
-            super::SceneBindingOwner::Effect,
-        );
-        super::scene::resolve_property_schema(
-            &editor.project().scenes,
-            item,
-            owner,
-            &self.property_id,
-        )
+        editor.property_schema(self.item_id, self.effect_id, &self.property_id)
     }
 
     pub fn value<'a>(&self, item: &'a super::TimelineItem) -> Option<&'a PropertyValue> {

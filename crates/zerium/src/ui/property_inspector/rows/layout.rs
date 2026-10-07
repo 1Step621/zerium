@@ -8,8 +8,6 @@ impl PropertyInspector {
         render: &RenderCtx<'_>,
         compact: bool,
     ) -> gpui::AnyElement {
-        let effect_id = common.target.effect_id;
-        let property_id = common.target.property_id.clone();
         let address = common.target.address(render.item_id);
         let disabled = render.selecting_file
             || common.read_only
@@ -17,9 +15,6 @@ impl PropertyInspector {
                 .binding
                 .as_ref()
                 .is_some_and(|binding| binding.connected.is_some());
-        let has_override =
-            effect_id.is_none() && render.scene_file_overrides.contains(&property_id);
-        let inspector = render.inspector.clone();
 
         div()
             .w_full()
@@ -35,38 +30,17 @@ impl PropertyInspector {
                     .flatten(),
                 |this, label| this.child(label),
             )
-            .child(
-                div()
-                    .min_w_0()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(crate::ui::file_input::file_picker(
-                        &render.file_input,
-                        SharedString::from(format!("file-{:?}", common.id)),
-                        crate::ui::file_input::FileTarget::Property(address.clone()),
-                        common.value.file(),
-                        common.mixed,
-                        render.selecting_file,
-                        disabled,
-                    ))
-                    .when(has_override, |this| {
-                        this.child(
-                            Button::new(SharedString::from(format!("reset-file-{:?}", common.id)))
-                                .small()
-                                .compact()
-                                .ghost()
-                                .label(t!("inspector.use_default").to_string())
-                                .disabled(disabled)
-                                .on_click(move |_, _, cx| {
-                                    inspector.update(cx, |inspector, cx| {
-                                        inspector.reset_property(address.clone(), cx)
-                                    })
-                                }),
-                        )
-                    }),
-            )
+            .child(div().min_w_0().flex_1().flex().flex_col().gap_1().child(
+                crate::ui::file_input::file_picker(
+                    &render.file_input,
+                    SharedString::from(format!("file-{:?}", common.id)),
+                    crate::ui::file_input::FileTarget::Property(address.clone()),
+                    common.value.file(),
+                    common.mixed,
+                    render.selecting_file,
+                    disabled,
+                ),
+            ))
             .when_some(common.binding.clone(), |row, binding| {
                 row.child(Self::scene_binding_button(
                     binding,
@@ -582,7 +556,7 @@ impl PropertyInspector {
         control: &Control,
         ctx: &RenderCtx,
     ) -> Option<gpui::AnyElement> {
-        match control {
+        let row = match control {
             Control::Number(number) => {
                 let common = &number.common;
                 let input = ctx.store.text(&common.id)?;
@@ -651,7 +625,43 @@ impl PropertyInspector {
             }
             Control::File(file) => Some(Self::file_row(file, ctx, false)),
             Control::Group { .. } => None,
+        }?;
+        let common = control.common()?;
+        if common.target.effect_id.is_some()
+            || !ctx.scene_overrides.contains(&common.target.property_id)
+        {
+            return Some(row);
         }
+        let inspector = ctx.inspector.clone();
+        let address = common.target.address(ctx.item_id);
+        let disabled = common.read_only
+            || common
+                .binding
+                .as_ref()
+                .is_some_and(|binding| binding.connected.is_some());
+        Some(
+            div()
+                .w_full()
+                .flex()
+                .items_start()
+                .gap_1()
+                .child(div().flex_1().min_w_0().child(row))
+                .child(
+                    Button::new(SharedString::from(format!("reset-{}", common.target.key)))
+                        .small()
+                        .compact()
+                        .ghost()
+                        .icon(IconName::Undo)
+                        .tooltip(t!("inspector.use_default").to_string())
+                        .disabled(disabled)
+                        .on_click(move |_, _, cx| {
+                            inspector.update(cx, |inspector, cx| {
+                                inspector.reset_property(address.clone(), cx)
+                            });
+                        }),
+                )
+                .into_any_element(),
+        )
     }
 
     /// Compact scalar row for tuple children and array elements.

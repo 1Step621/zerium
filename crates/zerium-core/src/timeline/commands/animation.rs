@@ -44,10 +44,7 @@ impl TimelineEditor {
                     .iter()
                     .find(|effect| effect.id == effect_id)
                     .map(|effect| effect.properties.clone()),
-                None if item.scene_id().is_some() => {
-                    materialize_scene_instance_properties(item, &self.project().scenes)
-                }
-                None => Some(item.properties.clone()),
+                None => Some(self.materialized_item(item).properties),
             };
             let Some(values) = values else {
                 return false;

@@ -1,12 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
-use crate::property::PropertyValue;
-
 use super::{
-    document::TimelineDocument,
     ids::{ItemId, LayerId, SceneId},
     item::TimelineItem,
-    scene::{SceneDefinition, apply_scene_binding_to_item, resolve_scene_binding},
+    property_address::property_schemas,
+    scene::SceneDefinition,
     time::{Frame, FrameDuration, TimelineTime},
     visibility::PreviewVisibility,
 };
@@ -31,67 +29,6 @@ fn unique_runtime_id(seed: u64, item_id: ItemId, used: &mut HashSet<ItemId>) -> 
     }
 }
 
-pub(super) fn evaluated_scene_argument_values(
-    scene: &SceneDefinition,
-    instance: &TimelineItem,
-    time: TimelineTime,
-) -> HashMap<String, PropertyValue> {
-    let schemas = scene
-        .arguments()
-        .map(|argument| argument.schema.clone())
-        .collect::<Vec<_>>();
-    let values = instance.animations.evaluated_values(
-        &instance.properties,
-        &schemas,
-        instance.animation_progress_at_time(time),
-    );
-    let mut argument_values = HashMap::new();
-    for argument in scene.arguments() {
-        let Some(value) = values.property(argument.schema.id()).cloned() else {
-            continue;
-        };
-        argument_values.insert(argument.schema.id().to_owned(), value);
-    }
-    argument_values
-}
-
-fn apply_scene_arguments(
-    scene: &SceneDefinition,
-    scenes: &HashMap<SceneId, SceneDefinition>,
-    instance: &TimelineItem,
-    time: TimelineTime,
-    items: &mut [(LayerId, TimelineItem)],
-) {
-    let item_indexes = items
-        .iter()
-        .enumerate()
-        .map(|(index, (_, item))| (item.id, index))
-        .collect::<HashMap<_, _>>();
-    let argument_values = evaluated_scene_argument_values(scene, instance, time);
-    for argument in &scene.arguments {
-        for binding in &argument.bindings {
-            let Some(value) = argument_values
-                .get(argument.schema.id())
-                .and_then(|value| argument.schema.constrained_value(value))
-            else {
-                continue;
-            };
-            let Some(item) = item_indexes
-                .get(&binding.item_id())
-                .and_then(|index| items.get_mut(*index))
-                .map(|(_, item)| item)
-            else {
-                continue;
-            };
-            let Some(resolved) = resolve_scene_binding(scenes, scene, binding) else {
-                continue;
-            };
-            apply_scene_binding_to_item(item, binding, &resolved.schema, value)
-                .expect("validated scene binding must remain applicable during evaluation");
-        }
-    }
-}
-
 /// Visit every source item after applying scene instance arguments, without
 /// visibility or time clipping. Scene instances themselves are included so
 /// their effects remain available to consumers of project resources.
@@ -104,12 +41,14 @@ pub(crate) fn visit_source_items(
         visit(&item);
         if let Some(scene) = item.scene_id().and_then(|id| scenes.get(&id)) {
             let mut children = scene.document().source_items();
-            apply_scene_arguments(
-                scene,
-                scenes,
-                &item,
+            let instance = item.evaluated_with_properties_at(
                 TimelineTime::from_frame(item.start),
-                &mut children,
+                property_schemas(scenes, &item, None),
+            );
+            scene.apply_arguments(
+                scenes,
+                Some(&instance),
+                children.iter_mut().map(|(_, item)| item),
             );
             visit_source_items(children, scenes, visit);
         }
@@ -152,8 +91,8 @@ pub struct EvaluatedSceneNode {
     pub children: Vec<EvaluatedSceneNode>,
 }
 
-fn evaluated_document_graph_with_visibility(
-    document: &TimelineDocument,
+pub(crate) fn evaluated_scene_graph_at_time(
+    items: Vec<(LayerId, TimelineItem)>,
     scenes: &HashMap<SceneId, SceneDefinition>,
     time: TimelineTime,
     visibility: Option<&PreviewVisibility>,
@@ -186,7 +125,10 @@ fn evaluated_document_graph_with_visibility(
                 continue;
             }
             let source_id = source.id;
-            let mut item = source.evaluated_at_time(time);
+            let mut item = source.evaluated_with_properties_at(
+                time,
+                property_schemas(context.scenes, &source, None),
+            );
             let output_layer = parent_layer.unwrap_or(layer);
             let global_start = time_offset.saturating_add(item.start.get());
             let source_end = global_start.saturating_add(item.duration.get());
@@ -223,7 +165,11 @@ fn evaluated_document_graph_with_visibility(
                 continue;
             }
             let mut child_items = scene.document().active_source_items_at_time(local);
-            apply_scene_arguments(scene, context.scenes, &item, time, &mut child_items);
+            scene.apply_arguments(
+                context.scenes,
+                Some(&item),
+                child_items.iter_mut().map(|(_, item)| item),
+            );
             let child_seed = runtime_seed
                 .wrapping_mul(0x9E37_79B1_85EB_CA87)
                 .wrapping_add(item.id.get())
@@ -262,38 +208,11 @@ fn evaluated_document_graph_with_visibility(
         visibility,
         used_ids: &mut used_ids,
     };
-    expand(
-        &mut context,
-        document.active_source_items_at_time(time),
-        time,
-        0,
-        0,
-        None,
-        None,
-        &[],
-        true,
-    )
+    expand(&mut context, items, time, 0, 0, None, None, &[], true)
 }
 
-pub(crate) fn evaluated_visible_document_graph_at_time(
-    document: &TimelineDocument,
-    scenes: &HashMap<SceneId, SceneDefinition>,
-    visibility: &PreviewVisibility,
-    time: TimelineTime,
-) -> Vec<EvaluatedSceneNode> {
-    evaluated_document_graph_with_visibility(document, scenes, time, Some(visibility))
-}
-
-pub(crate) fn evaluated_document_graph_at_time(
-    document: &TimelineDocument,
-    scenes: &HashMap<SceneId, SceneDefinition>,
-    time: TimelineTime,
-) -> Vec<EvaluatedSceneNode> {
-    evaluated_document_graph_with_visibility(document, scenes, time, None)
-}
-
-fn evaluated_document_items_with_visibility(
-    document: &TimelineDocument,
+pub(crate) fn evaluated_items_at_time(
+    items: Vec<(LayerId, TimelineItem)>,
     scenes: &HashMap<SceneId, SceneDefinition>,
     time: TimelineTime,
     visibility: Option<&PreviewVisibility>,
@@ -308,31 +227,14 @@ fn evaluated_document_items_with_visibility(
         }
     }
 
-    let graph = evaluated_document_graph_with_visibility(document, scenes, time, visibility);
+    let graph = evaluated_scene_graph_at_time(items, scenes, time, visibility);
     let mut output = Vec::new();
     flatten(graph, &mut output);
     output
 }
 
-pub(crate) fn evaluated_visible_document_items_at_time(
-    document: &TimelineDocument,
-    scenes: &HashMap<SceneId, SceneDefinition>,
-    visibility: &PreviewVisibility,
-    time: TimelineTime,
-) -> Vec<(LayerId, TimelineItem)> {
-    evaluated_document_items_with_visibility(document, scenes, time, Some(visibility))
-}
-
-pub(crate) fn evaluated_document_items_at_time(
-    document: &TimelineDocument,
-    scenes: &HashMap<SceneId, SceneDefinition>,
-    time: TimelineTime,
-) -> Vec<(LayerId, TimelineItem)> {
-    evaluated_document_items_with_visibility(document, scenes, time, None)
-}
-
-fn visible_document_items_with_visibility(
-    document: &TimelineDocument,
+pub(crate) fn visible_items(
+    items: Vec<(LayerId, TimelineItem)>,
     scenes: &HashMap<SceneId, SceneDefinition>,
     visibility: Option<&PreviewVisibility>,
 ) -> Vec<TimelineItem> {
@@ -375,12 +277,14 @@ fn visible_document_items_with_visibility(
                 continue;
             };
             let mut children = scene.document().source_items();
-            apply_scene_arguments(
-                scene,
-                context.scenes,
-                &source,
+            let instance = source.evaluated_with_properties_at(
                 TimelineTime::from_frame(source.start),
-                &mut children,
+                property_schemas(context.scenes, &source, None),
+            );
+            scene.apply_arguments(
+                context.scenes,
+                Some(&instance),
+                children.iter_mut().map(|(_, item)| item),
             );
             let child_seed = runtime_seed
                 .wrapping_mul(0x9E37_79B1_85EB_CA87)
@@ -404,21 +308,6 @@ fn visible_document_items_with_visibility(
         output: &mut output,
         used_ids: &mut used_ids,
     };
-    expand(&mut context, document.source_items(), 0, 0, None);
+    expand(&mut context, items, 0, 0, None);
     output
-}
-
-pub(crate) fn visibility_filtered_document_items(
-    document: &TimelineDocument,
-    scenes: &HashMap<SceneId, SceneDefinition>,
-    visibility: &PreviewVisibility,
-) -> Vec<TimelineItem> {
-    visible_document_items_with_visibility(document, scenes, Some(visibility))
-}
-
-pub(crate) fn document_items(
-    document: &TimelineDocument,
-    scenes: &HashMap<SceneId, SceneDefinition>,
-) -> Vec<TimelineItem> {
-    visible_document_items_with_visibility(document, scenes, None)
 }

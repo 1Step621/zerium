@@ -23,10 +23,29 @@ pub struct DecodedTimelineClipboard {
 
 pub fn encode_timeline_clipboard(
     items: &[(LayerId, TimelineItem)],
-    source_scene: Option<SceneId>,
-    scene_bindings: &[(String, SceneBindingTarget)],
-    cache: &crate::media::MediaMetadataCache,
+    editor: &TimelineEditor,
 ) -> Result<String, ProjectError> {
+    let source_scene = editor.active_scene_id();
+    let scene = source_scene.and_then(|id| editor.scene(id));
+    let ids = items
+        .iter()
+        .map(|(_, item)| item.id)
+        .collect::<HashSet<_>>();
+    let scene_bindings = scene
+        .into_iter()
+        .flat_map(|scene| &scene.arguments)
+        .flat_map(|argument| {
+            argument
+                .bindings
+                .iter()
+                .filter(|binding| ids.contains(&binding.item_id()))
+                .map(|binding| (argument.schema.id().to_owned(), binding.clone()))
+        })
+        .collect::<Vec<_>>();
+    // A clipboard copy carries usable values even when pasted outside the
+    // source scene. Unbound scene instance inputs retain their inheritance.
+    let mut items = items.to_vec();
+    editor.resolve_active_scene_arguments(items.iter_mut().map(|(_, item)| item));
     let file = TimelineClipboardFile {
         format: TIMELINE_CLIPBOARD_FORMAT.to_owned(),
         format_version: TIMELINE_CLIPBOARD_FORMAT_VERSION,
@@ -36,8 +55,8 @@ pub fn encode_timeline_clipboard(
             .iter()
             .map(|(layer, item)| ProjectItem::capture(item, *layer, Path::new("")))
             .collect(),
-        scene_bindings: scene_bindings.to_vec(),
-        media_cache: cache.retained_paths(
+        scene_bindings,
+        media_cache: editor.media_cache().retained_paths(
             items
                 .iter()
                 .flat_map(|(_, item)| {

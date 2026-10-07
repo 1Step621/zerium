@@ -704,9 +704,6 @@ fn load_properties(
             .ok_or_else(|| {
                 ProjectError::invalid_data(format!("{owner} has unknown property '{id}'"))
             })?;
-        if &value == property.default_value() {
-            continue;
-        }
         loaded.set(property, value).map_err(|error| {
             ProjectError::invalid_data(format!("{owner} property '{id}' is invalid: {error}"))
         })?;

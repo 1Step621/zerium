@@ -46,9 +46,8 @@ impl TimelineEditor {
         effect_id: Option<EffectInstanceId>,
         property_id: &str,
     ) -> Option<PropertySchema> {
-        let item = self.active_document().item(item_id)?;
-        let owner = effect_id.map_or(SceneBindingOwner::Item, SceneBindingOwner::Effect);
-        resolve_property_schema(&self.project().scenes, item, owner, property_id).cloned()
+        self.property_schema(item_id, effect_id, property_id)
+            .cloned()
     }
 
     pub(super) fn animation_store_mut(
@@ -481,8 +480,6 @@ impl TimelineEditor {
         if next_schema == argument.schema {
             return false;
         }
-        let bindings = argument.bindings.clone();
-        let applied_default = next_schema.default_value().clone();
         let before = self.history_snapshot_for_edit(Some(&key));
         let argument = self
             .project_mut()
@@ -491,13 +488,6 @@ impl TimelineEditor {
             .and_then(|scene| scene.argument_mut(argument_id))
             .expect("the scene argument was checked above");
         argument.schema = next_schema;
-        for binding in &bindings {
-            let result = self.apply_scene_binding(scene_id, binding, applied_default.clone());
-            debug_assert!(
-                result.is_some(),
-                "validated scene binding must accept its value"
-            );
-        }
         self.finish_project_edit(before, Some(key));
         true
     }
@@ -517,7 +507,6 @@ impl TimelineEditor {
             .get(&scene_id)
             .and_then(|scene| scene.argument(argument_id))
             .ok_or(SceneArgumentEditError::ArgumentNotFound)?;
-        let bindings = argument.bindings.clone();
         let next_schema = argument
             .schema
             .with_scene_default(&value)
@@ -525,7 +514,6 @@ impl TimelineEditor {
         if next_schema == argument.schema {
             return Ok(false);
         }
-        let applied_default = next_schema.default_value().clone();
         let before = self.history_snapshot_for_edit(Some(&key));
         let argument = self
             .project_mut()
@@ -534,13 +522,6 @@ impl TimelineEditor {
             .and_then(|scene| scene.argument_mut(argument_id))
             .expect("the scene argument was checked above");
         argument.schema = next_schema;
-        for binding in &bindings {
-            let result = self.apply_scene_binding(scene_id, binding, applied_default.clone());
-            debug_assert!(
-                result.is_some(),
-                "validated scene binding must accept its value"
-            );
-        }
 
         self.finish_project_edit(before, Some(key));
         Ok(true)
@@ -580,7 +561,6 @@ impl TimelineEditor {
         if resolved.schema.ty() != argument.schema.ty() {
             return Err(SceneArgumentEditError::IncompatibleContract);
         }
-        let value = argument.schema.default_value().clone();
         let before = self.history_snapshot();
         let Some(argument) = self
             .project_mut()
@@ -591,8 +571,6 @@ impl TimelineEditor {
             return Err(SceneArgumentEditError::ArgumentNotFound);
         };
         argument.bindings.push(target.clone());
-        self.apply_scene_binding(scene_id, &target, value)
-            .expect("validated scene binding must accept its value");
         self.finish_project_edit(Some(before), None);
         Ok(())
     }
@@ -602,23 +580,27 @@ impl TimelineEditor {
         argument_id: &str,
         target: &SceneBindingTarget,
     ) -> Result<(), SceneArgumentEditError> {
-        let Some(scene_id) = self.active_scene_id() else {
-            return Err(SceneArgumentEditError::NoActiveScene);
-        };
+        let scene_id = self
+            .active_scene_id()
+            .ok_or(SceneArgumentEditError::NoActiveScene)?;
+        let argument = self
+            .scene(scene_id)
+            .and_then(|scene| scene.argument(argument_id))
+            .ok_or(SceneArgumentEditError::ArgumentNotFound)?;
+        if !argument.bindings.contains(target) {
+            return Err(SceneArgumentEditError::TargetNotFound);
+        }
+        let value = argument.schema.default_value().clone();
         let before = self.history_snapshot();
-        let Some(argument) = self
-            .project_mut()
+        self.apply_scene_binding(scene_id, target, value)
+            .expect("validated binding must accept its value");
+        self.project_mut()
             .scenes
             .get_mut(&scene_id)
             .and_then(|scene| scene.argument_mut(argument_id))
-        else {
-            return Err(SceneArgumentEditError::ArgumentNotFound);
-        };
-        let previous = argument.bindings.len();
-        argument.bindings.retain(|binding| binding != target);
-        if argument.bindings.len() == previous {
-            return Err(SceneArgumentEditError::TargetNotFound);
-        }
+            .expect("argument was checked")
+            .bindings
+            .retain(|binding| binding != target);
         self.finish_project_edit(Some(before), None);
         Ok(())
     }
@@ -630,27 +612,26 @@ impl TimelineEditor {
         let Some(scene_id) = self.active_scene_id() else {
             return Err(SceneArgumentEditError::NoActiveScene);
         };
+        let argument = self
+            .scene(scene_id)
+            .and_then(|scene| scene.argument(argument_id))
+            .ok_or(SceneArgumentEditError::ArgumentNotFound)?;
+        let bindings = argument.bindings.clone();
+        let value = argument.schema.default_value().clone();
         let before = self.history_snapshot();
-        let Some(scene) = self.project_mut().scenes.get_mut(&scene_id) else {
-            return Err(SceneArgumentEditError::NoActiveScene);
-        };
-        let Some(_) = scene
-            .arguments
-            .iter()
-            .find(|argument| argument.schema.id() == argument_id)
-        else {
-            return Err(SceneArgumentEditError::ArgumentNotFound);
-        };
-        let previous = scene.arguments.len();
-        scene
+        for target in &bindings {
+            self.apply_scene_binding(scene_id, target, value.clone())
+                .expect("validated binding must accept its value");
+        }
+        self.project_mut()
+            .scenes
+            .get_mut(&scene_id)
+            .expect("active scene exists")
             .arguments
             .retain(|argument| argument.schema.id() != argument_id);
-        if scene.arguments.len() == previous {
-            return Err(SceneArgumentEditError::ArgumentNotFound);
-        }
         self.for_each_scene_instance_mut(scene_id, |item| {
             item.properties.remove(argument_id);
-            item.animations.retain_valid(&item.properties);
+            item.animations.retain_valid_for_property(argument_id, None);
         });
         remove_bindings_for_nested_argument(&mut self.project_mut().scenes, scene_id, argument_id);
         self.finish_project_edit(Some(before), None);

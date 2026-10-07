@@ -10,20 +10,18 @@ use std::{
 use crate::{
     animation::BezierHandle,
     plugin::PluginRegistry,
-    property::{PropertyElementId, PropertyValue},
+    property::{PropertyElementId, PropertySchema, materialized_property_values},
 };
 
 use super::{
     document::{ResizeEdge, ResizeMode, TimelineDocument},
-    evaluation::{
-        evaluated_scene_argument_values, evaluated_visible_document_items_at_time,
-        visibility_filtered_document_items,
-    },
+    evaluation::{evaluated_items_at_time, visible_items},
     history::EditHistory,
     ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId},
     item::TimelineItem,
     project::TimelineProject,
-    scene::{SceneDefinition, materialize_scene_instance_properties},
+    property_address::{property_schemas, resolve_property_schema},
+    scene::SceneDefinition,
     selection::SelectionState,
     settings::{ProjectResolution, ProjectSettingsError},
     time::{Frame, FrameRate, TimelineTime},
@@ -452,13 +450,32 @@ impl TimelineEditor {
         self.project().scenes.get(&id)
     }
 
-    pub fn evaluated_scene_argument_values_at(
+    pub fn property_schemas<'a>(
+        &'a self,
+        item: &'a TimelineItem,
+        effect_id: Option<EffectInstanceId>,
+    ) -> impl Iterator<Item = &'a PropertySchema> {
+        property_schemas(&self.project().scenes, item, effect_id)
+    }
+
+    pub fn property_schema(
         &self,
-        item: &TimelineItem,
-        time: TimelineTime,
-    ) -> Option<HashMap<String, PropertyValue>> {
-        let scene = self.scene(item.scene_id()?)?;
-        Some(evaluated_scene_argument_values(scene, item, time))
+        item_id: ItemId,
+        effect_id: Option<EffectInstanceId>,
+        property_id: &str,
+    ) -> Option<&PropertySchema> {
+        resolve_property_schema(
+            &self.project().scenes,
+            self.item(item_id)?,
+            effect_id,
+            property_id,
+        )
+    }
+
+    /// Resolve defaults, arguments, and animations in the current editing document.
+    pub fn evaluated_item_at(&self, item: &TimelineItem, time: TimelineTime) -> TimelineItem {
+        let item = self.materialized_item(item);
+        item.evaluated_with_properties_at(time, self.property_schemas(&item, None))
     }
 
     pub fn playhead(&self) -> Frame {
@@ -501,12 +518,19 @@ impl TimelineEditor {
 
     pub(super) fn materialized_item(&self, item: &TimelineItem) -> TimelineItem {
         let mut item = item.clone();
-        if let Some(properties) =
-            materialize_scene_instance_properties(&item, &self.project().scenes)
-        {
-            item.properties = properties;
-        }
+        item.properties =
+            materialized_property_values(&item.properties, self.property_schemas(&item, None));
+        self.resolve_active_scene_arguments(std::iter::once(&mut item));
         item
+    }
+
+    pub(crate) fn resolve_active_scene_arguments<'a>(
+        &self,
+        items: impl IntoIterator<Item = &'a mut TimelineItem>,
+    ) {
+        if let Some(scene) = self.active_scene_id().and_then(|id| self.scene(id)) {
+            scene.apply_arguments(&self.project().scenes, None, items);
+        }
     }
 
     pub fn selected_item(&self) -> Option<TimelineItem> {
@@ -574,40 +598,35 @@ impl TimelineEditor {
     }
 
     pub fn active_items_at(&self, frame: Frame) -> Vec<(LayerId, TimelineItem)> {
-        evaluated_visible_document_items_at_time(
-            self.active_document(),
-            &self.project().scenes,
-            &self.visibility,
-            TimelineTime::from_frame(frame),
-        )
-        .into_iter()
-        .map(|(layer, mut item)| {
-            self.visibility.retain_visible_effects(&mut item);
-            (layer, item)
-        })
-        .collect()
+        self.active_items_at_time(TimelineTime::from_frame(frame))
+    }
+
+    pub(super) fn active_source_items(
+        &self,
+        time: Option<TimelineTime>,
+    ) -> Vec<(LayerId, TimelineItem)> {
+        let mut items = time.map_or_else(
+            || self.active_document().source_items(),
+            |time| self.active_document().active_source_items_at_time(time),
+        );
+        self.resolve_active_scene_arguments(items.iter_mut().map(|(_, item)| item));
+        items
     }
 
     pub fn active_items_at_time(&self, time: TimelineTime) -> Vec<(LayerId, TimelineItem)> {
-        evaluated_visible_document_items_at_time(
-            self.active_document(),
+        evaluated_items_at_time(
+            self.active_source_items(Some(time)),
             &self.project().scenes,
-            &self.visibility,
             time,
+            Some(&self.visibility),
         )
-        .into_iter()
-        .map(|(layer, mut item)| {
-            self.visibility.retain_visible_effects(&mut item);
-            (layer, item)
-        })
-        .collect()
     }
 
     pub fn visible_items(&self) -> Vec<TimelineItem> {
-        visibility_filtered_document_items(
-            self.active_document(),
+        visible_items(
+            self.active_source_items(None),
             &self.project().scenes,
-            &self.visibility,
+            Some(&self.visibility),
         )
         .into_iter()
         .map(|mut item| {

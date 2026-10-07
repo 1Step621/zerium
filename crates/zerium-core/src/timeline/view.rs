@@ -3,8 +3,7 @@ use std::sync::Arc;
 use super::{
     editor::TimelineEditor,
     evaluation::{
-        EvaluatedSceneNode, document_items, evaluated_document_graph_at_time,
-        evaluated_document_items_at_time, evaluated_visible_document_graph_at_time,
+        EvaluatedSceneNode, evaluated_items_at_time, evaluated_scene_graph_at_time, visible_items,
         visit_source_items,
     },
     ids::{ItemId, LayerId, ProjectId},
@@ -71,10 +70,19 @@ impl TimelineSnapshot {
     /// scene-instance effects. Unlike rendering, this traversal does not clip
     /// items to a time range or assign runtime identities.
     pub fn visit_resolved_items(&self, mut visit: impl FnMut(&TimelineItem)) {
-        for document in std::iter::once(&self.project.document)
-            .chain(self.project.scenes.values().map(|scene| scene.document()))
-        {
-            visit_source_items(document.source_items(), &self.project.scenes, &mut visit);
+        visit_source_items(
+            self.project.document.source_items(),
+            &self.project.scenes,
+            &mut visit,
+        );
+        for scene in self.project.scenes.values() {
+            let mut items = scene.document().source_items();
+            scene.apply_arguments(
+                &self.project.scenes,
+                None,
+                items.iter_mut().map(|(_, item)| item),
+            );
+            visit_source_items(items, &self.project.scenes, &mut visit);
         }
     }
 
@@ -105,15 +113,29 @@ impl TimelineView for TimelineSnapshot {
     }
 
     fn active_items_at_time(&self, time: TimelineTime) -> Vec<(LayerId, TimelineItem)> {
-        evaluated_document_items_at_time(&self.project.document, &self.project.scenes, time)
+        evaluated_items_at_time(
+            self.project.document.active_source_items_at_time(time),
+            &self.project.scenes,
+            time,
+            None,
+        )
     }
 
     fn active_scene_graph_at_time(&self, time: TimelineTime) -> Vec<EvaluatedSceneNode> {
-        evaluated_document_graph_at_time(&self.project.document, &self.project.scenes, time)
+        evaluated_scene_graph_at_time(
+            self.project.document.active_source_items_at_time(time),
+            &self.project.scenes,
+            time,
+            None,
+        )
     }
 
     fn visible_items(&self) -> Vec<TimelineItem> {
-        document_items(&self.project.document, &self.project.scenes)
+        visible_items(
+            self.project.document.source_items(),
+            &self.project.scenes,
+            None,
+        )
     }
 
     fn end_frame_exclusive(&self) -> Frame {
@@ -148,11 +170,11 @@ impl TimelineView for TimelineEditor {
     }
 
     fn active_scene_graph_at_time(&self, time: TimelineTime) -> Vec<EvaluatedSceneNode> {
-        evaluated_visible_document_graph_at_time(
-            self.active_document(),
+        evaluated_scene_graph_at_time(
+            self.active_source_items(Some(time)),
             &self.project().scenes,
-            &self.visibility,
             time,
+            Some(&self.visibility),
         )
     }
 

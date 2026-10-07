@@ -509,7 +509,7 @@ impl PropertyInspector {
             editor
                 .selected_items()
                 .into_iter()
-                .map(|item| item.evaluated_at_time(time))
+                .map(|item| editor.evaluated_item_at(&item, time))
                 .collect::<Vec<_>>()
         };
         let selected_item = selected_items.first().cloned();

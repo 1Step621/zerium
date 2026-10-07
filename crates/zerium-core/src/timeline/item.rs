@@ -8,7 +8,7 @@ use crate::property::{
 };
 
 use super::{
-    FrameRate, TimeMapping,
+    FrameRate, ResizeMode, TimeMapping,
     aspect_ratio::AspectRatio,
     ids::{EffectInstanceId, ItemId, LayerId, SceneId},
     time::{Frame, FrameDuration, TimelineTime},
@@ -411,47 +411,52 @@ impl TimelineItem {
         )
     }
 
-    pub(super) fn trim_left_to(
+    /// Resize a timeline interval and its declared source clock together.
+    pub(super) fn resize_to(
         &mut self,
         start: Frame,
         duration: FrameDuration,
+        mode: ResizeMode,
         frame_rate: FrameRate,
     ) -> Option<()> {
         if let Some(mapping) = self.timeline_mapping() {
-            let delta = start.get() as f64 - self.start.get() as f64;
-            self.store_timeline_mapping(
-                mapping.trim_start(delta / frame_rate.frames_per_second()),
-            )?;
+            let mapping = match mode {
+                ResizeMode::Trim if start != self.start => {
+                    let delta = start.get() as f64 - self.start.get() as f64;
+                    mapping.trim_start(delta / frame_rate.frames_per_second())
+                }
+                ResizeMode::Trim => mapping.with_span(
+                    duration.get() as f64 / frame_rate.frames_per_second() * mapping.speed(),
+                ),
+                ResizeMode::Stretch => {
+                    let (min_speed, max_speed) = self.timeline_speed_bounds();
+                    mapping.with_speed(
+                        (mapping.source_span() * frame_rate.frames_per_second()
+                            / duration.get() as f64)
+                            .clamp(min_speed, max_speed),
+                    )?
+                }
+            };
+            self.store_timeline_mapping(mapping)?;
         }
-        let old_span = self.animation_span_frames();
-        let new_span = duration.get().saturating_sub(1).max(1) as f64;
-        self.remap_animations((old_span - new_span) / old_span, 1.);
+        self.set_interval(start, duration, mode);
+        Some(())
+    }
+
+    /// Commit the interval. Trimming keeps animation keys at their existing
+    /// time positions; stretching keeps their normalized positions.
+    pub(super) fn set_interval(&mut self, start: Frame, duration: FrameDuration, mode: ResizeMode) {
+        if mode == ResizeMode::Trim {
+            let old_span = self.animation_span_frames();
+            let new_span = duration.get().saturating_sub(1).max(1) as f64;
+            let offset = start.get() as f64 - self.start.get() as f64;
+            self.remap_animations(offset / old_span, (offset + new_span) / old_span);
+        }
         self.start = start;
         self.duration = duration;
-        Some(())
     }
 
-    pub(super) fn trim_right_to(
-        &mut self,
-        duration: FrameDuration,
-        frame_rate: FrameRate,
-    ) -> Option<()> {
-        if let Some(mapping) = self.timeline_mapping() {
-            let span = duration.get() as f64 / frame_rate.frames_per_second() * mapping.speed();
-            self.store_timeline_mapping(mapping.with_span(span))?;
-        }
-        self.trim_duration_to(duration);
-        Some(())
-    }
-
-    pub(super) fn trim_duration_to(&mut self, duration: FrameDuration) {
-        let old_span = self.animation_span_frames();
-        let new_span = duration.get().saturating_sub(1).max(1) as f64;
-        self.remap_animations(0., new_span / old_span);
-        self.duration = duration;
-    }
-
-    /// Synchronize timeline placement after the usual property edit.
+    /// Synchronize the interval after editing ordinary source-clock properties.
     pub(super) fn synchronize_timeline(
         &mut self,
         previous: Option<TimeMapping>,
@@ -460,18 +465,19 @@ impl TimelineItem {
         let Some(previous) = previous else {
             return Ok(());
         };
-        let ids = self
-            .schema()
-            .and_then(ItemSchema::timeline)
-            .expect("timeline capability is unchanged during property edits");
-        let mapping = TimeMapping::from_properties(ids, &self.properties)?;
+        let mapping = TimeMapping::from_properties(
+            self.schema()
+                .and_then(ItemSchema::timeline)
+                .expect("timeline capability is unchanged during property edits"),
+            &self.properties,
+        )?;
         if previous.source_span() != mapping.source_span() || previous.speed() != mapping.speed() {
-            let duration = mapping.timeline_duration(frame_rate);
-            if previous.speed() == mapping.speed() {
-                self.trim_duration_to(duration);
+            let mode = if previous.speed() == mapping.speed() {
+                ResizeMode::Trim
             } else {
-                self.duration = duration;
-            }
+                ResizeMode::Stretch
+            };
+            self.set_interval(self.start, mapping.timeline_duration(frame_rate), mode);
         }
         Ok(())
     }
@@ -484,12 +490,29 @@ impl TimelineItem {
     }
 
     pub fn evaluated_at_time(&self, time: TimelineTime) -> Self {
+        let properties = self.schema().map(|schema| schema.properties());
+        self.evaluate_at(time, properties)
+    }
+
+    pub(super) fn evaluated_with_properties_at<'a>(
+        &self,
+        time: TimelineTime,
+        properties: impl IntoIterator<Item = &'a PropertySchema>,
+    ) -> Self {
+        self.evaluate_at(time, Some(properties))
+    }
+
+    fn evaluate_at<'a>(
+        &self,
+        time: TimelineTime,
+        properties: Option<impl IntoIterator<Item = &'a PropertySchema>>,
+    ) -> Self {
         let progress = self.animation_progress_at_time(time);
         let mut item = self.clone();
-        if let Some(schema) = self.schema() {
+        if let Some(properties) = properties {
             item.properties =
                 self.animations
-                    .evaluated_values(&self.properties, schema.properties(), progress);
+                    .evaluated_values(&self.properties, properties, progress);
         }
         for effect in &mut item.effects {
             effect.properties = effect.animations.evaluated_values(

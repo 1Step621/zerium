@@ -17,8 +17,7 @@ use super::{
     item::TimelineItem,
     scene::{
         SceneArgument, SceneArgumentPreset, SceneBindingOwner, SceneBindingTarget, SceneDefinition,
-        apply_scene_binding_to_item, materialize_scene_instance_properties,
-        resolve_property_schema, resolve_scene_binding, unique_scene_argument_name,
+        apply_scene_binding_to_item, resolve_scene_binding, unique_scene_argument_name,
     },
     settings::ProjectResolution,
     time::{Frame, FrameDuration, FrameRate, TimelineTime},

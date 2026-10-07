@@ -276,18 +276,16 @@ impl PropertyValues {
     }
 }
 
-pub fn materialized_property_values(
+pub fn materialized_property_values<'a>(
     overrides: &PropertyValues,
-    schema: &[PropertySchema],
+    schema: impl IntoIterator<Item = &'a PropertySchema>,
 ) -> PropertyValues {
-    let mut values = PropertyValues::from_properties(schema);
+    let mut values = PropertyValues::default();
     for property in schema {
-        let Some(value) = overrides
+        let value = overrides
             .property(&property.id)
             .and_then(|value| property.constrained_value(value))
-        else {
-            continue;
-        };
+            .unwrap_or_else(|| property.default_value().clone());
         values
             .set(property, value)
             .expect("constrained values preserve the property type");

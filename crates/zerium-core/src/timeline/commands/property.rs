@@ -1,6 +1,11 @@
 use super::*;
 use crate::{property::PropertyPath, timeline::AspectRatio};
 
+enum PropertyEdit {
+    Set(PropertyValue),
+    Reset,
+}
+
 impl TimelineEditor {
     pub fn update_selected_property(
         &mut self,
@@ -20,7 +25,7 @@ impl TimelineEditor {
         path: PropertyPath,
         value: PropertyValue,
     ) -> Result<bool, TimelineEditError> {
-        self.edit_selected_property_with(effect_id, path, |_, _| Some(value.clone()))
+        self.apply_selected_property_edit(effect_id, path, PropertyEdit::Set(value))
     }
 
     pub fn reset_selected_property(
@@ -28,21 +33,14 @@ impl TimelineEditor {
         effect_id: Option<EffectInstanceId>,
         path: PropertyPath,
     ) -> Result<bool, TimelineEditError> {
-        let default_path = path.clone();
-        self.edit_selected_property_with(effect_id, path, |schema, _| {
-            schema
-                .default_value()
-                .element(default_path.element_id())?
-                .scalar_at(default_path.scalar_index())
-                .cloned()
-        })
+        self.apply_selected_property_edit(effect_id, path, PropertyEdit::Reset)
     }
 
-    fn edit_selected_property_with(
+    fn apply_selected_property_edit(
         &mut self,
         effect_id: Option<EffectInstanceId>,
         path: PropertyPath,
-        value: impl Fn(&PropertySchema, &PropertyValue) -> Option<PropertyValue>,
+        edit: PropertyEdit,
     ) -> Result<bool, TimelineEditError> {
         let Some(targets) = self.selected_property_owners(effect_id) else {
             return Ok(false);
@@ -50,23 +48,22 @@ impl TimelineEditor {
         let updates: Option<Vec<_>> = targets
             .iter()
             .map(|(id, effect)| {
-                let item = self.active_document().item(*id)?;
-                let owner = effect.map_or(SceneBindingOwner::Item, SceneBindingOwner::Effect);
-                let schema = resolve_property_schema(
-                    &self.project().scenes,
-                    item,
-                    owner,
-                    path.property_id(),
-                )?;
+                let item = self.item(*id)?;
+                let schema = self.property_schema(*id, *effect, path.property_id())?;
                 let current = item
                     .property_values(*effect)?
                     .property(path.property_id())
-                    .unwrap_or(schema.default_value());
-                let mut next = current.replaced_at(
-                    path.element_id(),
-                    path.scalar_index(),
-                    value(schema, current)?,
-                )?;
+                    .unwrap_or_else(|| schema.default_value());
+                let value = match &edit {
+                    PropertyEdit::Set(value) => value.clone(),
+                    PropertyEdit::Reset => schema
+                        .default_value()
+                        .element(path.element_id())?
+                        .scalar_at(path.scalar_index())?
+                        .clone(),
+                };
+                let mut next =
+                    current.replaced_at(path.element_id(), path.scalar_index(), value)?;
                 if !schema.is_editable(path.scalar_index()) {
                     return None;
                 }
@@ -79,14 +76,24 @@ impl TimelineEditor {
                     }
                     next = ratio.constrain(schema, &next, path.scalar_index())?;
                 }
-                (schema.accepts_value(&next)
-                    && self.value_preserves_active_bindings(
+                if !schema.accepts_value(&next)
+                    || !self.value_preserves_active_bindings(
                         *id,
                         *effect,
                         path.property_id(),
                         &next,
-                    ))
-                .then_some((*id, *effect, schema.clone(), next))
+                    )
+                {
+                    return None;
+                }
+                // Only an explicit reset removes a scene instance's override. An
+                // assigned value remains assigned even when equal to the default.
+                let inherit = matches!(edit, PropertyEdit::Reset)
+                    && effect.is_none()
+                    && item.scene_id().is_some()
+                    && path.element_id().is_none()
+                    && path.scalar_index().is_none();
+                Some((*id, *effect, schema.clone(), (!inherit).then_some(next)))
             })
             .collect();
         let Some(updates) = updates else {

@@ -3,7 +3,6 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::animation::ScalarAnimations;
-use crate::property::materialized_property_values;
 use crate::property::{
     PropertyElementId, PropertyPath, PropertySchema, PropertyType, PropertyValue,
     PropertyValueType, PropertyValues, ScalarPropertyType,
@@ -13,6 +12,7 @@ use super::{
     document::TimelineDocument,
     ids::{EffectInstanceId, ItemId, LayerId, SceneId},
     item::{TimelineItem, TimelineItemKind},
+    property_address::resolve_property_schema,
     time::{Frame, FrameDuration, FrameRate},
 };
 
@@ -142,31 +142,6 @@ pub struct ResolvedSceneBinding {
     pub animated: bool,
 }
 
-pub(crate) fn resolve_property_schema<'a>(
-    scenes: &'a HashMap<SceneId, SceneDefinition>,
-    item: &'a TimelineItem,
-    owner: SceneBindingOwner,
-    property_id: &str,
-) -> Option<&'a PropertySchema> {
-    match owner {
-        SceneBindingOwner::Effect(effect_id) => item
-            .effects
-            .iter()
-            .find(|effect| effect.id == effect_id)?
-            .schema()
-            .property(property_id),
-        SceneBindingOwner::Item => item
-            .schema()
-            .and_then(|schema| schema.property(property_id))
-            .or_else(|| {
-                scenes
-                    .get(&item.scene_id()?)?
-                    .argument(property_id)
-                    .map(|argument| &argument.schema)
-            }),
-    }
-}
-
 pub fn resolve_scene_binding(
     scenes: &HashMap<SceneId, SceneDefinition>,
     scene: &SceneDefinition,
@@ -174,7 +149,7 @@ pub fn resolve_scene_binding(
 ) -> Option<ResolvedSceneBinding> {
     let item = scene.document().item(target.item_id())?;
     let property_id = target.property_id();
-    let schema = resolve_property_schema(scenes, item, target.owner(), property_id)?;
+    let schema = resolve_property_schema(scenes, item, target.owner().effect_id(), property_id)?;
     let (value, animations) = match target.owner() {
         SceneBindingOwner::Effect(effect_id) => {
             let effect = item.effects.iter().find(|effect| effect.id == effect_id)?;
@@ -349,6 +324,35 @@ pub struct SceneDefinition {
 }
 
 impl SceneDefinition {
+    /// Apply arguments to detached items. None selects the scene's defaults when
+    /// editing or visiting the definition independently of a placed instance.
+    pub(crate) fn apply_arguments<'a>(
+        &self,
+        scenes: &HashMap<SceneId, SceneDefinition>,
+        instance: Option<&TimelineItem>,
+        items: impl IntoIterator<Item = &'a mut TimelineItem>,
+    ) {
+        for item in items {
+            let item_id = item.id;
+            for argument in &self.arguments {
+                let value = instance
+                    .and_then(|instance| instance.properties.property(argument.schema.id()))
+                    .unwrap_or_else(|| argument.schema.default_value());
+                for binding in argument
+                    .bindings
+                    .iter()
+                    .filter(|binding| binding.item_id() == item_id)
+                {
+                    let Some(resolved) = resolve_scene_binding(scenes, self, binding) else {
+                        continue;
+                    };
+                    apply_scene_binding_to_item(item, binding, &resolved.schema, value.clone())
+                        .expect("validated scene binding must remain applicable during evaluation");
+                }
+            }
+        }
+    }
+
     pub(super) fn new(
         id: SceneId,
         name: String,
@@ -459,35 +463,4 @@ impl SceneDefinition {
             next_argument_id,
         }
     }
-}
-
-pub(crate) fn set_scene_instance_override(
-    item: &mut TimelineItem,
-    schema: &PropertySchema,
-    value: PropertyValue,
-) -> bool {
-    if !schema.accepts_value(&value) {
-        return false;
-    }
-    let previous = item.properties.remove(&schema.id);
-    if &value == schema.default_value() {
-        previous.is_some()
-    } else {
-        item.properties
-            .set(schema, value.clone())
-            .expect("validated scene override must satisfy its contract");
-        previous.as_ref() != Some(&value)
-    }
-}
-
-pub(crate) fn materialize_scene_instance_properties(
-    item: &TimelineItem,
-    scenes: &HashMap<SceneId, SceneDefinition>,
-) -> Option<PropertyValues> {
-    let scene = scenes.get(&item.scene_id()?)?;
-    let schemas = scene
-        .arguments()
-        .map(|argument| argument.schema.clone())
-        .collect::<Vec<_>>();
-    Some(materialized_property_values(&item.properties, &schemas))
 }

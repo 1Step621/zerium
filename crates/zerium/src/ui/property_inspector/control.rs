@@ -186,27 +186,22 @@ pub(super) struct ControlResolution<'a> {
 }
 
 pub(super) enum PropertyOwner<'a> {
-    Item {
-        item: &'a TimelineItem,
-        schema: &'a ItemSchema,
-    },
+    Item { item: &'a TimelineItem },
     Effect(&'a EffectInstance),
-    Scene {
-        id: SceneId,
-        values: &'a HashMap<String, PropertyValue>,
-    },
 }
 
 impl PropertyOwner<'_> {
     fn key(&self, property: &PropertySchema) -> InspectorPath {
         match self {
-            Self::Item { item, schema } => PropertyInspector::property_key(
-                item.plugin_id().unwrap_or_default(),
-                schema,
-                property,
-            ),
-            Self::Effect(effect) => PropertyInspector::effect_property_key(effect, property),
-            Self::Scene { id, .. } => InspectorPath::scene_property(id.get(), property.id()),
+            Self::Item { item } => match item.scene_id() {
+                Some(id) => InspectorPath::scene_property(id.get(), property.id()),
+                None => InspectorPath::item_property(
+                    item.plugin_id().unwrap_or_default(),
+                    item.item_id().unwrap_or_default(),
+                    property.id(),
+                ),
+            },
+            Self::Effect(effect) => InspectorPath::effect_property(effect.id.get(), property.id()),
         }
     }
 
@@ -214,34 +209,18 @@ impl PropertyOwner<'_> {
         match self {
             Self::Item { item, .. } => item.properties.property(property_id),
             Self::Effect(effect) => effect.properties.property(property_id),
-            Self::Scene { values, .. } => values.get(property_id),
         }
     }
 
     fn effect_id(&self) -> Option<EffectInstanceId> {
         match self {
-            Self::Item { .. } | Self::Scene { .. } => None,
+            Self::Item { .. } => None,
             Self::Effect(effect) => Some(effect.id),
         }
     }
 }
 
 impl PropertyInspector {
-    pub(super) fn property_key(
-        plugin_id: &str,
-        item_schema: &ItemSchema,
-        property: &PropertySchema,
-    ) -> InspectorPath {
-        InspectorPath::item_property(plugin_id, item_schema.id(), property.id())
-    }
-
-    pub(super) fn effect_property_key(
-        effect: &EffectInstance,
-        property: &PropertySchema,
-    ) -> InspectorPath {
-        InspectorPath::effect_property(effect.id.get(), property.id())
-    }
-
     pub(super) fn selected_schema(item: &TimelineItem) -> Option<&ItemSchema> {
         item.schema()
     }
@@ -621,30 +600,9 @@ impl PropertyInspector {
         item: &TimelineItem,
         resolution: &ControlResolution<'_>,
     ) -> Vec<Control> {
-        if let Some(id) = item.scene_id() {
-            let Some(scene) = editor.scene(id) else {
-                return Vec::new();
-            };
-            let values = editor
-                .evaluated_scene_argument_values_at(item, resolution.playhead)
-                .unwrap_or_default();
-            let owner = PropertyOwner::Scene {
-                id,
-                values: &values,
-            };
-            return scene
-                .arguments
-                .iter()
-                .flat_map(|argument| Self::owner_controls(&owner, &argument.schema, resolution))
-                .collect();
-        }
-        let Some(schema) = Self::selected_schema(item) else {
-            return Vec::new();
-        };
-        let owner = PropertyOwner::Item { item, schema };
-        schema
-            .properties()
-            .iter()
+        let owner = PropertyOwner::Item { item };
+        editor
+            .property_schemas(item, None)
             .flat_map(|property| Self::owner_controls(&owner, property, resolution))
             .collect()
     }

@@ -1,6 +1,6 @@
 //! Typed scalar animation tracks made of value stops and interval interpolations.
 use super::{BezierHandle, SegmentInterpolation, interpolate_scalar};
-use crate::property::{PropertyPath, PropertyValue, PropertyValues, ScalarPropertyType};
+use crate::property::{PropertyPath, PropertyValue, ScalarPropertyType};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
@@ -403,10 +403,19 @@ impl ScalarAnimations {
         self.tracks.iter()
     }
 
-    pub fn retain_valid(&mut self, values: &PropertyValues) -> bool {
+    /// Remove invalid tracks only for the property whose structure changed.
+    pub fn retain_valid_for_property(
+        &mut self,
+        property_id: &str,
+        value: Option<&PropertyValue>,
+    ) -> bool {
         let previous = self.tracks.len();
-        self.tracks
-            .retain(|address, _| address.value(values).is_some());
+        self.tracks.retain(|address, _| {
+            address.property_id() != property_id
+                || value
+                    .and_then(|value| value.scalar(address.element_id(), address.scalar_index()))
+                    .is_some()
+        });
         previous != self.tracks.len()
     }
 

@@ -78,18 +78,13 @@ impl PropertyInspector {
             font_names: &self.font_names,
             selecting_file: self.file_input.read(cx).is_selecting(),
             file_input: self.file_input.clone(),
-            scene_file_overrides: self
+            scene_overrides: self
                 .editor
                 .read(cx)
                 .selected_item_ids()
                 .filter_map(|id| self.editor.read(cx).item(id))
                 .filter(|item| item.scene_id().is_some())
-                .flat_map(|item| {
-                    item.properties
-                        .iter()
-                        .filter(|(_, value)| matches!(value, PropertyValue::File(_)))
-                        .map(|(id, _)| id.to_owned())
-                })
+                .flat_map(|item| item.properties.iter().map(|(id, _)| id.to_owned()))
                 .collect(),
             item_id: selection.item.id,
         }
@@ -102,7 +97,7 @@ impl PropertyInspector {
             editor
                 .selected_items()
                 .into_iter()
-                .map(|item| item.evaluated_at_time(time))
+                .map(|item| editor.evaluated_item_at(&item, time))
                 .collect::<Vec<_>>()
         };
         let item = selected_items.first()?.clone();

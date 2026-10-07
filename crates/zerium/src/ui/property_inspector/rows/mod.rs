@@ -20,7 +20,7 @@ pub(super) struct RenderCtx<'a> {
     pub item_id: ItemId,
     pub selecting_file: bool,
     pub file_input: Entity<FileInputController>,
-    pub scene_file_overrides: std::collections::HashSet<String>,
+    pub scene_overrides: std::collections::HashSet<String>,
 }
 
 struct DraggableNumberInput {

@@ -13,7 +13,6 @@ use super::{
     aspect_ratio::AspectRatio,
     ids::{EffectInstanceId, ItemId, LayerId},
     item::{EffectInstance, TimelineItem, TimelineItemKind, set_size_values, size_values},
-    scene::set_scene_instance_override,
     settings::ProjectSettingsError,
     time::{Frame, FrameDuration, FrameRate},
 };
@@ -116,26 +115,7 @@ impl ResizeEdge {
             Self::Right => (start, (i128::from(end) + delta) as u64),
         };
         let duration = FrameDuration::new_saturating(new_end - new_start);
-        match mode {
-            ResizeMode::Trim => match self {
-                Self::Left => item.trim_left_to(Frame(new_start), duration, frame_rate)?,
-                Self::Right => item.trim_right_to(duration, frame_rate)?,
-            },
-            ResizeMode::Stretch => {
-                if let Some(mapping) = item.timeline_mapping() {
-                    let (min_speed, max_speed) = item.timeline_speed_bounds();
-                    let mapping = mapping.with_speed(
-                        (mapping.source_span() * frame_rate.frames_per_second()
-                            / duration.get() as f64)
-                            .clamp(min_speed, max_speed),
-                    )?;
-                    item.store_timeline_mapping(mapping)?;
-                }
-                item.start = Frame(new_start);
-                item.duration = duration;
-            }
-        }
-        Some(())
+        item.resize_to(Frame(new_start), duration, mode, frame_rate)
     }
 }
 
@@ -651,7 +631,11 @@ impl TimelineDocument {
             let Some(mapping) = item.store_timeline_mapping(mapping) else {
                 return false;
             };
-            item.trim_duration_to(mapping.timeline_duration(self.frame_rate));
+            item.set_interval(
+                item.start,
+                mapping.timeline_duration(self.frame_rate),
+                ResizeMode::Trim,
+            );
         }
         let duration = item.duration;
         let Some(layer) = self.item_layers.get(&id).copied() else {
@@ -710,7 +694,7 @@ impl TimelineDocument {
             ItemId,
             Option<EffectInstanceId>,
             PropertySchema,
-            PropertyValue,
+            Option<PropertyValue>,
         )],
     ) -> Result<bool, TimelineEditError> {
         let mut updates = HashMap::new();
@@ -765,10 +749,10 @@ impl TimelineDocument {
         item: &mut TimelineItem,
         effect_id: Option<EffectInstanceId>,
         property: &PropertySchema,
-        value: PropertyValue,
+        value: Option<PropertyValue>,
     ) -> bool {
-        if effect_id.is_none() && item.scene_id().is_some() {
-            return set_scene_instance_override(item, property, value);
+        if value.is_none() {
+            return item.properties.remove(property.id()).is_some();
         }
         let (properties, animations) = match effect_id {
             Some(id) => {
@@ -782,10 +766,10 @@ impl TimelineDocument {
             None => (&mut item.properties, &mut item.animations),
         };
         let changed = properties
-            .set(property, value)
+            .set(property, value.expect("reset overrides were handled above"))
             .expect("prepared value must satisfy its schema");
         if changed {
-            animations.retain_valid(properties);
+            animations.retain_valid_for_property(property.id(), properties.property(property.id()));
         }
         changed
     }
