@@ -16,7 +16,7 @@ use gpui::{
     Entity, EntityId, FocusHandle, Focusable as _, Hsla, MouseButton, MouseDownEvent,
     MouseMoveEvent, MouseUpEvent, PathBuilder, Pixels, Render, ScrollWheelEvent, SharedString,
     SmoothScrollMode, Stateful, Subscription, UniformListScrollHandle, Window, anchored, canvas,
-    deferred, div, point, prelude::*, px, relative, size, uniform_list,
+    deferred, div, point, prelude::*, px, size, uniform_list,
 };
 
 use crate::{

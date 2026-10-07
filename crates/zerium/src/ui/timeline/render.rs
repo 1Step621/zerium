@@ -311,6 +311,12 @@ impl Timeline {
             .frame_rate
             .frame_to_seconds(Frame::new(item.duration.get()))
             * state.viewport.pixels_per_second()) as f32;
+        let animation_width = (item.animation_span_frames() / state.frame_rate.frames_per_second()
+            * state.viewport.pixels_per_second()) as f32;
+        let stop_left = move |progress: f32, diameter: f32| {
+            px((progress * animation_width - diameter / 2.)
+                .clamp(0., (item_width - diameter).max(0.)))
+        };
         let is_selected = state.selected_item_ids.contains(&item_id);
         let snap_frame = state.editor.read(cx).playhead();
         let mut animation_stops = Vec::new();
@@ -406,32 +412,8 @@ impl Timeline {
                 .w(px(item_width))
                 .min_w_0()
                 .max_w(px(item_width))
-                .flex()
-                .items_center()
-                .gap_1()
                 .overflow_hidden()
                 .cursor_pointer()
-                .rounded_sm()
-                .border_1()
-                .border_color(if is_selected {
-                    state.colors.primary
-                } else {
-                    state.colors.border
-                })
-                .bg(if is_selected {
-                    state.colors.primary.opacity(0.24)
-                } else if item_hidden {
-                    state.colors.accent.opacity(0.35)
-                } else {
-                    state.colors.accent
-                })
-                .when(is_selected, |item| item.border_2())
-                .text_sm()
-                .text_color(if item_hidden {
-                    state.colors.muted_foreground
-                } else {
-                    state.colors.accent_foreground
-                })
                 .on_mouse_down(
                     MouseButton::Left,
                     cx.listener(move |this, event, _, cx| {
@@ -451,87 +433,109 @@ impl Timeline {
                 )
                 .child(
                     div()
-                        .min_w_0()
-                        .flex_1()
+                        .relative()
+                        .size_full()
                         .flex()
                         .items_center()
                         .gap_1()
-                        .pl_1()
                         .overflow_hidden()
-                        .when(scene_id.is_none(), |this| {
-                            this.child(
-                                div()
-                                    .text_color(state.colors.primary)
-                                    .child(item.symbol().to_owned()),
-                            )
+                        .rounded_sm()
+                        .border_1()
+                        .border_color(if is_selected {
+                            state.colors.primary
+                        } else {
+                            state.colors.border
                         })
-                        .child(item_label),
-                )
-                .child(
-                    div()
-                        .id(("timeline-item-left-handle", item_id.get()))
-                        .absolute()
-                        .top_0()
-                        .bottom_0()
-                        .left_0()
-                        .w(px(6.))
-                        .cursor_col_resize()
-                        .bg(state.colors.primary.opacity(0.35))
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(move |this, _, _, cx| {
-                                this.begin_item_resize(item_id, cx);
-                            }),
+                        .bg(if is_selected {
+                            state.colors.primary.opacity(0.24)
+                        } else if item_hidden {
+                            state.colors.accent.opacity(0.35)
+                        } else {
+                            state.colors.accent
+                        })
+                        .when(is_selected, |item| item.border_2())
+                        .text_sm()
+                        .text_color(if item_hidden {
+                            state.colors.muted_foreground
+                        } else {
+                            state.colors.accent_foreground
+                        })
+                        .child(
+                            div()
+                                .min_w_0()
+                                .flex_1()
+                                .flex()
+                                .items_center()
+                                .gap_1()
+                                .pl_1()
+                                .overflow_hidden()
+                                .when(scene_id.is_none(), |this| {
+                                    this.child(
+                                        div()
+                                            .text_color(state.colors.primary)
+                                            .child(item.symbol().to_owned()),
+                                    )
+                                })
+                                .child(item_label),
                         )
-                        .on_drag(left_drag, |drag, _, window, cx| {
-                            cx.stop_propagation();
-                            drag.mode.set(if window.modifiers().shift {
-                                ResizeMode::Stretch
-                            } else {
-                                ResizeMode::Trim
-                            });
-                            cx.new(|_| drag.clone())
-                        }),
-                )
-                .child(
-                    div()
-                        .id(("timeline-item-right-handle", item_id.get()))
-                        .absolute()
-                        .top_0()
-                        .bottom_0()
-                        .right_0()
-                        .w(px(6.))
-                        .cursor_col_resize()
-                        .bg(state.colors.primary.opacity(0.35))
-                        .on_mouse_down(
-                            MouseButton::Left,
-                            cx.listener(move |this, _, _, cx| {
-                                this.begin_item_resize(item_id, cx);
-                            }),
+                        .child(
+                            div()
+                                .id(("timeline-item-left-handle", item_id.get()))
+                                .absolute()
+                                .top_0()
+                                .bottom_0()
+                                .left_0()
+                                .w(px(6.))
+                                .cursor_col_resize()
+                                .bg(state.colors.primary.opacity(0.35))
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.begin_item_resize(item_id, cx);
+                                    }),
+                                )
+                                .on_drag(left_drag, |drag, _, window, cx| {
+                                    cx.stop_propagation();
+                                    drag.mode.set(if window.modifiers().shift {
+                                        ResizeMode::Stretch
+                                    } else {
+                                        ResizeMode::Trim
+                                    });
+                                    cx.new(|_| drag.clone())
+                                }),
                         )
-                        .on_drag(right_drag, |drag, _, window, cx| {
-                            cx.stop_propagation();
-                            drag.mode.set(if window.modifiers().shift {
-                                ResizeMode::Stretch
-                            } else {
-                                ResizeMode::Trim
-                            });
-                            cx.new(|_| drag.clone())
-                        }),
+                        .child(
+                            div()
+                                .id(("timeline-item-right-handle", item_id.get()))
+                                .absolute()
+                                .top_0()
+                                .bottom_0()
+                                .right_0()
+                                .w(px(6.))
+                                .cursor_col_resize()
+                                .bg(state.colors.primary.opacity(0.35))
+                                .on_mouse_down(
+                                    MouseButton::Left,
+                                    cx.listener(move |this, _, _, cx| {
+                                        this.begin_item_resize(item_id, cx);
+                                    }),
+                                )
+                                .on_drag(right_drag, |drag, _, window, cx| {
+                                    cx.stop_propagation();
+                                    drag.mode.set(if window.modifiers().shift {
+                                        ResizeMode::Stretch
+                                    } else {
+                                        ResizeMode::Trim
+                                    });
+                                    cx.new(|_| drag.clone())
+                                }),
+                        ),
                 )
                 .children(animation_stops.into_iter().map(|progress| {
-                    let margin_left = if progress <= f32::EPSILON {
-                        0.
-                    } else if progress >= 1. - f32::EPSILON {
-                        -5.
-                    } else {
-                        -2.5
-                    };
                     div()
                         .absolute()
                         .top(px(2.))
-                        .left(relative(progress))
-                        .ml(px(margin_left))
+                        .left(stop_left(progress, 5.))
                         .size(px(5.))
                         .rounded_full()
                         .border_1()
@@ -558,19 +562,11 @@ impl Timeline {
                         };
                         let start_editor = timeline_editor.clone();
                         let seek_transport = transport.clone();
-                        let margin_left = if progress <= f32::EPSILON {
-                            0.
-                        } else if progress >= 1. - f32::EPSILON {
-                            -8.
-                        } else {
-                            -4.
-                        };
                         div()
                             .id(("focused-animation-stop", stop))
                             .absolute()
                             .top(px(1.))
-                            .left(relative(progress))
-                            .ml(px(margin_left))
+                            .left(stop_left(progress, 8.))
                             .size(px(8.))
                             .rounded_full()
                             .border_2()
