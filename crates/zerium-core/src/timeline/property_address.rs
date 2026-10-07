@@ -55,6 +55,46 @@ pub struct PropertyAddress {
 }
 
 impl PropertyAddress {
+    /// Resolve the corresponding property on another item. Effects and array
+    /// elements match by their position, while retaining each item's own IDs.
+    pub fn on_item(&self, source: &TimelineItem, item: &TimelineItem) -> Option<Self> {
+        if source.id == item.id {
+            return Some(self.clone());
+        }
+        let mut address = self.clone();
+        address.item_id = item.id;
+        if let Some(id) = self.effect_id {
+            let index = source.effects.iter().position(|effect| effect.id == id)?;
+            let source_effect = source.effects.get(index)?;
+            let effect = item.effects.get(index)?;
+            if source_effect.plugin_id != effect.plugin_id
+                || source_effect.effect_id != effect.effect_id
+            {
+                return None;
+            }
+            address.effect_id = Some(effect.id);
+        }
+        if let Some(id) = self.element_id {
+            let PropertyValue::Array(source_elements) = source
+                .property_values(self.effect_id)?
+                .property(&self.property_id)?
+            else {
+                return None;
+            };
+            let index = source_elements
+                .iter()
+                .position(|element| element.element_id() == id)?;
+            let PropertyValue::Array(elements) = item
+                .property_values(address.effect_id)?
+                .property(&self.property_id)?
+            else {
+                return None;
+            };
+            address.element_id = Some(elements.get(index)?.element_id());
+        }
+        Some(address)
+    }
+
     pub fn path(&self) -> PropertyPath {
         PropertyPath::new(&self.property_id, self.element_id, self.scalar_index)
     }

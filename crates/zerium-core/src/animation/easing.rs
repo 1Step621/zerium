@@ -80,7 +80,7 @@ impl CubicBezier {
         if !position.iter().all(|value| value.is_finite()) {
             return false;
         }
-        let position = position.map(|value| value.clamp(0., 1.));
+        let position = [position[0].clamp(0., 1.), position[1]];
         let target = match handle {
             BezierHandle::In => &mut self.handle_in,
             BezierHandle::Out => &mut self.handle_out,
@@ -94,9 +94,7 @@ impl CubicBezier {
 
     fn is_valid(self) -> bool {
         [self.handle_out, self.handle_in].into_iter().all(|handle| {
-            handle
-                .iter()
-                .all(|value| value.is_finite() && (0. ..=1.).contains(value))
+            handle.iter().all(|value| value.is_finite()) && (0. ..=1.).contains(&handle[0])
         })
     }
 

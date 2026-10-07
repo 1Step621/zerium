@@ -6,8 +6,6 @@ use super::*;
 
 pub(super) struct SelectionView {
     pub item: TimelineItem,
-    pub item_label: String,
-    pub selected_count: usize,
     pub tree: ControlTree,
     pub available_effects: Vec<SearchPickerEntry<EffectPickerTarget>>,
     pub multiple: bool,
@@ -72,7 +70,18 @@ impl PropertyInspector {
         RenderCtx {
             colors: cx.theme().colors,
             editor: &self.editor,
-            animation_address: self.animation_selection.read(cx).address().cloned(),
+            animation_address: self
+                .animation_selection
+                .read(cx)
+                .address()
+                .and_then(|address| {
+                    let editor = self.editor.read(cx);
+                    let source = editor.evaluated_item_at(
+                        editor.item(address.item_id)?,
+                        TimelineTime::from_frame(editor.playhead()),
+                    );
+                    address.on_item(&source, &selection.item)
+                }),
             inspector: cx.entity(),
             store: &self.store,
             font_names: &self.font_names,
@@ -81,12 +90,19 @@ impl PropertyInspector {
             scene_overrides: self
                 .editor
                 .read(cx)
-                .selected_item_ids()
-                .filter_map(|id| self.editor.read(cx).item(id))
+                .items_in_scope(self.scope)
+                .into_iter()
                 .filter(|item| item.scene_id().is_some())
-                .flat_map(|item| item.properties.iter().map(|(id, _)| id.to_owned()))
+                .flat_map(|item| {
+                    item.properties
+                        .iter()
+                        .map(|(id, _)| id.to_owned())
+                        .collect::<Vec<_>>()
+                })
                 .collect(),
             item_id: selection.item.id,
+            scope: self.scope,
+            multiple: selection.multiple,
         }
     }
 
@@ -95,19 +111,14 @@ impl PropertyInspector {
             let editor = self.editor.read(cx);
             let time = zerium_core::timeline::TimelineTime::from_frame(editor.playhead());
             editor
-                .selected_items()
+                .items_in_scope(self.scope)
                 .into_iter()
                 .map(|item| editor.evaluated_item_at(&item, time))
                 .collect::<Vec<_>>()
         };
         let item = selected_items.first()?.clone();
-        let item_label = self
-            .editor
-            .read(cx)
-            .item_label(item.id)
-            .unwrap_or_else(|| t!("inspector.unknown_item").to_string());
         let multiple = selected_items.len() > 1;
-        let hidden_state = self.editor.read(cx).selected_items_hidden_state();
+        let hidden_state = self.editor.read(cx).items_hidden_state(self.scope);
         let schema = Self::selected_schema(&item);
         let effects = if multiple {
             Self::common_effects(&selected_items)
@@ -133,8 +144,6 @@ impl PropertyInspector {
         };
         Some(SelectionView {
             item,
-            item_label,
-            selected_count: selected_items.len(),
             tree: self.store.tree.clone(),
             available_effects,
             multiple,
@@ -180,9 +189,9 @@ impl PropertyInspector {
         view: SelectionView,
         cx: &mut Context<Self>,
     ) -> gpui::AnyElement {
+        let selector = self.target_selector(cx);
         let render = self.render_context(&view, cx);
-        let active_effect = self.editor.read(cx).active_edit_effect();
-        let header = Self::selection_header(&view, &render, active_effect);
+        let header = Self::selection_header(&view, &render, selector);
         let mut controls = Vec::new();
         let mut effect_controls = Vec::new();
         for control in view.tree.roots.iter().cloned() {
@@ -297,8 +306,11 @@ impl PropertyInspector {
     fn add_effect(inspector: &Entity<Self>, target: EffectPickerTarget, cx: &mut App) {
         let (plugin_id, effect_id) = target;
         inspector.update(cx, |inspector, cx| {
+            let Some(view) = inspector.selected_view(cx).filter(|view| !view.multiple) else {
+                return;
+            };
             let result = inspector.editor.update(cx, |editor, cx| {
-                let result = editor.add_selected_effect(&plugin_id, &effect_id);
+                let result = editor.add_item_effect(view.item.id, &plugin_id, &effect_id);
                 if let Ok(instance_id) = result.as_ref() {
                     editor.set_active_edit_effect(Some(*instance_id));
                     cx.notify();
@@ -332,7 +344,7 @@ impl PropertyInspector {
                     &children,
                     render,
                     render.colors.border,
-                    group.property.is_editable(None),
+                    !render.multiple && group.property.is_editable(None),
                 )),
                 GroupKind::Effect(_) => None,
             },
@@ -343,35 +355,12 @@ impl PropertyInspector {
     fn selection_header(
         view: &SelectionView,
         render: &RenderCtx<'_>,
-        active_effect: Option<EffectInstanceId>,
+        selector: gpui::AnyElement,
     ) -> Div {
         let editor = render.editor.clone();
-        let title_editor = render.editor.clone();
+        let scope = render.scope;
         pane_header(render.colors)
-            .child(
-                div()
-                    .id("item-editor-title")
-                    .min_w_0()
-                    .flex_1()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .whitespace_nowrap()
-                    .text_color(if active_effect.is_none() && !view.multiple {
-                        render.colors.primary
-                    } else {
-                        render.colors.foreground
-                    })
-                    .when(!view.multiple, |this| {
-                        this.cursor_pointer().on_click(move |_, _, cx| {
-                            Self::activate_edit_target(&title_editor, None, cx);
-                        })
-                    })
-                    .child(if view.multiple {
-                        t!("inspector.selected_item_count", count = view.selected_count).to_string()
-                    } else {
-                        view.item_label.clone()
-                    }),
-            )
+            .child(div().min_w_0().flex_1().overflow_hidden().child(selector))
             .child(
                 Button::new("toggle-selected-item-visibility")
                     .small()
@@ -393,7 +382,7 @@ impl PropertyInspector {
                     })
                     .on_click(move |_, _, cx| {
                         editor.update(cx, |editor, cx| {
-                            if editor.toggle_selected_items_visibility() {
+                            if editor.toggle_items_visibility(scope) {
                                 cx.notify();
                             }
                         });
@@ -427,8 +416,8 @@ impl PropertyInspector {
         let (can_move_up, can_move_down) = {
             let editor = render.editor.read(cx);
             (
-                editor.can_move_selected_effect(effect_id, -1),
-                editor.can_move_selected_effect(effect_id, 1),
+                editor.can_move_effect(render.scope, effect_id, -1),
+                editor.can_move_effect(render.scope, effect_id, 1),
             )
         };
         let controls = controls
@@ -470,6 +459,8 @@ impl PropertyInspector {
         render: &RenderCtx<'_>,
     ) -> Div {
         let effect_id = effect.id;
+        let scope = render.scope;
+        let item_id = render.item_id;
         let hidden = effect.hidden;
         let label = effect.label.clone();
         let title_editor = render.editor.clone();
@@ -529,7 +520,7 @@ impl PropertyInspector {
                         })
                         .on_click(move |_, _, cx| {
                             visibility_editor.update(cx, |editor, cx| {
-                                if editor.toggle_selected_effect_visibility(effect_id) {
+                                if editor.toggle_effect_visibility(scope, effect_id) {
                                     cx.notify();
                                 }
                             });
@@ -548,7 +539,7 @@ impl PropertyInspector {
                         .disabled(!can_move_up)
                         .on_click(move |_, _, cx| {
                             move_up_editor.update(cx, |editor, cx| {
-                                if editor.move_selected_effect(effect_id, -1) {
+                                if editor.move_effect(scope, effect_id, -1) {
                                     cx.notify();
                                 }
                             });
@@ -567,7 +558,7 @@ impl PropertyInspector {
                         .disabled(!can_move_down)
                         .on_click(move |_, _, cx| {
                             move_down_editor.update(cx, |editor, cx| {
-                                if editor.move_selected_effect(effect_id, 1) {
+                                if editor.move_effect(scope, effect_id, 1) {
                                     cx.notify();
                                 }
                             });
@@ -584,7 +575,7 @@ impl PropertyInspector {
                             .label(t!("common.delete").to_string())
                             .on_click(move |_, _, cx| {
                                 remove_editor.update(cx, |editor, cx| {
-                                    if editor.remove_selected_effect(effect_id) {
+                                    if editor.remove_item_effect(item_id, effect_id) {
                                         cx.notify();
                                     }
                                 });

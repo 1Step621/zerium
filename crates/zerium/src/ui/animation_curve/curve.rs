@@ -1,6 +1,12 @@
 use super::*;
 
 impl GraphCurve {
+    pub(super) fn has_handles(&self) -> bool {
+        self.interpolations
+            .iter()
+            .any(|interpolation| matches!(interpolation, SegmentInterpolation::Custom(_)))
+    }
+
     fn segment_for_handle(index: usize, handle: BezierHandle) -> Option<usize> {
         match handle {
             BezierHandle::In => index.checked_sub(1),
@@ -22,6 +28,27 @@ impl GraphCurve {
         ])
     }
 
+    /// Off-screen controls are marked where their guide reaches the plot edge.
+    pub(super) fn handle_display_position(
+        &self,
+        index: usize,
+        handle: BezierHandle,
+    ) -> Option<[f32; 2]> {
+        let position = self.handle_position(index, handle)?;
+        let edge = position[1].clamp(0., 1.);
+        if edge == position[1] {
+            return Some(position);
+        }
+        let stop = self.stops.get(index)?;
+        let span = position[1] - stop[1];
+        let progress = if span.abs() <= f32::EPSILON {
+            1.
+        } else {
+            ((edge - stop[1]) / span).clamp(0., 1.)
+        };
+        Some([stop[0] + (position[0] - stop[0]) * progress, edge])
+    }
+
     pub(super) fn local_handle_position(
         &self,
         index: usize,
@@ -41,9 +68,9 @@ impl GraphCurve {
             [
                 ((point[0] - start[0]) / dx).clamp(0., 1.),
                 if dy.abs() <= f32::EPSILON {
-                    point[1].clamp(0., 1.)
+                    point[1]
                 } else {
-                    ((point[1] - start[1]) / dy).clamp(0., 1.)
+                    (point[1] - start[1]) / dy
                 },
             ],
         ))
@@ -71,6 +98,60 @@ impl GraphCurve {
             .get(left)
             .map_or(local, |interpolation| interpolation.evaluate(local));
         start[1] + (end[1] - start[1]) * eased
+    }
+
+    fn value_range(&self, include_handles: bool) -> [f32; 2] {
+        let curve = self;
+        let samples = (0..=64).map(|index| curve.evaluate(index as f32 / 64.));
+        let handles = curve
+            .stops
+            .iter()
+            .enumerate()
+            .filter(|_| include_handles)
+            .flat_map(|(index, _)| {
+                [BezierHandle::In, BezierHandle::Out]
+                    .into_iter()
+                    .filter_map(move |handle| {
+                        curve.handle_position(index, handle).map(|point| point[1])
+                    })
+            });
+        let (minimum, maximum) = samples
+            .chain(handles)
+            .chain(self.stops.iter().map(|stop| stop[1]))
+            .fold(
+                (f32::INFINITY, f32::NEG_INFINITY),
+                |(minimum, maximum), value| (minimum.min(value), maximum.max(value)),
+            );
+        let padding = ((maximum - minimum) * 0.15).max(0.1);
+        [minimum - padding, maximum + padding]
+    }
+}
+
+impl SelectedCurve {
+    fn fitted_value_range(&self, include_handles: bool) -> [f64; 2] {
+        self.curve
+            .value_range(include_handles)
+            .map(|value| self.value_min + (self.value_max - self.value_min) * f64::from(value))
+    }
+
+    fn set_value_range(&mut self, [minimum, maximum]: [f64; 2]) {
+        for stop in &mut self.curve.stops {
+            let value = self.value_min + (self.value_max - self.value_min) * f64::from(stop[1]);
+            stop[1] = AnimationCurveEditor::normalized_value(value, minimum, maximum);
+        }
+        self.value_min = minimum;
+        self.value_max = maximum;
+    }
+}
+
+impl HandleFitTarget {
+    pub(super) fn matches(&self, selected: &SelectedCurve) -> bool {
+        selected.curve.has_handles()
+            && self.address == selected.address
+            && self.source_segment == selected.source_segment
+            && self.source_positions
+                == selected.source_stop_positions
+                    [selected.source_segment..=selected.source_segment + 1]
     }
 }
 
@@ -106,24 +187,45 @@ impl AnimationCurveEditor {
     }
 
     pub(super) fn selected_curve(&self, cx: &App) -> Option<SelectedCurve> {
+        if let Some(view) = &self.handle_drag_view {
+            let editor = self.editor.read(cx);
+            let track = editor.item(view.address.item_id)?.animation_track(
+                view.address.effect_id,
+                &view.address.property_id,
+                view.address.element_id,
+                view.address.scalar_index,
+            )?;
+            let mut selected = view.clone();
+            selected.curve.interpolations[0] = *track.interpolations().get(view.source_segment)?;
+            return Some(selected);
+        }
+        let mut selected = self.source_curve(cx)?;
+        let include_handles = self
+            .handle_fit_target
+            .as_ref()
+            .is_some_and(|target| target.matches(&selected));
+        selected.set_value_range(selected.fitted_value_range(include_handles));
+        Some(selected)
+    }
+
+    fn source_curve(&self, cx: &App) -> Option<SelectedCurve> {
         let selection = self.selection.read(cx);
         let address = selection.address()?.clone();
         let focused_segment = selection.focused_segment();
         let editor = self.editor.read(cx);
-        let item = editor.selected_item()?;
-        if item.id != address.item_id {
+        let item = editor.item(address.item_id)?;
+        if !editor.is_item_selected(item.id) {
             return None;
         }
-        let presentation = AnimationPresentation::for_address(editor, &item, &address)?;
+        let presentation = AnimationPresentation::for_address(editor, item, &address)?;
         let track = item.animation_track(
             address.effect_id,
             &address.property_id,
             address.element_id,
             address.scalar_index,
         )?;
-        let timeline_item = editor.item(item.id)?;
         let source_progress =
-            timeline_item.animation_progress_at_time(TimelineTime::from_frame(editor.playhead()));
+            item.animation_progress_at_time(TimelineTime::from_frame(editor.playhead()));
         let source_stop_positions = track
             .stops()
             .iter()
@@ -171,9 +273,9 @@ impl AnimationCurveEditor {
         };
         let frame_rate = editor.frame_rate();
         let frames_per_second = frame_rate.frames_per_second();
-        let animation_start_frame = timeline_item.animation_timeline_frame(source_progress_start);
-        let animation_span_frames = timeline_item.animation_span_frames()
-            * f64::from(source_progress_end - source_progress_start);
+        let animation_start_frame = item.animation_timeline_frame(source_progress_start);
+        let animation_span_frames =
+            item.animation_span_frames() * f64::from(source_progress_end - source_progress_start);
         let start_seconds = (animation_start_frame / frames_per_second) as f32;
         let duration_seconds = (animation_span_frames / frames_per_second) as f32;
         Some(SelectedCurve {
@@ -188,14 +290,32 @@ impl AnimationCurveEditor {
             source_stop_positions,
             source_playhead_progress: source_progress.clamp(0., 1.),
             playhead_progress,
-            clip_start: timeline_item.start,
-            clip_duration: timeline_item.duration,
+            clip_start: item.start,
+            clip_duration: item.duration,
             animation_start_frame,
             animation_span_frames,
             start_seconds,
             duration_seconds,
             frame_rate,
         })
+    }
+
+    pub(super) fn fit_value_view(&mut self, include_handles: bool, cx: &mut Context<Self>) {
+        self.handle_fit_target = if include_handles {
+            self.source_curve(cx)
+                .filter(|selected| selected.curve.has_handles())
+                .map(|selected| HandleFitTarget {
+                    source_positions: [
+                        selected.source_stop_positions[selected.source_segment],
+                        selected.source_stop_positions[selected.source_segment + 1],
+                    ],
+                    address: selected.address,
+                    source_segment: selected.source_segment,
+                })
+        } else {
+            None
+        };
+        cx.notify();
     }
 
     pub(super) fn format_number(value: impl Into<f64>) -> String {
@@ -212,19 +332,29 @@ impl AnimationCurveEditor {
         value
     }
 
-    pub(super) fn begin_handle_drag(&mut self, point: CurvePoint, cx: &mut Context<Self>) {
+    pub(super) fn begin_handle_drag(
+        &mut self,
+        point: CurvePoint,
+        synchronize: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(selected) = self.selected_curve(cx) else {
+            return;
+        };
+        let Some(edit) = self.editor.read(cx).begin_animation_edit(
+            &selected.address,
+            AnimationEditTarget::Segment(selected.source_segment),
+            synchronize,
+        ) else {
+            return;
+        };
+        self.animation_edit = Some(edit);
+        self.handle_drag_view = Some(selected);
         self.graph_interaction = GraphInteraction::HandleDrag { point };
         self.finish_playhead_scrub(cx);
         self.editor
             .update(cx, |editor, _| editor.finish_history_group());
-        self.selected_segment = None;
         cx.notify();
-    }
-
-    pub(super) fn clear_selection(&mut self, cx: &mut Context<Self>) {
-        if self.selected_segment.take().is_some() {
-            cx.notify();
-        }
     }
 
     pub(super) fn finish_history_drag(&mut self, cx: &mut Context<Self>) {

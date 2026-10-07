@@ -114,55 +114,22 @@ impl AnimationCurveEditor {
         visible.contains(&screen[0]) && visible.contains(&screen[1])
     }
 
-    pub(super) fn segment_editor_origin(graph_size: [f32; 2], screen: [f32; 2]) -> [f32; 2] {
-        let plot_width = (graph_size[0] - Self::GRAPH_INSET_LEFT - Self::GRAPH_INSET_RIGHT).max(1.);
-        let plot_height =
-            (graph_size[1] - Self::GRAPH_INSET_TOP - Self::GRAPH_INSET_BOTTOM).max(1.);
-        let point_x = Self::GRAPH_INSET_LEFT + plot_width * screen[0];
-        let point_y = Self::GRAPH_INSET_TOP + plot_height * (1. - screen[1]);
-
-        let left = if point_x <= graph_size[0] * 0.5 {
-            point_x + Self::SEGMENT_EDITOR_GAP
-        } else {
-            point_x - Self::SEGMENT_EDITOR_GAP - Self::SEGMENT_EDITOR_WIDTH
-        };
-        let top = if point_y <= graph_size[1] * 0.5 {
-            point_y + Self::SEGMENT_EDITOR_GAP
-        } else {
-            point_y - Self::SEGMENT_EDITOR_GAP - Self::SEGMENT_EDITOR_HEIGHT
-        };
-        let max_left = (graph_size[0] - Self::SEGMENT_EDITOR_WIDTH - Self::SEGMENT_EDITOR_PADDING)
-            .max(Self::SEGMENT_EDITOR_PADDING);
-        let max_top = (graph_size[1] - Self::SEGMENT_EDITOR_HEIGHT - Self::SEGMENT_EDITOR_PADDING)
-            .max(Self::SEGMENT_EDITOR_PADDING);
-
-        [
-            left.clamp(Self::SEGMENT_EDITOR_PADDING, max_left),
-            top.clamp(Self::SEGMENT_EDITOR_PADDING, max_top),
-        ]
-    }
-
-    pub(super) fn normalized_position(&self, position: gpui::Point<Pixels>) -> Option<[f32; 2]> {
-        let screen = self.graph_screen_position(position)?;
-        Some([screen[0].clamp(0., 1.), screen[1].clamp(0., 1.)])
-    }
-
-    pub(super) fn segment_at_position(
-        &self,
-        position: gpui::Point<Pixels>,
-        cx: &App,
-    ) -> Option<usize> {
+    pub(super) fn curve_contains_position(&self, position: gpui::Point<Pixels>, cx: &App) -> bool {
         const HIT_RADIUS: f32 = 8.;
         const SAMPLES_PER_SEGMENT: usize = 48;
 
-        let bounds = self.graph_bounds?;
-        let selected = self.selected_curve(cx)?;
+        let Some(bounds) = self.graph_bounds else {
+            return false;
+        };
+        let Some(selected) = self.selected_curve(cx) else {
+            return false;
+        };
         let plot_width =
             f32::from(bounds.size.width) - Self::GRAPH_INSET_LEFT - Self::GRAPH_INSET_RIGHT;
         let plot_height =
             f32::from(bounds.size.height) - Self::GRAPH_INSET_TOP - Self::GRAPH_INSET_BOTTOM;
         if plot_width <= 0. || plot_height <= 0. {
-            return None;
+            return false;
         }
         let pointer = [
             f32::from(position.x - bounds.origin.x),
@@ -175,37 +142,21 @@ impl AnimationCurveEditor {
             ]
         };
 
-        selected
-            .curve
-            .stops
-            .windows(2)
-            .enumerate()
-            .filter_map(|(segment, stops)| {
-                let start_progress = stops[0][0];
-                let end_progress = stops[1][0];
-                let mut previous =
-                    to_pixel([start_progress, selected.curve.evaluate(start_progress)]);
-                let mut distance = f32::INFINITY;
-                for step in 1..=SAMPLES_PER_SEGMENT {
-                    let progress = start_progress
-                        + (end_progress - start_progress) * step as f32
-                            / SAMPLES_PER_SEGMENT as f32;
-                    let current = to_pixel([progress, selected.curve.evaluate(progress)]);
-                    distance =
-                        distance.min(squared_distance_to_line_segment(pointer, previous, current));
-                    previous = current;
-                }
-                (distance <= HIT_RADIUS * HIT_RADIUS).then_some((segment, distance))
-            })
-            .min_by(|left, right| left.1.total_cmp(&right.1))
-            .map(|(segment, _)| segment)
-    }
-
-    fn set_selected_segment(&mut self, segment: usize, cx: &mut Context<Self>) {
-        self.editor
-            .update(cx, |editor, _| editor.finish_history_group());
-        self.selected_segment = Some(segment);
-        cx.notify();
+        selected.curve.stops.windows(2).any(|stops| {
+            let start_progress = stops[0][0];
+            let end_progress = stops[1][0];
+            let mut previous = to_pixel([start_progress, selected.curve.evaluate(start_progress)]);
+            let mut distance = f32::INFINITY;
+            for step in 1..=SAMPLES_PER_SEGMENT {
+                let progress = start_progress
+                    + (end_progress - start_progress) * step as f32 / SAMPLES_PER_SEGMENT as f32;
+                let current = to_pixel([progress, selected.curve.evaluate(progress)]);
+                distance =
+                    distance.min(squared_distance_to_line_segment(pointer, previous, current));
+                previous = current;
+            }
+            distance <= HIT_RADIUS * HIT_RADIUS
+        })
     }
 
     pub(super) fn focus_source_segment(&mut self, segment: usize, cx: &mut Context<Self>) {
@@ -226,7 +177,6 @@ impl AnimationCurveEditor {
         self.editor
             .update(cx, |editor, _| editor.finish_history_group());
         self.selection.read(cx).focus_segment(segment);
-        self.selected_segment = None;
         self.transport
             .update(cx, |transport, cx| transport.seek(frame, cx));
         cx.notify();
@@ -248,7 +198,7 @@ impl AnimationCurveEditor {
             self.graph_interaction = GraphInteraction::Idle;
             return;
         }
-        let mode = if self.segment_at_position(position, cx).is_some() {
+        let mode = if self.curve_contains_position(position, cx) {
             GraphPressMode::Curve
         } else {
             GraphPressMode::EmptySpace
@@ -284,6 +234,7 @@ impl AnimationCurveEditor {
         // Mouse-up can be lost outside the window. A hover must never continue
         // or promote a stale press into a scrub when the pointer returns.
         if event.pressed_button != Some(MouseButton::Left) {
+            self.end_pointer_drag(cx);
             self.end_graph_press(cx);
             return;
         }
@@ -329,8 +280,8 @@ impl AnimationCurveEditor {
         self.finish_playhead_scrub(cx);
     }
 
-    /// A drag-turned-scrub is swallowed; otherwise the displayed segment is
-    /// selected or the playhead seeks to the clicked position.
+    /// A completed scrub consumes its click. Curve clicks leave the playhead
+    /// in place; empty-space clicks seek to their timeline position.
     pub(super) fn resolve_graph_click(
         &mut self,
         position: gpui::Point<Pixels>,
@@ -341,10 +292,7 @@ impl AnimationCurveEditor {
             return;
         }
         self.graph_interaction = GraphInteraction::Idle;
-        if let Some(segment) = self.segment_at_position(position, cx) {
-            self.set_selected_segment(segment, cx);
-        } else {
-            self.clear_selection(cx);
+        if !self.curve_contains_position(position, cx) {
             let in_plot = self
                 .graph_screen_position(position)
                 .is_some_and(|screen| (0. ..=1.).contains(&screen[0]));
@@ -353,14 +301,6 @@ impl AnimationCurveEditor {
                     .update(cx, |transport, cx| transport.seek(frame, cx));
             }
         }
-    }
-
-    /// Placement point for the selected-segment floating panel.
-    pub(super) fn segment_panel_position(curve: &GraphCurve, segment: usize) -> Option<[f32; 2]> {
-        let end = segment.checked_add(1)?;
-        let stops = curve.stops.get(segment..=end)?;
-        let midpoint = (stops[0][0] + stops[1][0]) * 0.5;
-        Some([midpoint, curve.evaluate(midpoint).clamp(0., 1.)])
     }
 
     pub(super) fn frame_at_progress(selected: &SelectedCurve, progress: f32) -> Frame {

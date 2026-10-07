@@ -1,4 +1,5 @@
 use super::*;
+use zerium_core::timeline::{EditScope, PropertyAddress};
 
 impl Preview {
     fn update_pair_property(
@@ -9,7 +10,10 @@ impl Preview {
         target: PreviewEditTarget,
         value: [f32; 2],
     ) -> bool {
-        let Some(item) = editor.selected_item().filter(|item| item.id == item_id) else {
+        let Some(item) = editor
+            .single_selected_item()
+            .filter(|item| item.id == item_id)
+        else {
             return false;
         };
         let schema = match effect_id {
@@ -27,20 +31,19 @@ impl Preview {
         else {
             return false;
         };
+        let address = PropertyAddress {
+            item_id,
+            effect_id,
+            property_id: property_id.to_owned(),
+            element_id: None,
+            scalar_index: None,
+        };
         match target {
-            PreviewEditTarget::Property => editor.update_selected_property(
-                effect_id,
-                PropertyPath::new(property_id, None, None),
-                value,
-            ),
+            PreviewEditTarget::Property => {
+                editor.update_property(EditScope::Item(item_id), &address, value)
+            }
             PreviewEditTarget::Keyframe(progress) => Self::f32_pair(&value).is_some_and(|value| {
-                editor.set_selected_property_animation_pair_stop_at(
-                    effect_id,
-                    property_id,
-                    None,
-                    progress,
-                    value,
-                )
+                editor.set_property_animation_pair_stop_at(&address, progress, value)
             }),
         }
     }
@@ -125,11 +128,17 @@ impl Preview {
             let changed = match origin.target {
                 PreviewEditTarget::Property => {
                     editor
-                        .selected_item()
+                        .single_selected_item()
                         .is_some_and(|item| item.id == origin.item_id)
-                        && editor.update_selected_property(
-                            origin.effect_id,
-                            PropertyPath::new(&origin.property_id, None, Some(axis)),
+                        && editor.update_property(
+                            EditScope::Item(origin.item_id),
+                            &PropertyAddress {
+                                item_id: origin.item_id,
+                                effect_id: origin.effect_id,
+                                property_id: origin.property_id.clone(),
+                                element_id: None,
+                                scalar_index: Some(axis),
+                            },
                             PropertyValue::F32(size[axis]),
                         )
                 }
@@ -321,12 +330,12 @@ impl Preview {
         *element.value_mut() = PropertyValue::f32_tuple(point);
         self.editor.update(cx, |editor, cx| {
             if editor
-                .selected_item()
+                .single_selected_item()
                 .is_none_or(|item| item.id != origin.item_id)
             {
                 return;
             }
-            let value = editor.selected_item().and_then(|item| {
+            let value = editor.single_selected_item().and_then(|item| {
                 let schema = match origin.effect_id {
                     Some(effect_id) => item
                         .effects
@@ -343,17 +352,27 @@ impl Preview {
                     .element(Some(origin.element_id))
                     .and_then(Self::f32_pair)
                     .is_some_and(|value| {
-                        editor.set_selected_property_animation_pair_stop_at(
-                            origin.effect_id,
-                            &origin.property_id,
-                            Some(origin.element_id),
+                        editor.set_property_animation_pair_stop_at(
+                            &PropertyAddress {
+                                item_id: origin.item_id,
+                                effect_id: origin.effect_id,
+                                property_id: origin.property_id.clone(),
+                                element_id: Some(origin.element_id),
+                                scalar_index: None,
+                            },
                             progress,
                             value,
                         )
                     }),
-                PreviewEditTarget::Property => editor.update_selected_property(
-                    origin.effect_id,
-                    PropertyPath::new(&origin.property_id, None, None),
+                PreviewEditTarget::Property => editor.update_property(
+                    EditScope::Item(origin.item_id),
+                    &PropertyAddress {
+                        item_id: origin.item_id,
+                        effect_id: origin.effect_id,
+                        property_id: origin.property_id.clone(),
+                        element_id: None,
+                        scalar_index: None,
+                    },
                     value,
                 ),
             });

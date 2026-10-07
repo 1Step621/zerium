@@ -86,6 +86,7 @@ impl PropertyInspector {
             } => {
                 let editor = ctx.editor.clone();
                 let effect_id = *effect_id;
+                let scope = ctx.scope;
                 let checked = *locked && !mixed;
                 div()
                     .flex()
@@ -113,8 +114,7 @@ impl PropertyInspector {
                             })
                             .on_click(move |checked, _, cx| {
                                 editor.update(cx, |editor, cx| {
-                                    if editor
-                                        .update_selected_aspect_ratio_locked(effect_id, *checked)
+                                    if editor.update_aspect_ratio_locked(scope, effect_id, *checked)
                                     {
                                         cx.notify();
                                     }
@@ -129,14 +129,10 @@ impl PropertyInspector {
         target: &PropertyTarget,
         spec: &NumericInputSpec,
         input: &Entity<InputState>,
-        presentation: DraggableNumberInput,
+        input_id: &ControlId,
         disabled: bool,
         ctx: &RenderCtx,
     ) -> gpui::AnyElement {
-        let DraggableNumberInput {
-            id: input_id,
-            animation_stop,
-        } = presentation;
         let value_input = NumberInput::new(input)
             .small()
             .min_w_0()
@@ -151,16 +147,7 @@ impl PropertyInspector {
             input,
             value_input,
             disabled,
-            move |this, event, cx| {
-                this.prepare_value_drag(
-                    &target,
-                    &spec,
-                    &prepare_id,
-                    animation_stop.clone(),
-                    event,
-                    cx,
-                )
-            },
+            move |this, event, cx| this.prepare_value_drag(&target, &spec, &prepare_id, event, cx),
         )
     }
 
@@ -180,14 +167,7 @@ impl PropertyInspector {
                     &common.target,
                     spec,
                     &input,
-                    DraggableNumberInput {
-                        id: stop.id.clone(),
-                        animation_stop: Some(AnimationStopBinding::new(
-                            ctx.item_id,
-                            common.target.effect_id,
-                            stop,
-                        )),
-                    },
+                    &stop.id,
                     disabled,
                     ctx,
                 ))
@@ -199,32 +179,16 @@ impl PropertyInspector {
         if stop_inputs.len() == 2 {
             let end = stop_inputs.pop().expect("two stop inputs");
             let start = stop_inputs.pop().expect("two stop inputs");
-            return Self::animation_stop_inputs(
-                start,
-                end,
-                Icon::new(IconName::ArrowRight)
-                    .xsmall()
-                    .text_color(ctx.colors.muted_foreground),
-            )
-            .into_any_element();
+            return Self::animation_stop_inputs(start, end, ctx.colors.muted_foreground)
+                .into_any_element();
         }
-        Self::draggable_number_input(
-            &common.target,
-            spec,
-            input,
-            DraggableNumberInput {
-                id: common.id.clone(),
-                animation_stop: None,
-            },
-            disabled,
-            ctx,
-        )
+        Self::draggable_number_input(&common.target, spec, input, &common.id, disabled, ctx)
     }
 
     fn animation_stop_inputs(
         start: gpui::AnyElement,
         end: gpui::AnyElement,
-        arrow: impl IntoElement,
+        foreground: gpui::Hsla,
     ) -> Div {
         div()
             .min_w_0()
@@ -232,9 +196,13 @@ impl PropertyInspector {
             .flex()
             .items_center()
             .gap_1()
-            .child(start)
-            .child(arrow)
-            .child(end)
+            .child(div().w_0().min_w_0().flex_1().flex().child(start))
+            .child(
+                Icon::new(IconName::ArrowRight)
+                    .xsmall()
+                    .text_color(foreground),
+            )
+            .child(div().w_0().min_w_0().flex_1().flex().child(end))
     }
 
     pub(super) fn text_editor(
@@ -264,51 +232,47 @@ impl PropertyInspector {
                 .h(px(28.))
                 .flex()
                 .items_center()
-                .child(
-                    div()
-                        .size(px(24.))
-                        .rounded_md()
-                        .border_1()
-                        .border_color(ctx.colors.border)
-                        .bg(color)
-                        .opacity(0.55),
-                )
+                .when(common.mixed, |this| this.child("—"))
+                .when(!common.mixed, |this| {
+                    this.child(
+                        div()
+                            .size(px(24.))
+                            .rounded_md()
+                            .border_1()
+                            .border_color(ctx.colors.border)
+                            .bg(color)
+                            .opacity(0.55),
+                    )
+                })
                 .into_any_element();
         }
-        let stop_inputs = common
+        let mut stop_inputs = common
             .animation_stops
             .iter()
-            .filter_map(|stop| ctx.store.color(&stop.id))
+            .filter_map(|stop| {
+                let picker = ctx.store.color(&stop.id)?;
+                Some(
+                    ColorPicker::new(&picker)
+                        .small()
+                        .w_full()
+                        .when(stop.edit.mixed, |picker| picker.label("—"))
+                        .into_any_element(),
+                )
+            })
             .collect::<Vec<_>>();
-        if let [picker] = stop_inputs.as_slice() {
-            return ColorPicker::new(picker).small().w_full().into_any_element();
+        if stop_inputs.len() == 1 {
+            return stop_inputs.remove(0);
         }
-        if let [start, end] = stop_inputs.as_slice() {
-            return div()
-                .min_w_0()
-                .flex_1()
-                .flex()
-                .items_center()
-                .gap_1()
-                .child(
-                    div()
-                        .min_w_0()
-                        .flex_1()
-                        .child(ColorPicker::new(start).small().w_full()),
-                )
-                .child(
-                    Icon::new(IconName::ArrowRight)
-                        .xsmall()
-                        .text_color(ctx.colors.muted_foreground),
-                )
-                .child(
-                    div()
-                        .min_w_0()
-                        .flex_1()
-                        .child(ColorPicker::new(end).small().w_full()),
-                )
+        if stop_inputs.len() == 2 {
+            let end = stop_inputs.pop().expect("two stop inputs");
+            let start = stop_inputs.pop().expect("two stop inputs");
+            return Self::animation_stop_inputs(start, end, ctx.colors.muted_foreground)
                 .into_any_element();
         }
-        ColorPicker::new(picker).small().w_full().into_any_element()
+        ColorPicker::new(picker)
+            .small()
+            .w_full()
+            .when(common.mixed, |picker| picker.label("—"))
+            .into_any_element()
     }
 }

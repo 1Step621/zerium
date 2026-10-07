@@ -1,4 +1,4 @@
-import package::generated::host::effect::{effect_input, context, ZeriumVertex, vertex, sample_or_transparent};
+import package::generated::host::effect::{effect_input, ZeriumVertex, vertex, uv_to_position, position_to_uv, sample_or_transparent};
 import package::generated::translate::props;
 
 @vertex
@@ -10,17 +10,17 @@ fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {
 fn fragment_main(input: ZeriumVertex) -> @location(0) vec4<f32> {
     let properties = props();
     let offset = vec2(properties.offset.v0, properties.offset.v1);
-    let source_uv = input.uv - offset / context().surface_size;
+    let source_uv = position_to_uv(uv_to_position(input.uv) - offset);
 
-    // Preserve exact texels for zero and integer-pixel movement. Fractional
-    // movement, or a preview scaled away from the composition resolution,
-    // still uses the filtered path for smooth motion.
+    // Preserve exact texels when the mapped position lands on a texel center.
+    // Test in source pixels so different surface origins, pixel-aligned bounds,
+    // and preview resolutions also work with fractional movement.
     let source_size = vec2<f32>(textureDimensions(effect_input));
-    let pixel_offset = offset * source_size / context().surface_size;
-    let rounded_offset = round(pixel_offset);
-    let source_position = vec2<i32>(floor(source_uv * source_size));
+    let source_texel = source_uv * source_size - vec2(0.5);
+    let rounded_texel = round(source_texel);
+    let source_position = vec2<i32>(rounded_texel);
     let source_size_i = vec2<i32>(textureDimensions(effect_input));
-    if all(abs(pixel_offset - rounded_offset) < vec2(0.0001))
+    if all(abs(source_texel - rounded_texel) < vec2(0.0001))
         && all(source_position >= vec2<i32>(0, 0))
         && all(source_position < source_size_i)
     {

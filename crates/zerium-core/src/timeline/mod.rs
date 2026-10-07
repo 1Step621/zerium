@@ -17,7 +17,10 @@ mod view;
 mod visibility;
 
 pub use aspect_ratio::AspectRatio;
-pub use commands::{SceneArgumentEditError, TimelineEditError};
+pub use commands::{
+    AnimationEdit, AnimationEditTarget, AnimationStopEdit, SceneArgumentEditError,
+    TimelineEditError,
+};
 pub use document::TimelineDocument;
 pub use document::{ResizeEdge, ResizeMode};
 pub use editor::TimelineEditor;
@@ -30,6 +33,7 @@ pub use scene::{
     SceneArgument, SceneArgumentPreset, SceneBindingOwner, SceneBindingTarget,
     resolve_scene_binding,
 };
+pub use selection::EditScope;
 pub use settings::ProjectResolution;
 pub use time::{Frame, FrameDuration, FrameRate, TimelineTime};
 pub use time_mapping::TimeMapping;

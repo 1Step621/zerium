@@ -13,7 +13,7 @@ pub(crate) use selection::AnimationSelection;
 use std::cell::Cell;
 
 use ::ui::{
-    ActiveTheme as _, Colorize as _, Sizable as _,
+    ActiveTheme as _, Colorize as _, Icon, IconName, Sizable as _,
     button::Button,
     menu::{PopupMenuItem, context_menu::ContextMenuExt as _},
 };
@@ -25,7 +25,10 @@ use gpui::{
 
 use zerium_core::{
     animation::{BezierHandle, EasingDirection, EasingFamily, SegmentInterpolation},
-    timeline::{Frame, FrameDuration, FrameRate, PropertyAddress, TimelineEditor, TimelineTime},
+    timeline::{
+        AnimationEdit, AnimationEditTarget, Frame, FrameDuration, FrameRate, PropertyAddress,
+        TimelineEditor, TimelineTime,
+    },
 };
 
 use super::{
@@ -92,7 +95,6 @@ impl Render for StopPositionDrag {
 struct CurvePaintState {
     curve: GraphCurve,
     playhead_progress: f32,
-    selected_segment: Option<usize>,
     grid: CurveGrid,
     grid_major: Hsla,
     grid_minor: Hsla,
@@ -145,15 +147,25 @@ struct GraphCurve {
     interpolations: Vec<SegmentInterpolation>,
 }
 
+/// Include handles when fitting this interval.
+struct HandleFitTarget {
+    address: PropertyAddress,
+    source_segment: usize,
+    source_positions: [f32; 2],
+}
+
 pub(crate) struct AnimationCurveEditor {
     editor: Entity<TimelineEditor>,
     transport: Entity<TransportController>,
     selection: Entity<AnimationSelection>,
     focus_handle: FocusHandle,
     graph_bounds: Option<Bounds<Pixels>>,
-    selected_segment: Option<usize>,
     scrubbing_playhead: bool,
     graph_interaction: GraphInteraction,
+    animation_edit: Option<AnimationEdit>,
+    // Freeze the interval and value range for the duration of a handle drag.
+    handle_drag_view: Option<SelectedCurve>,
+    handle_fit_target: Option<HandleFitTarget>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -163,10 +175,6 @@ impl AnimationCurveEditor {
     const GRAPH_INSET_TOP: f32 = 24.;
     const GRAPH_INSET_BOTTOM: f32 = 28.;
     const SCREEN_EDGE_EPSILON: f32 = 0.001;
-    const SEGMENT_EDITOR_WIDTH: f32 = 240.;
-    const SEGMENT_EDITOR_HEIGHT: f32 = 64.;
-    const SEGMENT_EDITOR_GAP: f32 = 12.;
-    const SEGMENT_EDITOR_PADDING: f32 = 8.;
     const OVERVIEW_STOP_HANDLE_WIDTH: f32 = 12.;
     const OVERVIEW_SNAP_DISTANCE: f32 = 8.;
     /// Pointer travel that promotes a graph press from "possible click" to a
@@ -182,7 +190,8 @@ impl AnimationCurveEditor {
         let subscriptions = vec![
             cx.observe(&editor, |_, _, cx| cx.notify()),
             cx.observe(&selection, |this, _, cx| {
-                this.selected_segment = None;
+                this.end_pointer_drag(cx);
+                this.handle_fit_target = None;
                 cx.notify();
             }),
             cx.observe(&transport, |_, _, cx| cx.notify()),
@@ -193,9 +202,11 @@ impl AnimationCurveEditor {
             selection,
             focus_handle: cx.focus_handle(),
             graph_bounds: None,
-            selected_segment: None,
             scrubbing_playhead: false,
             graph_interaction: GraphInteraction::Idle,
+            animation_edit: None,
+            handle_drag_view: None,
+            handle_fit_target: None,
             _subscriptions: subscriptions,
         }
     }

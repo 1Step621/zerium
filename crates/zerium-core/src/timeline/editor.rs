@@ -8,7 +8,6 @@ use std::{
 };
 
 use crate::{
-    animation::BezierHandle,
     plugin::PluginRegistry,
     property::{PropertyElementId, PropertySchema, materialized_property_values},
 };
@@ -20,9 +19,9 @@ use super::{
     ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId},
     item::TimelineItem,
     project::TimelineProject,
-    property_address::{property_schemas, resolve_property_schema},
+    property_address::{PropertyAddress, property_schemas, resolve_property_schema},
     scene::SceneDefinition,
-    selection::SelectionState,
+    selection::{EditScope, SelectionState},
     settings::{ProjectResolution, ProjectSettingsError},
     time::{Frame, FrameRate, TimelineTime},
     view::TimelineSnapshot,
@@ -50,14 +49,7 @@ pub(super) enum HistoryKey {
     ItemCreation(ItemId),
     Property(Vec<(ItemId, Option<EffectInstanceId>)>, String),
     AspectRatioLock(Vec<(ItemId, Option<EffectInstanceId>)>),
-    AnimationStopValue(
-        ItemId,
-        Option<EffectInstanceId>,
-        String,
-        Option<PropertyElementId>,
-        Option<usize>,
-        Frame,
-    ),
+    AnimationStopValue(Vec<PropertyAddress>, Frame),
     AnimationPairStopValue(
         ItemId,
         Option<EffectInstanceId>,
@@ -65,23 +57,7 @@ pub(super) enum HistoryKey {
         Option<PropertyElementId>,
         Frame,
     ),
-    AnimationHandle(
-        ItemId,
-        Option<EffectInstanceId>,
-        String,
-        Option<PropertyElementId>,
-        Option<usize>,
-        usize,
-        BezierHandle,
-    ),
-    AnimationStopPosition(
-        ItemId,
-        Option<EffectInstanceId>,
-        String,
-        Option<PropertyElementId>,
-        Option<usize>,
-        usize,
-    ),
+    AnimationGesture(u64),
     ItemResize(ItemId, ResizeEdge, ResizeMode),
     ItemsResize(Vec<ItemId>, ResizeEdge, ResizeMode),
     ItemMove(ItemId),
@@ -504,13 +480,13 @@ impl TimelineEditor {
     }
 
     pub fn selected_items(&self) -> Vec<TimelineItem> {
-        let mut ids = self.selection.sorted_current();
-        if let Some(primary) = self.selection.primary
-            && let Some(index) = ids.iter().position(|id| *id == primary)
-        {
-            ids.swap(0, index);
-        }
-        ids.into_iter()
+        self.items_in_scope(EditScope::Selection)
+    }
+
+    pub fn items_in_scope(&self, scope: EditScope) -> Vec<TimelineItem> {
+        scope
+            .item_ids(self)
+            .into_iter()
             .filter_map(|id| self.active_document().item(id))
             .map(|item| self.materialized_item(item))
             .collect()
@@ -533,16 +509,31 @@ impl TimelineEditor {
         }
     }
 
-    pub fn selected_item(&self) -> Option<TimelineItem> {
+    /// Returns an item only when exactly one item is selected.
+    pub fn single_selected_item(&self) -> Option<TimelineItem> {
+        if self.selection.current.len() != 1 {
+            return None;
+        }
         self.selection
-            .primary
-            .and_then(|id| self.active_document().item(id))
+            .current
+            .iter()
+            .next()
+            .and_then(|id| self.item(*id))
             .map(|item| self.materialized_item(item))
+    }
+
+    /// A selection supplies a placement layer only when all its items agree.
+    pub fn selected_items_layer(&self) -> Option<LayerId> {
+        let mut layers = self
+            .selected_item_ids()
+            .filter_map(|id| self.item_layer(id));
+        let layer = layers.next()?;
+        layers.all(|candidate| candidate == layer).then_some(layer)
     }
 
     pub fn active_edit_effect(&self) -> Option<EffectInstanceId> {
         let (item_id, effect_id) = self.active_edit_target?;
-        if self.selection.current.len() != 1 || self.selection.primary != Some(item_id) {
+        if self.selection.current.len() != 1 || !self.selection.current.contains(&item_id) {
             return None;
         }
         self.active_document()
@@ -555,10 +546,7 @@ impl TimelineEditor {
 
     pub fn set_active_edit_effect(&mut self, effect_id: Option<EffectInstanceId>) -> bool {
         let next = effect_id.and_then(|effect_id| {
-            let item_id = self.selection.primary?;
-            if self.selection.current.len() != 1 {
-                return None;
-            }
+            let item_id = self.single_selected_item()?.id;
             self.active_document()
                 .item(item_id)?
                 .effects
@@ -645,46 +633,36 @@ impl TimelineEditor {
     }
 
     pub fn selected_items_hidden_state(&self) -> Option<bool> {
+        self.items_hidden_state(EditScope::Selection)
+    }
+
+    pub fn items_hidden_state(&self, scope: EditScope) -> Option<bool> {
         self.visibility
-            .selected_items_hidden_state(&self.selection.current)
+            .selected_items_hidden_state(&scope.item_ids(self).into_iter().collect())
     }
 
     pub fn is_effect_hidden(&self, effect_id: EffectInstanceId) -> bool {
         self.visibility.is_effect_hidden(effect_id)
     }
 
-    pub fn can_move_selected_effect(
+    pub fn can_move_effect(
         &self,
-        primary_effect_id: EffectInstanceId,
+        scope: EditScope,
+        effect_id: EffectInstanceId,
         offset: i32,
     ) -> bool {
-        let Some(primary_item_id) = self.selection.primary else {
-            return false;
-        };
-        let Some(primary_item) = self.active_document().item(primary_item_id) else {
-            return false;
-        };
-        let Some(source_index) = primary_item
-            .effects
-            .iter()
-            .position(|effect| effect.id == primary_effect_id)
-        else {
+        let Some((source_index, effects)) = self.effect_instances(scope, effect_id) else {
             return false;
         };
         let Some(target_index) = source_index.checked_add_signed(offset as isize) else {
             return false;
         };
-        self.selected_effect_instances(primary_effect_id)
-            .is_some_and(|effects| {
-                !effects.is_empty()
-                    && effects.iter().all(|(item_id, effect_id)| {
-                        self.active_document().item(*item_id).is_some_and(|item| {
-                            target_index < item.effects.len()
-                                && item.effects.get(source_index).map(|effect| effect.id)
-                                    == Some(*effect_id)
-                        })
-                    })
+        effects.iter().all(|(item_id, effect_id)| {
+            self.item(*item_id).is_some_and(|item| {
+                target_index < item.effects.len()
+                    && item.effects.get(source_index).map(|effect| effect.id) == Some(*effect_id)
             })
+        })
     }
 
     pub fn item_time_ranges(&self) -> impl Iterator<Item = (ItemId, Frame, Frame)> + '_ {

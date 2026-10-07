@@ -14,7 +14,7 @@ use rust_i18n::t;
 use std::path::{Path, PathBuf};
 use zerium_core::{
     property::{PropertyUi, PropertyValue, ScalarPropertyType},
-    timeline::{PropertyAddress, SceneId, TimelineEditor},
+    timeline::{EditScope, PropertyAddress, SceneId, TimelineEditor},
 };
 
 #[derive(Clone)]
@@ -254,11 +254,11 @@ impl FileInputController {
                     .map_err(|error| error.to_string())
             }
             FileTarget::Property(address) => {
-                if editor.selected_item().map(|item| item.id) != Some(address.item_id) {
+                if !editor.is_item_selected(address.item_id) {
                     return Err("Selection changed".into());
                 }
                 editor
-                    .edit_selected_property(address.effect_id, address.path(), value)
+                    .edit_property(EditScope::Item(address.item_id), &address, value)
                     .map_err(|error| error.to_string())
             }
         }

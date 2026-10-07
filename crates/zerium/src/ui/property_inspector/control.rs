@@ -21,11 +21,7 @@ pub(super) struct LeafControl {
 #[derive(Clone)]
 pub(super) struct AnimationStopControl {
     pub id: ControlId,
-    pub index: usize,
-    pub property_id: String,
-    pub element_id: Option<PropertyElementId>,
-    pub scalar_index: Option<usize>,
-    pub value: PropertyValue,
+    pub edit: AnimationStopEdit,
 }
 
 #[derive(Clone)]
@@ -132,18 +128,6 @@ impl Control {
         }
     }
 
-    pub(super) fn common_mut(&mut self) -> Option<&mut LeafControl> {
-        match self {
-            Self::Number(control) => Some(&mut control.common),
-            Self::Text(control) => Some(&mut control.common),
-            Self::Bool(control) => Some(control),
-            Self::Choice(control) => Some(&mut control.common),
-            Self::Color(control) => Some(control),
-            Self::File(control) => Some(control),
-            Self::Group { .. } => None,
-        }
-    }
-
     pub(super) fn property_id(&self) -> &str {
         self.common()
             .map(|common| common.target.property_id.as_str())
@@ -157,19 +141,6 @@ impl Control {
             })
             .unwrap_or("")
     }
-
-    pub(super) fn disable_animation(&mut self) {
-        if let Some(common) = self.common_mut() {
-            common.animatable = false;
-            common.animation_enabled = false;
-            common.animation_stops.clear();
-        }
-        if let Self::Group { children, .. } = self {
-            for child in children {
-                child.disable_animation();
-            }
-        }
-    }
 }
 
 #[derive(Clone, Default)]
@@ -177,7 +148,24 @@ pub(super) struct ControlTree {
     pub roots: Vec<Control>,
 }
 
+impl ControlTree {
+    pub(super) fn animation_stop(&self, id: &ControlId) -> Option<&AnimationStopControl> {
+        fn find<'a>(controls: &'a [Control], id: &ControlId) -> Option<&'a AnimationStopControl> {
+            controls.iter().find_map(|control| match control {
+                Control::Group { children, .. } => find(children, id),
+                _ => control
+                    .common()?
+                    .animation_stops
+                    .iter()
+                    .find(|stop| &stop.id == id),
+            })
+        }
+        find(&self.roots, id)
+    }
+}
+
 pub(super) struct ControlResolution<'a> {
+    pub editor: &'a TimelineEditor,
     pub item: &'a TimelineItem,
     pub selected_items: &'a [TimelineItem],
     pub playhead: TimelineTime,
@@ -240,21 +228,21 @@ impl PropertyInspector {
             }
             .schema(editor)
         };
-        let Some(primary_property) = items.first().and_then(schema) else {
+        let Some(shared_property) = items.first().and_then(schema) else {
             return false;
         };
         items.iter().skip(1).all(|item| {
             schema(item).is_some_and(|property| {
-                property.is_visible() && property.ty() == primary_property.ty()
+                property.is_visible() && property.ty() == shared_property.ty()
             })
         })
     }
 
     pub(super) fn common_effects(items: &[TimelineItem]) -> Vec<EffectInstance> {
-        let Some(primary) = items.first() else {
+        let Some(first) = items.first() else {
             return Vec::new();
         };
-        primary
+        first
             .effects
             .iter()
             .enumerate()
@@ -624,12 +612,20 @@ impl PropertyInspector {
         resolution: &ControlResolution<'_>,
         common: &mut LeafControl,
         ty: &PropertyType,
-        animation_visible: bool,
     ) {
-        common.animation_enabled = common.target.animation_enabled(resolution.item);
+        let multiple = resolution.selected_items.len() > 1;
+        common.animatable &= !multiple;
+        common.animation_enabled = common
+            .target
+            .animation_enabled(resolution.item, resolution.selected_items);
+        if common.animation_enabled {
+            let stops = Self::animation_stop_controls(resolution, &common.target);
+            common.read_only |= stops.is_none();
+            common.animation_stops = stops.unwrap_or_default();
+        }
         common.binding = Self::scene_field_binding(
             resolution.editing_scene,
-            animation_visible,
+            common.animation_enabled,
             common.scene_bindable,
             SceneBindingTarget::new(
                 resolution.item.id,
@@ -646,36 +642,25 @@ impl PropertyInspector {
         });
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn animation_stop_controls(
-        item: &TimelineItem,
-        effect_id: Option<EffectInstanceId>,
-        property_id: &str,
-        element_id: Option<PropertyElementId>,
-        scalar_index: Option<usize>,
-        property: &InspectorPath,
-        time: TimelineTime,
-    ) -> Vec<AnimationStopControl> {
-        let progress = item.animation_progress_at_time(time);
-        let Some(track) = item.animation_track(effect_id, property_id, element_id, scalar_index)
-        else {
-            return Vec::new();
-        };
-        track
-            .stop_indices_for_segment(progress)
-            .into_iter()
-            .filter_map(|index| {
-                let stop = track.stops().get(index)?;
-                Some(AnimationStopControl {
-                    id: ControlId::animation_stop(property, index),
-                    index,
-                    property_id: property_id.to_owned(),
-                    element_id,
-                    scalar_index,
-                    value: stop.value().clone(),
+        resolution: &ControlResolution<'_>,
+        target: &PropertyTarget,
+    ) -> Option<Vec<AnimationStopControl>> {
+        Some(
+            resolution
+                .editor
+                .property_animation_stops(
+                    resolution.selected_items,
+                    &target.address(resolution.item.id),
+                    resolution.playhead,
+                )?
+                .into_iter()
+                .map(|edit| AnimationStopControl {
+                    id: ControlId::animation_stop(&target.key, edit.index()),
+                    edit,
                 })
-            })
-            .collect()
+                .collect(),
+        )
     }
 
     fn resolve_leaf(
@@ -690,74 +675,34 @@ impl PropertyInspector {
                     resolution,
                     common,
                     &PropertyType::Value(PropertyValueType::Scalar(scalar_type.clone())),
-                    false,
                 );
                 common.read_only |= resolution.selected_items.len() > 1;
             }
-            Control::Number(number) => {
-                let animation_enabled = number.common.target.animation_enabled(resolution.item);
-                Self::resolve_common(
-                    resolution,
-                    &mut number.common,
-                    &PropertyType::Value(PropertyValueType::Scalar(
-                        number.spec.scalar_type.clone(),
-                    )),
-                    animation_enabled,
-                );
-                number.common.animation_enabled = animation_enabled;
-                number.common.animation_stops = if animation_enabled {
-                    Self::animation_stop_controls(
-                        resolution.item,
-                        number.common.target.effect_id,
-                        &number.common.target.property_id,
-                        number.common.target.element_id,
-                        number.common.target.scalar_index,
-                        &number.common.target.key,
-                        resolution.playhead,
-                    )
-                } else {
-                    Vec::new()
-                };
-            }
+            Control::Number(number) => Self::resolve_common(
+                resolution,
+                &mut number.common,
+                &PropertyType::Value(PropertyValueType::Scalar(number.spec.scalar_type.clone())),
+            ),
             Control::Text(text) => Self::resolve_common(
                 resolution,
                 &mut text.common,
                 &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::String)),
-                false,
             ),
             Control::Bool(boolean) => Self::resolve_common(
                 resolution,
                 boolean,
                 &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Bool)),
-                false,
             ),
             Control::Choice(choice) => Self::resolve_common(
                 resolution,
                 &mut choice.common,
                 &PropertyType::Value(PropertyValueType::Scalar(choice.ty.clone())),
-                false,
             ),
-            Control::Color(color) => {
-                let animation_enabled = color.target.animation_enabled(resolution.item);
-                Self::resolve_common(
-                    resolution,
-                    color,
-                    &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Color)),
-                    animation_enabled,
-                );
-                color.animation_enabled = animation_enabled;
-                if animation_enabled {
-                    color.animation_stops = Self::animation_stop_controls(
-                        resolution.item,
-                        color.target.effect_id,
-                        &color.target.property_id,
-                        color.target.element_id,
-                        color.target.scalar_index,
-                        &color.target.key,
-                        resolution.playhead,
-                    );
-                }
-            }
+            Control::Color(color) => Self::resolve_common(
+                resolution,
+                color,
+                &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Color)),
+            ),
         }
     }
 

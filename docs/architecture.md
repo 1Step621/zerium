@@ -1,99 +1,78 @@
 # Architecture
 
-## Workspace and dependencies
-
-The root is a virtual Cargo workspace. `cargo build` and `cargo run` select the
-application by default; assets, locales, plugins, and packaging files stay at the
-repository root.
+## Workspace
 
 ```text
-zerium (application, UI, media, audio, GPU rendering)
- ├──> zerium-shader (generation, linking, validation, plugin asset loading)
+zerium (application)
+ ├──> zerium-shader (plugin assets and shader compilation)
  │     └──> zerium-core
- └────────> zerium-core (models, editing, persistence representations)
+ └────────> zerium-core (models and editing)
 ```
 
-- [`zerium`](../crates/zerium/src/) owns application construction, GPUI entities,
+- [`zerium`](../crates/zerium/src/) owns startup, CLI dispatch, GPUI entities,
   device and filesystem adapters, and embedded resources.
-- [`zerium-core`](../crates/zerium-core/src/) owns validated project, property,
-  animation, and plugin models and their editing rules.
-- [`zerium-shader`](../crates/zerium-shader/src/) owns shader contracts, packaged
-  WESL generation, plugin asset loading, WESL linking, and WGSL validation. The
-  application and plugin CLI use the same implementation.
+- [`zerium-core`](../crates/zerium-core/src/) owns project, property, animation,
+  and plugin models, validation, and editing rules.
+- [`zerium-shader`](../crates/zerium-shader/src/) owns plugin asset loading,
+  generated WESL interfaces, linking, and shader validation. The application and
+  plugin CLI use the same implementation.
 
-Core and shader do not depend on GPUI, WGPU, FFmpeg, audio devices, or application
-code. They are unpublished workspace libraries, not a stable SDK. Public items
-serve cross-crate use; implementation helpers stay private or crate-visible.
-The application is a binary-only crate; `main.rs` owns startup and CLI dispatch.
-
+Core and shader do not depend on GPUI, WGPU, FFmpeg, or application code.
 Within the application, `app` composes the runtime, `ui` translates user input
 into core commands, and `engine` handles media, audio, rendering, export, and
 project I/O. Engine code must not depend on UI entities.
 
-## Project state and editing
+## Project state
 
-`TimelineProject` holds persistent documents, reusable scenes, resolution, and
-project identity. Persistent changes go through `TimelineEditor` to keep
-validation, revision, and history consistent. Selection, preview visibility,
-playhead, and history are session state, not part of saved projects.
+`TimelineProject` holds persistent documents, scenes, resolution, and project
+identity. Persistent changes go through `TimelineEditor` to keep validation,
+revision, and history consistent. Selection, preview visibility, playhead, and
+history are session state. Preview-only changes do not increment project revision
+or enter history.
 
 Rendering and background work receive immutable `TimelineSnapshot`s and read
-through `TimelineView`, never through live editors or UI entities.
-`ProjectSession` tracks project generations and pending operations so results
-from an old project can be ignored. `ProjectRuntime` groups the session handles
-that must reset together when replacing a project.
+through `TimelineView`. `ProjectSession` tracks project generations so results
+from a replaced project can be ignored. `ProjectRuntime` groups the handles that
+reset together on project replacement.
 
 Timeline positions, positive spans, and frame rates use `Frame`, `FrameDuration`,
-and `FrameRate`. Items, layers, and effect instances have distinct ID types.
+and `FrameRate`. Items, layers, and effects have distinct ID types.
 `PropertyPath` identifies a property, an optional stable array element ID, and
 an optional tuple scalar index. Editing, animation, scene bindings, and
-persistence use the same paths, so deleting or reordering an array element does
-not redirect its animation to a neighbor.
+persistence share these paths, so reordering an array does not redirect its
+animations or bindings.
 
 Property schemas define types, defaults, constraints, and scalar permissions.
-Commands validate all affected values and bindings before committing a
-multi-owner edit. Animation tracks address individual scalars; interpolation
-rules belong to the animation module.
+Commands validate all affected values and bindings before committing a multi-owner edit.
+Animation tracks address individual scalars; interpolation belongs to the
+animation module. Invalid external data returns an error rather than panicking.
 
 ## Plugins and persistence
 
-Core parses and validates manifests, represents loaded bundles, and provides
-registry lookup. Shader handles asset loading, generated-interface compatibility,
-and executable shader validation. Embedding bundled plugins belongs to the
-application. See [Plugin API v1](plugin.md) for manifest and shader contracts.
+Core parses and validates manifests and provides registry lookup. Shader handles
+bundle loading and shader compatibility. Embedding bundled plugins belongs to
+the application. See [Plugin API v1](plugin.md) for the authoring contract.
 
 Project files store property overrides relative to plugin defaults. Loading
-starts from the current validated defaults and applies those overrides. Project
-and clipboard decoding validate external data before constructing core state.
-Filesystem access and atomic replacement belong to `engine::project_io`.
+applies validated overrides to the current defaults. Project and clipboard
+input is validated before constructing core state; filesystem access and atomic
+replacement belong to `engine::project_io`.
 
-## Rendering and export
+## Rendering
 
 FFmpeg handles probing, decoding, conversion, and encoding in process.
-`MediaReaderRegistry` separates rendering from concrete media readers.
+`MediaReaderRegistry` connects media inputs to concrete readers.
 
-The application creates a shared `RenderRuntime` for preview and export. Each
-consumer has an independent render session; compiled plugin shaders are shared.
-Timeline evaluation preserves scene boundaries and sample time, including for
-media and temporal effects. Item surfaces use declared bounds; scenes composite
-into the viewport before applying scene effects.
+Preview and export share a `RenderRuntime` and compiled plugin shaders, with
+independent render sessions. Timeline evaluation preserves scene boundaries and
+sample time, including for temporal effects. Item surfaces use declared bounds;
+scenes composite into the viewport before applying scene effects.
 
 ## Localization
 
-The application selects a BCP 47 locale from `ZERIUM_LANGUAGE`, then the system
-locale, then `en-US`, and sets the shared `rust-i18n` locale at startup. Core label
-accessors read that setting without locale arguments or application dependencies.
-Explicit `LocalizedText::resolve_for(locale)` is used when a particular
-translation is needed, including validation of all enum labels independently of
-the display language. User-authored names remain plain text.
+Startup selects the shared `rust-i18n` locale. Core label accessors use it;
+`LocalizedText::resolve_for` supports an explicit locale. Label declarations and
+fallbacks are described in [Plugin API v1](plugin.md#manifest).
 
-The UI supplies translated defaults for scene and argument names. Core owns
-uniqueness, history, and the resulting document changes.
-
-## Change rules
-
-- Invalid external data returns a typed error; user-controlled input must not
-  cause a panic.
-- Preview-only changes do not increment project revision or enter history.
-- Asynchronous work uses immutable snapshots and is cancelled or ignored after
-  a project replacement.
+User-authored names are plain text. The UI supplies translated default names;
+core owns uniqueness and document edits.

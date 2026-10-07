@@ -53,14 +53,6 @@ impl PropertyInspector {
         input.update(cx, |input, cx| input.set_value(value, window, cx));
     }
 
-    pub(super) fn color_value(item: &TimelineItem, target: &PropertyTarget) -> Option<[f32; 4]> {
-        let value = target.value(item)?;
-        match value {
-            PropertyValue::Color(color) => Some(*color),
-            _ => None,
-        }
-    }
-
     /// Get-or-create an input state for a control, syncing its displayed text.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn ensure_text(
@@ -134,7 +126,6 @@ impl PropertyInspector {
 
     fn ensure_number_text(
         &mut self,
-        item_id: ItemId,
         control: &crate::ui::property_inspector::control::NumberControl,
         text: String,
         window: &mut Window,
@@ -183,37 +174,40 @@ impl PropertyInspector {
             cx,
         );
         for stop in &control.common.animation_stops {
-            self.ensure_number_stop(item_id, control, stop, window, cx);
+            self.ensure_number_stop(control, stop, window, cx);
         }
     }
 
     fn ensure_number_stop(
         &mut self,
-        item_id: ItemId,
         control: &crate::ui::property_inspector::control::NumberControl,
         stop: &AnimationStopControl,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if stop.value.numeric_scalar().is_none() {
+        if stop.edit.value.numeric_scalar().is_none() {
             return;
         }
         let spec = control.spec.clone();
-        let binding = AnimationStopBinding::new(item_id, control.common.target.effect_id, stop);
+        let id = stop.id.clone();
         self.ensure_text(
             stop.id.clone(),
-            Self::numeric_value_text(&stop.value),
+            if stop.edit.mixed {
+                String::new()
+            } else {
+                Self::numeric_value_text(&stop.edit.value)
+            },
             false,
             |input, window, cx| {
-                let change_binding = binding.clone();
+                let change_id = id.clone();
                 let change_spec = spec.clone();
-                let step_binding = binding.clone();
+                let step_id = id.clone();
                 let step_spec = spec.clone();
                 let step_input = input.clone();
                 vec![
                     cx.subscribe_in(input, window, move |this, input, event, window, cx| {
                         this.apply_animation_stop_text(
-                            &change_binding,
+                            &change_id,
                             &change_spec,
                             input,
                             event,
@@ -226,12 +220,7 @@ impl PropertyInspector {
                         window,
                         move |this, input, event, window, cx| {
                             this.apply_animation_stop_step(
-                                &step_binding,
-                                &step_spec,
-                                input,
-                                event,
-                                window,
-                                cx,
+                                &step_id, &step_spec, input, event, window, cx,
                             );
                         },
                     ),
@@ -297,16 +286,16 @@ impl PropertyInspector {
             cx,
         );
         for stop in &control.animation_stops {
-            let PropertyValue::Color(color) = stop.value else {
+            let PropertyValue::Color(color) = stop.edit.value else {
                 continue;
             };
-            let binding = AnimationStopBinding::new(item_id, control.target.effect_id, stop);
+            let id = stop.id.clone();
             self.ensure_color(
                 stop.id.clone(),
                 Self::color_to_hsla(color),
                 |picker, window, cx| {
                     cx.subscribe_in(picker, window, move |this, _, event, _, cx| {
-                        this.apply_animation_stop_color(&binding, event, cx);
+                        this.apply_animation_stop_color(&id, event, cx);
                     })
                 },
                 window,
@@ -337,7 +326,7 @@ impl PropertyInspector {
                 } else {
                     Self::numeric_value_text(&number.common.value)
                 };
-                self.ensure_number_text(item.id, number, text, window, cx);
+                self.ensure_number_text(number, text, window, cx);
             }
             Control::Text(text_control) => {
                 let text = match &text_control.common.value {
@@ -437,6 +426,7 @@ impl PropertyInspector {
         };
         let multiple = selected_items.len() > 1;
         let resolution = control::ControlResolution {
+            editor,
             item,
             selected_items,
             playhead: zerium_core::timeline::TimelineTime::from_frame(editor.playhead()),
@@ -447,11 +437,6 @@ impl PropertyInspector {
         item_controls.retain(|control| {
             Self::property_is_common(editor, selected_items, control.property_id())
         });
-        if multiple {
-            for control in &mut item_controls {
-                control.disable_animation();
-            }
-        }
 
         let effects = if multiple {
             Self::common_effects(selected_items)
@@ -461,12 +446,7 @@ impl PropertyInspector {
         let effect_groups: Vec<Control> = effects
             .into_iter()
             .map(|effect| {
-                let mut controls = Self::effect_controls(&effect, &resolution);
-                if multiple {
-                    for control in &mut controls {
-                        control.disable_animation();
-                    }
-                }
+                let controls = Self::effect_controls(&effect, &resolution);
                 Control::Group {
                     id: ControlId::effect_group(effect.id),
                     label: effect.schema().label().to_owned(),
@@ -488,26 +468,28 @@ impl PropertyInspector {
         self.store = ControlStore::default();
     }
 
-    fn reconcile_states(
-        &mut self,
-        item: &TimelineItem,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        self.ensure_tree_states(item, window, cx);
-    }
-
     pub(super) fn sync_from_editor(
         &mut self,
         editor: &Entity<TimelineEditor>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        {
+            let editor = editor.read(cx);
+            let stale = matches!(self.scope, EditScope::Item(id)
+                if !editor.is_item_selected(id)
+                    && !(editor.selected_item_ids().next().is_none() && editor.selection_remembers_item(id)));
+            if stale {
+                self.scope = EditScope::Selection;
+                self.effect_picker = None;
+                self.reset_input_state();
+            }
+        }
         let selected_items = {
             let editor = editor.read(cx);
             let time = zerium_core::timeline::TimelineTime::from_frame(editor.playhead());
             editor
-                .selected_items()
+                .items_in_scope(self.scope)
                 .into_iter()
                 .map(|item| editor.evaluated_item_at(&item, time))
                 .collect::<Vec<_>>()
@@ -529,32 +511,7 @@ impl PropertyInspector {
             self.resolved_control_tree(editor, &selected_items, &scene_arguments, editing_scene)
         };
         if let Some(item) = selected_item.as_ref() {
-            self.reconcile_states(item, window, cx);
-        }
-        let animation_address = self.animation_selection.read(cx).address().cloned();
-        let invalid_animation_address = animation_address.as_ref().is_some_and(|target| {
-            let editor = editor.read(cx);
-            let target_exists = editor
-                .item(target.item_id)
-                .and_then(|item| {
-                    item.animation_track(
-                        target.effect_id,
-                        &target.property_id,
-                        target.element_id,
-                        target.scalar_index,
-                    )
-                })
-                .is_some();
-            let selected_another_item = match selected_items.as_slice() {
-                [] => !editor.selection_remembers_item(target.item_id),
-                [item] => item.id != target.item_id,
-                _ => true,
-            };
-            !target_exists || selected_another_item
-        });
-        if invalid_animation_address {
-            self.animation_selection
-                .update(cx, |selection, cx| selection.clear(cx));
+            self.ensure_tree_states(item, window, cx);
         }
         cx.notify();
     }

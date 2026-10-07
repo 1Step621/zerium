@@ -552,7 +552,7 @@ impl Timeline {
                         let drag = MoveAnimationStop {
                             timeline_id,
                             address: target,
-                            stop,
+                            edit: Rc::new(RefCell::new(None)),
                             snap_frame,
                             follow_focus,
                         };
@@ -576,13 +576,8 @@ impl Timeline {
                             .border_2()
                             .border_color(colors.background)
                             .bg(colors.warning)
-                            .on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                            .on_mouse_down(MouseButton::Left, |_, _, cx| {
                                 cx.stop_propagation();
-                                if movable {
-                                    start_editor.update(cx, |editor, _| {
-                                        editor.finish_history_group();
-                                    });
-                                }
                             })
                             .on_click(move |_, _, cx| {
                                 cx.stop_propagation();
@@ -595,8 +590,16 @@ impl Timeline {
                                     .cursor_col_resize()
                                     .hover(move |style| style.bg(colors.warning.lighten(0.14)))
                                     .active(move |style| style.bg(colors.warning.darken(0.14)))
-                                    .on_drag(drag, |drag, _, _, cx| {
+                                    .on_drag(drag, move |drag, _, window, cx| {
                                         cx.stop_propagation();
+                                        // A press redraws the marker; initialize the retained
+                                        // payload only when GPUI starts the drag.
+                                        *drag.edit.borrow_mut() =
+                                            start_editor.read(cx).begin_animation_edit(
+                                                &drag.address,
+                                                AnimationEditTarget::Stop(stop),
+                                                !window.modifiers().alt,
+                                            );
                                         cx.new(|_| drag.clone())
                                     })
                             })

@@ -1,5 +1,4 @@
 use super::*;
-use crate::property::PropertyPath;
 
 // Scene definition and scene-argument commands.
 impl TimelineEditor {
@@ -38,76 +37,6 @@ impl TimelineEditor {
                 _ => true,
             })
         })
-    }
-
-    pub(super) fn animation_schema(
-        &self,
-        item_id: ItemId,
-        effect_id: Option<EffectInstanceId>,
-        property_id: &str,
-    ) -> Option<PropertySchema> {
-        self.property_schema(item_id, effect_id, property_id)
-            .cloned()
-    }
-
-    pub(super) fn animation_store_mut(
-        &mut self,
-        item_id: ItemId,
-        effect_id: Option<EffectInstanceId>,
-    ) -> Option<&mut ScalarAnimations> {
-        let item = self.active_document_mut().item_mut(item_id)?;
-        match effect_id {
-            Some(effect_id) => item
-                .effects
-                .iter_mut()
-                .find(|effect| effect.id == effect_id)
-                .map(|effect| &mut effect.animations),
-            None => Some(&mut item.animations),
-        }
-    }
-
-    pub(super) fn animation_track(
-        &self,
-        item_id: ItemId,
-        effect_id: Option<EffectInstanceId>,
-        address: &PropertyPath,
-    ) -> Option<&ScalarTrack> {
-        self.active_document().item(item_id)?.animation_track(
-            effect_id,
-            address.property_id(),
-            address.element_id(),
-            address.scalar_index(),
-        )
-    }
-
-    pub(super) fn animation_track_mut(
-        &mut self,
-        item_id: ItemId,
-        effect_id: Option<EffectInstanceId>,
-        address: &PropertyPath,
-    ) -> Option<&mut ScalarTrack> {
-        self.animation_store_mut(item_id, effect_id)?
-            .track_mut(address)
-    }
-
-    pub(super) fn edit_selected_animation(
-        &mut self,
-        item_id: ItemId,
-        effect_id: Option<EffectInstanceId>,
-        address: PropertyPath,
-        before: Option<HistorySnapshot>,
-        key: Option<HistoryKey>,
-        edit: impl FnOnce(&mut ScalarTrack) -> bool,
-    ) -> bool {
-        let changed = self
-            .animation_schema(item_id, effect_id, address.property_id())
-            .is_some_and(|schema| {
-                schema.is_editable(address.scalar_index())
-                    && self
-                        .animation_track_mut(item_id, effect_id, &address)
-                        .is_some_and(edit)
-            });
-        self.finish_project_edit_if_changed(changed, before, key)
     }
 
     fn scene_reaches(

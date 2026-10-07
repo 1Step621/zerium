@@ -1,4 +1,5 @@
 use super::*;
+use crate::timeline::EditScope;
 
 // Editor session, history, selection, and preview commands.
 impl TimelineEditor {
@@ -88,18 +89,26 @@ impl TimelineEditor {
     }
 
     pub fn toggle_selected_items_visibility(&mut self) -> bool {
-        if !self.visibility.toggle_items(&self.selection.current) {
+        self.toggle_items_visibility(EditScope::Selection)
+    }
+
+    pub fn toggle_items_visibility(&mut self, scope: EditScope) -> bool {
+        if !self
+            .visibility
+            .toggle_items(&scope.item_ids(self).into_iter().collect())
+        {
             return false;
         }
         self.advance_render_revision();
         true
     }
 
-    pub fn toggle_selected_effect_visibility(
+    pub fn toggle_effect_visibility(
         &mut self,
-        primary_effect_id: EffectInstanceId,
+        scope: EditScope,
+        effect_id: EffectInstanceId,
     ) -> bool {
-        let Some(effects) = self.selected_effect_instances(primary_effect_id) else {
+        let Some((_, effects)) = self.effect_instances(scope, effect_id) else {
             return false;
         };
         if !self
@@ -112,32 +121,19 @@ impl TimelineEditor {
         true
     }
 
-    pub fn move_selected_effect(
+    pub fn move_effect(
         &mut self,
-        primary_effect_id: EffectInstanceId,
+        scope: EditScope,
+        effect_id: EffectInstanceId,
         offset: i32,
     ) -> bool {
-        if !self.can_move_selected_effect(primary_effect_id, offset) {
+        if !self.can_move_effect(scope, effect_id, offset) {
             return false;
         }
-        let Some(primary_item_id) = self.selection.primary else {
-            return false;
-        };
-        let Some(source_index) = self
-            .active_document()
-            .item(primary_item_id)
-            .and_then(|item| {
-                item.effects
-                    .iter()
-                    .position(|effect| effect.id == primary_effect_id)
-            })
-        else {
+        let Some((source_index, effects)) = self.effect_instances(scope, effect_id) else {
             return false;
         };
         let Some(target_index) = source_index.checked_add_signed(offset as isize) else {
-            return false;
-        };
-        let Some(effects) = self.selected_effect_instances(primary_effect_id) else {
             return false;
         };
         let before = self.history_snapshot();

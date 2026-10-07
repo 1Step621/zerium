@@ -60,12 +60,7 @@ impl Timeline {
             let content_y = f32::from(position.y - scroll.bounds().origin.y - scroll.offset().y);
             LayerId::new((content_y / self.viewport.layer_height).floor().max(0.) as u64)
         } else {
-            let selected_layer = {
-                let editor = self.editor.read(cx);
-                editor
-                    .selected_item()
-                    .and_then(|item| editor.item_layer(item.id))
-            };
+            let selected_layer = self.editor.read(cx).selected_items_layer();
             self.cursor_layer
                 .or(selected_layer)
                 .unwrap_or_else(|| LayerId::new(0))

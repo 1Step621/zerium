@@ -5,6 +5,8 @@ mod path;
 mod render;
 mod rows;
 mod state;
+mod target;
+
 use crate::ui::numeric_property::{NumericInput, NumericInputSpec, numeric_input_spec};
 
 use std::{
@@ -38,12 +40,12 @@ use number_drag::PropertyValueDragOrigin;
 use path::InspectorPath;
 use zerium_core::plugin::ItemSchema;
 use zerium_core::property::{
-    PropertyElement, PropertyElementId, PropertyPath, PropertySchema, PropertyType, PropertyValue,
+    PropertyElement, PropertyElementId, PropertySchema, PropertyType, PropertyValue,
     PropertyValueType, ScalarPropertyType,
 };
 use zerium_core::timeline::{
-    EffectInstance, EffectInstanceId, ItemId, PropertyAddress, SceneBindingOwner,
-    SceneBindingTarget, SceneId, TimelineEditor, TimelineItem, TimelineTime,
+    AnimationStopEdit, EditScope, EffectInstance, EffectInstanceId, ItemId, PropertyAddress,
+    SceneBindingOwner, SceneBindingTarget, SceneId, TimelineEditor, TimelineItem, TimelineTime,
 };
 
 pub(super) type EffectPickerTarget = (String, String);
@@ -101,13 +103,16 @@ impl PropertyTarget {
         self.address(item.id).value(item)
     }
 
-    fn selected_value(&self, primary: &TimelineItem, item: &TimelineItem) -> Option<PropertyValue> {
-        let mut target = self.clone();
-        if let Some(id) = self.effect_id {
-            let index = primary.effects.iter().position(|effect| effect.id == id)?;
-            target.effect_id = Some(item.effects.get(index)?.id);
-        }
-        target.value(item).cloned()
+    fn selected_address(
+        &self,
+        source: &TimelineItem,
+        item: &TimelineItem,
+    ) -> Option<PropertyAddress> {
+        self.address(source.id).on_item(source, item)
+    }
+
+    fn selected_value(&self, source: &TimelineItem, item: &TimelineItem) -> Option<PropertyValue> {
+        self.selected_address(source, item)?.value(item).cloned()
     }
 
     fn address(&self, item_id: ItemId) -> PropertyAddress {
@@ -120,22 +125,18 @@ impl PropertyTarget {
         }
     }
 
-    fn matches_address(&self, item_id: ItemId, address: &PropertyAddress) -> bool {
-        address.item_id == item_id
-            && address.effect_id == self.effect_id
-            && address.property_id == self.property_id
-            && address.element_id == self.element_id
-            && address.scalar_index == self.scalar_index
-    }
-
-    fn animation_enabled(&self, item: &TimelineItem) -> bool {
-        item.animation_track(
-            self.effect_id,
-            &self.property_id,
-            self.element_id,
-            self.scalar_index,
-        )
-        .is_some()
+    fn animation_enabled(&self, source: &TimelineItem, items: &[TimelineItem]) -> bool {
+        items.iter().any(|item| {
+            self.selected_address(source, item).is_some_and(|address| {
+                item.animation_track(
+                    address.effect_id,
+                    &address.property_id,
+                    address.element_id,
+                    address.scalar_index,
+                )
+                .is_some()
+            })
+        })
     }
 }
 
@@ -160,33 +161,6 @@ struct PropertyBinding {
     pub target: PropertyTarget,
 }
 
-#[derive(Clone)]
-pub(super) struct AnimationStopBinding {
-    pub item_id: ItemId,
-    pub effect_id: Option<EffectInstanceId>,
-    pub property_id: String,
-    pub element_id: Option<PropertyElementId>,
-    pub scalar_index: Option<usize>,
-    pub stop: usize,
-}
-
-impl AnimationStopBinding {
-    fn new(
-        item_id: ItemId,
-        effect_id: Option<EffectInstanceId>,
-        stop: &control::AnimationStopControl,
-    ) -> Self {
-        Self {
-            item_id,
-            effect_id,
-            property_id: stop.property_id.clone(),
-            element_id: stop.element_id,
-            scalar_index: stop.scalar_index,
-            stop: stop.index,
-        }
-    }
-}
-
 pub(crate) struct PropertyInspector {
     pub(super) editor: Entity<TimelineEditor>,
     pub(super) animation_selection: Entity<AnimationSelection>,
@@ -196,6 +170,7 @@ pub(crate) struct PropertyInspector {
     pub(super) notifications: Entity<UiNotifications>,
     pub(super) focus_handle: FocusHandle,
     scroll_handle: ScrollHandle,
+    scope: EditScope,
     store: state::ControlStore,
     pub(super) font_names: Vec<String>,
     _file_subscription: Subscription,
@@ -240,9 +215,24 @@ impl PropertyInspector {
         cx: &mut Context<Self>,
     ) -> Self {
         let session_id = session.read(cx).id();
-        let editor_subscription = cx.observe_in(&editor, window, |this, editor, window, cx| {
-            this.sync_from_editor(&editor, window, cx);
-        });
+        let mut document = (
+            editor.read(cx).snapshot().project_id(),
+            editor.read(cx).active_scene_id(),
+        );
+        let editor_subscription =
+            cx.observe_in(&editor, window, move |this, editor, window, cx| {
+                let next = (
+                    editor.read(cx).snapshot().project_id(),
+                    editor.read(cx).active_scene_id(),
+                );
+                if document != next {
+                    document = next;
+                    this.scope = EditScope::Selection;
+                    this.effect_picker = None;
+                    this.reset_input_state();
+                }
+                this.sync_from_editor(&editor, window, cx);
+            });
         let animation_selection_subscription =
             cx.observe(&animation_selection, |_, _, cx| cx.notify());
         let session_subscription = cx.observe(&session, |this, _, cx| {
@@ -251,6 +241,7 @@ impl PropertyInspector {
                 return;
             }
             this.session_id = session_id;
+            this.scope = EditScope::Selection;
             this.reset_input_state();
             cx.notify();
         });
@@ -264,6 +255,7 @@ impl PropertyInspector {
             notifications,
             focus_handle: cx.focus_handle(),
             scroll_handle: ScrollHandle::new(),
+            scope: EditScope::Selection,
             store: state::ControlStore::default(),
             font_names: {
                 let mut names = cx.text_system().all_font_names();

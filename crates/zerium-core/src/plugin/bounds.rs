@@ -117,6 +117,21 @@ pub fn program_context(
     values: &PropertyValues,
 ) -> HashMapContext {
     let mut context = HashMapContext::new();
+    for (name, side, axis) in [
+        ("projected_rect_min_x", 0, 0),
+        ("projected_rect_min_y", 0, 1),
+        ("projected_rect_max_x", 1, 0),
+        ("projected_rect_max_y", 1, 1),
+    ] {
+        context
+            .set_function(
+                name.to_owned(),
+                Function::new(move |arguments| {
+                    projected_rect(arguments).map(|bounds| Value::from_float(bounds[side][axis]))
+                }),
+            )
+            .expect("bounds function names are static identifiers");
+    }
     context
         .set_function(
             "placement_center".to_owned(),
@@ -161,4 +176,104 @@ fn set_bound_variable(context: &mut HashMapContext, name: String, value: f64) {
     context
         .set_value(name, Value::from_float(value))
         .expect("bounds variable names are validated plugin identifiers");
+}
+
+fn invalid(message: &str) -> EvalexprError {
+    EvalexprError::CustomMessage(format!("projected rectangle: {message}"))
+}
+
+fn number(value: &Value) -> Result<f64, EvalexprError> {
+    let value = value.as_number()?;
+    if !value.is_finite() {
+        return Err(invalid("arguments must be finite"));
+    }
+    Ok(value)
+}
+
+fn numbers<const N: usize>(value: &Value) -> Result<[f64; N], EvalexprError> {
+    let values = value.as_fixed_len_tuple(N)?;
+    let mut result = [0.0; N];
+    for (result, value) in result.iter_mut().zip(&values) {
+        *result = number(value)?;
+    }
+    Ok(result)
+}
+
+fn projected_rect(arguments: &Value) -> Result<[[f64; 2]; 2], EvalexprError> {
+    let arguments = arguments.as_fixed_len_tuple(6)?;
+    let min: [f64; 2] = numbers(&arguments[0])?;
+    let max: [f64; 2] = numbers(&arguments[1])?;
+    let rotation: [f64; 3] = numbers(&arguments[2])?;
+    let center: [f64; 2] = numbers(&arguments[3])?;
+    let focal = number(&arguments[4])?;
+    let near_ratio = number(&arguments[5])?;
+    let near = focal * near_ratio;
+    if (0..2).any(|axis| min[axis] > max[axis]) {
+        return Err(invalid("minimum must not exceed maximum"));
+    }
+    if focal <= 0.0 || near_ratio <= 0.0 || !near.is_finite() || near <= 0.0 {
+        return Err(invalid(
+            "focal length and near depth must be finite and positive",
+        ));
+    }
+
+    let [(sx, cx), (sy, cy), (sz, cz)] = rotation.map(|angle| angle.to_radians().sin_cos());
+    // First two columns of Rz * Ry * Rx, matching the shader's z=0 plane.
+    let columns = [
+        [cz * cy, sz * cy, -sy],
+        [cz * sy * sx - sz * cx, sz * sy * sx + cz * cx, cy * sx],
+    ];
+    let vertices = [
+        [min[0], min[1]],
+        [max[0], min[1]],
+        [max[0], max[1]],
+        [min[0], max[1]],
+    ]
+    .map(|point| {
+        let [x, y] = [point[0] - center[0], point[1] - center[1]];
+        [
+            columns[0][0] * x + columns[1][0] * y,
+            columns[0][1] * x + columns[1][1] * y,
+            focal + columns[0][2] * x + columns[1][2] * y,
+        ]
+    });
+    if vertices.iter().flatten().any(|value| !value.is_finite()) {
+        return Err(invalid("rotated vertices must be finite"));
+    }
+
+    let mut bounds = [[f64::INFINITY; 2], [f64::NEG_INFINITY; 2]];
+    let mut visible = false;
+    let mut include = |vertex: [f64; 3]| -> Result<(), EvalexprError> {
+        for axis in 0..2 {
+            let position = center[axis] + (focal / vertex[2]) * vertex[axis];
+            if !position.is_finite() {
+                return Err(invalid("projected bounds must be finite"));
+            }
+            bounds[0][axis] = bounds[0][axis].min(position);
+            bounds[1][axis] = bounds[1][axis].max(position);
+        }
+        visible = true;
+        Ok(())
+    };
+
+    let mut previous = vertices[3];
+    for current in vertices {
+        if (previous[2] >= near) != (current[2] >= near) {
+            let depth_delta = current[2] - previous[2];
+            if !depth_delta.is_finite() {
+                return Err(invalid("clipped edge depth must be finite"));
+            }
+            let fraction = (near - previous[2]) / depth_delta;
+            include([
+                previous[0] + fraction * (current[0] - previous[0]),
+                previous[1] + fraction * (current[1] - previous[1]),
+                near,
+            ])?;
+        }
+        if current[2] >= near {
+            include(current)?;
+        }
+        previous = current;
+    }
+    Ok(if visible { bounds } else { [center, center] })
 }

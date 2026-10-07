@@ -6,9 +6,9 @@
 use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
-use crate::animation::{BezierHandle, ScalarAnimations, ScalarTrack, SegmentInterpolation};
+use crate::animation::{ScalarAnimations, ScalarTrack, SegmentInterpolation};
 use crate::media::ImportedFile;
-use crate::property::{PropertyConfiguration, PropertyElementId, PropertySchema, PropertyValue};
+use crate::property::{PropertyConfiguration, PropertySchema, PropertyValue};
 
 use super::{
     document::{ResizeEdge, ResizeMode, TimelineDocument},
@@ -127,8 +127,12 @@ pub enum TimelineEditError {
 }
 
 mod animation;
+mod animation_edit;
 mod effect;
 mod item;
 mod property;
 mod scene;
 mod session;
+
+pub use animation::AnimationStopEdit;
+pub use animation_edit::{AnimationEdit, AnimationEditTarget};

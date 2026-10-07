@@ -18,14 +18,11 @@ pub(super) struct RenderCtx<'a> {
     pub store: &'a ControlStore,
     pub font_names: &'a [String],
     pub item_id: ItemId,
+    pub scope: EditScope,
+    pub multiple: bool,
     pub selecting_file: bool,
     pub file_input: Entity<FileInputController>,
     pub scene_overrides: std::collections::HashSet<String>,
-}
-
-struct DraggableNumberInput {
-    id: ControlId,
-    animation_stop: Option<AnimationStopBinding>,
 }
 
 #[derive(Clone, Copy)]
@@ -59,9 +56,7 @@ impl PropertyInspector {
     }
 
     fn animation_address_is_focused(common: &LeafControl, ctx: &RenderCtx) -> bool {
-        ctx.animation_address
-            .as_ref()
-            .is_some_and(|address| common.target.matches_address(ctx.item_id, address))
+        ctx.animation_address.as_ref() == Some(&common.target.address(ctx.item_id))
     }
 
     fn focused_animation_label(
@@ -76,6 +71,17 @@ impl PropertyInspector {
         let inspector = ctx.inspector.clone();
         Self::animation_label_base(label.into(), width, focused, ctx)
             .id(SharedString::from(format!("{id_prefix}-{:?}", common.id)))
+            .when(
+                common.animation_enabled && common.animation_stops.is_empty() && ctx.multiple,
+                |this| {
+                    this.tooltip(|window, cx| {
+                        ::ui::tooltip::Tooltip::new(
+                            t!("inspector.animation_individual_edit").to_string(),
+                        )
+                        .build(window, cx)
+                    })
+                },
+            )
             .when(common.animation_enabled, |this| {
                 this.cursor_pointer().on_click(move |_, _, cx| {
                     inspector.update(cx, |inspector, cx| {
@@ -341,7 +347,7 @@ impl PropertyInspector {
             ArrayEdit::Remove(_) => ("remove", IconName::Delete, t!("rows.remove").to_string()),
         };
         let editor = ctx.editor.clone();
-        let effect_id = group.target.effect_id;
+        let address = group.target.address(item_id);
         let property_id = group.target.property_id.clone();
         Button::new(SharedString::from(format!(
             "array-{}-{}-{element_index}-{suffix}",
@@ -356,11 +362,7 @@ impl PropertyInspector {
         .disabled(disabled)
         .on_click(move |_, _, cx| {
             editor.update(cx, |editor, cx| {
-                if editor
-                    .selected_item()
-                    .is_some_and(|item| item.id == item_id)
-                    && Self::edit_selected_array(editor, effect_id, &property_id, edit)
-                {
+                if Self::edit_array(editor, &address, edit) {
                     cx.notify();
                 }
             });
@@ -485,9 +487,7 @@ impl PropertyInspector {
                                     move |font, _, cx| {
                                         inspector.update(cx, |inspector, cx| {
                                             if inspector
-                                                .editor
-                                                .read(cx)
-                                                .selected_item()
+                                                .inspector_item_at_playhead(cx)
                                                 .is_some_and(|item| item.id == item_id)
                                                 && inspector.set_scalar(
                                                     &target,
@@ -588,8 +588,7 @@ impl PropertyInspector {
         let add_disabled =
             group.elements.len() >= group.max_items as usize || rows_have_scene_binding;
         let add_editor = ctx.editor.clone();
-        let add_property_id = group.target.property_id.clone();
-        let add_effect_id = group.target.effect_id;
+        let add_address = group.target.address(item_id);
         let next_value = group
             .property
             .append_default_value()
@@ -606,16 +605,7 @@ impl PropertyInspector {
         .disabled(add_disabled)
         .on_click(move |_, _, cx| {
             add_editor.update(cx, |editor, cx| {
-                if editor
-                    .selected_item()
-                    .is_some_and(|item| item.id == item_id)
-                    && Self::push_element(
-                        editor,
-                        add_effect_id,
-                        &add_property_id,
-                        next_value.clone(),
-                    )
-                {
+                if Self::push_element(editor, &add_address, next_value.clone()) {
                     cx.notify();
                 }
             });
@@ -722,7 +712,7 @@ impl PropertyInspector {
                 )),
             )
         });
-        let value_input = Self::number_editor(common, spec, &input, false, ctx);
+        let value_input = Self::number_editor(common, spec, &input, common.read_only, ctx);
         let animation_button = (common.animatable && !component_is_bound).then(|| {
             Self::number_animation_toggle(
                 &common.target,

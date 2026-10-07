@@ -2005,8 +2005,8 @@
       "input_space": "source",
       "output_bounds": {
         "min": [
-          "p::position::v0 - (math::abs(p::size::v0) * 1.504 + input::size::x) / 2 + 4",
-          "p::position::v1 - (math::abs(p::size::v1) * 1.504 + input::size::y) / 2 + 4"
+          "p::position::v0 - (math::abs(p::size::v0) * 1.504 + input::size::x) / 2 - 4",
+          "p::position::v1 - (math::abs(p::size::v1) * 1.504 + input::size::y) / 2 - 4"
         ],
         "max": [
           "p::position::v0 + (math::abs(p::size::v0) * 1.504 + input::size::x) / 2 + 4",
@@ -2309,12 +2309,12 @@
       "input_space": "source",
       "output_bounds": {
         "min": [
-          "rx = p::rotation::v0 * 0.017453292519943295; ry = p::rotation::v1 * 0.017453292519943295; rz = p::rotation::v2 * 0.017453292519943295; sx = math::sin(rx); cx = math::cos(rx); sy = math::sin(ry); cy = math::cos(ry); sz = math::sin(rz); cz = math::cos(rz); ra = cz * cy; rb = cz * sy * sx - sz * cx; r20 = 0 - sy; r21 = cy * sx; fl = max((p::perspective, 1)); qx = p::center::v0; qy = p::center::v1; ax0 = input::min::x - qx; ax1 = input::max::x - qx; ay0 = input::min::y - qy; ay1 = input::max::y - qy; min((qx + fl * (ra * ax0 + rb * ay0) / (fl + r20 * ax0 + r21 * ay0), qx + fl * (ra * ax0 + rb * ay1) / (fl + r20 * ax0 + r21 * ay1), qx + fl * (ra * ax1 + rb * ay0) / (fl + r20 * ax1 + r21 * ay0), qx + fl * (ra * ax1 + rb * ay1) / (fl + r20 * ax1 + r21 * ay1)))",
-          "rx = p::rotation::v0 * 0.017453292519943295; ry = p::rotation::v1 * 0.017453292519943295; rz = p::rotation::v2 * 0.017453292519943295; sx = math::sin(rx); cx = math::cos(rx); sy = math::sin(ry); cy = math::cos(ry); sz = math::sin(rz); cz = math::cos(rz); ra = sz * cy; rb = sz * sy * sx + cz * cx; r20 = 0 - sy; r21 = cy * sx; fl = max((p::perspective, 1)); qx = p::center::v0; qy = p::center::v1; ax0 = input::min::x - qx; ax1 = input::max::x - qx; ay0 = input::min::y - qy; ay1 = input::max::y - qy; min((qy + fl * (ra * ax0 + rb * ay0) / (fl + r20 * ax0 + r21 * ay0), qy + fl * (ra * ax0 + rb * ay1) / (fl + r20 * ax0 + r21 * ay1), qy + fl * (ra * ax1 + rb * ay0) / (fl + r20 * ax1 + r21 * ay0), qy + fl * (ra * ax1 + rb * ay1) / (fl + r20 * ax1 + r21 * ay1)))"
+          "projected_rect_min_x((input::min::x, input::min::y), (input::max::x, input::max::y), (p::rotation::v0, p::rotation::v1, p::rotation::v2), (p::center::v0, p::center::v1), max((p::perspective, 1.0)), 0.1)",
+          "projected_rect_min_y((input::min::x, input::min::y), (input::max::x, input::max::y), (p::rotation::v0, p::rotation::v1, p::rotation::v2), (p::center::v0, p::center::v1), max((p::perspective, 1.0)), 0.1)"
         ],
         "max": [
-          "rx = p::rotation::v0 * 0.017453292519943295; ry = p::rotation::v1 * 0.017453292519943295; rz = p::rotation::v2 * 0.017453292519943295; sx = math::sin(rx); cx = math::cos(rx); sy = math::sin(ry); cy = math::cos(ry); sz = math::sin(rz); cz = math::cos(rz); ra = cz * cy; rb = cz * sy * sx - sz * cx; r20 = 0 - sy; r21 = cy * sx; fl = max((p::perspective, 1)); qx = p::center::v0; qy = p::center::v1; ax0 = input::min::x - qx; ax1 = input::max::x - qx; ay0 = input::min::y - qy; ay1 = input::max::y - qy; max((qx + fl * (ra * ax0 + rb * ay0) / (fl + r20 * ax0 + r21 * ay0), qx + fl * (ra * ax0 + rb * ay1) / (fl + r20 * ax0 + r21 * ay1), qx + fl * (ra * ax1 + rb * ay0) / (fl + r20 * ax1 + r21 * ay0), qx + fl * (ra * ax1 + rb * ay1) / (fl + r20 * ax1 + r21 * ay1)))",
-          "rx = p::rotation::v0 * 0.017453292519943295; ry = p::rotation::v1 * 0.017453292519943295; rz = p::rotation::v2 * 0.017453292519943295; sx = math::sin(rx); cx = math::cos(rx); sy = math::sin(ry); cy = math::cos(ry); sz = math::sin(rz); cz = math::cos(rz); ra = sz * cy; rb = sz * sy * sx + cz * cx; r20 = 0 - sy; r21 = cy * sx; fl = max((p::perspective, 1)); qx = p::center::v0; qy = p::center::v1; ax0 = input::min::x - qx; ax1 = input::max::x - qx; ay0 = input::min::y - qy; ay1 = input::max::y - qy; max((qy + fl * (ra * ax0 + rb * ay0) / (fl + r20 * ax0 + r21 * ay0), qy + fl * (ra * ax0 + rb * ay1) / (fl + r20 * ax0 + r21 * ay1), qy + fl * (ra * ax1 + rb * ay0) / (fl + r20 * ax1 + r21 * ay0), qy + fl * (ra * ax1 + rb * ay1) / (fl + r20 * ax1 + r21 * ay1)))"
+          "projected_rect_max_x((input::min::x, input::min::y), (input::max::x, input::max::y), (p::rotation::v0, p::rotation::v1, p::rotation::v2), (p::center::v0, p::center::v1), max((p::perspective, 1.0)), 0.1)",
+          "projected_rect_max_y((input::min::x, input::min::y), (input::max::x, input::max::y), (p::rotation::v0, p::rotation::v1, p::rotation::v2), (p::center::v0, p::center::v1), max((p::perspective, 1.0)), 0.1)"
         ]
       },
       "label": { "ja-JP": "3D回転", "en-US": "3D Rotation" },
@@ -2323,7 +2323,13 @@
         "label": { "ja-JP": "変形", "en-US": "Transform" }
       },
       "tags": ["立体", "遠近", "perspective", "rotation"],
-      "passes": [{ "type": "render", "shader": { "module": "rotate_3d" } }],
+      "passes": [
+        {
+          "type": "render",
+          "shader": { "module": "rotate_3d" },
+          "constants": [{ "id": "near_clip_ratio", "value": { "f32": 0.1 } }]
+        }
+      ],
       "properties": [
         {
           "id": "rotation",

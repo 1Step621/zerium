@@ -1,7 +1,7 @@
 use gpui::{CursorStyle, Empty, EntityId};
 
 use zerium_core::{
-    property::{PropertyElementId, PropertyPath, PropertyValue, PropertyValues},
+    property::{PropertyElementId, PropertyValue, PropertyValues},
     timeline::{EffectInstanceId, PropertyAddress, TimelineItem, TimelineTime},
 };
 

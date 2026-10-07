@@ -464,64 +464,28 @@ impl Timeline {
         }
 
         let mut frame = self.pointer_frame(pointer_x, window, cx);
-        let progress = {
-            let editor = self.editor.read(cx);
-            let Some(item) = editor
-                .selected_item()
-                .filter(|item| item.id == drag.address.item_id)
-            else {
-                return;
-            };
-            let Some(track) = item.animation_track(
-                drag.address.effect_id,
-                &drag.address.property_id,
-                drag.address.element_id,
-                drag.address.scalar_index,
-            ) else {
-                return;
-            };
-            let Some(previous) = drag
-                .stop
-                .checked_sub(1)
-                .and_then(|index| track.stops().get(index))
-            else {
-                return;
-            };
-            let Some(next) = track.stops().get(drag.stop + 1) else {
-                return;
-            };
-            let frame_at = |position| {
-                Frame::new(item.animation_timeline_frame(position).round().max(0.) as u64)
-            };
-            let minimum = Frame::new(frame_at(previous.position()).get().saturating_add(1));
-            let maximum = Frame::new(frame_at(next.position()).get().saturating_sub(1));
-            if minimum > maximum {
-                return;
-            }
-            frame = frame.clamp(minimum, maximum);
-            if !snap_disabled {
-                let playhead_x = LAYER_HEADER_WIDTH
-                    + self
-                        .viewport
-                        .x_at_seconds(editor.frame_rate().frame_to_seconds(drag.snap_frame));
-                if (minimum..=maximum).contains(&drag.snap_frame)
-                    && (pointer_x - playhead_x).abs() <= ANIMATION_STOP_SNAP_DISTANCE
-                {
-                    frame = drag.snap_frame;
-                }
-            }
-            item.animation_progress_at_time(TimelineTime::from_frame(frame))
+        let mut edit = drag.edit.borrow_mut();
+        let Some(edit) = edit.as_mut() else {
+            return;
         };
-
+        let Some(range) = edit.frame_range() else {
+            return;
+        };
+        frame = frame.clamp(*range.start(), *range.end());
+        if !snap_disabled {
+            let editor = self.editor.read(cx);
+            let playhead_x = LAYER_HEADER_WIDTH
+                + self
+                    .viewport
+                    .x_at_seconds(editor.frame_rate().frame_to_seconds(drag.snap_frame));
+            if range.contains(&drag.snap_frame)
+                && (pointer_x - playhead_x).abs() <= ANIMATION_STOP_SNAP_DISTANCE
+            {
+                frame = drag.snap_frame;
+            }
+        }
         let changed = self.editor.update(cx, |editor, cx| {
-            let changed = editor.move_selected_animation_stop(
-                drag.address.effect_id,
-                drag.address.property_id.clone(),
-                drag.address.element_id,
-                drag.address.scalar_index,
-                drag.stop,
-                progress,
-            );
+            let changed = editor.move_animation_stop(edit, frame).is_some();
             if changed {
                 cx.notify();
             }

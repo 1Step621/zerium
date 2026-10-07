@@ -1,8 +1,10 @@
 use super::*;
+use crate::timeline::EditScope;
 
 impl TimelineEditor {
-    pub fn add_selected_effect(
+    pub fn add_item_effect(
         &mut self,
+        id: ItemId,
         plugin_id: &str,
         effect_id: &str,
     ) -> Result<EffectInstanceId, TimelineEditError> {
@@ -12,10 +14,9 @@ impl TimelineEditor {
                 effect_id: effect_id.to_owned(),
             }
         })?;
-        let id = self
-            .selection
-            .primary
-            .ok_or(TimelineEditError::NothingSelected)?;
+        if !self.is_item_selected(id) {
+            return Err(TimelineEditError::NothingSelected);
+        }
         let raw_effect_id = self
             .next_effect_id
             .ok_or(TimelineEditError::IdentifierExhausted)?;
@@ -35,37 +36,34 @@ impl TimelineEditor {
         Ok(instance_id)
     }
 
-    pub(in crate::timeline) fn selected_effect_instances(
+    pub(in crate::timeline) fn effect_instances(
         &self,
-        primary_effect_id: EffectInstanceId,
-    ) -> Option<Vec<(ItemId, EffectInstanceId)>> {
-        let primary_item_id = self.selection.primary?;
-        let primary_item = self.active_document().item(primary_item_id)?;
-        let effect_index = primary_item
-            .effects
-            .iter()
-            .position(|effect| effect.id == primary_effect_id)?;
-        let primary_effect = primary_item.effects.get(effect_index)?;
-        let item_ids = self.selection.sorted_current();
-        item_ids
+        scope: EditScope,
+        effect_id: EffectInstanceId,
+    ) -> Option<(usize, Vec<(ItemId, EffectInstanceId)>)> {
+        let item_ids = scope.item_ids(self);
+        let (index, source) = item_ids.iter().find_map(|item_id| {
+            self.item(*item_id)?
+                .effects
+                .iter()
+                .enumerate()
+                .find(|(_, effect)| effect.id == effect_id)
+        })?;
+        let instances = item_ids
             .into_iter()
             .map(|item_id| {
-                let effect = self
-                    .active_document()
-                    .item(item_id)?
-                    .effects
-                    .get(effect_index)?;
-                (effect.plugin_id == primary_effect.plugin_id
-                    && effect.effect_id == primary_effect.effect_id)
+                let effect = self.active_document().item(item_id)?.effects.get(index)?;
+                (effect.plugin_id == source.plugin_id && effect.effect_id == source.effect_id)
                     .then_some((item_id, effect.id))
             })
-            .collect()
+            .collect::<Option<Vec<_>>>()?;
+        Some((index, instances))
     }
 
-    pub fn remove_selected_effect(&mut self, effect_id: EffectInstanceId) -> bool {
-        let Some(item_id) = self.selection.primary else {
+    pub fn remove_item_effect(&mut self, item_id: ItemId, effect_id: EffectInstanceId) -> bool {
+        if !self.is_item_selected(item_id) {
             return false;
-        };
+        }
         let before = self.history_snapshot();
         let changed = self
             .active_document_mut()

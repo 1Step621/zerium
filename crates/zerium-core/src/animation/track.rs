@@ -1,5 +1,5 @@
 //! Typed scalar animation tracks made of value stops and interval interpolations.
-use super::{BezierHandle, SegmentInterpolation, interpolate_scalar};
+use super::{SegmentInterpolation, interpolate_scalar};
 use crate::property::{PropertyPath, PropertyValue, ScalarPropertyType};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -75,27 +75,6 @@ impl ScalarTrack {
             .position(|stop| (stop.position - position).abs() <= STOP_POSITION_EPSILON)
     }
 
-    pub fn stop_index_nearest(&self, position: f32) -> Option<usize> {
-        if !position.is_finite() {
-            return None;
-        }
-        let right = self.stops.partition_point(|stop| stop.position < position);
-        match right {
-            0 => (!self.stops.is_empty()).then_some(0),
-            right if right >= self.stops.len() => self.stops.len().checked_sub(1),
-            right => {
-                let left = right - 1;
-                let previous = &self.stops[left];
-                let next = &self.stops[right];
-                if position - previous.position <= next.position - position {
-                    Some(left)
-                } else {
-                    Some(right)
-                }
-            }
-        }
-    }
-
     pub fn stop_indices_for_segment(&self, position: f32) -> Vec<usize> {
         if let Some(index) = self.stop_index_at(position) {
             return vec![index];
@@ -149,12 +128,9 @@ impl ScalarTrack {
             .collect()
     }
 
-    pub fn set_stop(
-        &mut self,
-        index: usize,
-        value: PropertyValue,
-        focused_segment: Option<usize>,
-    ) -> bool {
+    /// Link neighboring equal values, keeping the endpoints of an edited
+    /// interval independent. A point edit without an interval links both sides.
+    pub fn set_stop(&mut self, index: usize, value: PropertyValue, segment: Option<usize>) -> bool {
         let Some(current) = self.stops.get(index).map(|stop| stop.value.clone()) else {
             return false;
         };
@@ -171,28 +147,15 @@ impl ScalarTrack {
             .iter()
             .position(|stop| !Self::values_are_linked(&stop.value, &current))
             .map_or(self.stops.len() - 1, |next| index + next);
-        if focused_segment == Some(index) {
+        if segment == Some(index) {
             last_linked = index;
         }
-        if focused_segment.and_then(|segment| segment.checked_add(1)) == Some(index) {
+        if segment.and_then(|segment| segment.checked_add(1)) == Some(index) {
             first_linked = index;
         }
         for stop in &mut self.stops[first_linked..=last_linked] {
             stop.value = value.clone();
         }
-        true
-    }
-
-    pub fn set_stop_exact(&mut self, index: usize, value: PropertyValue) -> bool {
-        let Some(current) = self.stops.get_mut(index).map(|stop| &mut stop.value) else {
-            return false;
-        };
-        if interpolate_scalar(current, &value, 0.).is_none()
-            || Self::values_are_linked(current, &value)
-        {
-            return false;
-        }
-        *current = value;
         true
     }
 
@@ -275,23 +238,11 @@ impl ScalarTrack {
         let Some(slot) = self.interpolations.get_mut(segment) else {
             return false;
         };
-        if *slot == interpolation {
+        if !interpolation.is_valid() || *slot == interpolation {
             return false;
         }
         *slot = interpolation;
         true
-    }
-
-    pub fn set_segment_handle(
-        &mut self,
-        segment: usize,
-        handle: BezierHandle,
-        position: [f32; 2],
-    ) -> bool {
-        let Some(SegmentInterpolation::Custom(curve)) = self.interpolations.get_mut(segment) else {
-            return false;
-        };
-        curve.set_handle(handle, position)
     }
 
     fn remap_time_range(&mut self, start: f64, end: f64) {

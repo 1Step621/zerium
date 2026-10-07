@@ -137,8 +137,9 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             notifications.clone(),
                         )
                     });
-                    let animation_selection =
-                        cx.new(|_| crate::ui::animation_curve::AnimationSelection::default());
+                    let animation_selection = cx.new(|cx| {
+                        crate::ui::animation_curve::AnimationSelection::new(editor.clone(), cx)
+                    });
                     let timeline = cx.new(|cx| {
                         crate::ui::timeline::Timeline::new(
                             editor.clone(),

@@ -72,6 +72,13 @@ impl<S, K> EditHistory<S, K> {
 }
 
 impl<S, K: PartialEq> EditHistory<S, K> {
+    /// Explicit gestures stay grouped regardless of pauses between updates.
+    pub(super) fn is_current_group(&self, key: &K) -> bool {
+        self.last_edit
+            .as_ref()
+            .is_some_and(|(previous, _)| previous == key)
+    }
+
     pub(super) fn begins_group(&self, key: Option<&K>, max_interval: std::time::Duration) -> bool {
         !key.is_some_and(|key| {
             self.last_edit

@@ -65,12 +65,7 @@ impl Timeline {
         let layer = self
             .cursor_layer_at(window)
             .or(self.cursor_layer)
-            .or_else(|| {
-                let editor = self.editor.read(cx);
-                editor
-                    .selected_item()
-                    .and_then(|item| editor.item_layer(item.id))
-            });
+            .or_else(|| self.editor.read(cx).selected_items_layer());
         let target = layer.map(|layer| (layer, self.editor.read(cx).playhead()));
         self.paste_items_at(target, cx)
     }

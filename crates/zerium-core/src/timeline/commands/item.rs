@@ -67,13 +67,6 @@ impl TimelineEditor {
             self.selection.remembered.remove(id);
         }
         self.remove_active_scene_bindings_for(&selected);
-        self.selection.primary = None;
-        self.selection.remembered_primary = self
-            .selection
-            .remembered
-            .iter()
-            .copied()
-            .min_by_key(|id| id.get());
         self.finish_project_edit_if_changed(changed, Some(before), None)
     }
 

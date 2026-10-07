@@ -1,5 +1,10 @@
 use rust_i18n::t;
-use std::{cell::Cell, collections::HashSet, rc::Rc, sync::Arc};
+use std::{
+    cell::{Cell, RefCell},
+    collections::HashSet,
+    rc::Rc,
+    sync::Arc,
+};
 
 use ::ui::{
     ActiveTheme as _, Colorize as _, Icon, IconName, Sizable as _, ThemeColor,
@@ -19,8 +24,9 @@ use crate::{
     project_session::{ProjectActivity, ProjectSession, ProjectSessionId},
 };
 use zerium_core::timeline::{
-    Frame, FrameDuration, FrameRate, ItemId, LayerId, PropertyAddress, ResizeEdge, ResizeMode,
-    SceneId, TimelineEditError, TimelineEditor, TimelineItem, TimelineTime,
+    AnimationEdit, AnimationEditTarget, Frame, FrameDuration, FrameRate, ItemId, LayerId,
+    PropertyAddress, ResizeEdge, ResizeMode, SceneId, TimelineEditError, TimelineEditor,
+    TimelineItem,
 };
 
 use super::{
@@ -79,7 +85,7 @@ struct MoveTimelineItem {
 struct MoveAnimationStop {
     timeline_id: EntityId,
     address: PropertyAddress,
-    stop: usize,
+    edit: Rc<RefCell<Option<AnimationEdit>>>,
     snap_frame: Frame,
     follow_focus: Option<usize>,
 }
