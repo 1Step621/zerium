@@ -27,11 +27,7 @@ impl AnimationCurveEditor {
                     curve: curve.clone(),
                     playhead_progress,
                     grid: grid.clone(),
-                    grid_major: colors.grid_major,
-                    grid_minor: colors.grid_minor,
-                    handle_color: colors.handle,
-                    playhead_color: colors.playhead,
-                    curve_color: colors.curve,
+                    colors,
                 }
             },
             move |bounds, state, window, _| {
@@ -64,7 +60,7 @@ impl AnimationCurveEditor {
                             minor_grid_path.line_to(to_point([*x, 1.]));
                         }
                         if let Ok(path) = minor_grid_path.build() {
-                            window.paint_path(path, state.grid_minor);
+                            window.paint_path(path, state.colors.grid_minor);
                         }
 
                         let mut major_grid_path = PathBuilder::stroke(px(1.));
@@ -77,14 +73,14 @@ impl AnimationCurveEditor {
                             major_grid_path.line_to(to_point([1., *normalized]));
                         }
                         if let Ok(path) = major_grid_path.build() {
-                            window.paint_path(path, state.grid_major);
+                            window.paint_path(path, state.colors.grid_major);
                         }
 
                         let mut playhead_path = PathBuilder::stroke(px(1.));
                         playhead_path.move_to(to_point([state.playhead_progress, 0.]));
                         playhead_path.line_to(to_point([state.playhead_progress, 1.]));
                         if let Ok(path) = playhead_path.build() {
-                            window.paint_path(path, state.playhead_color);
+                            window.paint_path(path, state.colors.playhead);
                         }
 
                         let plot_width = f32::from(width).max(1.);
@@ -111,7 +107,7 @@ impl AnimationCurveEditor {
                             }
                         }
                         if let Ok(path) = handle_path.build() {
-                            window.paint_path(path, state.handle_color);
+                            window.paint_path(path, state.colors.handle);
                         }
 
                         let mut curve_path = PathBuilder::stroke(px(2.));
@@ -137,7 +133,7 @@ impl AnimationCurveEditor {
                             }
                         }
                         if started && let Ok(path) = curve_path.build() {
-                            window.paint_path(path, state.curve_color);
+                            window.paint_path(path, state.colors.curve);
                         }
                     },
                 );

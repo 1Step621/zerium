@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, hash::Hash};
 
 use super::{
     ids::{EffectInstanceId, ItemId, LayerId},
@@ -40,8 +40,11 @@ impl PreviewVisibility {
         self.items.iter().copied()
     }
 
-    pub(super) fn selected_items_hidden_state(&self, selected: &HashSet<ItemId>) -> Option<bool> {
-        let mut selected = selected.iter().copied();
+    pub(super) fn items_hidden_state(
+        &self,
+        items: impl IntoIterator<Item = ItemId>,
+    ) -> Option<bool> {
+        let mut selected = items.into_iter();
         let first = selected.next()?;
         let hidden = self.items.contains(&first);
         selected
@@ -59,37 +62,33 @@ impl PreviewVisibility {
         }
     }
 
-    pub(super) fn toggle_items(&mut self, selected: &HashSet<ItemId>) -> bool {
-        if selected.is_empty() {
-            return false;
-        }
-        let hide = selected.iter().any(|item_id| !self.items.contains(item_id));
-        for item_id in selected {
-            if hide {
-                self.items.insert(*item_id);
-            } else {
-                self.items.remove(item_id);
-            }
-        }
-        true
+    pub(super) fn toggle_items(&mut self, items: impl IntoIterator<Item = ItemId>) -> bool {
+        toggle_group(&mut self.items, items)
     }
 
     pub(super) fn toggle_effects(
         &mut self,
         effects: impl IntoIterator<Item = EffectInstanceId>,
     ) -> bool {
-        let effects = effects.into_iter().collect::<Vec<_>>();
-        if effects.is_empty() {
-            return false;
-        }
-        let hide = effects.iter().any(|effect| !self.effects.contains(effect));
-        for effect in effects {
-            if hide {
-                self.effects.insert(effect);
-            } else {
-                self.effects.remove(&effect);
-            }
-        }
-        true
+        toggle_group(&mut self.effects, effects)
     }
+}
+
+fn toggle_group<T: Eq + Hash>(
+    hidden: &mut HashSet<T>,
+    targets: impl IntoIterator<Item = T>,
+) -> bool {
+    let targets = targets.into_iter().collect::<Vec<_>>();
+    if targets.is_empty() {
+        return false;
+    }
+    let hide = targets.iter().any(|target| !hidden.contains(target));
+    for target in targets {
+        if hide {
+            hidden.insert(target);
+        } else {
+            hidden.remove(&target);
+        }
+    }
+    true
 }

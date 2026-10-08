@@ -1,5 +1,6 @@
 use std::{
     collections::HashMap,
+    ops::Range,
     sync::{
         Arc,
         atomic::{AtomicU32, Ordering},
@@ -156,12 +157,10 @@ impl AudioTimelineGraph {
             let clip = &mut self.clips[index];
             let intersection_start = block_start.max(clip.start_sample_frame);
             let intersection_end = block_end.min(clip.end_sample_frame);
-            mix_clip(
+            clip.mix_into(
                 &mut mix,
                 block_start,
-                intersection_start,
-                intersection_end,
-                clip,
+                intersection_start..intersection_end,
                 self.format,
                 self.frame_rate,
                 self.gain_evaluation,
@@ -178,15 +177,6 @@ impl AudioTimelineGraph {
         if self.previous_end != Some(block_start) {
             self.active.clear();
             self.next_clip = 0;
-            while self.next_clip < self.clips.len()
-                && self.clips[self.next_clip].start_sample_frame < block_end
-            {
-                if self.clips[self.next_clip].end_sample_frame > block_start {
-                    self.active.push(self.next_clip);
-                }
-                self.next_clip += 1;
-            }
-            return;
         }
 
         self.active
@@ -202,68 +192,64 @@ impl AudioTimelineGraph {
     }
 }
 
-#[allow(clippy::too_many_arguments)]
-fn mix_clip(
-    mix: &mut [f32],
-    block_start: u64,
-    intersection_start: u64,
-    intersection_end: u64,
-    clip: &mut AudioClip,
-    format: AudioFormat,
-    frame_rate: FrameRate,
-    gain_evaluation: AudioGainEvaluation,
-) -> Result<(), AudioTimelineError> {
-    let channels = usize::from(format.channels);
-    let frame_count = usize::try_from(intersection_end.saturating_sub(intersection_start))
-        .map_err(|_| AudioTimelineError::RangeTooLarge)?;
-    let source_offset = intersection_start.saturating_sub(clip.start_sample_frame);
-    let samples = clip
-        .source
-        .read(source_offset, frame_count)
-        .map_err(|error| AudioTimelineError::Media {
-            clip: clip.id.clone(),
-            error,
-        })?;
-    let target_frame = usize::try_from(intersection_start.saturating_sub(block_start))
-        .map_err(|_| AudioTimelineError::RangeTooLarge)?;
-    let gain_start = gain_at(
-        clip,
-        intersection_start,
-        format,
-        frame_rate,
-        gain_evaluation,
-    );
-    let gain_end = gain_at(clip, intersection_end, format, frame_rate, gain_evaluation);
-    let mix_start = target_frame
-        .checked_mul(channels)
-        .ok_or(AudioTimelineError::RangeTooLarge)?;
-    for frame in 0..frame_count {
-        let progress = frame as f32 / frame_count.max(1) as f32;
-        let gain = gain_start + (gain_end - gain_start) * progress;
-        for channel in 0..channels {
-            mix[mix_start + frame * channels + channel] +=
-                samples[frame * channels + channel] * gain;
+impl AudioClip {
+    fn mix_into(
+        &mut self,
+        mix: &mut [f32],
+        block_start: u64,
+        intersection: Range<u64>,
+        format: AudioFormat,
+        frame_rate: FrameRate,
+        gain_evaluation: AudioGainEvaluation,
+    ) -> Result<(), AudioTimelineError> {
+        let channels = usize::from(format.channels);
+        let frame_count = usize::try_from(intersection.end.saturating_sub(intersection.start))
+            .map_err(|_| AudioTimelineError::RangeTooLarge)?;
+        let source_offset = intersection.start.saturating_sub(self.start_sample_frame);
+        let samples = self
+            .source
+            .read(source_offset, frame_count)
+            .map_err(|error| AudioTimelineError::Media {
+                clip: self.id.clone(),
+                error,
+            })?;
+        let target_frame = usize::try_from(intersection.start.saturating_sub(block_start))
+            .map_err(|_| AudioTimelineError::RangeTooLarge)?;
+        let gain_start = self.gain_at(intersection.start, format, frame_rate, gain_evaluation);
+        let gain_end = self.gain_at(intersection.end, format, frame_rate, gain_evaluation);
+        let mix_start = target_frame
+            .checked_mul(channels)
+            .ok_or(AudioTimelineError::RangeTooLarge)?;
+        for frame in 0..frame_count {
+            let progress = frame as f32 / frame_count.max(1) as f32;
+            let gain = gain_start + (gain_end - gain_start) * progress;
+            for channel in 0..channels {
+                mix[mix_start + frame * channels + channel] +=
+                    samples[frame * channels + channel] * gain;
+            }
         }
+        Ok(())
     }
-    Ok(())
-}
 
-fn gain_at(
-    clip: &AudioClip,
-    sample_frame: u64,
-    format: AudioFormat,
-    frame_rate: FrameRate,
-    evaluation: AudioGainEvaluation,
-) -> f32 {
-    match evaluation {
-        AudioGainEvaluation::Live => f32::from_bits(clip.live_gain.load(Ordering::Relaxed)).max(0.),
-        AudioGainEvaluation::TimelineAnimation => {
-            let seconds = sample_frame as f64 / f64::from(format.sample_rate);
-            let time = TimelineTime::from_frames(seconds * frame_rate.frames_per_second());
-            clip.item
-                .evaluated_at_time(time)
-                .audio_gain(&clip.id.input_id)
-                .expect("validated audio input")
+    fn gain_at(
+        &self,
+        sample_frame: u64,
+        format: AudioFormat,
+        frame_rate: FrameRate,
+        evaluation: AudioGainEvaluation,
+    ) -> f32 {
+        match evaluation {
+            AudioGainEvaluation::Live => {
+                f32::from_bits(self.live_gain.load(Ordering::Relaxed)).max(0.)
+            }
+            AudioGainEvaluation::TimelineAnimation => {
+                let seconds = sample_frame as f64 / f64::from(format.sample_rate);
+                let time = TimelineTime::from_frames(seconds * frame_rate.frames_per_second());
+                self.item
+                    .evaluated_at_time(time)
+                    .audio_gain(&self.id.input_id)
+                    .expect("validated audio input")
+            }
         }
     }
 }

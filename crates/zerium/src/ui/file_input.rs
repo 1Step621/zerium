@@ -3,7 +3,7 @@
 use super::session::UiNotifications;
 use crate::{
     app::media_metadata::MediaMetadataController,
-    project_session::{ProjectActivity, ProjectSession},
+    project_session::{ProjectActivity, ProjectOperation, ProjectSession},
 };
 use ::ui::{
     Disableable as _, IconName, Sizable as _,
@@ -123,7 +123,7 @@ pub(crate) struct FileInputController {
     metadata: Entity<MediaMetadataController>,
     session: Entity<ProjectSession>,
     notifications: Entity<UiNotifications>,
-    selecting: bool,
+    operation: Option<ProjectOperation>,
     _choose_task: Task<()>,
     _session_subscription: Subscription,
 }
@@ -142,7 +142,7 @@ impl FileInputController {
             if next != session_id {
                 session_id = next;
                 this._choose_task = Task::ready(());
-                this.selecting = false;
+                this.operation = None;
                 cx.notify();
             }
         });
@@ -151,14 +151,14 @@ impl FileInputController {
             metadata,
             session,
             notifications,
-            selecting: false,
+            operation: None,
             _choose_task: Task::ready(()),
             _session_subscription: subscription,
         }
     }
 
     pub(crate) fn is_selecting(&self) -> bool {
-        self.selecting
+        self.operation.is_some()
     }
 
     pub(crate) fn choose(
@@ -167,7 +167,7 @@ impl FileInputController {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if self.selecting {
+        if self.is_selecting() {
             return;
         }
         let editor = self.editor.read(cx);
@@ -185,40 +185,50 @@ impl FileInputController {
                 .add_filter(t!("inspector.all_files").to_string(), &["*"]);
         }
         let selection = dialog.pick_file();
-        self.selecting = true;
-        cx.notify();
         let session = self.session.clone();
         let operation = session.update(cx, |session, cx| {
             let operation = session.begin(ProjectActivity::SelectFile);
             cx.notify();
             operation
         });
-        let session_id = session.read(cx).id();
+        self.operation = Some(operation);
+        cx.notify();
         self._choose_task = cx.spawn(async move |controller, cx| {
             let selected = selection.await.map(|file| file.path().to_path_buf());
-            if session.read_with(cx, |session, _| session.id()) != session_id {
-                return;
-            }
-            let current =
-                session.read_with(cx, |session, _| session.operation_is_current(operation));
             let _ = controller.update(cx, |this, cx| {
-                this.selecting = false;
-                if current
-                    && this.editor.read(cx).active_scene_id() == scene_id
-                    && target.ui(this.editor.read(cx)).is_some()
-                    && let Some(path) = selected
-                {
-                    this.metadata.read(cx).retry(path.clone());
-                    this.set_value(target, Some(path), cx);
-                }
-                cx.notify();
-            });
-            session.update(cx, |session, cx| {
-                if session.finish(operation) {
-                    cx.notify();
-                }
+                this.finish_selection(operation, scene_id, target, selected, cx);
             });
         });
+    }
+
+    fn finish_selection(
+        &mut self,
+        operation: ProjectOperation,
+        scene_id: Option<SceneId>,
+        target: FileTarget,
+        selected: Option<PathBuf>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.operation != Some(operation) {
+            return;
+        }
+        self.operation = None;
+        let current = self.session.update(cx, |session, cx| {
+            let current = session.finish(operation);
+            if current {
+                cx.notify();
+            }
+            current
+        });
+        if current
+            && self.editor.read(cx).active_scene_id() == scene_id
+            && target.ui(self.editor.read(cx)).is_some()
+            && let Some(path) = selected
+        {
+            self.metadata.read(cx).retry(path.clone());
+            self.set_value(target, Some(path), cx);
+        }
+        cx.notify();
     }
 
     fn set_value(&mut self, target: FileTarget, path: Option<PathBuf>, cx: &mut Context<Self>) {

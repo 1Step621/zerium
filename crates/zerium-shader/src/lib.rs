@@ -10,7 +10,7 @@ mod loader;
 mod types;
 mod wesl;
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use thiserror::Error;
 use zerium_core::plugin::{PluginError, PluginRegistry};
@@ -36,20 +36,24 @@ impl ShaderError {
     pub(crate) fn backend(message: impl Into<String>) -> Self {
         Self::Operation(message.into())
     }
+
+    fn io(action: &str, path: &Path, error: std::io::Error) -> Self {
+        Self::backend(format!("cannot {action} '{}': {error}", path.display()))
+    }
 }
 
 /// Validate a plugin with the same linking and WGSL checks used by the application.
 pub fn validate(path: Option<&Path>) -> Result<(), ShaderError> {
+    let root = plugin_directory(path)?;
+    let plugins = PluginRegistry::new([load_filesystem_plugin(&root)?])?;
+    compile_plugins(&plugins).map(|_| ())
+}
+
+fn plugin_directory(path: Option<&Path>) -> Result<PathBuf, ShaderError> {
     let root = path
         .map(Path::to_owned)
         .map_or_else(std::env::current_dir, Ok)
         .map_err(|error| ShaderError::backend(error.to_string()))?;
-    let root = root.canonicalize().map_err(|error| {
-        ShaderError::backend(format!(
-            "cannot access plugin directory '{}': {error}",
-            root.display()
-        ))
-    })?;
-    let plugins = PluginRegistry::new([load_filesystem_plugin(&root)?])?;
-    compile_plugins(&plugins).map(|_| ())
+    root.canonicalize()
+        .map_err(|error| ShaderError::io("access plugin directory", &root, error))
 }

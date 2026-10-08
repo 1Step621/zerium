@@ -16,7 +16,7 @@ pub(crate) use ffmpeg_encoder::{
     FfmpegFileEncoder, VideoColorSpec, VideoEncoderSettings, VideoOutputSpec,
 };
 pub(crate) use ffmpeg_next::estimate_max_keyframe_gap;
-pub(crate) use metadata::{MediaMetadataUpdater, item_readings, refresh_files};
+pub(crate) use metadata::{MediaMetadataUpdater, item_readings, prepare_import, refresh_files};
 pub(crate) use reader::bundled_media_readers;
 pub(crate) use reader::{
     AudioFormat, DecodedVideoFrame, MediaError, MediaInputId, MediaReaderRegistry, VideoDecodeSize,

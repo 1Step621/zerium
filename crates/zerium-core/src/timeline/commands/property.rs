@@ -1,6 +1,10 @@
-use super::*;
-use crate::timeline::EditScope;
-use crate::timeline::{AspectRatio, PropertyAddress};
+use crate::property::PropertyValue;
+use crate::timeline::history::HistoryKey;
+use crate::timeline::{
+    AspectRatio, EditScope, EffectInstanceId, ItemId, PropertyAddress, TimelineEditor,
+};
+
+use super::TimelineEditError;
 
 enum PropertyEdit {
     Set(PropertyValue),

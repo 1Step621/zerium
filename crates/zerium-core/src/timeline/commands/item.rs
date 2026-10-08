@@ -1,7 +1,39 @@
-use super::*;
+use std::collections::{HashMap, HashSet};
+
+use crate::media::ImportedFile;
+use crate::timeline::history::HistoryKey;
+use crate::timeline::{
+    EffectInstanceId, Frame, ItemId, LayerId, ResizeEdge, ResizeMode, SceneBindingOwner,
+    SceneBindingTarget, SceneId, TimelineEditor, TimelineItem,
+};
+
+use super::{TimelineEditError, scene::remove_bindings_for_items};
 
 // Item, effect, animation, and layout commands.
 impl TimelineEditor {
+    pub fn add_item(
+        &mut self,
+        layer: LayerId,
+        start: Frame,
+        plugin_id: &str,
+        item_id: &str,
+    ) -> Result<ItemId, TimelineEditError> {
+        let schema = self.plugins.item(plugin_id, item_id).ok_or_else(|| {
+            TimelineEditError::PluginItemNotFound {
+                plugin_id: plugin_id.to_owned(),
+                item_id: item_id.to_owned(),
+            }
+        })?;
+        let before = self.history_snapshot();
+        let id = self
+            .active_document_mut()
+            .add_item(layer, start, plugin_id, item_id, schema)
+            .ok_or(TimelineEditError::PlacementUnavailable)?;
+        self.selection.select_only(id);
+        self.finish_project_edit(Some(before), Some(HistoryKey::ItemCreation(id)));
+        Ok(id)
+    }
+
     fn remove_active_scene_bindings_for(&mut self, item_ids: &HashSet<ItemId>) {
         let Some(scene_id) = self.active_scene_id() else {
             return;
@@ -162,7 +194,7 @@ impl TimelineEditor {
         Some(pasted)
     }
 
-    /// Apply one scalar edit to each selected instance while retaining its own siblings.
+    /// Resize the selected intervals from their gesture origins.
     pub fn resize_items(
         &mut self,
         origins: &[TimelineItem],
@@ -181,11 +213,7 @@ impl TimelineEditor {
         let mut ids = origins.iter().map(|item| item.id).collect::<Vec<_>>();
         ids.sort_unstable_by_key(|id| id.get());
         ids.dedup();
-        let key = if ids.len() == 1 {
-            HistoryKey::ItemResize(ids[0], edge, mode)
-        } else {
-            HistoryKey::ItemsResize(ids, edge, mode)
-        };
+        let key = HistoryKey::ItemsResize(ids, edge, mode);
         let before = self.history_snapshot_for_edit(Some(&key));
         let changed = self
             .active_document_mut()
@@ -205,11 +233,7 @@ impl TimelineEditor {
         if ids.len() != origins.len() {
             return false;
         }
-        let key = if ids.len() == 1 {
-            HistoryKey::ItemMove(ids[0])
-        } else {
-            HistoryKey::ItemsMove(ids)
-        };
+        let key = HistoryKey::ItemsMove(ids);
         let before = self.history_snapshot_for_edit(Some(&key));
         let changed = self
             .active_document_mut()

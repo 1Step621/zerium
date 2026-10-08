@@ -64,84 +64,6 @@ impl InFlightVideoDecode {
     }
 }
 
-#[derive(Default)]
-struct InFlightVideoDecodes {
-    active: HashMap<MediaInputId, InFlightVideoDecode>,
-    next_generation: u64,
-}
-
-impl InFlightVideoDecodes {
-    fn spawn(
-        &mut self,
-        input: MediaInputId,
-        source: MediaAsset,
-        presentation_time: Duration,
-        size: VideoDecodeSize,
-        mode: VideoPlaybackMode,
-        frame_count: usize,
-    ) -> (u64, Arc<AtomicBool>) {
-        if let Some(active) = self.active.get(&input) {
-            active.cancel.store(true, Ordering::Release);
-        }
-        self.next_generation = self.next_generation.wrapping_add(1);
-        let generation = self.next_generation;
-        let cancel = Arc::new(AtomicBool::new(false));
-        // This is the horizon of this memory-bounded batch in the decoded
-        // source's native cadence (including a proxy's cadence), not timeline fps.
-        // Actual cache coverage always comes from decoded PTS and durations.
-        let expected_end = match source.kind {
-            MediaKind::Video { frame_rate, .. } => {
-                presentation_time.saturating_add(Duration::from_secs_f64(
-                    frame_rate.frame_to_seconds(frame_count.saturating_sub(1).max(1) as u64),
-                ))
-            }
-            _ => source
-                .duration
-                .max(presentation_time.saturating_add(Duration::from_nanos(1))),
-        };
-        self.active.insert(
-            input,
-            InFlightVideoDecode {
-                generation,
-                cancel: cancel.clone(),
-                source,
-                presentation_time,
-                size,
-                mode,
-                expected_end,
-            },
-        );
-        (generation, cancel)
-    }
-
-    fn complete(&mut self, input: &MediaInputId, generation: u64) -> bool {
-        if self
-            .active
-            .get(input)
-            .is_some_and(|active| active.generation == generation)
-        {
-            self.active.remove(input);
-            true
-        } else {
-            false
-        }
-    }
-
-    fn cancel_orphans(&mut self, active_inputs: &HashSet<MediaInputId>) {
-        for (input, decode) in &self.active {
-            if !active_inputs.contains(input) {
-                // Do not release the slot until the worker returns.
-                decode.cancel.store(true, Ordering::Release);
-            }
-        }
-    }
-
-    fn reset(&mut self) {
-        self.cancel_orphans(&HashSet::new());
-        self.active.clear();
-    }
-}
-
 #[derive(Clone)]
 struct VideoDecodeRequest {
     input: MediaInputId,
@@ -231,9 +153,7 @@ struct VideoDecoderState {
 struct VideoWorkerRequest {
     generation: u64,
     sequence: VideoFrameSequence,
-    source: MediaAsset,
     presentation_time: Duration,
-    size: VideoDecodeSize,
     frame_count: usize,
     cancel: Arc<AtomicBool>,
 }
@@ -246,14 +166,72 @@ enum VideoWorkerDirective {
 struct VideoWorkerResult {
     generation: u64,
     sequence: VideoFrameSequence,
-    source: MediaAsset,
     presentation_time: Duration,
-    size: VideoDecodeSize,
     result: Result<Vec<DecodedVideoFrame>, MediaError>,
 }
 
-struct VideoWorkerHandle {
+struct VideoWorker {
     requests: std::sync::mpsc::Sender<VideoWorkerDirective>,
+    active: Option<InFlightVideoDecode>,
+}
+
+impl VideoWorker {
+    fn decode(&mut self, request: VideoWorkerRequest, mode: VideoPlaybackMode) -> bool {
+        if let Some(active) = &self.active {
+            active.cancel.store(true, Ordering::Release);
+        }
+        // The batch horizon uses the decoded source's cadence, not timeline fps.
+        // Actual cache coverage comes from decoded PTS and durations.
+        let expected_end = match request.sequence.decoded_source.kind {
+            MediaKind::Video { frame_rate, .. } => {
+                request
+                    .presentation_time
+                    .saturating_add(Duration::from_secs_f64(
+                        frame_rate
+                            .frame_to_seconds(request.frame_count.saturating_sub(1).max(1) as u64),
+                    ))
+            }
+            _ => request.sequence.decoded_source.duration.max(
+                request
+                    .presentation_time
+                    .saturating_add(Duration::from_nanos(1)),
+            ),
+        };
+        self.active = Some(InFlightVideoDecode {
+            generation: request.generation,
+            cancel: request.cancel.clone(),
+            source: request.sequence.decoded_source.clone(),
+            presentation_time: request.presentation_time,
+            size: request.sequence.size,
+            mode,
+            expected_end,
+        });
+        self.requests
+            .send(VideoWorkerDirective::Decode(Box::new(request)))
+            .is_ok()
+    }
+
+    fn complete(&mut self, generation: u64) -> bool {
+        if self
+            .active
+            .as_ref()
+            .is_some_and(|active| active.generation == generation)
+        {
+            self.active = None;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl Drop for VideoWorker {
+    fn drop(&mut self) {
+        if let Some(active) = &self.active {
+            active.cancel.store(true, Ordering::Release);
+        }
+        let _ = self.requests.send(VideoWorkerDirective::Shutdown);
+    }
 }
 
 pub(crate) struct VideoPlaybackEvent(VideoPlaybackEventKind);
@@ -286,66 +264,39 @@ fn video_worker_main(
             VideoWorkerDirective::Shutdown => break,
             VideoWorkerDirective::Decode(request) => request,
         };
-        if request.cancel.load(Ordering::Acquire) {
-            let _ = events.unbounded_send(VideoPlaybackEvent(VideoPlaybackEventKind::Decoded {
-                input: input.clone(),
-                result: Box::new(VideoWorkerResult {
-                    generation: request.generation,
-                    sequence: request.sequence,
-                    source: request.source,
-                    presentation_time: request.presentation_time,
-                    size: request.size,
-                    result: Err(MediaError::Cancelled),
-                }),
-            }));
-            continue;
-        }
-        if decoder
-            .as_ref()
-            .is_none_or(|decoder| decoder.source != request.source)
-        {
-            decoder = match media_readers.open_visual_decoder(&request.source) {
-                Ok(decoder) => Some(VideoDecoderState {
-                    source: request.source.clone(),
-                    decoder,
-                }),
-                Err(error) => {
-                    let _ = events.unbounded_send(VideoPlaybackEvent(
-                        VideoPlaybackEventKind::Decoded {
-                            input: input.clone(),
-                            result: Box::new(VideoWorkerResult {
-                                generation: request.generation,
-                                sequence: request.sequence,
-                                source: request.source,
-                                presentation_time: request.presentation_time,
-                                size: request.size,
-                                result: Err(error),
-                            }),
-                        },
-                    ));
-                    continue;
-                }
-            };
-        }
-        let result = decoder
-            .as_mut()
-            .expect("decoder was opened above")
-            .decoder
-            .decode_from(
-                request.presentation_time,
-                request.frame_count,
-                request.size,
-                &request.cancel,
-            );
+        let result = (|| {
+            if request.cancel.load(Ordering::Acquire) {
+                return Err(MediaError::Cancelled);
+            }
+            let source = &request.sequence.decoded_source;
+            if decoder
+                .as_ref()
+                .is_none_or(|decoder| decoder.source != *source)
+            {
+                decoder = None;
+                decoder = Some(VideoDecoderState {
+                    source: source.clone(),
+                    decoder: media_readers.open_visual_decoder(source)?,
+                });
+            }
+            decoder
+                .as_mut()
+                .expect("decoder was opened above")
+                .decoder
+                .decode_from(
+                    request.presentation_time,
+                    request.frame_count,
+                    request.sequence.size,
+                    &request.cancel,
+                )
+        })();
         if events
             .unbounded_send(VideoPlaybackEvent(VideoPlaybackEventKind::Decoded {
                 input: input.clone(),
                 result: Box::new(VideoWorkerResult {
                     generation: request.generation,
                     sequence: request.sequence,
-                    source: request.source,
                     presentation_time: request.presentation_time,
-                    size: request.size,
                     result,
                 }),
             }))
@@ -609,8 +560,8 @@ pub(crate) struct VideoPlaybackEngine {
     tick_decode_requests: Vec<VideoDecodeRequest>,
     tick_seen_times: HashSet<u64>,
     last_presented_frames: HashMap<MediaInputId, PresentedVideoFrame>,
-    in_flight: InFlightVideoDecodes,
-    workers: HashMap<MediaInputId, VideoWorkerHandle>,
+    workers: HashMap<MediaInputId, VideoWorker>,
+    next_generation: u64,
     proxy: VideoProxyManager,
     events: UnboundedSender<VideoPlaybackEvent>,
     failed_frames: HashSet<(VideoFrameSequence, Duration)>,
@@ -641,8 +592,8 @@ impl VideoPlaybackEngine {
                 tick_decode_requests: Vec::new(),
                 tick_seen_times: HashSet::new(),
                 last_presented_frames: HashMap::new(),
-                in_flight: InFlightVideoDecodes::default(),
                 workers: HashMap::new(),
+                next_generation: 0,
                 proxy: VideoProxyManager::new(media_readers),
                 events,
                 failed_frames: HashSet::new(),
@@ -1017,8 +968,8 @@ impl VideoPlaybackEngine {
             .collect::<HashSet<_>>();
         self.last_presented_frames
             .retain(|input, _| active_inputs.contains(input));
-        self.in_flight.cancel_orphans(&active_inputs);
-        self.shutdown_idle_workers(&active_inputs);
+        self.workers
+            .retain(|input, _| active_inputs.contains(input));
 
         let tick_requests = std::mem::take(&mut self.tick_decode_requests);
         self.proxy.update_queue(&tick_requests);
@@ -1062,46 +1013,38 @@ impl VideoPlaybackEngine {
         }
     }
 
-    fn ensure_worker(&mut self, input: &MediaInputId) -> bool {
-        if self.workers.contains_key(input) {
-            return true;
-        }
-        let (request_tx, request_rx) = std::sync::mpsc::channel::<VideoWorkerDirective>();
-        let media_readers = self.media_readers.clone();
-        let worker_input = input.clone();
-        let events = self.events.clone();
-        if std::thread::Builder::new()
-            .name("zerium-video-worker".to_owned())
-            .spawn(move || video_worker_main(media_readers, request_rx, worker_input, events))
-            .is_err()
-        {
-            return false;
-        }
-        self.workers.insert(
-            input.clone(),
-            VideoWorkerHandle {
-                requests: request_tx,
-            },
-        );
-        true
-    }
-
-    fn shutdown_idle_workers(&mut self, active_inputs: &HashSet<MediaInputId>) {
-        self.workers.retain(|input, worker| {
-            if active_inputs.contains(input) {
-                return true;
+    fn worker_for(&mut self, input: &MediaInputId) -> Option<&mut VideoWorker> {
+        use std::collections::hash_map::Entry;
+        match self.workers.entry(input.clone()) {
+            Entry::Occupied(entry) => Some(entry.into_mut()),
+            Entry::Vacant(entry) => {
+                let (request_tx, request_rx) = std::sync::mpsc::channel();
+                let media_readers = self.media_readers.clone();
+                let worker_input = input.clone();
+                let events = self.events.clone();
+                std::thread::Builder::new()
+                    .name("zerium-video-worker".to_owned())
+                    .spawn(move || {
+                        video_worker_main(media_readers, request_rx, worker_input, events)
+                    })
+                    .ok()?;
+                Some(entry.insert(VideoWorker {
+                    requests: request_tx,
+                    active: None,
+                }))
             }
-            let _ = worker.requests.send(VideoWorkerDirective::Shutdown);
-            self.in_flight.active.remove(input);
-            false
-        });
+        }
     }
 
     fn decode_input_if_needed(&mut self, input: &MediaInputId) {
         let Some(requests) = self.requested_frames.get(input) else {
             return;
         };
-        if let Some(active) = self.in_flight.active.get(input) {
+        if let Some(active) = self
+            .workers
+            .get(input)
+            .and_then(|worker| worker.active.as_ref())
+        {
             active.retain_for_requests(requests, self.decode_mode);
         }
         let Some(requested) = requests
@@ -1120,73 +1063,62 @@ impl VideoPlaybackEngine {
             return;
         };
         if self
-            .in_flight
-            .active
+            .workers
             .get(input)
+            .and_then(|worker| worker.active.as_ref())
             .is_some_and(|active| active.serves(&requested, self.decode_mode))
         {
             return;
         }
         let sequence = requested.sequence();
-        let source = requested.source.clone();
         let presentation_time = requested.presentation_time;
         let size = requested.size;
         let frame_count = match self.decode_mode {
-            VideoPlaybackMode::Playing => usize::try_from(Self::decode_batch_frames(
-                size,
-                Self::PREFETCH_BATCH_FRAMES,
-                Self::PREFETCH_BATCH_FRAMES,
-            ))
-            .unwrap_or(1),
+            VideoPlaybackMode::Playing => Self::decode_batch_frames(size),
             VideoPlaybackMode::Scrubbing | VideoPlaybackMode::Idle => 1,
         };
-        let (generation, cancel) = self.in_flight.spawn(
-            input.clone(),
-            source.clone(),
-            presentation_time,
-            size,
-            self.decode_mode,
-            frame_count,
-        );
-        if !self.ensure_worker(input) {
-            self.in_flight.active.remove(input);
+        self.next_generation = self.next_generation.wrapping_add(1);
+        let generation = self.next_generation;
+        let mode = self.decode_mode;
+        let Some(worker) = self.worker_for(input) else {
             self.failed_frames.insert((sequence, presentation_time));
             return;
-        }
-        let Some(worker) = self.workers.get(input) else {
-            self.in_flight.active.remove(input);
-            return;
         };
-        if worker
-            .requests
-            .send(VideoWorkerDirective::Decode(Box::new(VideoWorkerRequest {
+        if !worker.decode(
+            VideoWorkerRequest {
                 generation,
                 sequence,
-                source,
                 presentation_time,
-                size,
                 frame_count,
-                cancel,
-            })))
-            .is_err()
-        {
+                cancel: Arc::new(AtomicBool::new(false)),
+            },
+            mode,
+        ) {
             self.workers.remove(input);
-            self.in_flight.active.remove(input);
         }
     }
 
     fn finish_decode(&mut self, input: &MediaInputId, message: VideoWorkerResult) -> bool {
-        if !self.in_flight.complete(input, message.generation) {
+        if !self
+            .workers
+            .get_mut(input)
+            .is_some_and(|worker| worker.complete(message.generation))
+        {
             return false;
         }
         let VideoWorkerResult {
             sequence,
-            source,
             presentation_time,
-            size,
             result,
             ..
         } = message;
+        let current = self.requested_frames.get(input).is_some_and(|requests| {
+            requests.iter().any(|request| {
+                request.source == sequence.decoded_source
+                    && request.presentation_time == presentation_time
+                    && request.size == sequence.size
+            })
+        });
         match result {
             Err(MediaError::Cancelled) => {}
             Ok(frames) => {
@@ -1208,24 +1140,11 @@ impl VideoPlaybackEngine {
                     self.failed_frames
                         .insert((sequence.clone(), presentation_time));
                 }
-                if self.requested_frames.get(input).is_some_and(|requests| {
-                    requests.iter().any(|request| {
-                        request.source == source
-                            && request.presentation_time == presentation_time
-                            && request.size == size
-                    })
-                }) {
+                if current {
                     self.error = None;
                 }
             }
             Err(error) => {
-                let current = self.requested_frames.get(input).is_some_and(|requests| {
-                    requests.iter().any(|request| {
-                        request.source == source
-                            && request.presentation_time == presentation_time
-                            && request.size == size
-                    })
-                });
                 self.failed_frames
                     .insert((sequence.clone(), presentation_time));
                 if current {
@@ -1240,10 +1159,7 @@ impl VideoPlaybackEngine {
     }
 
     pub(crate) fn reset(&mut self) {
-        self.in_flight.reset();
-        for (_, worker) in self.workers.drain() {
-            let _ = worker.requests.send(VideoWorkerDirective::Shutdown);
-        }
+        self.workers.clear();
         self.frame_cache = BudgetedTimestampCache::new(Self::FRAME_CACHE_BUDGET_BYTES);
         self.requested_frames.clear();
         self.tick_decode_requests.clear();
@@ -1256,7 +1172,7 @@ impl VideoPlaybackEngine {
         self.revision = self.revision.saturating_add(1);
     }
 
-    fn decode_batch_frames(size: VideoDecodeSize, desired: u64, available: u64) -> u64 {
+    fn decode_batch_frames(size: VideoDecodeSize) -> usize {
         let frame_bytes = u64::from(size.max_width)
             .saturating_mul(u64::from(size.max_height))
             .saturating_mul(4);
@@ -1264,6 +1180,6 @@ impl VideoPlaybackEngine {
             .checked_div(frame_bytes)
             .unwrap_or(1)
             .max(1);
-        desired.min(memory_limited).min(available)
+        Self::PREFETCH_BATCH_FRAMES.min(memory_limited) as usize
     }
 }

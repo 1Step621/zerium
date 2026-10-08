@@ -118,24 +118,45 @@ impl SharedAudioLevels {
 }
 
 struct AudioPlaybackSession {
-    stream: Option<cpal::Stream>,
-    stop: Arc<AtomicBool>,
-    worker: Option<thread::JoinHandle<Result<(), AudioTimelineError>>>,
+    stream: cpal::Stream,
+    worker: AudioWorker,
     played_sample_frames: Arc<AtomicU64>,
     start_seconds: f64,
     sample_rate: u32,
     levels: SharedAudioLevels,
     gains: HashMap<AudioClipId, Arc<AtomicU32>>,
+}
+
+struct AudioWorker {
+    handle: thread::JoinHandle<Result<(), AudioTimelineError>>,
+    stop: Arc<AtomicBool>,
     events: Arc<Mutex<VecDeque<AudioPlaybackEvent>>>,
     underrun: Arc<AudioUnderrunState>,
     underrun_reported: bool,
 }
 
-struct RetiringAudioWorker {
-    worker: Option<thread::JoinHandle<Result<(), AudioTimelineError>>>,
-    events: Arc<Mutex<VecDeque<AudioPlaybackEvent>>>,
-    underrun: Arc<AudioUnderrunState>,
-    underrun_reported: bool,
+impl AudioWorker {
+    fn request_stop(&self) {
+        self.stop.store(true, Ordering::Release);
+    }
+
+    fn poll_events(&mut self, out: &mut VecDeque<AudioPlaybackEvent>) {
+        poll_underrun(&self.underrun, &mut self.underrun_reported, out);
+        if let Ok(mut events) = self.events.lock() {
+            out.extend(events.drain(..));
+        }
+    }
+
+    fn finish(mut self, out: &mut VecDeque<AudioPlaybackEvent>) {
+        if self.handle.join().is_err() {
+            push_event(&self.events, AudioPlaybackEvent::WorkerPanicked);
+        }
+        // Joining consumes the handle; drain the remaining worker events afterward.
+        poll_underrun(&self.underrun, &mut self.underrun_reported, out);
+        if let Ok(mut events) = self.events.lock() {
+            out.extend(events.drain(..));
+        }
+    }
 }
 
 struct PendingAudioPlayback {
@@ -147,7 +168,7 @@ struct PendingAudioPlayback {
 pub(crate) struct AudioPlaybackEngine {
     pending: Option<PendingAudioPlayback>,
     session: Option<AudioPlaybackSession>,
-    retiring: Vec<RetiringAudioWorker>,
+    retiring: Vec<AudioWorker>,
     media_readers: Arc<MediaReaderRegistry>,
     completed_events: VecDeque<AudioPlaybackEvent>,
 }
@@ -336,25 +357,29 @@ impl AudioPlaybackEngine {
                 AudioPlaybackError::Worker(format!("Failed to start audio render thread: {error}"))
             })?;
 
+        let worker = AudioWorker {
+            handle: worker,
+            stop,
+            events,
+            underrun,
+            underrun_reported: false,
+        };
         if let Err(error) = stream.play() {
-            stop.store(true, Ordering::Release);
-            self.retire_worker(worker, events, underrun, false);
+            worker.request_stop();
+            drop(stream);
+            self.retire_worker(worker);
             return Err(AudioPlaybackError::Stream(format!(
                 "Failed to start audio playback: {error}"
             )));
         }
         self.session = Some(AudioPlaybackSession {
-            stream: Some(stream),
-            stop,
-            worker: Some(worker),
+            stream,
+            worker,
             played_sample_frames,
             start_seconds: start_sample_frame as f64 / f64::from(format.sample_rate),
             sample_rate: format.sample_rate,
             levels,
             gains,
-            events,
-            underrun,
-            underrun_reported: false,
         });
         Ok(PlaybackClock::Audio)
     }
@@ -380,89 +405,35 @@ impl AudioPlaybackEngine {
     pub(crate) fn request_stop(&mut self) -> bool {
         self.reap_finished_workers();
         let had_pending = self.pending.take().is_some();
-        let Some(mut session) = self.session.take() else {
+        let Some(session) = self.session.take() else {
             return had_pending;
         };
-        session.stop.store(true, Ordering::Release);
-        drop(session.stream.take());
-        poll_underrun(
-            &session.underrun,
-            &mut session.underrun_reported,
-            &mut self.completed_events,
-        );
-        if let Ok(mut events) = session.events.lock() {
-            self.completed_events.extend(events.drain(..));
-        }
-        if let Some(worker) = session.worker.take() {
-            self.retire_worker(
-                worker,
-                session.events,
-                session.underrun,
-                session.underrun_reported,
-            );
-        }
+        session.worker.request_stop();
+        drop(session.stream);
+        self.retire_worker(session.worker);
         true
     }
 
-    fn retire_worker(
-        &mut self,
-        worker: thread::JoinHandle<Result<(), AudioTimelineError>>,
-        events: Arc<Mutex<VecDeque<AudioPlaybackEvent>>>,
-        underrun: Arc<AudioUnderrunState>,
-        mut underrun_reported: bool,
-    ) {
-        poll_underrun(
-            &underrun,
-            &mut underrun_reported,
-            &mut self.completed_events,
-        );
-        if worker.is_finished() {
-            match worker.join() {
-                Ok(Ok(())) => {}
-                Ok(Err(_)) => {}
-                Err(_) => push_event(&events, AudioPlaybackEvent::WorkerPanicked),
-            }
-            if let Ok(mut pending) = events.lock() {
-                self.completed_events.extend(pending.drain(..));
-            }
-            return;
+    fn retire_worker(&mut self, mut worker: AudioWorker) {
+        worker.poll_events(&mut self.completed_events);
+        if worker.handle.is_finished() {
+            worker.finish(&mut self.completed_events);
+        } else {
+            self.retiring.push(worker);
         }
-        self.retiring.push(RetiringAudioWorker {
-            worker: Some(worker),
-            events,
-            underrun,
-            underrun_reported,
-        });
     }
 
     fn reap_finished_workers(&mut self) {
         let mut index = 0;
         while index < self.retiring.len() {
-            let underrun = self.retiring[index].underrun.clone();
-            let mut reported = self.retiring[index].underrun_reported;
-            poll_underrun(&underrun, &mut reported, &mut self.completed_events);
-            self.retiring[index].underrun_reported = reported;
-            if let Ok(mut pending) = self.retiring[index].events.lock() {
-                self.completed_events.extend(pending.drain(..));
-            }
-            let finished = self.retiring[index]
-                .worker
-                .as_ref()
-                .is_some_and(thread::JoinHandle::is_finished);
-            if !finished {
+            let worker = &mut self.retiring[index];
+            worker.poll_events(&mut self.completed_events);
+            if worker.handle.is_finished() {
+                self.retiring
+                    .remove(index)
+                    .finish(&mut self.completed_events);
+            } else {
                 index += 1;
-                continue;
-            }
-            let mut retiring = self.retiring.remove(index);
-            if let Some(worker) = retiring.worker.take() {
-                match worker.join() {
-                    Ok(Ok(())) => {}
-                    Ok(Err(_)) => {}
-                    Err(_) => push_event(&retiring.events, AudioPlaybackEvent::WorkerPanicked),
-                }
-            }
-            if let Ok(mut pending) = retiring.events.lock() {
-                self.completed_events.extend(pending.drain(..));
             }
         }
     }
@@ -473,14 +444,7 @@ impl AudioPlaybackEngine {
         }
         self.reap_finished_workers();
         if let Some(session) = self.session.as_mut() {
-            poll_underrun(
-                &session.underrun,
-                &mut session.underrun_reported,
-                &mut self.completed_events,
-            );
-            if let Ok(mut events) = session.events.lock() {
-                self.completed_events.extend(events.drain(..));
-            }
+            session.worker.poll_events(&mut self.completed_events);
         }
         self.completed_events.drain(..).collect()
     }
@@ -488,8 +452,7 @@ impl AudioPlaybackEngine {
     fn worker_finished(&self) -> bool {
         self.session
             .as_ref()
-            .and_then(|session| session.worker.as_ref())
-            .is_some_and(thread::JoinHandle::is_finished)
+            .is_some_and(|session| session.worker.handle.is_finished())
     }
 
     pub(crate) fn playhead_seconds(&self) -> Option<f64> {

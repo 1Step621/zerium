@@ -11,6 +11,7 @@ mod error;
 mod identifier;
 mod item;
 mod manifest;
+mod passes;
 mod registry;
 mod shader;
 mod validation;
@@ -24,14 +25,14 @@ pub use capability::{
 };
 pub use category::CatalogCategory;
 pub use editor::EditorCapability;
-pub use effect::{
-    ComputeDispatchDimension, EffectInputSpace, EffectPassSchema, EffectSchema, PassConstantSchema,
-    PassConstantValue,
-};
+pub use effect::{EffectInputSpace, EffectSchema};
 pub use error::PluginError;
 pub use identifier::validate_wgsl_identifier;
 pub use item::ItemSchema;
 pub use manifest::PluginManifest;
+pub use passes::{
+    ComputeDispatchDimension, EffectPassSchema, PassConstantSchema, PassConstantValue,
+};
 pub use registry::PluginRegistry;
 pub use shader::{ShaderKind, ShaderSchema};
 

@@ -161,27 +161,22 @@ impl Timeline {
             .as_ref()
             .filter(|marquee| marquee.active)?;
         let list_bounds = layer_scroll_base(&self.layer_scroll).bounds();
-        let bounds = marquee.bounds();
-        let left =
-            f32::from(bounds.origin.x).max(f32::from(list_bounds.origin.x) + LAYER_HEADER_WIDTH);
-        let right = f32::from(bounds.origin.x + bounds.size.width)
-            .min(f32::from(list_bounds.origin.x + list_bounds.size.width));
-        let top = f32::from(bounds.origin.y).max(f32::from(list_bounds.origin.y));
-        let bottom = f32::from(bounds.origin.y + bounds.size.height)
-            .min(f32::from(list_bounds.origin.y + list_bounds.size.height));
-        if right <= left || bottom <= top {
+        let track_bounds = Bounds::from_corners(
+            list_bounds.origin + point(px(LAYER_HEADER_WIDTH), px(0.)),
+            list_bounds.bottom_right(),
+        );
+        let bounds = marquee.bounds().intersect(&track_bounds);
+        if bounds.is_empty() {
             return None;
         }
 
         Some(
             div()
                 .absolute()
-                .left(px(left - f32::from(list_bounds.origin.x)))
-                .top(px(
-                    top - f32::from(list_bounds.origin.y) + PANE_HEADER_HEIGHT
-                ))
-                .w(px(right - left))
-                .h(px(bottom - top))
+                .left(bounds.origin.x - list_bounds.origin.x)
+                .top(bounds.origin.y - list_bounds.origin.y + px(PANE_HEADER_HEIGHT))
+                .w(bounds.size.width)
+                .h(bounds.size.height)
                 .border_1()
                 .border_color(colors.primary)
                 .bg(colors.primary.opacity(0.12)),

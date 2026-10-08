@@ -1,4 +1,59 @@
-use super::*;
+use std::collections::{HashMap, HashSet};
+
+use crate::property::{PropertyConfiguration, PropertySchema, PropertyValue};
+use crate::timeline::history::HistoryKey;
+use crate::timeline::scene::{
+    apply_scene_binding_to_item, resolve_scene_binding, unique_scene_argument_name,
+};
+use crate::timeline::{
+    EffectInstanceId, Frame, FrameDuration, ItemId, LayerId, SceneArgument, SceneArgumentPreset,
+    SceneBindingOwner, SceneBindingTarget, SceneDefinition, SceneId, TimelineDocument,
+    TimelineEditor, TimelineItem,
+};
+
+use super::{SceneArgumentEditError, TimelineEditError};
+
+pub(super) fn remove_bindings_for_items(scene: &mut SceneDefinition, item_ids: &HashSet<ItemId>) {
+    for argument in &mut scene.arguments {
+        argument
+            .bindings
+            .retain(|binding| !item_ids.contains(&binding.item_id()));
+    }
+}
+
+fn remove_bindings_for_nested_argument(
+    scenes: &mut HashMap<SceneId, SceneDefinition>,
+    nested_scene_id: SceneId,
+    argument_id: &str,
+) {
+    for scene in scenes.values_mut() {
+        let item_ids = scene
+            .items()
+            .filter(|item| item.scene_id() == Some(nested_scene_id))
+            .map(|item| item.id)
+            .collect::<HashSet<_>>();
+        for argument in &mut scene.arguments {
+            argument.bindings.retain(|binding| {
+                !(item_ids.contains(&binding.item_id())
+                    && binding.owner() == SceneBindingOwner::Item
+                    && binding.property_id() == argument_id)
+            });
+        }
+    }
+}
+
+fn remove_scene_instances(document: &mut TimelineDocument, scene_id: SceneId) -> HashSet<ItemId> {
+    let instance_ids = document
+        .items()
+        .filter(|item| item.scene_id() == Some(scene_id))
+        .map(|item| item.id)
+        .collect::<HashSet<_>>();
+    for item_id in &instance_ids {
+        let removed = document.remove_item(*item_id);
+        debug_assert!(removed, "collected scene instance must still exist");
+    }
+    instance_ids
+}
 
 // Scene definition and scene-argument commands.
 impl TimelineEditor {
@@ -73,12 +128,10 @@ impl TimelineEditor {
         start: Frame,
         scene_id: SceneId,
     ) -> Result<ItemId, TimelineEditError> {
-        let scene = self
-            .project()
-            .scenes
-            .get(&scene_id)
+        let duration = self
+            .scene(scene_id)
             .ok_or(TimelineEditError::SceneNotFound(scene_id))?
-            .clone();
+            .duration();
         if self
             .active_scene_id()
             .is_some_and(|active| self.scene_reaches(scene_id, active, &mut HashSet::new()))
@@ -86,11 +139,10 @@ impl TimelineEditor {
             return Err(TimelineEditError::RecursiveSceneReference);
         }
         let before = self.history_snapshot();
-        let duration = scene.duration();
         let id = self
             .active_document_mut()
-            .add_generated_item(layer, start, duration, move |id, start, duration| {
-                scene.instantiate(id, start, duration)
+            .insert_item(layer, start, duration, move |id, start, duration| {
+                TimelineItem::scene_instance(id, start, duration, scene_id)
             })
             .ok_or(TimelineEditError::PlacementUnavailable)?;
         self.selection.select_only(id);
@@ -155,17 +207,62 @@ impl TimelineEditor {
                 })
                 .expect("a scene name suffix must eventually be available")
         };
-        let scene = SceneDefinition::new(scene_id, name, frame_rate, items);
+        let arguments = self
+            .active_scene_id()
+            .and_then(|id| self.scene(id))
+            .into_iter()
+            .flat_map(|scene| &scene.arguments)
+            .filter_map(|argument| {
+                let bindings = argument
+                    .bindings
+                    .iter()
+                    .filter(|binding| selected.contains(&binding.item_id()))
+                    .cloned()
+                    .collect::<Vec<_>>();
+                if bindings.is_empty() {
+                    return None;
+                }
+                let mut schema = argument.schema.clone();
+                // Forward values unchanged across the new scene boundary. Each
+                // original target still applies its own constraints.
+                schema.configuration_mut(None).constraints = Default::default();
+                Some(SceneArgument::new(schema, bindings))
+            })
+            .collect();
+        let scene = SceneDefinition::from_project(
+            scene_id,
+            name,
+            arguments,
+            TimelineDocument::from_items(frame_rate, items),
+        );
         let duration = FrameDuration::new(end.get().saturating_sub(start.get()))?;
         debug_assert_eq!(scene.duration(), duration);
-        let instance = next_document.add_generated_item(
-            target_layer,
-            start,
-            duration,
-            |id, start, duration| scene.instantiate(id, start, duration),
-        )?;
+        let instance =
+            next_document.insert_item(target_layer, start, duration, |id, start, duration| {
+                TimelineItem::scene_instance(id, start, duration, scene_id)
+            })?;
 
         *self.active_document_mut() = next_document;
+        if let Some(parent) = self
+            .active_scene_id()
+            .and_then(|id| self.project_mut().scenes.get_mut(&id))
+        {
+            for argument in &scene.arguments {
+                let parent_argument = parent
+                    .argument_mut(argument.schema.id())
+                    .expect("forwarded arguments came from the parent scene");
+                parent_argument
+                    .bindings
+                    .retain(|binding| !selected.contains(&binding.item_id()));
+                parent_argument.bindings.push(SceneBindingTarget::new(
+                    instance,
+                    SceneBindingOwner::Item,
+                    argument.schema.id(),
+                    None,
+                    None,
+                ));
+            }
+        }
         self.project_mut().scenes.insert(scene_id, scene);
         self.next_scene_id = raw_scene_id.checked_add(1).filter(|id| *id != u64::MAX);
         self.selection.set(HashSet::from([instance]));
@@ -231,17 +328,19 @@ impl TimelineEditor {
         scene_id: SceneId,
         mut update: impl FnMut(&mut TimelineItem),
     ) {
-        for item in self.project_mut().document.items_mut() {
-            if item.scene_id() == Some(scene_id) {
-                update(item);
-            }
-        }
-        for scene in self.project_mut().scenes.values_mut() {
-            for item in scene.document_mut().items_mut() {
-                if item.scene_id() == Some(scene_id) {
-                    update(item);
-                }
-            }
+        let project = self.project_mut();
+        for item in project
+            .document
+            .items_mut()
+            .chain(
+                project
+                    .scenes
+                    .values_mut()
+                    .flat_map(|scene| scene.document_mut().items_mut()),
+            )
+            .filter(|item| item.scene_id() == Some(scene_id))
+        {
+            update(item);
         }
     }
 
@@ -272,7 +371,7 @@ impl TimelineEditor {
         let scene_id = self.active_scene_id()?;
         let before = self.history_snapshot();
         let scene = self.project_mut().scenes.get_mut(&scene_id)?;
-        let (argument_id, ordinal) = scene.allocate_argument_id();
+        let (argument_id, ordinal) = scene.allocate_argument_id()?;
         let label = unique_scene_argument_name(&scene.arguments, &label(ordinal), &argument_id);
         let default = match preset {
             SceneArgumentPreset::Number => PropertyValue::F32(0.),
@@ -283,20 +382,21 @@ impl TimelineEditor {
             SceneArgumentPreset::Text => PropertyValue::String(String::new()),
             SceneArgumentPreset::File => PropertyValue::File(None),
         };
+        let ty = preset.ty();
+        let animatable = ty
+            .value_type()
+            .scalars()
+            .all(|(_, ty)| ty.is_interpolatable());
         let schema = PropertySchema {
             id: argument_id.clone(),
             label: label.into(),
-            ty: preset.ty(),
+            ty,
             default,
             append_default: None,
             configurations: vec![PropertyConfiguration {
                 scene_bindable: true,
                 editable: true,
-                animatable: preset
-                    .ty()
-                    .value_type()
-                    .scalars()
-                    .all(|(_, ty)| ty.is_interpolatable()),
+                animatable,
                 ..Default::default()
             }],
         };
@@ -328,22 +428,19 @@ impl TimelineEditor {
         {
             return false;
         }
-        let mut arguments = scene.arguments.clone();
-        let Some(argument) = arguments
-            .iter_mut()
-            .find(|argument| argument.schema.id() == argument_id)
-        else {
+        let Some(argument) = scene.argument(argument_id) else {
             return false;
         };
         if argument.schema.label() == label {
             return false;
         }
-        argument.schema.label = label.into();
         self.project_mut()
             .scenes
             .get_mut(&scene_id)
-            .expect("the active scene was checked")
-            .arguments = arguments;
+            .and_then(|scene| scene.argument_mut(argument_id))
+            .expect("the scene argument was checked")
+            .schema
+            .label = label.into();
         self.finish_project_edit(before, Some(key));
         true
     }
@@ -499,7 +596,7 @@ impl TimelineEditor {
         else {
             return Err(SceneArgumentEditError::ArgumentNotFound);
         };
-        argument.bindings.push(target.clone());
+        argument.bindings.push(target);
         self.finish_project_edit(Some(before), None);
         Ok(())
     }

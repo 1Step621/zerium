@@ -134,8 +134,6 @@ pub(crate) enum FfmpegEncoderError {
     InvalidFrameData,
     #[error("Invalid video frame stride")]
     InvalidFrameStride,
-    #[error("YUV420P input requires even dimensions")]
-    OddYuvDimensions,
     #[error("Video PTS is too large")]
     VideoPtsTooLarge,
     #[error("Failed to convert video frame to YUV: {0}")]
@@ -327,7 +325,7 @@ impl FfmpegFileEncoder {
 
         let audio = settings
             .audio
-            .map(|format| Self::create_audio_encoder(&mut output, format, global_header))
+            .map(|format| AudioEncoder::new(&mut output, format, global_header))
             .transpose()?;
         if settings.fast_start {
             let mut options = ffmpeg::Dictionary::new();
@@ -364,11 +362,157 @@ impl FfmpegFileEncoder {
         })
     }
 
-    fn create_audio_encoder(
+    pub(crate) fn encode_video(
+        &mut self,
+        frame: &RgbaFrame,
+        pts: u64,
+    ) -> Result<(), FfmpegEncoderError> {
+        if frame.width != self.width || frame.height != self.height {
+            return Err(FfmpegEncoderError::FrameSizeMismatch {
+                frame_width: frame.width,
+                frame_height: frame.height,
+                output_width: self.width,
+                output_height: self.height,
+            });
+        }
+        let row_bytes = usize::try_from(self.width)
+            .ok()
+            .and_then(|width| width.checked_mul(4))
+            .ok_or(FfmpegEncoderError::FrameTooWide)?;
+        let expected = row_bytes
+            .checked_mul(self.height as usize)
+            .ok_or(FfmpegEncoderError::FrameTooLarge)?;
+        if frame.rgba.len() != expected {
+            return Err(FfmpegEncoderError::InvalidFrameData);
+        }
+        let mut rgba =
+            ffmpeg::frame::Video::new(ffmpeg::format::Pixel::RGBA, self.width, self.height);
+        copy_plane_to_frame(&mut rgba, 0, &frame.rgba, row_bytes, self.height as usize)?;
+        rgba.set_pts(Some(
+            i64::try_from(pts).map_err(|_| FfmpegEncoderError::VideoPtsTooLarge)?,
+        ));
+        rgba.set_color_space(ffmpeg::util::color::Space::RGB);
+        rgba.set_color_range(ffmpeg::util::color::Range::JPEG);
+        rgba.set_color_primaries(self.color.primaries);
+        rgba.set_color_transfer_characteristic(self.color.transfer);
+        let mut yuv = ffmpeg::frame::Video::empty();
+        self.scaler
+            .run(&rgba, &mut yuv)
+            .map_err(FfmpegEncoderError::ConvertToYuv)?;
+        yuv.set_pts(rgba.pts());
+        self.submit_yuv_frame(&mut yuv)
+    }
+
+    /// Encodes one tightly packed YUV420P frame (Y, then U, then V) produced by
+    /// the GPU export pipeline. Unlike [`Self::encode_video`], this skips the
+    /// software RGBA to YUV conversion.
+    pub(crate) fn encode_yuv420p(
+        &mut self,
+        yuv: &[u8],
+        pts: u64,
+    ) -> Result<(), FfmpegEncoderError> {
+        let width = usize::try_from(self.width).map_err(|_| FfmpegEncoderError::FrameTooWide)?;
+        let height = usize::try_from(self.height).map_err(|_| FfmpegEncoderError::FrameTooTall)?;
+        let y_len = width
+            .checked_mul(height)
+            .ok_or(FfmpegEncoderError::FrameTooLarge)?;
+        // Output dimensions were validated when the encoder was created.
+        let uv_len = y_len / 4;
+        let expected = y_len
+            .checked_add(uv_len)
+            .and_then(|size| size.checked_add(uv_len))
+            .ok_or(FfmpegEncoderError::FrameTooLarge)?;
+        if yuv.len() != expected {
+            return Err(FfmpegEncoderError::InvalidFrameData);
+        }
+        let mut frame = ffmpeg::frame::Video::new(VIDEO_PIXEL_FORMAT, self.width, self.height);
+        let (y, uv) = yuv.split_at(y_len);
+        let (u, v) = uv.split_at(uv_len);
+        copy_plane_to_frame(&mut frame, 0, y, width, height)?;
+        copy_plane_to_frame(&mut frame, 1, u, width / 2, height / 2)?;
+        copy_plane_to_frame(&mut frame, 2, v, width / 2, height / 2)?;
+        frame.set_pts(Some(
+            i64::try_from(pts).map_err(|_| FfmpegEncoderError::VideoPtsTooLarge)?,
+        ));
+        self.submit_yuv_frame(&mut frame)
+    }
+
+    fn submit_yuv_frame(
+        &mut self,
+        yuv: &mut ffmpeg::frame::Video,
+    ) -> Result<(), FfmpegEncoderError> {
+        yuv.set_color_space(self.color.space);
+        yuv.set_color_range(self.color.range);
+        yuv.set_color_primaries(self.color.primaries);
+        yuv.set_color_transfer_characteristic(self.color.transfer);
+        self.video
+            .send_frame(yuv)
+            .map_err(FfmpegEncoderError::SendVideoFrame)?;
+        self.write_video_packets()
+    }
+
+    pub(crate) fn encode_audio(&mut self, samples: &[f32]) -> Result<(), FfmpegEncoderError> {
+        let Some(audio) = &mut self.audio else {
+            return if samples.is_empty() {
+                Ok(())
+            } else {
+                Err(FfmpegEncoderError::AudioWithoutStream)
+            };
+        };
+        audio.encode(&mut self.output, samples)
+    }
+
+    fn write_video_packets(&mut self) -> Result<(), FfmpegEncoderError> {
+        let output_time_base = self
+            .output
+            .stream(self.video_stream)
+            .ok_or(FfmpegEncoderError::MissingVideoStream)?
+            .time_base();
+        let mut packet = ffmpeg::Packet::empty();
+        loop {
+            match self.video.receive_packet(&mut packet) {
+                Ok(()) => {
+                    packet.set_stream(self.video_stream);
+                    packet.rescale_ts(self.video_time_base, output_time_base);
+                    packet.set_position(-1);
+                    packet
+                        .write_interleaved(&mut self.output)
+                        .map_err(FfmpegEncoderError::WriteVideoPacket)?;
+                }
+                Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::error::EAGAIN => break,
+                Err(ffmpeg::Error::Eof) => break,
+                Err(error) => {
+                    return Err(FfmpegEncoderError::ReceiveVideoPacket(error));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn finish(mut self) -> Result<(), FfmpegEncoderError> {
+        if let Some(audio) = &mut self.audio {
+            audio.pad_final_frame(&mut self.output)?;
+        }
+        self.video
+            .send_eof()
+            .map_err(FfmpegEncoderError::FinishVideo)?;
+        self.write_video_packets()?;
+        if let Some(audio) = &mut self.audio {
+            audio.finish(&mut self.output)?;
+        }
+        self.output
+            .write_trailer()
+            .map_err(FfmpegEncoderError::WriteTrailer)?;
+        Ok(())
+    }
+}
+
+impl AudioEncoder {
+    fn new(
         output: &mut ffmpeg::format::context::Output,
         format: AudioFormat,
         global_header: bool,
-    ) -> Result<AudioEncoder, FfmpegEncoderError> {
+    ) -> Result<Self, FfmpegEncoderError> {
         if format.sample_rate == 0 || format.channels == 0 {
             return Err(FfmpegEncoderError::InvalidAudioConfig);
         }
@@ -419,7 +563,7 @@ impl FfmpegFileEncoder {
         )
         .map_err(FfmpegEncoderError::CreateResampler)?;
         let frame_size = usize::try_from(encoder.frame_size()).unwrap_or(0).max(1);
-        Ok(AudioEncoder {
+        Ok(Self {
             encoder,
             stream,
             time_base,
@@ -433,216 +577,86 @@ impl FfmpegFileEncoder {
         })
     }
 
-    pub(crate) fn encode_video(
+    fn encode(
         &mut self,
-        frame: &RgbaFrame,
-        pts: u64,
+        output: &mut ffmpeg::format::context::Output,
+        samples: &[f32],
     ) -> Result<(), FfmpegEncoderError> {
-        if frame.width != self.width || frame.height != self.height {
-            return Err(FfmpegEncoderError::FrameSizeMismatch {
-                frame_width: frame.width,
-                frame_height: frame.height,
-                output_width: self.width,
-                output_height: self.height,
-            });
-        }
-        let row_bytes = usize::try_from(self.width)
-            .ok()
-            .and_then(|width| width.checked_mul(4))
-            .ok_or(FfmpegEncoderError::FrameTooWide)?;
-        let expected = row_bytes
-            .checked_mul(self.height as usize)
-            .ok_or(FfmpegEncoderError::FrameTooLarge)?;
-        if frame.rgba.len() != expected {
-            return Err(FfmpegEncoderError::InvalidFrameData);
-        }
-        let mut rgba =
-            ffmpeg::frame::Video::new(ffmpeg::format::Pixel::RGBA, self.width, self.height);
-        let stride = rgba.stride(0);
-        for row in 0..self.height as usize {
-            let source = &frame.rgba[row * row_bytes..(row + 1) * row_bytes];
-            let target = &mut rgba.data_mut(0)[row * stride..row * stride + row_bytes];
-            target.copy_from_slice(source);
-        }
-        rgba.set_pts(Some(
-            i64::try_from(pts).map_err(|_| FfmpegEncoderError::VideoPtsTooLarge)?,
-        ));
-        rgba.set_color_space(ffmpeg::util::color::Space::RGB);
-        rgba.set_color_range(ffmpeg::util::color::Range::JPEG);
-        rgba.set_color_primaries(self.color.primaries);
-        rgba.set_color_transfer_characteristic(self.color.transfer);
-        let mut yuv = ffmpeg::frame::Video::empty();
-        self.scaler
-            .run(&rgba, &mut yuv)
-            .map_err(FfmpegEncoderError::ConvertToYuv)?;
-        yuv.set_pts(rgba.pts());
-        self.submit_yuv_frame(&mut yuv)
-    }
-
-    /// Encodes one tightly packed YUV420P frame (Y, then U, then V) produced by
-    /// the GPU export pipeline. Unlike [`Self::encode_video`], this skips the
-    /// software RGBA to YUV conversion.
-    pub(crate) fn encode_yuv420p(
-        &mut self,
-        yuv: &[u8],
-        pts: u64,
-    ) -> Result<(), FfmpegEncoderError> {
-        let width = usize::try_from(self.width).map_err(|_| FfmpegEncoderError::FrameTooWide)?;
-        let height = usize::try_from(self.height).map_err(|_| FfmpegEncoderError::FrameTooTall)?;
-        let y_len = width
-            .checked_mul(height)
-            .ok_or(FfmpegEncoderError::FrameTooLarge)?;
-        if !width.is_multiple_of(2) || !height.is_multiple_of(2) {
-            return Err(FfmpegEncoderError::OddYuvDimensions);
-        }
-        let uv_len = y_len
-            .checked_div(4)
-            .ok_or(FfmpegEncoderError::FrameTooLarge)?;
-        let expected = y_len
-            .checked_add(uv_len)
-            .and_then(|size| size.checked_add(uv_len))
-            .ok_or(FfmpegEncoderError::FrameTooLarge)?;
-        if yuv.len() != expected {
-            return Err(FfmpegEncoderError::InvalidFrameData);
-        }
-        let mut frame = ffmpeg::frame::Video::new(VIDEO_PIXEL_FORMAT, self.width, self.height);
-        let (y, uv) = yuv.split_at(y_len);
-        let (u, v) = uv.split_at(uv_len);
-        copy_plane_to_frame(&mut frame, 0, y, width, height)?;
-        copy_plane_to_frame(&mut frame, 1, u, width / 2, height / 2)?;
-        copy_plane_to_frame(&mut frame, 2, v, width / 2, height / 2)?;
-        frame.set_pts(Some(
-            i64::try_from(pts).map_err(|_| FfmpegEncoderError::VideoPtsTooLarge)?,
-        ));
-        self.submit_yuv_frame(&mut frame)
-    }
-
-    fn submit_yuv_frame(
-        &mut self,
-        yuv: &mut ffmpeg::frame::Video,
-    ) -> Result<(), FfmpegEncoderError> {
-        yuv.set_color_space(self.color.space);
-        yuv.set_color_range(self.color.range);
-        yuv.set_color_primaries(self.color.primaries);
-        yuv.set_color_transfer_characteristic(self.color.transfer);
-        self.video
-            .send_frame(yuv)
-            .map_err(FfmpegEncoderError::SendVideoFrame)?;
-        self.write_video_packets()
-    }
-
-    pub(crate) fn encode_audio(&mut self, samples: &[f32]) -> Result<(), FfmpegEncoderError> {
-        let Some(audio) = &mut self.audio else {
-            return if samples.is_empty() {
-                Ok(())
-            } else {
-                Err(FfmpegEncoderError::AudioWithoutStream)
-            };
-        };
         if !samples
             .len()
-            .is_multiple_of(usize::from(audio.format.channels))
+            .is_multiple_of(usize::from(self.format.channels))
         {
             return Err(FfmpegEncoderError::InvalidSampleCount);
         }
-        let sample_frames = samples.len() / usize::from(audio.format.channels);
-        audio.input_sample_frames = audio
+        let sample_frames = samples.len() / usize::from(self.format.channels);
+        self.input_sample_frames = self
             .input_sample_frames
             .checked_add(
                 i64::try_from(sample_frames).map_err(|_| FfmpegEncoderError::TooManySamples)?,
             )
             .ok_or(FfmpegEncoderError::AudioPtsTooLarge)?;
-        audio.pending.extend_from_slice(samples);
-        Self::write_complete_audio_frames(&mut self.output, audio)
+        self.pending.extend_from_slice(samples);
+        self.write_complete_frames(output)
     }
 
-    fn write_complete_audio_frames(
+    fn write_complete_frames(
+        &mut self,
         output: &mut ffmpeg::format::context::Output,
-        audio: &mut AudioEncoder,
     ) -> Result<(), FfmpegEncoderError> {
-        let frame_samples = audio
+        let frame_samples = self
             .frame_size
-            .checked_mul(usize::from(audio.format.channels))
+            .checked_mul(usize::from(self.format.channels))
             .ok_or(FfmpegEncoderError::AudioFrameTooLarge)?;
-        while audio.pending.len().saturating_sub(audio.pending_start) >= frame_samples {
-            let end = audio.pending_start + frame_samples;
-            let frame = audio.pending[audio.pending_start..end].to_vec();
-            audio.pending_start = end;
-            Self::write_audio_frame(output, audio, &frame, None)?;
+        while self.pending.len().saturating_sub(self.pending_start) >= frame_samples {
+            let end = self.pending_start + frame_samples;
+            let frame = self.pending[self.pending_start..end].to_vec();
+            self.pending_start = end;
+            self.write_frame(output, &frame, None)?;
         }
-        if audio.pending_start > 16_384 && audio.pending_start * 2 >= audio.pending.len() {
-            audio.pending.drain(..audio.pending_start);
-            audio.pending_start = 0;
+        if self.pending_start > 16_384 && self.pending_start * 2 >= self.pending.len() {
+            self.pending.drain(..self.pending_start);
+            self.pending_start = 0;
         }
         Ok(())
     }
 
-    fn write_audio_frame(
+    fn write_frame(
+        &mut self,
         output: &mut ffmpeg::format::context::Output,
-        audio: &mut AudioEncoder,
         samples: &[f32],
         presentation_end: Option<i64>,
     ) -> Result<(), FfmpegEncoderError> {
-        let channels = usize::from(audio.format.channels);
+        let channels = usize::from(self.format.channels);
         let sample_frames = samples.len() / channels;
-        let layout = ffmpeg::ChannelLayout::default(i32::from(audio.format.channels));
+        let layout = ffmpeg::ChannelLayout::default(i32::from(self.format.channels));
         let mut input = ffmpeg::frame::Audio::new(INPUT_AUDIO_FORMAT, sample_frames, layout);
-        input.set_rate(audio.format.sample_rate);
-        input.set_pts(Some(audio.next_pts));
+        input.set_rate(self.format.sample_rate);
+        input.set_pts(Some(self.next_pts));
         input.plane_mut::<f32>(0).copy_from_slice(samples);
         let mut converted = ffmpeg::frame::Audio::empty();
-        audio
-            .resampler
+        self.resampler
             .run(&input, &mut converted)
             .map_err(FfmpegEncoderError::ResampleAudio)?;
-        converted.set_pts(Some(audio.next_pts));
-        audio.next_pts = audio.next_pts.saturating_add(sample_frames as i64);
-        audio
-            .encoder
+        converted.set_pts(Some(self.next_pts));
+        self.next_pts = self.next_pts.saturating_add(sample_frames as i64);
+        self.encoder
             .send_frame(&converted)
             .map_err(FfmpegEncoderError::SendAudioFrame)?;
-        Self::write_audio_packets(output, audio, presentation_end)
+        self.write_packets(output, presentation_end)
     }
 
-    fn write_video_packets(&mut self) -> Result<(), FfmpegEncoderError> {
-        let output_time_base = self
-            .output
-            .stream(self.video_stream)
-            .ok_or(FfmpegEncoderError::MissingVideoStream)?
-            .time_base();
-        let mut packet = ffmpeg::Packet::empty();
-        loop {
-            match self.video.receive_packet(&mut packet) {
-                Ok(()) => {
-                    packet.set_stream(self.video_stream);
-                    packet.rescale_ts(self.video_time_base, output_time_base);
-                    packet.set_position(-1);
-                    packet
-                        .write_interleaved(&mut self.output)
-                        .map_err(FfmpegEncoderError::WriteVideoPacket)?;
-                }
-                Err(ffmpeg::Error::Other { errno }) if errno == ffmpeg::error::EAGAIN => break,
-                Err(ffmpeg::Error::Eof) => break,
-                Err(error) => {
-                    return Err(FfmpegEncoderError::ReceiveVideoPacket(error));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    fn write_audio_packets(
+    fn write_packets(
+        &mut self,
         output: &mut ffmpeg::format::context::Output,
-        audio: &mut AudioEncoder,
         presentation_end: Option<i64>,
     ) -> Result<(), FfmpegEncoderError> {
         let output_time_base = output
-            .stream(audio.stream)
+            .stream(self.stream)
             .ok_or(FfmpegEncoderError::MissingAudioStream)?
             .time_base();
         let mut packet = ffmpeg::Packet::empty();
         loop {
-            match audio.encoder.receive_packet(&mut packet) {
+            match self.encoder.receive_packet(&mut packet) {
                 Ok(()) => {
                     if let Some(end) = presentation_end {
                         let pts = packet.pts().unwrap_or(0);
@@ -650,7 +664,7 @@ impl FfmpegFileEncoder {
                             continue;
                         }
                         let remaining = end.saturating_sub(pts);
-                        let encoded_frame_duration = i64::try_from(audio.frame_size)
+                        let encoded_frame_duration = i64::try_from(self.frame_size)
                             .unwrap_or(i64::MAX)
                             .min(remaining);
                         let duration = packet.duration();
@@ -660,8 +674,8 @@ impl FfmpegFileEncoder {
                             encoded_frame_duration
                         });
                     }
-                    packet.set_stream(audio.stream);
-                    packet.rescale_ts(audio.time_base, output_time_base);
+                    packet.set_stream(self.stream);
+                    packet.rescale_ts(self.time_base, output_time_base);
                     packet.set_position(-1);
                     packet
                         .write_interleaved(output)
@@ -677,38 +691,29 @@ impl FfmpegFileEncoder {
         Ok(())
     }
 
-    pub(crate) fn finish(mut self) -> Result<(), FfmpegEncoderError> {
-        if let Some(audio) = &mut self.audio {
-            let channels = usize::from(audio.format.channels);
-            let frame_samples = audio.frame_size.saturating_mul(channels);
-            let remaining = audio.pending.len().saturating_sub(audio.pending_start);
-            if remaining > 0 {
-                let mut final_frame = audio.pending[audio.pending_start..].to_vec();
-                final_frame.resize(frame_samples, 0.);
-                let presentation_end = audio.input_sample_frames;
-                Self::write_audio_frame(
-                    &mut self.output,
-                    audio,
-                    &final_frame,
-                    Some(presentation_end),
-                )?;
-            }
+    fn pad_final_frame(
+        &mut self,
+        output: &mut ffmpeg::format::context::Output,
+    ) -> Result<(), FfmpegEncoderError> {
+        let channels = usize::from(self.format.channels);
+        let frame_samples = self.frame_size.saturating_mul(channels);
+        let remaining = self.pending.len().saturating_sub(self.pending_start);
+        if remaining > 0 {
+            let mut final_frame = self.pending[self.pending_start..].to_vec();
+            final_frame.resize(frame_samples, 0.);
+            let presentation_end = self.input_sample_frames;
+            self.write_frame(output, &final_frame, Some(presentation_end))?;
         }
-        self.video
-            .send_eof()
-            .map_err(FfmpegEncoderError::FinishVideo)?;
-        self.write_video_packets()?;
-        if let Some(audio) = &mut self.audio {
-            audio
-                .encoder
-                .send_eof()
-                .map_err(FfmpegEncoderError::FinishAudio)?;
-            let presentation_end = audio.input_sample_frames;
-            Self::write_audio_packets(&mut self.output, audio, Some(presentation_end))?;
-        }
-        self.output
-            .write_trailer()
-            .map_err(FfmpegEncoderError::WriteTrailer)?;
         Ok(())
+    }
+
+    fn finish(
+        &mut self,
+        output: &mut ffmpeg::format::context::Output,
+    ) -> Result<(), FfmpegEncoderError> {
+        self.encoder
+            .send_eof()
+            .map_err(FfmpegEncoderError::FinishAudio)?;
+        self.write_packets(output, Some(self.input_sample_frames))
     }
 }

@@ -173,11 +173,8 @@ pub(crate) struct PropertyInspector {
     scope: EditScope,
     store: state::ControlStore,
     pub(super) font_names: Vec<String>,
-    _file_subscription: Subscription,
     pub(super) effect_picker: Option<Entity<SearchPicker<EffectPickerTarget>>>,
-    pub(super) _editor_subscription: Subscription,
-    pub(super) _animation_selection_subscription: Subscription,
-    pub(super) _session_subscription: Subscription,
+    _subscriptions: Vec<Subscription>,
 }
 
 impl PropertyInspector {
@@ -263,11 +260,13 @@ impl PropertyInspector {
                 names.dedup();
                 names
             },
-            _file_subscription: cx.observe(&file_input, |_, _, cx| cx.notify()),
             effect_picker: None,
-            _editor_subscription: editor_subscription,
-            _animation_selection_subscription: animation_selection_subscription,
-            _session_subscription: session_subscription,
+            _subscriptions: vec![
+                editor_subscription,
+                animation_selection_subscription,
+                session_subscription,
+                cx.observe(&file_input, |_, _, cx| cx.notify()),
+            ],
         };
         let editor = inspector.editor.clone();
         inspector.sync_from_editor(&editor, window, cx);

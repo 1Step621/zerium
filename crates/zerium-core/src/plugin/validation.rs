@@ -6,7 +6,6 @@ use crate::localized_text::LocalizedText;
 use crate::property::{PropertySchema, PropertyType, PropertyValueType, ScalarPropertyType};
 
 use super::PluginError;
-use super::abi::validate_property_names;
 use super::identifier::validate_logical_id;
 
 pub(super) fn validate_catalog_entry(
@@ -61,27 +60,7 @@ pub(super) fn validate_search_tags(
     Ok(())
 }
 
-/// Two placement axes, each selecting start (0), center (1), or end (2).
-pub(super) fn validate_origin_property(
-    context: &str,
-    properties: &[PropertySchema],
-    id: &str,
-) -> Result<(), PluginError> {
-    validate_property_reference(
-        context,
-        properties,
-        id,
-        "a tuple of two enums each containing exactly 0..=2",
-        |property| {
-            matches!(property.ty(), PropertyType::Value(PropertyValueType::Tuple(tuple))
-            if tuple.scalars().len() == 2 && tuple.scalars().iter().all(|ty| {
-                matches!(ty, ScalarPropertyType::Enum(enumeration)
-                    if enumeration.values().len() == 3 && (0..=2).all(|value| enumeration.values().contains(&value)))
-            }))
-        },
-    )
-}
-
+/// Validate value contracts; ABI compilation already validates declaration names.
 pub(super) fn validate_property_schemas(
     owner_kind: &str,
     owner_id: &str,
@@ -90,35 +69,78 @@ pub(super) fn validate_property_schemas(
     for property in properties {
         property.validate(owner_kind, owner_id)?;
     }
-    validate_property_names(
-        owner_kind,
-        owner_id,
-        properties
-            .iter()
-            .map(|property| (property.id(), property.ty())),
-    )
+    Ok(())
 }
 
-/// Resolve a property reference and check the requirements of its consumer.
-pub(super) fn validate_property_reference(
-    context: &str,
-    properties: &[PropertySchema],
-    property_id: &str,
-    expected: &str,
-    valid: impl FnOnce(&PropertySchema) -> bool,
-) -> Result<(), PluginError> {
-    let property = properties
-        .iter()
-        .find(|property| property.id() == property_id)
-        .ok_or_else(|| {
-            PluginError::invalid_definition(format!(
-                "{context} references missing property '{property_id}'"
-            ))
-        })?;
-    if !valid(property) {
-        return Err(PluginError::invalid_definition(format!(
-            "{context} property '{property_id}' must be {expected}"
-        )));
+/// Property references checked in the context of one capability or editor.
+pub(super) struct PropertyReferences<'a> {
+    context: &'a str,
+    properties: &'a [PropertySchema],
+}
+
+impl<'a> PropertyReferences<'a> {
+    pub(super) fn new(context: &'a str, properties: &'a [PropertySchema]) -> Self {
+        Self {
+            context,
+            properties,
+        }
     }
-    Ok(())
+
+    pub(super) fn check(
+        &self,
+        property_id: &str,
+        expected: &str,
+        valid: impl FnOnce(&PropertySchema) -> bool,
+    ) -> Result<&'a PropertySchema, PluginError> {
+        let property = self
+            .properties
+            .iter()
+            .find(|property| property.id() == property_id)
+            .ok_or_else(|| {
+                PluginError::invalid_definition(format!(
+                    "{} references missing property '{property_id}'",
+                    self.context
+                ))
+            })?;
+        if !valid(property) {
+            return Err(PluginError::invalid_definition(format!(
+                "{} property '{property_id}' must be {expected}",
+                self.context
+            )));
+        }
+        Ok(property)
+    }
+
+    pub(super) fn scalar(
+        &self,
+        id: &str,
+        ty: ScalarPropertyType,
+    ) -> Result<&'a PropertySchema, PluginError> {
+        self.check(id, &format!("a {ty:?} value"), |property| {
+            matches!(property.ty(), PropertyType::Value(PropertyValueType::Scalar(actual)) if *actual == ty)
+        })
+    }
+
+    pub(super) fn pair(&self, id: &str) -> Result<&'a PropertySchema, PluginError> {
+        self.check(
+            id,
+            "a tuple of two f32 values",
+            |property| matches!(property.ty(), PropertyType::Value(ty) if is_f32_pair(ty)),
+        )
+    }
+
+    /// Two placement axes, each selecting start (0), center (1), or end (2).
+    pub(super) fn origin(&self, id: &str) -> Result<&'a PropertySchema, PluginError> {
+        self.check(id, "a tuple of two enums each containing exactly 0..=2", |property| {
+            matches!(property.ty(), PropertyType::Value(PropertyValueType::Tuple(tuple))
+                if tuple.scalars().len() == 2 && tuple.scalars().iter().all(|ty| {
+                    matches!(ty, ScalarPropertyType::Enum(enumeration)
+                        if enumeration.values().len() == 3 && (0..=2).all(|value| enumeration.values().contains(&value)))
+                }))
+        })
+    }
+}
+
+pub(super) fn is_f32_pair(ty: &PropertyValueType) -> bool {
+    matches!(ty, PropertyValueType::Tuple(tuple) if tuple.scalars() == [ScalarPropertyType::F32, ScalarPropertyType::F32])
 }

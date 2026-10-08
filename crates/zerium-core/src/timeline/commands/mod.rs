@@ -1,27 +1,11 @@
-//! All public mutations of [`TimelineEditor`].
+//! Editing, navigation, selection, and preview commands.
 //!
-//! This sibling module keeps the read-oriented editor API compact. The editor
+//! Commands validate edit targets and coordinate history. The editor
 //! internals it needs are visible only inside `timeline`.
 
-use std::collections::{HashMap, HashSet};
 use thiserror::Error;
 
-use crate::animation::{ScalarAnimations, ScalarTrack, SegmentInterpolation};
-use crate::media::ImportedFile;
-use crate::property::{PropertyConfiguration, PropertySchema, PropertyValue};
-
-use super::{
-    document::{ResizeEdge, ResizeMode, TimelineDocument},
-    editor::{HistoryKey, HistorySnapshot, TimelineEditor},
-    ids::{EffectInstanceId, ItemId, LayerId, SceneId},
-    item::TimelineItem,
-    scene::{
-        SceneArgument, SceneArgumentPreset, SceneBindingOwner, SceneBindingTarget, SceneDefinition,
-        apply_scene_binding_to_item, resolve_scene_binding, unique_scene_argument_name,
-    },
-    settings::ProjectResolution,
-    time::{Frame, FrameDuration, FrameRate, TimelineTime},
-};
+use super::{ItemId, SceneId, TimelineEditor};
 
 /// Identifies the document state for which an edit was resolved.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -39,57 +23,6 @@ impl TimelineEditor {
             scene_id: self.active_scene_id(),
         }
     }
-}
-
-fn remove_bindings_for_items(scene: &mut SceneDefinition, item_ids: &HashSet<ItemId>) {
-    for argument in &mut scene.arguments {
-        argument
-            .bindings
-            .retain(|binding| !item_ids.contains(&binding.item_id()));
-    }
-}
-
-fn remove_bindings_for_nested_argument(
-    scenes: &mut HashMap<SceneId, SceneDefinition>,
-    nested_scene_id: SceneId,
-    argument_id: &str,
-) {
-    let parents = scenes
-        .iter()
-        .map(|(scene_id, scene)| {
-            let item_ids = scene
-                .items()
-                .filter(|item| item.scene_id() == Some(nested_scene_id))
-                .map(|item| item.id)
-                .collect::<HashSet<_>>();
-            (*scene_id, item_ids)
-        })
-        .collect::<Vec<_>>();
-    for (scene_id, item_ids) in parents {
-        let Some(scene) = scenes.get_mut(&scene_id) else {
-            continue;
-        };
-        for argument in &mut scene.arguments {
-            argument.bindings.retain(|binding| {
-                !(item_ids.contains(&binding.item_id())
-                    && binding.owner() == SceneBindingOwner::Item
-                    && binding.property_id() == argument_id)
-            });
-        }
-    }
-}
-
-fn remove_scene_instances(document: &mut TimelineDocument, scene_id: SceneId) -> HashSet<ItemId> {
-    let instance_ids = document
-        .items()
-        .filter(|item| item.scene_id() == Some(scene_id))
-        .map(|item| item.id)
-        .collect::<HashSet<_>>();
-    for item_id in &instance_ids {
-        let removed = document.remove_item(*item_id);
-        debug_assert!(removed, "collected scene instance must still exist");
-    }
-    instance_ids
 }
 
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]

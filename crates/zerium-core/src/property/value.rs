@@ -20,8 +20,8 @@ impl PropertyElementId {
 #[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PropertyElement {
-    id: PropertyElementId,
-    value: PropertyValue,
+    pub(super) id: PropertyElementId,
+    pub(super) value: PropertyValue,
 }
 
 impl PropertyElement {
@@ -54,6 +54,39 @@ pub enum PropertyValue {
 }
 
 impl PropertyValue {
+    pub fn scalar(
+        &self,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
+    ) -> Option<&Self> {
+        self.element(element_id)?.scalar_at(scalar_index)
+    }
+
+    pub fn scalar_mut(
+        &mut self,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
+    ) -> Option<&mut Self> {
+        self.element_mut(element_id)?.scalar_at_mut(scalar_index)
+    }
+
+    /// Replace a whole value, array element, or tuple scalar without changing siblings.
+    pub fn replaced_at(
+        &self,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
+        value: Self,
+    ) -> Option<Self> {
+        let mut next = self.clone();
+        let element = next.element_mut(element_id)?;
+        let target = match scalar_index {
+            Some(index) => element.scalar_at_mut(Some(index))?,
+            None => element,
+        };
+        *target = value;
+        Some(next)
+    }
+
     pub fn file(&self) -> Option<&std::path::Path> {
         match self {
             Self::File(path) => path.as_deref(),
@@ -133,7 +166,6 @@ impl PropertyValue {
                 .iter()
                 .find(|element| element.element_id() == id)
                 .map(PropertyElement::value),
-            (Self::Array(_), None) => Some(self),
             (_, Some(_)) => None,
             (_, None) => Some(self),
         }

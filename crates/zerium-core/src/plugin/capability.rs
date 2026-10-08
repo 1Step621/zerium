@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use super::PluginError;
 use super::identifier::{validate_logical_id, validate_wgsl_identifier};
-use super::validation::{validate_origin_property, validate_property_reference};
+use super::validation::PropertyReferences;
 use crate::property::{PropertySchema, PropertyType, ScalarPropertyType};
 
 pub(super) const MAX_RENDER_RESULT_OFFSET: u32 = 30;
@@ -21,10 +21,9 @@ pub(super) fn validate_render_result_properties(
     hide_original: &str,
 ) -> Result<(), PluginError> {
     let context = format!("{owner_kind} '{owner_id}' render_result");
+    let references = PropertyReferences::new(&context, properties);
     for id in [start_offset, end_offset] {
-        validate_property_reference(
-            &context,
-            properties,
+        references.check(
             id,
             &format!("u32 constrained to 1..={MAX_RENDER_RESULT_OFFSET}"),
             |property| {
@@ -41,16 +40,12 @@ pub(super) fn validate_render_result_properties(
             },
         )?;
     }
-    validate_property_reference(
-        &context,
-        properties,
-        hide_original,
-        "a bool value",
-        |property| {
+    references
+        .check(hide_original, "a bool value", |property| {
             property.ty()
                 == &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Bool))
-        },
-    )
+        })
+        .map(|_| ())
 }
 
 /// Describes where a media input appears in its owner's composition space.
@@ -147,21 +142,7 @@ impl Capability {
             )));
         }
         let context = format!("{owner_kind} '{owner_id}' capability '{}'", self.id());
-        let check = |property_id: &str, expected: &str, valid: &dyn Fn(&PropertySchema) -> bool| {
-            validate_property_reference(&context, properties, property_id, expected, valid)
-        };
-        let tuple_f32_pair = |property_id: &str| {
-            check(
-                property_id,
-                "a tuple of two f32 values",
-                &|property| matches!(property.ty(), PropertyType::Value(PropertyValueType::Tuple(tuple)) if tuple.scalars() == [ScalarPropertyType::F32, ScalarPropertyType::F32]),
-            )
-        };
-        let scalar = |property_id: &str, ty: ScalarPropertyType| {
-            check(property_id, &format!("a {ty:?} value"), &|property| {
-                property.ty() == &PropertyType::Value(PropertyValueType::Scalar(ty.clone()))
-            })
-        };
+        let references = PropertyReferences::new(&context, properties);
         match self {
             Self::Text(TextCapability {
                 size,
@@ -177,9 +158,9 @@ impl Capability {
                 vertical_alignment,
                 ..
             }) => {
-                tuple_f32_pair(size)?;
-                scalar(text, ScalarPropertyType::String)?;
-                check(font_family, "an array of strings", &|property| {
+                references.pair(size)?;
+                references.scalar(text, ScalarPropertyType::String)?;
+                references.check(font_family, "an array of strings", |property| {
                     matches!(
                         property.ty(),
                         PropertyType::Array {
@@ -190,17 +171,17 @@ impl Capability {
                         }
                     )
                 })?;
-                scalar(font_size, ScalarPropertyType::F32)?;
-                scalar(color, ScalarPropertyType::Color)?;
-                scalar(outline_width, ScalarPropertyType::F32)?;
-                scalar(outline_color, ScalarPropertyType::Color)?;
-                scalar(bold, ScalarPropertyType::Bool)?;
-                scalar(italic, ScalarPropertyType::Bool)?;
+                references.scalar(font_size, ScalarPropertyType::F32)?;
+                references.scalar(color, ScalarPropertyType::Color)?;
+                references.scalar(outline_width, ScalarPropertyType::F32)?;
+                references.scalar(outline_color, ScalarPropertyType::Color)?;
+                references.scalar(bold, ScalarPropertyType::Bool)?;
+                references.scalar(italic, ScalarPropertyType::Bool)?;
                 for property_id in [horizontal_alignment, vertical_alignment] {
-                    check(
+                    references.check(
                         property_id,
                         "an enum containing exactly 0, 1, and 2",
-                        &|property| matches!(property.ty(), PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Enum(enumeration))) if enumeration.values().len() == 3 && [0, 1, 2].iter().all(|value| enumeration.values().contains(value))),
+                        |property| matches!(property.ty(), PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Enum(enumeration))) if enumeration.values().len() == 3 && [0, 1, 2].iter().all(|value| enumeration.values().contains(value))),
                     )?;
                 }
             }
@@ -227,7 +208,7 @@ impl Capability {
                 ..
             } => {
                 validate_logical_id("media reader", reader)?;
-                check(file, "a file property", &|property| property.is_file())?;
+                references.check(file, "a file property", |property| property.is_file())?;
                 if let Some(playback) = playback {
                     playback
                         .playback_properties()
@@ -239,10 +220,10 @@ impl Capability {
                     origin,
                 }) = placement
                 {
-                    tuple_f32_pair(position)?;
-                    tuple_f32_pair(size)?;
+                    references.pair(position)?;
+                    references.pair(size)?;
                     if let Some(origin) = origin {
-                        validate_origin_property(&context, properties, origin)?;
+                        references.origin(origin)?;
                     }
                 }
             }
@@ -304,22 +285,18 @@ impl AudioCapability {
         validate_logical_id("audio input", &self.id)?;
         validate_logical_id("audio reader", &self.reader)?;
         let context = format!("item '{id}' audio input '{}'", self.id());
-        let check = |property_id: &str, expected: &str, valid: &dyn Fn(&PropertySchema) -> bool| {
-            validate_property_reference(&context, properties, property_id, expected, valid)
-        };
-        check(&self.file, "a file property", &|property| {
-            property.is_file()
-        })?;
-        check(&self.volume, "an f32 value", &|property| {
+        let references = PropertyReferences::new(&context, properties);
+        references.check(&self.file, "a file property", |property| property.is_file())?;
+        references.check(&self.volume, "an f32 value", |property| {
             property.ty()
                 == &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::F32))
         })?;
         self.playback_properties()
             .validate("item", id, properties)?;
-        check(
+        references.check(
             &self.preserve_pitch,
             "a bool value without animation or scene bindings",
-            &|property| {
+            |property| {
                 property.ty()
                     == &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Bool))
                     && !property.is_animatable(None)
@@ -376,14 +353,22 @@ impl TimeMappingProperties<'_> {
         properties: &[PropertySchema],
     ) -> Result<(), PluginError> {
         let mut ids = HashSet::new();
-        for (role, property_id) in [
+        let mut defaults = [0.; 3];
+        let invalid_defaults = || {
+            PluginError::invalid_definition(format!(
+                "{owner} '{id}' has invalid default time mapping values"
+            ))
+        };
+        for ((role, property_id), default) in [
             ("source_start", self.source_start),
             ("source_duration", self.source_duration),
             ("playback_speed", self.playback_speed),
-        ] {
-            validate_property_reference(
-                &format!("{owner} '{id}' time mapping role '{role}'"),
-                properties,
+        ]
+        .into_iter()
+        .zip(&mut defaults)
+        {
+            let context = format!("{owner} '{id}' time mapping role '{role}'");
+            let property = PropertyReferences::new(&context, properties).check(
                 property_id,
                 "a distinct f32 property without animation or scene bindings",
                 |property| {
@@ -396,13 +381,13 @@ impl TimeMappingProperties<'_> {
                         && !property.is_scene_bindable(None)
                 },
             )?;
+            let crate::property::PropertyValue::F32(value) = property.default_value() else {
+                return Err(invalid_defaults());
+            };
+            *default = *value;
         }
-        let defaults = crate::property::PropertyValues::from_properties(properties);
-        crate::timeline::TimeMapping::from_properties(self, &defaults).map_err(|_| {
-            PluginError::invalid_definition(format!(
-                "{owner} '{id}' has invalid default time mapping values"
-            ))
-        })?;
+        crate::timeline::TimeMapping::new(defaults[0], defaults[1], defaults[2])
+            .map_err(|_| invalid_defaults())?;
         Ok(())
     }
 }
@@ -423,20 +408,15 @@ impl<'a> PlaybackProperties<'a> {
         properties: &[PropertySchema],
     ) -> Result<(), PluginError> {
         self.time_mapping().validate(owner, id, properties)?;
-        let enumeration =
-            ScalarPropertyType::Enum(vec![0, 1, 2].try_into().expect("unique variants"));
-        validate_property_reference(
-            &format!("{owner} '{id}' playback"),
-            properties,
+        PropertyReferences::new(&format!("{owner} '{id}' playback"), properties).check(
             self.end_behavior,
             "an enum [0, 1, 2] property without animation or scene bindings",
             |property| {
-                property.ty()
-                    == &PropertyType::Value(PropertyValueType::Scalar(enumeration.clone()))
+                matches!(property.ty(), PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Enum(enumeration))) if enumeration.values() == [0, 1, 2])
                     && !property.is_animatable(None)
                     && !property.is_scene_bindable(None)
             },
-        )
+        ).map(|_| ())
     }
 }
 

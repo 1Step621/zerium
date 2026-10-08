@@ -1,6 +1,17 @@
 use super::scene_builder::SceneBuilder;
 use super::surface::{BoundsOperation, SurfaceRect};
-use super::*;
+use super::text::TextFrameRequest;
+use crate::engine::frame::RgbaFrame;
+use std::sync::Arc;
+use thiserror::Error;
+use zerium_core::plugin::{
+    Capability, ComputeDispatchDimension, EffectInputSpace, EffectPassSchema, ItemSchema,
+};
+use zerium_core::timeline::{
+    EffectInstance, EffectInstanceId, ItemId, LayerId, ProjectResolution, TimelineItem,
+    TimelineTime, TimelineView,
+};
+use zerium_shader::{EffectShaderId, ItemShaderId};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(crate) enum RenderQuality {
@@ -135,12 +146,6 @@ pub(crate) struct RenderNode {
     pub render_scale: u32,
 }
 
-impl RenderNode {
-    pub(super) fn required_render_scale(&self) -> u32 {
-        self.render_scale
-    }
-}
-
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct MediaFrameRequest<'a> {
     pub item_id: ItemId,
@@ -267,7 +272,7 @@ impl RenderScene {
     ) -> Result<Self, RenderError> {
         let effect_scale = roots
             .iter()
-            .map(|id| nodes[*id].required_render_scale())
+            .map(|id| nodes[*id].render_scale)
             .max()
             .unwrap_or(1);
         let effect_size = size.checked_scale(effect_scale).ok_or_else(|| {

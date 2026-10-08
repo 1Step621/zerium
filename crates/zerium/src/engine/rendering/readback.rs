@@ -10,49 +10,72 @@ use super::{FrameRenderer, OUTPUT_FORMAT, RenderError, RenderScene, RenderSize, 
 /// YUV420P planes are single-channel 8-bit targets.
 const YUV_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::R8Unorm;
 
+struct ReadbackPlane {
+    texture: wgpu::Texture,
+    view: wgpu::TextureView,
+    staging: wgpu::Buffer,
+}
+
+struct PlaneLayout {
+    extent: wgpu::Extent3d,
+    row_bytes: usize,
+    padded_row_bytes: u32,
+    buffer_size: u64,
+    byte_len: usize,
+    pipeline: wgpu::RenderPipeline,
+}
+
+impl PlaneLayout {
+    fn new(size: RenderSize, pipeline: wgpu::RenderPipeline) -> Result<Self, RenderError> {
+        let alignment = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
+        let padded_row_bytes = size
+            .width
+            .div_ceil(alignment)
+            .checked_mul(alignment)
+            .ok_or_else(|| RenderError::backend("padded export row size is too large"))?;
+        let row_bytes = usize::try_from(size.width)
+            .map_err(|_| RenderError::backend("export row size is too large"))?;
+        let byte_len = usize::try_from(size.height)
+            .ok()
+            .and_then(|height| row_bytes.checked_mul(height))
+            .ok_or_else(|| RenderError::backend("export frame is too large"))?;
+        Ok(Self {
+            extent: wgpu::Extent3d {
+                width: size.width,
+                height: size.height,
+                depth_or_array_layers: 1,
+            },
+            row_bytes,
+            padded_row_bytes,
+            buffer_size: u64::from(padded_row_bytes) * u64::from(size.height),
+            byte_len,
+            pipeline,
+        })
+    }
+}
+
 struct ReadbackSlot {
     // Owns the surface backing `view`; sampled through `bind_group`.
     _texture: wgpu::Texture,
     view: wgpu::TextureView,
     bind_group: wgpu::BindGroup,
-    y_texture: wgpu::Texture,
-    y_view: wgpu::TextureView,
-    u_texture: wgpu::Texture,
-    u_view: wgpu::TextureView,
-    v_texture: wgpu::Texture,
-    v_view: wgpu::TextureView,
-    y_staging: wgpu::Buffer,
-    u_staging: wgpu::Buffer,
-    v_staging: wgpu::Buffer,
+    planes: [ReadbackPlane; 3],
 }
 
 struct PendingReadback {
     frame_index: u64,
     slot: ReadbackSlot,
     submission: wgpu::SubmissionIndex,
-    mapped_y: mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
-    mapped_u: mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
-    mapped_v: mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
+    mapped: [mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>; 3],
 }
 
 /// Keeps a small number of reusable GPU readback targets in flight.
-///
-/// Each frame is converted from the export surface to YUV420P on the GPU, so
-/// the CPU readback transfers 1.5 bytes per pixel instead of 4 and the encoder
-/// no longer needs a software RGBA to YUV conversion.
+/// Each frame is converted to YUV420P on the GPU and read back in Y, U, V order.
 pub(crate) struct ExportFramePipeline {
     renderer: Arc<FrameRenderer>,
     size: RenderSize,
-    chroma_size: RenderSize,
-    extent: wgpu::Extent3d,
-    chroma_extent: wgpu::Extent3d,
-    y_row_bytes: u32,
-    y_padded_row_bytes: u32,
-    uv_row_bytes: u32,
-    uv_padded_row_bytes: u32,
-    y_pipeline: wgpu::RenderPipeline,
-    u_pipeline: wgpu::RenderPipeline,
-    v_pipeline: wgpu::RenderPipeline,
+    planes: [PlaneLayout; 3],
+    byte_len: usize,
     available: Vec<ReadbackSlot>,
     pending: VecDeque<PendingReadback>,
 }
@@ -78,6 +101,7 @@ impl ExportFramePipeline {
         validate_render_shader("zerium.yuv.export-u", YUV_CONVERT, "vertex_main", "u_main")?;
         validate_render_shader("zerium.yuv.export-v", YUV_CONVERT, "vertex_main", "v_main")?;
         let module = renderer
+            .shared
             .device
             .create_shader_module(wgpu::ShaderModuleDescriptor {
                 label: Some("zerium-export-yuv-shader"),
@@ -85,6 +109,7 @@ impl ExportFramePipeline {
             });
         let bind_group_layout =
             renderer
+                .shared
                 .device
                 .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                     label: Some("zerium-export-yuv-bind-group-layout"),
@@ -109,6 +134,7 @@ impl ExportFramePipeline {
                 });
         let pipeline_layout =
             renderer
+                .shared
                 .device
                 .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                     label: Some("zerium-export-yuv-pipeline-layout"),
@@ -117,6 +143,7 @@ impl ExportFramePipeline {
                 });
         let yuv_pipeline = |entry: &str, label: &str| {
             renderer
+                .shared
                 .device
                 .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
                     label: Some(label),
@@ -147,15 +174,18 @@ impl ExportFramePipeline {
         let y_pipeline = yuv_pipeline("y_main", "zerium-export-y-pipeline");
         let u_pipeline = yuv_pipeline("u_main", "zerium-export-u-pipeline");
         let v_pipeline = yuv_pipeline("v_main", "zerium-export-v-pipeline");
-        let sampler = renderer.device.create_sampler(&wgpu::SamplerDescriptor {
-            label: Some("zerium-export-yuv-sampler"),
-            address_mode_u: wgpu::AddressMode::ClampToEdge,
-            address_mode_v: wgpu::AddressMode::ClampToEdge,
-            mag_filter: wgpu::FilterMode::Nearest,
-            min_filter: wgpu::FilterMode::Nearest,
-            mipmap_filter: wgpu::MipmapFilterMode::Nearest,
-            ..Default::default()
-        });
+        let sampler = renderer
+            .shared
+            .device
+            .create_sampler(&wgpu::SamplerDescriptor {
+                label: Some("zerium-export-yuv-sampler"),
+                address_mode_u: wgpu::AddressMode::ClampToEdge,
+                address_mode_v: wgpu::AddressMode::ClampToEdge,
+                mag_filter: wgpu::FilterMode::Nearest,
+                min_filter: wgpu::FilterMode::Nearest,
+                mipmap_filter: wgpu::MipmapFilterMode::Nearest,
+                ..Default::default()
+            });
 
         let extent = wgpu::Extent3d {
             width: size.width,
@@ -166,113 +196,99 @@ impl ExportFramePipeline {
             width: size.width / 2,
             height: size.height / 2,
         };
-        let chroma_extent = wgpu::Extent3d {
-            width: chroma_size.width,
-            height: chroma_size.height,
-            depth_or_array_layers: 1,
-        };
-        let alignment = wgpu::COPY_BYTES_PER_ROW_ALIGNMENT;
-        let y_row_bytes = size.width;
-        let y_padded_row_bytes = y_row_bytes
-            .div_ceil(alignment)
-            .checked_mul(alignment)
-            .ok_or_else(|| RenderError::backend("padded export row size is too large"))?;
-        let uv_row_bytes = chroma_size.width;
-        let uv_padded_row_bytes = uv_row_bytes
-            .div_ceil(alignment)
-            .checked_mul(alignment)
-            .ok_or_else(|| RenderError::backend("padded export row size is too large"))?;
-        let y_buffer_size = u64::from(y_padded_row_bytes)
-            .checked_mul(u64::from(size.height))
-            .ok_or_else(|| RenderError::backend("export frame is too large"))?;
-        let uv_buffer_size = u64::from(uv_padded_row_bytes)
-            .checked_mul(u64::from(chroma_size.height))
+        let planes = [
+            PlaneLayout::new(size, y_pipeline)?,
+            PlaneLayout::new(chroma_size, u_pipeline)?,
+            PlaneLayout::new(chroma_size, v_pipeline)?,
+        ];
+        let byte_len = planes
+            .iter()
+            .try_fold(0_usize, |sum, plane| sum.checked_add(plane.byte_len))
             .ok_or_else(|| RenderError::backend("export frame is too large"))?;
         let yuv_texture = |label: &str, plane_extent: wgpu::Extent3d| {
-            renderer.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some(label),
-                size: plane_extent,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: YUV_FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-                view_formats: &[],
-            })
-        };
-        let staging_buffer = |label: &str, buffer_size: u64| {
-            renderer.device.create_buffer(&wgpu::BufferDescriptor {
-                label: Some(label),
-                size: buffer_size,
-                usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
-                mapped_at_creation: false,
-            })
-        };
-        let available = (0..depth.max(1))
-            .map(|_| {
-                let texture = renderer.device.create_texture(&wgpu::TextureDescriptor {
-                    label: Some("zerium-export-frame"),
-                    size: extent,
+            renderer
+                .shared
+                .device
+                .create_texture(&wgpu::TextureDescriptor {
+                    label: Some(label),
+                    size: plane_extent,
                     mip_level_count: 1,
                     sample_count: 1,
                     dimension: wgpu::TextureDimension::D2,
-                    format: OUTPUT_FORMAT,
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | wgpu::TextureUsages::TEXTURE_BINDING,
+                    format: YUV_FORMAT,
+                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
                     view_formats: &[],
-                });
-                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
-                let bind_group = renderer
+                })
+        };
+        let staging_buffer = |label: &str, buffer_size: u64| {
+            renderer
+                .shared
+                .device
+                .create_buffer(&wgpu::BufferDescriptor {
+                    label: Some(label),
+                    size: buffer_size,
+                    usage: wgpu::BufferUsages::MAP_READ | wgpu::BufferUsages::COPY_DST,
+                    mapped_at_creation: false,
+                })
+        };
+        let available = (0..depth.max(1))
+            .map(|_| {
+                let texture = renderer
+                    .shared
                     .device
-                    .create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("zerium-export-yuv-bind-group"),
-                        layout: &bind_group_layout,
-                        entries: &[
-                            wgpu::BindGroupEntry {
-                                binding: 0,
-                                resource: wgpu::BindingResource::TextureView(&view),
-                            },
-                            wgpu::BindGroupEntry {
-                                binding: 1,
-                                resource: wgpu::BindingResource::Sampler(&sampler),
-                            },
-                        ],
+                    .create_texture(&wgpu::TextureDescriptor {
+                        label: Some("zerium-export-frame"),
+                        size: extent,
+                        mip_level_count: 1,
+                        sample_count: 1,
+                        dimension: wgpu::TextureDimension::D2,
+                        format: OUTPUT_FORMAT,
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                            | wgpu::TextureUsages::TEXTURE_BINDING,
+                        view_formats: &[],
                     });
-                let y_texture = yuv_texture("zerium-export-y-plane", extent);
-                let y_view = y_texture.create_view(&wgpu::TextureViewDescriptor::default());
-                let u_texture = yuv_texture("zerium-export-u-plane", chroma_extent);
-                let u_view = u_texture.create_view(&wgpu::TextureViewDescriptor::default());
-                let v_texture = yuv_texture("zerium-export-v-plane", chroma_extent);
-                let v_view = v_texture.create_view(&wgpu::TextureViewDescriptor::default());
+                let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                let bind_group =
+                    renderer
+                        .shared
+                        .device
+                        .create_bind_group(&wgpu::BindGroupDescriptor {
+                            label: Some("zerium-export-yuv-bind-group"),
+                            layout: &bind_group_layout,
+                            entries: &[
+                                wgpu::BindGroupEntry {
+                                    binding: 0,
+                                    resource: wgpu::BindingResource::TextureView(&view),
+                                },
+                                wgpu::BindGroupEntry {
+                                    binding: 1,
+                                    resource: wgpu::BindingResource::Sampler(&sampler),
+                                },
+                            ],
+                        });
+                let planes = std::array::from_fn(|index| {
+                    let layout = &planes[index];
+                    let texture = yuv_texture("zerium-export-yuv-plane", layout.extent);
+                    let view = texture.create_view(&wgpu::TextureViewDescriptor::default());
+                    ReadbackPlane {
+                        texture,
+                        view,
+                        staging: staging_buffer("zerium-export-yuv-readback", layout.buffer_size),
+                    }
+                });
                 ReadbackSlot {
                     _texture: texture,
                     view,
                     bind_group,
-                    y_texture,
-                    y_view,
-                    u_texture,
-                    u_view,
-                    v_texture,
-                    v_view,
-                    y_staging: staging_buffer("zerium-export-y-readback", y_buffer_size),
-                    u_staging: staging_buffer("zerium-export-u-readback", uv_buffer_size),
-                    v_staging: staging_buffer("zerium-export-v-readback", uv_buffer_size),
+                    planes,
                 }
             })
             .collect();
         Ok(Self {
             renderer,
             size,
-            chroma_size,
-            extent,
-            chroma_extent,
-            y_row_bytes,
-            y_padded_row_bytes,
-            uv_row_bytes,
-            uv_padded_row_bytes,
-            y_pipeline,
-            u_pipeline,
-            v_pipeline,
+            planes,
+            byte_len,
             available,
             pending: VecDeque::with_capacity(depth.max(1)),
         })
@@ -304,81 +320,37 @@ impl ExportFramePipeline {
         self.renderer.render_to_view(scene, &slot.view)?;
         let mut encoder =
             self.renderer
+                .shared
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("zerium-export-yuv-encoder"),
                 });
-        self.encode_plane_pass(
-            &mut encoder,
-            &slot.y_view,
-            &slot.bind_group,
-            &self.y_pipeline,
-            "zerium-export-y-pass",
-        );
-        self.encode_plane_pass(
-            &mut encoder,
-            &slot.u_view,
-            &slot.bind_group,
-            &self.u_pipeline,
-            "zerium-export-u-pass",
-        );
-        self.encode_plane_pass(
-            &mut encoder,
-            &slot.v_view,
-            &slot.bind_group,
-            &self.v_pipeline,
-            "zerium-export-v-pass",
-        );
-        self.copy_plane_to_buffer(
-            &mut encoder,
-            &slot.y_texture,
-            &slot.y_staging,
-            self.extent,
-            self.y_padded_row_bytes,
-            self.size.height,
-        );
-        self.copy_plane_to_buffer(
-            &mut encoder,
-            &slot.u_texture,
-            &slot.u_staging,
-            self.chroma_extent,
-            self.uv_padded_row_bytes,
-            self.chroma_size.height,
-        );
-        self.copy_plane_to_buffer(
-            &mut encoder,
-            &slot.v_texture,
-            &slot.v_staging,
-            self.chroma_extent,
-            self.uv_padded_row_bytes,
-            self.chroma_size.height,
-        );
-        let submission = self.renderer.queue.submit([encoder.finish()]);
-        let (sender_y, mapped_y) = mpsc::sync_channel(1);
-        let (sender_u, mapped_u) = mpsc::sync_channel(1);
-        let (sender_v, mapped_v) = mpsc::sync_channel(1);
-        slot.y_staging
-            .slice(..)
-            .map_async(wgpu::MapMode::Read, move |result| {
-                let _ = sender_y.send(result);
-            });
-        slot.u_staging
-            .slice(..)
-            .map_async(wgpu::MapMode::Read, move |result| {
-                let _ = sender_u.send(result);
-            });
-        slot.v_staging
-            .slice(..)
-            .map_async(wgpu::MapMode::Read, move |result| {
-                let _ = sender_v.send(result);
-            });
+        for (plane, layout) in slot.planes.iter().zip(&self.planes) {
+            self.encode_plane_pass(
+                &mut encoder,
+                &plane.view,
+                &slot.bind_group,
+                &layout.pipeline,
+                "zerium-export-yuv-pass",
+            );
+            self.copy_plane_to_buffer(&mut encoder, plane, layout);
+        }
+        let submission = self.renderer.shared.queue.submit([encoder.finish()]);
+        let mapped = std::array::from_fn(|index| {
+            let (sender, receiver) = mpsc::sync_channel(1);
+            slot.planes[index]
+                .staging
+                .slice(..)
+                .map_async(wgpu::MapMode::Read, move |result| {
+                    let _ = sender.send(result);
+                });
+            receiver
+        });
         self.pending.push_back(PendingReadback {
             frame_index,
             slot,
             submission,
-            mapped_y,
-            mapped_u,
-            mapped_v,
+            mapped,
         });
         Ok(ready)
     }
@@ -413,28 +385,25 @@ impl ExportFramePipeline {
     fn copy_plane_to_buffer(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        texture: &wgpu::Texture,
-        staging: &wgpu::Buffer,
-        plane_extent: wgpu::Extent3d,
-        padded_row_bytes: u32,
-        rows: u32,
+        plane: &ReadbackPlane,
+        layout: &PlaneLayout,
     ) {
         encoder.copy_texture_to_buffer(
             wgpu::TexelCopyTextureInfo {
-                texture,
+                texture: &plane.texture,
                 mip_level: 0,
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
             wgpu::TexelCopyBufferInfo {
-                buffer: staging,
+                buffer: &plane.staging,
                 layout: wgpu::TexelCopyBufferLayout {
                     offset: 0,
-                    bytes_per_row: Some(padded_row_bytes),
-                    rows_per_image: Some(rows),
+                    bytes_per_row: Some(layout.padded_row_bytes),
+                    rows_per_image: Some(layout.extent.height),
                 },
             },
-            plane_extent,
+            layout.extent,
         );
     }
 
@@ -443,13 +412,14 @@ impl ExportFramePipeline {
             return Ok(None);
         };
         self.renderer
+            .shared
             .device
             .poll(wgpu::PollType::Wait {
                 submission_index: Some(pending.submission),
                 timeout: None,
             })
             .map_err(|error| RenderError::backend(format!("GPU readback failed: {error}")))?;
-        for receiver in [&pending.mapped_y, &pending.mapped_u, &pending.mapped_v] {
+        for receiver in &pending.mapped {
             receiver
                 .recv()
                 .map_err(|_| RenderError::backend("GPU readback callback was dropped"))?
@@ -458,75 +428,24 @@ impl ExportFramePipeline {
                 })?;
         }
 
-        let y_mapped = pending
-            .slot
-            .y_staging
-            .slice(..)
-            .get_mapped_range()
-            .map_err(|error| RenderError::backend(format!("GPU frame access failed: {error}")))?;
-        let u_mapped = pending
-            .slot
-            .u_staging
-            .slice(..)
-            .get_mapped_range()
-            .map_err(|error| RenderError::backend(format!("GPU frame access failed: {error}")))?;
-        let v_mapped = pending
-            .slot
-            .v_staging
-            .slice(..)
-            .get_mapped_range()
-            .map_err(|error| RenderError::backend(format!("GPU frame access failed: {error}")))?;
-        let y_len = usize::try_from(self.size.width)
-            .ok()
-            .and_then(|width| {
-                usize::try_from(self.size.height)
-                    .ok()
-                    .and_then(|height| width.checked_mul(height))
-            })
-            .ok_or_else(|| RenderError::backend("export frame is too large"))?;
-        let uv_len = usize::try_from(self.chroma_size.width)
-            .ok()
-            .and_then(|width| {
-                usize::try_from(self.chroma_size.height)
-                    .ok()
-                    .and_then(|height| width.checked_mul(height))
-            })
-            .ok_or_else(|| RenderError::backend("export frame is too large"))?;
-        let capacity = y_len
-            .checked_add(uv_len)
-            .and_then(|size| size.checked_add(uv_len))
-            .ok_or_else(|| RenderError::backend("export frame is too large"))?;
-        let mut yuv = Vec::with_capacity(capacity);
-        append_depadded(
-            &mut yuv,
-            &y_mapped,
-            usize::try_from(self.y_row_bytes)
-                .map_err(|_| RenderError::backend("export row size is too large"))?,
-            usize::try_from(self.y_padded_row_bytes)
-                .map_err(|_| RenderError::backend("padded export row size is too large"))?,
-        );
-        append_depadded(
-            &mut yuv,
-            &u_mapped,
-            usize::try_from(self.uv_row_bytes)
-                .map_err(|_| RenderError::backend("export row size is too large"))?,
-            usize::try_from(self.uv_padded_row_bytes)
-                .map_err(|_| RenderError::backend("padded export row size is too large"))?,
-        );
-        append_depadded(
-            &mut yuv,
-            &v_mapped,
-            usize::try_from(self.uv_row_bytes)
-                .map_err(|_| RenderError::backend("export row size is too large"))?,
-            usize::try_from(self.uv_padded_row_bytes)
-                .map_err(|_| RenderError::backend("padded export row size is too large"))?,
-        );
-        drop(y_mapped);
-        drop(u_mapped);
-        drop(v_mapped);
-        pending.slot.y_staging.unmap();
-        pending.slot.u_staging.unmap();
-        pending.slot.v_staging.unmap();
+        let mut yuv = Vec::with_capacity(self.byte_len);
+        for (plane, layout) in pending.slot.planes.iter().zip(&self.planes) {
+            let mapped = plane
+                .staging
+                .slice(..)
+                .get_mapped_range()
+                .map_err(|error| {
+                    RenderError::backend(format!("GPU frame access failed: {error}"))
+                })?;
+            append_depadded(
+                &mut yuv,
+                &mapped,
+                layout.row_bytes,
+                layout.padded_row_bytes as usize,
+            );
+            drop(mapped);
+            plane.staging.unmap();
+        }
         let frame_index = pending.frame_index;
         self.available.push(pending.slot);
         Ok(Some((frame_index, yuv)))

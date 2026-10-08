@@ -163,15 +163,16 @@ impl MarqueeSelection {
     const ACTIVATION_DISTANCE: f32 = 4.;
 
     fn bounds(&self) -> Bounds<Pixels> {
-        let left = self.origin[0].min(self.current[0]);
-        let top = self.origin[1].min(self.current[1]);
-        Bounds {
-            origin: point(px(left), px(top)),
-            size: size(
-                px((self.origin[0] - self.current[0]).abs()),
-                px((self.origin[1] - self.current[1]).abs()),
+        Bounds::from_corners(
+            point(
+                px(self.origin[0].min(self.current[0])),
+                px(self.origin[1].min(self.current[1])),
             ),
-        }
+            point(
+                px(self.origin[0].max(self.current[0])),
+                px(self.origin[1].max(self.current[1])),
+            ),
+        )
     }
 
     fn update(&mut self, position: gpui::Point<Pixels>) {
@@ -280,7 +281,7 @@ impl Timeline {
                     return;
                 }
                 this.session_id = session_id;
-                this.cancel_async_work();
+                this.file_drop_error = None;
                 this.reset_viewport();
                 this.context_target = None;
                 this.cursor_layer = None;
@@ -355,10 +356,6 @@ impl Timeline {
                 .update_if_changed(cx, |editor| editor.open_scene(scene_id));
         }
         self.reset_viewport();
-    }
-
-    fn cancel_async_work(&mut self) {
-        self.file_drop_error = None;
     }
 
     fn track_viewport_width(window: &Window) -> f32 {

@@ -1,4 +1,35 @@
-use std::{collections::VecDeque, time::Instant};
+use std::{collections::VecDeque, sync::Arc, time::Instant};
+
+use super::{
+    EffectInstanceId, Frame, ItemId, PropertyAddress, ResizeEdge, ResizeMode, SceneId,
+    TimelineTime, project::TimelineProject, selection::SelectionState,
+};
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum HistoryKey {
+    ItemCreation(ItemId),
+    Property(Vec<(ItemId, Option<EffectInstanceId>)>, String),
+    AspectRatioLock(Vec<(ItemId, Option<EffectInstanceId>)>),
+    AnimationStopValue(Vec<PropertyAddress>, TimelineTime),
+    AnimationRepeat(PropertyAddress),
+    AnimationGesture(u64),
+    ItemsResize(Vec<ItemId>, ResizeEdge, ResizeMode),
+    ItemsMove(Vec<ItemId>),
+    SceneName(SceneId),
+    SceneArgumentLabel(SceneId, String),
+    SceneArgumentSettings(SceneId, String),
+}
+
+#[derive(Clone)]
+pub(super) struct HistorySnapshot {
+    pub(super) project: Arc<TimelineProject>,
+    pub(super) scene_path: Vec<SceneId>,
+    pub(super) playhead: Frame,
+    pub(super) selection: SelectionState,
+    pub(super) project_revision: u64,
+}
+
+pub(super) type ScopedHistoryKey = (Option<SceneId>, HistoryKey);
 
 /// Bounded undo/redo storage with explicit edit coalescing.
 ///

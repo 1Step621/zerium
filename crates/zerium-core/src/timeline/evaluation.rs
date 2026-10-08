@@ -29,6 +29,13 @@ fn unique_runtime_id(seed: u64, item_id: ItemId, used: &mut HashSet<ItemId>) -> 
     }
 }
 
+fn scene_runtime_seed(parent_seed: u64, item_id: ItemId, scene_id: SceneId) -> u64 {
+    parent_seed
+        .wrapping_mul(0x9E37_79B1_85EB_CA87)
+        .wrapping_add(item_id.get())
+        .wrapping_add(scene_id.get().rotate_left(23))
+}
+
 /// Visit every source item after applying scene instance arguments, without
 /// visibility or time clipping. Scene instances themselves are included so
 /// their effects remain available to consumers of project resources.
@@ -100,24 +107,27 @@ pub(crate) fn evaluated_scene_graph_at_time(
     struct EvaluationContext<'a> {
         scenes: &'a HashMap<SceneId, SceneDefinition>,
         visibility: Option<&'a PreviewVisibility>,
-        used_ids: &'a mut HashSet<ItemId>,
+        used_ids: HashSet<ItemId>,
     }
 
-    #[allow(clippy::too_many_arguments)]
+    #[derive(Default)]
+    struct Placement<'a> {
+        time_offset: u64,
+        runtime_seed: u64,
+        layer: Option<LayerId>,
+        clip_end: Option<u64>,
+        path: &'a [ItemId],
+    }
+
     fn expand(
         context: &mut EvaluationContext<'_>,
         items: Vec<(LayerId, TimelineItem)>,
         time: TimelineTime,
-        time_offset: u64,
-        runtime_seed: u64,
-        parent_layer: Option<LayerId>,
-        parent_clip_end: Option<u64>,
-        parent_path: &[ItemId],
-        apply_visibility: bool,
+        placement: Placement<'_>,
     ) -> Vec<EvaluatedSceneNode> {
         let mut output = Vec::new();
         for (layer, source) in items {
-            if apply_visibility
+            if placement.path.is_empty()
                 && context
                     .visibility
                     .is_some_and(|visibility| !visibility.is_item_visible(layer, source.id))
@@ -129,20 +139,22 @@ pub(crate) fn evaluated_scene_graph_at_time(
                 time,
                 property_schemas(context.scenes, &source, None),
             );
-            let output_layer = parent_layer.unwrap_or(layer);
-            let global_start = time_offset.saturating_add(item.start.get());
+            let output_layer = placement.layer.unwrap_or(layer);
+            let global_start = placement.time_offset.saturating_add(item.start.get());
             let source_end = global_start.saturating_add(item.duration.get());
-            let global_end = parent_clip_end.map_or(source_end, |end| end.min(source_end));
+            let global_end = placement
+                .clip_end
+                .map_or(source_end, |end| end.min(source_end));
             let Some(clip) = EvaluatedClip::from_bounds(global_start, global_end) else {
                 continue;
             };
-            let mut path = parent_path.to_vec();
+            let mut path = placement.path.to_vec();
             path.push(source_id);
             let Some(scene_id) = item.scene_id() else {
                 if let Some(visibility) = context.visibility {
                     visibility.retain_visible_effects(&mut item);
                 }
-                item.id = unique_runtime_id(runtime_seed, item.id, context.used_ids);
+                item.id = unique_runtime_id(placement.runtime_seed, item.id, &mut context.used_ids);
                 item.start = clip.start;
                 item.duration = clip.duration;
                 output.push(EvaluatedSceneNode {
@@ -170,20 +182,17 @@ pub(crate) fn evaluated_scene_graph_at_time(
                 Some(&item),
                 child_items.iter_mut().map(|(_, item)| item),
             );
-            let child_seed = runtime_seed
-                .wrapping_mul(0x9E37_79B1_85EB_CA87)
-                .wrapping_add(item.id.get())
-                .wrapping_add(scene_id.get().rotate_left(23));
             let children = expand(
                 context,
                 child_items,
                 local,
-                global_start,
-                child_seed,
-                Some(output_layer),
-                Some(global_end),
-                &path,
-                false,
+                Placement {
+                    time_offset: global_start,
+                    runtime_seed: scene_runtime_seed(placement.runtime_seed, item.id, scene_id),
+                    layer: Some(output_layer),
+                    clip_end: Some(global_end),
+                    path: &path,
+                },
             );
             item.start = clip.start;
             item.duration = clip.duration;
@@ -202,13 +211,12 @@ pub(crate) fn evaluated_scene_graph_at_time(
         output
     }
 
-    let mut used_ids = HashSet::new();
     let mut context = EvaluationContext {
         scenes,
         visibility,
-        used_ids: &mut used_ids,
+        used_ids: HashSet::new(),
     };
-    expand(&mut context, items, time, 0, 0, None, None, &[], true)
+    expand(&mut context, items, time, Placement::default())
 }
 
 pub(crate) fn evaluated_items_at_time(
@@ -241,8 +249,8 @@ pub(crate) fn visible_items(
     struct VisibilityContext<'a> {
         scenes: &'a HashMap<SceneId, SceneDefinition>,
         visibility: Option<&'a PreviewVisibility>,
-        output: &'a mut Vec<TimelineItem>,
-        used_ids: &'a mut HashSet<ItemId>,
+        output: Vec<TimelineItem>,
+        used_ids: HashSet<ItemId>,
     }
 
     fn expand(
@@ -267,7 +275,7 @@ pub(crate) fn visible_items(
             }
             let Some(scene_id) = source.scene_id() else {
                 let mut item = source;
-                item.id = unique_runtime_id(runtime_seed, item.id, context.used_ids);
+                item.id = unique_runtime_id(runtime_seed, item.id, &mut context.used_ids);
                 item.start = Frame::new(global_start);
                 item.duration = FrameDuration::new_saturating(visible_end - global_start);
                 context.output.push(item);
@@ -286,10 +294,7 @@ pub(crate) fn visible_items(
                 Some(&instance),
                 children.iter_mut().map(|(_, item)| item),
             );
-            let child_seed = runtime_seed
-                .wrapping_mul(0x9E37_79B1_85EB_CA87)
-                .wrapping_add(source.id.get())
-                .wrapping_add(scene_id.get().rotate_left(23));
+            let child_seed = scene_runtime_seed(runtime_seed, source.id, scene_id);
             expand(
                 context,
                 children,
@@ -300,14 +305,12 @@ pub(crate) fn visible_items(
         }
     }
 
-    let mut output = Vec::new();
-    let mut used_ids = HashSet::new();
     let mut context = VisibilityContext {
         scenes,
         visibility,
-        output: &mut output,
-        used_ids: &mut used_ids,
+        output: Vec::new(),
+        used_ids: HashSet::new(),
     };
     expand(&mut context, items, 0, 0, None);
-    output
+    context.output
 }

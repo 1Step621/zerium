@@ -112,13 +112,8 @@ impl SceneSettings {
             )
     }
 
-    fn toggle_scene_argument_expanded(
-        &mut self,
-        scene_id: SceneId,
-        argument_id: &str,
-        cx: &mut Context<Self>,
-    ) {
-        let key = (scene_id, argument_id.to_owned());
+    fn toggle_scene_argument_expanded(&mut self, argument_id: &str, cx: &mut Context<Self>) {
+        let key = argument_id.to_owned();
         if !self.expanded_scene_arguments.insert(key.clone()) {
             self.expanded_scene_arguments.remove(&key);
         }
@@ -218,9 +213,7 @@ impl SceneSettings {
         argument: SceneArgumentOption,
         render: &SceneSettingsRenderCtx<'_>,
     ) -> gpui::AnyElement {
-        let expanded = self
-            .expanded_scene_arguments
-            .contains(&(argument.scene_id, argument.id.clone()));
+        let expanded = self.expanded_scene_arguments.contains(&argument.id);
         let name_input = self
             .store
             .text_inputs
@@ -261,7 +254,6 @@ impl SceneSettings {
         let expand_id = argument.id.clone();
         let remove_settings = render.settings.clone();
         let remove_id = argument.id.clone();
-        let scene_id = argument.scene_id;
 
         div()
             .w_full()
@@ -348,7 +340,7 @@ impl SceneSettings {
                 })
                 .on_click(move |_, _, cx| {
                     expand_settings.update(cx, |settings, cx| {
-                        settings.toggle_scene_argument_expanded(scene_id, &expand_id, cx);
+                        settings.toggle_scene_argument_expanded(&expand_id, cx);
                     });
                 }),
             )

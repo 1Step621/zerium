@@ -1,50 +1,57 @@
 use rust_i18n::t;
-
 use std::path::{Path, PathBuf};
 
-use ::ui::{
-    ContextModal as _, Sizable as _, StyledExt as _,
-    input::{InputState, NumberInput},
-    modal::{Modal, ModalButtonProps},
-};
-use gpui::{App, Context, Entity, PathPromptOptions, Task, Window, div, prelude::*};
+use gpui::{App, AppContext as _, Context, Entity, PathPromptOptions, Task, Window};
 
 use crate::{
-    app::project_runtime::ProjectRuntime, engine::project_io, project_session::ProjectActivity,
-    ui::session::UiNotifications,
+    engine::project_io,
+    project_session::{ProjectActivity, ProjectOperation, ProjectSession},
+    ui::{
+        animation_curve::AnimationSelection, project_dialogs, session::UiNotifications,
+        transport::TransportController,
+    },
 };
 use zerium_core::{
     persistence::PROJECT_EXTENSION,
-    timeline::{Frame, FrameRate, ProjectResolution},
+    timeline::{Frame, FrameRate, ProjectResolution, TimelineEditor},
 };
 
 #[derive(Clone)]
 enum PendingProjectChange {
     New,
-    Open,
-    OpenPath(PathBuf),
+    Open(Option<PathBuf>),
 }
 
 pub(crate) struct ProjectController {
-    runtime: crate::app::project_runtime::ProjectRuntime,
+    editor: Entity<TimelineEditor>,
+    transport: Entity<TransportController>,
+    animation_selection: Entity<AnimationSelection>,
+    session: Entity<ProjectSession>,
     notifications: Entity<UiNotifications>,
     path: Option<PathBuf>,
     saved_revision: u64,
-    busy: bool,
-    _dialog_task: Task<()>,
-    _io_task: Task<()>,
+    operation: Option<ProjectOperation>,
+    _task: Task<()>,
 }
 
 impl ProjectController {
-    pub(crate) fn new(runtime: ProjectRuntime, notifications: Entity<UiNotifications>) -> Self {
+    pub(crate) fn new(
+        editor: Entity<TimelineEditor>,
+        transport: Entity<TransportController>,
+        animation_selection: Entity<AnimationSelection>,
+        session: Entity<ProjectSession>,
+        notifications: Entity<UiNotifications>,
+    ) -> Self {
         Self {
-            runtime,
+            editor,
+            transport,
+            animation_selection,
+            session,
             notifications,
             path: None,
             saved_revision: 0,
-            busy: false,
-            _dialog_task: Task::ready(()),
-            _io_task: Task::ready(()),
+            operation: None,
+            _task: Task::ready(()),
         }
     }
 
@@ -53,7 +60,7 @@ impl ProjectController {
     }
 
     pub(crate) fn request_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.request_project_change(PendingProjectChange::Open, window, cx);
+        self.request_project_change(PendingProjectChange::Open(None), window, cx);
     }
 
     pub(crate) fn request_open_path(
@@ -62,51 +69,206 @@ impl ProjectController {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.request_project_change(PendingProjectChange::OpenPath(path), window, cx);
+        self.request_project_change(PendingProjectChange::Open(Some(path)), window, cx);
     }
 
     pub(crate) fn open_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
-        }
-        if !has_project_extension(&path) {
-            self.notifications.update(cx, |notifications, cx| {
-                notifications.push(
-                    t!("project.extension_prompt", extension = PROJECT_EXTENSION).to_string(),
-                    cx,
-                );
-            });
-            return;
-        }
+        self.open(Some(path), cx);
+    }
 
-        self.busy = true;
-        cx.notify();
-        let plugins = self.runtime.editor.read(cx).plugin_registry_arc();
-        let session = self.runtime.session().clone();
-        let operation = session.update(cx, |session, cx| {
-            let operation = session.begin(ProjectActivity::Load);
+    pub(crate) fn save(&mut self, cx: &mut Context<Self>) {
+        self.save_to(self.path.clone(), cx);
+    }
+
+    pub(crate) fn save_as(&mut self, cx: &mut Context<Self>) {
+        self.save_to(None, cx);
+    }
+
+    pub(crate) fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        if self.operation.is_none() {
+            project_dialogs::open_settings(
+                &self.editor,
+                &self.transport,
+                &self.notifications,
+                window,
+                cx,
+            );
+        }
+    }
+
+    pub(crate) fn window_title(&self, cx: &App) -> String {
+        let dirty = self.editor.read(cx).project_revision() != self.saved_revision;
+        let name = self
+            .path
+            .as_deref()
+            .and_then(Path::file_stem)
+            .map(|name| name.to_string_lossy());
+        match name {
+            Some(name) => format!("{}{} — Zerium", if dirty { "*" } else { "" }, name),
+            None => format!("{}Zerium", if dirty { "*" } else { "" }),
+        }
+    }
+
+    fn begin_operation(
+        &mut self,
+        activity: ProjectActivity,
+        cx: &mut Context<Self>,
+    ) -> Option<ProjectOperation> {
+        if self.operation.is_some() {
+            return None;
+        }
+        let operation = self.session.update(cx, |session, cx| {
+            let operation = session.begin(activity);
             cx.notify();
             operation
         });
-        self._io_task = cx.spawn(async move |controller, cx| {
-            let input = path.clone();
-            let result = cx
-                .background_spawn(async move { project_io::load(&input, &plugins) })
-                .await;
-            if session.update(cx, |session, _| session.operation_is_current(operation)) {
-                controller
-                    .update(cx, |controller, cx| match result {
-                        Ok(project) => {
-                            controller.runtime.advance_session(cx);
-                            controller.runtime.reset_transient_state(cx);
-                            controller.runtime.editor.update(cx, |editor, cx| {
-                                project.apply(editor);
-                                cx.notify();
-                            });
-                            controller.path = Some(path.clone());
-                            controller.saved_revision =
-                                controller.runtime.editor.read(cx).project_revision();
-                            controller.busy = false;
+        self.operation = Some(operation);
+        cx.notify();
+        Some(operation)
+    }
+
+    fn finish_operation(&mut self, operation: ProjectOperation, cx: &mut Context<Self>) -> bool {
+        if self.operation != Some(operation) {
+            return false;
+        }
+        self.operation = None;
+        let current = self.session.update(cx, |session, cx| {
+            let current = session.finish(operation);
+            if current {
+                cx.notify();
+            }
+            current
+        });
+        cx.notify();
+        current
+    }
+
+    fn replace_project(
+        &mut self,
+        path: Option<PathBuf>,
+        update: impl FnOnce(&mut TimelineEditor),
+        cx: &mut Context<Self>,
+    ) {
+        self.session.update(cx, |session, cx| {
+            session.advance();
+            cx.notify();
+        });
+        self.transport
+            .update(cx, |transport, cx| transport.reset_for_project_change(cx));
+        self.animation_selection
+            .update(cx, |selection, cx| selection.clear(cx));
+        self.editor.update(cx, |editor, cx| {
+            update(editor);
+            cx.notify();
+        });
+        self.path = path;
+        self.saved_revision = self.editor.read(cx).project_revision();
+        cx.notify();
+    }
+
+    fn request_project_change(
+        &mut self,
+        operation: PendingProjectChange,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.operation.is_some() {
+            return;
+        }
+        if self.editor.read(cx).project_revision() == self.saved_revision {
+            self.perform_project_change(operation, cx);
+            return;
+        }
+
+        let controller = cx.entity();
+        project_dialogs::confirm_discard(window, cx, move |_, cx| {
+            controller.update(cx, |controller, cx| {
+                controller.perform_project_change(operation.clone(), cx);
+            });
+        });
+    }
+
+    fn perform_project_change(&mut self, operation: PendingProjectChange, cx: &mut Context<Self>) {
+        if self.operation.is_some() {
+            return;
+        }
+        match operation {
+            PendingProjectChange::New => self.new_project(cx),
+            PendingProjectChange::Open(path) => self.open(path, cx),
+        }
+    }
+
+    fn new_project(&mut self, cx: &mut Context<Self>) {
+        self.replace_project(
+            None,
+            |editor| {
+                editor.reset(ProjectResolution::DEFAULT, FrameRate::FPS_30, Frame::new(0));
+            },
+            cx,
+        );
+    }
+
+    fn open(&mut self, path: Option<PathBuf>, cx: &mut Context<Self>) {
+        let Some(operation) = self.begin_operation(ProjectActivity::Load, cx) else {
+            return;
+        };
+        let plugins = self.editor.read(cx).plugin_registry_arc();
+        let session = self.session.clone();
+        self._task = cx.spawn(async move |controller, cx| {
+            let result: Result<_, String> = async {
+                let path = match path {
+                    Some(path) => Some(path),
+                    None => {
+                        let receiver = cx.update(|cx| {
+                            cx.prompt_for_paths(PathPromptOptions {
+                                files: true,
+                                directories: false,
+                                multiple: false,
+                                prompt: Some(t!("project.open_prompt").to_string().into()),
+                            })
+                        });
+                        receiver
+                            .await
+                            .map_err(|error| {
+                                t!("project.file_picker_failed", error = error).to_string()
+                            })?
+                            .map_err(|error| {
+                                t!("project.select_file_failed", error = error).to_string()
+                            })?
+                            .and_then(|paths| paths.into_iter().next())
+                    }
+                };
+                let Some(path) = path else {
+                    return Ok(None);
+                };
+                if !has_project_extension(&path) {
+                    return Err(
+                        t!("project.extension_prompt", extension = PROJECT_EXTENSION).to_string(),
+                    );
+                }
+                if !session.read_with(cx, |session, _| session.operation_is_current(operation)) {
+                    return Ok(None);
+                }
+                let input = path.clone();
+                let project = cx
+                    .background_spawn(async move { project_io::load(&input, &plugins) })
+                    .await
+                    .map_err(|error| t!("project.load_failed", error = error).to_string())?;
+                Ok(Some((path, project)))
+            }
+            .await;
+            controller
+                .update(cx, |controller, cx| {
+                    if !controller.finish_operation(operation, cx) {
+                        return;
+                    }
+                    match result {
+                        Ok(Some((path, project))) => {
+                            controller.replace_project(
+                                Some(path.clone()),
+                                |editor| project.apply(editor),
+                                cx,
+                            );
                             controller.notifications.update(cx, |notifications, cx| {
                                 notifications.push_success(
                                     t!(
@@ -120,412 +282,81 @@ impl ProjectController {
                                     cx,
                                 );
                             });
-                            cx.notify();
                         }
-                        Err(error) => {
-                            controller.busy = false;
-                            controller.notifications.update(cx, |notifications, cx| {
-                                notifications
-                                    .push(t!("project.load_failed", error = error).to_string(), cx);
-                            });
-                            cx.notify();
-                        }
-                    })
-                    .ok();
-            }
-            session.update(cx, |session, cx| {
-                if session.finish(operation) {
-                    cx.notify();
-                }
-            });
-        });
-    }
-
-    pub(crate) fn save(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
-        }
-        if let Some(path) = self.path.clone() {
-            self.save_to(path, cx);
-        } else {
-            self.choose_save_path(window, cx);
-        }
-    }
-
-    pub(crate) fn save_as(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if !self.busy {
-            self.choose_save_path(window, cx);
-        }
-    }
-
-    pub(crate) fn open_settings(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.busy {
-            return;
-        }
-        let editor = self.runtime.editor.read(cx);
-        let resolution = editor.resolution();
-        let frame_rate = editor.frame_rate();
-        let width =
-            cx.new(|cx| InputState::new(window, cx).default_value(resolution.width().to_string()));
-        let height =
-            cx.new(|cx| InputState::new(window, cx).default_value(resolution.height().to_string()));
-        let frame_rate_numerator = cx.new(|cx| {
-            InputState::new(window, cx).default_value(frame_rate.numerator().to_string())
-        });
-        let frame_rate_denominator = cx.new(|cx| {
-            InputState::new(window, cx).default_value(frame_rate.denominator().to_string())
-        });
-        let controller = cx.entity();
-        window.open_modal(cx, move |modal: Modal, _, _| {
-            let confirm_controller = controller.clone();
-            let confirm_width = width.clone();
-            let confirm_height = height.clone();
-            let confirm_frame_rate_numerator = frame_rate_numerator.clone();
-            let confirm_frame_rate_denominator = frame_rate_denominator.clone();
-            modal
-                .title(
-                    div()
-                        .font_family(crate::ui::theme::FONT_FAMILY)
-                        .font_normal()
-                        .child(t!("project.settings").to_string()),
-                )
-                .width(gpui::px(440.))
-                .confirm()
-                .button_props(
-                    ModalButtonProps::default()
-                        .ok_text(t!("project.apply").to_string())
-                        .cancel_text(t!("common.cancel").to_string()),
-                )
-                .on_ok(move |_, _, cx| {
-                    confirm_controller.update(cx, |controller, cx| {
-                        let width = confirm_width.read(cx).value().parse::<u32>();
-                        let height = confirm_height.read(cx).value().parse::<u32>();
-                        let resolution = width
-                            .ok()
-                            .zip(height.ok())
-                            .and_then(|(width, height)| ProjectResolution::new(width, height));
-                        let Some(resolution) = resolution else {
-                            controller.notifications.update(cx, |notifications, cx| {
-                                notifications.push(
-                                    t!(
-                                        "project.invalid_resolution",
-                                        max = ProjectResolution::MAX_DIMENSION
-                                    )
-                                    .to_string(),
-                                    cx,
-                                );
-                            });
-                            cx.notify();
-                            return false;
-                        };
-                        let numerator = confirm_frame_rate_numerator
-                            .read(cx)
-                            .value()
-                            .trim()
-                            .parse::<u32>();
-                        let denominator = confirm_frame_rate_denominator
-                            .read(cx)
-                            .value()
-                            .trim()
-                            .parse::<u32>();
-                        let frame_rate = match (numerator, denominator) {
-                            (Ok(numerator), Ok(denominator)) => {
-                                match FrameRate::new(numerator, denominator) {
-                                    Some(frame_rate) => frame_rate,
-                                    None => {
-                                        controller.notifications.update(cx, |notifications, cx| {
-                                            notifications.push(
-                                                t!("project.invalid_frame_rate").to_string(),
-                                                cx,
-                                            );
-                                        });
-                                        cx.notify();
-                                        return false;
-                                    }
-                                }
-                            }
-                            _ => {
-                                controller.notifications.update(cx, |notifications, cx| {
-                                    notifications.push(
-                                        t!("project.invalid_integer_frame_rate").to_string(),
-                                        cx,
-                                    );
-                                });
-                                cx.notify();
-                                return false;
-                            }
-                        };
-                        match controller.runtime.editor.update(cx, |editor, cx| {
-                            let result = editor.update_project_settings(resolution, frame_rate);
-                            if matches!(result, Ok(true)) {
-                                cx.notify();
-                            }
-                            result
-                        }) {
-                            Ok(_) => {
-                                controller.runtime.stop_transport(cx);
-                                cx.notify();
-                                true
-                            }
-                            Err(error) => {
-                                controller.notifications.update(cx, |notifications, cx| {
-                                    notifications.push(error.to_string(), cx);
-                                });
-                                cx.notify();
-                                false
-                            }
-                        }
-                    })
+                        Ok(None) => {}
+                        Err(error) => controller
+                            .notifications
+                            .update(cx, |notifications, cx| notifications.push(error, cx)),
+                    }
                 })
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap_3()
-                        .child(settings_row(
-                            t!("project.width").to_string(),
-                            NumberInput::new(&width).small().w_full(),
-                        ))
-                        .child(settings_row(
-                            t!("project.height").to_string(),
-                            NumberInput::new(&height).small().w_full(),
-                        ))
-                        .child(settings_row(
-                            t!("project.frame_rate").to_string(),
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap_2()
-                                .child(div().flex_1().child(
-                                    NumberInput::new(&frame_rate_numerator).small().w_full(),
-                                ))
-                                .child(div().flex_none().child("/"))
-                                .child(div().flex_1().child(
-                                    NumberInput::new(&frame_rate_denominator).small().w_full(),
-                                )),
-                        )),
-                )
-        });
-    }
-
-    pub(crate) fn window_title(&self, cx: &App) -> String {
-        let dirty = self.runtime.editor.read(cx).project_revision() != self.saved_revision;
-        let Some(name) = self
-            .path
-            .as_deref()
-            .and_then(Path::file_stem)
-            .map(|name| name.to_string_lossy().into_owned())
-        else {
-            return format!("{}Zerium", if dirty { "*" } else { "" });
-        };
-        format!("{}{} — Zerium", if dirty { "*" } else { "" }, name)
-    }
-
-    fn request_project_change(
-        &mut self,
-        operation: PendingProjectChange,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.busy {
-            return;
-        }
-        if self.runtime.editor.read(cx).project_revision() == self.saved_revision {
-            self.perform_project_change(operation, window, cx);
-            return;
-        }
-
-        let controller = cx.entity();
-        window.open_modal(cx, move |modal: Modal, _, _| {
-            let confirm_controller = controller.clone();
-            let operation = operation.clone();
-            modal
-                .title(
-                    div()
-                        .font_family(crate::ui::theme::FONT_FAMILY)
-                        .font_normal()
-                        .child(t!("project.unsaved_changes").to_string()),
-                )
-                .confirm()
-                .button_props(
-                    ModalButtonProps::default()
-                        .ok_text(t!("project.discard").to_string())
-                        .cancel_text(t!("common.cancel").to_string()),
-                )
-                .on_ok(move |_, window, cx| {
-                    confirm_controller.update(cx, |controller, cx| {
-                        controller.perform_project_change(operation.clone(), window, cx);
-                    });
-                    true
-                })
-                .child(t!("project.discard_prompt").to_string())
-        });
-    }
-
-    fn perform_project_change(
-        &mut self,
-        operation: PendingProjectChange,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        match operation {
-            PendingProjectChange::New => self.new_project(cx),
-            PendingProjectChange::Open => self.choose_open_path(window, cx),
-            PendingProjectChange::OpenPath(path) => self.open_path(path, cx),
-        }
-    }
-
-    fn new_project(&mut self, cx: &mut Context<Self>) {
-        self.runtime.advance_session(cx);
-        self.runtime.reset_transient_state(cx);
-        self.runtime.editor.update(cx, |editor, cx| {
-            editor.reset(ProjectResolution::DEFAULT, FrameRate::FPS_30, Frame::new(0));
-            cx.notify();
-        });
-        self.path = None;
-        self.saved_revision = self.runtime.editor.read(cx).project_revision();
-        cx.notify();
-    }
-
-    fn choose_open_path(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        let receiver = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some(t!("project.open_prompt").to_string().into()),
-        });
-        self._dialog_task = cx.spawn(async move |controller, cx| {
-            let selected: Result<Option<PathBuf>, String> = match receiver.await {
-                Ok(Ok(Some(paths))) => Ok(paths.into_iter().next()),
-                Ok(Ok(None)) => Ok(None),
-                Ok(Err(error)) => Err(t!("project.select_file_failed", error = error).to_string()),
-                Err(error) => Err(t!("project.file_picker_failed", error = error).to_string()),
-            };
-            match selected {
-                Err(message) => {
-                    set_failed(&controller, message, cx);
-                }
-                Ok(None) => {
-                    set_idle(&controller, cx);
-                }
-                Ok(Some(path)) => {
-                    controller
-                        .update(cx, |controller, cx| controller.open_path(path, cx))
-                        .ok();
-                }
-            }
-        });
-    }
-
-    fn choose_save_path(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        let initial_directory = self
-            .path
-            .as_deref()
-            .and_then(Path::parent)
-            .map(Path::to_path_buf)
-            .or_else(|| std::env::current_dir().ok())
-            .unwrap_or_else(|| PathBuf::from("."));
-        let suggested_name = self
-            .path
-            .as_deref()
-            .and_then(Path::file_name)
-            .and_then(|name| name.to_str())
-            .unwrap_or("project.zero");
-        let receiver = cx.prompt_for_new_path(&initial_directory, Some(suggested_name));
-        self.busy = true;
-        let session = self.runtime.session().clone();
-        let operation = session.update(cx, |session, cx| {
-            let operation = session.begin(ProjectActivity::Save);
-            cx.notify();
-            operation
-        });
-        cx.notify();
-
-        self._dialog_task = cx.spawn(async move |controller, cx| {
-            let selected = match receiver.await {
-                Ok(Ok(path)) => path,
-                Ok(Err(error)) => {
-                    if session.update(cx, |session, _| session.operation_is_current(operation)) {
-                        set_failed(
-                            &controller,
-                            t!("project.select_destination_failed", error = error).to_string(),
-                            cx,
-                        );
-                        session.update(cx, |session, cx| {
-                            if session.finish(operation) {
-                                cx.notify();
-                            }
-                        });
-                    }
-                    return;
-                }
-                Err(error) => {
-                    if session.update(cx, |session, _| session.operation_is_current(operation)) {
-                        set_failed(
-                            &controller,
-                            t!("project.destination_picker_failed", error = error).to_string(),
-                            cx,
-                        );
-                        session.update(cx, |session, cx| {
-                            if session.finish(operation) {
-                                cx.notify();
-                            }
-                        });
-                    }
-                    return;
-                }
-            };
-            if !session.update(cx, |session, _| session.operation_is_current(operation)) {
-                return;
-            }
-            let Some(mut path) = selected else {
-                set_idle(&controller, cx);
-                session.update(cx, |session, cx| {
-                    if session.finish(operation) {
-                        cx.notify();
-                    }
-                });
-                return;
-            };
-            if !has_project_extension(&path) {
-                path.set_extension(PROJECT_EXTENSION);
-            }
-            session.update(cx, |session, cx| {
-                if session.finish(operation) {
-                    cx.notify();
-                }
-            });
-            controller
-                .update(cx, |controller, cx| controller.save_to(path, cx))
                 .ok();
         });
     }
 
-    fn save_to(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        let snapshot = self.runtime.editor.read(cx).snapshot();
-        let revision = snapshot.project_revision();
-        self.busy = true;
-        cx.notify();
-
-        let session = self.runtime.session().clone();
-        let operation = session.update(cx, |session, cx| {
-            let operation = session.begin(ProjectActivity::Save);
-            cx.notify();
-            operation
-        });
-        self._io_task = cx.spawn(async move |controller, cx| {
-            let output = path.clone();
-            let result = cx
-                .background_spawn(async move { project_io::save(&snapshot, &output) })
-                .await;
-            if !session.update(cx, |session, _| session.operation_is_current(operation)) {
-                return;
+    fn save_to(&mut self, path: Option<PathBuf>, cx: &mut Context<Self>) {
+        let Some(operation) = self.begin_operation(ProjectActivity::Save, cx) else {
+            return;
+        };
+        let current_path = self.path.clone();
+        // Save captures the current edit immediately; Save As captures after path selection.
+        let snapshot = path.as_ref().map(|_| self.editor.read(cx).snapshot());
+        let editor = self.editor.clone();
+        let session = self.session.clone();
+        self._task = cx.spawn(async move |controller, cx| {
+            let result: Result<_, String> = async {
+                let path = match path {
+                    Some(path) => Some(path),
+                    None => {
+                        let initial_directory = current_path
+                            .as_deref()
+                            .and_then(Path::parent)
+                            .map(Path::to_path_buf)
+                            .or_else(|| std::env::current_dir().ok())
+                            .unwrap_or_else(|| PathBuf::from("."));
+                        let suggested_name = current_path
+                            .as_deref()
+                            .and_then(Path::file_name)
+                            .and_then(|name| name.to_str())
+                            .unwrap_or("project.zero");
+                        let receiver = cx.update(|cx| {
+                            cx.prompt_for_new_path(&initial_directory, Some(suggested_name))
+                        });
+                        receiver
+                            .await
+                            .map_err(|error| {
+                                t!("project.destination_picker_failed", error = error).to_string()
+                            })?
+                            .map_err(|error| {
+                                t!("project.select_destination_failed", error = error).to_string()
+                            })?
+                    }
+                };
+                let Some(mut path) = path else {
+                    return Ok(None);
+                };
+                if !has_project_extension(&path) {
+                    path.set_extension(PROJECT_EXTENSION);
+                }
+                if !session.read_with(cx, |session, _| session.operation_is_current(operation)) {
+                    return Ok(None);
+                }
+                let snapshot =
+                    snapshot.unwrap_or_else(|| editor.read_with(cx, |editor, _| editor.snapshot()));
+                let revision = snapshot.project_revision();
+                let output = path.clone();
+                cx.background_spawn(async move { project_io::save(&snapshot, &output) })
+                    .await
+                    .map_err(|error| t!("project.save_failed", error = error).to_string())?;
+                Ok(Some((path, revision)))
             }
+            .await;
             controller
                 .update(cx, |controller, cx| {
-                    controller.busy = false;
+                    if !controller.finish_operation(operation, cx) {
+                        return;
+                    }
                     match result {
-                        Ok(()) => {
+                        Ok(Some((path, revision))) => {
                             controller.path = Some(path.clone());
                             controller.saved_revision = revision;
                             controller.notifications.update(cx, |notifications, cx| {
@@ -542,21 +373,13 @@ impl ProjectController {
                                 );
                             });
                         }
-                        Err(error) => {
-                            let message = t!("project.save_failed", error = error).to_string();
-                            controller.notifications.update(cx, |notifications, cx| {
-                                notifications.push(message, cx);
-                            });
-                        }
+                        Ok(None) => {}
+                        Err(error) => controller
+                            .notifications
+                            .update(cx, |notifications, cx| notifications.push(error, cx)),
                     }
-                    cx.notify();
                 })
                 .ok();
-            session.update(cx, |session, cx| {
-                if session.finish(operation) {
-                    cx.notify();
-                }
-            });
         });
     }
 
@@ -566,8 +389,8 @@ impl ProjectController {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> bool {
-        if self.busy || export_busy || self.runtime.session().read(cx).is_busy() {
-            let activities = self.runtime.session().read(cx).busy_activities();
+        if self.operation.is_some() || export_busy || self.session.read(cx).is_busy() {
+            let activities = self.session.read(cx).busy_activities();
             let activity = if activities.is_empty() {
                 if export_busy {
                     t!("project.export_activity").to_string()
@@ -597,71 +420,17 @@ impl ProjectController {
             });
             return false;
         }
-        if self.runtime.editor.read(cx).project_revision() == self.saved_revision {
+        if self.editor.read(cx).project_revision() == self.saved_revision {
             return true;
         }
 
-        window.open_modal(cx, move |modal: Modal, _, _| {
-            modal
-                .title(
-                    div()
-                        .font_family(crate::ui::theme::FONT_FAMILY)
-                        .font_normal()
-                        .child(t!("project.unsaved_changes").to_string()),
-                )
-                .confirm()
-                .button_props(
-                    ModalButtonProps::default()
-                        .ok_text(t!("project.discard_exit").to_string())
-                        .cancel_text(t!("common.cancel").to_string()),
-                )
-                .on_ok(|_, window, cx| {
-                    window.defer(cx, |window, _| window.remove_window());
-                    true
-                })
-                .child(t!("project.discard_exit_prompt").to_string())
-        });
+        project_dialogs::confirm_exit(window, cx);
         false
     }
-}
-
-fn settings_row(label: String, input: impl IntoElement) -> gpui::Div {
-    div()
-        .w_full()
-        .flex()
-        .items_center()
-        .gap_3()
-        .child(div().w(gpui::px(120.)).flex_none().child(label))
-        .child(div().min_w_0().flex_1().child(input))
 }
 
 fn has_project_extension(path: &Path) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
         .is_some_and(|extension| extension.eq_ignore_ascii_case(PROJECT_EXTENSION))
-}
-
-fn set_failed(
-    controller: &gpui::WeakEntity<ProjectController>,
-    error: String,
-    cx: &mut gpui::AsyncApp,
-) {
-    controller
-        .update(cx, |controller, cx| {
-            controller.busy = false;
-            controller.notifications.update(cx, |notifications, cx| {
-                notifications.push(error, cx);
-            });
-            cx.notify();
-        })
-        .ok();
-}
-
-fn set_idle(controller: &gpui::WeakEntity<ProjectController>, cx: &mut gpui::AsyncApp) {
-    controller
-        .update(cx, |controller, cx| {
-            controller.busy = false;
-            cx.notify();
-        })
-        .ok();
 }

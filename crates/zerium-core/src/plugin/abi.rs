@@ -25,6 +25,22 @@ struct PropertyLayoutField {
     offset: usize,
 }
 
+impl PropertyLayoutField {
+    fn value<'a>(
+        &self,
+        owner_kind: &str,
+        owner_id: &str,
+        values: &'a PropertyValues,
+    ) -> Result<&'a PropertyValue, PluginError> {
+        values.property(&self.id).ok_or_else(|| {
+            PluginError::invalid_definition(format!(
+                "{owner_kind} '{owner_id}' is missing property '{}'",
+                self.id
+            ))
+        })
+    }
+}
+
 impl PropertyLayout {
     pub(super) fn compile<'a>(
         owner_kind: &str,
@@ -84,14 +100,7 @@ impl PropertyLayout {
         values: &PropertyValues,
     ) -> Result<Vec<u8>, PluginError> {
         values.validate_for(owner_kind, owner_id, properties)?;
-        let mut value_for = |id: &str, _: &PropertyType| {
-            values.property(id).ok_or_else(|| {
-                PluginError::invalid_definition(format!(
-                    "{owner_kind} '{owner_id}' is missing property '{id}'"
-                ))
-            })
-        };
-        let actual_size = self.actual_size(owner_kind, owner_id, &mut value_for)?;
+        let actual_size = self.actual_size(owner_kind, owner_id, values)?;
         if actual_size > MAX_PROPERTY_BLOCK_BYTES || actual_size > self.worst_case_size {
             return Err(property_budget_error(owner_kind, owner_id));
         }
@@ -99,7 +108,7 @@ impl PropertyLayout {
         let mut bytes = vec![0; self.header_size];
         bytes.reserve(actual_size - self.header_size);
         for field in &self.fields {
-            let value = value_for(&field.id, &field.ty)?;
+            let value = field.value(owner_kind, owner_id, values)?;
             match (&field.ty, value) {
                 (PropertyType::Array { element_type, .. }, PropertyValue::Array(values)) => {
                     let data_offset = u32::try_from(bytes.len())
@@ -140,15 +149,15 @@ impl PropertyLayout {
         Ok(bytes)
     }
 
-    fn actual_size<'a>(
+    fn actual_size(
         &self,
         owner_kind: &str,
         owner_id: &str,
-        value_for: &mut impl FnMut(&str, &PropertyType) -> Result<&'a PropertyValue, PluginError>,
+        values: &PropertyValues,
     ) -> Result<usize, PluginError> {
         let mut size = self.header_size;
         for field in &self.fields {
-            let value = value_for(&field.id, &field.ty)?;
+            let value = field.value(owner_kind, owner_id, values)?;
             if !field.ty.allows(value) {
                 return Err(PluginError::invalid_definition(format!(
                     "{owner_kind} '{owner_id}' property '{}' value does not match its type",
@@ -329,8 +338,7 @@ fn pack_value(
         (PropertyValueType::Scalar(ty), value) => pack_scalar(bytes, offset, ty, value)?,
         (PropertyValueType::Tuple(tuple), PropertyValue::Tuple(values)) => {
             let mut byte_offset = offset;
-            for (scalar_type, value) in tuple.scalars().iter().zip(values) {
-                let ty = scalar_type;
+            for (ty, value) in tuple.scalars().iter().zip(values) {
                 pack_scalar(bytes, byte_offset, ty, value)?;
                 byte_offset += scalar_abi_size(ty);
             }

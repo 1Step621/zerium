@@ -42,12 +42,11 @@ pub fn interpolate_scalar(
                 value.round().clamp(0.0, f64::from(u32::MAX)) as u32,
             ))
         }
-        (PropertyValue::Color(from), PropertyValue::Color(to)) => Some(PropertyValue::Color([
-            lerp(from[0], to[0]),
-            lerp(from[1], to[1]),
-            lerp(from[2], to[2]),
-            lerp(from[3], to[3]),
-        ])),
+        (PropertyValue::Color(from), PropertyValue::Color(to)) => {
+            Some(PropertyValue::Color(std::array::from_fn(|index| {
+                lerp(from[index], to[index])
+            })))
+        }
         _ => None,
     }
 }

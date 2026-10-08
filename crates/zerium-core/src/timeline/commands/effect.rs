@@ -1,7 +1,28 @@
-use super::*;
-use crate::timeline::EditScope;
+use crate::timeline::{EditScope, EffectInstanceId, ItemId, SceneBindingOwner, TimelineEditor};
+
+use super::TimelineEditError;
 
 impl TimelineEditor {
+    pub fn move_effect(
+        &mut self,
+        scope: EditScope,
+        effect_id: EffectInstanceId,
+        offset: i32,
+    ) -> bool {
+        let Some((target_index, effects)) = self.effect_move_target(scope, effect_id, offset)
+        else {
+            return false;
+        };
+        let before = self.history_snapshot();
+        let mut changed = false;
+        for (item_id, effect_id) in effects {
+            changed |=
+                self.active_document_mut()
+                    .move_item_effect(item_id, effect_id, target_index);
+        }
+        self.finish_project_edit_if_changed(changed, Some(before), None)
+    }
+
     pub fn add_item_effect(
         &mut self,
         id: ItemId,
@@ -34,6 +55,23 @@ impl TimelineEditor {
         self.next_effect_id = raw_effect_id.checked_add(1).filter(|id| *id != u64::MAX);
         self.finish_project_edit(Some(before), None);
         Ok(instance_id)
+    }
+
+    pub(in crate::timeline) fn effect_move_target(
+        &self,
+        scope: EditScope,
+        effect_id: EffectInstanceId,
+        offset: i32,
+    ) -> Option<(usize, Vec<(ItemId, EffectInstanceId)>)> {
+        let (source_index, effects) = self.effect_instances(scope, effect_id)?;
+        let target_index = source_index.checked_add_signed(offset as isize)?;
+        effects
+            .iter()
+            .all(|(id, _)| {
+                self.item(*id)
+                    .is_some_and(|item| target_index < item.effects.len())
+            })
+            .then_some((target_index, effects))
     }
 
     pub(in crate::timeline) fn effect_instances(

@@ -10,16 +10,11 @@ use thiserror::Error;
 
 use crate::engine::frame::RgbaFrame;
 use zerium_core::{
-    media::{
-        ImportedFile, MediaAsset, MediaKind, MediaMetadata, MediaMetadataCache, MediaTarget,
-        ProbedFile,
-    },
-    plugin::PluginRegistry,
+    media::{MediaAsset, MediaKind, MediaMetadata, MediaTarget},
     timeline::{EffectInstanceId, ItemId},
 };
 
 use super::ffmpeg::{FfmpegMediaReader, READER_ID as FFMPEG_READER_ID};
-use super::metadata::{FileReadings, refresh_file};
 use super::svg::{READER_ID as SVG_READER_ID, SvgMediaReader};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
@@ -229,44 +224,6 @@ impl MediaReaderRegistry {
         Ok(())
     }
 
-    /// Initialize placement from available readings. The background refresher
-    /// retries and reports missing readings after the file property is committed.
-    pub(crate) fn prepare_import(
-        &self,
-        path: impl AsRef<Path>,
-        plugins: &PluginRegistry,
-        plugin_id: &str,
-        item_id: &str,
-        property_id: &str,
-    ) -> Result<ImportedFile, MediaError> {
-        let path = path.as_ref();
-        let item = plugins.item(plugin_id, item_id).ok_or_else(|| {
-            MediaError::invalid_input(format!("Item '{plugin_id}:{item_id}' is not registered"))
-        })?;
-        if item.file_property(property_id).is_none() {
-            return Err(MediaError::invalid_input(format!(
-                "File property '{property_id}' was not found"
-            )));
-        }
-        let mut sources = FileReadings::new(
-            item.media_sources()
-                .filter(|source| source.file == property_id)
-                .map(|source| (source.reader.to_owned(), source.input.target())),
-        );
-        let (file, _) = refresh_file(path, &mut sources, &MediaMetadataCache::default(), self);
-        let file = file.unwrap_or_else(|| ProbedFile {
-            path: path.to_owned(),
-            revision: None,
-            media: Vec::new(),
-        });
-        Ok(ImportedFile {
-            plugin_id: plugin_id.to_owned(),
-            source_id: item_id.to_owned(),
-            property_id: property_id.to_owned(),
-            file,
-        })
-    }
-
     pub(super) fn probe(
         &self,
         path: &Path,
@@ -357,7 +314,7 @@ impl MediaError {
         Self::Unsupported(message.to_string())
     }
 
-    fn invalid_input(message: impl fmt::Display) -> Self {
+    pub(super) fn invalid_input(message: impl fmt::Display) -> Self {
         Self::InvalidInput(message.to_string())
     }
 }

@@ -1,4 +1,33 @@
-use super::*;
+use super::encoded_scene::{GpuComposite, GpuCompute, GpuEffect, GpuItem};
+use super::scene::RenderError;
+use super::{
+    COMPOSITE, OUTPUT_FORMAT, PROPERTY_WORD_SIZE, RendererBuilder, RendererDevice, SCENE_FORMAT,
+};
+use std::collections::HashMap;
+use std::num::NonZeroU64;
+use std::sync::Arc;
+use zerium_shader::{
+    CompiledEffectShader, CompiledPluginShaders, ComputeShaderDescriptor, EffectShaderDescriptor,
+    ItemShaderDescriptor, TextureShaderDescriptor, capability_input,
+};
+
+pub(super) struct RasterPipeline {
+    pub(super) pipeline: wgpu::RenderPipeline,
+    pub(super) vertex_count: u32,
+}
+
+pub(super) struct ComputePipeline {
+    pub(super) pipeline: wgpu::ComputePipeline,
+    pub(super) workgroup_size: [u32; 3],
+}
+
+pub(super) struct TexturePipeline {
+    pub(super) pipeline: wgpu::RenderPipeline,
+    pub(super) vertex_count: u32,
+    pub(super) bind_group_layout: wgpu::BindGroupLayout,
+    pub(super) input_ids: Vec<String>,
+}
+
 use zerium_shader::validate_render_shader;
 
 impl RendererBuilder {

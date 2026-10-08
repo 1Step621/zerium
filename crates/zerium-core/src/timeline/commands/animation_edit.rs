@@ -1,7 +1,11 @@
 //! One animation gesture, with its matching targets fixed before any mutation.
-use super::*;
-use crate::timeline::PropertyAddress;
-use std::ops::RangeInclusive;
+use std::{collections::HashMap, ops::RangeInclusive};
+
+use crate::animation::{ScalarTrack, SegmentInterpolation};
+use crate::timeline::history::{HistoryKey, HistorySnapshot};
+use crate::timeline::{PropertyAddress, TimelineEditor, TimelineItem, TimelineTime};
+
+use super::EditContext;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AnimationEditTarget {
@@ -158,12 +162,12 @@ impl TimelineEditor {
         track: &ScalarTrack,
         part: AnimationEditTarget,
     ) -> Option<(TimelineTime, TimelineTime)> {
+        let clock = item.animation_clock(track);
         let frame = |index: usize| {
-            track.stops().get(index).map(|stop| {
-                item.animation_clock(track)
-                    .time_at(stop.position())
-                    .rounded()
-            })
+            track
+                .stops()
+                .get(index)
+                .map(|stop| clock.time_at(stop.position()).rounded())
         };
         match part {
             AnimationEditTarget::Stop(index) => Some((frame(index)?, frame(index)?)),

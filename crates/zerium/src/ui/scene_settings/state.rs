@@ -38,7 +38,10 @@ impl SceneSettings {
         else {
             return;
         };
-        self.ensure_text(ControlId::scene_name(scene_id), name, window, cx);
+        let mut texts = vec![(ControlId::scene_name(scene_id), name)];
+        let mut colors = Vec::new();
+        self.expanded_scene_arguments
+            .retain(|id| arguments.iter().any(|argument| argument.schema.id() == id));
         for argument in arguments {
             let argument_id = argument.schema.id();
             let label = if argument.schema.label().is_empty() {
@@ -46,40 +49,51 @@ impl SceneSettings {
             } else {
                 argument.schema.label()
             };
-            self.ensure_text(
+            texts.push((
                 ControlId::scene_argument_name(scene_id, argument_id),
                 label.to_owned(),
-                window,
-                cx,
-            );
+            ));
             if let Some(number) = NumericInput::for_schema(&argument.schema) {
                 if let Some(values) = NumericSettingDraft::for_schema(&argument.schema) {
                     for (setting, text) in NumericSetting::ALL
                         .into_iter()
                         .zip(values.formatted(&number))
                     {
-                        self.ensure_text(
+                        texts.push((
                             ControlId::scene_argument_setting(scene_id, argument_id, setting),
                             text,
-                            window,
-                            cx,
-                        );
+                        ));
                     }
                 }
             } else {
                 match argument.schema.default_value() {
-                    PropertyValue::String(value) => self.ensure_text(
+                    PropertyValue::String(value) => texts.push((
                         ControlId::scene_argument_default(scene_id, argument_id),
                         value.clone(),
-                        window,
-                        cx,
-                    ),
-                    PropertyValue::Color(value) => {
-                        self.ensure_color(scene_id, argument_id, *value, window, cx)
-                    }
+                    )),
+                    PropertyValue::Color(value) => colors.push((argument_id.to_owned(), *value)),
                     _ => {}
                 }
             }
+        }
+        let controls: HashSet<_> = texts
+            .iter()
+            .map(|(id, _)| id.clone())
+            .chain(
+                colors
+                    .iter()
+                    .map(|(id, _)| ControlId::scene_argument_color(scene_id, id)),
+            )
+            .collect();
+        self.store.text_inputs.retain(|id, _| controls.contains(id));
+        self.store
+            .color_pickers
+            .retain(|id, _| controls.contains(id));
+        for (id, text) in texts {
+            self.ensure_text(id, text, window, cx);
+        }
+        for (id, color) in colors {
+            self.ensure_color(scene_id, &id, color, window, cx);
         }
     }
 

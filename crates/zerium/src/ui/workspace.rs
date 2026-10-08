@@ -3,21 +3,21 @@ use rust_i18n::t;
 use ::ui::{
     ActiveTheme as _, ContextModal as _, Root, Selectable as _, Sizable as _,
     button::{Button, ButtonVariants as _},
-    menu::{PopupMenuItem, popup_menu::PopupMenuExt as _},
+    menu::popup_menu::PopupMenuExt as _,
     notification::Notification,
     resizable::{h_resizable, resizable_panel, v_resizable},
     tab::Tab,
 };
 use gpui::{Context, FocusHandle, Render, Subscription, Window, div, prelude::*, px};
 
-use super::actions::*;
+use crate::app::actions::*;
 
-pub(super) const WORKSPACE_KEY_CONTEXT: &str = "ZeriumWorkspace";
-pub(super) const WORKSPACE_SHORTCUT_KEY_CONTEXT: &str = "ZeriumWorkspace && !Input";
-pub(super) const MENU_BAR_HEIGHT: f32 = 30.;
+pub(crate) const WORKSPACE_KEY_CONTEXT: &str = "ZeriumWorkspace";
+pub(crate) const WORKSPACE_SHORTCUT_KEY_CONTEXT: &str = "ZeriumWorkspace && !Input";
+const MENU_BAR_HEIGHT: f32 = 30.;
 
 #[derive(Clone, Copy, Default, PartialEq, Eq)]
-pub(super) enum InspectorTab {
+pub(crate) enum InspectorTab {
     #[default]
     Properties,
     SceneSettings,
@@ -27,28 +27,38 @@ impl InspectorTab {
     const ALL: [Self; 2] = [Self::Properties, Self::SceneSettings];
 }
 
-pub(super) struct Workspace {
-    pub(super) timeline: gpui::Entity<crate::ui::timeline::Timeline>,
-    pub(super) explorer: gpui::Entity<crate::ui::explorer::Explorer>,
-    pub(super) preview: gpui::Entity<crate::ui::preview::Preview>,
-    pub(super) scene_settings: gpui::Entity<crate::ui::scene_settings::SceneSettings>,
-    pub(super) property_inspector: gpui::Entity<crate::ui::property_inspector::PropertyInspector>,
-    pub(super) inspector_tab: InspectorTab,
-    pub(super) animation_curve: gpui::Entity<crate::ui::animation_curve::AnimationCurveEditor>,
-    pub(super) project_controller: gpui::Entity<crate::app::project_controller::ProjectController>,
-    pub(super) export_controller: gpui::Entity<crate::ui::export::ExportController>,
-    pub(super) notifications: gpui::Entity<crate::ui::session::UiNotifications>,
-    pub(super) forwarded_notifications: u64,
-    pub(super) focus_handle: FocusHandle,
-    pub(super) _animation_selection_subscription: Subscription,
-    pub(super) _editor_subscription: Subscription,
-    pub(super) _project_subscription: Subscription,
-    pub(super) _export_subscription: Subscription,
-    pub(super) _notification_subscription: Subscription,
-    pub(super) _inspector_subscription: Subscription,
+pub(crate) struct Workspace {
+    pub(crate) timeline: gpui::Entity<crate::ui::timeline::Timeline>,
+    pub(crate) explorer: gpui::Entity<crate::ui::explorer::Explorer>,
+    pub(crate) preview: gpui::Entity<crate::ui::preview::Preview>,
+    pub(crate) scene_settings: gpui::Entity<crate::ui::scene_settings::SceneSettings>,
+    pub(crate) property_inspector: gpui::Entity<crate::ui::property_inspector::PropertyInspector>,
+    pub(crate) inspector_tab: InspectorTab,
+    pub(crate) animation_curve: gpui::Entity<crate::ui::animation_curve::AnimationCurveEditor>,
+    pub(crate) project_controller: gpui::Entity<crate::app::project_controller::ProjectController>,
+    pub(crate) export_controller: gpui::Entity<crate::ui::export::ExportController>,
+    pub(crate) notifications: gpui::Entity<crate::ui::session::UiNotifications>,
+    pub(crate) forwarded_notifications: u64,
+    pub(crate) focus_handle: FocusHandle,
+    pub(crate) _subscriptions: Vec<Subscription>,
 }
 
 impl Workspace {
+    pub(crate) fn reveal_scene_argument(
+        &mut self,
+        event: &super::property_inspector::SceneArgumentRequested,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.scene_settings.update(cx, |settings, cx| {
+            settings.reveal_argument(event.scene_id, &event.argument_id, cx)
+        }) {
+            self.inspector_tab = InspectorTab::SceneSettings;
+            self.focus_handle.focus(window, cx);
+            cx.notify();
+        }
+    }
+
     fn copy_selected_items(
         &mut self,
         _: &CopySelectedItems,
@@ -178,14 +188,24 @@ impl Workspace {
             .update(cx, |project, cx| project.request_open(window, cx));
     }
 
-    fn save_project(&mut self, _: &SaveProject, window: &mut Window, cx: &mut Context<Self>) {
+    fn save_project(&mut self, _: &SaveProject, _window: &mut Window, cx: &mut Context<Self>) {
         self.project_controller
-            .update(cx, |project, cx| project.save(window, cx));
+            .update(cx, |project, cx| project.save(cx));
     }
 
-    fn save_project_as(&mut self, _: &SaveProjectAs, window: &mut Window, cx: &mut Context<Self>) {
+    fn save_project_as(&mut self, _: &SaveProjectAs, _window: &mut Window, cx: &mut Context<Self>) {
         self.project_controller
-            .update(cx, |project, cx| project.save_as(window, cx));
+            .update(cx, |project, cx| project.save_as(cx));
+    }
+
+    fn open_project_settings(
+        &mut self,
+        _: &OpenProjectSettings,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.project_controller
+            .update(cx, |project, cx| project.open_settings(window, cx));
     }
 }
 
@@ -209,8 +229,6 @@ impl Render for Workspace {
             window.push_notification(notification, cx);
         }
         let export_progress = self.export_controller.read(cx).export_progress();
-        let project_controller = self.project_controller.clone();
-        let export_controller = self.export_controller.clone();
         let can_undo = self.timeline.read(cx).can_undo(cx);
         let can_redo = self.timeline.read(cx).can_redo(cx);
         let can_copy = self.timeline.read(cx).can_copy_items(cx);
@@ -238,6 +256,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::open_project))
             .on_action(cx.listener(Self::save_project))
             .on_action(cx.listener(Self::save_project_as))
+            .on_action(cx.listener(Self::open_project_settings))
             .on_action(cx.listener(Self::open_export_dialog))
             .on_action(cx.listener(Self::open_item_picker))
             .on_action(cx.listener(Self::open_effect_picker))
@@ -268,69 +287,29 @@ impl Render for Workspace {
                                     .compact()
                                     .ghost()
                                     .label(t!("menu.file").to_string())
-                                    .popup_menu(move |menu, _, _| {
-                                        let new_controller = project_controller.clone();
-                                        let open_controller = project_controller.clone();
-                                        let save_controller = project_controller.clone();
-                                        let save_as_controller = project_controller.clone();
-                                        let settings_controller = project_controller.clone();
-                                        let export_controller = export_controller.clone();
-                                        menu.item(
-                                            PopupMenuItem::new(t!("menu.new_project").to_string())
-                                                .on_click(move |_, window, cx| {
-                                                    new_controller.update(cx, |project, cx| {
-                                                        project.request_new(window, cx);
-                                                    });
-                                                }),
+                                    .popup_menu(|menu, _, _| {
+                                        menu.menu(
+                                            t!("menu.new_project").to_string(),
+                                            Box::new(NewProject),
                                         )
-                                        .item(
-                                            PopupMenuItem::new(t!("menu.open_project").to_string())
-                                                .on_click(move |_, window, cx| {
-                                                    open_controller.update(cx, |project, cx| {
-                                                        project.request_open(window, cx);
-                                                    });
-                                                }),
+                                        .menu(
+                                            t!("menu.open_project").to_string(),
+                                            Box::new(OpenProject),
                                         )
                                         .separator()
-                                        .item(
-                                            PopupMenuItem::new(t!("menu.save").to_string())
-                                                .on_click(move |_, window, cx| {
-                                                    save_controller.update(cx, |project, cx| {
-                                                        project.save(window, cx);
-                                                    });
-                                                }),
-                                        )
-                                        .item(
-                                            PopupMenuItem::new(t!("menu.save_as").to_string())
-                                                .on_click(move |_, window, cx| {
-                                                    save_as_controller.update(cx, |project, cx| {
-                                                        project.save_as(window, cx);
-                                                    });
-                                                }),
+                                        .menu(t!("menu.save").to_string(), Box::new(SaveProject))
+                                        .menu(
+                                            t!("menu.save_as").to_string(),
+                                            Box::new(SaveProjectAs),
                                         )
                                         .separator()
-                                        .item(
-                                            PopupMenuItem::new(
-                                                t!("menu.project_settings").to_string(),
-                                            )
-                                            .on_click(
-                                                move |_, window, cx| {
-                                                    settings_controller.update(
-                                                        cx,
-                                                        |project, cx| {
-                                                            project.open_settings(window, cx);
-                                                        },
-                                                    );
-                                                },
-                                            ),
+                                        .menu(
+                                            t!("menu.project_settings").to_string(),
+                                            Box::new(OpenProjectSettings),
                                         )
-                                        .item(
-                                            PopupMenuItem::new(t!("menu.export").to_string())
-                                                .on_click(move |_, window, cx| {
-                                                    export_controller.update(cx, |export, cx| {
-                                                        export.open_dialog(window, cx);
-                                                    });
-                                                }),
+                                        .menu(
+                                            t!("menu.export").to_string(),
+                                            Box::new(OpenExportDialog),
                                         )
                                     }),
                             )

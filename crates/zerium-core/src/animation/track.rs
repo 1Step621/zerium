@@ -1,8 +1,7 @@
 //! Typed scalar animation tracks made of value stops and interval interpolations.
 use super::{AnimationRepeat, SegmentInterpolation, interpolate_scalar};
-use crate::property::{PropertyPath, PropertyValue, ScalarPropertyType};
+use crate::property::{PropertyValue, ScalarPropertyType};
 use serde::{Deserialize, Serialize};
-use std::collections::BTreeMap;
 
 const STOP_POSITION_EPSILON: f32 = 0.000_001;
 const COLOR_LINK_EPSILON: f32 = 0.000_01;
@@ -119,12 +118,12 @@ impl ScalarTrack {
             .stops
             .partition_point(|stop| stop.position < progress)
             .min(self.stops.len().saturating_sub(1));
-        if self.stops.get(right)?.position == progress || right == 0 {
-            return Some(self.stops.get(right)?.value.clone());
+        let to = self.stops.get(right)?;
+        if to.position == progress || right == 0 {
+            return Some(to.value.clone());
         }
         let left = right - 1;
         let from = self.stops.get(left)?;
-        let to = self.stops.get(right)?;
         let span = to.position - from.position;
         if span <= 0. {
             return None;
@@ -151,21 +150,19 @@ impl ScalarTrack {
     /// Link neighboring equal values, keeping the endpoints of an edited
     /// interval independent. A point edit without an interval links both sides.
     pub fn set_stop(&mut self, index: usize, value: PropertyValue, segment: Option<usize>) -> bool {
-        let Some(current) = self.stops.get(index).map(|stop| stop.value.clone()) else {
+        let Some(current) = self.stops.get(index).map(AnimationStop::value) else {
             return false;
         };
-        if interpolate_scalar(&current, &value, 0.).is_none()
-            || Self::values_are_linked(&current, &value)
-        {
+        if !self.accepts_value(&value) || Self::values_are_linked(current, &value) {
             return false;
         }
         let mut first_linked = self.stops[..index]
             .iter()
-            .rposition(|stop| !Self::values_are_linked(&stop.value, &current))
+            .rposition(|stop| !Self::values_are_linked(&stop.value, current))
             .map_or(0, |previous| previous + 1);
         let mut last_linked = self.stops[index + 1..]
             .iter()
-            .position(|stop| !Self::values_are_linked(&stop.value, &current))
+            .position(|stop| !Self::values_are_linked(&stop.value, current))
             .map_or(self.stops.len() - 1, |next| index + next);
         if segment == Some(index) {
             last_linked = index;
@@ -180,10 +177,7 @@ impl ScalarTrack {
     }
 
     pub fn insert_stop(&mut self, position: f32, value: PropertyValue) -> Option<usize> {
-        if !position.is_finite()
-            || !(0. ..=1.).contains(&position)
-            || interpolate_scalar(self.stops.first()?.value(), &value, 0.).is_none()
-        {
+        if !position.is_finite() || !(0. ..=1.).contains(&position) || !self.accepts_value(&value) {
             return None;
         }
         let insertion = self.stops.partition_point(|stop| stop.position < position);
@@ -208,7 +202,7 @@ impl ScalarTrack {
     }
 
     pub fn remove_stop(&mut self, index: usize) -> bool {
-        if index == 0 || index + 1 >= self.stops.len() {
+        if index == 0 || index >= self.stops.len().saturating_sub(1) {
             return false;
         }
         self.stops.remove(index);
@@ -217,7 +211,7 @@ impl ScalarTrack {
     }
 
     pub fn move_stop(&mut self, index: usize, position: f32) -> bool {
-        if !position.is_finite() || index == 0 || index + 1 >= self.stops.len() {
+        if !position.is_finite() || index == 0 || index >= self.stops.len().saturating_sub(1) {
             return false;
         }
         let minimum = self.stops[index - 1].position + STOP_POSITION_EPSILON;
@@ -232,8 +226,20 @@ impl ScalarTrack {
         true
     }
 
+    fn accepts_value(&self, value: &PropertyValue) -> bool {
+        let ty = match self.stops.first().map(AnimationStop::value) {
+            Some(PropertyValue::F32(_)) => ScalarPropertyType::F32,
+            Some(PropertyValue::I32(_)) => ScalarPropertyType::I32,
+            Some(PropertyValue::U32(_)) => ScalarPropertyType::U32,
+            Some(PropertyValue::Color(_)) => ScalarPropertyType::Color,
+            _ => return false,
+        };
+        ty.allows(value)
+    }
+
     pub(crate) fn is_valid_for(&self, ty: &ScalarPropertyType) -> bool {
-        self.repeat.is_valid()
+        ty.is_interpolatable()
+            && self.repeat.is_valid()
             && self.stops.len() >= 2
             && self.interpolations.len() + 1 == self.stops.len()
             && self.stops.first().map(AnimationStop::position) == Some(0.)
@@ -266,7 +272,7 @@ impl ScalarTrack {
         true
     }
 
-    fn remap_time_range(&mut self, start: f64, end: f64) {
+    pub(super) fn remap_time_range(&mut self, start: f64, end: f64) {
         if !start.is_finite()
             || !end.is_finite()
             || start >= end
@@ -281,24 +287,15 @@ impl ScalarTrack {
         if !start.is_finite() || !end.is_finite() || start >= end {
             return;
         }
-        let extends_left = start < 0.;
-        let extends_right = end > 1.;
-        let (Some(first), Some(last)) = (self.stops.first(), self.stops.last()) else {
-            return;
-        };
+        let first = &self.stops[0];
+        let last = &self.stops[self.stops.len() - 1];
         let start_value = self.evaluate(start).unwrap_or_else(|| first.value.clone());
         let end_value = self.evaluate(end).unwrap_or_else(|| last.value.clone());
-        let old_stops = self.stops.clone();
-        let old_interpolations = self.interpolations.clone();
-        let stretch_left = extends_left
-            && old_stops.len() >= 2
-            && Self::values_are_linked(&old_stops[0].value, &old_stops[1].value);
-        let stretch_right = extends_right
-            && old_stops.len() >= 2
-            && Self::values_are_linked(
-                &old_stops[old_stops.len() - 2].value,
-                &old_stops[old_stops.len() - 1].value,
-            );
+        let old_stops = &self.stops;
+        let old_interpolations = &self.interpolations;
+        let stretch_left = start < 0. && Self::values_are_linked(&first.value, &old_stops[1].value);
+        let stretch_right =
+            end > 1. && Self::values_are_linked(&old_stops[old_stops.len() - 2].value, &last.value);
         let mut stops = vec![AnimationStop {
             position: start,
             value: start_value,
@@ -332,8 +329,8 @@ impl ScalarTrack {
                 let segment = old_stops
                     .partition_point(|stop| stop.position <= midpoint)
                     .saturating_sub(1)
-                    .min(old_interpolations.len().saturating_sub(1));
-                old_interpolations.get(segment).copied().unwrap_or_default()
+                    .min(old_interpolations.len() - 1);
+                old_interpolations[segment]
             })
             .collect();
         let span = end - start;
@@ -346,76 +343,5 @@ impl ScalarTrack {
         }
         self.stops = stops;
         self.interpolations = interpolations;
-    }
-}
-
-#[derive(Clone, Debug, Default, PartialEq)]
-pub struct ScalarAnimations {
-    tracks: BTreeMap<PropertyPath, ScalarTrack>,
-}
-
-impl ScalarAnimations {
-    pub fn track(&self, address: &PropertyPath) -> Option<&ScalarTrack> {
-        self.tracks.get(address)
-    }
-
-    pub fn track_mut(&mut self, address: &PropertyPath) -> Option<&mut ScalarTrack> {
-        self.tracks.get_mut(address)
-    }
-
-    pub fn insert(&mut self, address: PropertyPath, track: ScalarTrack) -> bool {
-        self.tracks.insert(address, track).is_none()
-    }
-
-    pub fn remove(&mut self, address: &PropertyPath) -> bool {
-        self.tracks.remove(address).is_some()
-    }
-
-    pub fn tracks(&self) -> impl Iterator<Item = (&PropertyPath, &ScalarTrack)> {
-        self.tracks.iter()
-    }
-
-    /// Remove invalid tracks only for the property whose structure changed.
-    pub fn retain_valid_for_property(
-        &mut self,
-        property_id: &str,
-        value: Option<&PropertyValue>,
-    ) -> bool {
-        let previous = self.tracks.len();
-        self.tracks.retain(|address, _| {
-            address.property_id() != property_id
-                || value
-                    .and_then(|value| value.scalar(address.element_id(), address.scalar_index()))
-                    .is_some()
-        });
-        previous != self.tracks.len()
-    }
-
-    pub fn trim(&mut self, offset: f64, old_span: f64, new_span: f64) {
-        if !offset.is_finite()
-            || !old_span.is_finite()
-            || old_span <= 0.
-            || !new_span.is_finite()
-            || new_span <= 0.
-        {
-            return;
-        }
-        for track in self.tracks.values_mut() {
-            let repeat = track.repeat;
-            if repeat.mode() != super::RepeatMode::None {
-                track.repeat = repeat.shifted(offset);
-            } else {
-                track.remap_time_range(offset / old_span, (offset + new_span) / old_span);
-            }
-        }
-    }
-
-    pub fn stretch(&mut self, factor: f32) {
-        if !factor.is_finite() || factor <= 0. {
-            return;
-        }
-        for track in self.tracks.values_mut() {
-            track.repeat = track.repeat.scaled(factor);
-        }
     }
 }

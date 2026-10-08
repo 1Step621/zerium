@@ -16,11 +16,7 @@ pub(super) fn property_schemas<'a>(
     effect_id: Option<EffectInstanceId>,
 ) -> impl Iterator<Item = &'a PropertySchema> {
     let properties = match effect_id {
-        Some(id) => item
-            .effects
-            .iter()
-            .find(|effect| effect.id == id)
-            .map(|effect| effect.schema().properties()),
+        Some(id) => item.effect(id).map(|effect| effect.schema().properties()),
         None => item.schema().map(|schema| schema.properties()),
     };
     let scene = effect_id
@@ -75,15 +71,10 @@ impl PropertyAddress {
             address.effect_id = Some(effect.id);
         }
         if let Some(id) = self.element_id {
-            let PropertyValue::Array(source_elements) = source
+            let index = source
                 .property_values(self.effect_id)?
                 .property(&self.property_id)?
-            else {
-                return None;
-            };
-            let index = source_elements
-                .iter()
-                .position(|element| element.element_id() == id)?;
+                .element_index(id)?;
             let PropertyValue::Array(elements) = item
                 .property_values(address.effect_id)?
                 .property(&self.property_id)?

@@ -104,13 +104,12 @@ pub(crate) struct SceneSettings {
     editor: Entity<TimelineEditor>,
     notifications: Entity<UiNotifications>,
     file_input: Entity<FileInputController>,
-    _file_subscription: Subscription,
     scene_id: Option<SceneId>,
     store: SettingsStore,
-    expanded_scene_arguments: HashSet<(SceneId, String)>,
+    expanded_scene_arguments: HashSet<String>,
     focus_handle: FocusHandle,
     scroll_handle: ScrollHandle,
-    _editor_subscription: Subscription,
+    _subscriptions: Vec<Subscription>,
 }
 
 impl SceneSettings {
@@ -125,16 +124,18 @@ impl SceneSettings {
             this.sync(window, cx);
         });
         let mut this = Self {
+            scene_id: None,
             editor,
             notifications,
-            _file_subscription: cx.observe(&file_input, |_, _, cx| cx.notify()),
+            _subscriptions: vec![
+                subscription,
+                cx.observe(&file_input, |_, _, cx| cx.notify()),
+            ],
             file_input,
-            scene_id: None,
             store: SettingsStore::default(),
             expanded_scene_arguments: HashSet::new(),
             focus_handle: cx.focus_handle(),
             scroll_handle: ScrollHandle::new(),
-            _editor_subscription: subscription,
         };
         this.sync(window, cx);
         this
@@ -169,8 +170,7 @@ impl SceneSettings {
         }) else {
             return false;
         };
-        self.expanded_scene_arguments
-            .insert((scene_id, argument_id.to_owned()));
+        self.expanded_scene_arguments.insert(argument_id.to_owned());
         self.scroll_handle.scroll_to_top_of_item(index + 2);
         cx.notify();
         true

@@ -149,13 +149,13 @@ fn cubic_bezier_progress(progress: f32, x1: f32, y1: f32, x2: f32, y2: f32) -> f
     let mut high = 1.;
     for _ in 0..24 {
         let t = (low + high) * 0.5;
-        if cubic(0., x1, x2, 1., t) < progress {
+        if cubic(x1, x2, t) < progress {
             low = t;
         } else {
             high = t;
         }
     }
-    cubic(0., y1, y2, 1., (low + high) * 0.5)
+    cubic(y1, y2, (low + high) * 0.5)
 }
 
 fn bounce_out(progress: f32) -> f32 {
@@ -176,10 +176,8 @@ fn bounce_out(progress: f32) -> f32 {
     }
 }
 
-fn cubic(start: f32, point_a: f32, point_b: f32, end: f32, t: f32) -> f32 {
+// Segment endpoints are always (0, 0) and (1, 1).
+fn cubic(point_a: f32, point_b: f32, t: f32) -> f32 {
     let inverse = 1. - t;
-    inverse.powi(3) * start
-        + 3. * inverse.powi(2) * t * point_a
-        + 3. * inverse * t.powi(2) * point_b
-        + t.powi(3) * end
+    3. * inverse.powi(2) * t * point_a + 3. * inverse * t.powi(2) * point_b + t.powi(3)
 }

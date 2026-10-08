@@ -1,11 +1,15 @@
-use gpui::{CursorStyle, Empty, EntityId};
-
 use zerium_core::{
     property::{PropertyElementId, PropertySchema, PropertyValue},
-    timeline::{EffectInstanceId, PropertyAddress, TimelineItem},
+    timeline::{
+        EffectInstanceId, Frame, PropertyAddress, TimelineEditor, TimelineItem, TimelineTime,
+    },
 };
 
-use super::*;
+use super::Preview;
+use gpui::{
+    Context, CursorStyle, Empty, EntityId, Hsla, MouseButton, MouseDownEvent, Render, SharedString,
+    Window, div, prelude::*, px, relative,
+};
 
 #[derive(Clone)]
 struct PreviewScalarValue {

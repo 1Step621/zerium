@@ -44,20 +44,28 @@ pub fn compile_plugins(
             .into();
             let label = format!("{} pass {pass_index}", schema.id());
             let effect = match pass {
-                EffectPassSchema::Render { shader, .. } => {
+                EffectPassSchema::Render { shader, .. }
+                | EffectPassSchema::Temporal {
+                    reducer: shader, ..
+                } => {
                     validate_render_shader(
                         &id,
                         &source,
                         shader.vertex_entry(),
                         shader.fragment_entry(),
                     )?;
-                    CompiledEffectShader::Render(EffectShaderDescriptor {
+                    let descriptor = EffectShaderDescriptor {
                         id,
                         label,
                         wgsl: source,
                         vertex_entry: shader.vertex_entry().to_owned(),
                         fragment_entry: shader.fragment_entry().to_owned(),
-                    })
+                    };
+                    if matches!(pass, EffectPassSchema::Temporal { .. }) {
+                        CompiledEffectShader::Temporal(descriptor)
+                    } else {
+                        CompiledEffectShader::Render(descriptor)
+                    }
                 }
                 EffectPassSchema::Compute { shader, .. } => {
                     let workgroup_size = validate_compute_shader(&id, &source, shader.entry())?;
@@ -66,21 +74,6 @@ pub fn compile_plugins(
                         wgsl: source,
                         entry: shader.entry().to_owned(),
                         workgroup_size,
-                    })
-                }
-                EffectPassSchema::Temporal { reducer, .. } => {
-                    validate_render_shader(
-                        &id,
-                        &source,
-                        reducer.vertex_entry(),
-                        reducer.fragment_entry(),
-                    )?;
-                    CompiledEffectShader::Temporal(EffectShaderDescriptor {
-                        id,
-                        label,
-                        wgsl: source,
-                        vertex_entry: reducer.vertex_entry().to_owned(),
-                        fragment_entry: reducer.fragment_entry().to_owned(),
                     })
                 }
             };
@@ -145,7 +138,6 @@ fn parse_and_validate_shader(
     id: impl std::fmt::Display,
     source: &str,
 ) -> Result<naga::Module, ShaderError> {
-    let id = id.to_string();
     let module = naga::front::wgsl::parse_str(source)
         .map_err(|error| ShaderError::backend(format!("shader '{id}' failed to parse: {error}")))?;
     naga::valid::Validator::new(

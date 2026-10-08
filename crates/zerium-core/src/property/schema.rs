@@ -2,7 +2,10 @@
 
 use super::{PropertyError, constraints::PropertyConstraints, metadata::PropertyUi};
 use crate::localized_text::LocalizedText;
-use crate::property::{PropertyType, PropertyValue, PropertyValueType, ScalarPropertyType};
+use crate::property::{
+    PropertyElement, PropertyElementId, PropertyType, PropertyValue, PropertyValueType,
+    ScalarPropertyType,
+};
 use serde::{Deserialize, Serialize};
 
 const MAX_ARRAY_ITEMS: u32 = 1_000_000;
@@ -56,9 +59,8 @@ impl PropertyConfiguration {
         ui_type: &PropertyType,
         default: Option<&PropertyValue>,
     ) -> Result<(), PropertyError> {
-        let value_type = PropertyType::Value(PropertyValueType::Scalar(scalar_type.clone()));
         self.constraints
-            .validate(owner_kind, owner_id, property_id, &value_type, default)?;
+            .validate(owner_kind, owner_id, property_id, scalar_type, default)?;
         self.ui.validate(owner_kind, owner_id, property_id, ui_type)
     }
 }
@@ -76,7 +78,41 @@ pub struct PropertySchema {
     pub(crate) configurations: Vec<PropertyConfiguration>,
 }
 
+pub struct ResolvedPropertyScalar<'a> {
+    pub value: &'a PropertyValue,
+    pub ty: &'a ScalarPropertyType,
+    pub configuration: &'a PropertyConfiguration,
+}
+
 impl PropertySchema {
+    pub fn scalar_type(
+        &self,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
+    ) -> Option<&ScalarPropertyType> {
+        let value_type = match (element_id, self.ty()) {
+            (Some(_), PropertyType::Array { element_type, .. })
+            | (None, PropertyType::Value(element_type)) => element_type,
+            _ => return None,
+        };
+        value_type.scalar_at(scalar_index)
+    }
+
+    pub fn resolve_scalar<'a>(
+        &'a self,
+        value: &'a PropertyValue,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
+    ) -> Option<ResolvedPropertyScalar<'a>> {
+        let ty = self.scalar_type(element_id, scalar_index)?;
+        let value = value.scalar(element_id, scalar_index)?;
+        ty.allows(value).then_some(ResolvedPropertyScalar {
+            value,
+            ty,
+            configuration: self.configurations.get(scalar_index.unwrap_or(0))?,
+        })
+    }
+
     pub fn configuration(&self, scalar_index: Option<usize>) -> &PropertyConfiguration {
         &self.configurations[scalar_index.unwrap_or(0)]
     }
@@ -169,44 +205,37 @@ impl PropertySchema {
         if !self.ty.allows(value) {
             return None;
         }
-        let mut map = |configuration: &PropertyConfiguration, value: &PropertyValue| {
-            configuration.constraints.clamp_value(value)
-        };
-        let constrained = self.map_values(value, &mut map)?;
-        self.accepts_value(&constrained).then_some(constrained)
+        self.constrain_scalars(value)
     }
 
     fn accepts_constraints(&self, value: &PropertyValue) -> bool {
-        let mut map = |configuration: &PropertyConfiguration, value: &PropertyValue| {
-            configuration
-                .constraints
-                .allows(value)
-                .then(|| value.clone())
-        };
-        self.map_values(value, &mut map).is_some()
+        value
+            .scalars()
+            .all(|(_, index, scalar)| self.configuration_constraints(index).allows(scalar))
     }
 
-    fn map_values<F>(&self, value: &PropertyValue, map: &mut F) -> Option<PropertyValue>
-    where
-        F: FnMut(&PropertyConfiguration, &PropertyValue) -> Option<PropertyValue>,
-    {
+    fn constrain_scalars(&self, value: &PropertyValue) -> Option<PropertyValue> {
         match value {
             PropertyValue::Tuple(values) => values
                 .iter()
                 .enumerate()
-                .map(|(index, value)| map(self.configuration(Some(index)), value))
+                .map(|(index, value)| {
+                    self.configuration_constraints(Some(index))
+                        .clamp_value(value)
+                })
                 .collect::<Option<Vec<_>>>()
                 .map(PropertyValue::Tuple),
             PropertyValue::Array(values) => values
                 .iter()
                 .map(|element| {
-                    let mut constrained = element.clone();
-                    *constrained.value_mut() = self.map_values(element.value(), map)?;
-                    Some(constrained)
+                    Some(PropertyElement {
+                        id: element.element_id(),
+                        value: self.constrain_scalars(element.value())?,
+                    })
                 })
                 .collect::<Option<Vec<_>>>()
                 .map(PropertyValue::Array),
-            value => map(self.configuration(None), value),
+            value => self.configuration_constraints(None).clamp_value(value),
         }
     }
 
@@ -278,7 +307,7 @@ impl PropertySchema {
                 .then(|| self.default.scalar_at(Some(index)).unwrap_or(&self.default));
             configuration.validate(owner_kind, owner_id, &self.id, ty, ui_type, default)?;
         }
-        if !self.accepts_value(&self.default) {
+        if !self.accepts_constraints(&self.default) {
             return Err(PropertyError::invalid_definition(format!(
                 "{owner_kind} '{owner_id}' property '{}' default violates its constraints",
                 self.id
@@ -302,18 +331,7 @@ impl PropertySchema {
             (PropertyType::Value(_), None) => return Ok(()),
             (PropertyType::Array { element_type, .. }, Some(value)) => (element_type, value),
         };
-        let tuple = matches!(element_type, PropertyValueType::Tuple(_));
-        if !element_type.allows(value)
-            || self
-                .configurations
-                .iter()
-                .enumerate()
-                .any(|(index, configuration)| {
-                    value
-                        .scalar_at(tuple.then_some(index))
-                        .is_none_or(|scalar| !configuration.constraints.allows(scalar))
-                })
-        {
+        if !element_type.allows(value) || !self.accepts_constraints(value) {
             return Err(self.validation_error(
                 owner_kind,
                 owner_id,

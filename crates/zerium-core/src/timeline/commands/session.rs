@@ -1,5 +1,9 @@
-use super::*;
-use crate::timeline::EditScope;
+use std::collections::HashSet;
+
+use crate::timeline::{
+    EditScope, EffectInstanceId, Frame, FrameRate, ItemId, LayerId, ProjectResolution, SceneId,
+    TimelineDocument, TimelineEditor, TimelineTime,
+};
 
 // Editor session, history, selection, and preview commands.
 impl TimelineEditor {
@@ -93,10 +97,7 @@ impl TimelineEditor {
     }
 
     pub fn toggle_items_visibility(&mut self, scope: EditScope) -> bool {
-        if !self
-            .visibility
-            .toggle_items(&scope.item_ids(self).into_iter().collect())
-        {
+        if !self.visibility.toggle_items(scope.item_ids(self)) {
             return false;
         }
         self.advance_render_revision();
@@ -119,31 +120,6 @@ impl TimelineEditor {
         }
         self.advance_render_revision();
         true
-    }
-
-    pub fn move_effect(
-        &mut self,
-        scope: EditScope,
-        effect_id: EffectInstanceId,
-        offset: i32,
-    ) -> bool {
-        if !self.can_move_effect(scope, effect_id, offset) {
-            return false;
-        }
-        let Some((source_index, effects)) = self.effect_instances(scope, effect_id) else {
-            return false;
-        };
-        let Some(target_index) = source_index.checked_add_signed(offset as isize) else {
-            return false;
-        };
-        let before = self.history_snapshot();
-        let mut changed = false;
-        for (item_id, effect_id) in effects {
-            changed |=
-                self.active_document_mut()
-                    .move_item_effect(item_id, effect_id, target_index);
-        }
-        self.finish_project_edit_if_changed(changed, Some(before), None)
     }
 
     pub fn select(&mut self, id: ItemId) -> bool {
@@ -204,28 +180,5 @@ impl TimelineEditor {
             self.playhead.0.saturating_add(delta as u64)
         };
         self.set_playhead(Frame(next))
-    }
-
-    pub fn add_item(
-        &mut self,
-        layer: LayerId,
-        start: Frame,
-        plugin_id: &str,
-        item_id: &str,
-    ) -> Result<ItemId, TimelineEditError> {
-        let schema = self.plugins.item(plugin_id, item_id).ok_or_else(|| {
-            TimelineEditError::PluginItemNotFound {
-                plugin_id: plugin_id.to_owned(),
-                item_id: item_id.to_owned(),
-            }
-        })?;
-        let before = self.history_snapshot();
-        let id = self
-            .active_document_mut()
-            .add_item(layer, start, plugin_id, item_id, schema)
-            .ok_or(TimelineEditError::PlacementUnavailable)?;
-        self.selection.select_only(id);
-        self.finish_project_edit(Some(before), Some(HistoryKey::ItemCreation(id)));
-        Ok(id)
     }
 }

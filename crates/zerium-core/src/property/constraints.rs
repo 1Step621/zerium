@@ -3,7 +3,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::PropertyError;
-use crate::property::{PropertyType, PropertyValue, PropertyValueType, ScalarPropertyType};
+use crate::property::{PropertyValue, ScalarPropertyType};
 
 /// Numeric wire bounds use f64 so every i32/u32 endpoint is represented exactly.
 #[derive(Clone, Debug, Default, PartialEq, Deserialize, Serialize)]
@@ -137,7 +137,7 @@ impl PropertyConstraints {
         owner_kind: &str,
         owner_id: &str,
         property_id: &str,
-        ty: &PropertyType,
+        ty: &ScalarPropertyType,
         default: Option<&PropertyValue>,
     ) -> Result<(), PropertyError> {
         let invalid = || {
@@ -145,7 +145,9 @@ impl PropertyConstraints {
                 "{owner_kind} '{owner_id}' property '{property_id}' has invalid constraints"
             ))
         };
-        if !self.bounds_valid() || !self.valid_for_type(ty) {
+        if !self.bounds_valid()
+            || ((self.min.is_some() || self.max.is_some()) && self.numeric_bounds(ty).is_none())
+        {
             return Err(invalid());
         }
         if default.is_some_and(|default| ty.allows(default) && !self.allows(default)) {
@@ -162,21 +164,5 @@ impl PropertyConstraints {
         min.is_none_or(f64::is_finite)
             && max.is_none_or(f64::is_finite)
             && !matches!((min, max), (Some(min), Some(max)) if min > max)
-    }
-
-    fn valid_for_type(&self, ty: &PropertyType) -> bool {
-        let value_type = ty.value_type();
-        let constrained = self.min.is_some() || self.max.is_some();
-        if !constrained {
-            return true;
-        }
-        match value_type {
-            PropertyValueType::Scalar(ty) => self.valid_for_scalar(ty),
-            PropertyValueType::Tuple(_) => false,
-        }
-    }
-
-    fn valid_for_scalar(&self, ty: &ScalarPropertyType) -> bool {
-        self.numeric_bounds(ty).is_some()
     }
 }

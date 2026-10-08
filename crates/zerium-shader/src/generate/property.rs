@@ -11,23 +11,19 @@ pub(super) fn interface(fields: &[ShaderProperty], kind: ShaderKind) -> String {
     let stores_raw = fields
         .iter()
         .any(|field| matches!(field.ty, PropertyType::Array { .. }));
-    let struct_name = "ZeriumProps";
-    let load_function = "props";
-    let accessor_prefix = "get";
-    let (raw_load_function, takes_instance_index) = match kind {
-        ShaderKind::Item => ("item_props", true),
-        ShaderKind::Effect | ShaderKind::Compute | ShaderKind::Temporal => ("effect_props", false),
+    let (raw_load_function, arguments, raw_arguments) = match kind {
+        ShaderKind::Item => ("item_props", "instance_index: u32", "instance_index"),
+        ShaderKind::Effect | ShaderKind::Compute | ShaderKind::Temporal => ("effect_props", "", ""),
     };
-    let tuple_names = fields
-        .iter()
-        .enumerate()
-        .map(|(index, field)| {
-            let value_type = field.ty.value_type();
-            matches!(value_type, PropertyValueType::Tuple(_))
-                .then(|| format!("{struct_name}Tuple{index}"))
-        })
-        .collect::<Vec<_>>();
-    let mut source = String::new();
+    let typed_fields = fields.iter().enumerate().map(|(index, field)| {
+        let value_type = field.ty.value_type();
+        let tuple_name = matches!(value_type, PropertyValueType::Tuple(_))
+            .then(|| format!("ZeriumPropsTuple{index}"));
+        (field, tuple_name)
+    });
+    let mut source = format!(
+        "import package::generated::host::_props::{{ZeriumRawProps, {raw_load_function}, read_u32, read_i32, read_f32, read_bool}};\n\n"
+    );
     if fields.iter().any(|field| {
         let value_type = field.ty.value_type();
         value_string_count(value_type) > 0
@@ -39,7 +35,7 @@ pub(super) fn interface(fields: &[ShaderProperty], kind: ShaderKind) -> String {
         source.push_str("    let word = read_u32(value._raw, byte_offset & 0xfffffffcu);\n");
         source.push_str("    return (word >> ((byte_offset & 3u) * 8u)) & 0xffu;\n}\n\n");
     }
-    for (field, tuple_name) in fields.iter().zip(&tuple_names) {
+    for (field, tuple_name) in typed_fields.clone() {
         let value_type = field.ty.value_type();
         let (PropertyValueType::Tuple(tuple), Some(tuple_name)) = (value_type, tuple_name) else {
             continue;
@@ -58,11 +54,11 @@ pub(super) fn interface(fields: &[ShaderProperty], kind: ShaderKind) -> String {
         }
         source.push_str("};\n\n");
     }
-    source.push_str(&format!("struct {struct_name} {{\n"));
+    source.push_str("struct ZeriumProps {\n");
     if stores_raw {
         source.push_str("    _raw: ZeriumRawProps,\n");
     }
-    for (field, tuple_name) in fields.iter().zip(&tuple_names) {
+    for (field, tuple_name) in typed_fields.clone() {
         if matches!(field.ty, PropertyType::Array { .. }) {
             source.push_str(&format!("    {}_len: u32,\n", field.id));
         } else {
@@ -74,19 +70,7 @@ pub(super) fn interface(fields: &[ShaderProperty], kind: ShaderKind) -> String {
             ));
         }
     }
-    let arguments = if takes_instance_index {
-        "instance_index: u32"
-    } else {
-        ""
-    };
-    let raw_arguments = if takes_instance_index {
-        "instance_index"
-    } else {
-        ""
-    };
-    source.push_str(&format!(
-        "}};\n\nfn {load_function}({arguments}) -> {struct_name} {{\n"
-    ));
+    source.push_str(&format!("}};\n\nfn props({arguments}) -> ZeriumProps {{\n"));
     source.push_str(&format!(
         "    let raw = {raw_load_function}({raw_arguments});\n"
     ));
@@ -94,7 +78,7 @@ pub(super) fn interface(fields: &[ShaderProperty], kind: ShaderKind) -> String {
     if stores_raw {
         loads.push("raw".to_owned());
     }
-    for (field, tuple_name) in fields.iter().zip(&tuple_names) {
+    for (field, tuple_name) in typed_fields.clone() {
         let load = if matches!(field.ty, PropertyType::Array { .. }) {
             format!("read_u32(raw, {}u)", field.offset + 4)
         } else {
@@ -109,16 +93,16 @@ pub(super) fn interface(fields: &[ShaderProperty], kind: ShaderKind) -> String {
         loads.push(load);
     }
     source.push_str(&format!(
-        "    return {struct_name}({});\n}}\n",
+        "    return ZeriumProps({});\n}}\n",
         loads.join(", ")
     ));
 
-    for (field, tuple_name) in fields.iter().zip(&tuple_names) {
+    for (field, tuple_name) in typed_fields {
         let PropertyType::Array { element_type, .. } = &field.ty else {
             continue;
         };
         source.push_str(&format!(
-            "\nfn {accessor_prefix}_{id}(properties: {struct_name}, index: u32) -> {ty} {{\n",
+            "\nfn get_{id}(properties: ZeriumProps, index: u32) -> {ty} {{\n",
             id = field.id,
             ty = value_type_name(element_type, tuple_name.as_deref()),
         ));

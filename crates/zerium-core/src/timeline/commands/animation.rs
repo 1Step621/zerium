@@ -1,7 +1,11 @@
-use super::*;
-use crate::animation::AnimationRepeat;
-use crate::property::PropertyPath;
-use crate::timeline::PropertyAddress;
+use crate::animation::{AnimationRepeat, ScalarAnimations, ScalarTrack};
+use crate::property::{PropertyPath, PropertyValue};
+use crate::timeline::history::HistoryKey;
+use crate::timeline::{
+    EffectInstanceId, ItemId, PropertyAddress, TimelineEditor, TimelineItem, TimelineTime,
+};
+
+use super::EditContext;
 
 /// A displayed stop and its corresponding value-edit targets. The interval
 /// shown by the inspector determines how equal neighboring values are linked.
@@ -63,28 +67,14 @@ impl TimelineEditor {
             let Some(item) = self.active_document().item(item_id) else {
                 return false;
             };
-            let values = match effect_id {
-                Some(effect_id) => item
-                    .effects
-                    .iter()
-                    .find(|effect| effect.id == effect_id)
-                    .map(|effect| effect.properties.clone()),
-                None => Some(self.materialized_item(item).properties),
+            let value = match effect_id {
+                Some(_) => target.value(item).cloned(),
+                None => target.value(&self.materialized_item(item)).cloned(),
             };
-            let Some(values) = values else {
+            let Some((value, ty)) = value.zip(schema.scalar_type(element_id, scalar_index)) else {
                 return false;
             };
-            let Some(resolved) = values
-                .property(property_id)
-                .and_then(|value| schema.resolve_scalar(value, element_id, scalar_index))
-            else {
-                return false;
-            };
-            let Some(track) = ScalarTrack::from_value(
-                resolved.value.clone(),
-                resolved.ty,
-                item.duration.get() as f32,
-            ) else {
+            let Some(track) = ScalarTrack::from_value(value, ty, item.duration.get() as f32) else {
                 return false;
             };
             self.animation_store_mut(item_id, effect_id)
@@ -112,15 +102,13 @@ impl TimelineEditor {
                     address.element_id,
                     address.scalar_index,
                 )?;
+                let clock = item.animation_clock(track);
                 let stops = track
-                    .stop_indices_for_segment(item.animation_clock(track).progress_at(time))
+                    .stop_indices_for_segment(clock.progress_at(time))
                     .into_iter()
                     .map(|index| {
                         let stop = &track.stops()[index];
-                        let stop_time = item
-                            .animation_clock(track)
-                            .time_at(stop.position())
-                            .rounded();
+                        let stop_time = clock.time_at(stop.position()).rounded();
                         (index, stop_time, stop.value())
                     })
                     .collect::<Vec<_>>();
@@ -306,15 +294,9 @@ impl TimelineEditor {
         item_id: ItemId,
         effect_id: Option<EffectInstanceId>,
     ) -> Option<&mut ScalarAnimations> {
-        let item = self.active_document_mut().item_mut(item_id)?;
-        match effect_id {
-            Some(effect_id) => item
-                .effects
-                .iter_mut()
-                .find(|effect| effect.id == effect_id)
-                .map(|effect| &mut effect.animations),
-            None => Some(&mut item.animations),
-        }
+        self.active_document_mut()
+            .item_mut(item_id)?
+            .animations_mut(effect_id)
     }
 
     pub(super) fn animation_track(

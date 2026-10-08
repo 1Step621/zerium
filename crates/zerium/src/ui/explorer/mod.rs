@@ -18,7 +18,7 @@ use directories::UserDirs;
 use gpui::{
     Bounds, ClickEvent, Context, Div, Entity, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, Pixels, Render, ScrollHandle, SharedString, Stateful, Subscription, Task, Window,
-    div, point, prelude::*, px, size,
+    div, point, prelude::*, px,
 };
 
 use crate::{
@@ -140,16 +140,16 @@ impl ExplorerMarquee {
     }
 
     fn bounds(&self) -> Bounds<Pixels> {
-        Bounds {
-            origin: point(
+        Bounds::from_corners(
+            point(
                 px(self.origin[0].min(self.current[0])),
                 px(self.origin[1].min(self.current[1])),
             ),
-            size: size(
-                px((self.origin[0] - self.current[0]).abs()),
-                px((self.origin[1] - self.current[1]).abs()),
+            point(
+                px(self.origin[0].max(self.current[0])),
+                px(self.origin[1].max(self.current[1])),
             ),
-        }
+        )
     }
 }
 
@@ -456,23 +456,17 @@ impl Explorer {
     fn marquee_overlay(&self, colors: ThemeColor) -> Option<Div> {
         let marquee = self.marquee.as_ref().filter(|marquee| marquee.active)?;
         let viewport = self.scroll_handle.bounds();
-        let bounds = marquee.bounds();
-        let left = f32::from(bounds.origin.x).max(f32::from(viewport.origin.x));
-        let right = f32::from(bounds.origin.x + bounds.size.width)
-            .min(f32::from(viewport.origin.x + viewport.size.width));
-        let top = f32::from(bounds.origin.y).max(f32::from(viewport.origin.y));
-        let bottom = f32::from(bounds.origin.y + bounds.size.height)
-            .min(f32::from(viewport.origin.y + viewport.size.height));
-        if right <= left || bottom <= top {
+        let bounds = marquee.bounds().intersect(&viewport);
+        if bounds.is_empty() {
             return None;
         }
         Some(
             div()
                 .absolute()
-                .left(px(left - f32::from(viewport.origin.x)))
-                .top(px(top - f32::from(viewport.origin.y)))
-                .w(px(right - left))
-                .h(px(bottom - top))
+                .left(bounds.origin.x - viewport.origin.x)
+                .top(bounds.origin.y - viewport.origin.y)
+                .w(bounds.size.width)
+                .h(bounds.size.height)
                 .border_1()
                 .border_color(colors.primary)
                 .bg(colors.primary.opacity(0.12)),

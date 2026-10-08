@@ -11,6 +11,7 @@ mod number_input;
 mod numeric_property;
 pub(crate) mod pane;
 pub(crate) mod preview;
+pub(crate) mod project_dialogs;
 pub(crate) mod property_inspector;
 pub(crate) mod scene_settings;
 pub(crate) mod search_picker;
@@ -19,6 +20,7 @@ pub(crate) mod theme;
 pub(crate) mod time_grid;
 pub(crate) mod timeline;
 pub(crate) mod transport;
+pub(crate) mod workspace;
 
 pub(crate) trait TimelineEditorEntityExt {
     fn update_if_changed<T>(

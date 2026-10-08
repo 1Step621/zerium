@@ -1,6 +1,20 @@
 use super::scene::MediaFrameRequest;
+use super::scene::{
+    RenderEffect, RenderItem, RenderItemSource, RenderNodeContent, RenderNodeMetadata,
+    RenderTemporalSample,
+};
+use super::scene::{RenderError, RenderNode, RenderQuality, RenderScene, RenderSize, SceneNodeId};
 use super::surface::{SurfaceRect, item_bounds};
-use super::*;
+use super::text::TextFrameRequest;
+use super::text::TextSourceId;
+use crate::engine::frame::RgbaFrame;
+use std::{collections::HashMap, sync::Arc};
+use zerium_core::plugin::{Capability, EffectPassSchema};
+use zerium_core::timeline::{
+    EffectInstance, EffectInstanceId, LayerId, RenderResultSettings, TimelineItem, TimelineItemKind,
+};
+use zerium_core::timeline::{EvaluatedSceneNode, ItemId, TimelineTime, TimelineView};
+use zerium_shader::ItemShaderId;
 
 const MAX_TEMPORAL_DEPTH: usize = 4;
 const MAX_TEMPORAL_RENDER_NODES: usize = 4_096;

@@ -17,14 +17,6 @@ A video editor with zero limits.
 
 Available formats include MSI, PKG, AppImage, DEB, RPM, Arch Linux packages, ELF binaries, and Nix packages.
 
-The Windows MSI adds Zerium to PATH; open a new terminal after installation.
-On macOS, use the PKG to install both the app and `/usr/local/bin/zerium`.
-Linux DEB, RPM, Arch Linux, and Nix packages also provide the `zerium` command. For example:
-
-```sh
-zerium plugin validate path/to/plugin
-```
-
 ### Nix
 
 Run Zerium directly with:
@@ -64,7 +56,7 @@ Under active development: all features, including the project file format, are s
 ## Acknowledgements
 
 - [AviUtl](https://spring-fragrance.mints.ne.jp/aviutl/)
-  - A video editing software developed by KEN-kun, embraced by countless creators across Japanese internet culture.
+  - A video editor developed by KEN-kun, embraced by countless creators across Japanese internet culture.
   - Huge respect for offering it for free and making it accessible to beginners while remaining powerful enough for advanced editing.
 - [Adachi Rei](https://mechanicalgirl.jp/adachi-rei/)
   - A **cute** synthesized voice character created by [missile](https://x.com/missile_39) at Mechanical Girl!

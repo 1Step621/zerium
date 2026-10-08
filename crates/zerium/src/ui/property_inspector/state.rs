@@ -5,19 +5,15 @@ use crate::ui::{
     number_input::{NumberEdit, subscribe_number_input},
 };
 
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) struct InspectorInputStructure {
-    pub item_id: Option<ItemId>,
-    pub effect_ids: Vec<EffectInstanceId>,
-    pub array_lengths: Vec<(Option<u64>, String, usize)>,
-    pub item_scene_arguments: Vec<String>,
-    pub active_scene: Option<SceneId>,
-    pub active_scene_arguments: Vec<String>,
+#[derive(Clone, Debug, PartialEq)]
+pub(super) struct InspectorSource {
+    pub item_id: ItemId,
+    pub properties: Vec<PropertySchema>,
 }
 
 pub(super) struct ColorState {
     pub picker: Entity<ColorPickerState>,
-    pub _subscriptions: Vec<Subscription>,
+    pub _subscription: Subscription,
 }
 
 #[derive(Default)]
@@ -25,7 +21,7 @@ pub(super) struct ControlStore {
     pub text_inputs: HashMap<ControlId, InputControl>,
     pub color_pickers: HashMap<ControlId, ColorState>,
     pub tree: ControlTree,
-    pub input_structure: Option<InspectorInputStructure>,
+    pub source: Option<InspectorSource>,
     pub number_drag_origin: Option<Rc<PropertyValueDragOrigin>>,
 }
 
@@ -102,7 +98,7 @@ impl PropertyInspector {
             key,
             ColorState {
                 picker,
-                _subscriptions: vec![subscription],
+                _subscription: subscription,
             },
         );
         cloned
@@ -277,7 +273,11 @@ impl PropertyInspector {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        debug_assert!(seen.insert(control.id().clone()), "duplicate control id");
+        let unique = seen.insert(control.id().clone());
+        debug_assert!(unique, "duplicate control id");
+        if let Some(common) = control.common() {
+            seen.extend(common.animation_stops.iter().map(|stop| stop.id.clone()));
+        }
         match control {
             Control::File(_) => {}
             Control::Group { children, .. } => {
@@ -318,65 +318,8 @@ impl PropertyInspector {
         for control in &roots {
             self.ensure_control_states(item, control, &mut seen, window, cx);
         }
-    }
-
-    fn current_input_structure(
-        editor: &TimelineEditor,
-        item: Option<&TimelineItem>,
-    ) -> InspectorInputStructure {
-        let mut array_lengths = Vec::new();
-        if let Some(item) = item {
-            array_lengths.extend(item.properties.iter().filter_map(|(property_id, value)| {
-                let PropertyValue::Array(values) = value else {
-                    return None;
-                };
-                Some((None, property_id.to_owned(), values.len()))
-            }));
-            for effect in &item.effects {
-                array_lengths.extend(effect.properties.iter().filter_map(
-                    |(property_id, value)| {
-                        let PropertyValue::Array(values) = value else {
-                            return None;
-                        };
-                        Some((Some(effect.id.get()), property_id.to_owned(), values.len()))
-                    },
-                ));
-            }
-        }
-        array_lengths.sort_unstable();
-        let item_scene_arguments = item
-            .and_then(|item| item.scene_id())
-            .and_then(|scene_id| editor.scene(scene_id))
-            .map(|scene| {
-                scene
-                    .arguments
-                    .iter()
-                    .map(|argument| argument.schema.id().to_owned())
-                    .collect()
-            })
-            .unwrap_or_default();
-        let active_scene = editor.active_scene_id();
-        let active_scene_arguments = active_scene
-            .and_then(|scene_id| editor.scene(scene_id))
-            .map(|scene| {
-                scene
-                    .arguments
-                    .iter()
-                    .map(|argument| argument.schema.id().to_owned())
-                    .collect()
-            })
-            .unwrap_or_default();
-        InspectorInputStructure {
-            item_id: item.map(|item| item.id),
-            effect_ids: item
-                .into_iter()
-                .flat_map(|item| item.effects.iter().map(|effect| effect.id))
-                .collect(),
-            array_lengths,
-            item_scene_arguments,
-            active_scene,
-            active_scene_arguments,
-        }
+        self.store.text_inputs.retain(|id, _| seen.contains(id));
+        self.store.color_pickers.retain(|id, _| seen.contains(id));
     }
 
     fn resolved_control_tree(
@@ -460,13 +403,17 @@ impl PropertyInspector {
                 .collect::<Vec<_>>()
         };
         let selected_item = selected_items.first().cloned();
-        let input_structure = {
-            let editor = editor.read(cx);
-            Self::current_input_structure(editor, selected_item.as_ref())
-        };
-        if self.store.input_structure.as_ref() != Some(&input_structure) {
+        let source = selected_item.as_ref().map(|item| InspectorSource {
+            item_id: item.id,
+            properties: editor
+                .read(cx)
+                .property_schemas(item, None)
+                .cloned()
+                .collect(),
+        });
+        if self.store.source != source {
             self.reset_input_state();
-            self.store.input_structure = Some(input_structure);
+            self.store.source = source;
         }
         let scene_arguments = self.active_scene_argument_options(&*cx);
         let editing_scene =
@@ -477,6 +424,8 @@ impl PropertyInspector {
         };
         if let Some(item) = selected_item.as_ref() {
             self.ensure_tree_states(item, window, cx);
+        } else {
+            self.reset_input_state();
         }
         cx.notify();
     }

@@ -1,4 +1,5 @@
 use super::*;
+use crate::engine::media::prepare_import;
 use rust_i18n::t;
 
 impl Timeline {
@@ -101,12 +102,13 @@ impl Timeline {
                                 .file_name()
                                 .map(|name| name.to_string_lossy().into_owned())
                                 .unwrap_or_else(|| path.display().to_string());
-                            let result = media_readers.prepare_import(
+                            let result = prepare_import(
                                 path,
                                 &plugins,
                                 &plugin_id,
                                 &item_id,
                                 &property_id,
+                                &media_readers,
                             );
                             (name, plugin_id, item_id, result)
                         })

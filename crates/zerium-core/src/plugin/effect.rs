@@ -9,15 +9,9 @@ use super::PluginError;
 use super::abi::PropertyLayout;
 use super::capability::{Capability, validate_capabilities};
 use super::editor::{EditorCapability, validate_editors};
-use super::identifier::validate_wgsl_identifier;
-use super::shader::{ShaderKind, ShaderSchema, validate_shader_module};
+use super::passes::EffectPassSchema;
 use super::validation::{validate_catalog_entry, validate_property_schemas};
-use crate::property::{
-    PropertySchema, PropertyType, PropertyValue, PropertyValueType, PropertyValues,
-    ScalarPropertyType,
-};
-
-const MAX_TEMPORAL_SAMPLES: u32 = 32;
+use crate::property::PropertySchema;
 
 /// Which rectangle the first render pass sees in `effect_input`.
 #[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Hash)]
@@ -99,120 +93,6 @@ impl<'de> Deserialize<'de> for EffectSchema {
         schema.validate().map_err(D::Error::custom)?;
         Ok(schema)
     }
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
-pub enum EffectPassSchema {
-    Render {
-        shader: ShaderSchema,
-        #[serde(default)]
-        constants: Vec<PassConstantSchema>,
-    },
-    Compute {
-        shader: ComputeShaderSchema,
-        #[serde(default = "default_compute_dispatch")]
-        dispatch: [ComputeDispatchDimension; 3],
-        #[serde(default)]
-        constants: Vec<PassConstantSchema>,
-    },
-    Temporal {
-        sampling: TemporalSamplingSchema,
-        reducer: ShaderSchema,
-        #[serde(default)]
-        constants: Vec<PassConstantSchema>,
-    },
-}
-
-impl EffectPassSchema {
-    pub const fn shader_kind(&self) -> ShaderKind {
-        match self {
-            Self::Render { .. } => ShaderKind::Effect,
-            Self::Compute { .. } => ShaderKind::Compute,
-            Self::Temporal { .. } => ShaderKind::Temporal,
-        }
-    }
-
-    pub fn constants(&self) -> &[PassConstantSchema] {
-        match self {
-            Self::Render { constants, .. }
-            | Self::Compute { constants, .. }
-            | Self::Temporal { constants, .. } => constants,
-        }
-    }
-
-    pub fn shader_module(&self) -> &str {
-        match self {
-            Self::Render { shader, .. } => shader.module(),
-            Self::Compute { shader, .. } => &shader.module,
-            Self::Temporal { reducer, .. } => reducer.module(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct PassConstantSchema {
-    pub id: String,
-    pub value: PassConstantValue,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum PassConstantValue {
-    F32(f32),
-    I32(i32),
-    U32(u32),
-    Bool(bool),
-}
-
-/// Selects source times independently of the shader that combines them.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
-pub enum TemporalSamplingSchema {
-    Range {
-        sample_count: String,
-        start_offset: String,
-        end_offset: String,
-    },
-    Offsets {
-        offsets: String,
-    },
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct ComputeShaderSchema {
-    module: String,
-    #[serde(default = "default_compute_entry")]
-    entry: String,
-}
-
-impl ComputeShaderSchema {
-    pub fn entry(&self) -> &str {
-        &self.entry
-    }
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum ComputeDispatchDimension {
-    Width,
-    Height,
-    MaxDimension,
-    One,
-}
-
-fn default_compute_dispatch() -> [ComputeDispatchDimension; 3] {
-    [
-        ComputeDispatchDimension::Width,
-        ComputeDispatchDimension::Height,
-        ComputeDispatchDimension::One,
-    ]
-}
-
-fn default_compute_entry() -> String {
-    "compute_main".to_owned()
 }
 
 const fn default_effect_render_scale() -> u32 {
@@ -328,43 +208,7 @@ impl EffectSchema {
             )));
         }
         for (pass_index, pass) in self.passes.iter().enumerate() {
-            let mut constant_ids = std::collections::HashSet::new();
-            for constant in pass.constants() {
-                validate_wgsl_identifier("pass constant", &constant.id)?;
-                if matches!(constant.value, PassConstantValue::F32(value) if !value.is_finite()) {
-                    return Err(PluginError::invalid_definition(format!(
-                        "effect '{}' pass {pass_index} constant '{}' must be finite",
-                        self.id, constant.id
-                    )));
-                }
-                if !constant_ids.insert(&constant.id) {
-                    return Err(PluginError::invalid_definition(format!(
-                        "effect '{}' pass {pass_index} has duplicate constant ID '{}'",
-                        self.id, constant.id
-                    )));
-                }
-            }
-            match pass {
-                EffectPassSchema::Render { shader, .. } => {
-                    shader.validate("render effect pass", &self.id)?;
-                }
-                EffectPassSchema::Compute { shader, .. } => {
-                    validate_shader_module("compute effect pass", &self.id, &shader.module)?;
-                    validate_wgsl_identifier("compute entry", &shader.entry)?;
-                }
-                EffectPassSchema::Temporal {
-                    sampling, reducer, ..
-                } => {
-                    if pass_index != 0 {
-                        return Err(PluginError::invalid_definition(format!(
-                            "effect '{}' temporal pass must be first",
-                            self.id
-                        )));
-                    }
-                    sampling.validate(self)?;
-                    reducer.validate("temporal effect pass", &self.id)?;
-                }
-            }
+            pass.validate(&self.id, &self.properties, pass_index)?;
         }
         Ok(())
     }
@@ -393,109 +237,5 @@ impl super::PluginCatalogEntry for EffectSchema {
 
     fn tags(&self) -> &[String] {
         self.tags()
-    }
-}
-
-impl TemporalSamplingSchema {
-    fn validate(&self, effect: &EffectSchema) -> Result<(), PluginError> {
-        let scalar = |id: &str, ty: ScalarPropertyType| {
-            (effect.property(id).map(|property| property.ty())
-                == Some(&PropertyType::Value(PropertyValueType::Scalar(ty))))
-            .then_some(())
-            .ok_or_else(|| {
-                PluginError::invalid_definition(format!(
-                    "effect '{}' temporal property '{id}' has the wrong type",
-                    effect.id
-                ))
-            })
-        };
-        match self {
-            Self::Range {
-                sample_count,
-                start_offset,
-                end_offset,
-            } => {
-                scalar(sample_count, ScalarPropertyType::U32)?;
-                scalar(start_offset, ScalarPropertyType::F32)?;
-                scalar(end_offset, ScalarPropertyType::F32)?;
-                let constraints = effect
-                    .property(sample_count)
-                    .expect("sample count type was checked")
-                    .configuration_constraints(None);
-                if !constraints.min.is_some_and(|min| min >= 1.)
-                    || !constraints
-                        .max
-                        .is_some_and(|max| max <= f64::from(MAX_TEMPORAL_SAMPLES))
-                {
-                    return Err(PluginError::invalid_definition(format!(
-                        "effect '{}' temporal sample count must be constrained to 1..={MAX_TEMPORAL_SAMPLES}",
-                        effect.id
-                    )));
-                }
-            }
-            Self::Offsets { offsets } => {
-                let valid = matches!(
-                    effect.property(offsets).map(|property| property.ty()),
-                    Some(PropertyType::Array {
-                        element_type: PropertyValueType::Scalar(ScalarPropertyType::F32),
-                        min_items,
-                        max_items,
-                    }) if *min_items >= 1 && *max_items <= MAX_TEMPORAL_SAMPLES
-                );
-                if !valid {
-                    return Err(PluginError::invalid_definition(format!(
-                        "effect '{}' temporal offsets '{offsets}' must be a nonempty f32 array with at most {MAX_TEMPORAL_SAMPLES} entries",
-                        effect.id
-                    )));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    pub fn sample_offsets(&self, values: &PropertyValues) -> Option<Vec<f64>> {
-        match self {
-            Self::Range {
-                sample_count,
-                start_offset,
-                end_offset,
-            } => {
-                let PropertyValue::U32(count) = values.property(sample_count)? else {
-                    return None;
-                };
-                let PropertyValue::F32(start) = values.property(start_offset)? else {
-                    return None;
-                };
-                let PropertyValue::F32(end) = values.property(end_offset)? else {
-                    return None;
-                };
-                if !start.is_finite() || !end.is_finite() {
-                    return None;
-                }
-                let count = (*count).clamp(1, MAX_TEMPORAL_SAMPLES);
-                let start = f64::from(*start);
-                let span = f64::from(*end) - start;
-                if span == 0. {
-                    return Some(vec![start]);
-                }
-                Some(
-                    (0..count)
-                        .map(|index| start + (f64::from(index) + 0.5) * span / f64::from(count))
-                        .collect(),
-                )
-            }
-            Self::Offsets { offsets } => {
-                let PropertyValue::Array(elements) = values.property(offsets)? else {
-                    return None;
-                };
-                elements
-                    .iter()
-                    .map(|element| match element.value() {
-                        PropertyValue::F32(value) if value.is_finite() => Some(f64::from(*value)),
-                        _ => None,
-                    })
-                    .collect()
-            }
-        }
     }
 }

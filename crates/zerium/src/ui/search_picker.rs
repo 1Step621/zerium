@@ -156,14 +156,17 @@ impl<T> SearchPickerDelegate<T> {
             .any(|section| !section.entry_indices.is_empty())
     }
 
-    fn selected_value(&self) -> Option<&T> {
-        let selected = self.selected_index?;
+    fn entry(&self, index: IndexPath) -> Option<&SearchPickerEntry<T>> {
         let entry_index = self
             .visible_sections
-            .get(selected.section)?
+            .get(index.section)?
             .entry_indices
-            .get(selected.row)?;
-        self.entries.get(*entry_index).map(|entry| &entry.value)
+            .get(index.row)?;
+        self.entries.get(*entry_index)
+    }
+
+    fn selected_value(&self) -> Option<&T> {
+        self.entry(self.selected_index?).map(|entry| &entry.value)
     }
 }
 
@@ -186,12 +189,7 @@ impl<T: Clone + 'static> ListDelegate for SearchPickerDelegate<T> {
         _: &mut Window,
         _: &mut Context<List<Self>>,
     ) -> Option<Self::Item> {
-        let entry_index = *self
-            .visible_sections
-            .get(ix.section)?
-            .entry_indices
-            .get(ix.row)?;
-        let entry = self.entries.get(entry_index)?;
+        let entry = self.entry(ix)?;
         Some(
             ListItem::new(ix).h(px(28.)).px_2().py_0().text_sm().child(
                 div()
@@ -259,14 +257,6 @@ impl<T: Clone + 'static> ListDelegate for SearchPickerDelegate<T> {
 
 type ConfirmHandler<T> = Rc<dyn Fn(T, &mut Window, &mut App)>;
 
-fn claim_confirmation(confirmed: &mut bool) -> bool {
-    if *confirmed {
-        return false;
-    }
-    *confirmed = true;
-    true
-}
-
 pub(crate) struct SearchPicker<T: Clone + 'static> {
     list: Entity<List<SearchPickerDelegate<T>>>,
     on_confirm: ConfirmHandler<T>,
@@ -304,8 +294,9 @@ impl<T: Clone + 'static> SearchPicker<T> {
                 ListEvent::Confirm(_) => {
                     let value = list.read(cx).delegate().selected_value().cloned();
                     if let Some(value) = value
-                        && claim_confirmation(&mut this.confirmed)
+                        && !this.confirmed
                     {
+                        this.confirmed = true;
                         (this.on_confirm)(value, window, cx);
                         cx.emit(DismissEvent);
                     }

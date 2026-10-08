@@ -1,4 +1,3 @@
-use zerium_shader::capability_input;
 mod encoded_scene;
 mod encoder;
 mod pipelines;
@@ -8,30 +7,14 @@ mod runtime;
 mod scene;
 mod scene_builder;
 mod surface;
+mod text;
 
 use std::{
-    cell::RefCell,
-    collections::{HashMap, HashSet},
-    num::NonZeroU64,
-    ops::{Deref, Range},
+    collections::HashMap,
     sync::{Arc, Mutex},
 };
-use thiserror::Error;
 
-mod text;
-pub(crate) use text::{TextFrameCache, TextFrameRequest, TextSourceId};
-
-use crate::engine::frame::RgbaFrame;
-use bytemuck::{Pod, Zeroable};
-use zerium_core::{
-    plugin::{
-        Capability, ComputeDispatchDimension, EffectInputSpace, EffectPassSchema, ItemSchema,
-    },
-    timeline::{
-        EffectInstance, EffectInstanceId, EvaluatedSceneNode, ItemId, LayerId, ProjectResolution,
-        RenderResultSettings, TimelineItem, TimelineItemKind, TimelineTime, TimelineView,
-    },
-};
+pub(crate) use text::TextFrameCache;
 
 /// All blending and effects operate in scene-linear light with enough headroom
 /// for grading and glow. Conversion to display encoding happens only in the final pass.
@@ -44,21 +27,12 @@ const PROPERTY_WORD_SIZE: usize = size_of::<u32>();
 const COMPOSITE: &str = include_str!("composite.wgsl");
 const YUV_CONVERT: &str = include_str!("yuv.wgsl");
 
+use pipelines::{ComputePipeline, RasterPipeline, TexturePipeline};
 pub(crate) use readback::ExportFramePipeline;
+use resources::{RenderResources, VideoTextureCache};
 pub(crate) use runtime::RenderRuntime;
-use scene::SceneNodeId;
-pub(crate) use scene::{
-    RenderEffect, RenderEffectPassKind, RenderItem, RenderItemSource, RenderNode,
-    RenderNodeContent, RenderNodeMetadata, RenderQuality, RenderScene, RenderTemporalSample,
-};
-pub(crate) use scene::{RenderError, RenderSize};
-pub(crate) use zerium_shader::CompiledPluginShaders;
-use zerium_shader::{
-    CompiledEffectShader, ComputeShaderDescriptor, EffectShaderDescriptor, EffectShaderId,
-    ItemShaderDescriptor, ItemShaderId, TextureShaderDescriptor,
-};
-
-use encoded_scene::*;
+pub(crate) use scene::{MediaFrameRequest, RenderError, RenderQuality, RenderScene, RenderSize};
+use zerium_shader::{EffectShaderId, ItemShaderId};
 
 /// Immutable GPU state. A single device can cheaply create independent render
 /// sessions for preview, export, thumbnails, and background jobs.
@@ -112,127 +86,4 @@ impl FrameRenderer {
     pub(crate) fn fork(&self) -> Self {
         self.shared.create_session()
     }
-}
-
-impl Deref for FrameRenderer {
-    type Target = RendererDevice;
-
-    fn deref(&self) -> &Self::Target {
-        &self.shared
-    }
-}
-
-struct RasterPipeline {
-    pipeline: wgpu::RenderPipeline,
-    vertex_count: u32,
-}
-
-struct ComputePipeline {
-    pipeline: wgpu::ComputePipeline,
-    workgroup_size: [u32; 3],
-}
-
-struct TexturePipeline {
-    pipeline: wgpu::RenderPipeline,
-    vertex_count: u32,
-    bind_group_layout: wgpu::BindGroupLayout,
-    input_ids: Vec<String>,
-}
-
-struct TextureResource {
-    input_count: usize,
-    frame_target: FrameTextureTarget,
-    _uploaded_frames: Vec<Arc<UploadedVideoFrame>>,
-    _input_properties: wgpu::Buffer,
-    _item: wgpu::Buffer,
-    _item_properties: wgpu::Buffer,
-    binding: wgpu::BindGroup,
-}
-
-struct FrameTextureTarget {
-    _texture: wgpu::Texture,
-    view: wgpu::TextureView,
-}
-
-struct UploadedVideoFrame {
-    frame: Arc<RgbaFrame>,
-    _texture: wgpu::Texture,
-    view: wgpu::TextureView,
-}
-
-#[derive(Default)]
-struct VideoTextureCache {
-    // Adjacent project ticks can refer to the same native video frame. Keeping
-    // only the previous scene avoids uploading it twice without mirroring the
-    // much larger CPU frame cache in GPU memory.
-    previous_scene: Vec<Arc<UploadedVideoFrame>>,
-    // Per-frame transient buffers for texture items. Recreating them every
-    // frame stalls the driver under GPU memory pressure, so matching shapes
-    // are parked here and rewritten instead.
-    scratch: Vec<ScratchTextureBuffers>,
-}
-
-struct ScratchTextureBuffers {
-    input_count: usize,
-    property_size: usize,
-    input_properties: wgpu::Buffer,
-    item_properties: wgpu::Buffer,
-    item: wgpu::Buffer,
-}
-
-struct RenderResources {
-    size: RenderSize,
-    output_size: RenderSize,
-    composition_size: RenderSize,
-    item_capacity: usize,
-    property_capacity: usize,
-    item_buffer: wgpu::Buffer,
-    property_buffer: wgpu::Buffer,
-    bind_group: wgpu::BindGroup,
-    effect_instance_stride: u64,
-    effect_instance_capacity: usize,
-    effect_property_capacity: usize,
-    effect_instance_buffer: wgpu::Buffer,
-    effect_property_buffer: wgpu::Buffer,
-    compute_info_stride: u64,
-    compute_info_buffer: wgpu::Buffer,
-    compute_inputs: [wgpu::BindGroup; 2],
-    _composite_info_buffer: wgpu::Buffer,
-    scene_view: wgpu::TextureView,
-    output_input: wgpu::BindGroup,
-    effect_texture_a: wgpu::Texture,
-    effect_texture_b: wgpu::Texture,
-    effect_source_texture: wgpu::Texture,
-    effect_source_view: wgpu::TextureView,
-    effect_view_a: wgpu::TextureView,
-    effect_view_b: wgpu::TextureView,
-    effect_input_a: wgpu::BindGroup,
-    effect_input_b: wgpu::BindGroup,
-    temporal: Vec<TemporalRenderResource>,
-    cached_nodes: Vec<RenderTarget>,
-    cached_node_keys: Vec<Option<Arc<RenderNodeKey>>>,
-}
-
-struct RenderTarget {
-    _texture: wgpu::Texture,
-    view: wgpu::TextureView,
-}
-
-struct TemporalRenderResource {
-    _texture_a: wgpu::Texture,
-    _texture_b: wgpu::Texture,
-    view_a: wgpu::TextureView,
-    view_b: wgpu::TextureView,
-    inputs: Vec<wgpu::BindGroup>,
-}
-
-#[derive(Clone, Copy)]
-struct RenderResourceRequirements {
-    frame_output: bool,
-    item_count: usize,
-    property_size: usize,
-    effect_pass_count: usize,
-    effect_property_size: usize,
-    temporal_depth: usize,
-    shared_node_count: usize,
 }

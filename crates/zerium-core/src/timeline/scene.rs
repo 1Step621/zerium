@@ -2,18 +2,17 @@ use std::collections::HashMap;
 
 use serde::{Deserialize, Serialize};
 
-use crate::animation::ScalarAnimations;
 use crate::property::{
     PropertyElementId, PropertyPath, PropertySchema, PropertyType, PropertyValue,
-    PropertyValueType, PropertyValues, ScalarPropertyType,
+    PropertyValueType, ScalarPropertyType,
 };
 
 use super::{
     document::TimelineDocument,
     ids::{EffectInstanceId, ItemId, LayerId, SceneId},
-    item::{TimelineItem, TimelineItemKind},
+    item::TimelineItem,
     property_address::resolve_property_schema,
-    time::{Frame, FrameDuration, FrameRate},
+    time::{Frame, FrameDuration},
 };
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash, Serialize)]
@@ -106,33 +105,6 @@ impl SceneBindingTarget {
     }
 }
 
-pub(crate) fn project_scene_binding_value(
-    schema: &PropertySchema,
-    value: &PropertyValue,
-    element_id: Option<PropertyElementId>,
-    scalar_index: Option<usize>,
-) -> Option<(PropertySchema, PropertyValue)> {
-    let resolved = schema.resolve_scalar(value, element_id, scalar_index)?;
-    let mut projected = schema.clone();
-    projected.ty = PropertyType::Value(PropertyValueType::Scalar(resolved.ty.clone()));
-    projected.configurations = vec![resolved.configuration.clone()];
-    projected.append_default = None;
-    let value = projected.constrained_value(resolved.value)?;
-    projected.default = value.clone();
-    Some((projected, value))
-}
-
-pub(crate) fn scene_binding_is_animated(
-    animations: &ScalarAnimations,
-    property_id: &str,
-    element_id: Option<PropertyElementId>,
-    scalar_index: Option<usize>,
-) -> bool {
-    animations
-        .track(&PropertyPath::new(property_id, element_id, scalar_index))
-        .is_some()
-}
-
 /// A binding target resolved against one concrete scene item.
 ///
 /// Keeping this resolution here gives editing, persistence validation, and
@@ -152,7 +124,7 @@ pub fn resolve_scene_binding(
     let schema = resolve_property_schema(scenes, item, target.owner().effect_id(), property_id)?;
     let (value, animations) = match target.owner() {
         SceneBindingOwner::Effect(effect_id) => {
-            let effect = item.effects.iter().find(|effect| effect.id == effect_id)?;
+            let effect = item.effect(effect_id)?;
             (effect.properties.property(property_id)?, &effect.animations)
         }
         SceneBindingOwner::Item => {
@@ -165,14 +137,13 @@ pub fn resolve_scene_binding(
             (value, &item.animations)
         }
     };
-    let animated = scene_binding_is_animated(
-        animations,
-        property_id,
-        target.element_id(),
-        target.scalar_index(),
-    );
-    let (schema, _) =
-        project_scene_binding_value(schema, value, target.element_id(), target.scalar_index())?;
+    let animated = animations.track(&target.path).is_some();
+    let resolved = schema.resolve_scalar(value, target.element_id(), target.scalar_index())?;
+    let mut schema = schema.clone();
+    schema.ty = PropertyType::Value(PropertyValueType::Scalar(resolved.ty.clone()));
+    schema.configurations = vec![resolved.configuration.clone()];
+    schema.append_default = None;
+    schema.default = schema.constrained_value(resolved.value)?;
     Some(ResolvedSceneBinding { schema, animated })
 }
 
@@ -185,18 +156,13 @@ pub(crate) fn apply_scene_binding_to_item(
     let value = binding_schema.constrained_value(&value)?;
     let property_id = target.property_id();
     match target.owner() {
-        SceneBindingOwner::Effect(effect_id) => item
-            .effects
-            .iter_mut()
-            .find(|effect| effect.id == effect_id)
-            .and_then(|effect| {
-                let effect_schema = effect.schema.clone();
-                let target_schema = effect_schema.property(property_id)?;
-                let current = effect.properties.property(property_id)?;
-                let value =
-                    current.replaced_at(target.element_id(), target.scalar_index(), value)?;
-                effect.properties.set(target_schema, value).ok()
-            }),
+        SceneBindingOwner::Effect(effect_id) => item.effect_mut(effect_id).and_then(|effect| {
+            let effect_schema = effect.schema.clone();
+            let target_schema = effect_schema.property(property_id)?;
+            let current = effect.properties.property(property_id)?;
+            let value = current.replaced_at(target.element_id(), target.scalar_index(), value)?;
+            effect.properties.set(target_schema, value).ok()
+        }),
         SceneBindingOwner::Item => {
             let item_schema = item.schema_arc().cloned();
             let target_schema = item_schema
@@ -244,8 +210,7 @@ impl PropertySchema {
         if !matches!(self.ty, PropertyType::Value(PropertyValueType::Scalar(_))) {
             return None;
         }
-        let default = self.default_value().clone();
-        self.default = self.constrained_value(&default)?;
+        self.default = self.constrained_value(self.default_value())?;
         // A scene argument is its own editable input contract. The source
         // property's editability only controls direct edits on the bound
         // plugin property.
@@ -320,7 +285,7 @@ pub struct SceneDefinition {
     pub name: String,
     pub arguments: Vec<SceneArgument>,
     document: TimelineDocument,
-    next_argument_id: u64,
+    next_argument_id: Option<u64>,
 }
 
 impl SceneDefinition {
@@ -350,21 +315,6 @@ impl SceneDefinition {
                         .expect("validated scene binding must remain applicable during evaluation");
                 }
             }
-        }
-    }
-
-    pub(super) fn new(
-        id: SceneId,
-        name: String,
-        frame_rate: FrameRate,
-        items: Vec<(LayerId, TimelineItem)>,
-    ) -> Self {
-        Self {
-            id,
-            name,
-            arguments: Vec::new(),
-            document: TimelineDocument::from_items(frame_rate, items),
-            next_argument_id: 1,
         }
     }
 
@@ -416,30 +366,10 @@ impl SceneDefinition {
         &mut self.document
     }
 
-    pub(super) fn allocate_argument_id(&mut self) -> (String, u64) {
-        let ordinal = self.next_argument_id;
-        self.next_argument_id = self.next_argument_id.saturating_add(1);
-        (format!("argument_{ordinal}"), ordinal)
-    }
-
-    pub(super) fn instantiate(
-        &self,
-        id: ItemId,
-        start: Frame,
-        duration: FrameDuration,
-    ) -> Option<TimelineItem> {
-        debug_assert_eq!(duration, self.duration());
-        let properties = PropertyValues::default();
-        Some(TimelineItem {
-            id,
-            start,
-            duration,
-            kind: TimelineItemKind::Scene { scene_id: self.id },
-            properties,
-            animations: ScalarAnimations::default(),
-            aspect_ratio: None,
-            effects: Vec::new(),
-        })
+    pub(super) fn allocate_argument_id(&mut self) -> Option<(String, u64)> {
+        let ordinal = self.next_argument_id?;
+        self.next_argument_id = ordinal.checked_add(1).filter(|id| *id != u64::MAX);
+        Some((format!("argument_{ordinal}"), ordinal))
     }
 
     pub fn from_project(
@@ -454,7 +384,8 @@ impl SceneDefinition {
             .filter_map(|id| id.parse::<u64>().ok())
             .max()
             .unwrap_or(0)
-            .saturating_add(1);
+            .checked_add(1)
+            .filter(|id| *id != u64::MAX);
         Self {
             id,
             name,

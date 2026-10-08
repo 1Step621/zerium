@@ -18,14 +18,13 @@ use crate::engine::{
         sample_boundary,
     },
     rendering::{
-        ExportFramePipeline, FrameRenderer, RenderQuality, RenderScene, RenderSize, TextFrameCache,
+        ExportFramePipeline, FrameRenderer, MediaFrameRequest, RenderQuality, RenderScene,
+        RenderSize, TextFrameCache,
     },
 };
 use zerium_core::{
     media::{MediaAsset, VideoFrameRate},
-    timeline::{
-        EffectInstanceId, Frame, FrameRate, ItemId, TimelineSnapshot, TimelineTime, TimelineView,
-    },
+    timeline::{Frame, FrameRate, TimelineSnapshot, TimelineTime, TimelineView},
 };
 
 #[derive(Clone, Debug)]
@@ -73,17 +72,6 @@ enum EncoderMessage {
     Complete,
 }
 
-enum EncoderWorkerError {
-    Export(ExportError),
-    IncompleteInput,
-}
-
-impl From<ExportError> for EncoderWorkerError {
-    fn from(error: ExportError) -> Self {
-        Self::Export(error)
-    }
-}
-
 pub(crate) fn export_timeline(
     timeline: TimelineSnapshot,
     renderer: Arc<FrameRenderer>,
@@ -127,80 +115,78 @@ pub(crate) fn export_timeline(
         &media_readers,
         AudioGainEvaluation::TimelineAnimation,
     )
-    .map_err(|error| ExportError::encoding(error.to_string()))?;
+    .map_err(ExportError::encoding)?;
     let video_frame_rate = VideoFrameRate::new(frame_rate.numerator(), frame_rate.denominator())
         .ok_or_else(|| ExportError::encoding("Invalid output frame rate"))?;
     let mut readbacks = ExportFramePipeline::new(renderer, size, EXPORT_PIPELINE_DEPTH)?;
-    let output = settings.output;
-    let (frames_to_encode, rendered_frames) = mpsc::sync_channel(EXPORT_PIPELINE_DEPTH);
-    let encoder_worker = thread::Builder::new()
-        .name("zerium-export-encoder".to_owned())
-        .spawn(move || {
-            encode_frames(
-                output,
-                video_frame_rate,
-                rendered_frames,
-                audio_graph,
-                frame_rate,
-                output_spec,
-            )
-        })
-        .map_err(|error| {
-            ExportError::encoding(format!("Failed to start video encoding thread: {error}"))
-        })?;
-    // Scene evaluation, video decoding, and text rasterization run ahead on a
-    // worker so the render thread only waits on the GPU, never on the CPU.
-    let (decoded_scenes_tx, decoded_scenes_rx) = mpsc::sync_channel(DECODE_PREFETCH_FRAMES);
-    let decode_worker = thread::Builder::new()
-        .name("zerium-export-decode".to_owned())
-        .spawn(move || {
-            decode_scenes(
-                timeline,
-                media_readers,
-                size,
-                frame_count,
-                decoded_scenes_tx,
-            )
-        })
-        .map_err(|error| {
-            ExportError::encoding(format!("Failed to start video decoding thread: {error}"))
-        })?;
+    thread::scope(|scope| {
+        let output = settings.output;
+        let (frames_to_encode, rendered_frames) = mpsc::sync_channel(EXPORT_PIPELINE_DEPTH);
+        let encoder_worker = thread::Builder::new()
+            .name("zerium-export-encoder".to_owned())
+            .spawn_scoped(scope, move || {
+                encode_frames(
+                    output,
+                    video_frame_rate,
+                    rendered_frames,
+                    audio_graph,
+                    frame_rate,
+                    output_spec,
+                )
+            })
+            .map_err(|error| {
+                ExportError::encoding(format!("Failed to start video encoding thread: {error}"))
+            })?;
+        // Scene evaluation, video decoding, and text rasterization run ahead on a
+        // worker so the render thread only waits on the GPU, never on the CPU.
+        let (decoded_scenes_tx, decoded_scenes_rx) = mpsc::sync_channel(DECODE_PREFETCH_FRAMES);
+        let decode_worker = thread::Builder::new()
+            .name("zerium-export-decode".to_owned())
+            .spawn_scoped(scope, move || {
+                decode_scenes(
+                    timeline,
+                    media_readers,
+                    size,
+                    frame_count,
+                    decoded_scenes_tx,
+                )
+            })
+            .map_err(|error| {
+                ExportError::encoding(format!("Failed to start video decoding thread: {error}"))
+            })?;
 
-    let render_result = (|| {
-        for _ in 0..frame_count {
-            let (frame_index, scene) = decoded_scenes_rx.recv().map_err(|_| {
-                ExportError::encoding("Video decoding thread terminated unexpectedly")
-            })??;
-            if let Some(frame) = readbacks.submit(frame_index, &scene)? {
+        let render_result: Result<(), ExportError> = (|| {
+            for _ in 0..frame_count {
+                let (frame_index, scene) = decoded_scenes_rx.recv().map_err(|_| {
+                    ExportError::encoding("Video decoding thread terminated unexpectedly")
+                })??;
+                if let Some(frame) = readbacks.submit(frame_index, &scene)? {
+                    send_frame(&frames_to_encode, frame)?;
+                }
+                let _ =
+                    progress.unbounded_send(ExportProgress::Frame(frame_index.saturating_add(1)));
+            }
+            while let Some(frame) = readbacks.finish_next()? {
                 send_frame(&frames_to_encode, frame)?;
             }
-            let _ = progress.unbounded_send(ExportProgress::Frame(frame_index.saturating_add(1)));
-        }
-        while let Some(frame) = readbacks.finish_next()? {
-            send_frame(&frames_to_encode, frame)?;
-        }
-        frames_to_encode
-            .send(EncoderMessage::Complete)
-            .map_err(|_| ExportError::encoding("Video encoder terminated unexpectedly"))?;
-        Ok(())
-    })();
-    drop(decoded_scenes_rx);
-    let decode_result = decode_worker.join();
-    drop(frames_to_encode);
-    let encoding_result = encoder_worker
-        .join()
-        .map_err(|_| ExportError::encoding("Video encoding thread terminated unexpectedly"))?;
-    match (render_result, decode_result, encoding_result) {
-        (Err(error), _, _) => Err(error),
-        (Ok(()), Err(_), _) => Err(ExportError::encoding(
-            "Video decoding thread terminated unexpectedly",
-        )),
-        (Ok(()), Ok(()), Err(EncoderWorkerError::Export(error))) => Err(error),
-        (Ok(()), Ok(()), Err(EncoderWorkerError::IncompleteInput)) => Err(ExportError::encoding(
-            "Export input closed before rendering completed",
-        )),
-        (Ok(()), Ok(()), Ok(())) => Ok(()),
-    }
+            frames_to_encode
+                .send(EncoderMessage::Complete)
+                .map_err(|_| ExportError::encoding("Video encoder terminated unexpectedly"))?;
+            Ok(())
+        })();
+        drop(decoded_scenes_rx);
+        let decode_result = decode_worker.join();
+        drop(frames_to_encode);
+        let encoding_result = encoder_worker.join().unwrap_or_else(|_| {
+            Err(ExportError::encoding(
+                "Video encoding thread terminated unexpectedly",
+            ))
+        });
+        render_result?;
+        decode_result
+            .map_err(|_| ExportError::encoding("Video decoding thread terminated unexpectedly"))?;
+        encoding_result
+    })
 }
 
 fn decode_scenes(
@@ -227,11 +213,7 @@ fn decode_scenes(
             |request| {
                 decode_texture_frame(
                     &timeline,
-                    request.item_id,
-                    request.effect_id,
-                    request.input_id,
-                    request.time,
-                    request.target_size,
+                    request,
                     &mut decoders,
                     &media_readers,
                     &cancelled,
@@ -263,7 +245,7 @@ fn encode_frames(
     mut audio_graph: AudioTimelineGraph,
     frame_rate: FrameRate,
     output_spec: VideoOutputSpec,
-) -> Result<(), EncoderWorkerError> {
+) -> Result<(), ExportError> {
     let transaction = AtomicFileTransaction::new(&output).map_err(|error| {
         ExportError::encoding(format!(
             "Failed to create output temporary file '{}': {error}",
@@ -313,27 +295,31 @@ fn encode_frames(
                 .map_err(|_| ExportError::encoding("Export audio range is too large"))?;
             let audio = audio_graph
                 .render(start, frame_count)
-                .map_err(|error| ExportError::encoding(error.to_string()))?;
+                .map_err(ExportError::encoding)?;
             encoder
                 .encode_audio(&audio)
                 .map_err(ExportError::encoding)?;
         }
     }
-    Err(EncoderWorkerError::IncompleteInput)
+    Err(ExportError::encoding(
+        "Export input closed before rendering completed",
+    ))
 }
 
-#[allow(clippy::too_many_arguments)]
 fn decode_texture_frame(
     timeline: &dyn TimelineView,
-    item_id: ItemId,
-    effect_id: Option<EffectInstanceId>,
-    input_id: &str,
-    time: TimelineTime,
-    size: RenderSize,
+    request: MediaFrameRequest<'_>,
     decoders: &mut HashMap<MediaInputId, ExportDecoder>,
     media_readers: &MediaReaderRegistry,
     cancelled: &AtomicBool,
 ) -> Result<Option<Arc<RgbaFrame>>, ExportError> {
+    let MediaFrameRequest {
+        item_id,
+        effect_id,
+        input_id,
+        time,
+        target_size,
+    } = request;
     let Some(item) = timeline
         .active_items_at_time(time)
         .into_iter()
@@ -381,7 +367,7 @@ fn decode_texture_frame(
         &item,
         effect_id,
         input_id,
-        size,
+        target_size,
         RenderSize::from(timeline.resolution()),
     );
     let decoded = decoder.decoder.decode_at(

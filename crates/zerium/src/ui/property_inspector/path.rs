@@ -1,4 +1,5 @@
 use std::fmt;
+use zerium_core::property::PropertyElementId;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum PropertyOwner {
@@ -10,7 +11,7 @@ enum PropertyOwner {
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum PropertySlot {
     Scalar {
-        element_index: Option<usize>,
+        element_id: Option<PropertyElementId>,
         scalar_index: Option<usize>,
     },
     Value,
@@ -56,9 +57,13 @@ impl InspectorPath {
         }
     }
 
-    pub(super) fn scalar(&self, element_index: Option<usize>, scalar_index: Option<usize>) -> Self {
+    pub(super) fn scalar(
+        &self,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
+    ) -> Self {
         self.with_slot(PropertySlot::Scalar {
-            element_index,
+            element_id,
             scalar_index,
         })
     }
@@ -88,10 +93,10 @@ impl fmt::Display for InspectorPath {
         match self.slot {
             PropertySlot::Value => Ok(()),
             PropertySlot::Scalar {
-                element_index,
+                element_id,
                 scalar_index,
             } => {
-                write!(formatter, "/scalar/{element_index:?}/{scalar_index:?}")
+                write!(formatter, "/scalar/{element_id:?}/{scalar_index:?}")
             }
         }
     }

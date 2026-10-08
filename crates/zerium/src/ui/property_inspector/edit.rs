@@ -11,7 +11,7 @@ pub(super) enum ArrayEdit {
 }
 
 impl ArrayEdit {
-    fn element_id(self) -> PropertyElementId {
+    pub(super) fn element_id(self) -> PropertyElementId {
         match self {
             Self::MoveUp(id) | Self::MoveDown(id) | Self::Remove(id) => id,
         }
@@ -74,7 +74,7 @@ impl PropertyInspector {
 
     pub(super) fn inspector_item_at_playhead(&self, cx: &App) -> Option<TimelineItem> {
         let editor = self.editor.read(cx);
-        let item_id = self.store.input_structure.as_ref()?.item_id?;
+        let item_id = self.store.source.as_ref()?.item_id;
         if !editor.is_item_selected(item_id) {
             return None;
         }
@@ -366,12 +366,7 @@ impl PropertyInspector {
             }
         });
         let editor = self.editor.read(cx);
-        let Some(item_id) = self
-            .store
-            .input_structure
-            .as_ref()
-            .and_then(|structure| structure.item_id)
-        else {
+        let Some(item_id) = self.store.source.as_ref().map(|source| source.item_id) else {
             return;
         };
         let candidates = AnimationSelection::candidates_for(&property.address(item_id), editor)

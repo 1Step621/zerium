@@ -215,9 +215,13 @@ impl PropertyUi {
                 .ok_or_else(|| invalid("UI enum_variants requires an enum type"));
         };
 
-        let mut values = enumeration.values().to_vec();
-        values.sort_unstable();
-        if !self.enum_variants.is_empty() && self.enum_variants.keys().copied().ne(values) {
+        if !self.enum_variants.is_empty()
+            && (self.enum_variants.len() != enumeration.values().len()
+                || enumeration
+                    .values()
+                    .iter()
+                    .any(|value| !self.enum_variants.contains_key(value)))
+        {
             return Err(invalid(
                 "UI enum_variants must define a label for every enum value",
             ));

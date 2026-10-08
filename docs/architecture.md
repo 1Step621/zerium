@@ -25,15 +25,27 @@ project I/O. Engine code must not depend on UI entities.
 ## Project state
 
 `TimelineProject` holds persistent documents, scenes, resolution, and project
-identity. Persistent changes go through `TimelineEditor` to keep validation,
+identity. `timeline::document` owns item storage and layer indexes; its
+`placement` and `editing` modules handle interval operations and value
+transactions without exposing those indexes. Persistent changes go through `TimelineEditor` to keep validation,
 revision, and history consistent. Selection, preview visibility, playhead, and
 history are session state. Preview-only changes do not increment project revision
-or enter history.
+or enter history. Grouping inside a scene preserves argument connections
+through inputs on the new nested scene, with constraints still applied by the
+original targets.
 
 Rendering and background work receive immutable `TimelineSnapshot`s and read
 through `TimelineView`. `ProjectSession` tracks project generations so results
-from a replaced project can be ignored. `ProjectRuntime` groups the handles that
-reset together on project replacement.
+from a replaced project can be ignored. `ProjectController` owns file-operation
+lifetimes and resets transient editor state when replacing a project. File
+selection and I/O use one session operation from start to finish; dialogs and
+workspace layout belong to `ui`.
+
+Inspector controls are derived from schemas. Cached inputs own their event
+subscriptions and use stable array element IDs, so reordering preserves focus
+and deleting controls releases their state. Preview layout and interaction live
+in `ui::preview::render`; frame preparation and presentation live in
+`ui::preview::frame`.
 
 Timeline positions, positive spans, and frame rates use `Frame`, `FrameDuration`,
 and `FrameRate`. Items, layers, and effects have distinct ID types.
@@ -74,10 +86,12 @@ replacement belong to `engine::project_io`.
 ## Rendering
 
 FFmpeg handles probing, decoding, conversion, and encoding in process.
-`MediaReaderRegistry` connects media inputs to concrete readers.
+`MediaReaderRegistry` connects media inputs to concrete readers. File import
+preparation and metadata refresh belong to the metadata module.
 
 Preview and export share a `RenderRuntime` and compiled plugin shaders, with
-independent render sessions. Timeline evaluation preserves scene boundaries and
+independent render sessions. `RendererDevice` owns immutable GPU state;
+`FrameRenderer` owns each session's resource pools. Timeline evaluation preserves scene boundaries and
 sample time, including for temporal effects. Item surfaces use declared bounds;
 scenes composite into the viewport before applying scene effects.
 

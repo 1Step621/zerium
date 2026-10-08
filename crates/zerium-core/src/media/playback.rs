@@ -45,10 +45,6 @@ impl MediaPlayback {
         })
     }
 
-    pub fn source_offset(self) -> f64 {
-        self.mapping.source_offset()
-    }
-
     pub fn source_span(self) -> f64 {
         self.mapping.source_span()
     }

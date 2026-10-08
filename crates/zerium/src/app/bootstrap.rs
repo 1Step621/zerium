@@ -6,10 +6,8 @@ use gpui::{
     WindowOptions, px, size,
 };
 
-use super::{
-    actions::*,
-    workspace::{WORKSPACE_KEY_CONTEXT, WORKSPACE_SHORTCUT_KEY_CONTEXT, Workspace},
-};
+use super::actions::*;
+use crate::ui::workspace::{WORKSPACE_KEY_CONTEXT, WORKSPACE_SHORTCUT_KEY_CONTEXT, Workspace};
 
 const WINDOW_ICON_PNG: &[u8] = include_bytes!("../../../../assets/zerium.png");
 
@@ -230,14 +228,11 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                         )
                     });
                     let project_controller = cx.new(|_| {
-                        let runtime = crate::app::project_runtime::ProjectRuntime::new(
+                        crate::app::project_controller::ProjectController::new(
                             editor.clone(),
                             transport.clone(),
                             animation_selection.clone(),
                             session.clone(),
-                        );
-                        crate::app::project_controller::ProjectController::new(
-                            runtime,
                             notifications.clone(),
                         )
                     });
@@ -267,20 +262,13 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                     let close_export_controller = export_controller.clone();
                     let close_window_lifetime_guard = preview.read(cx).window_lifetime_guard();
                     let workspace = cx.new(|cx: &mut Context<Workspace>| {
-                        let animation_selection_subscription =
-                            cx.observe(&animation_selection, |_, _, cx| cx.notify());
-                        let editor_subscription =
-                            cx.observe_in(&editor, window, |this, _, window, cx| {
-                                window.set_window_title(
-                                    &this.project_controller.read(cx).window_title(cx),
-                                );
-                            });
-                        let project_subscription =
-                            cx.observe(&project_controller, |_, _, cx| cx.notify());
-                        let export_subscription =
-                            cx.observe(&export_controller, |_, _, cx| cx.notify());
-                        let notification_subscription =
-                            cx.observe(&notifications, |_, _, cx| cx.notify());
+                        let mut subscriptions = vec![
+                            cx.observe(&animation_selection, |_, _, cx| cx.notify()),
+                            cx.observe(&editor, |_, _, cx| cx.notify()),
+                            cx.observe(&project_controller, |_, _, cx| cx.notify()),
+                            cx.observe(&export_controller, |_, _, cx| cx.notify()),
+                            cx.observe(&notifications, |_, _, cx| cx.notify()),
+                        ];
                         let inspector_subscription = cx.subscribe_in(
                             &property_inspector,
                             window,
@@ -289,17 +277,10 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                              event: &crate::ui::property_inspector::SceneArgumentRequested,
                              window,
                              cx| {
-                                let opened = this.scene_settings.update(cx, |settings, cx| {
-                                    settings.reveal_argument(event.scene_id, &event.argument_id, cx)
-                                });
-                                if opened {
-                                    this.inspector_tab =
-                                        super::workspace::InspectorTab::SceneSettings;
-                                    this.focus_handle.focus(window, cx);
-                                    cx.notify();
-                                }
+                                this.reveal_scene_argument(event, window, cx);
                             },
                         );
+                        subscriptions.push(inspector_subscription);
                         Workspace {
                             timeline,
                             explorer,
@@ -313,12 +294,7 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             notifications,
                             forwarded_notifications: 0,
                             focus_handle: cx.focus_handle(),
-                            _animation_selection_subscription: animation_selection_subscription,
-                            _editor_subscription: editor_subscription,
-                            _project_subscription: project_subscription,
-                            _export_subscription: export_subscription,
-                            _notification_subscription: notification_subscription,
-                            _inspector_subscription: inspector_subscription,
+                            _subscriptions: subscriptions,
                         }
                     });
                     window.on_window_should_close(cx, move |window, cx| {

@@ -24,60 +24,49 @@ impl OutputBoundsSchema {
         id: &str,
         properties: &[PropertySchema],
     ) -> Result<(), PluginError> {
-        let Self { min, max, .. } = self;
-        validate_program(owner, id, min, max, properties)
-    }
-}
-
-fn validate_program(
-    owner: &str,
-    id: &str,
-    min: &[Node; 2],
-    max: &[Node; 2],
-    properties: &[PropertySchema],
-) -> Result<(), PluginError> {
-    let defaults = PropertyValues::from_properties(properties);
-    let mut names = HashSet::new();
-    for (name, value) in defaults.iter() {
-        let aliases = property_variables(name, value);
-        for (alias, _) in aliases {
-            if !names.insert(alias) {
-                return Err(PluginError::invalid_definition(format!(
-                    "{owner} '{id}' bounds program has ambiguous property variables"
-                )));
+        let defaults = PropertyValues::from_properties(properties);
+        let mut names = HashSet::new();
+        for (name, value) in defaults.iter() {
+            let aliases = property_variables(name, value);
+            for (alias, _) in aliases {
+                if !names.insert(alias) {
+                    return Err(PluginError::invalid_definition(format!(
+                        "{owner} '{id}' bounds program has ambiguous property variables"
+                    )));
+                }
             }
         }
-    }
-    let mut context = program_context(
-        [-1.0, -1.0],
-        [1.0, 1.0],
-        [-960.0, -540.0],
-        [960.0, 540.0],
-        &defaults,
-    );
-    let mut result = [[0.0; 2]; 2];
-    for (side, expressions) in [min, max].into_iter().enumerate() {
-        for (axis, expression) in expressions.iter().enumerate() {
-            result[side][axis] = expression
-                .eval_number_with_context_mut(&mut context)
-                .map_err(|error| {
-                    PluginError::invalid_definition(format!(
-                        "{owner} '{id}' bounds program expression is invalid: {error}"
-                    ))
-                })?;
-            if !result[side][axis].is_finite() {
-                return Err(PluginError::invalid_definition(format!(
-                    "{owner} '{id}' bounds program expression must be finite at default values"
-                )));
+        let mut context = program_context(
+            [-1.0, -1.0],
+            [1.0, 1.0],
+            [-960.0, -540.0],
+            [960.0, 540.0],
+            &defaults,
+        );
+        let mut result = [[0.0; 2]; 2];
+        for (side, expressions) in [&self.min, &self.max].into_iter().enumerate() {
+            for (axis, expression) in expressions.iter().enumerate() {
+                result[side][axis] = expression
+                    .eval_number_with_context_mut(&mut context)
+                    .map_err(|error| {
+                        PluginError::invalid_definition(format!(
+                            "{owner} '{id}' bounds program expression is invalid: {error}"
+                        ))
+                    })?;
+                if !result[side][axis].is_finite() {
+                    return Err(PluginError::invalid_definition(format!(
+                        "{owner} '{id}' bounds program expression must be finite at default values"
+                    )));
+                }
             }
         }
+        if (0..2).any(|axis| result[0][axis] > result[1][axis]) {
+            return Err(PluginError::invalid_definition(format!(
+                "{owner} '{id}' bounds program has reversed bounds at default values"
+            )));
+        }
+        Ok(())
     }
-    if (0..2).any(|axis| result[0][axis] > result[1][axis]) {
-        return Err(PluginError::invalid_definition(format!(
-            "{owner} '{id}' bounds program has reversed bounds at default values"
-        )));
-    }
-    Ok(())
 }
 
 fn bound_scalar(value: &PropertyValue) -> Option<f64> {

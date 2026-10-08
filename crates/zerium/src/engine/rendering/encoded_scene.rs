@@ -1,5 +1,17 @@
+use super::PROPERTY_WORD_SIZE;
+use super::scene::{
+    RenderEffect, RenderEffectPassKind, RenderError, RenderItem, RenderItemSource, RenderNode,
+    RenderNodeContent, RenderNodeMetadata, RenderScene, RenderSize, RenderTemporalSample,
+    SceneNodeId,
+};
 use super::surface::SurfaceRect;
-use super::*;
+use crate::engine::frame::RgbaFrame;
+use bytemuck::{Pod, Zeroable};
+use std::collections::HashMap;
+use std::ops::Range;
+use std::sync::Arc;
+use zerium_core::plugin::{ComputeDispatchDimension, EffectInputSpace};
+use zerium_shader::{EffectShaderId, ItemShaderId};
 
 pub(super) type RenderNodeId = usize;
 
@@ -736,7 +748,7 @@ pub(super) fn encode_items(scene: &RenderScene) -> Result<EncodedScene, RenderEr
             }
             _ => commands.push(RenderCommand::Surface {
                 node: root,
-                render_scale: scene.nodes[*node].required_render_scale(),
+                render_scale: scene.nodes[*node].render_scale,
             }),
         }
     }

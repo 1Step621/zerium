@@ -356,7 +356,7 @@ impl PropertyInspector {
                         )
                     },
                 );
-                let scalar_key = key.scalar(element.map(|(index, _)| index), scalar_index);
+                let scalar_key = key.scalar(element.map(|(_, id)| id), scalar_index);
                 let common = Self::leaf_control(
                     &scalar_key,
                     property,
@@ -560,7 +560,7 @@ impl PropertyInspector {
                     resolution,
                 );
                 Control::Group {
-                    id: ControlId::group(&key.scalar(Some(element_index), None)),
+                    id: ControlId::group(&key.scalar(Some(element.element_id()), None)),
                     label: t!("rows.element", index = element_index + 1).to_string(),
                     children: row_controls,
                     kind: GroupKind::Plain(Vec::new()),

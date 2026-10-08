@@ -167,6 +167,52 @@ pub struct TimelineItem {
 }
 
 impl TimelineItem {
+    pub(super) fn scene_instance(
+        id: ItemId,
+        start: Frame,
+        duration: FrameDuration,
+        scene_id: SceneId,
+    ) -> Self {
+        Self {
+            id,
+            start,
+            duration,
+            kind: TimelineItemKind::Scene { scene_id },
+            properties: PropertyValues::default(),
+            animations: ScalarAnimations::default(),
+            aspect_ratio: None,
+            effects: Vec::new(),
+        }
+    }
+
+    pub(super) fn effect(&self, id: EffectInstanceId) -> Option<&EffectInstance> {
+        self.effects.iter().find(|effect| effect.id == id)
+    }
+
+    pub(super) fn effect_mut(&mut self, id: EffectInstanceId) -> Option<&mut EffectInstance> {
+        self.effects.iter_mut().find(|effect| effect.id == id)
+    }
+
+    pub(super) fn animations(
+        &self,
+        effect_id: Option<EffectInstanceId>,
+    ) -> Option<&ScalarAnimations> {
+        match effect_id {
+            Some(id) => Some(&self.effect(id)?.animations),
+            None => Some(&self.animations),
+        }
+    }
+
+    pub(super) fn animations_mut(
+        &mut self,
+        effect_id: Option<EffectInstanceId>,
+    ) -> Option<&mut ScalarAnimations> {
+        match effect_id {
+            Some(id) => Some(&mut self.effect_mut(id)?.animations),
+            None => Some(&mut self.animations),
+        }
+    }
+
     pub fn local_seconds(&self, time: TimelineTime, frame_rate: FrameRate) -> f64 {
         (time.frames() - self.start.get() as f64) / frame_rate.frames_per_second()
     }
@@ -267,24 +313,14 @@ impl TimelineItem {
         effect_id: Option<EffectInstanceId>,
     ) -> Option<&PropertySchema> {
         match effect_id {
-            Some(id) => self
-                .effects
-                .iter()
-                .find(|effect| effect.id == id)?
-                .schema()
-                .aspect_lock_property(),
+            Some(id) => self.effect(id)?.schema().aspect_lock_property(),
             None => self.schema()?.aspect_lock_property(),
         }
     }
 
     pub fn aspect_ratio(&self, effect_id: Option<EffectInstanceId>) -> Option<AspectRatio> {
         match effect_id {
-            Some(id) => {
-                self.effects
-                    .iter()
-                    .find(|effect| effect.id == id)?
-                    .aspect_ratio
-            }
+            Some(id) => self.effect(id)?.aspect_ratio,
             None => self.aspect_ratio,
         }
     }
@@ -306,7 +342,7 @@ impl TimelineItem {
     ) -> Option<(MediaAsset, MediaPlayback)> {
         let (capabilities, properties) = match effect_id {
             Some(id) => {
-                let effect = self.effects.iter().find(|effect| effect.id == id)?;
+                let effect = self.effect(id)?;
                 (effect.schema().capabilities(), &effect.properties)
             }
             None => (self.schema()?.capabilities(), &self.properties),
@@ -527,7 +563,7 @@ impl TimelineItem {
     ) -> Option<PropertyValue> {
         let (base, animations) = match effect_id {
             Some(effect_id) => {
-                let effect = self.effects.iter().find(|effect| effect.id == effect_id)?;
+                let effect = self.effect(effect_id)?;
                 (&effect.properties, &effect.animations)
             }
             None => (&self.properties, &self.animations),
@@ -548,24 +584,12 @@ impl TimelineItem {
         scalar_index: Option<usize>,
     ) -> Option<&ScalarTrack> {
         let address = PropertyPath::new(property_id, element_id, scalar_index);
-        match effect_id {
-            Some(effect_id) => self
-                .effects
-                .iter()
-                .find(|effect| effect.id == effect_id)?
-                .animations
-                .track(&address),
-            None => self.animations.track(&address),
-        }
+        self.animations(effect_id)?.track(&address)
     }
 
     pub fn property_values(&self, effect_id: Option<EffectInstanceId>) -> Option<&PropertyValues> {
         match effect_id {
-            Some(effect_id) => self
-                .effects
-                .iter()
-                .find(|effect| effect.id == effect_id)
-                .map(|effect| &effect.properties),
+            Some(id) => Some(&self.effect(id)?.properties),
             None => Some(&self.properties),
         }
     }

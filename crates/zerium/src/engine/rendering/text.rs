@@ -51,7 +51,6 @@ struct TextSignature {
 struct CachedTextFrame {
     signature: TextSignature,
     frame: Arc<RgbaFrame>,
-    bytes: usize,
     last_used: u64,
 }
 
@@ -89,25 +88,21 @@ impl TextFrameCache {
     pub(crate) fn retain_active<'a>(&mut self, items: impl IntoIterator<Item = &'a TimelineItem>) {
         self.active.clear();
         for item in items {
-            if let Some(schema) = item.schema() {
-                for (capability_index, capability) in schema.capabilities().iter().enumerate() {
+            let owners = item
+                .schema()
+                .map(|schema| (None, schema.capabilities()))
+                .into_iter()
+                .chain(
+                    item.effects
+                        .iter()
+                        .map(|effect| (Some(effect.id), effect.schema().capabilities())),
+                );
+            for (effect_id, capabilities) in owners {
+                for (capability_index, capability) in capabilities.iter().enumerate() {
                     if matches!(capability, Capability::Text(_)) {
                         self.active.insert(TextSourceId {
                             item_id: item.id,
-                            effect_id: None,
-                            capability_index,
-                        });
-                    }
-                }
-            }
-            for effect in &item.effects {
-                for (capability_index, capability) in
-                    effect.schema().capabilities().iter().enumerate()
-                {
-                    if matches!(capability, Capability::Text(_)) {
-                        self.active.insert(TextSourceId {
-                            item_id: item.id,
-                            effect_id: Some(effect.id),
+                            effect_id,
                             capability_index,
                         });
                     }
@@ -136,7 +131,7 @@ impl TextFrameCache {
                 break;
             };
             if let Some(evicted) = self.frames.remove(&candidate) {
-                self.resident_bytes = self.resident_bytes.saturating_sub(evicted.bytes);
+                self.resident_bytes = self.resident_bytes.saturating_sub(evicted.frame.rgba.len());
             }
         }
     }
@@ -160,7 +155,9 @@ impl TextFrameCache {
             return Ok(frame);
         }
         if let Some(replaced) = self.frames.remove(&request.id) {
-            self.resident_bytes = self.resident_bytes.saturating_sub(replaced.bytes);
+            self.resident_bytes = self
+                .resident_bytes
+                .saturating_sub(replaced.frame.rgba.len());
         }
         self.resident_bytes = self.resident_bytes.saturating_add(bytes);
         self.frames.insert(
@@ -168,7 +165,6 @@ impl TextFrameCache {
             CachedTextFrame {
                 signature,
                 frame: frame.clone(),
-                bytes,
                 last_used: tick,
             },
         );
@@ -176,7 +172,9 @@ impl TextFrameCache {
         if self.resident_bytes > self.byte_budget
             && let Some(uncached) = self.frames.remove(&request.id)
         {
-            self.resident_bytes = self.resident_bytes.saturating_sub(uncached.bytes);
+            self.resident_bytes = self
+                .resident_bytes
+                .saturating_sub(uncached.frame.rgba.len());
         }
         Ok(frame)
     }

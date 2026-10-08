@@ -22,13 +22,21 @@ use zerium_core::timeline::{TimelineEditor, TimelineView};
 
 enum ExportState {
     Idle,
-    ChoosingPath,
+    ChoosingPath(ProjectOperation),
     Exporting {
+        operation: ProjectOperation,
         completed_frames: u64,
         total_frames: u64,
     },
-    Complete,
-    Failed,
+}
+
+impl ExportState {
+    fn operation(&self) -> Option<ProjectOperation> {
+        match self {
+            Self::ChoosingPath(operation) | Self::Exporting { operation, .. } => Some(*operation),
+            _ => None,
+        }
+    }
 }
 
 pub(crate) struct ExportController {
@@ -77,10 +85,7 @@ impl ExportController {
     }
 
     pub(crate) fn is_busy(&self) -> bool {
-        matches!(
-            self.state,
-            ExportState::ChoosingPath | ExportState::Exporting { .. }
-        )
+        self.state.operation().is_some()
     }
 
     /// Progress fraction while exporting, if an export is running.
@@ -89,6 +94,7 @@ impl ExportController {
             ExportState::Exporting {
                 completed_frames,
                 total_frames,
+                ..
             } => Some((completed_frames, total_frames)),
             _ => None,
         }
@@ -147,6 +153,9 @@ impl ExportController {
     }
 
     fn choose_output(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        if self.is_busy() {
+            return;
+        }
         let renderer = match self
             .render_runtime
             .update(cx, |backend, _| backend.export_session())
@@ -156,7 +165,7 @@ impl ExportController {
                 eprintln!("dedicated export device unavailable, sharing preview device: {error}");
                 let Some(renderer) = self.render_runtime.read(cx).renderer() else {
                     let message = t!("export.gpu_renderer_unavailable").to_string();
-                    self.state = ExportState::Failed;
+                    self.state = ExportState::Idle;
                     self.notifications
                         .update(cx, |notifications, cx| notifications.push(message, cx));
                     cx.notify();
@@ -178,197 +187,160 @@ impl ExportController {
             .unwrap_or_else(|| PathBuf::from("."));
         let receiver = cx.prompt_for_new_path(&initial_directory, Some("zerium-export.mp4"));
         let session = self.session.clone();
-        let notifications = self.notifications.clone();
         let operation = session.update(cx, |session, cx| {
             let operation = session.begin(ProjectActivity::Export);
             cx.notify();
             operation
         });
-        self.state = ExportState::ChoosingPath;
+        self.state = ExportState::ChoosingPath(operation);
         cx.notify();
 
         self._task = cx.spawn(async move |controller, cx| {
-            let selected = match receiver.await {
-                Ok(Ok(path)) => path,
-                Ok(Err(error)) => {
-                    fail_operation(
-                        &controller,
-                        &session,
-                        &notifications,
-                        operation,
-                        t!("export.select_destination_failed", error = error).to_string(),
-                        cx,
-                    );
-                    return;
-                }
-                Err(error) => {
-                    fail_operation(
-                        &controller,
-                        &session,
-                        &notifications,
-                        operation,
-                        t!("export.destination_picker_failed", error = error).to_string(),
-                        cx,
-                    );
-                    return;
-                }
-            };
-            let Some(mut output) = selected else {
-                if operation_is_current(&session, operation, cx) {
-                    let _ = controller.update(cx, |controller, cx| {
-                        controller.state = ExportState::Idle;
-                        cx.notify();
-                    });
-                    session.update(cx, |session, cx| {
-                        if session.finish(operation) {
-                            cx.notify();
-                        }
-                    });
-                }
-                return;
-            };
-            if !output
-                .extension()
-                .and_then(|extension| extension.to_str())
-                .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"))
-            {
-                output.set_extension("mp4");
-            }
-            if !operation_is_current(&session, operation, cx) {
-                return;
-            }
-            let total_frames = snapshot.end_frame_exclusive().get();
-            let _ = controller.update(cx, |controller, cx| {
-                controller.state = ExportState::Exporting {
-                    completed_frames: 0,
-                    total_frames,
+            let result = async {
+                let selected = receiver
+                    .await
+                    .map_err(|error| {
+                        t!("export.destination_picker_failed", error = error).to_string()
+                    })?
+                    .map_err(|error| {
+                        t!("export.select_destination_failed", error = error).to_string()
+                    })?;
+                let Some(mut output) = selected else {
+                    return Ok(None);
                 };
-                cx.notify();
-            });
-            let settings = ExportSettings {
-                output: output.clone(),
-            };
-            let (progress_tx, mut progress_rx) = futures::channel::mpsc::unbounded();
-            // The blocking orchestration runs on a dedicated thread, never on
-            // the async executor, so export throughput cannot depend on how
-            // often the executor is pumped (e.g. while the window is idle).
-            // Completion travels through the same channel, so no join (which
-            // would block the executor) is needed.
-            let _ = std::thread::Builder::new()
-                .name("zerium-export".to_owned())
-                .spawn(move || {
-                    let result = export_timeline(
-                        snapshot,
-                        renderer,
-                        media_readers,
-                        settings,
-                        progress_tx.clone(),
-                    );
-                    let _ = progress_tx.unbounded_send(ExportProgress::Finished(result));
+                if !session.read_with(cx, |session, _| session.operation_is_current(operation)) {
+                    return Ok(None);
+                }
+                if !output
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"))
+                {
+                    output.set_extension("mp4");
+                }
+                let total_frames = snapshot.end_frame_exclusive().get();
+                let _ = controller.update(cx, |controller, cx| {
+                    controller.update_progress(operation, 0, total_frames, cx);
                 });
-            // UI updates are throttled to ~100 per export so progress
-            // reporting never competes with the export itself.
-            let quantum = total_frames.div_ceil(100).max(1);
-            let mut last_reported = 0;
-            let started = Instant::now();
-            let result = loop {
-                match progress_rx.next().await {
-                    Some(ExportProgress::Frame(completed)) => {
-                        if completed >= total_frames
-                            || completed.saturating_sub(last_reported) >= quantum
-                        {
-                            last_reported = completed;
-                            let _ = controller.update(cx, |controller, cx| {
-                                controller.state = ExportState::Exporting {
-                                    completed_frames: completed.min(total_frames),
-                                    total_frames,
-                                };
-                                cx.notify();
-                            });
+                let settings = ExportSettings {
+                    output: output.clone(),
+                };
+                let (progress_tx, mut progress_rx) = futures::channel::mpsc::unbounded();
+                // Blocking export runs on its own thread; the UI only consumes progress.
+                let _ = std::thread::Builder::new()
+                    .name("zerium-export".to_owned())
+                    .spawn(move || {
+                        let result = export_timeline(
+                            snapshot,
+                            renderer,
+                            media_readers,
+                            settings,
+                            progress_tx.clone(),
+                        );
+                        let _ = progress_tx.unbounded_send(ExportProgress::Finished(result));
+                    });
+                // Limit progress updates to roughly 100 per export.
+                let quantum = total_frames.div_ceil(100).max(1);
+                let mut last_reported = 0;
+                let started = Instant::now();
+                let result = loop {
+                    match progress_rx.next().await {
+                        Some(ExportProgress::Frame(completed)) => {
+                            if completed >= total_frames
+                                || completed.saturating_sub(last_reported) >= quantum
+                            {
+                                last_reported = completed;
+                                let _ = controller.update(cx, |controller, cx| {
+                                    controller.update_progress(
+                                        operation,
+                                        completed,
+                                        total_frames,
+                                        cx,
+                                    );
+                                });
+                            }
+                        }
+                        Some(ExportProgress::Finished(result)) => break result,
+                        None => {
+                            break Err(ExportError::encoding(
+                                "Export thread terminated unexpectedly",
+                            ));
                         }
                     }
-                    Some(ExportProgress::Finished(result)) => break result,
-                    None => {
-                        break Err(ExportError::encoding(
-                            "Export thread terminated unexpectedly",
-                        ));
-                    }
-                }
-            };
-            if !operation_is_current(&session, operation, cx) {
-                return;
-            }
-            let error = result.as_ref().err().map(ToString::to_string);
-            let output_name = output_name(&output).to_owned();
-            let _ = controller.update(cx, |controller, cx| {
-                controller.state = match &result {
-                    Ok(()) => ExportState::Complete,
-                    Err(_) => ExportState::Failed,
                 };
-                cx.notify();
-            });
-            match error {
-                Some(error) => {
-                    notifications.update(cx, |notifications, cx| {
-                        notifications.push(t!("export.failed", error = error).to_string(), cx);
-                    });
-                }
-                None => {
-                    let fps =
-                        total_frames as f64 / started.elapsed().as_secs_f64().max(f64::EPSILON);
-                    notifications.update(cx, |notifications, cx| {
-                        notifications.push_success(
-                            t!(
-                                "export.complete",
-                                name = output_name,
-                                fps = format!("{fps:.1}")
-                            )
-                            .to_string(),
-                            cx,
-                        );
-                    });
-                }
+                result.map_err(|error| t!("export.failed", error = error).to_string())?;
+                let fps = total_frames as f64 / started.elapsed().as_secs_f64().max(f64::EPSILON);
+                Ok(Some(
+                    t!(
+                        "export.complete",
+                        name = output_name(&output),
+                        fps = format!("{fps:.1}")
+                    )
+                    .to_string(),
+                ))
             }
-            session.update(cx, |session, cx| {
-                if session.finish(operation) {
-                    cx.notify();
-                }
+            .await;
+            let _ = controller.update(cx, |controller, cx| {
+                controller.finish_export(operation, result, cx);
             });
         });
     }
-}
 
-fn operation_is_current(
-    session: &Entity<ProjectSession>,
-    operation: ProjectOperation,
-    cx: &mut gpui::AsyncApp,
-) -> bool {
-    session.update(cx, |session, _| session.operation_is_current(operation))
-}
-
-fn fail_operation(
-    controller: &gpui::WeakEntity<ExportController>,
-    session: &Entity<ProjectSession>,
-    notifications: &Entity<UiNotifications>,
-    operation: ProjectOperation,
-    error: String,
-    cx: &mut gpui::AsyncApp,
-) {
-    if !operation_is_current(session, operation, cx) {
-        return;
-    }
-    let _ = controller.update(cx, |controller, cx| {
-        controller.state = ExportState::Failed;
-        cx.notify();
-    });
-    notifications.update(cx, |notifications, cx| {
-        notifications.push(error, cx);
-    });
-    session.update(cx, |session, cx| {
-        if session.finish(operation) {
-            cx.notify();
+    fn update_progress(
+        &mut self,
+        operation: ProjectOperation,
+        completed_frames: u64,
+        total_frames: u64,
+        cx: &mut Context<Self>,
+    ) {
+        if self.state.operation() != Some(operation)
+            || !self.session.read(cx).operation_is_current(operation)
+        {
+            return;
         }
-    });
+        self.state = ExportState::Exporting {
+            operation,
+            completed_frames: completed_frames.min(total_frames),
+            total_frames,
+        };
+        cx.notify();
+    }
+
+    fn finish_export(
+        &mut self,
+        operation: ProjectOperation,
+        result: Result<Option<String>, String>,
+        cx: &mut Context<Self>,
+    ) {
+        if self.state.operation() != Some(operation) {
+            return;
+        }
+        let current = self.session.update(cx, |session, cx| {
+            let current = session.finish(operation);
+            if current {
+                cx.notify();
+            }
+            current
+        });
+        if !current {
+            return;
+        }
+        self.state = ExportState::Idle;
+        match result {
+            Ok(None) => {}
+            Ok(Some(message)) => {
+                self.notifications.update(cx, |notifications, cx| {
+                    notifications.push_success(message, cx);
+                });
+            }
+            Err(error) => {
+                self.notifications.update(cx, |notifications, cx| {
+                    notifications.push(error, cx);
+                });
+            }
+        }
+        cx.notify();
+    }
 }
 
 fn summary_row(label: impl Into<SharedString>, value: impl Into<SharedString>) -> gpui::Div {

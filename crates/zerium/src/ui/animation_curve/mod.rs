@@ -101,11 +101,7 @@ struct CurvePaintState {
     curve: GraphCurve,
     playhead_progress: f32,
     grid: CurveGrid,
-    grid_major: Hsla,
-    grid_minor: Hsla,
-    handle_color: Hsla,
-    playhead_color: Hsla,
-    curve_color: Hsla,
+    colors: CurvePaintColors,
 }
 
 #[derive(Clone, Copy)]

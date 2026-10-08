@@ -1,6 +1,179 @@
-use super::*;
+use super::encoded_scene::{
+    EncodedTexture, GpuComposite, GpuCompute, GpuEffect, GpuItem, GpuTextureInput, RenderNodeKey,
+};
+use super::scene::{RenderEffectPassKind, RenderError, RenderItemSource, RenderScene, RenderSize};
+use super::{FrameRenderer, PROPERTY_WORD_SIZE, SCENE_FORMAT, VIDEO_FRAME_FORMAT};
+use crate::engine::frame::RgbaFrame;
+use std::num::NonZeroU64;
+use std::sync::Arc;
+
+pub(super) struct TextureResource {
+    pub(super) input_count: usize,
+    pub(super) frame_target: RenderTarget,
+    _uploaded_frames: Vec<Arc<UploadedVideoFrame>>,
+    _input_properties: wgpu::Buffer,
+    _item: wgpu::Buffer,
+    _item_properties: wgpu::Buffer,
+    pub(super) binding: wgpu::BindGroup,
+}
+
+pub(super) struct UploadedVideoFrame {
+    pub(super) frame: Arc<RgbaFrame>,
+    _texture: wgpu::Texture,
+    pub(super) view: wgpu::TextureView,
+}
+
+#[derive(Default)]
+pub(super) struct VideoTextureCache {
+    // Adjacent project ticks can refer to the same native video frame. Keeping
+    // only the previous scene avoids uploading it twice without mirroring the
+    // much larger CPU frame cache in GPU memory.
+    previous_scene: Vec<Arc<UploadedVideoFrame>>,
+    // Per-frame transient buffers for texture items. Recreating them every
+    // frame stalls the driver under GPU memory pressure, so matching shapes
+    // are parked here and rewritten instead.
+    scratch: Vec<ScratchTextureBuffers>,
+}
+
+pub(super) struct ScratchTextureBuffers {
+    pub(super) input_count: usize,
+    pub(super) property_size: usize,
+    pub(super) input_properties: wgpu::Buffer,
+    pub(super) item_properties: wgpu::Buffer,
+    pub(super) item: wgpu::Buffer,
+}
+
+pub(super) struct RenderResources {
+    pub(super) size: RenderSize,
+    pub(super) output_size: RenderSize,
+    pub(super) composition_size: RenderSize,
+    pub(super) item_capacity: usize,
+    pub(super) property_capacity: usize,
+    pub(super) item_buffer: wgpu::Buffer,
+    pub(super) property_buffer: wgpu::Buffer,
+    pub(super) bind_group: wgpu::BindGroup,
+    pub(super) effect_instance_stride: u64,
+    pub(super) effect_instance_capacity: usize,
+    pub(super) effect_property_capacity: usize,
+    pub(super) effect_instance_buffer: wgpu::Buffer,
+    pub(super) effect_property_buffer: wgpu::Buffer,
+    pub(super) compute_info_stride: u64,
+    pub(super) compute_info_buffer: wgpu::Buffer,
+    pub(super) compute_inputs: [wgpu::BindGroup; 2],
+    pub(super) _composite_info_buffer: wgpu::Buffer,
+    pub(super) scene_view: wgpu::TextureView,
+    pub(super) output_input: wgpu::BindGroup,
+    pub(super) effect_texture_a: wgpu::Texture,
+    pub(super) effect_texture_b: wgpu::Texture,
+    pub(super) effect_source_texture: wgpu::Texture,
+    pub(super) effect_source_view: wgpu::TextureView,
+    pub(super) effect_view_a: wgpu::TextureView,
+    pub(super) effect_view_b: wgpu::TextureView,
+    pub(super) effect_input_a: wgpu::BindGroup,
+    pub(super) effect_input_b: wgpu::BindGroup,
+    pub(super) temporal: Vec<TemporalRenderResource>,
+    pub(super) cached_nodes: Vec<RenderTarget>,
+    pub(super) cached_node_keys: Vec<Option<Arc<RenderNodeKey>>>,
+}
+
+pub(super) struct RenderTarget {
+    _texture: wgpu::Texture,
+    pub(super) view: wgpu::TextureView,
+}
+
+pub(super) struct TemporalRenderResource {
+    _texture_a: wgpu::Texture,
+    _texture_b: wgpu::Texture,
+    pub(super) view_a: wgpu::TextureView,
+    pub(super) view_b: wgpu::TextureView,
+    pub(super) inputs: Vec<wgpu::BindGroup>,
+}
+
+#[derive(Clone, Copy)]
+pub(super) struct RenderResourceRequirements {
+    pub(super) frame_output: bool,
+    pub(super) item_count: usize,
+    pub(super) property_size: usize,
+    pub(super) effect_pass_count: usize,
+    pub(super) effect_property_size: usize,
+    pub(super) temporal_depth: usize,
+    pub(super) shared_node_count: usize,
+}
+
+const LOCAL_RESOURCE_CACHE_BUDGET: usize = 256 * 1024 * 1024;
+
+impl RenderResources {
+    pub(super) fn satisfies(
+        &self,
+        size: RenderSize,
+        output_size: RenderSize,
+        composition_size: RenderSize,
+        requirements: RenderResourceRequirements,
+    ) -> bool {
+        self.size == size
+            && self.output_size == output_size
+            && self.composition_size == composition_size
+            && self.item_capacity >= requirements.item_count.max(1)
+            && self.property_capacity >= requirements.property_size.max(PROPERTY_WORD_SIZE)
+            && self.effect_instance_capacity >= requirements.effect_pass_count.max(1)
+            && self.effect_property_capacity
+                >= requirements.effect_property_size.max(PROPERTY_WORD_SIZE)
+            && self.temporal.len() >= requirements.temporal_depth
+            && self.cached_nodes.len() >= requirements.shared_node_count
+    }
+
+    fn surface_bytes(&self) -> usize {
+        let surfaces = 4_usize.saturating_add(self.temporal.len().saturating_mul(2));
+        (self.size.width as usize)
+            .saturating_mul(self.size.height as usize)
+            .saturating_mul(8)
+            .saturating_mul(surfaces)
+    }
+}
 
 impl FrameRenderer {
+    pub(super) fn recycle_local_resources(
+        &self,
+        resources: Vec<RenderResources>,
+    ) -> Result<(), RenderError> {
+        let mut cached = self
+            .local_resources
+            .lock()
+            .map_err(|_| RenderError::backend("local render resource lock poisoned"))?;
+        let mut retained_bytes = 0_usize;
+        for resource in resources {
+            let bytes = resource.surface_bytes();
+            if retained_bytes.saturating_add(bytes) <= LOCAL_RESOURCE_CACHE_BUDGET {
+                retained_bytes += bytes;
+                cached.push(resource);
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) fn recycle_texture_resources(
+        &self,
+        resources: Vec<TextureResource>,
+    ) -> Result<(), RenderError> {
+        // The queue retains submitted work, so scratch buffers can be reused next frame.
+        let mut cache = self
+            .video_textures
+            .lock()
+            .map_err(|_| RenderError::backend("video texture cache lock poisoned"))?;
+        for resource in resources {
+            cache.scratch.push(ScratchTextureBuffers {
+                input_count: resource.input_count,
+                property_size: usize::try_from(resource._item_properties.size()).map_err(|_| {
+                    RenderError::backend("texture item property size exceeds usize")
+                })?,
+                input_properties: resource._input_properties,
+                item_properties: resource._item_properties,
+                item: resource._item,
+            });
+        }
+        Ok(())
+    }
+
     pub(super) fn create_resources(
         &self,
         size: RenderSize,
@@ -29,7 +202,7 @@ impl FrameRenderer {
             .checked_mul(size_of::<GpuItem>() as u64)
             .ok_or_else(|| RenderError::backend("item buffer size overflow"))?;
         let property_buffer_size = property_capacity as u64;
-        let limits = self.device.limits();
+        let limits = self.shared.device.limits();
         let effect_instance_stride = u64::from(limits.min_uniform_buffer_offset_alignment)
             .max(size_of::<GpuEffect>() as u64)
             .next_multiple_of(u64::from(limits.min_uniform_buffer_offset_alignment).max(1));
@@ -63,58 +236,61 @@ impl FrameRenderer {
             }
         }
 
-        let item_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+        let item_buffer = self.shared.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("zerium-item-buffer"),
             size: item_buffer_size,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let property_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+        let property_buffer = self.shared.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("zerium-item-properties-buffer"),
             size: property_buffer_size,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("zerium-item-bind-group"),
-            layout: &self.item_bind_group_layout,
-            entries: &[
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: item_buffer.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: property_buffer.as_entire_binding(),
-                },
-            ],
-        });
+        let bind_group = self
+            .shared
+            .device
+            .create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("zerium-item-bind-group"),
+                layout: &self.shared.item_bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: item_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: property_buffer.as_entire_binding(),
+                    },
+                ],
+            });
 
-        let effect_instance_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+        let effect_instance_buffer = self.shared.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("zerium-effect-instance-buffer"),
             size: effect_instance_buffer_size,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let effect_property_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+        let effect_property_buffer = self.shared.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("zerium-effect-properties-buffer"),
             size: effect_property_buffer_size,
             usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let compute_info_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+        let compute_info_buffer = self.shared.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("zerium-compute-info-buffer"),
             size: compute_info_buffer_size,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        let composite_info_buffer = self.device.create_buffer(&wgpu::BufferDescriptor {
+        let composite_info_buffer = self.shared.device.create_buffer(&wgpu::BufferDescriptor {
             label: Some("zerium-composite-info"),
             size: size_of::<GpuComposite>() as u64,
             usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
             mapped_at_creation: false,
         });
-        self.queue.write_buffer(
+        self.shared.queue.write_buffer(
             &composite_info_buffer,
             0,
             bytemuck::bytes_of(&GpuComposite {
@@ -128,7 +304,7 @@ impl FrameRenderer {
                 ],
             }),
         );
-        let scene_texture = self.device.create_texture(&wgpu::TextureDescriptor {
+        let scene_texture = self.shared.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("zerium-scene-linear-texture"),
             size: wgpu::Extent3d {
                 width: if frame_output { output_size.width } else { 1 },
@@ -161,75 +337,48 @@ impl FrameRenderer {
                 | wgpu::TextureUsages::COPY_SRC,
             view_formats: &[],
         };
-        let effect_texture_a = self.device.create_texture(&effect_texture_descriptor);
+        let effect_texture_a = self
+            .shared
+            .device
+            .create_texture(&effect_texture_descriptor);
         let effect_texture_descriptor = wgpu::TextureDescriptor {
             label: Some("zerium-effect-texture-b"),
             ..effect_texture_descriptor
         };
-        let effect_texture_b = self.device.create_texture(&effect_texture_descriptor);
+        let effect_texture_b = self
+            .shared
+            .device
+            .create_texture(&effect_texture_descriptor);
         let effect_source_descriptor = wgpu::TextureDescriptor {
             label: Some("zerium-effect-source-texture"),
             usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
             ..effect_texture_descriptor
         };
-        let effect_source_texture = self.device.create_texture(&effect_source_descriptor);
+        let effect_source_texture = self.shared.device.create_texture(&effect_source_descriptor);
         let effect_view_a = effect_texture_a.create_view(&Default::default());
         let effect_view_b = effect_texture_b.create_view(&Default::default());
         let effect_source_view = effect_source_texture.create_view(&Default::default());
         let effect_input = |label, view: &wgpu::TextureView| {
-            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some(label),
-                layout: &self.effect_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                            buffer: &effect_instance_buffer,
-                            offset: 0,
-                            size: NonZeroU64::new(size_of::<GpuEffect>() as u64),
-                        }),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 3,
-                        resource: effect_property_buffer.as_entire_binding(),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 4,
-                        resource: wgpu::BindingResource::TextureView(&effect_source_view),
-                    },
-                ],
-            })
-        };
-        let effect_input_a = effect_input("zerium-effect-input-a", &effect_view_a);
-        let effect_input_b = effect_input("zerium-effect-input-b", &effect_view_b);
-        let compute_input =
-            |label, input_view: &wgpu::TextureView, output_view: &wgpu::TextureView| {
-                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+            self.shared
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
                     label: Some(label),
-                    layout: &self.compute_bind_group_layout,
+                    layout: &self.shared.effect_bind_group_layout,
                     entries: &[
                         wgpu::BindGroupEntry {
                             binding: 0,
-                            resource: wgpu::BindingResource::TextureView(input_view),
+                            resource: wgpu::BindingResource::TextureView(view),
                         },
                         wgpu::BindGroupEntry {
                             binding: 1,
-                            resource: wgpu::BindingResource::Sampler(&self.sampler),
+                            resource: wgpu::BindingResource::Sampler(&self.shared.sampler),
                         },
                         wgpu::BindGroupEntry {
                             binding: 2,
                             resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                buffer: &compute_info_buffer,
+                                buffer: &effect_instance_buffer,
                                 offset: 0,
-                                size: NonZeroU64::new(size_of::<GpuCompute>() as u64),
+                                size: NonZeroU64::new(size_of::<GpuEffect>() as u64),
                             }),
                         },
                         wgpu::BindGroupEntry {
@@ -238,14 +387,51 @@ impl FrameRenderer {
                         },
                         wgpu::BindGroupEntry {
                             binding: 4,
-                            resource: wgpu::BindingResource::TextureView(output_view),
-                        },
-                        wgpu::BindGroupEntry {
-                            binding: 5,
                             resource: wgpu::BindingResource::TextureView(&effect_source_view),
                         },
                     ],
                 })
+        };
+        let effect_input_a = effect_input("zerium-effect-input-a", &effect_view_a);
+        let effect_input_b = effect_input("zerium-effect-input-b", &effect_view_b);
+        let compute_input =
+            |label, input_view: &wgpu::TextureView, output_view: &wgpu::TextureView| {
+                self.shared
+                    .device
+                    .create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some(label),
+                        layout: &self.shared.compute_bind_group_layout,
+                        entries: &[
+                            wgpu::BindGroupEntry {
+                                binding: 0,
+                                resource: wgpu::BindingResource::TextureView(input_view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 1,
+                                resource: wgpu::BindingResource::Sampler(&self.shared.sampler),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 2,
+                                resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
+                                    buffer: &compute_info_buffer,
+                                    offset: 0,
+                                    size: NonZeroU64::new(size_of::<GpuCompute>() as u64),
+                                }),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 3,
+                                resource: effect_property_buffer.as_entire_binding(),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 4,
+                                resource: wgpu::BindingResource::TextureView(output_view),
+                            },
+                            wgpu::BindGroupEntry {
+                                binding: 5,
+                                resource: wgpu::BindingResource::TextureView(&effect_source_view),
+                            },
+                        ],
+                    })
             };
         let compute_inputs = [
             compute_input(
@@ -260,84 +446,99 @@ impl FrameRenderer {
             ),
         ];
         let composite_input = |label, view: &wgpu::TextureView, info: &wgpu::Buffer| {
-            self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some(label),
-                layout: &self.composite_bind_group_layout,
-                entries: &[
-                    wgpu::BindGroupEntry {
-                        binding: 0,
-                        resource: wgpu::BindingResource::TextureView(view),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 1,
-                        resource: wgpu::BindingResource::Sampler(&self.sampler),
-                    },
-                    wgpu::BindGroupEntry {
-                        binding: 2,
-                        resource: info.as_entire_binding(),
-                    },
-                ],
-            })
+            self.shared
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some(label),
+                    layout: &self.shared.composite_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&self.shared.sampler),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 2,
+                            resource: info.as_entire_binding(),
+                        },
+                    ],
+                })
         };
         let output_input =
             composite_input("zerium-output-input", &scene_view, &composite_info_buffer);
-        let temporal = (0..temporal_depth)
-            .map(|_| {
-                let descriptor = wgpu::TextureDescriptor {
-                    label: Some("zerium-temporal-accumulation-texture"),
-                    usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                        | wgpu::TextureUsages::TEXTURE_BINDING
-                        | wgpu::TextureUsages::COPY_SRC,
-                    ..effect_texture_descriptor
-                };
-                let texture_a = self.device.create_texture(&descriptor);
-                let texture_b = self.device.create_texture(&descriptor);
-                let view_a = texture_a.create_view(&Default::default());
-                let view_b = texture_b.create_view(&Default::default());
-                let mut inputs = Vec::with_capacity(4);
-                for sample_view in [&effect_view_a, &effect_view_b] {
-                    for accumulation_view in [&view_a, &view_b] {
-                        inputs.push(self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                            label: Some("zerium-temporal-input"),
-                            layout: &self.temporal_bind_group_layout,
-                            entries: &[
-                                wgpu::BindGroupEntry {
-                                    binding: 0,
-                                    resource: wgpu::BindingResource::TextureView(sample_view),
+        let temporal =
+            (0..temporal_depth)
+                .map(|_| {
+                    let descriptor = wgpu::TextureDescriptor {
+                        label: Some("zerium-temporal-accumulation-texture"),
+                        usage: wgpu::TextureUsages::RENDER_ATTACHMENT
+                            | wgpu::TextureUsages::TEXTURE_BINDING
+                            | wgpu::TextureUsages::COPY_SRC,
+                        ..effect_texture_descriptor
+                    };
+                    let texture_a = self.shared.device.create_texture(&descriptor);
+                    let texture_b = self.shared.device.create_texture(&descriptor);
+                    let view_a = texture_a.create_view(&Default::default());
+                    let view_b = texture_b.create_view(&Default::default());
+                    let mut inputs = Vec::with_capacity(4);
+                    for sample_view in [&effect_view_a, &effect_view_b] {
+                        for accumulation_view in [&view_a, &view_b] {
+                            inputs.push(self.shared.device.create_bind_group(
+                                &wgpu::BindGroupDescriptor {
+                                    label: Some("zerium-temporal-input"),
+                                    layout: &self.shared.temporal_bind_group_layout,
+                                    entries: &[
+                                        wgpu::BindGroupEntry {
+                                            binding: 0,
+                                            resource: wgpu::BindingResource::TextureView(
+                                                sample_view,
+                                            ),
+                                        },
+                                        wgpu::BindGroupEntry {
+                                            binding: 1,
+                                            resource: wgpu::BindingResource::TextureView(
+                                                accumulation_view,
+                                            ),
+                                        },
+                                        wgpu::BindGroupEntry {
+                                            binding: 2,
+                                            resource: wgpu::BindingResource::Sampler(
+                                                &self.shared.sampler,
+                                            ),
+                                        },
+                                        wgpu::BindGroupEntry {
+                                            binding: 3,
+                                            resource: wgpu::BindingResource::Buffer(
+                                                wgpu::BufferBinding {
+                                                    buffer: &effect_instance_buffer,
+                                                    offset: 0,
+                                                    size: NonZeroU64::new(
+                                                        size_of::<GpuEffect>() as u64
+                                                    ),
+                                                },
+                                            ),
+                                        },
+                                        wgpu::BindGroupEntry {
+                                            binding: 4,
+                                            resource: effect_property_buffer.as_entire_binding(),
+                                        },
+                                    ],
                                 },
-                                wgpu::BindGroupEntry {
-                                    binding: 1,
-                                    resource: wgpu::BindingResource::TextureView(accumulation_view),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 2,
-                                    resource: wgpu::BindingResource::Sampler(&self.sampler),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 3,
-                                    resource: wgpu::BindingResource::Buffer(wgpu::BufferBinding {
-                                        buffer: &effect_instance_buffer,
-                                        offset: 0,
-                                        size: NonZeroU64::new(size_of::<GpuEffect>() as u64),
-                                    }),
-                                },
-                                wgpu::BindGroupEntry {
-                                    binding: 4,
-                                    resource: effect_property_buffer.as_entire_binding(),
-                                },
-                            ],
-                        }));
+                            ));
+                        }
                     }
-                }
-                TemporalRenderResource {
-                    _texture_a: texture_a,
-                    _texture_b: texture_b,
-                    view_a,
-                    view_b,
-                    inputs,
-                }
-            })
-            .collect();
+                    TemporalRenderResource {
+                        _texture_a: texture_a,
+                        _texture_b: texture_b,
+                        view_a,
+                        view_b,
+                        inputs,
+                    }
+                })
+                .collect();
         let cached_nodes = (0..shared_node_count)
             .map(|_| {
                 let descriptor = wgpu::TextureDescriptor {
@@ -348,7 +549,7 @@ impl FrameRenderer {
                         | wgpu::TextureUsages::COPY_SRC,
                     ..effect_texture_descriptor
                 };
-                let texture = self.device.create_texture(&descriptor);
+                let texture = self.shared.device.create_texture(&descriptor);
                 let view = texture.create_view(&Default::default());
                 RenderTarget {
                     _texture: texture,
@@ -409,7 +610,7 @@ impl FrameRenderer {
         }
         if let Some(item) = render_items.iter().find(|item| {
             matches!(item.source, RenderItemSource::Shader)
-                && !self.pipelines.contains_key(&item.shader)
+                && !self.shared.pipelines.contains_key(&item.shader)
         }) {
             return Err(RenderError::backend(format!(
                 "item shader '{}' is not registered",
@@ -418,12 +619,14 @@ impl FrameRenderer {
         }
         for pass in render_effects.iter().flat_map(|effect| &effect.passes) {
             let registered = match &pass.kind {
-                RenderEffectPassKind::Render => self.effect_pipelines.contains_key(&pass.shader),
+                RenderEffectPassKind::Render => {
+                    self.shared.effect_pipelines.contains_key(&pass.shader)
+                }
                 RenderEffectPassKind::Compute(_) => {
-                    self.compute_pipelines.contains_key(&pass.shader)
+                    self.shared.compute_pipelines.contains_key(&pass.shader)
                 }
                 RenderEffectPassKind::Temporal(_) => {
-                    self.temporal_pipelines.contains_key(&pass.shader)
+                    self.shared.temporal_pipelines.contains_key(&pass.shader)
                 }
             };
             if !registered {
@@ -435,14 +638,14 @@ impl FrameRenderer {
         }
         if let Some(item) = render_items.iter().find(|item| {
             matches!(item.source, RenderItemSource::Texture(_))
-                && !self.texture_pipelines.contains_key(&item.shader)
+                && !self.shared.texture_pipelines.contains_key(&item.shader)
         }) {
             return Err(RenderError::backend(format!(
                 "texture item shader '{}' is not registered",
                 item.shader
             )));
         }
-        let limits = self.device.limits();
+        let limits = self.shared.device.limits();
         if scene.effect_size.width > limits.max_texture_dimension_2d
             || scene.effect_size.height > limits.max_texture_dimension_2d
         {
@@ -533,6 +736,7 @@ impl FrameRenderer {
         let mut resources = Vec::with_capacity(textures.len());
         for encoded in textures {
             let pipeline = self
+                .shared
                 .texture_pipelines
                 .get(&encoded.shader)
                 .ok_or_else(|| RenderError::backend("texture shader is not registered"))?;
@@ -607,19 +811,19 @@ impl FrameRenderer {
                 None => ScratchTextureBuffers {
                     input_count,
                     property_size: item_property_size,
-                    input_properties: self.device.create_buffer(&wgpu::BufferDescriptor {
+                    input_properties: self.shared.device.create_buffer(&wgpu::BufferDescriptor {
                         label: Some("zerium-texture-input-properties"),
                         size: ((input_count + 1) * size_of::<GpuTextureInput>()) as u64,
                         usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
                         mapped_at_creation: false,
                     }),
-                    item_properties: self.device.create_buffer(&wgpu::BufferDescriptor {
+                    item_properties: self.shared.device.create_buffer(&wgpu::BufferDescriptor {
                         label: Some("zerium-texture-item-properties"),
                         size: item_property_size as u64,
                         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                         mapped_at_creation: false,
                     }),
-                    item: self.device.create_buffer(&wgpu::BufferDescriptor {
+                    item: self.shared.device.create_buffer(&wgpu::BufferDescriptor {
                         label: Some("zerium-texture-item"),
                         size: size_of::<GpuItem>() as u64,
                         usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
@@ -630,13 +834,17 @@ impl FrameRenderer {
             let input_properties = scratch.input_properties;
             let item_properties = scratch.item_properties;
             let item = scratch.item;
-            self.queue
-                .write_buffer(&input_properties, 0, bytemuck::cast_slice(&input_metadata));
+            self.shared.queue.write_buffer(
+                &input_properties,
+                0,
+                bytemuck::cast_slice(&input_metadata),
+            );
             if !encoded.properties.is_empty() {
-                self.queue
+                self.shared
+                    .queue
                     .write_buffer(&item_properties, 0, &encoded.properties);
             }
-            self.queue.write_buffer(
+            self.shared.queue.write_buffer(
                 &item,
                 0,
                 bytemuck::bytes_of(&GpuItem {
@@ -683,22 +891,24 @@ impl FrameRenderer {
             let binding = {
                 bind_entries.push(wgpu::BindGroupEntry {
                     binding: sampler_binding,
-                    resource: wgpu::BindingResource::Sampler(&self.sampler),
+                    resource: wgpu::BindingResource::Sampler(&self.shared.sampler),
                 });
                 bind_entries.push(wgpu::BindGroupEntry {
                     binding: sampler_binding + 1,
                     resource: input_properties.as_entire_binding(),
                 });
-                self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                    label: Some("zerium-texture-item-bind-group"),
-                    layout: &pipeline.bind_group_layout,
-                    entries: &bind_entries,
-                })
+                self.shared
+                    .device
+                    .create_bind_group(&wgpu::BindGroupDescriptor {
+                        label: Some("zerium-texture-item-bind-group"),
+                        layout: &pipeline.bind_group_layout,
+                        entries: &bind_entries,
+                    })
             };
             let frame = frames
                 .first()
                 .ok_or_else(|| RenderError::backend("capability texture has no frame"))?;
-            let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+            let texture = self.shared.device.create_texture(&wgpu::TextureDescriptor {
                 label: Some("zerium-capability-frame-target"),
                 size: Self::video_frame_extent(frame)?,
                 mip_level_count: 1,
@@ -709,7 +919,7 @@ impl FrameRenderer {
                     | wgpu::TextureUsages::TEXTURE_BINDING,
                 view_formats: &[],
             });
-            let frame_target = FrameTextureTarget {
+            let frame_target = RenderTarget {
                 view: texture.create_view(&Default::default()),
                 _texture: texture,
             };
@@ -748,7 +958,7 @@ impl FrameRenderer {
         frame: Arc<RgbaFrame>,
     ) -> Result<Arc<UploadedVideoFrame>, RenderError> {
         let extent = Self::video_frame_extent(&frame)?;
-        let texture = self.device.create_texture(&wgpu::TextureDescriptor {
+        let texture = self.shared.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("zerium-video-frame-texture"),
             size: extent,
             mip_level_count: 1,
@@ -797,7 +1007,7 @@ impl FrameRenderer {
         frame: &RgbaFrame,
         extent: wgpu::Extent3d,
     ) {
-        self.queue.write_texture(
+        self.shared.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture,
                 mip_level: 0,

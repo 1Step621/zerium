@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
-use super::{CompiledPluginShaders, FrameRenderer, RenderError, RendererBuilder, RendererDevice};
+use super::{FrameRenderer, RenderError, RendererBuilder, RendererDevice};
+use zerium_shader::CompiledPluginShaders;
 
 /// Shared rendering resources used by preview and export.
 pub(crate) struct RenderRuntime {

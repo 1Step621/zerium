@@ -3,9 +3,9 @@ use std::collections::HashSet;
 
 use serde::Deserialize;
 
-use super::validation::{validate_origin_property, validate_property_reference};
+use super::validation::{PropertyReferences, is_f32_pair};
 use super::{PluginError, TimeMappingProperties};
-use crate::property::{PropertySchema, PropertyType, PropertyValueType, ScalarPropertyType};
+use crate::property::{PropertySchema, PropertyType, ScalarPropertyType};
 
 /// One editor feature; each declaration owns all references it consumes.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -96,36 +96,19 @@ impl EditorCapability {
             )));
         }
         let context = format!("{owner} '{id}' editor {}", self.kind());
-        let check = |property_id: &str, expected: &str, valid: &dyn Fn(&PropertySchema) -> bool| {
-            validate_property_reference(&context, properties, property_id, expected, valid)
-        };
-        let pair = |ty: &PropertyValueType| matches!(ty, PropertyValueType::Tuple(tuple) if tuple.scalars() == [ScalarPropertyType::F32, ScalarPropertyType::F32]);
-        let tuple = |id: &str| {
-            check(
-                id,
-                "a tuple of two f32 values",
-                &|property| matches!(property.ty(), PropertyType::Value(ty) if pair(ty)),
-            )
-        };
+        let references = PropertyReferences::new(&context, properties);
         let check_origin = |id: &Option<String>| {
-            id.as_deref().map_or(Ok(()), |id| {
-                validate_origin_property(&context, properties, id)
-            })
+            id.as_deref()
+                .map_or(Ok(()), |id| references.origin(id).map(|_| ()))
         };
         let points = |property: &str, position: &str, size: &str| {
-            check(
+            references.check(
                 property,
                 "an array of two-f32 tuples",
-                &|property| matches!(property.ty(), PropertyType::Array { element_type, .. } if pair(element_type)),
+                |property| matches!(property.ty(), PropertyType::Array { element_type, .. } if is_f32_pair(element_type)),
             )?;
-            tuple(position)?;
-            tuple(size)
-        };
-        let scalar = |id: &str, scalar_type: ScalarPropertyType| {
-            check(id, &format!("a {scalar_type:?} value"), &|property| {
-                property.ty()
-                    == &PropertyType::Value(PropertyValueType::Scalar(scalar_type.clone()))
-            })
+            references.pair(position)?;
+            references.pair(size).map(|_| ())
         };
         match self {
             Self::Timeline {
@@ -138,14 +121,16 @@ impl EditorCapability {
                 playback_speed,
             }
             .validate(owner, id, properties),
-            Self::Position { property } | Self::AspectLock { property, .. } => tuple(property),
+            Self::Position { property } | Self::AspectLock { property, .. } => {
+                references.pair(property).map(|_| ())
+            }
             Self::Size {
                 property,
                 position,
                 origin,
             } => {
-                tuple(property)?;
-                tuple(position)?;
+                references.pair(property)?;
+                references.pair(position)?;
                 check_origin(origin)
             }
             Self::Points {
@@ -167,10 +152,14 @@ impl EditorCapability {
             } => {
                 points(property, position, size)?;
                 check_origin(origin)?;
-                scalar(tension, ScalarPropertyType::F32)?;
-                scalar(closed, ScalarPropertyType::Bool)
+                references.scalar(tension, ScalarPropertyType::F32)?;
+                references
+                    .scalar(closed, ScalarPropertyType::Bool)
+                    .map(|_| ())
             }
-            Self::Label { property } => scalar(property, ScalarPropertyType::String),
+            Self::Label { property } => references
+                .scalar(property, ScalarPropertyType::String)
+                .map(|_| ()),
         }
     }
 }

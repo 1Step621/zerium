@@ -2,7 +2,7 @@
 
 use serde::{Deserialize, Serialize};
 use std::{
-    collections::{BTreeMap, HashSet},
+    collections::{BTreeMap, HashSet, btree_map::Entry},
     path::{Path, PathBuf},
     time::{Duration, SystemTime},
 };
@@ -56,13 +56,15 @@ impl ProbedFile {
             })
     }
 
-    pub fn asset(&self, reader: &str, target: MediaTarget) -> Option<MediaAsset> {
-        let metadata = self
-            .media
+    /// Returns a reader's probe result, including successful probes with no stream.
+    pub fn reading(&self, reader: &str, target: MediaTarget) -> Option<&FileMediaMetadata> {
+        self.media
             .iter()
-            .find(|reading| reading.reader == reader && reading.target == target)?
-            .metadata
-            .as_ref()?;
+            .find(|reading| reading.reader == reader && reading.target == target)
+    }
+
+    pub fn asset(&self, reader: &str, target: MediaTarget) -> Option<MediaAsset> {
+        let metadata = self.reading(reader, target)?.metadata.as_ref()?;
         Some(MediaAsset {
             path: self.path.clone(),
             revision: self.revision,
@@ -91,18 +93,6 @@ impl MediaMetadataCache {
         self.0.get(path)
     }
 
-    pub fn revision(&self, path: &Path) -> Option<FileRevision> {
-        self.0.get(path)?.revision
-    }
-
-    pub fn has_reading(&self, path: &Path, reader: &str, target: MediaTarget) -> bool {
-        self.0.get(path).is_some_and(|file| {
-            file.media
-                .iter()
-                .any(|reading| reading.reader == reader && reading.target == target)
-        })
-    }
-
     pub fn asset(&self, path: &Path, reader: &str, target: MediaTarget) -> Option<MediaAsset> {
         self.0.get(path)?.asset(reader, target)
     }
@@ -112,17 +102,17 @@ impl MediaMetadataCache {
             return false;
         }
         let current = match self.0.entry(file.path.clone()) {
-            std::collections::btree_map::Entry::Vacant(entry) => {
+            Entry::Vacant(entry) => {
                 entry.insert(file.clone());
                 return true;
             }
-            std::collections::btree_map::Entry::Occupied(entry) => entry.into_mut(),
+            Entry::Occupied(entry) => entry.into_mut(),
         };
-        let mut changed = current.revision != file.revision;
-        if changed {
-            current.revision = file.revision;
-            current.media.clear();
+        if current.revision != file.revision {
+            *current = file.clone();
+            return true;
         }
+        let mut changed = false;
         for reading in &file.media {
             if let Some(previous) = current.media.iter_mut().find(|previous| {
                 previous.reader == reading.reader && previous.target == reading.target
@@ -144,21 +134,24 @@ impl MediaMetadataCache {
     }
 
     pub fn record_missing(&mut self, file: &ProbedFile) -> bool {
-        // Clipboard metadata cannot replace a newer observation from this project.
-        if self.0.contains_key(&file.path) && self.revision(&file.path) != file.revision {
+        if !file.is_valid() {
             return false;
         }
-        let file = ProbedFile {
-            path: file.path.clone(),
-            revision: file.revision,
-            media: file
-                .media
-                .iter()
-                .filter(|reading| !self.has_reading(&file.path, &reading.reader, reading.target))
-                .cloned()
-                .collect(),
+        let Some(current) = self.0.get_mut(&file.path) else {
+            self.0.insert(file.path.clone(), file.clone());
+            return true;
         };
-        self.record(&file)
+        // Clipboard metadata cannot replace a newer observation from this project.
+        if current.revision != file.revision {
+            return false;
+        }
+        let previous = current.media.len();
+        for reading in &file.media {
+            if current.reading(&reading.reader, reading.target).is_none() {
+                current.media.push(reading.clone());
+            }
+        }
+        previous != current.media.len()
     }
 
     pub(crate) fn retained_paths<'a>(&self, paths: impl Iterator<Item = &'a Path>) -> Self {

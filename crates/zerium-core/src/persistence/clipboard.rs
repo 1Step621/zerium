@@ -1,6 +1,9 @@
 //! Timeline clipboard encoding using the same checked item representation as project files.
-use super::ProjectError;
-use super::project::{ProjectItem, load_items, validate_no_overlaps};
+use super::{
+    ProjectError,
+    items::{ProjectItem, load_items},
+    paths::item_files,
+};
 use crate::timeline::{
     LayerId, ProjectId, SceneBindingTarget, SceneId, TimelineEditor, TimelineItem,
 };
@@ -56,15 +59,9 @@ pub fn encode_timeline_clipboard(
             .map(|(layer, item)| ProjectItem::capture(item, *layer, Path::new("")))
             .collect(),
         scene_bindings,
-        media_cache: editor.media_cache().retained_paths(
-            items
-                .iter()
-                .flat_map(|(_, item)| {
-                    std::iter::once(&item.properties)
-                        .chain(item.effects.iter().map(|effect| &effect.properties))
-                })
-                .flat_map(|properties| properties.files().map(|(_, path)| path)),
-        ),
+        media_cache: editor
+            .media_cache()
+            .retained_paths(items.iter().flat_map(|(_, item)| item_files(item))),
     };
     serde_json::to_string(&file).map_err(|error| {
         ProjectError::encode(
@@ -119,25 +116,22 @@ pub fn decode_timeline_clipboard(
         &mut effect_ids,
         editor.plugin_registry(),
     )?;
-    validate_no_overlaps(&items)?;
     let item_ids = items
         .iter()
         .map(|(_, item)| item.id)
         .collect::<HashSet<_>>();
-    let mut scene_bindings = Vec::with_capacity(file.scene_bindings.len());
-    for (argument_id, binding) in file.scene_bindings {
+    for (_, binding) in &file.scene_bindings {
         if !item_ids.contains(&binding.item_id()) {
             return Err(ProjectError::invalid_data(
                 "Copied scene argument binding target was not found",
             ));
         }
-        scene_bindings.push((argument_id, binding));
     }
     Ok(DecodedTimelineClipboard {
         media_cache: file.media_cache,
         source_scene,
         items,
-        scene_bindings,
+        scene_bindings: file.scene_bindings,
     })
 }
 

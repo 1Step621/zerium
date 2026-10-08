@@ -5,7 +5,8 @@ use std::{
 };
 
 use crate::{
-    ShaderContract, ShaderError, capability_input, shader_contract_fingerprint, shader_contracts,
+    ShaderContract, ShaderError, capability_input, plugin_directory, shader_contract_fingerprint,
+    shader_contracts,
 };
 use zerium_core::plugin::{PluginManifest, ShaderKind};
 
@@ -16,59 +17,46 @@ const MANIFEST_FINGERPRINT: &str = "manifest.fingerprint";
 const UTIL_INTERFACE: &str = include_str!("wesl/util.wesl");
 
 pub fn generate(path: Option<&Path>) -> Result<PathBuf, ShaderError> {
-    generate_directory(path).map_err(ShaderError::backend)
-}
-
-fn generate_directory(path: Option<&Path>) -> Result<PathBuf, String> {
-    let root = path
-        .map(Path::to_owned)
-        .unwrap_or(std::env::current_dir().map_err(|error| error.to_string())?);
-    let root = root.canonicalize().map_err(|error| {
-        format!(
-            "cannot access plugin directory '{}': {error}",
-            root.display()
-        )
-    })?;
+    let root = plugin_directory(path)?;
     let manifest_path = root.join("plugin.json");
     let manifest_source = fs::read_to_string(&manifest_path)
-        .map_err(|error| format!("cannot read '{}': {error}", manifest_path.display()))?;
-    let manifest =
-        PluginManifest::from_json(&manifest_source).map_err(|error| error.to_string())?;
+        .map_err(|error| ShaderError::io("read", &manifest_path, error))?;
+    let manifest = PluginManifest::from_json(&manifest_source)?;
     for module in manifest.shader_modules() {
-        fs::read_to_string(root.join(format!("{module}.wesl")))
-            .map_err(|error| format!("shader module '{module}' could not be read: {error}"))?;
+        fs::read_to_string(root.join(format!("{module}.wesl"))).map_err(|error| {
+            ShaderError::backend(format!(
+                "shader module '{module}' could not be read: {error}"
+            ))
+        })?;
     }
 
-    let contracts = shader_contracts(&manifest).map_err(|error| error.to_string())?;
+    let contracts = shader_contracts(&manifest)?;
 
     let staging = root.join(format!(".{GENERATED_DIR}.tmp-{}", std::process::id()));
     if staging.exists() {
-        fs::remove_dir_all(&staging)
-            .map_err(|error| format!("cannot clear '{}': {error}", staging.display()))?;
+        fs::remove_dir_all(&staging).map_err(|error| ShaderError::io("clear", &staging, error))?;
     }
-    fs::create_dir(&staging)
-        .map_err(|error| format!("cannot create '{}': {error}", staging.display()))?;
-    let result = write_generated(&staging, &contracts);
+    fs::create_dir(&staging).map_err(|error| ShaderError::io("create", &staging, error))?;
+    let result =
+        write_generated(&staging, &contracts).and_then(|()| install_generated(&root, &staging));
     if let Err(error) = result {
         let _ = fs::remove_dir_all(&staging);
         return Err(error);
     }
-    install_generated(&root, &staging)?;
     Ok(root.join(GENERATED_DIR))
 }
 
 fn write_generated(
     generated: &Path,
     contracts: &BTreeMap<String, ShaderContract>,
-) -> Result<(), String> {
+) -> Result<(), ShaderError> {
     write(
         generated,
         MANIFEST_FINGERPRINT,
-        &shader_contract_fingerprint(contracts).map_err(|error| error.to_string())?,
+        &shader_contract_fingerprint(contracts)?,
     )?;
     let host = generated.join("host");
-    fs::create_dir(&host)
-        .map_err(|error| format!("cannot create '{}': {error}", host.display()))?;
+    fs::create_dir(&host).map_err(|error| ShaderError::io("create", &host, error))?;
     write(&host, "util.wesl", UTIL_INTERFACE)?;
     write(&host, "_context.wesl", include_str!("wesl/_context.wesl"))?;
     for kind in ShaderKind::ALL {
@@ -84,48 +72,36 @@ fn write_generated(
         )?;
     }
     for (module, contract) in contracts {
-        let property_interface = property::interface(&contract.properties, contract.kind);
-        let host = if contract.properties.is_empty() {
-            String::new()
-        } else {
-            format!(
-                "import package::generated::host::_props::{{{}}};\n\n",
-                property_imports(contract.kind)
-            )
-        };
-        let source = host + &property_interface + "\n" + &capability_interface(&contract.input_ids);
+        let source = property::interface(&contract.properties, contract.kind)
+            + "\n"
+            + &capability_interface(&contract.input_ids);
         write(generated, &format!("{module}.wesl"), &source)?;
     }
     Ok(())
 }
 
-fn install_generated(root: &Path, staging: &Path) -> Result<(), String> {
+fn install_generated(root: &Path, staging: &Path) -> Result<(), ShaderError> {
     let generated = root.join(GENERATED_DIR);
     let backup = root.join(format!(".{GENERATED_DIR}.old-{}", std::process::id()));
     if backup.exists() {
-        fs::remove_dir_all(&backup)
-            .map_err(|error| format!("cannot clear '{}': {error}", backup.display()))?;
+        fs::remove_dir_all(&backup).map_err(|error| ShaderError::io("clear", &backup, error))?;
     }
     if generated.exists() {
-        fs::rename(&generated, &backup).map_err(|error| {
-            format!(
-                "cannot prepare generated directory '{}': {error}",
-                generated.display()
-            )
-        })?;
+        fs::rename(&generated, &backup)
+            .map_err(|error| ShaderError::io("prepare generated directory", &generated, error))?;
     }
     if let Err(error) = fs::rename(staging, &generated) {
         if backup.exists() {
             let _ = fs::rename(&backup, &generated);
         }
-        return Err(format!(
-            "cannot install generated directory '{}': {error}",
-            generated.display()
+        return Err(ShaderError::io(
+            "install generated directory",
+            &generated,
+            error,
         ));
     }
     if backup.exists() {
-        fs::remove_dir_all(&backup)
-            .map_err(|error| format!("cannot remove '{}': {error}", backup.display()))?;
+        fs::remove_dir_all(&backup).map_err(|error| ShaderError::io("remove", &backup, error))?;
     }
     Ok(())
 }
@@ -147,9 +123,10 @@ fn capability_interface(input_ids: &[String]) -> String {
     source
 }
 
-fn write(generated: &Path, name: &str, source: &str) -> Result<(), String> {
-    fs::write(generated.join(name), format!("{}\n", source.trim_end()))
-        .map_err(|error| format!("cannot write '{}': {error}", generated.join(name).display()))
+fn write(generated: &Path, name: &str, source: &str) -> Result<(), ShaderError> {
+    let path = generated.join(name);
+    fs::write(&path, format!("{}\n", source.trim_end()))
+        .map_err(|error| ShaderError::io("write", &path, error))
 }
 
 fn host_interface(kind: ShaderKind) -> &'static str {
@@ -169,13 +146,4 @@ fn internal_interface(kind: ShaderKind) -> String {
         ShaderKind::Temporal => include_str!("wesl/_temporal.wesl"),
     };
     format!("{kind_source}\n{}", include_str!("wesl/raw_props.wesl"))
-}
-
-const fn property_imports(kind: ShaderKind) -> &'static str {
-    match kind {
-        ShaderKind::Item => "ZeriumRawProps, item_props, read_u32, read_i32, read_f32, read_bool",
-        ShaderKind::Effect | ShaderKind::Compute | ShaderKind::Temporal => {
-            "ZeriumRawProps, effect_props, read_u32, read_i32, read_f32, read_bool"
-        }
-    }
 }

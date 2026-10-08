@@ -331,8 +331,6 @@ impl PropertyInspector {
 
     fn array_edit_button(
         group: &ElementGroup,
-        item_id: ItemId,
-        element_index: usize,
         disabled: bool,
         edit: ArrayEdit,
         ctx: &RenderCtx,
@@ -347,26 +345,22 @@ impl PropertyInspector {
             ArrayEdit::Remove(_) => ("remove", IconName::Delete, t!("rows.remove").to_string()),
         };
         let editor = ctx.editor.clone();
-        let address = group.target.address(item_id);
-        let property_id = group.target.property_id.clone();
-        Button::new(SharedString::from(format!(
-            "array-{}-{}-{element_index}-{suffix}",
-            item_id.get(),
-            property_id
-        )))
-        .xsmall()
-        .compact()
-        .ghost()
-        .icon(icon)
-        .tooltip(tooltip)
-        .disabled(disabled)
-        .on_click(move |_, _, cx| {
-            editor.update(cx, |editor, cx| {
-                if Self::edit_array(editor, &address, edit) {
-                    cx.notify();
-                }
-            });
-        })
+        let address = group.target.address(ctx.item_id);
+        let key = group.target.key.scalar(Some(edit.element_id()), None);
+        Button::new(SharedString::from(format!("array-{key}-{suffix}")))
+            .xsmall()
+            .compact()
+            .ghost()
+            .icon(icon)
+            .tooltip(tooltip)
+            .disabled(disabled)
+            .on_click(move |_, _, cx| {
+                editor.update(cx, |editor, cx| {
+                    if Self::edit_array(editor, &address, edit) {
+                        cx.notify();
+                    }
+                });
+            })
     }
 
     pub(super) fn elements_section(
@@ -388,6 +382,7 @@ impl PropertyInspector {
         let rows_have_scene_binding = group.has_scene_binding;
         let mut rows = div().w_full().min_w_0().flex().flex_col().gap_1();
         for (element_index, row) in group.elements.iter().enumerate() {
+            let key = group.target.key.scalar(Some(row.element_id()), None);
             let row_controls = match children.get(element_index) {
                 Some(Control::Group { children, .. }) => children.as_slice(),
                 _ => &[],
@@ -406,10 +401,7 @@ impl PropertyInspector {
                 Self::scene_binding_button(
                     binding,
                     &ctx.inspector,
-                    SharedString::from(format!(
-                        "bind-scene-array-{}-{element_index}",
-                        group.target.property_id
-                    )),
+                    SharedString::from(format!("bind-scene-array-{key}")),
                 )
             });
             let mut row_has_binding = is_scene_bound;
@@ -425,7 +417,7 @@ impl PropertyInspector {
                     let row = if rows_are_tuples {
                         Self::scalar_compact_row(control, ctx)
                     } else {
-                        Self::element_scalar(control, group, element_index, ctx)
+                        Self::element_scalar(control, ctx)
                     };
                     if let Some((row, bound)) = row {
                         row_has_binding |= bound;
@@ -455,56 +447,51 @@ impl PropertyInspector {
                     let mut picker_target = group.target.clone();
                     picker_target.element_id = Some(row.element_id());
                     picker_target.scalar_index = None;
+                    picker_target.key = key.clone();
                     let label = if selected_font.is_empty() {
                         t!("rows.choose_font").to_string()
                     } else {
                         selected_font.clone()
                     };
-                    let mut trigger = Button::new(SharedString::from(format!(
-                        "{}-array-{element_index}-font",
-                        group.target.key
-                    )))
-                    .small()
-                    .outline()
-                    .w_full()
-                    .label(label)
-                    .dropdown_caret(true);
+                    let mut trigger = Button::new(SharedString::from(format!("{key}-font")))
+                        .small()
+                        .outline()
+                        .w_full()
+                        .label(label)
+                        .dropdown_caret(true);
                     let trigger_style = trigger.style().clone();
                     value_rows = value_rows.child(
-                        Popover::new(SharedString::from(format!(
-                            "{}-array-{element_index}-font-picker",
-                            group.target.key
-                        )))
-                        .trigger_style(trigger_style)
-                        .trigger(trigger)
-                        .content(move |window, cx| {
-                            let inspector = picker_inspector.clone();
-                            let target = picker_target.clone();
-                            let entries = font_choices.clone();
-                            cx.new(|cx| {
-                                SearchPicker::new(
-                                    entries,
-                                    t!("rows.search_font").to_string(),
-                                    move |font, _, cx| {
-                                        inspector.update(cx, |inspector, cx| {
-                                            if inspector
-                                                .inspector_item_at_playhead(cx)
-                                                .is_some_and(|item| item.id == item_id)
-                                                && inspector.set_scalar(
-                                                    &target,
-                                                    PropertyValue::String(font),
-                                                    cx,
-                                                )
-                                            {
-                                                cx.notify();
-                                            }
-                                        });
-                                    },
-                                    window,
-                                    cx,
-                                )
-                            })
-                        }),
+                        Popover::new(SharedString::from(format!("{key}-font-picker")))
+                            .trigger_style(trigger_style)
+                            .trigger(trigger)
+                            .content(move |window, cx| {
+                                let inspector = picker_inspector.clone();
+                                let target = picker_target.clone();
+                                let entries = font_choices.clone();
+                                cx.new(|cx| {
+                                    SearchPicker::new(
+                                        entries,
+                                        t!("rows.search_font").to_string(),
+                                        move |font, _, cx| {
+                                            inspector.update(cx, |inspector, cx| {
+                                                if inspector
+                                                    .inspector_item_at_playhead(cx)
+                                                    .is_some_and(|item| item.id == item_id)
+                                                    && inspector.set_scalar(
+                                                        &target,
+                                                        PropertyValue::String(font),
+                                                        cx,
+                                                    )
+                                                {
+                                                    cx.notify();
+                                                }
+                                            });
+                                        },
+                                        window,
+                                        cx,
+                                    )
+                                })
+                            }),
                     );
                 }
             }
@@ -512,24 +499,18 @@ impl PropertyInspector {
             let element_id = row.element_id();
             let move_up_button = Self::array_edit_button(
                 group,
-                item_id,
-                element_index,
                 element_index == 0 || rows_have_scene_binding,
                 ArrayEdit::MoveUp(element_id),
                 ctx,
             );
             let move_down_button = Self::array_edit_button(
                 group,
-                item_id,
-                element_index,
                 element_index + 1 == group.elements.len() || rows_have_scene_binding,
                 ArrayEdit::MoveDown(element_id),
                 ctx,
             );
             let remove_button = Self::array_edit_button(
                 group,
-                item_id,
-                element_index,
                 group.elements.len() <= group.min_items as usize
                     || row_has_binding
                     || rows_have_scene_binding,
@@ -596,9 +577,8 @@ impl PropertyInspector {
             .expect("array properties declare append_default")
             .clone();
         let add_control = Button::new(SharedString::from(format!(
-            "array-{}-{}-add",
-            item_id.get(),
-            group.target.property_id
+            "array-{}-add",
+            group.target.key
         )))
         .xsmall()
         .w_full()
@@ -643,12 +623,7 @@ impl PropertyInspector {
     /// Array element scalar rendering. Tuple components go through the
     /// shared compact rows; plain scalars keep the array element layout.
     /// Returns each row with whether its scene argument is connected.
-    fn element_scalar(
-        control: &Control,
-        group: &ElementGroup,
-        element_index: usize,
-        ctx: &RenderCtx,
-    ) -> Option<(gpui::AnyElement, bool)> {
+    fn element_scalar(control: &Control, ctx: &RenderCtx) -> Option<(gpui::AnyElement, bool)> {
         match control {
             Control::Number(number) if number.common.target.scalar_index.is_some() => {
                 let input = ctx.store.text(&number.common.id)?;
@@ -659,7 +634,7 @@ impl PropertyInspector {
                     ctx,
                 ))
             }
-            Control::Number(number) => Self::element_number(number, group, element_index, ctx),
+            Control::Number(number) => Self::element_number(number, ctx),
             Control::Color(color) => {
                 let picker = ctx.store.color(&color.id)?;
                 let bound = color
@@ -688,15 +663,9 @@ impl PropertyInspector {
         }
     }
 
-    fn element_number(
-        number: &NumberControl,
-        group: &ElementGroup,
-        element_index: usize,
-        ctx: &RenderCtx,
-    ) -> Option<(gpui::AnyElement, bool)> {
+    fn element_number(number: &NumberControl, ctx: &RenderCtx) -> Option<(gpui::AnyElement, bool)> {
         let common = &number.common;
         let spec = &number.spec;
-        let component = common.target.scalar_index;
         let input = ctx.store.text(&common.id)?;
         let animation_enabled = common.animation_enabled;
         let binding = common.binding.clone();
@@ -707,10 +676,7 @@ impl PropertyInspector {
             Self::scene_binding_button(
                 binding,
                 &ctx.inspector,
-                SharedString::from(format!(
-                    "bind-scene-array-{}-{element_index}-{component:?}",
-                    group.target.property_id
-                )),
+                SharedString::from(format!("bind-scene-array-{}", common.target.key)),
             )
         });
         let value_input = Self::number_editor(common, spec, &input, common.read_only, ctx);

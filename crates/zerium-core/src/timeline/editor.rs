@@ -1,11 +1,4 @@
-use std::{
-    collections::HashMap,
-    sync::{
-        Arc,
-        atomic::{AtomicU64, Ordering},
-    },
-    time::{Duration, SystemTime, UNIX_EPOCH},
-};
+use std::{collections::HashMap, sync::Arc, time::Duration};
 
 use crate::{
     plugin::PluginRegistry,
@@ -13,13 +6,13 @@ use crate::{
 };
 
 use super::{
-    document::{ResizeEdge, ResizeMode, TimelineDocument},
+    document::TimelineDocument,
     evaluation::{evaluated_items_at_time, visible_items},
-    history::EditHistory,
+    history::{EditHistory, HistoryKey, HistorySnapshot, ScopedHistoryKey},
     ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId},
     item::TimelineItem,
     project::TimelineProject,
-    property_address::{PropertyAddress, property_schemas, resolve_property_schema},
+    property_address::{property_schemas, resolve_property_schema},
     scene::SceneDefinition,
     selection::{EditScope, SelectionState},
     settings::{ProjectResolution, ProjectSettingsError},
@@ -30,47 +23,6 @@ use super::{
 
 const HISTORY_LIMIT: usize = 100;
 const HISTORY_COALESCE_INTERVAL: Duration = Duration::from_millis(750);
-
-fn new_project_id() -> ProjectId {
-    static COUNTER: AtomicU64 = AtomicU64::new(1);
-    let timestamp = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let high = (timestamp >> 64) as u64;
-    let low = timestamp as u64
-        ^ u64::from(std::process::id()).rotate_left(32)
-        ^ COUNTER.fetch_add(1, Ordering::Relaxed).rotate_left(17);
-    ProjectId::from_parts(high, low).expect("generated project identity must be non-zero")
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(super) enum HistoryKey {
-    ItemCreation(ItemId),
-    Property(Vec<(ItemId, Option<EffectInstanceId>)>, String),
-    AspectRatioLock(Vec<(ItemId, Option<EffectInstanceId>)>),
-    AnimationStopValue(Vec<PropertyAddress>, TimelineTime),
-    AnimationRepeat(PropertyAddress),
-    AnimationGesture(u64),
-    ItemResize(ItemId, ResizeEdge, ResizeMode),
-    ItemsResize(Vec<ItemId>, ResizeEdge, ResizeMode),
-    ItemMove(ItemId),
-    ItemsMove(Vec<ItemId>),
-    SceneName(SceneId),
-    SceneArgumentLabel(SceneId, String),
-    SceneArgumentSettings(SceneId, String),
-}
-
-#[derive(Clone)]
-pub(super) struct HistorySnapshot {
-    project: Arc<TimelineProject>,
-    scene_path: Vec<SceneId>,
-    playhead: Frame,
-    selection: SelectionState,
-    project_revision: u64,
-}
-
-pub(super) type ScopedHistoryKey = (Option<SceneId>, HistoryKey);
 
 /// Coordinates timeline documents, editor session state, history, and commands.
 ///
@@ -125,7 +77,7 @@ impl TimelineEditor {
         Self {
             plugins,
             project: Arc::new(TimelineProject {
-                id: new_project_id(),
+                id: ProjectId::generate(),
                 document,
                 scenes: HashMap::new(),
                 resolution,
@@ -269,26 +221,13 @@ impl TimelineEditor {
         resolution: ProjectResolution,
         playhead: Frame,
     ) {
-        {
-            let project = self.project_mut();
-            project.id = new_project_id();
-            project.document = document;
-            project.resolution = resolution;
-            project.scenes.clear();
-        }
-        self.media_cache = Arc::default();
-        self.scene_path.clear();
-        self.next_scene_id = Some(1);
-        self.next_effect_id = Self::next_effect_id(&self.project().document, std::iter::empty());
-        self.playhead = playhead;
-        self.playback_time = None;
-        self.selection.clear();
-        self.active_edit_target = None;
-        self.visibility.clear();
-        self.project_revision = 0;
-        self.next_project_revision = 1;
-        self.history.clear();
-        self.advance_render_revision();
+        self.replace_project(
+            ProjectId::generate(),
+            document,
+            HashMap::new(),
+            resolution,
+            playhead,
+        );
     }
 
     pub fn replace_project(
@@ -299,8 +238,6 @@ impl TimelineEditor {
         resolution: ProjectResolution,
         playhead: Frame,
     ) {
-        self.replace_document(document, resolution, playhead);
-        self.project_mut().id = project_id;
         self.next_scene_id = scenes
             .keys()
             .map(|id| id.get())
@@ -308,9 +245,24 @@ impl TimelineEditor {
             .unwrap_or(0)
             .checked_add(1)
             .filter(|id| *id != u64::MAX);
-        self.project_mut().scenes = scenes;
-        self.next_effect_id =
-            Self::next_effect_id(&self.project().document, self.project().scenes.values());
+        self.next_effect_id = Self::next_effect_id(&document, scenes.values());
+        self.project = Arc::new(TimelineProject {
+            id: project_id,
+            document,
+            scenes,
+            resolution,
+        });
+        self.media_cache = Arc::default();
+        self.scene_path.clear();
+        self.playhead = playhead;
+        self.playback_time = None;
+        self.selection.clear();
+        self.active_edit_target = None;
+        self.visibility.clear();
+        self.project_revision = 0;
+        self.next_project_revision = 1;
+        self.history.clear();
+        self.advance_render_revision();
     }
 
     pub fn media_cache(&self) -> &Arc<crate::media::MediaMetadataCache> {
@@ -530,23 +482,18 @@ impl TimelineEditor {
         if self.selection.current.len() != 1 || !self.selection.current.contains(&item_id) {
             return None;
         }
-        self.active_document()
-            .item(item_id)?
-            .effects
-            .iter()
-            .any(|effect| effect.id == effect_id)
-            .then_some(effect_id)
+        self.item(item_id)?.effect(effect_id)?;
+        Some(effect_id)
     }
 
     pub fn set_active_edit_effect(&mut self, effect_id: Option<EffectInstanceId>) -> bool {
         let next = effect_id.and_then(|effect_id| {
-            let item_id = self.single_selected_item()?.id;
-            self.active_document()
-                .item(item_id)?
-                .effects
-                .iter()
-                .any(|effect| effect.id == effect_id)
-                .then_some((item_id, effect_id))
+            if self.selection.current.len() != 1 {
+                return None;
+            }
+            let item_id = *self.selection.current.iter().next()?;
+            self.item(item_id)?.effect(effect_id)?;
+            Some((item_id, effect_id))
         });
         if self.active_edit_target == next {
             return false;
@@ -631,8 +578,7 @@ impl TimelineEditor {
     }
 
     pub fn items_hidden_state(&self, scope: EditScope) -> Option<bool> {
-        self.visibility
-            .selected_items_hidden_state(&scope.item_ids(self).into_iter().collect())
+        self.visibility.items_hidden_state(scope.item_ids(self))
     }
 
     pub fn is_effect_hidden(&self, effect_id: EffectInstanceId) -> bool {
@@ -645,18 +591,7 @@ impl TimelineEditor {
         effect_id: EffectInstanceId,
         offset: i32,
     ) -> bool {
-        let Some((source_index, effects)) = self.effect_instances(scope, effect_id) else {
-            return false;
-        };
-        let Some(target_index) = source_index.checked_add_signed(offset as isize) else {
-            return false;
-        };
-        effects.iter().all(|(item_id, effect_id)| {
-            self.item(*item_id).is_some_and(|item| {
-                target_index < item.effects.len()
-                    && item.effects.get(source_index).map(|effect| effect.id) == Some(*effect_id)
-            })
-        })
+        self.effect_move_target(scope, effect_id, offset).is_some()
     }
 
     pub fn item_time_ranges(&self) -> impl Iterator<Item = (ItemId, Frame, Frame)> + '_ {
