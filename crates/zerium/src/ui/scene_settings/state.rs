@@ -1,9 +1,5 @@
 use super::*;
-
-pub(super) struct TextState {
-    pub input: Entity<InputState>,
-    pub _subscriptions: Vec<Subscription>,
-}
+use crate::ui::input::{InputControl, set_input_text};
 
 pub(super) struct ColorState {
     pub picker: Entity<ColorPickerState>,
@@ -12,7 +8,7 @@ pub(super) struct ColorState {
 
 #[derive(Default)]
 pub(super) struct SettingsStore {
-    pub text_inputs: HashMap<ControlId, TextState>,
+    pub text_inputs: HashMap<ControlId, InputControl>,
     pub color_pickers: HashMap<ControlId, ColorState>,
     pub number_drag_origin: Option<Rc<NumberDragOrigin>>,
 }
@@ -32,17 +28,6 @@ impl SceneSettings {
             a: color[3],
         }
         .into()
-    }
-
-    pub(super) fn set_input_value(
-        input: &Entity<InputState>,
-        value: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if input.read(cx).value().as_ref() != value {
-            input.update(cx, |input, cx| input.set_value(value, window, cx));
-        }
     }
 
     pub(super) fn sync_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
@@ -106,7 +91,7 @@ impl SceneSettings {
         cx: &mut Context<Self>,
     ) {
         if let Some(input) = self.store.text(&key) {
-            Self::set_input_value(&input, value, window, cx);
+            set_input_text(&input, value, window, cx);
             return;
         }
         let placeholder = match &key {
@@ -149,13 +134,9 @@ impl SceneSettings {
                 },
             ));
         }
-        self.store.text_inputs.insert(
-            key,
-            TextState {
-                input,
-                _subscriptions: subscriptions,
-            },
-        );
+        self.store
+            .text_inputs
+            .insert(key, InputControl::new(input, subscriptions));
     }
 
     fn ensure_color(

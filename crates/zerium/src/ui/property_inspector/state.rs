@@ -1,5 +1,9 @@
 use super::*;
 use crate::ui::property_inspector::control::{AnimationStopControl, Control, ControlTree};
+use crate::ui::{
+    input::{InputControl, set_input_text},
+    number_input::{NumberEdit, subscribe_number_input},
+};
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(super) struct InspectorInputStructure {
@@ -11,11 +15,6 @@ pub(super) struct InspectorInputStructure {
     pub active_scene_arguments: Vec<String>,
 }
 
-pub(super) struct TextState {
-    pub input: Entity<InputState>,
-    pub _subscriptions: Vec<Subscription>,
-}
-
 pub(super) struct ColorState {
     pub picker: Entity<ColorPickerState>,
     pub _subscriptions: Vec<Subscription>,
@@ -23,7 +22,7 @@ pub(super) struct ColorState {
 
 #[derive(Default)]
 pub(super) struct ControlStore {
-    pub text_inputs: HashMap<ControlId, TextState>,
+    pub text_inputs: HashMap<ControlId, InputControl>,
     pub color_pickers: HashMap<ControlId, ColorState>,
     pub tree: ControlTree,
     pub input_structure: Option<InspectorInputStructure>,
@@ -41,18 +40,6 @@ impl ControlStore {
 }
 
 impl PropertyInspector {
-    pub(super) fn set_input_value(
-        input: &Entity<InputState>,
-        value: String,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if input.read(cx).value().as_ref() == value {
-            return;
-        }
-        input.update(cx, |input, cx| input.set_value(value, window, cx));
-    }
-
     /// Get-or-create an input state for a control, syncing its displayed text.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn ensure_text(
@@ -69,7 +56,7 @@ impl PropertyInspector {
         cx: &mut Context<Self>,
     ) -> Entity<InputState> {
         if let Some(state) = self.store.text_inputs.get(&key) {
-            Self::set_input_value(&state.input, initial, window, cx);
+            set_input_text(&state.input, initial, window, cx);
             return state.input.clone();
         }
         let input = cx.new(|cx| {
@@ -83,10 +70,7 @@ impl PropertyInspector {
         });
         let subscriptions = subscribe(&input, window, cx);
         let cloned = input.clone();
-        let state = TextState {
-            input,
-            _subscriptions: subscriptions,
-        };
+        let state = InputControl::new(input, subscriptions);
         self.store.text_inputs.insert(key, state);
         cloned
     }
@@ -138,37 +122,25 @@ impl PropertyInspector {
             text,
             false,
             |input, window, cx| {
-                let change_target = target.clone();
-                let change_spec = spec.clone();
-                let step_target = target.clone();
-                let step_spec = spec.clone();
-                let step_input = input.clone();
-                vec![
-                    cx.subscribe_in(input, window, move |this, input, event, window, cx| {
-                        this.apply_scalar_text(
-                            &change_target,
-                            &change_spec,
-                            input,
-                            event,
-                            window,
-                            cx,
-                        );
-                    }),
-                    cx.subscribe_in(
-                        &step_input,
-                        window,
-                        move |this, input, event, window, cx| {
-                            this.apply_scalar_step(
-                                &step_target,
-                                &step_spec,
-                                input,
-                                event,
-                                window,
+                subscribe_number_input(
+                    input,
+                    NumericInput::new(spec.scalar_type.clone()).expect("numeric control type"),
+                    window,
+                    cx,
+                    move |this, input, edit, window, cx| match edit {
+                        NumberEdit::Value(value) => {
+                            this.update_numeric_scalar(
+                                &target,
+                                value.clamp(spec.min, spec.max),
                                 cx,
                             );
-                        },
-                    ),
-                ]
+                        }
+                        NumberEdit::Step(event) => {
+                            this.apply_scalar_step(&target, &spec, input, event, window, cx)
+                        }
+                        NumberEdit::Commit => {}
+                    },
+                )
             },
             window,
             cx,
@@ -199,32 +171,25 @@ impl PropertyInspector {
             },
             false,
             |input, window, cx| {
-                let change_id = id.clone();
-                let change_spec = spec.clone();
-                let step_id = id.clone();
-                let step_spec = spec.clone();
-                let step_input = input.clone();
-                vec![
-                    cx.subscribe_in(input, window, move |this, input, event, window, cx| {
-                        this.apply_animation_stop_text(
-                            &change_id,
-                            &change_spec,
-                            input,
-                            event,
-                            window,
-                            cx,
-                        );
-                    }),
-                    cx.subscribe_in(
-                        &step_input,
-                        window,
-                        move |this, input, event, window, cx| {
-                            this.apply_animation_stop_step(
-                                &step_id, &step_spec, input, event, window, cx,
+                subscribe_number_input(
+                    input,
+                    NumericInput::new(spec.scalar_type.clone()).expect("numeric control type"),
+                    window,
+                    cx,
+                    move |this, input, edit, window, cx| match edit {
+                        NumberEdit::Value(value) => {
+                            this.update_animation_stop_numeric(
+                                &id,
+                                value.clamp(spec.min, spec.max),
+                                cx,
                             );
-                        },
-                    ),
-                ]
+                        }
+                        NumberEdit::Step(event) => {
+                            this.apply_animation_stop_step(&id, &spec, input, event, window, cx)
+                        }
+                        NumberEdit::Commit => {}
+                    },
+                )
             },
             window,
             cx,

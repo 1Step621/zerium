@@ -14,7 +14,7 @@ use gpui::{
 
 mod editor_overlay;
 
-use editor_overlay::{PreviewEditorDrag, PreviewEditorDragState};
+use editor_overlay::{PreviewEditorDrag, PreviewScalarDragOrigin};
 
 use crate::{
     engine::{
@@ -82,7 +82,7 @@ pub(crate) struct Preview {
     rendered_revision: Option<u64>,
     rendered_video_revision: Option<u64>,
     rendered_size: Option<RenderSize>,
-    editor_drag: PreviewEditorDragState,
+    editor_drag: Option<PreviewScalarDragOrigin>,
     _editor_subscription: Subscription,
     _transport_subscription: Subscription,
     _session_subscription: Subscription,
@@ -137,7 +137,7 @@ impl Preview {
             this.rendered_revision = None;
             this.rendered_video_revision = None;
             this.rendered_size = None;
-            this.editor_drag.clear();
+            this.editor_drag = None;
             this.audio_level_sampler.clear();
             this.video_playback.reset();
             cx.notify();
@@ -205,7 +205,7 @@ impl Preview {
             rendered_revision: None,
             rendered_video_revision: None,
             rendered_size: None,
-            editor_drag: PreviewEditorDragState::default(),
+            editor_drag: None,
             _editor_subscription: editor_subscription,
             _transport_subscription: transport_subscription,
             _session_subscription: session_subscription,
@@ -647,8 +647,11 @@ impl Render for Preview {
                                         .capture_any_mouse_up(cx.listener(
                                             |this, event: &MouseUpEvent, _, cx| {
                                                 if event.button == MouseButton::Left {
-                                                    let changed = this.editor_drag.clear();
+                                                    let changed = this.editor_drag.take().is_some();
                                                     if changed {
+                                                        this.editor.update(cx, |editor, _| {
+                                                            editor.finish_history_group()
+                                                        });
                                                         cx.notify();
                                                     }
                                                 }

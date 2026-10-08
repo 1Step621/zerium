@@ -224,8 +224,8 @@ impl AnimationCurveEditor {
             address.element_id,
             address.scalar_index,
         )?;
-        let source_progress =
-            item.animation_progress_at_time(TimelineTime::from_frame(editor.playhead()));
+        let clock = item.animation_clock(track);
+        let source_progress = clock.progress_at(TimelineTime::from_frame(editor.playhead()));
         let source_stop_positions = track
             .stops()
             .iter()
@@ -273,10 +273,15 @@ impl AnimationCurveEditor {
         };
         let frame_rate = editor.frame_rate();
         let frames_per_second = frame_rate.frames_per_second();
-        let animation_start_frame = item.animation_timeline_frame(source_progress_start);
+        let animation_start_frame = clock.time_at(source_progress_start).frames();
         let animation_span_frames =
-            item.animation_span_frames() * f64::from(source_progress_end - source_progress_start);
-        let start_seconds = (animation_start_frame / frames_per_second) as f32;
+            clock.span_frames() * f64::from(source_progress_end - source_progress_start);
+        let axis_start = if track.repeat().mode() != RepeatMode::None {
+            animation_start_frame - clock.start_time().frames()
+        } else {
+            animation_start_frame
+        };
+        let start_seconds = (axis_start / frames_per_second) as f32;
         let duration_seconds = (animation_span_frames / frames_per_second) as f32;
         Some(SelectedCurve {
             address,
@@ -290,10 +295,10 @@ impl AnimationCurveEditor {
             source_stop_positions,
             source_playhead_progress: source_progress.clamp(0., 1.),
             playhead_progress,
+            clock,
+            repeat: track.repeat(),
             clip_start: item.start,
             clip_duration: item.duration,
-            animation_start_frame,
-            animation_span_frames,
             start_seconds,
             duration_seconds,
             frame_rate,

@@ -1,6 +1,7 @@
 use super::*;
+use crate::animation::AnimationRepeat;
 use crate::property::PropertyPath;
-use crate::timeline::{ProjectId, PropertyAddress};
+use crate::timeline::PropertyAddress;
 
 /// A displayed stop and its corresponding value-edit targets. The interval
 /// shown by the inspector determines how equal neighboring values are linked.
@@ -9,10 +10,8 @@ pub struct AnimationStopEdit {
     pub value: PropertyValue,
     pub mixed: bool,
     targets: Vec<(PropertyAddress, usize, Option<usize>)>,
-    frame: Frame,
-    revision: u64,
-    project_id: ProjectId,
-    scene_id: Option<SceneId>,
+    time: TimelineTime,
+    context: EditContext,
 }
 
 impl AnimationStopEdit {
@@ -36,27 +35,27 @@ impl TimelineEditor {
         }
         let item_id = target.item_id;
         let effect_id = target.effect_id;
-        let property_id = target.property_id.clone();
+        let property_id = &target.property_id;
         let element_id = target.element_id;
         let scalar_index = target.scalar_index;
         if enabled
-            && self.active_scene_has_binding(item_id, effect_id, &property_id, |binding| {
-                binding.conflicts_with_animation(&property_id, element_id, scalar_index)
+            && self.active_scene_has_binding(item_id, effect_id, property_id, |binding| {
+                binding.conflicts_with_animation(property_id, element_id, scalar_index)
             })
         {
             return false;
         }
         let before = self.history_snapshot();
-        let Some(schema) = self.animation_schema(item_id, effect_id, &property_id) else {
+        let Some(schema) = target.schema(self).cloned() else {
             return false;
         };
         if !schema.is_editable(scalar_index) {
             return false;
         }
-        let address = PropertyPath::new(property_id.clone(), element_id, scalar_index);
+        let path = target.path();
         let changed = if !enabled {
             self.animation_store_mut(item_id, effect_id)
-                .is_some_and(|animations| animations.remove(&address))
+                .is_some_and(|animations| animations.remove(&path))
         } else {
             if !schema.is_animatable(scalar_index) {
                 return false;
@@ -76,16 +75,20 @@ impl TimelineEditor {
                 return false;
             };
             let Some(resolved) = values
-                .property(&property_id)
+                .property(property_id)
                 .and_then(|value| schema.resolve_scalar(value, element_id, scalar_index))
             else {
                 return false;
             };
-            let Some(track) = ScalarTrack::from_value(resolved.value.clone(), resolved.ty) else {
+            let Some(track) = ScalarTrack::from_value(
+                resolved.value.clone(),
+                resolved.ty,
+                item.duration.get() as f32,
+            ) else {
                 return false;
             };
             self.animation_store_mut(item_id, effect_id)
-                .is_some_and(|animations| animations.insert(address, track))
+                .is_some_and(|animations| animations.insert(path, track))
         };
         self.finish_project_edit_if_changed(changed, Some(before), None)
     }
@@ -110,15 +113,15 @@ impl TimelineEditor {
                     address.scalar_index,
                 )?;
                 let stops = track
-                    .stop_indices_for_segment(item.animation_progress_at_time(time))
+                    .stop_indices_for_segment(item.animation_clock(track).progress_at(time))
                     .into_iter()
                     .map(|index| {
                         let stop = &track.stops()[index];
-                        let frame = TimelineTime::from_frames(
-                            item.animation_timeline_frame(stop.position()),
-                        )
-                        .nearest_frame();
-                        (index, frame, stop.value())
+                        let stop_time = item
+                            .animation_clock(track)
+                            .time_at(stop.position())
+                            .rounded();
+                        (index, stop_time, stop.value())
                     })
                     .collect::<Vec<_>>();
                 Some((address, stops))
@@ -129,8 +132,8 @@ impl TimelineEditor {
             || !tracks.iter().all(|(_, stops)| {
                 stops
                     .iter()
-                    .map(|(_, frame, _)| frame)
-                    .eq(source.iter().map(|(_, frame, _)| frame))
+                    .map(|(_, time, _)| time)
+                    .eq(source.iter().map(|(_, time, _)| time))
             })
         {
             return None;
@@ -139,7 +142,7 @@ impl TimelineEditor {
             source
                 .iter()
                 .enumerate()
-                .map(|(offset, (_, frame, value))| AnimationStopEdit {
+                .map(|(offset, (_, time, value))| AnimationStopEdit {
                     value: (*value).clone(),
                     mixed: tracks
                         .iter()
@@ -155,13 +158,32 @@ impl TimelineEditor {
                             )
                         })
                         .collect(),
-                    frame: *frame,
-                    revision: self.project_revision(),
-                    project_id: self.project().id,
-                    scene_id: self.active_scene_id(),
+                    time: *time,
+                    context: self.edit_context(),
                 })
                 .collect(),
         )
+    }
+
+    /// Resolve one authored stop independently of its playback occurrence.
+    pub fn property_animation_stop(
+        &self,
+        address: &PropertyAddress,
+        index: usize,
+    ) -> Option<AnimationStopEdit> {
+        let item = self.item(address.item_id)?;
+        let track = self.animation_track(item.id, address.effect_id, &address.path())?;
+        let stop = track.stops().get(index)?;
+        Some(AnimationStopEdit {
+            value: stop.value().clone(),
+            mixed: false,
+            targets: vec![(address.clone(), index, None)],
+            time: item
+                .animation_clock(track)
+                .time_at(stop.position())
+                .rounded(),
+            context: self.edit_context(),
+        })
     }
 
     /// Write exactly the targets resolved for a displayed input. Reject stale
@@ -171,9 +193,7 @@ impl TimelineEditor {
         stop: &AnimationStopEdit,
         value: PropertyValue,
     ) -> bool {
-        if stop.revision != self.project_revision()
-            || stop.project_id != self.project().id
-            || stop.scene_id != self.active_scene_id()
+        if stop.context != self.edit_context()
             || !stop.targets.iter().all(|(address, index, _)| {
                 self.is_item_selected(address.item_id)
                     && address.schema(self).is_some_and(|schema| {
@@ -197,7 +217,7 @@ impl TimelineEditor {
                 .iter()
                 .map(|(address, _, _)| address.clone())
                 .collect(),
-            stop.frame,
+            stop.time,
         );
         let before = self.history_snapshot_for_edit(Some(&key));
         let mut changed = false;
@@ -206,61 +226,6 @@ impl TimelineEditor {
                 .animation_track_mut(address.item_id, address.effect_id, &address.path())
                 .expect("resolved animation track must exist")
                 .set_stop(*index, value.clone(), *segment);
-        }
-        self.finish_project_edit_if_changed(changed, before, Some(key))
-    }
-
-    pub fn set_property_animation_pair_stop_at(
-        &mut self,
-        target: &PropertyAddress,
-        position: f32,
-        value: [f32; 2],
-    ) -> bool {
-        if !self.is_item_selected(target.item_id) {
-            return false;
-        }
-        let item_id = target.item_id;
-        let effect_id = target.effect_id;
-        let property_id = target.property_id.as_str();
-        let element_id = target.element_id;
-        let Some(item) = self.active_document().item(item_id) else {
-            return false;
-        };
-        let stop_frame = Frame::new(item.animation_timeline_frame(position).round().max(0.) as u64);
-        let key = HistoryKey::AnimationPairStopValue(
-            item_id,
-            effect_id,
-            property_id.to_owned(),
-            element_id,
-            stop_frame,
-        );
-        let before = self.history_snapshot_for_edit(Some(&key));
-        let Some(schema) = self.animation_schema(item_id, effect_id, property_id) else {
-            return false;
-        };
-        let editable = [0_usize, 1].map(|scalar_index| {
-            schema.is_editable(Some(scalar_index))
-                && schema
-                    .configuration_constraints(Some(scalar_index))
-                    .allows(&PropertyValue::F32(value[scalar_index]))
-        });
-        let mut changed = false;
-        for scalar_index in 0..2 {
-            if !editable[scalar_index] {
-                continue;
-            }
-            let address = PropertyPath::new(property_id, element_id, Some(scalar_index));
-            let Some(index) = self
-                .animation_track(item_id, effect_id, &address)
-                .and_then(|track| track.stop_index_at(position))
-            else {
-                continue;
-            };
-            changed |= self
-                .animation_track_mut(item_id, effect_id, &address)
-                .is_some_and(|track| {
-                    track.set_stop(index, PropertyValue::F32(value[scalar_index]), None)
-                });
         }
         self.finish_project_edit_if_changed(changed, before, Some(key))
     }
@@ -283,9 +248,14 @@ impl TimelineEditor {
             return None;
         }
         let item = self.item(address.item_id)?;
-        let stop_frame =
-            TimelineTime::from_frames(item.animation_timeline_frame(position)).nearest_frame();
-        let key = HistoryKey::AnimationStopValue(vec![address.clone()], stop_frame);
+        let track = item.animation_track(
+            address.effect_id,
+            &address.property_id,
+            address.element_id,
+            address.scalar_index,
+        )?;
+        let stop_time = item.animation_clock(track).time_at(position).rounded();
+        let key = HistoryKey::AnimationStopValue(vec![address.clone()], stop_time);
         let before = self.history_snapshot_for_edit(Some(&key));
         let inserted = self
             .animation_track_mut(address.item_id, address.effect_id, &address.path())?
@@ -294,6 +264,26 @@ impl TimelineEditor {
             self.finish_project_edit(before, Some(key));
         }
         inserted
+    }
+
+    pub fn set_animation_repeat(
+        &mut self,
+        address: &PropertyAddress,
+        repeat: AnimationRepeat,
+    ) -> bool {
+        if !self.is_item_selected(address.item_id)
+            || address
+                .schema(self)
+                .is_none_or(|schema| !schema.is_editable(address.scalar_index))
+        {
+            return false;
+        }
+        let key = HistoryKey::AnimationRepeat(address.clone());
+        let before = self.history_snapshot_for_edit(Some(&key));
+        let changed = self
+            .animation_track_mut(address.item_id, address.effect_id, &address.path())
+            .is_some_and(|track| track.set_repeat(repeat));
+        self.finish_project_edit_if_changed(changed, before, Some(key))
     }
 
     pub fn remove_animation_stop(&mut self, address: &PropertyAddress, stop: usize) -> bool {
@@ -309,16 +299,6 @@ impl TimelineEditor {
             .animation_track_mut(address.item_id, address.effect_id, &address.path())
             .is_some_and(|track| track.remove_stop(stop));
         self.finish_project_edit_if_changed(changed, Some(before), None)
-    }
-
-    fn animation_schema(
-        &self,
-        item_id: ItemId,
-        effect_id: Option<EffectInstanceId>,
-        property_id: &str,
-    ) -> Option<PropertySchema> {
-        self.property_schema(item_id, effect_id, property_id)
-            .cloned()
     }
 
     fn animation_store_mut(

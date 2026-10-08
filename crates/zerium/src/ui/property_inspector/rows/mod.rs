@@ -182,7 +182,7 @@ impl PropertyInspector {
     ) -> gpui::AnyElement {
         let menu_inspector = inspector.clone();
         Button::new(key)
-            .small()
+            .xsmall()
             .compact()
             .ghost()
             .icon(IconName::Link)
@@ -248,7 +248,7 @@ impl PropertyInspector {
     fn keyframe_base(id: SharedString, selected: bool, tooltip: String) -> Button {
         Button::new(id)
             .icon(Icon::new(IconName::Keyframe))
-            .small()
+            .xsmall()
             .compact()
             .ghost()
             .selected(selected)
@@ -354,7 +354,7 @@ impl PropertyInspector {
             item_id.get(),
             property_id
         )))
-        .small()
+        .xsmall()
         .compact()
         .ghost()
         .icon(icon)
@@ -465,6 +465,7 @@ impl PropertyInspector {
                         group.target.key
                     )))
                     .small()
+                    .outline()
                     .w_full()
                     .label(label)
                     .dropdown_caret(true);
@@ -599,7 +600,7 @@ impl PropertyInspector {
             item_id.get(),
             group.target.property_id
         )))
-        .small()
+        .xsmall()
         .w_full()
         .label(t!("rows.add_element", label = group.property.label()).to_string())
         .disabled(add_disabled)

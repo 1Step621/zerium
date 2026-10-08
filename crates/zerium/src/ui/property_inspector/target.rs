@@ -47,7 +47,7 @@ impl PropertyInspector {
         Button::new("inspector-item-selector")
             .small()
             .compact()
-            .outline()
+            .ghost()
             .dropdown_caret(true)
             .label(label)
             .tooltip(t!("inspector.item_target").to_string())

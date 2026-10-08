@@ -1,6 +1,7 @@
 use rust_i18n::t;
 
 use super::*;
+use crate::ui::input::set_input_text;
 
 #[derive(Clone, Copy)]
 pub(super) enum ArrayEdit {
@@ -136,36 +137,6 @@ impl PropertyInspector {
         self.set_scalar(target, updated, cx)
     }
 
-    /// Single update channel for number text input.
-    pub(super) fn apply_scalar_text(
-        &mut self,
-        target: &PropertyTarget,
-        spec: &NumericInputSpec,
-        input: &Entity<InputState>,
-        event: &InputEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if !matches!(event, InputEvent::Change) {
-            return;
-        }
-        if !input.read(cx).focus_handle(cx).is_focused(window) {
-            return;
-        }
-        let input_value = input.read(cx).value().to_string();
-        let Some(number) = NumericInput::new(spec.scalar_type.clone()) else {
-            return;
-        };
-        let Some(value) = number
-            .parse(&input_value)
-            .and_then(|value| value.numeric_scalar())
-        else {
-            return;
-        };
-        let value = value.clamp(spec.min, spec.max);
-        self.update_numeric_scalar(target, value, cx);
-    }
-
     pub(super) fn apply_scalar_step(
         &mut self,
         target: &PropertyTarget,
@@ -219,7 +190,7 @@ impl PropertyInspector {
         })
     }
 
-    fn update_animation_stop_numeric(
+    pub(super) fn update_animation_stop_numeric(
         &mut self,
         id: &ControlId,
         displayed_value: f64,
@@ -232,31 +203,6 @@ impl PropertyInspector {
             return false;
         };
         self.set_animation_stop_value(id, value, cx)
-    }
-
-    pub(super) fn apply_animation_stop_text(
-        &mut self,
-        id: &ControlId,
-        spec: &NumericInputSpec,
-        input: &Entity<InputState>,
-        event: &InputEvent,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if !matches!(event, InputEvent::Change) {
-            return;
-        }
-        if !input.read(cx).focus_handle(cx).is_focused(window) {
-            return;
-        }
-        let input_value = input.read(cx).value().to_string();
-        let Some(value) = NumericInput::new(spec.scalar_type.clone())
-            .and_then(|number| number.parse(&input_value))
-            .and_then(|value| value.numeric_scalar())
-        else {
-            return;
-        };
-        self.update_animation_stop_numeric(id, value.clamp(spec.min, spec.max), cx);
     }
 
     pub(super) fn apply_animation_stop_step(
@@ -369,7 +315,7 @@ impl PropertyInspector {
             }
             .map(|value| Self::numeric_value_text(&value))
             .unwrap_or_else(|| Self::format_value(value));
-            Self::set_input_value(&input.input, displayed, window, cx);
+            set_input_text(&input.input, displayed, window, cx);
         }
     }
 

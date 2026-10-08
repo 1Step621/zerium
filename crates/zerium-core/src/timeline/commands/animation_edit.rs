@@ -1,6 +1,6 @@
 //! One animation gesture, with its matching targets fixed before any mutation.
 use super::*;
-use crate::timeline::{ProjectId, PropertyAddress};
+use crate::timeline::PropertyAddress;
 use std::ops::RangeInclusive;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -9,25 +9,46 @@ pub enum AnimationEditTarget {
     Segment(usize),
 }
 
+impl AnimationEditTarget {
+    fn index(self) -> usize {
+        match self {
+            Self::Stop(index) | Self::Segment(index) => index,
+        }
+    }
+
+    fn with_index(self, index: usize) -> Self {
+        match self {
+            Self::Stop(_) => Self::Stop(index),
+            Self::Segment(_) => Self::Segment(index),
+        }
+    }
+}
+
 struct Target {
     address: PropertyAddress,
-    part: AnimationEditTarget,
+    index: usize,
+}
+
+enum AnimationEditKind {
+    Stop(RangeInclusive<TimelineTime>),
+    Segment,
 }
 
 /// Editor-local gesture state; synchronization is derived, never persisted.
 pub struct AnimationEdit {
     targets: Vec<Target>,
-    frame_range: Option<RangeInclusive<Frame>>,
+    kind: AnimationEditKind,
     before: Option<HistorySnapshot>,
-    revision: u64,
-    scene_id: Option<SceneId>,
-    project_id: ProjectId,
+    context: EditContext,
     group_revision: u64,
 }
 
 impl AnimationEdit {
-    pub fn frame_range(&self) -> Option<&RangeInclusive<Frame>> {
-        self.frame_range.as_ref()
+    pub fn time_range(&self) -> Option<&RangeInclusive<TimelineTime>> {
+        match &self.kind {
+            AnimationEditKind::Stop(range) => Some(range),
+            AnimationEditKind::Segment => None,
+        }
     }
 }
 
@@ -40,7 +61,7 @@ impl TimelineEditor {
     ) -> Option<AnimationEdit> {
         let source = self.item(address.item_id)?;
         let track = self.animation_track(address.item_id, address.effect_id, &address.path())?;
-        let times = Self::animation_target_frames(source, track, part)?;
+        let times = Self::animation_target_times(source, track, part)?;
         let mut targets = Vec::new();
         for item_id in self.selection.sorted_current() {
             let item = self.item(item_id)?;
@@ -70,17 +91,15 @@ impl TimelineEditor {
                         AnimationEditTarget::Segment(_) => 0..track.interpolations().len(),
                     };
                     for index in indices {
-                        let candidate_part = match part {
-                            AnimationEditTarget::Stop(_) => AnimationEditTarget::Stop(index),
-                            AnimationEditTarget::Segment(_) => AnimationEditTarget::Segment(index),
-                        };
-                        if !synchronize && candidate_part != part {
+                        if !synchronize && index != part.index() {
                             continue;
                         }
-                        if Self::animation_target_frames(item, track, candidate_part)? == times {
+                        if Self::animation_target_times(item, track, part.with_index(index))?
+                            == times
+                        {
                             targets.push(Target {
                                 address: candidate.clone(),
-                                part: candidate_part,
+                                index,
                             });
                         }
                     }
@@ -91,60 +110,59 @@ impl TimelineEditor {
         // other curves just because they happen to have the same timestamp.
         if !targets
             .iter()
-            .any(|target| target.address == *address && target.part == part)
+            .any(|target| target.address == *address && target.index == part.index())
         {
             return None;
         }
-        let frame_range = match part {
+        let kind = match part {
             AnimationEditTarget::Stop(_) => {
-                let mut minimum = Frame::new(0);
-                let mut maximum = Frame::new(u64::MAX);
+                let mut minimum = f64::NEG_INFINITY;
+                let mut maximum = f64::INFINITY;
                 for target in &targets {
-                    let AnimationEditTarget::Stop(index) = target.part else {
-                        unreachable!()
-                    };
                     let item = self.item(target.address.item_id)?;
                     let track = self.animation_track(
                         item.id,
                         target.address.effect_id,
                         &target.address.path(),
                     )?;
+                    let clock = item.animation_clock(track);
                     let frame = |index: usize| {
-                        TimelineTime::from_frames(
-                            item.animation_timeline_frame(track.stops()[index].position()),
-                        )
-                        .nearest_frame()
+                        clock
+                            .time_at(track.stops()[index].position())
+                            .frames()
+                            .round()
                     };
-                    minimum = minimum.max(Frame::new(frame(index - 1).get().saturating_add(1)));
-                    maximum = maximum.min(Frame::new(frame(index + 1).get().saturating_sub(1)));
+                    minimum = minimum.max(frame(target.index - 1) + 1.);
+                    maximum = maximum.min(frame(target.index + 1) - 1.);
                 }
                 if minimum > maximum {
                     return None;
                 }
-                Some(minimum..=maximum)
+                AnimationEditKind::Stop(
+                    TimelineTime::from_frames(minimum)..=TimelineTime::from_frames(maximum),
+                )
             }
-            AnimationEditTarget::Segment(_) => None,
+            AnimationEditTarget::Segment(_) => AnimationEditKind::Segment,
         };
         Some(AnimationEdit {
             targets,
-            frame_range,
+            kind,
             before: Some(self.history_snapshot()),
-            revision: self.project_revision(),
-            scene_id: self.active_scene_id(),
-            project_id: self.project().id,
+            context: self.edit_context(),
             group_revision: self.project_revision(),
         })
     }
 
-    fn animation_target_frames(
+    fn animation_target_times(
         item: &TimelineItem,
         track: &ScalarTrack,
         part: AnimationEditTarget,
-    ) -> Option<(Frame, Frame)> {
+    ) -> Option<(TimelineTime, TimelineTime)> {
         let frame = |index: usize| {
             track.stops().get(index).map(|stop| {
-                TimelineTime::from_frames(item.animation_timeline_frame(stop.position()))
-                    .nearest_frame()
+                item.animation_clock(track)
+                    .time_at(stop.position())
+                    .rounded()
             })
         };
         match part {
@@ -153,19 +171,26 @@ impl TimelineEditor {
         }
     }
 
-    pub fn move_animation_stop(&mut self, edit: &mut AnimationEdit, frame: Frame) -> Option<Frame> {
-        let range = edit.frame_range.as_ref()?;
-        let frame = frame.clamp(*range.start(), *range.end());
-        self.apply_animation_edit(edit, |item, part, track| {
-            let AnimationEditTarget::Stop(index) = part else {
-                return None;
-            };
-            let progress = item.animation_progress_at_time(TimelineTime::from_frame(frame));
+    pub fn move_animation_stop(
+        &mut self,
+        edit: &mut AnimationEdit,
+        time: TimelineTime,
+    ) -> Option<TimelineTime> {
+        let range = edit.time_range()?;
+        let time = TimelineTime::from_frames(
+            time.frames()
+                .round()
+                .clamp(range.start().frames(), range.end().frames()),
+        );
+        self.apply_animation_edit(edit, |item, index, track| {
+            let progress = item.animation_clock(track).pattern_progress_at(time);
             let changed = track.move_stop(index, progress);
-            (changed || Self::animation_target_frames(item, track, part)?.0 == frame)
+            (changed
+                || Self::animation_target_times(item, track, AnimationEditTarget::Stop(index))?.0
+                    == time)
                 .then_some(changed)
         })
-        .then_some(frame)
+        .then_some(time)
     }
 
     pub fn set_animation_interpolation(
@@ -173,13 +198,10 @@ impl TimelineEditor {
         edit: &mut AnimationEdit,
         interpolation: SegmentInterpolation,
     ) -> bool {
-        if !interpolation.is_valid() {
+        if !matches!(edit.kind, AnimationEditKind::Segment) || !interpolation.is_valid() {
             return false;
         }
-        self.apply_animation_edit(edit, |_, part, track| {
-            let AnimationEditTarget::Segment(index) = part else {
-                return None;
-            };
+        self.apply_animation_edit(edit, |_, index, track| {
             Some(track.set_segment_interpolation(index, interpolation))
         })
     }
@@ -187,17 +209,18 @@ impl TimelineEditor {
     fn apply_animation_edit(
         &mut self,
         edit: &mut AnimationEdit,
-        update: impl Fn(&TimelineItem, AnimationEditTarget, &mut ScalarTrack) -> Option<bool>,
+        update: impl Fn(&TimelineItem, usize, &mut ScalarTrack) -> Option<bool>,
     ) -> bool {
         // Undo, scene navigation or an unrelated project edit ends this gesture.
-        if edit.revision != self.project_revision()
-            || edit.scene_id != self.active_scene_id()
-            || edit.project_id != self.project().id
-        {
+        if edit.context != self.edit_context() {
             return false;
         }
         let key = HistoryKey::AnimationGesture(edit.group_revision);
-        if edit.before.is_none() && !self.history.is_current_group(&(edit.scene_id, key.clone())) {
+        if edit.before.is_none()
+            && !self
+                .history
+                .is_current_group(&(edit.context.scene_id, key.clone()))
+        {
             return false;
         }
         let mut updates = HashMap::new();
@@ -214,7 +237,7 @@ impl TimelineEditor {
             let track = updates
                 .entry(target.address.clone())
                 .or_insert_with(|| current.clone());
-            let Some(updated) = update(item, target.part, track) else {
+            let Some(updated) = update(item, target.index, track) else {
                 return false;
             };
             changed |= updated;
@@ -228,7 +251,7 @@ impl TimelineEditor {
                 .expect("all gesture targets were validated before mutation") = track;
         }
         self.finish_project_edit(edit.before.take(), Some(key));
-        edit.revision = self.project_revision();
+        edit.context = self.edit_context();
         true
     }
 }

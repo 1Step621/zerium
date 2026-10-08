@@ -54,10 +54,11 @@ fn interpolation_label(interpolation: SegmentInterpolation) -> String {
 }
 
 impl Render for AnimationCurveEditor {
-    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors;
         let Some(selected) = self.selected_curve(cx) else {
             self.handle_fit_target = None;
+            self.repeat_inputs = None;
             return div()
                 .size_full()
                 .flex()
@@ -85,16 +86,17 @@ impl Render for AnimationCurveEditor {
                 total = selected.source_stop_count.saturating_sub(1)
             )
         );
-        if let GraphInteraction::StopDrag { frame, .. } = self.graph_interaction {
+        if let GraphInteraction::StopDrag { time, .. } = self.graph_interaction {
             title.push_str(&format!(
                 " · {}",
                 t!(
                     "curve.frame_time",
-                    frame = frame.get(),
-                    seconds = Self::format_number(selected.frame_rate.frame_to_seconds(frame))
+                    frame = Self::format_number(time.frames()),
+                    seconds = Self::format_number(time.seconds(selected.frame_rate))
                 )
             ));
         }
+        let repeat_controls = self.repeat_controls(&selected, window, cx);
         let curve = selected.curve.clone();
         let playhead_progress = selected.playhead_progress;
         let curve_editor = cx.entity();
@@ -360,7 +362,7 @@ impl Render for AnimationCurveEditor {
             .label(interpolation_label(interpolation))
             .tooltip(t!("curve.edit_scope_hint").to_string())
             .dropdown_caret(true)
-            .dropdown_menu_with_anchor(Corner::TopRight, move |menu, window, cx| {
+            .dropdown_menu_with_anchor(Corner::BottomRight, move |menu, window, cx| {
                 let action_context = interpolation_editor.read(cx).focus_handle.clone();
                 let max_height = (window.viewport_size().height - px(16.)).min(px(320.));
                 let options = [
@@ -413,7 +415,7 @@ impl Render for AnimationCurveEditor {
             .child(Icon::new(fit_icon).small())
             .child(Icon::new(IconName::ChevronDown).small())
             .tooltip(format!("{}: {}", t!("curve.value_view"), fit_label))
-            .dropdown_menu_with_anchor(Corner::TopRight, move |menu, _, cx| {
+            .dropdown_menu_with_anchor(Corner::BottomRight, move |menu, _, cx| {
                 let action_context = fit_editor.read(cx).focus_handle.clone();
                 [
                     (t!("curve.fit_curve").to_string(), false),
@@ -434,6 +436,19 @@ impl Render for AnimationCurveEditor {
                 })
                 .action_context(action_context)
             });
+        let graph_controls = div()
+            .id("animation-interval-controls")
+            .absolute()
+            .right(px(Self::GRAPH_INSET_RIGHT + 8.))
+            .bottom(px(Self::GRAPH_INSET_BOTTOM + 8.))
+            .flex()
+            .items_center()
+            .gap_1()
+            .occlude()
+            .on_mouse_down(MouseButton::Left, |_, _, cx| cx.stop_propagation())
+            .on_click(|_, _, cx| cx.stop_propagation())
+            .child(interpolation_selector)
+            .when(curve.has_handles(), |controls| controls.child(fit_selector));
         let context_menu_editor = curve_editor.clone();
         let graph = graph.context_menu(move |menu, window, cx| {
             let action_context = context_menu_editor.read(cx).focus_handle.clone();
@@ -598,7 +613,7 @@ impl Render for AnimationCurveEditor {
                             let editor = overview_context_menu_editor.read(cx);
                             (
                                 editor.overview_stop_at_position(position, cx),
-                                editor.frame_at_overview_position(position, cx),
+                                editor.time_at_overview_position(position, cx),
                             )
                         };
                         if let Some(source_stop) = source_stop {
@@ -623,7 +638,7 @@ impl Render for AnimationCurveEditor {
                         };
                         if !overview_context_menu_editor
                             .read(cx)
-                            .can_add_stop_at_frame(frame, cx)
+                            .can_add_stop_at_time(frame, cx)
                         {
                             return menu.item(PopupMenuItem::Label(
                                 t!("curve.stop_add_error").to_string().into(),
@@ -634,13 +649,14 @@ impl Render for AnimationCurveEditor {
                             PopupMenuItem::new(t!("curve.add_stop").to_string()).on_click(
                                 move |_, _, cx| {
                                     add_stop_editor.update(cx, |editor, cx| {
-                                        editor.add_stop_at_frame(frame, cx);
+                                        editor.add_stop_at_time(frame, cx);
                                     });
                                 },
                             ),
                         )
                     }),
             );
+        let graph = graph.child(graph_controls);
         let capture_scrub_editor = curve_editor.clone();
 
         div()
@@ -652,6 +668,7 @@ impl Render for AnimationCurveEditor {
             .flex()
             .flex_col()
             .bg(colors.background)
+            .on_drag_move(cx.listener(Self::move_repeat_number))
             .capture_any_mouse_up(move |event: &MouseUpEvent, _, cx| {
                 if event.button == MouseButton::Left {
                     capture_scrub_editor.update(cx, |editor, cx| {
@@ -681,8 +698,7 @@ impl Render for AnimationCurveEditor {
                             .whitespace_nowrap()
                             .child(title),
                     )
-                    .child(interpolation_selector)
-                    .when(curve.has_handles(), |header| header.child(fit_selector)),
+                    .child(repeat_controls),
             )
             .child(
                 div()

@@ -648,7 +648,7 @@ impl PropertyInspector {
                 .child(div().flex_1().min_w_0().child(row))
                 .child(
                     Button::new(SharedString::from(format!("reset-{}", common.target.key)))
-                        .small()
+                        .xsmall()
                         .compact()
                         .ghost()
                         .icon(IconName::Undo)

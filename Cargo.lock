@@ -7173,7 +7173,7 @@ dependencies = [
 [[package]]
 name = "ui"
 version = "0.1.0"
-source = "git+https://github.com/1Step621/WGPUI-Component?branch=fix%2Finput-selection-replacement#93b0b566954e4fe40eeb63349fba7df620c1d7d3"
+source = "git+https://github.com/1Step621/WGPUI-Component?branch=fix%2Finput-selection-replacement#b74efbade47d567aab83e468e4363fecdc9cb712"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -7229,7 +7229,7 @@ dependencies = [
 [[package]]
 name = "ui-macros"
 version = "0.1.0"
-source = "git+https://github.com/1Step621/WGPUI-Component?branch=fix%2Finput-selection-replacement#93b0b566954e4fe40eeb63349fba7df620c1d7d3"
+source = "git+https://github.com/1Step621/WGPUI-Component?branch=fix%2Finput-selection-replacement#b74efbade47d567aab83e468e4363fecdc9cb712"
 dependencies = [
  "proc-macro2",
  "quote",

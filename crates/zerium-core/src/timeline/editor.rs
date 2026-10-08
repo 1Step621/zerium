@@ -9,7 +9,7 @@ use std::{
 
 use crate::{
     plugin::PluginRegistry,
-    property::{PropertyElementId, PropertySchema, materialized_property_values},
+    property::{PropertySchema, materialized_property_values},
 };
 
 use super::{
@@ -44,19 +44,13 @@ fn new_project_id() -> ProjectId {
     ProjectId::from_parts(high, low).expect("generated project identity must be non-zero")
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) enum HistoryKey {
     ItemCreation(ItemId),
     Property(Vec<(ItemId, Option<EffectInstanceId>)>, String),
     AspectRatioLock(Vec<(ItemId, Option<EffectInstanceId>)>),
-    AnimationStopValue(Vec<PropertyAddress>, Frame),
-    AnimationPairStopValue(
-        ItemId,
-        Option<EffectInstanceId>,
-        String,
-        Option<PropertyElementId>,
-        Frame,
-    ),
+    AnimationStopValue(Vec<PropertyAddress>, TimelineTime),
+    AnimationRepeat(PropertyAddress),
     AnimationGesture(u64),
     ItemResize(ItemId, ResizeEdge, ResizeMode),
     ItemsResize(Vec<ItemId>, ResizeEdge, ResizeMode),

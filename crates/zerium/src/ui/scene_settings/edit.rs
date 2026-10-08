@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::input::set_input_text;
 
 pub(super) struct NumericArgument {
     pub number: NumericInput,
@@ -107,7 +108,7 @@ impl SceneSettings {
                 .iter()
                 .zip(values.formatted(&argument.number))
             {
-                Self::set_input_value(input, text, window, cx);
+                set_input_text(input, text, window, cx);
             }
         }
     }

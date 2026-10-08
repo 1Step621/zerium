@@ -1,27 +1,28 @@
 use super::*;
+use crate::ui::TimelineEditorEntityExt as _;
 
 impl AnimationCurveEditor {
-    fn stop_location_at_frame(&self, frame: Frame, cx: &App) -> Option<(SelectedCurve, f32)> {
+    fn stop_location_at_time(&self, time: TimelineTime, cx: &App) -> Option<(SelectedCurve, f32)> {
         let selected = self.selected_curve(cx)?;
         let editor = self.editor.read(cx);
         let item = editor.item(selected.address.item_id)?;
-        let progress = item.animation_progress_at_time(TimelineTime::from_frame(frame));
         let track = item.animation_track(
             selected.address.effect_id,
             &selected.address.property_id,
             selected.address.element_id,
             selected.address.scalar_index,
         )?;
+        let progress = item.animation_clock(track).pattern_progress_at(time);
         (progress > 0. && progress < 1. && track.stop_index_at(progress).is_none())
             .then_some((selected, progress))
     }
 
-    pub(super) fn can_add_stop_at_frame(&self, frame: Frame, cx: &App) -> bool {
-        self.stop_location_at_frame(frame, cx).is_some()
+    pub(super) fn can_add_stop_at_time(&self, time: TimelineTime, cx: &App) -> bool {
+        self.stop_location_at_time(time, cx).is_some()
     }
 
-    pub(super) fn add_stop_at_frame(&mut self, frame: Frame, cx: &mut Context<Self>) {
-        let Some((selected, progress)) = self.stop_location_at_frame(frame, cx) else {
+    pub(super) fn add_stop_at_time(&mut self, time: TimelineTime, cx: &mut Context<Self>) {
+        let Some((selected, progress)) = self.stop_location_at_time(time, cx) else {
             return;
         };
         let Some(value) = (|| {
@@ -45,21 +46,20 @@ impl AnimationCurveEditor {
         })() else {
             return;
         };
+        let frame = Self::frame_at_pattern_progress(&selected, progress);
         let target = selected.address;
-        let changed = self.editor.update(cx, |editor, cx| {
-            let changed = editor
+        let changed = self.editor.update_if_changed(cx, |editor| {
+            editor
                 .insert_animation_stop(&target, progress, value)
-                .is_some();
-            if changed {
-                cx.notify();
-            }
-            changed
+                .is_some()
         });
         if !changed {
             return;
         }
-        self.transport
-            .update(cx, |transport, cx| transport.set_playhead(frame, cx));
+        if let Some(frame) = frame {
+            self.transport
+                .update(cx, |transport, cx| transport.set_playhead(frame, cx));
+        }
         cx.notify();
     }
 
@@ -103,9 +103,9 @@ impl AnimationCurveEditor {
             return;
         };
         self.animation_edit = Some(edit);
-        let frame = Self::frame_at_source_progress(&selected, progress);
+        let time = Self::time_at_source_progress(&selected, progress);
         let snap_frame = self.editor.read(cx).playhead();
-        let follow_focus = (snap_frame == frame)
+        let follow_focus = (TimelineTime::from_frame(snap_frame) == time)
             .then(|| self.selection.read(cx).focused_segment())
             .flatten()
             .filter(|segment| *segment == stop || segment.saturating_add(1) == stop);
@@ -113,7 +113,7 @@ impl AnimationCurveEditor {
             .update(cx, |editor, _| editor.finish_history_group());
         self.graph_interaction = GraphInteraction::StopDrag {
             stop,
-            frame,
+            time,
             snap_frame,
             follow_focus,
         };
@@ -144,12 +144,12 @@ impl AnimationCurveEditor {
         let Some(range) = self
             .animation_edit
             .as_ref()
-            .and_then(|edit| edit.frame_range())
+            .and_then(|edit| edit.time_range())
         else {
             return;
         };
-        let minimum = range.start().get();
-        let maximum = range.end().get();
+        let minimum = range.start().frames();
+        let maximum = range.end().frames();
         let plot_left = f32::from(bounds.origin.x) + Self::GRAPH_INSET_LEFT;
         let plot_width =
             f32::from(bounds.size.width) - Self::GRAPH_INSET_LEFT - Self::GRAPH_INSET_RIGHT;
@@ -157,37 +157,35 @@ impl AnimationCurveEditor {
             return;
         }
         let requested = ((pointer_x - plot_left) / plot_width).clamp(0., 1.);
-        let span_frames = selected.clip_duration.get().saturating_sub(1).max(1);
-        let clip_start = selected.clip_start.get();
-        let requested_frame = clip_start
-            .saturating_add((f64::from(requested) * span_frames as f64).round() as u64)
+        let requested_time = selected
+            .clock
+            .time_at(requested)
+            .frames()
+            .round()
             .clamp(minimum, maximum);
-        let snap_frame_value = snap_frame.get();
+        let snap_frame_value = snap_frame.get() as f64;
         let snap_x = plot_left
             + plot_width
-                * (snap_frame_value.saturating_sub(clip_start) as f32 / span_frames as f32);
-        let frame = if (minimum..=maximum).contains(&snap_frame_value)
+                * selected
+                    .clock
+                    .pattern_progress_at(TimelineTime::from_frame(snap_frame));
+        let time = if (minimum..=maximum).contains(&snap_frame_value)
             && (pointer_x - snap_x).abs() <= Self::OVERVIEW_SNAP_DISTANCE
         {
             snap_frame_value
         } else {
-            requested_frame
+            requested_time
         };
+        let time = TimelineTime::from_frames(time);
         let Some(edit) = &mut self.animation_edit else {
             return;
         };
-        let changed = self.editor.update(cx, |editor, cx| {
-            let changed = editor
-                .move_animation_stop(edit, Frame::new(frame))
-                .is_some();
-            if changed {
-                cx.notify();
-            }
-            changed
+        let changed = self.editor.update_if_changed(cx, |editor| {
+            editor.move_animation_stop(edit, time).is_some()
         });
         self.graph_interaction = GraphInteraction::StopDrag {
             stop: drag.stop,
-            frame: Frame::new(frame),
+            time,
             snap_frame,
             follow_focus,
         };
@@ -195,7 +193,7 @@ impl AnimationCurveEditor {
             if let Some(segment) = follow_focus {
                 self.selection.read(cx).focus_segment(segment);
                 self.transport.update(cx, |transport, cx| {
-                    transport.set_playhead(Frame::new(frame), cx);
+                    transport.set_playhead(time.nearest_frame(), cx);
                 });
             }
             cx.notify();
@@ -203,6 +201,9 @@ impl AnimationCurveEditor {
     }
 
     pub(super) fn end_pointer_drag(&mut self, cx: &mut Context<Self>) {
+        if let Some(inputs) = &mut self.repeat_inputs {
+            inputs.drag = None;
+        }
         if matches!(
             self.graph_interaction,
             GraphInteraction::HandleDrag { .. } | GraphInteraction::StopDrag { .. }
@@ -252,10 +253,8 @@ impl AnimationCurveEditor {
         let Some(edit) = &mut self.animation_edit else {
             return;
         };
-        self.editor.update(cx, |editor, cx| {
-            if editor.set_animation_interpolation(edit, SegmentInterpolation::Custom(curve)) {
-                cx.notify();
-            }
+        self.editor.update_if_changed(cx, |editor| {
+            editor.set_animation_interpolation(edit, SegmentInterpolation::Custom(curve))
         });
     }
 
@@ -264,10 +263,8 @@ impl AnimationCurveEditor {
             return;
         };
         let target = selected.address;
-        self.editor.update(cx, |editor, cx| {
-            if editor.remove_animation_stop(&target, source_stop) {
-                cx.notify();
-            }
+        self.editor.update_if_changed(cx, |editor| {
+            editor.remove_animation_stop(&target, source_stop)
         });
     }
 
@@ -287,10 +284,8 @@ impl AnimationCurveEditor {
         ) else {
             return;
         };
-        self.editor.update(cx, |editor, cx| {
-            if editor.set_animation_interpolation(&mut edit, interpolation) {
-                cx.notify();
-            }
+        self.editor.update_if_changed(cx, |editor| {
+            editor.set_animation_interpolation(&mut edit, interpolation)
         });
     }
 }

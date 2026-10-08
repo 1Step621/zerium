@@ -7,7 +7,7 @@ impl Timeline {
         Button::new(id)
             .icon(icon)
             .tooltip(tooltip)
-            .small()
+            .xsmall()
             .compact()
     }
 
@@ -254,7 +254,7 @@ impl Timeline {
                     "toggle-layer-visibility-{}",
                     layer.get()
                 )))
-                .small()
+                .xsmall()
                 .compact()
                 .ghost()
                 .icon(if hidden {
@@ -311,26 +311,57 @@ impl Timeline {
             .frame_rate
             .frame_to_seconds(Frame::new(item.duration.get()))
             * state.viewport.pixels_per_second()) as f32;
-        let animation_width = (item.animation_span_frames() / state.frame_rate.frames_per_second()
-            * state.viewport.pixels_per_second()) as f32;
-        let stop_left = move |progress: f32, diameter: f32| {
-            px((progress * animation_width - diameter / 2.)
-                .clamp(0., (item_width - diameter).max(0.)))
+        let stop_left = move |time: TimelineTime, diameter: f32| {
+            let x = state.viewport.x_at_seconds(time.seconds(state.frame_rate)) - item_left;
+            px((x - diameter / 2.).clamp(0., (item_width - diameter).max(0.)))
         };
         let is_selected = state.selected_item_ids.contains(&item_id);
         let snap_frame = state.editor.read(cx).playhead();
+        let visible_start = TimelineTime::from_frames(
+            (visible_start * state.frame_rate.frames_per_second()).max(item.start.get() as f64),
+        );
+        let visible_end = TimelineTime::from_frames(
+            (visible_end * state.frame_rate.frames_per_second())
+                .min(item.end_exclusive().get().saturating_sub(1) as f64),
+        );
+        let pixels_per_frame =
+            state.viewport.pixels_per_second() / state.frame_rate.frames_per_second();
         let mut animation_stops = Vec::new();
-        for (_, track) in item.animations.tracks() {
-            animation_stops.extend(track.stops().iter().map(|stop| stop.position()));
-        }
-        for effect in &item.effects {
-            for (_, track) in effect.animations.tracks() {
-                animation_stops.extend(track.stops().iter().map(|stop| stop.position()));
+        for (_, track) in item.animations.tracks().chain(
+            item.effects
+                .iter()
+                .flat_map(|effect| effect.animations.tracks()),
+        ) {
+            let clock = item.animation_clock(track);
+            let stride = (1. / (clock.span_frames() * pixels_per_frame))
+                .ceil()
+                .max(1.) as usize;
+            for stop in track.stops() {
+                let canonical = clock.time_at(stop.position());
+                if canonical >= visible_start && canonical <= visible_end {
+                    animation_stops.push((canonical, false));
+                }
+                animation_stops.extend(
+                    clock
+                        .occurrences(stop.position(), visible_start, visible_end)
+                        .step_by(stride)
+                        .map(|time| (time, true)),
+                );
             }
         }
-        animation_stops.sort_by(f32::total_cmp);
-        animation_stops
-            .dedup_by(|left, right| (*left - *right).abs() < ANIMATION_STOP_POSITION_EPSILON);
+        animation_stops.sort_by(|left, right| {
+            left.0
+                .frames()
+                .total_cmp(&right.0.frames())
+                .then(left.1.cmp(&right.1))
+        });
+        animation_stops.dedup_by(|left, right| {
+            let same = (left.0.frames() - right.0.frames()).abs() * pixels_per_frame < 1.;
+            if same {
+                right.1 &= left.1;
+            }
+            same
+        });
         let focused_target = state
             .animation_address
             .as_ref()
@@ -356,9 +387,8 @@ impl Timeline {
                     .enumerate()
                     .map(|(stop, animation_stop)| {
                         let progress = animation_stop.position();
-                        let frame = Frame::new(
-                            item.animation_timeline_frame(progress).round().max(0.) as u64,
-                        );
+                        let time = item.animation_clock(track).time_at(progress);
+                        let frame = time.nearest_frame();
                         let follow_focus = (snap_frame == frame)
                             .then_some(state.focused_animation_segment)
                             .flatten()
@@ -368,12 +398,13 @@ impl Timeline {
                         (
                             target.clone(),
                             stop,
-                            progress,
+                            time,
                             frame,
                             follow_focus,
                             stop > 0 && stop + 1 < stop_count,
                         )
                     })
+                    .filter(|(_, _, time, _, _, _)| *time >= visible_start && *time <= visible_end)
                     .collect::<Vec<_>>()
             })
             .unwrap_or_default();
@@ -531,16 +562,18 @@ impl Timeline {
                                 }),
                         ),
                 )
-                .children(animation_stops.into_iter().map(|progress| {
+                .children(animation_stops.into_iter().map(|(time, repeated)| {
                     div()
                         .absolute()
                         .top(px(2.))
-                        .left(stop_left(progress, 5.))
+                        .left(stop_left(time, 5.))
                         .size(px(5.))
                         .rounded_full()
                         .border_1()
                         .border_color(state.colors.background.opacity(0.7))
-                        .bg(state.colors.primary.opacity(if has_focused_target {
+                        .bg(state.colors.primary.opacity(if repeated {
+                            0.2
+                        } else if has_focused_target {
                             0.35
                         } else if is_selected {
                             0.95
@@ -552,7 +585,7 @@ impl Timeline {
                     let timeline_editor = state.editor.clone();
                     let transport = state.transport.clone();
                     let colors = state.colors;
-                    move |(target, stop, progress, frame, follow_focus, movable)| {
+                    move |(target, stop, time, frame, follow_focus, movable)| {
                         let drag = MoveAnimationStop {
                             timeline_id,
                             address: target,
@@ -566,7 +599,7 @@ impl Timeline {
                             .id(("focused-animation-stop", stop))
                             .absolute()
                             .top(px(1.))
-                            .left(stop_left(progress, 8.))
+                            .left(stop_left(time, 8.))
                             .size(px(8.))
                             .rounded_full()
                             .border_2()
@@ -985,7 +1018,7 @@ impl Render for Timeline {
                                 .child(t!("timeline.empty_scene").to_string())
                                 .child(
                                     Button::new("timeline-delete-empty-scene")
-                                        .small()
+                                        .xsmall()
                                         .danger()
                                         .icon(IconName::Delete)
                                         .label(t!("timeline.delete_scene").to_string())

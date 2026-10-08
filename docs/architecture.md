@@ -45,7 +45,20 @@ animations or bindings.
 Property schemas define types, defaults, constraints, and scalar permissions.
 Commands validate all affected values and bindings before committing a multi-owner edit.
 Animation tracks address individual scalars; interpolation belongs to the
-animation module. Invalid external data returns an error rather than panicking.
+animation module. A track may repeat its editable pattern with a frame period
+and cycle phase. `AnimationClock` maps between pattern positions and timeline
+time for evaluation, editing, and synchronization. Loop periods measure a full
+cycle; ping-pong periods include both directions. Trim advances phase without
+rewriting repeating patterns, while stretch scales their periods. Nonrepeating
+tracks retain their first-to-last-frame timing. Preview position, size, and point
+controls edit each scalar independently using authored stop values. Their short
+markers use the current item geometry, with full axis guides only on hover or
+drag. Unanimated axes edit their property values. Motion paths sample
+complete playback intervals using the same property constraints as playback
+and connect ordinary playback samples as a guide,
+including loop and Hold jumps. Drawing fewer intervals preserves short-period
+motion and leaves omitted intervals disconnected.
+Invalid external data returns an error rather than panicking.
 
 ## Plugins and persistence
 

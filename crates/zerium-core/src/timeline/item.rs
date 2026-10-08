@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use crate::animation::{ScalarAnimations, ScalarTrack};
+use crate::animation::{AnimationClock, ScalarAnimations, ScalarTrack};
 use crate::media::{MediaAsset, MediaMetadataCache, MediaPlayback};
 use crate::plugin::{Capability, EffectSchema, ItemSchema};
 use crate::property::{
@@ -293,13 +293,8 @@ impl TimelineItem {
         self.duration.get().saturating_sub(1).max(1) as f64
     }
 
-    pub fn animation_progress_at_time(&self, time: TimelineTime) -> f32 {
-        ((time.frames() - self.start.get() as f64) / self.animation_span_frames()).clamp(0., 1.)
-            as f32
-    }
-
-    pub fn animation_timeline_frame(&self, progress: f32) -> f64 {
-        self.start.get() as f64 + f64::from(progress.clamp(0., 1.)) * self.animation_span_frames()
+    pub fn animation_clock(&self, track: &ScalarTrack) -> AnimationClock {
+        AnimationClock::new(self.start, self.duration, track.repeat())
     }
 
     /// Resolve a loaded visual input using only its owner's media declaration.
@@ -446,11 +441,17 @@ impl TimelineItem {
     /// Commit the interval. Trimming keeps animation keys at their existing
     /// time positions; stretching keeps their normalized positions.
     pub(super) fn set_interval(&mut self, start: Frame, duration: FrameDuration, mode: ResizeMode) {
-        if mode == ResizeMode::Trim {
-            let old_span = self.animation_span_frames();
-            let new_span = duration.get().saturating_sub(1).max(1) as f64;
-            let offset = start.get() as f64 - self.start.get() as f64;
-            self.remap_animations(offset / old_span, (offset + new_span) / old_span);
+        let old_span = self.animation_span_frames();
+        let new_span = duration.get().saturating_sub(1).max(1) as f64;
+        let offset = start.get() as f64 - self.start.get() as f64;
+        let factor = duration.get() as f32 / self.duration.get() as f32;
+        for animations in std::iter::once(&mut self.animations)
+            .chain(self.effects.iter_mut().map(|effect| &mut effect.animations))
+        {
+            match mode {
+                ResizeMode::Trim => animations.trim(offset, old_span, new_span),
+                ResizeMode::Stretch => animations.stretch(factor),
+            }
         }
         self.start = start;
         self.duration = duration;
@@ -482,13 +483,6 @@ impl TimelineItem {
         Ok(())
     }
 
-    fn remap_animations(&mut self, start: f64, end: f64) {
-        self.animations.remap_time_range(start, end);
-        for effect in &mut self.effects {
-            effect.animations.remap_time_range(start, end);
-        }
-    }
-
     pub fn evaluated_at_time(&self, time: TimelineTime) -> Self {
         let properties = self.schema().map(|schema| schema.properties());
         self.evaluate_at(time, properties)
@@ -507,7 +501,7 @@ impl TimelineItem {
         time: TimelineTime,
         properties: Option<impl IntoIterator<Item = &'a PropertySchema>>,
     ) -> Self {
-        let progress = self.animation_progress_at_time(time);
+        let progress = |track: &ScalarTrack| self.animation_clock(track).progress_at(time);
         let mut item = self.clone();
         if let Some(properties) = properties {
             item.properties =
@@ -522,6 +516,28 @@ impl TimelineItem {
             );
         }
         item
+    }
+
+    /// Evaluate one property with the same defaults, clock and constraints as playback.
+    pub fn evaluated_property_at(
+        &self,
+        time: TimelineTime,
+        effect_id: Option<EffectInstanceId>,
+        property: &PropertySchema,
+    ) -> Option<PropertyValue> {
+        let (base, animations) = match effect_id {
+            Some(effect_id) => {
+                let effect = self.effects.iter().find(|effect| effect.id == effect_id)?;
+                (&effect.properties, &effect.animations)
+            }
+            None => (&self.properties, &self.animations),
+        };
+        animations
+            .evaluated_values(base, std::iter::once(property), |track| {
+                self.animation_clock(track).progress_at(time)
+            })
+            .property(property.id())
+            .cloned()
     }
 
     pub fn animation_track(

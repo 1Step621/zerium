@@ -292,7 +292,7 @@ impl SceneSettings {
                     "move-scene-argument-up-{}",
                     argument.id
                 )))
-                .small()
+                .xsmall()
                 .compact()
                 .flex_none()
                 .ghost()
@@ -312,7 +312,7 @@ impl SceneSettings {
                     "move-scene-argument-down-{}",
                     argument.id
                 )))
-                .small()
+                .xsmall()
                 .compact()
                 .flex_none()
                 .ghost()
@@ -332,7 +332,7 @@ impl SceneSettings {
                     "toggle-scene-argument-settings-{}",
                     argument.id
                 )))
-                .small()
+                .xsmall()
                 .compact()
                 .flex_none()
                 .ghost()
@@ -357,7 +357,7 @@ impl SceneSettings {
                     "remove-scene-argument-{}",
                     argument.id
                 )))
-                .small()
+                .xsmall()
                 .compact()
                 .flex_none()
                 .ghost()

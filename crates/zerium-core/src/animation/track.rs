@@ -1,5 +1,5 @@
 //! Typed scalar animation tracks made of value stops and interval interpolations.
-use super::{SegmentInterpolation, interpolate_scalar};
+use super::{AnimationRepeat, SegmentInterpolation, interpolate_scalar};
 use crate::property::{PropertyPath, PropertyValue, ScalarPropertyType};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
@@ -27,13 +27,21 @@ impl AnimationStop {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ScalarTrack {
+    #[serde(default)]
+    repeat: AnimationRepeat,
     stops: Vec<AnimationStop>,
     interpolations: Vec<SegmentInterpolation>,
 }
 
 impl ScalarTrack {
-    pub(crate) fn from_value(value: PropertyValue, ty: &ScalarPropertyType) -> Option<Self> {
+    pub(crate) fn from_value(
+        value: PropertyValue,
+        ty: &ScalarPropertyType,
+        period: f32,
+    ) -> Option<Self> {
+        let repeat = AnimationRepeat::new(super::RepeatMode::None, period, 0.)?;
         (ty.is_interpolatable() && ty.allows(&value)).then(|| Self {
+            repeat,
             stops: vec![
                 AnimationStop {
                     position: 0.,
@@ -46,6 +54,18 @@ impl ScalarTrack {
             ],
             interpolations: vec![SegmentInterpolation::default()],
         })
+    }
+
+    pub fn repeat(&self) -> AnimationRepeat {
+        self.repeat
+    }
+
+    pub fn set_repeat(&mut self, repeat: AnimationRepeat) -> bool {
+        if !repeat.is_valid() || self.repeat == repeat {
+            return false;
+        }
+        self.repeat = repeat;
+        true
     }
 
     fn values_are_linked(left: &PropertyValue, right: &PropertyValue) -> bool {
@@ -213,7 +233,8 @@ impl ScalarTrack {
     }
 
     pub(crate) fn is_valid_for(&self, ty: &ScalarPropertyType) -> bool {
-        self.stops.len() >= 2
+        self.repeat.is_valid()
+            && self.stops.len() >= 2
             && self.interpolations.len() + 1 == self.stops.len()
             && self.stops.first().map(AnimationStop::position) == Some(0.)
             && self.stops.last().map(AnimationStop::position) == Some(1.)
@@ -370,9 +391,31 @@ impl ScalarAnimations {
         previous != self.tracks.len()
     }
 
-    pub fn remap_time_range(&mut self, start: f64, end: f64) {
+    pub fn trim(&mut self, offset: f64, old_span: f64, new_span: f64) {
+        if !offset.is_finite()
+            || !old_span.is_finite()
+            || old_span <= 0.
+            || !new_span.is_finite()
+            || new_span <= 0.
+        {
+            return;
+        }
         for track in self.tracks.values_mut() {
-            track.remap_time_range(start, end);
+            let repeat = track.repeat;
+            if repeat.mode() != super::RepeatMode::None {
+                track.repeat = repeat.shifted(offset);
+            } else {
+                track.remap_time_range(offset / old_span, (offset + new_span) / old_span);
+            }
+        }
+    }
+
+    pub fn stretch(&mut self, factor: f32) {
+        if !factor.is_finite() || factor <= 0. {
+            return;
+        }
+        for track in self.tracks.values_mut() {
+            track.repeat = track.repeat.scaled(factor);
         }
     }
 }

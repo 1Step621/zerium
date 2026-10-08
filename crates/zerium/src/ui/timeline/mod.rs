@@ -26,7 +26,7 @@ use crate::{
 use zerium_core::timeline::{
     AnimationEdit, AnimationEditTarget, Frame, FrameDuration, FrameRate, ItemId, LayerId,
     PropertyAddress, ResizeEdge, ResizeMode, SceneId, TimelineEditError, TimelineEditor,
-    TimelineItem,
+    TimelineItem, TimelineTime,
 };
 
 use super::{
@@ -53,7 +53,6 @@ const LAYER_HEADER_WIDTH: f32 = 200.;
 const SCENE_SWITCHER_LABEL_WIDTH: usize = 12;
 const ZOOM_STEP: f32 = 1.05;
 const ANIMATION_STOP_SNAP_DISTANCE: f32 = 8.;
-const ANIMATION_STOP_POSITION_EPSILON: f32 = 0.0001;
 
 fn layer_scroll_base(handle: &UniformListScrollHandle) -> gpui::ScrollHandle {
     handle.0.borrow().base_handle.clone()

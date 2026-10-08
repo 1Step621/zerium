@@ -166,12 +166,7 @@ impl AnimationCurveEditor {
         let Some(progress) = selected.source_stop_positions.get(segment).copied() else {
             return;
         };
-        let Some(frame) = self
-            .editor
-            .read(cx)
-            .item(selected.address.item_id)
-            .map(|item| Frame::new(item.animation_timeline_frame(progress).round().max(0.) as u64))
-        else {
+        let Some(frame) = Self::frame_at_pattern_progress(&selected, progress) else {
             return;
         };
         self.editor
@@ -303,23 +298,25 @@ impl AnimationCurveEditor {
         }
     }
 
-    pub(super) fn frame_at_progress(selected: &SelectedCurve, progress: f32) -> Frame {
-        let clip_start = selected.clip_start.get() as f64;
-        let clip_end = selected
-            .clip_start
-            .get()
-            .saturating_add(selected.clip_duration.get().saturating_sub(1))
-            as f64;
-        let frame = selected.animation_start_frame
-            + f64::from(progress.clamp(0., 1.)) * selected.animation_span_frames;
-        Frame::new(frame.round().clamp(clip_start, clip_end) as u64)
+    pub(super) fn frame_at_pattern_progress(
+        selected: &SelectedCurve,
+        progress: f32,
+    ) -> Option<Frame> {
+        selected
+            .clock
+            .first_occurrence(
+                progress,
+                TimelineTime::from_frame(selected.clip_start),
+                TimelineTime::from_frames(
+                    selected.clip_start.get() as f64
+                        + selected.clip_duration.get().saturating_sub(1) as f64,
+                ),
+            )
+            .map(TimelineTime::nearest_frame)
     }
 
-    pub(super) fn frame_at_source_progress(selected: &SelectedCurve, progress: f32) -> Frame {
-        let span_frames = selected.clip_duration.get().saturating_sub(1);
-        Frame::new(selected.clip_start.get().saturating_add(
-            (f64::from(progress.clamp(0., 1.)) * span_frames as f64).round() as u64,
-        ))
+    pub(super) fn time_at_source_progress(selected: &SelectedCurve, progress: f32) -> TimelineTime {
+        selected.clock.time_at(progress).rounded()
     }
 
     pub(super) fn frame_at_graph_position(
@@ -330,17 +327,19 @@ impl AnimationCurveEditor {
         let screen = self.graph_screen_position(position)?;
         let progress = screen[0].clamp(0., 1.);
         let selected = self.selected_curve(cx)?;
-        Some(Self::frame_at_progress(&selected, progress))
+        let from = selected.source_stop_positions[selected.source_segment];
+        let to = selected.source_stop_positions[selected.source_segment + 1];
+        Self::frame_at_pattern_progress(&selected, from + (to - from) * progress)
     }
 
-    pub(super) fn frame_at_overview_position(
+    pub(super) fn time_at_overview_position(
         &self,
         position: gpui::Point<Pixels>,
         cx: &App,
-    ) -> Option<Frame> {
+    ) -> Option<TimelineTime> {
         let progress = self.graph_screen_position(position)?[0].clamp(0., 1.);
         let selected = self.selected_curve(cx)?;
-        Some(Self::frame_at_source_progress(&selected, progress))
+        Some(Self::time_at_source_progress(&selected, progress))
     }
 
     pub(super) fn seek_playhead_from_graph(

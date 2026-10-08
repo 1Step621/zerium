@@ -1,5 +1,5 @@
 //! Apply enabled tracks to property values, enforcing their contracts.
-use super::ScalarAnimations;
+use super::{ScalarAnimations, ScalarTrack};
 use crate::property::{PropertySchema, PropertyValues, materialized_property_values};
 use std::collections::BTreeSet;
 
@@ -8,7 +8,7 @@ impl ScalarAnimations {
         &self,
         base: &PropertyValues,
         schema: impl IntoIterator<Item = &'a PropertySchema>,
-        progress: f32,
+        progress: impl Fn(&ScalarTrack) -> f32,
     ) -> PropertyValues {
         let schema = schema.into_iter().collect::<Vec<_>>();
         let mut values = materialized_property_values(base, schema.iter().copied());
@@ -18,7 +18,7 @@ impl ScalarAnimations {
             if !schema.iter().any(|property| property.id == property_id) {
                 continue;
             }
-            let Some(animated) = track.evaluate(progress) else {
+            let Some(animated) = track.evaluate(progress(track)) else {
                 continue;
             };
             if let Some(scalar) = address.value_mut(&mut values) {

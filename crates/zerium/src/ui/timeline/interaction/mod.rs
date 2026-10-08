@@ -468,24 +468,29 @@ impl Timeline {
         let Some(edit) = edit.as_mut() else {
             return;
         };
-        let Some(range) = edit.frame_range() else {
+        let Some(range) = edit.time_range() else {
             return;
         };
-        frame = frame.clamp(*range.start(), *range.end());
+        frame = Frame::new(frame.get().clamp(
+            range.start().nearest_frame().get(),
+            range.end().nearest_frame().get(),
+        ));
         if !snap_disabled {
             let editor = self.editor.read(cx);
             let playhead_x = LAYER_HEADER_WIDTH
                 + self
                     .viewport
                     .x_at_seconds(editor.frame_rate().frame_to_seconds(drag.snap_frame));
-            if range.contains(&drag.snap_frame)
+            if range.contains(&TimelineTime::from_frame(drag.snap_frame))
                 && (pointer_x - playhead_x).abs() <= ANIMATION_STOP_SNAP_DISTANCE
             {
                 frame = drag.snap_frame;
             }
         }
         let changed = self.editor.update(cx, |editor, cx| {
-            let changed = editor.move_animation_stop(edit, frame).is_some();
+            let changed = editor
+                .move_animation_stop(edit, TimelineTime::from_frame(frame))
+                .is_some();
             if changed {
                 cx.notify();
             }

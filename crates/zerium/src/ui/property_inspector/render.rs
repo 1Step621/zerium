@@ -363,7 +363,7 @@ impl PropertyInspector {
             .child(div().min_w_0().flex_1().overflow_hidden().child(selector))
             .child(
                 Button::new("toggle-selected-item-visibility")
-                    .small()
+                    .xsmall()
                     .compact()
                     .ghost()
                     .icon(if view.items_hidden {
@@ -505,7 +505,7 @@ impl PropertyInspector {
                             "toggle-effect-visibility-{}",
                             effect_id.get()
                         )))
-                        .small()
+                        .xsmall()
                         .compact()
                         .ghost()
                         .icon(if hidden {
@@ -531,7 +531,7 @@ impl PropertyInspector {
                             "move-effect-up-{}",
                             effect_id.get()
                         )))
-                        .small()
+                        .xsmall()
                         .compact()
                         .ghost()
                         .icon(IconName::ChevronUp)
@@ -550,7 +550,7 @@ impl PropertyInspector {
                             "move-effect-down-{}",
                             effect_id.get()
                         )))
-                        .small()
+                        .xsmall()
                         .compact()
                         .ghost()
                         .icon(IconName::ChevronDown)
@@ -570,7 +570,7 @@ impl PropertyInspector {
                                 "remove-effect-{}",
                                 effect_id.get()
                             )))
-                            .small()
+                            .xsmall()
                             .compact()
                             .label(t!("common.delete").to_string())
                             .on_click(move |_, _, cx| {

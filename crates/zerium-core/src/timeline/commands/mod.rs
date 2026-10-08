@@ -23,6 +23,24 @@ use super::{
     time::{Frame, FrameDuration, FrameRate, TimelineTime},
 };
 
+/// Identifies the document state for which an edit was resolved.
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct EditContext {
+    revision: u64,
+    project_id: super::ProjectId,
+    scene_id: Option<SceneId>,
+}
+
+impl TimelineEditor {
+    fn edit_context(&self) -> EditContext {
+        EditContext {
+            revision: self.project_revision(),
+            project_id: self.project().id,
+            scene_id: self.active_scene_id(),
+        }
+    }
+}
+
 fn remove_bindings_for_items(scene: &mut SceneDefinition, item_ids: &HashSet<ItemId>) {
     for argument in &mut scene.arguments {
         argument

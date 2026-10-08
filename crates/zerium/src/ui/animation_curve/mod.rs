@@ -4,12 +4,14 @@ mod editing;
 mod grid;
 mod presentation;
 mod render;
+mod repeat;
 mod selection;
 mod viewport;
 
 use presentation::AnimationPresentation;
 pub(crate) use selection::AnimationSelection;
 
+use repeat::RepeatInputs;
 use std::cell::Cell;
 
 use ::ui::{
@@ -24,7 +26,10 @@ use gpui::{
 };
 
 use zerium_core::{
-    animation::{BezierHandle, EasingDirection, EasingFamily, SegmentInterpolation},
+    animation::{
+        AnimationClock, AnimationRepeat, BezierHandle, EasingDirection, EasingFamily, RepeatMode,
+        SegmentInterpolation,
+    },
     timeline::{
         AnimationEdit, AnimationEditTarget, Frame, FrameDuration, FrameRate, PropertyAddress,
         TimelineEditor, TimelineTime,
@@ -62,7 +67,7 @@ enum GraphInteraction {
     },
     StopDrag {
         stop: usize,
-        frame: Frame,
+        time: TimelineTime,
         snap_frame: Frame,
         follow_focus: Option<usize>,
     },
@@ -134,8 +139,9 @@ struct SelectedCurve {
     playhead_progress: f32,
     clip_start: Frame,
     clip_duration: FrameDuration,
-    animation_start_frame: f64,
-    animation_span_frames: f64,
+    clock: AnimationClock,
+    repeat: AnimationRepeat,
+
     start_seconds: f32,
     duration_seconds: f32,
     frame_rate: FrameRate,
@@ -166,6 +172,7 @@ pub(crate) struct AnimationCurveEditor {
     // Freeze the interval and value range for the duration of a handle drag.
     handle_drag_view: Option<SelectedCurve>,
     handle_fit_target: Option<HandleFitTarget>,
+    repeat_inputs: Option<RepeatInputs>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -192,6 +199,7 @@ impl AnimationCurveEditor {
             cx.observe(&selection, |this, _, cx| {
                 this.end_pointer_drag(cx);
                 this.handle_fit_target = None;
+                this.repeat_inputs = None;
                 cx.notify();
             }),
             cx.observe(&transport, |_, _, cx| cx.notify()),
@@ -207,6 +215,7 @@ impl AnimationCurveEditor {
             animation_edit: None,
             handle_drag_view: None,
             handle_fit_target: None,
+            repeat_inputs: None,
             _subscriptions: subscriptions,
         }
     }

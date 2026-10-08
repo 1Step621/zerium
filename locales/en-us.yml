@@ -191,3 +191,11 @@ _version: 1
 "edit.lock_ratio": "Lock current aspect ratio"
 
 "args.file": "File"
+
+"curve.repeat": "Repeat"
+"curve.repeat_none": "None"
+"curve.repeat_loop": "Loop"
+"curve.repeat_ping_pong": "Ping-pong"
+"curve.period": "Period"
+"curve.phase": "Phase"
+"curve.repeat_hint": "Repeat the edited pattern. A ping-pong period includes both the forward and return directions."

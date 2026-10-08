@@ -191,3 +191,11 @@ _version: 1
 "edit.lock_ratio": "現在のアスペクト比を維持"
 
 "args.file": "ファイル"
+
+"curve.repeat": "繰り返し"
+"curve.repeat_none": "なし"
+"curve.repeat_loop": "ループ"
+"curve.repeat_ping_pong": "往復"
+"curve.period": "周期"
+"curve.phase": "位相"
+"curve.repeat_hint": "編集したパターンを繰り返します。往復の周期は行きと帰りを合わせた長さです。"

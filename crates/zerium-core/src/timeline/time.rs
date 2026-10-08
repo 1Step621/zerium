@@ -44,6 +44,10 @@ impl TimelineTime {
         self.0 / frame_rate.frames_per_second()
     }
 
+    pub fn rounded(self) -> Self {
+        Self(self.0.round())
+    }
+
     pub fn nearest_frame(self) -> Frame {
         Frame::new(self.0.round().clamp(0., u64::MAX as f64) as u64)
     }

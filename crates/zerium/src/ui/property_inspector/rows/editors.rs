@@ -20,6 +20,7 @@ impl PropertyInspector {
         let target = target.clone();
         Button::new(SharedString::from(target.key.to_string()))
             .small()
+            .outline()
             .w_full()
             .disabled(read_only)
             .label(selected_label)
