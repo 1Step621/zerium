@@ -1,9 +1,7 @@
 //! Tracks indexed by property coordinates, with collection edits and evaluation.
 use super::{RepeatMode, ScalarTrack};
-use crate::property::{
-    PropertyPath, PropertySchema, PropertyValue, PropertyValues, materialized_property_values,
-};
-use std::collections::{BTreeMap, BTreeSet, btree_map::Entry};
+use crate::property::{PropertyPath, PropertySchema, PropertyValue};
+use std::collections::{BTreeMap, btree_map::Entry};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ScalarAnimations {
@@ -80,39 +78,32 @@ impl ScalarAnimations {
         }
     }
 
-    pub fn evaluated_values<'a>(
+    pub(crate) fn evaluate_property(
         &self,
-        base: &PropertyValues,
-        schema: impl IntoIterator<Item = &'a PropertySchema>,
+        mut value: PropertyValue,
+        property: &PropertySchema,
         progress: impl Fn(&ScalarTrack) -> f32,
-    ) -> PropertyValues {
-        let schema = schema.into_iter().collect::<Vec<_>>();
-        let mut values = materialized_property_values(base, schema.iter().copied());
-        let mut animated_properties = BTreeSet::new();
-        for (address, track) in self.tracks() {
-            let Some(scalar) = address.value_mut(&mut values) else {
+    ) -> PropertyValue {
+        let mut changed = false;
+        let first = PropertyPath::new(property.id(), None, None);
+        for (address, track) in self
+            .tracks
+            .range(first..)
+            .take_while(|(address, _)| address.property_id() == property.id())
+        {
+            let Some(scalar) = value.scalar_mut(address.element_id(), address.scalar_index())
+            else {
                 continue;
             };
             let Some(animated) = track.evaluate(progress(track)) else {
                 continue;
             };
             *scalar = animated;
-            animated_properties.insert(address.property_id());
+            changed = true;
         }
-        for property in schema
-            .into_iter()
-            .filter(|property| animated_properties.contains(property.id()))
-        {
-            let Some(constrained) = values
-                .property(property.id())
-                .and_then(|value| property.constrained_value(value))
-            else {
-                continue;
-            };
-            values
-                .set(property, constrained)
-                .expect("constrained animation values preserve the property contract");
+        if changed && let Some(constrained) = property.constrained_value(&value) {
+            value = constrained;
         }
-        values
+        value
     }
 }

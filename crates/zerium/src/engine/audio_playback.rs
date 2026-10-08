@@ -614,7 +614,7 @@ fn push_event(events: &Mutex<VecDeque<AudioPlaybackEvent>>, event: AudioPlayback
     }
 }
 
-/// Update each input independently while evaluating animation once per item.
+/// Update each input through its own animated gain property.
 fn update_gain_slots(
     gains: &HashMap<AudioClipId, Arc<AtomicU32>>,
     items: &[TimelineItem],
@@ -627,7 +627,6 @@ fn update_gain_slots(
         if schema.audio().is_empty() {
             continue;
         }
-        let evaluated = item.evaluated_at_time(time);
         for input in schema.audio() {
             let id = AudioClipId {
                 item_id: item.id,
@@ -635,8 +634,7 @@ fn update_gain_slots(
             };
             if let Some(slot) = gains.get(&id) {
                 slot.store(
-                    evaluated
-                        .audio_gain(input.id())
+                    item.audio_gain_at(input.id(), time)
                         .expect("validated audio input")
                         .to_bits(),
                     Ordering::Relaxed,

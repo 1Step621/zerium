@@ -197,37 +197,16 @@ impl TextFrameCache {
             vertical_alignment,
             ..
         } = request.capability;
-        let string = |id: &str| match request.properties.property(id) {
-            Some(PropertyValue::String(value)) => Some(value.clone()),
-            _ => None,
-        };
+        let property = |id: &str| request.properties.property(id);
         let string_array = |id: &str| {
-            let PropertyValue::Array(values) = request.properties.property(id)? else {
-                return None;
-            };
-            values
+            property(id)?
+                .as_array()?
                 .iter()
-                .map(|element| match element.value() {
-                    PropertyValue::String(value) => Some(value.clone()),
-                    _ => None,
-                })
+                .map(|element| element.value().as_str().map(str::to_owned))
                 .collect::<Option<Vec<_>>>()
         };
-        let f32_value = |id: &str| match request.properties.property(id) {
-            Some(PropertyValue::F32(value)) => Some(*value),
-            _ => None,
-        };
-        let bool_value = |id: &str| match request.properties.property(id) {
-            Some(PropertyValue::Bool(value)) => Some(*value),
-            _ => None,
-        };
-
-        let vec4 = |id: &str| match request.properties.property(id) {
-            Some(PropertyValue::Color(value)) => Some(*value),
-            _ => None,
-        };
         let pair = |id: &str| {
-            let value = request.properties.property(id)?;
+            let value = property(id)?;
             Some([
                 value.scalar_at(Some(0))?.numeric_scalar()? as f32,
                 value.scalar_at(Some(1))?.numeric_scalar()? as f32,
@@ -240,22 +219,35 @@ impl TextFrameCache {
             ))
         };
         Ok(TextSignature {
-            content: string(text).ok_or_else(missing)?,
+            content: property(text)
+                .and_then(PropertyValue::as_str)
+                .ok_or_else(missing)?
+                .to_owned(),
             font_families: string_array(font_family).ok_or_else(missing)?,
-            font_size: f32_value(font_size).ok_or_else(missing)?,
-            color: vec4(color).ok_or_else(missing)?,
-            outline_width: f32_value(outline_width).ok_or_else(missing)?,
-            outline_color: vec4(outline_color).ok_or_else(missing)?,
-            bold: bool_value(bold).ok_or_else(missing)?,
-            italic: bool_value(italic).ok_or_else(missing)?,
-            horizontal_alignment: match request.properties.property(horizontal_alignment) {
-                Some(PropertyValue::Enum(value)) => *value,
-                _ => return Err(missing()),
-            },
-            vertical_alignment: match request.properties.property(vertical_alignment) {
-                Some(PropertyValue::Enum(value)) => *value,
-                _ => return Err(missing()),
-            },
+            font_size: property(font_size)
+                .and_then(PropertyValue::as_f32)
+                .ok_or_else(missing)?,
+            color: property(color)
+                .and_then(PropertyValue::as_color)
+                .ok_or_else(missing)?,
+            outline_width: property(outline_width)
+                .and_then(PropertyValue::as_f32)
+                .ok_or_else(missing)?,
+            outline_color: property(outline_color)
+                .and_then(PropertyValue::as_color)
+                .ok_or_else(missing)?,
+            bold: property(bold)
+                .and_then(PropertyValue::as_bool)
+                .ok_or_else(missing)?,
+            italic: property(italic)
+                .and_then(PropertyValue::as_bool)
+                .ok_or_else(missing)?,
+            horizontal_alignment: property(horizontal_alignment)
+                .and_then(PropertyValue::as_enum)
+                .ok_or_else(missing)?,
+            vertical_alignment: property(vertical_alignment)
+                .and_then(PropertyValue::as_enum)
+                .ok_or_else(missing)?,
             box_size: pair(size).ok_or_else(missing)?,
             target_size: request.target_size,
             composition_size,

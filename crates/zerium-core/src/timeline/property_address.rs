@@ -75,12 +75,10 @@ impl PropertyAddress {
                 .property_values(self.effect_id)?
                 .property(&self.property_id)?
                 .element_index(id)?;
-            let PropertyValue::Array(elements) = item
+            let elements = item
                 .property_values(address.effect_id)?
                 .property(&self.property_id)?
-            else {
-                return None;
-            };
+                .as_array()?;
             address.element_id = Some(elements.get(index)?.element_id());
         }
         Some(address)

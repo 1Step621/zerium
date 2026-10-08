@@ -180,15 +180,11 @@ impl Preview {
                     ])
                 })
                 .collect::<Option<Vec<_>>>()?;
-            let PropertyValue::F32(tension) = current_properties.property(tension)? else {
-                return None;
-            };
-            let PropertyValue::Bool(closed) = current_properties.property(closed)? else {
-                return None;
-            };
+            let tension = current_properties.property(tension)?.as_f32()?;
+            let closed = current_properties.property(closed)?.as_bool()?;
             tension
                 .is_finite()
-                .then(|| spline::sample(&points, *tension, *closed))
+                .then(|| spline::sample(&points, tension, closed))
         })()
         .unwrap_or_default();
 

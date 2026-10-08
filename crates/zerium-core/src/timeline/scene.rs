@@ -11,6 +11,7 @@ use super::{
     document::TimelineDocument,
     ids::{EffectInstanceId, ItemId, LayerId, SceneId},
     item::TimelineItem,
+    properties::{SceneArguments, resolve_item},
     property_address::resolve_property_schema,
     time::{Frame, FrameDuration},
 };
@@ -297,23 +298,31 @@ impl SceneDefinition {
         instance: Option<&TimelineItem>,
         items: impl IntoIterator<Item = &'a mut TimelineItem>,
     ) {
+        let arguments = SceneArguments::new(scenes, self, instance.map(|item| &item.properties));
         for item in items {
-            let item_id = item.id;
-            for argument in &self.arguments {
-                let value = instance
-                    .and_then(|instance| instance.properties.property(argument.schema.id()))
-                    .unwrap_or_else(|| argument.schema.default_value());
-                for binding in argument
-                    .bindings
-                    .iter()
-                    .filter(|binding| binding.item_id() == item_id)
-                {
-                    let Some(resolved) = resolve_scene_binding(scenes, self, binding) else {
-                        continue;
-                    };
-                    apply_scene_binding_to_item(item, binding, &resolved.schema, value.clone())
-                        .expect("validated scene binding must remain applicable during evaluation");
-                }
+            let resolved = resolve_item(scenes, Some(arguments), item, None);
+            // Only connected inputs become stored values. Other scene inputs
+            // must keep inheriting defaults when this detached item is copied.
+            for binding in self
+                .arguments
+                .iter()
+                .flat_map(|argument| &argument.bindings)
+                .filter(|binding| binding.item_id() == resolved.id)
+            {
+                let effect = binding.owner().effect_id();
+                let Some(property) =
+                    resolve_property_schema(scenes, &resolved, effect, binding.property_id())
+                else {
+                    continue;
+                };
+                let value = resolved
+                    .property_values(effect)
+                    .and_then(|values| values.property(property.id()))
+                    .expect("resolved property owner must exist");
+                item.property_values_mut(effect)
+                    .expect("resolved property owner must exist")
+                    .set(property, value.clone())
+                    .expect("resolved values preserve the property contract");
             }
         }
     }

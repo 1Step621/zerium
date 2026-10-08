@@ -396,11 +396,7 @@ impl PropertyInspector {
         let selected_items = {
             let editor = editor.read(cx);
             let time = zerium_core::timeline::TimelineTime::from_frame(editor.playhead());
-            editor
-                .items_in_scope(self.scope)
-                .into_iter()
-                .map(|item| editor.evaluated_item_at(&item, time))
-                .collect::<Vec<_>>()
+            editor.evaluated_items_in_scope(self.scope, time)
         };
         let selected_item = selected_items.first().cloned();
         let source = selected_item.as_ref().map(|item| InspectorSource {

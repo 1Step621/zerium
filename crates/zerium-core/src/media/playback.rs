@@ -29,14 +29,14 @@ impl MediaPlayback {
         ids: crate::plugin::PlaybackProperties<'_>,
         values: &crate::property::PropertyValues,
     ) -> Result<Self, TimelineEditError> {
-        use crate::property::PropertyValue;
         let end_behavior = match values
             .property(ids.end_behavior)
+            .and_then(crate::property::PropertyValue::as_enum)
             .ok_or(TimelineEditError::InvalidSourceRange)?
         {
-            PropertyValue::Enum(0) => MediaEndBehavior::Stop,
-            PropertyValue::Enum(1) => MediaEndBehavior::Loop,
-            PropertyValue::Enum(2) => MediaEndBehavior::Hold,
+            0 => MediaEndBehavior::Stop,
+            1 => MediaEndBehavior::Loop,
+            2 => MediaEndBehavior::Hold,
             _ => return Err(TimelineEditError::InvalidSourceRange),
         };
         Ok(Self {

@@ -75,12 +75,9 @@ impl PropertyInspector {
                 .read(cx)
                 .address()
                 .and_then(|address| {
-                    let editor = self.editor.read(cx);
-                    let source = editor.evaluated_item_at(
-                        editor.item(address.item_id)?,
-                        TimelineTime::from_frame(editor.playhead()),
-                    );
-                    address.on_item(&source, &selection.item)
+                    self.editor
+                        .read(cx)
+                        .corresponding_property_address(address, selection.item.id)
                 }),
             inspector: cx.entity(),
             store: &self.store,
@@ -90,8 +87,7 @@ impl PropertyInspector {
             scene_overrides: self
                 .editor
                 .read(cx)
-                .items_in_scope(self.scope)
-                .into_iter()
+                .source_items_in_scope(self.scope)
                 .filter(|item| item.scene_id().is_some())
                 .flat_map(|item| {
                     item.properties
@@ -110,11 +106,7 @@ impl PropertyInspector {
         let selected_items = {
             let editor = self.editor.read(cx);
             let time = zerium_core::timeline::TimelineTime::from_frame(editor.playhead());
-            editor
-                .items_in_scope(self.scope)
-                .into_iter()
-                .map(|item| editor.evaluated_item_at(&item, time))
-                .collect::<Vec<_>>()
+            editor.evaluated_items_in_scope(self.scope, time)
         };
         let item = selected_items.first()?.clone();
         let multiple = selected_items.len() > 1;

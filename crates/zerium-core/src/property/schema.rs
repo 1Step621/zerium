@@ -85,6 +85,13 @@ pub struct ResolvedPropertyScalar<'a> {
 }
 
 impl PropertySchema {
+    /// Resolve an override through this contract, falling back to the declared default.
+    pub(crate) fn resolve_value(&self, value: Option<&PropertyValue>) -> PropertyValue {
+        value
+            .and_then(|value| self.constrained_value(value))
+            .unwrap_or_else(|| self.default_value().clone())
+    }
+
     pub fn scalar_type(
         &self,
         element_id: Option<PropertyElementId>,

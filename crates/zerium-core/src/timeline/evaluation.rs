@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use super::{
     ids::{ItemId, LayerId, SceneId},
     item::TimelineItem,
-    property_address::property_schemas,
+    properties::resolve_item,
     scene::SceneDefinition,
     time::{Frame, FrameDuration, TimelineTime},
     visibility::PreviewVisibility,
@@ -48,9 +48,11 @@ pub(crate) fn visit_source_items(
         visit(&item);
         if let Some(scene) = item.scene_id().and_then(|id| scenes.get(&id)) {
             let mut children = scene.document().source_items();
-            let instance = item.evaluated_with_properties_at(
-                TimelineTime::from_frame(item.start),
-                property_schemas(scenes, &item, None),
+            let instance = resolve_item(
+                scenes,
+                None,
+                &item,
+                Some(TimelineTime::from_frame(item.start)),
             );
             scene.apply_arguments(
                 scenes,
@@ -135,10 +137,7 @@ pub(crate) fn evaluated_scene_graph_at_time(
                 continue;
             }
             let source_id = source.id;
-            let mut item = source.evaluated_with_properties_at(
-                time,
-                property_schemas(context.scenes, &source, None),
-            );
+            let mut item = resolve_item(context.scenes, None, &source, Some(time));
             let output_layer = placement.layer.unwrap_or(layer);
             let global_start = placement.time_offset.saturating_add(item.start.get());
             let source_end = global_start.saturating_add(item.duration.get());
@@ -285,9 +284,11 @@ pub(crate) fn visible_items(
                 continue;
             };
             let mut children = scene.document().source_items();
-            let instance = source.evaluated_with_properties_at(
-                TimelineTime::from_frame(source.start),
-                property_schemas(context.scenes, &source, None),
+            let instance = resolve_item(
+                context.scenes,
+                None,
+                &source,
+                Some(TimelineTime::from_frame(source.start)),
             );
             scene.apply_arguments(
                 context.scenes,

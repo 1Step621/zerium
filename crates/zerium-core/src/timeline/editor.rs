@@ -1,17 +1,18 @@
-use std::{collections::HashMap, sync::Arc, time::Duration};
+use std::{collections::HashMap, sync::Arc};
 
 use crate::{
     plugin::PluginRegistry,
-    property::{PropertySchema, materialized_property_values},
+    property::{PropertySchema, PropertyValue},
 };
 
 use super::{
     document::TimelineDocument,
     evaluation::{evaluated_items_at_time, visible_items},
-    history::{EditHistory, HistoryKey, HistorySnapshot, ScopedHistoryKey},
+    history::{EditHistory, HistorySnapshot, ScopedHistoryKey},
     ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId},
     item::TimelineItem,
     project::TimelineProject,
+    properties::{SceneArguments, resolve_item, resolve_property},
     property_address::{property_schemas, resolve_property_schema},
     scene::SceneDefinition,
     selection::{EditScope, SelectionState},
@@ -22,7 +23,6 @@ use super::{
 };
 
 const HISTORY_LIMIT: usize = 100;
-const HISTORY_COALESCE_INTERVAL: Duration = Duration::from_millis(750);
 
 /// Coordinates timeline documents, editor session state, history, and commands.
 ///
@@ -117,7 +117,7 @@ impl TimelineEditor {
             .filter(|id| *id != u64::MAX)
     }
 
-    fn advance_project_revision(&mut self) {
+    pub(super) fn advance_project_revision(&mut self) {
         self.project_revision = self.next_project_revision;
         self.next_project_revision = self.next_project_revision.saturating_add(1);
         self.advance_render_revision();
@@ -152,38 +152,6 @@ impl TimelineEditor {
             selection: self.selection.clone(),
             project_revision: self.project_revision,
         }
-    }
-
-    pub(super) fn history_snapshot_for_edit(
-        &self,
-        key: Option<&HistoryKey>,
-    ) -> Option<HistorySnapshot> {
-        let scoped_key = key.map(|key| (self.active_scene_id(), key.clone()));
-        self.history
-            .begins_group(scoped_key.as_ref(), HISTORY_COALESCE_INTERVAL)
-            .then(|| self.history_snapshot())
-    }
-
-    pub(super) fn finish_project_edit(
-        &mut self,
-        before: Option<HistorySnapshot>,
-        key: Option<HistoryKey>,
-    ) {
-        let scoped_key = key.map(|key| (self.active_scene_id(), key));
-        self.history.record(before, scoped_key);
-        self.advance_project_revision();
-    }
-
-    pub(super) fn finish_project_edit_if_changed(
-        &mut self,
-        changed: bool,
-        before: Option<HistorySnapshot>,
-        key: Option<HistoryKey>,
-    ) -> bool {
-        if changed {
-            self.finish_project_edit(before, key);
-        }
-        changed
     }
 
     pub(super) fn restore_history_snapshot(&mut self, snapshot: HistorySnapshot) {
@@ -325,17 +293,17 @@ impl TimelineEditor {
             })
             .collect::<Result<HashMap<_, _>, ProjectSettingsError>>()?;
         let playhead = super::document::retime_frame(self.playhead, self.frame_rate(), frame_rate)?;
-        let before = self.history_snapshot();
-        {
-            let project = self.project_mut();
-            project.document = document;
-            project.scenes = scenes;
-            project.resolution = resolution;
-        }
-        self.playhead = playhead;
-        self.playback_time = None;
-        self.finish_project_edit(Some(before), None);
-        Ok(true)
+        Ok(self.edit_project_if_changed(None, |editor| {
+            {
+                let project = editor.project_mut();
+                project.document = document;
+                project.scenes = scenes;
+                project.resolution = resolution;
+            }
+            editor.playhead = playhead;
+            editor.playback_time = None;
+            true
+        }))
     }
 
     pub(super) fn active_document(&self) -> &TimelineDocument {
@@ -396,8 +364,68 @@ impl TimelineEditor {
 
     /// Resolve defaults, arguments, and animations in the current editing document.
     pub fn evaluated_item_at(&self, item: &TimelineItem, time: TimelineTime) -> TimelineItem {
-        let item = self.materialized_item(item);
-        item.evaluated_with_properties_at(time, self.property_schemas(&item, None))
+        resolve_item(
+            &self.project().scenes,
+            self.active_scene_arguments(),
+            item,
+            Some(time),
+        )
+    }
+
+    /// Authored value after resolving defaults and the active scene's arguments.
+    pub fn property_value(&self, address: &super::PropertyAddress) -> Option<PropertyValue> {
+        self.resolve_property_value(address, None)
+    }
+
+    pub fn evaluated_property_value(
+        &self,
+        address: &super::PropertyAddress,
+        time: TimelineTime,
+    ) -> Option<PropertyValue> {
+        self.resolve_property_value(address, Some(time))
+    }
+
+    /// Match an owner and array position using authored values, including inherited defaults.
+    pub fn corresponding_property_address(
+        &self,
+        address: &super::PropertyAddress,
+        item_id: ItemId,
+    ) -> Option<super::PropertyAddress> {
+        let scenes = &self.project().scenes;
+        let arguments = self.active_scene_arguments();
+        let source = resolve_item(scenes, arguments, self.item(address.item_id)?, None);
+        let item = resolve_item(scenes, arguments, self.item(item_id)?, None);
+        address.on_item(&source, &item)
+    }
+
+    fn resolve_property_value(
+        &self,
+        address: &super::PropertyAddress,
+        time: Option<TimelineTime>,
+    ) -> Option<PropertyValue> {
+        let item = self.item(address.item_id)?;
+        let property = address.schema(self)?;
+        let value = resolve_property(
+            self.active_scene_arguments(),
+            item,
+            address.effect_id,
+            property,
+            time,
+        )?;
+        if address.element_id.is_none() && address.scalar_index.is_none() {
+            return Some(value);
+        }
+        let element = value.element(address.element_id)?;
+        match address.scalar_index {
+            Some(index) => element.scalar_at(Some(index)),
+            None => Some(element),
+        }
+        .cloned()
+    }
+
+    fn active_scene_arguments(&self) -> Option<SceneArguments<'_>> {
+        let scene = self.scene(self.active_scene_id()?)?;
+        Some(SceneArguments::new(&self.project().scenes, scene, None))
     }
 
     pub fn playhead(&self) -> Frame {
@@ -426,24 +454,40 @@ impl TimelineEditor {
     }
 
     pub fn selected_items(&self) -> Vec<TimelineItem> {
-        self.items_in_scope(EditScope::Selection)
+        self.resolve_items_in_scope(EditScope::Selection, None)
     }
 
-    pub fn items_in_scope(&self, scope: EditScope) -> Vec<TimelineItem> {
+    /// Stored items, without defaults, scene arguments or animation evaluation.
+    pub fn source_items_in_scope(&self, scope: EditScope) -> impl Iterator<Item = &TimelineItem> {
         scope
             .item_ids(self)
             .into_iter()
-            .filter_map(|id| self.active_document().item(id))
-            .map(|item| self.materialized_item(item))
-            .collect()
+            .filter_map(|id| self.item(id))
     }
 
-    pub(super) fn materialized_item(&self, item: &TimelineItem) -> TimelineItem {
-        let mut item = item.clone();
-        item.properties =
-            materialized_property_values(&item.properties, self.property_schemas(&item, None));
-        self.resolve_active_scene_arguments(std::iter::once(&mut item));
-        item
+    pub fn evaluated_items_in_scope(
+        &self,
+        scope: EditScope,
+        time: TimelineTime,
+    ) -> Vec<TimelineItem> {
+        self.resolve_items_in_scope(scope, Some(time))
+    }
+
+    fn resolve_items_in_scope(
+        &self,
+        scope: EditScope,
+        time: Option<TimelineTime>,
+    ) -> Vec<TimelineItem> {
+        self.source_items_in_scope(scope)
+            .map(|item| {
+                resolve_item(
+                    &self.project().scenes,
+                    self.active_scene_arguments(),
+                    item,
+                    time,
+                )
+            })
+            .collect()
     }
 
     pub(crate) fn resolve_active_scene_arguments<'a>(
@@ -453,19 +497,6 @@ impl TimelineEditor {
         if let Some(scene) = self.active_scene_id().and_then(|id| self.scene(id)) {
             scene.apply_arguments(&self.project().scenes, None, items);
         }
-    }
-
-    /// Returns an item only when exactly one item is selected.
-    pub fn single_selected_item(&self) -> Option<TimelineItem> {
-        if self.selection.current.len() != 1 {
-            return None;
-        }
-        self.selection
-            .current
-            .iter()
-            .next()
-            .and_then(|id| self.item(*id))
-            .map(|item| self.materialized_item(item))
     }
 
     /// A selection supplies a placement layer only when all its items agree.

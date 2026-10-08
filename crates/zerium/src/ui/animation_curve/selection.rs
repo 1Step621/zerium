@@ -56,18 +56,13 @@ impl AnimationSelection {
         address: &PropertyAddress,
         editor: &TimelineEditor,
     ) -> Vec<PropertyAddress> {
-        let Some(source) = editor.item(address.item_id) else {
-            return Vec::new();
-        };
-        let source = editor.evaluated_item_at(source, TimelineTime::from_frame(editor.playhead()));
         let Some(schema) = address.schema(editor) else {
             return Vec::new();
         };
         editor
-            .selected_items()
-            .iter()
+            .source_items_in_scope(zerium_core::timeline::EditScope::Selection)
             .filter_map(|item| {
-                let target = address.on_item(&source, item)?;
+                let target = editor.corresponding_property_address(address, item.id)?;
                 (target.schema(editor)?.ty() == schema.ty() && Self::has_track(&target, editor))
                     .then_some(target)
             })

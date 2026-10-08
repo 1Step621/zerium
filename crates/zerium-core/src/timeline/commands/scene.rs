@@ -138,16 +138,16 @@ impl TimelineEditor {
         {
             return Err(TimelineEditError::RecursiveSceneReference);
         }
-        let before = self.history_snapshot();
-        let id = self
-            .active_document_mut()
-            .insert_item(layer, start, duration, move |id, start, duration| {
-                TimelineItem::scene_instance(id, start, duration, scene_id)
-            })
-            .ok_or(TimelineEditError::PlacementUnavailable)?;
-        self.selection.select_only(id);
-        self.finish_project_edit(Some(before), Some(HistoryKey::ItemCreation(id)));
-        Ok(id)
+        self.edit_item_creation(|editor| {
+            let id = editor
+                .active_document_mut()
+                .insert_item(layer, start, duration, move |id, start, duration| {
+                    TimelineItem::scene_instance(id, start, duration, scene_id)
+                })
+                .ok_or(TimelineEditError::PlacementUnavailable)?;
+            editor.selection.select_only(id);
+            Ok(id)
+        })
     }
 
     pub fn group_selected_as_scene(&mut self, base_name: &str) -> Option<SceneId> {
@@ -180,94 +180,97 @@ impl TimelineEditor {
         };
 
         let raw_scene_id = self.next_scene_id?;
-        let before = self.history_snapshot();
-        let frame_rate = self.frame_rate();
-        let mut next_document = self.active_document().clone();
-        let mut items = next_document.take_items(&selected);
-        for (layer, item) in &mut items {
-            *layer = LayerId::new(layer.get().saturating_sub(min_layer.get()));
-            item.start = Frame::new(item.start.get().saturating_sub(start.get()));
-        }
-        let scene_id = SceneId::new(self.project().id, raw_scene_id);
-        let name = if self
-            .project()
-            .scenes
-            .values()
-            .all(|scene| scene.name != base_name)
-        {
-            base_name.to_owned()
-        } else {
-            (2_u64..)
-                .map(|index| format!("{base_name} {index}"))
-                .find(|name| {
-                    self.project()
-                        .scenes
-                        .values()
-                        .all(|scene| scene.name != *name)
-                })
-                .expect("a scene name suffix must eventually be available")
-        };
-        let arguments = self
-            .active_scene_id()
-            .and_then(|id| self.scene(id))
-            .into_iter()
-            .flat_map(|scene| &scene.arguments)
-            .filter_map(|argument| {
-                let bindings = argument
-                    .bindings
-                    .iter()
-                    .filter(|binding| selected.contains(&binding.item_id()))
-                    .cloned()
-                    .collect::<Vec<_>>();
-                if bindings.is_empty() {
-                    return None;
-                }
-                let mut schema = argument.schema.clone();
-                // Forward values unchanged across the new scene boundary. Each
-                // original target still applies its own constraints.
-                schema.configuration_mut(None).constraints = Default::default();
-                Some(SceneArgument::new(schema, bindings))
-            })
-            .collect();
-        let scene = SceneDefinition::from_project(
-            scene_id,
-            name,
-            arguments,
-            TimelineDocument::from_items(frame_rate, items),
-        );
-        let duration = FrameDuration::new(end.get().saturating_sub(start.get()))?;
-        debug_assert_eq!(scene.duration(), duration);
-        let instance =
-            next_document.insert_item(target_layer, start, duration, |id, start, duration| {
-                TimelineItem::scene_instance(id, start, duration, scene_id)
-            })?;
-
-        *self.active_document_mut() = next_document;
-        if let Some(parent) = self
-            .active_scene_id()
-            .and_then(|id| self.project_mut().scenes.get_mut(&id))
-        {
-            for argument in &scene.arguments {
-                let parent_argument = parent
-                    .argument_mut(argument.schema.id())
-                    .expect("forwarded arguments came from the parent scene");
-                parent_argument
-                    .bindings
-                    .retain(|binding| !selected.contains(&binding.item_id()));
-                parent_argument.bindings.push(SceneBindingTarget::new(
-                    instance,
-                    SceneBindingOwner::Item,
-                    argument.schema.id(),
-                    None,
-                    None,
-                ));
+        self.edit_project_option(None, |editor| {
+            let frame_rate = editor.frame_rate();
+            let mut next_document = editor.active_document().clone();
+            let mut items = next_document.take_items(&selected);
+            for (layer, item) in &mut items {
+                *layer = LayerId::new(layer.get().saturating_sub(min_layer.get()));
+                item.start = Frame::new(item.start.get().saturating_sub(start.get()));
             }
-        }
-        self.project_mut().scenes.insert(scene_id, scene);
-        self.next_scene_id = raw_scene_id.checked_add(1).filter(|id| *id != u64::MAX);
-        self.selection.set(HashSet::from([instance]));
-        self.finish_project_edit(Some(before), None);
-        Some(scene_id)
+            let scene_id = SceneId::new(editor.project().id, raw_scene_id);
+            let name = if editor
+                .project()
+                .scenes
+                .values()
+                .all(|scene| scene.name != base_name)
+            {
+                base_name.to_owned()
+            } else {
+                (2_u64..)
+                    .map(|index| format!("{base_name} {index}"))
+                    .find(|name| {
+                        editor
+                            .project()
+                            .scenes
+                            .values()
+                            .all(|scene| scene.name != *name)
+                    })
+                    .expect("a scene name suffix must eventually be available")
+            };
+            let arguments = editor
+                .active_scene_id()
+                .and_then(|id| editor.scene(id))
+                .into_iter()
+                .flat_map(|scene| &scene.arguments)
+                .filter_map(|argument| {
+                    let bindings = argument
+                        .bindings
+                        .iter()
+                        .filter(|binding| selected.contains(&binding.item_id()))
+                        .cloned()
+                        .collect::<Vec<_>>();
+                    if bindings.is_empty() {
+                        return None;
+                    }
+                    let mut schema = argument.schema.clone();
+                    // Forward values unchanged across the new scene boundary. Each
+                    // original target still applies its own constraints.
+                    schema.configuration_mut(None).constraints = Default::default();
+                    Some(SceneArgument::new(schema, bindings))
+                })
+                .collect();
+            let scene = SceneDefinition::from_project(
+                scene_id,
+                name,
+                arguments,
+                TimelineDocument::from_items(frame_rate, items),
+            );
+            let duration = FrameDuration::new(end.get().saturating_sub(start.get()))?;
+            debug_assert_eq!(scene.duration(), duration);
+            let instance = next_document.insert_item(
+                target_layer,
+                start,
+                duration,
+                |id, start, duration| TimelineItem::scene_instance(id, start, duration, scene_id),
+            )?;
+
+            *editor.active_document_mut() = next_document;
+            if let Some(parent) = editor
+                .active_scene_id()
+                .and_then(|id| editor.project_mut().scenes.get_mut(&id))
+            {
+                for argument in &scene.arguments {
+                    let parent_argument = parent
+                        .argument_mut(argument.schema.id())
+                        .expect("forwarded arguments came from the parent scene");
+                    parent_argument
+                        .bindings
+                        .retain(|binding| !selected.contains(&binding.item_id()));
+                    parent_argument.bindings.push(SceneBindingTarget::new(
+                        instance,
+                        SceneBindingOwner::Item,
+                        argument.schema.id(),
+                        None,
+                        None,
+                    ));
+                }
+            }
+            editor.project_mut().scenes.insert(scene_id, scene);
+            editor.next_scene_id = raw_scene_id.checked_add(1).filter(|id| *id != u64::MAX);
+            editor.selection.set(HashSet::from([instance]));
+            Some(scene_id)
+        })
     }
 
     pub fn rename_scene(&mut self, scene_id: SceneId, name: impl Into<String>) -> bool {
@@ -283,44 +286,43 @@ impl TimelineEditor {
             return false;
         }
         let key = HistoryKey::SceneName(scene_id);
-        let before = self.history_snapshot_for_edit(Some(&key));
-        let Some(scene) = self.project_mut().scenes.get_mut(&scene_id) else {
-            return false;
-        };
-        if scene.name == name {
-            return false;
-        }
-        scene.name = name.to_owned();
-        self.finish_project_edit(before, Some(key));
-        true
+        self.edit_project_if_changed(Some(key), |editor| {
+            let Some(scene) = editor.project_mut().scenes.get_mut(&scene_id) else {
+                return false;
+            };
+            if scene.name == name {
+                return false;
+            }
+            scene.name = name.to_owned();
+            true
+        })
     }
 
     pub fn delete_scene(&mut self, scene_id: SceneId) -> bool {
         if !self.project().scenes.contains_key(&scene_id) {
             return false;
         }
-        let before = self.history_snapshot();
+        self.edit_project_if_changed(None, |editor| {
+            remove_scene_instances(&mut editor.project_mut().document, scene_id);
+            for scene in editor
+                .project_mut()
+                .scenes
+                .values_mut()
+                .filter(|scene| scene.id != scene_id)
+            {
+                let removed_items = remove_scene_instances(scene.document_mut(), scene_id);
+                remove_bindings_for_items(scene, &removed_items);
+            }
+            editor.project_mut().scenes.remove(&scene_id);
 
-        remove_scene_instances(&mut self.project_mut().document, scene_id);
-        for scene in self
-            .project_mut()
-            .scenes
-            .values_mut()
-            .filter(|scene| scene.id != scene_id)
-        {
-            let removed_items = remove_scene_instances(scene.document_mut(), scene_id);
-            remove_bindings_for_items(scene, &removed_items);
-        }
-        self.project_mut().scenes.remove(&scene_id);
-
-        if let Some(path_index) = self.scene_path.iter().position(|id| *id == scene_id) {
-            self.scene_path.truncate(path_index);
-            self.playhead = Frame::new(0);
-        }
-        self.selection.clear();
-        self.visibility.clear();
-        self.finish_project_edit(Some(before), None);
-        true
+            if let Some(path_index) = editor.scene_path.iter().position(|id| *id == scene_id) {
+                editor.scene_path.truncate(path_index);
+                editor.playhead = Frame::new(0);
+            }
+            editor.selection.clear();
+            editor.visibility.clear();
+            true
+        })
     }
 
     fn for_each_scene_instance_mut(
@@ -369,43 +371,43 @@ impl TimelineEditor {
         label: impl FnOnce(u64) -> String,
     ) -> Option<String> {
         let scene_id = self.active_scene_id()?;
-        let before = self.history_snapshot();
-        let scene = self.project_mut().scenes.get_mut(&scene_id)?;
-        let (argument_id, ordinal) = scene.allocate_argument_id()?;
-        let label = unique_scene_argument_name(&scene.arguments, &label(ordinal), &argument_id);
-        let default = match preset {
-            SceneArgumentPreset::Number => PropertyValue::F32(0.),
-            SceneArgumentPreset::SignedInteger => PropertyValue::I32(0),
-            SceneArgumentPreset::UnsignedInteger => PropertyValue::U32(0),
-            SceneArgumentPreset::Boolean => PropertyValue::Bool(false),
-            SceneArgumentPreset::Color => PropertyValue::Color([0., 0., 0., 1.]),
-            SceneArgumentPreset::Text => PropertyValue::String(String::new()),
-            SceneArgumentPreset::File => PropertyValue::File(None),
-        };
-        let ty = preset.ty();
-        let animatable = ty
-            .value_type()
-            .scalars()
-            .all(|(_, ty)| ty.is_interpolatable());
-        let schema = PropertySchema {
-            id: argument_id.clone(),
-            label: label.into(),
-            ty,
-            default,
-            append_default: None,
-            configurations: vec![PropertyConfiguration {
-                scene_bindable: true,
-                editable: true,
-                animatable,
-                ..Default::default()
-            }],
-        };
-        let schema = schema
-            .for_scene_argument()
-            .expect("supported scene argument types must produce an argument schema");
-        scene.arguments.push(SceneArgument::new(schema, Vec::new()));
-        self.finish_project_edit(Some(before), None);
-        Some(argument_id)
+        self.edit_project_option(None, |editor| {
+            let scene = editor.project_mut().scenes.get_mut(&scene_id)?;
+            let (argument_id, ordinal) = scene.allocate_argument_id()?;
+            let label = unique_scene_argument_name(&scene.arguments, &label(ordinal), &argument_id);
+            let default = match preset {
+                SceneArgumentPreset::Number => PropertyValue::F32(0.),
+                SceneArgumentPreset::SignedInteger => PropertyValue::I32(0),
+                SceneArgumentPreset::UnsignedInteger => PropertyValue::U32(0),
+                SceneArgumentPreset::Boolean => PropertyValue::Bool(false),
+                SceneArgumentPreset::Color => PropertyValue::Color([0., 0., 0., 1.]),
+                SceneArgumentPreset::Text => PropertyValue::String(String::new()),
+                SceneArgumentPreset::File => PropertyValue::File(None),
+            };
+            let ty = preset.ty();
+            let animatable = ty
+                .value_type()
+                .scalars()
+                .all(|(_, ty)| ty.is_interpolatable());
+            let schema = PropertySchema {
+                id: argument_id.clone(),
+                label: label.into(),
+                ty,
+                default,
+                append_default: None,
+                configurations: vec![PropertyConfiguration {
+                    scene_bindable: true,
+                    editable: true,
+                    animatable,
+                    ..Default::default()
+                }],
+            };
+            let schema = schema
+                .for_scene_argument()
+                .expect("supported scene argument types must produce an argument schema");
+            scene.arguments.push(SceneArgument::new(schema, Vec::new()));
+            Some(argument_id)
+        })
     }
 
     pub fn rename_scene_argument(&mut self, argument_id: &str, label: &str) -> bool {
@@ -417,32 +419,31 @@ impl TimelineEditor {
             return false;
         }
         let key = HistoryKey::SceneArgumentLabel(scene_id, argument_id.to_owned());
-        let before = self.history_snapshot_for_edit(Some(&key));
-        let Some(scene) = self.project().scenes.get(&scene_id) else {
-            return false;
-        };
-        if scene
-            .arguments
-            .iter()
-            .any(|argument| argument.schema.id() != argument_id && argument.schema.label() == label)
-        {
-            return false;
-        }
-        let Some(argument) = scene.argument(argument_id) else {
-            return false;
-        };
-        if argument.schema.label() == label {
-            return false;
-        }
-        self.project_mut()
-            .scenes
-            .get_mut(&scene_id)
-            .and_then(|scene| scene.argument_mut(argument_id))
-            .expect("the scene argument was checked")
-            .schema
-            .label = label.into();
-        self.finish_project_edit(before, Some(key));
-        true
+        self.edit_project_if_changed(Some(key), |editor| {
+            let Some(scene) = editor.project().scenes.get(&scene_id) else {
+                return false;
+            };
+            if scene.arguments.iter().any(|argument| {
+                argument.schema.id() != argument_id && argument.schema.label() == label
+            }) {
+                return false;
+            }
+            let Some(argument) = scene.argument(argument_id) else {
+                return false;
+            };
+            if argument.schema.label() == label {
+                return false;
+            }
+            editor
+                .project_mut()
+                .scenes
+                .get_mut(&scene_id)
+                .and_then(|scene| scene.argument_mut(argument_id))
+                .expect("the scene argument was checked")
+                .schema
+                .label = label.into();
+            true
+        })
     }
 
     pub fn move_scene_argument(&mut self, argument_id: &str, direction: i64) -> bool {
@@ -472,15 +473,15 @@ impl TimelineEditor {
             return false;
         }
 
-        let before = self.history_snapshot();
-        let scene = self
-            .project_mut()
-            .scenes
-            .get_mut(&scene_id)
-            .expect("the active scene was checked");
-        scene.arguments.swap(index, target);
-        self.finish_project_edit(Some(before), None);
-        true
+        self.edit_project_if_changed(None, |editor| {
+            let scene = editor
+                .project_mut()
+                .scenes
+                .get_mut(&scene_id)
+                .expect("the active scene was checked");
+            scene.arguments.swap(index, target);
+            true
+        })
     }
 
     pub fn update_scene_argument_numeric_settings(
@@ -506,16 +507,16 @@ impl TimelineEditor {
         if next_schema == argument.schema {
             return false;
         }
-        let before = self.history_snapshot_for_edit(Some(&key));
-        let argument = self
-            .project_mut()
-            .scenes
-            .get_mut(&scene_id)
-            .and_then(|scene| scene.argument_mut(argument_id))
-            .expect("the scene argument was checked above");
-        argument.schema = next_schema;
-        self.finish_project_edit(before, Some(key));
-        true
+        self.edit_project_if_changed(Some(key), |editor| {
+            let argument = editor
+                .project_mut()
+                .scenes
+                .get_mut(&scene_id)
+                .and_then(|scene| scene.argument_mut(argument_id))
+                .expect("the scene argument was checked above");
+            argument.schema = next_schema;
+            true
+        })
     }
 
     pub fn update_scene_argument_default(
@@ -540,17 +541,16 @@ impl TimelineEditor {
         if next_schema == argument.schema {
             return Ok(false);
         }
-        let before = self.history_snapshot_for_edit(Some(&key));
-        let argument = self
-            .project_mut()
-            .scenes
-            .get_mut(&scene_id)
-            .and_then(|scene| scene.argument_mut(argument_id))
-            .expect("the scene argument was checked above");
-        argument.schema = next_schema;
-
-        self.finish_project_edit(before, Some(key));
-        Ok(true)
+        self.try_edit_project(Some(key), |editor| {
+            let argument = editor
+                .project_mut()
+                .scenes
+                .get_mut(&scene_id)
+                .and_then(|scene| scene.argument_mut(argument_id))
+                .expect("the scene argument was checked above");
+            argument.schema = next_schema;
+            Ok((true, true))
+        })
     }
 
     pub fn connect_scene_argument(
@@ -587,18 +587,18 @@ impl TimelineEditor {
         if resolved.schema.ty() != argument.schema.ty() {
             return Err(SceneArgumentEditError::IncompatibleContract);
         }
-        let before = self.history_snapshot();
-        let Some(argument) = self
-            .project_mut()
-            .scenes
-            .get_mut(&scene_id)
-            .and_then(|scene| scene.argument_mut(argument_id))
-        else {
-            return Err(SceneArgumentEditError::ArgumentNotFound);
-        };
-        argument.bindings.push(target);
-        self.finish_project_edit(Some(before), None);
-        Ok(())
+        self.try_edit_project(None, |editor| {
+            let Some(argument) = editor
+                .project_mut()
+                .scenes
+                .get_mut(&scene_id)
+                .and_then(|scene| scene.argument_mut(argument_id))
+            else {
+                return Err(SceneArgumentEditError::ArgumentNotFound);
+            };
+            argument.bindings.push(target);
+            Ok(((), true))
+        })
     }
 
     pub fn disconnect_scene_argument(
@@ -617,18 +617,20 @@ impl TimelineEditor {
             return Err(SceneArgumentEditError::TargetNotFound);
         }
         let value = argument.schema.default_value().clone();
-        let before = self.history_snapshot();
-        self.apply_scene_binding(scene_id, target, value)
-            .expect("validated binding must accept its value");
-        self.project_mut()
-            .scenes
-            .get_mut(&scene_id)
-            .and_then(|scene| scene.argument_mut(argument_id))
-            .expect("argument was checked")
-            .bindings
-            .retain(|binding| binding != target);
-        self.finish_project_edit(Some(before), None);
-        Ok(())
+        self.try_edit_project(None, |editor| {
+            editor
+                .apply_scene_binding(scene_id, target, value)
+                .expect("validated binding must accept its value");
+            editor
+                .project_mut()
+                .scenes
+                .get_mut(&scene_id)
+                .and_then(|scene| scene.argument_mut(argument_id))
+                .expect("argument was checked")
+                .bindings
+                .retain(|binding| binding != target);
+            Ok(((), true))
+        })
     }
 
     pub fn remove_scene_argument(
@@ -644,23 +646,29 @@ impl TimelineEditor {
             .ok_or(SceneArgumentEditError::ArgumentNotFound)?;
         let bindings = argument.bindings.clone();
         let value = argument.schema.default_value().clone();
-        let before = self.history_snapshot();
-        for target in &bindings {
-            self.apply_scene_binding(scene_id, target, value.clone())
-                .expect("validated binding must accept its value");
-        }
-        self.project_mut()
-            .scenes
-            .get_mut(&scene_id)
-            .expect("active scene exists")
-            .arguments
-            .retain(|argument| argument.schema.id() != argument_id);
-        self.for_each_scene_instance_mut(scene_id, |item| {
-            item.properties.remove(argument_id);
-            item.animations.retain_valid_for_property(argument_id, None);
-        });
-        remove_bindings_for_nested_argument(&mut self.project_mut().scenes, scene_id, argument_id);
-        self.finish_project_edit(Some(before), None);
-        Ok(())
+        self.try_edit_project(None, |editor| {
+            for target in &bindings {
+                editor
+                    .apply_scene_binding(scene_id, target, value.clone())
+                    .expect("validated binding must accept its value");
+            }
+            editor
+                .project_mut()
+                .scenes
+                .get_mut(&scene_id)
+                .expect("active scene exists")
+                .arguments
+                .retain(|argument| argument.schema.id() != argument_id);
+            editor.for_each_scene_instance_mut(scene_id, |item| {
+                item.properties.remove(argument_id);
+                item.animations.retain_valid_for_property(argument_id, None);
+            });
+            remove_bindings_for_nested_argument(
+                &mut editor.project_mut().scenes,
+                scene_id,
+                argument_id,
+            );
+            Ok(((), true))
+        })
     }
 }

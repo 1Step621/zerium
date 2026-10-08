@@ -233,21 +233,15 @@ impl TemporalSamplingSchema {
                 start_offset,
                 end_offset,
             } => {
-                let PropertyValue::U32(count) = values.property(sample_count)? else {
-                    return None;
-                };
-                let PropertyValue::F32(start) = values.property(start_offset)? else {
-                    return None;
-                };
-                let PropertyValue::F32(end) = values.property(end_offset)? else {
-                    return None;
-                };
+                let count = values.property(sample_count)?.as_u32()?;
+                let start = values.property(start_offset)?.as_f32()?;
+                let end = values.property(end_offset)?.as_f32()?;
                 if !start.is_finite() || !end.is_finite() {
                     return None;
                 }
-                let count = (*count).clamp(1, MAX_TEMPORAL_SAMPLES);
-                let start = f64::from(*start);
-                let span = f64::from(*end) - start;
+                let count = count.clamp(1, MAX_TEMPORAL_SAMPLES);
+                let start = f64::from(start);
+                let span = f64::from(end) - start;
                 if span == 0. {
                     return Some(vec![start]);
                 }
@@ -258,9 +252,7 @@ impl TemporalSamplingSchema {
                 )
             }
             Self::Offsets { offsets } => {
-                let PropertyValue::Array(elements) = values.property(offsets)? else {
-                    return None;
-                };
+                let elements = values.property(offsets)?.as_array()?;
                 elements
                     .iter()
                     .map(|element| match element.value() {

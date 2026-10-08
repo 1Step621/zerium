@@ -72,16 +72,25 @@ impl PropertyInspector {
         }
     }
 
-    pub(super) fn inspector_item_at_playhead(&self, cx: &App) -> Option<TimelineItem> {
-        let editor = self.editor.read(cx);
+    pub(super) fn inspector_item_id(&self, cx: &App) -> Option<ItemId> {
         let item_id = self.store.source.as_ref()?.item_id;
-        if !editor.is_item_selected(item_id) {
-            return None;
-        }
-        Some(editor.evaluated_item_at(
-            editor.item(item_id)?,
+        self.editor
+            .read(cx)
+            .is_item_selected(item_id)
+            .then_some(item_id)
+    }
+
+    fn inspector_value_at_playhead(
+        &self,
+        target: &PropertyTarget,
+        cx: &App,
+    ) -> Option<PropertyValue> {
+        let item_id = self.inspector_item_id(cx)?;
+        let editor = self.editor.read(cx);
+        editor.evaluated_property_value(
+            &target.address(item_id),
             TimelineTime::from_frame(editor.playhead()),
-        ))
+        )
     }
 
     /// The single domain write channel for every resolved scalar control.
@@ -93,13 +102,19 @@ impl PropertyInspector {
         value: PropertyValue,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(item) = self.inspector_item_at_playhead(cx) else {
+        let Some(item_id) = self.inspector_item_id(cx) else {
             return false;
         };
-        if target.animation_enabled(&item, &self.editor.read(cx).items_in_scope(self.scope)) {
+        let editor = self.editor.read(cx);
+        let items = editor
+            .evaluated_items_in_scope(self.scope, TimelineTime::from_frame(editor.playhead()));
+        let Some(source) = items.iter().find(|item| item.id == item_id) else {
+            return false;
+        };
+        if target.animation_enabled(source, &items) {
             return false;
         }
-        let address = target.address(item.id);
+        let address = target.address(item_id);
         let result = self.editor.update(cx, |editor, cx| {
             let result = editor.edit_property(self.scope, &address, value);
             if result == Ok(true) {
@@ -118,8 +133,9 @@ impl PropertyInspector {
         }
     }
 
-    fn live_numeric_value(item: &TimelineItem, target: &PropertyTarget) -> Option<f64> {
-        target.value(item)?.numeric_scalar()
+    fn live_numeric_value(&self, target: &PropertyTarget, cx: &App) -> Option<f64> {
+        self.inspector_value_at_playhead(target, cx)?
+            .numeric_scalar()
     }
 
     pub(super) fn update_numeric_scalar(
@@ -129,8 +145,8 @@ impl PropertyInspector {
         cx: &mut Context<Self>,
     ) -> bool {
         let Some(updated) = self
-            .inspector_item_at_playhead(cx)
-            .and_then(|item| target.value(&item)?.with_numeric_scalar(value))
+            .inspector_value_at_playhead(target, cx)
+            .and_then(|current| current.with_numeric_scalar(value))
         else {
             return false;
         };
@@ -148,10 +164,7 @@ impl PropertyInspector {
     ) {
         let value = spec
             .parse_number(&input.read(cx).value())
-            .or_else(|| {
-                self.inspector_item_at_playhead(cx)
-                    .and_then(|item| Self::live_numeric_value(&item, target))
-            })
+            .or_else(|| self.live_numeric_value(target, cx))
             .unwrap_or(spec.min);
         let value = spec.stepped_value(value, event);
         self.update_numeric_scalar(target, value, cx);
@@ -256,8 +269,8 @@ impl PropertyInspector {
         }
         let value = input.read(cx).value().to_string();
         if self
-            .inspector_item_at_playhead(cx)
-            .is_none_or(|item| item.id != binding.item_id)
+            .inspector_item_id(cx)
+            .is_none_or(|id| id != binding.item_id)
         {
             return;
         }
@@ -275,8 +288,11 @@ impl PropertyInspector {
             return;
         };
         if self
-            .inspector_item_at_playhead(cx)
-            .is_none_or(|item| item.id != binding.item_id || binding.target.value(&item).is_none())
+            .inspector_item_id(cx)
+            .is_none_or(|id| id != binding.item_id)
+            || self
+                .inspector_value_at_playhead(&binding.target, cx)
+                .is_none()
         {
             return;
         }
@@ -310,8 +326,7 @@ impl PropertyInspector {
             let displayed = if matches!(origin.input_id, ControlId::AnimationStop { .. }) {
                 self.animation_stop_value(&origin.input_id, cx)
             } else {
-                self.inspector_item_at_playhead(cx)
-                    .and_then(|item| origin.target.value(&item).cloned())
+                self.inspector_value_at_playhead(&origin.target, cx)
             }
             .map(|value| Self::numeric_value_text(&value))
             .unwrap_or_else(|| Self::format_value(value));
@@ -335,8 +350,7 @@ impl PropertyInspector {
                     self.animation_stop_value(input_id, cx)
                         .and_then(|value| value.numeric_scalar())
                 } else {
-                    self.inspector_item_at_playhead(cx)
-                        .and_then(|item| Self::live_numeric_value(&item, target))
+                    self.live_numeric_value(target, cx)
                 }
             })
             .unwrap_or(spec.min);
@@ -385,10 +399,10 @@ impl PropertyInspector {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(item) = self.inspector_item_at_playhead(cx) else {
+        let Some(item_id) = self.inspector_item_id(cx) else {
             return;
         };
-        let address = property.address(item.id);
+        let address = property.address(item_id);
         let changed = self.editor.update(cx, |editor, cx| {
             let changed = editor.set_property_animation_enabled(&address, enabled);
             if changed {
@@ -415,13 +429,7 @@ impl PropertyInspector {
         edit: ArrayEdit,
     ) -> bool {
         let scope = EditScope::Item(address.item_id);
-        let Some(PropertyValue::Array(mut elements)) =
-            editor.items_in_scope(scope).pop().and_then(|item| {
-                item.property_values(address.effect_id)?
-                    .property(&address.property_id)
-                    .cloned()
-            })
-        else {
+        let Some(PropertyValue::Array(mut elements)) = editor.property_value(address) else {
             return false;
         };
         let Some(index) = elements
@@ -447,11 +455,7 @@ impl PropertyInspector {
         value: PropertyValue,
     ) -> bool {
         let scope = EditScope::Item(address.item_id);
-        let Some(mut updated) = editor.items_in_scope(scope).pop().and_then(|item| {
-            item.property_values(address.effect_id)?
-                .property(&address.property_id)
-                .cloned()
-        }) else {
+        let Some(mut updated) = editor.property_value(address) else {
             return false;
         };
         updated.push_element(value) && editor.update_property(scope, address, updated)

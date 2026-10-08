@@ -46,13 +46,12 @@ impl TimelineEditor {
         address: &PropertyAddress,
         edit: PropertyEdit,
     ) -> Result<bool, TimelineEditError> {
-        let Some(source) = self.items_in_scope(EditScope::Item(address.item_id)).pop() else {
+        if !self.is_item_selected(address.item_id) {
             return Ok(false);
-        };
+        }
         let targets = self
-            .items_in_scope(scope)
-            .iter()
-            .map(|item| address.on_item(&source, item))
+            .source_items_in_scope(scope)
+            .map(|item| self.corresponding_property_address(address, item.id))
             .collect::<Option<Vec<_>>>();
         let Some(targets) = targets.filter(|targets| !targets.is_empty()) else {
             return Ok(false);
@@ -116,9 +115,10 @@ impl TimelineEditor {
                 .collect(),
             address.property_id.clone(),
         );
-        let before = self.history_snapshot_for_edit(Some(&key));
-        let changed = self.active_document_mut().set_properties(&updates)?;
-        Ok(self.finish_project_edit_if_changed(changed, before, Some(key)))
+        self.try_edit_project(Some(key), |editor| {
+            let changed = editor.active_document_mut().set_properties(&updates)?;
+            Ok((changed, changed))
+        })
     }
 
     /// An explicit effect identifies the position and schema to match across
@@ -177,13 +177,14 @@ impl TimelineEditor {
             return false;
         };
         let key = HistoryKey::AspectRatioLock(targets);
-        let before = self.history_snapshot_for_edit(Some(&key));
-        let mut changed = false;
-        for (id, effect, ratio) in updates {
-            changed |= self
-                .active_document_mut()
-                .set_item_aspect_ratio(id, effect, ratio);
-        }
-        self.finish_project_edit_if_changed(changed, before, Some(key))
+        self.edit_project_if_changed(Some(key), |editor| {
+            let mut changed = false;
+            for (id, effect, ratio) in updates {
+                changed |= editor
+                    .active_document_mut()
+                    .set_item_aspect_ratio(id, effect, ratio);
+            }
+            changed
+        })
     }
 }

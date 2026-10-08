@@ -7,6 +7,7 @@ mod history;
 mod ids;
 mod item;
 mod project;
+mod properties;
 mod property_address;
 mod scene;
 mod selection;

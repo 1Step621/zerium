@@ -54,6 +54,55 @@ pub enum PropertyValue {
 }
 
 impl PropertyValue {
+    pub fn as_f32(&self) -> Option<f32> {
+        match self {
+            Self::F32(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    pub fn as_u32(&self) -> Option<u32> {
+        match self {
+            Self::U32(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    pub fn as_enum(&self) -> Option<u32> {
+        match self {
+            Self::Enum(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    pub fn as_bool(&self) -> Option<bool> {
+        match self {
+            Self::Bool(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(&self) -> Option<&str> {
+        match self {
+            Self::String(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    pub fn as_color(&self) -> Option<[f32; 4]> {
+        match self {
+            Self::Color(value) => Some(*value),
+            _ => None,
+        }
+    }
+
+    pub fn as_array(&self) -> Option<&[PropertyElement]> {
+        match self {
+            Self::Array(elements) => Some(elements),
+            _ => None,
+        }
+    }
+
     pub fn scalar(
         &self,
         element_id: Option<PropertyElementId>,
@@ -314,10 +363,7 @@ pub fn materialized_property_values<'a>(
 ) -> PropertyValues {
     let mut values = PropertyValues::default();
     for property in schema {
-        let value = overrides
-            .property(&property.id)
-            .and_then(|value| property.constrained_value(value))
-            .unwrap_or_else(|| property.default_value().clone());
+        let value = property.resolve_value(overrides.property(property.id()));
         values
             .set(property, value)
             .expect("constrained values preserve the property type");

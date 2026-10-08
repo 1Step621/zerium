@@ -31,10 +31,7 @@ impl TimeMapping {
         ids: TimeMappingProperties<'_>,
         values: &PropertyValues,
     ) -> Result<Self, TimelineEditError> {
-        let number = |id| match values.property(id)? {
-            PropertyValue::F32(value) => Some(*value),
-            _ => None,
-        };
+        let number = |id| values.property(id).and_then(PropertyValue::as_f32);
         Self::new(
             number(ids.source_start).ok_or(TimelineEditError::InvalidSourceRange)?,
             number(ids.source_duration).ok_or(TimelineEditError::InvalidSourceRange)?,

@@ -99,10 +99,6 @@ struct PropertyTarget {
 }
 
 impl PropertyTarget {
-    fn value<'a>(&self, item: &'a TimelineItem) -> Option<&'a PropertyValue> {
-        self.address(item.id).value(item)
-    }
-
     fn selected_address(
         &self,
         source: &TimelineItem,

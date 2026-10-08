@@ -11,6 +11,7 @@ use super::{
     FrameRate, ResizeMode, TimeMapping,
     aspect_ratio::AspectRatio,
     ids::{EffectInstanceId, ItemId, LayerId, SceneId},
+    properties::resolve_property,
     time::{Frame, FrameDuration, TimelineTime},
 };
 
@@ -30,21 +31,13 @@ impl RenderResultSettings {
         end_offset: &str,
         hide_original: &str,
     ) -> Option<Self> {
-        let PropertyValue::U32(start) = properties.property(start_offset)? else {
-            return None;
-        };
-        let PropertyValue::U32(end) = properties.property(end_offset)? else {
-            return None;
-        };
-        let PropertyValue::Bool(hide_original) = properties.property(hide_original)? else {
-            return None;
-        };
-        let start = u64::from(*start);
-        let end = u64::from(*end);
+        let start = u64::from(properties.property(start_offset)?.as_u32()?);
+        let end = u64::from(properties.property(end_offset)?.as_u32()?);
+        let hide_original = properties.property(hide_original)?.as_bool()?;
         Some(Self {
             start_offset: start.min(end),
             end_offset: start.max(end),
-            hide_original: *hide_original,
+            hide_original,
         })
     }
 
@@ -290,10 +283,25 @@ impl TimelineItem {
     /// Linear gain read through this audio input's volume reference.
     pub fn audio_gain(&self, input_id: &str) -> Option<f32> {
         let audio = self.schema()?.audio_input(input_id)?;
-        match self.properties.property(audio.volume_property()) {
-            Some(PropertyValue::F32(value)) => Some(value.max(0.)),
-            _ => unreachable!("validated audio volume property"),
-        }
+        Some(
+            self.properties
+                .property(audio.volume_property())?
+                .as_f32()
+                .expect("validated audio volume property")
+                .max(0.),
+        )
+    }
+
+    pub fn audio_gain_at(&self, input_id: &str, time: TimelineTime) -> Option<f32> {
+        let schema = self.schema()?;
+        let input = schema.audio_input(input_id)?;
+        let property = schema.property(input.volume_property())?;
+        Some(
+            self.evaluated_property_at(time, None, property)?
+                .as_f32()
+                .expect("validated audio volume property")
+                .max(0.),
+        )
     }
 
     pub fn render_result_ranges(&self) -> impl Iterator<Item = RenderResultSettings> + '_ {
@@ -372,12 +380,12 @@ impl TimelineItem {
         let playback =
             MediaPlayback::from_properties(input.playback_properties(), &self.properties)
                 .expect("validated audio playback properties");
-        let Some(PropertyValue::Bool(preserve_pitch)) =
-            self.properties.property(input.preserve_pitch_property())
-        else {
-            unreachable!("validated preserve_pitch property")
-        };
-        Some((asset, playback, *preserve_pitch))
+        let preserve_pitch = self
+            .properties
+            .property(input.preserve_pitch_property())?
+            .as_bool()
+            .expect("validated preserve-pitch property");
+        Some((asset, playback, preserve_pitch))
     }
 
     pub(super) fn timeline_mapping(&self) -> Option<TimeMapping> {
@@ -519,41 +527,6 @@ impl TimelineItem {
         Ok(())
     }
 
-    pub fn evaluated_at_time(&self, time: TimelineTime) -> Self {
-        let properties = self.schema().map(|schema| schema.properties());
-        self.evaluate_at(time, properties)
-    }
-
-    pub(super) fn evaluated_with_properties_at<'a>(
-        &self,
-        time: TimelineTime,
-        properties: impl IntoIterator<Item = &'a PropertySchema>,
-    ) -> Self {
-        self.evaluate_at(time, Some(properties))
-    }
-
-    fn evaluate_at<'a>(
-        &self,
-        time: TimelineTime,
-        properties: Option<impl IntoIterator<Item = &'a PropertySchema>>,
-    ) -> Self {
-        let progress = |track: &ScalarTrack| self.animation_clock(track).progress_at(time);
-        let mut item = self.clone();
-        if let Some(properties) = properties {
-            item.properties =
-                self.animations
-                    .evaluated_values(&self.properties, properties, progress);
-        }
-        for effect in &mut item.effects {
-            effect.properties = effect.animations.evaluated_values(
-                &effect.properties,
-                effect.schema.properties(),
-                progress,
-            );
-        }
-        item
-    }
-
     /// Evaluate one property with the same defaults, clock and constraints as playback.
     pub fn evaluated_property_at(
         &self,
@@ -561,19 +534,7 @@ impl TimelineItem {
         effect_id: Option<EffectInstanceId>,
         property: &PropertySchema,
     ) -> Option<PropertyValue> {
-        let (base, animations) = match effect_id {
-            Some(effect_id) => {
-                let effect = self.effect(effect_id)?;
-                (&effect.properties, &effect.animations)
-            }
-            None => (&self.properties, &self.animations),
-        };
-        animations
-            .evaluated_values(base, std::iter::once(property), |track| {
-                self.animation_clock(track).progress_at(time)
-            })
-            .property(property.id())
-            .cloned()
+        resolve_property(None, self, effect_id, property, Some(time))
     }
 
     pub fn animation_track(
@@ -591,6 +552,16 @@ impl TimelineItem {
         match effect_id {
             Some(id) => Some(&self.effect(id)?.properties),
             None => Some(&self.properties),
+        }
+    }
+
+    pub(super) fn property_values_mut(
+        &mut self,
+        effect_id: Option<EffectInstanceId>,
+    ) -> Option<&mut PropertyValues> {
+        match effect_id {
+            Some(id) => Some(&mut self.effect_mut(id)?.properties),
+            None => Some(&mut self.properties),
         }
     }
 

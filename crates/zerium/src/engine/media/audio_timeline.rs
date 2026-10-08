@@ -246,8 +246,7 @@ impl AudioClip {
                 let seconds = sample_frame as f64 / f64::from(format.sample_rate);
                 let time = TimelineTime::from_frames(seconds * frame_rate.frames_per_second());
                 self.item
-                    .evaluated_at_time(time)
-                    .audio_gain(&self.id.input_id)
+                    .audio_gain_at(&self.id.input_id, time)
                     .expect("validated audio input")
             }
         }

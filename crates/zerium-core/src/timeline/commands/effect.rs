@@ -13,14 +13,16 @@ impl TimelineEditor {
         else {
             return false;
         };
-        let before = self.history_snapshot();
-        let mut changed = false;
-        for (item_id, effect_id) in effects {
-            changed |=
-                self.active_document_mut()
-                    .move_item_effect(item_id, effect_id, target_index);
-        }
-        self.finish_project_edit_if_changed(changed, Some(before), None)
+        self.edit_project_if_changed(None, |editor| {
+            let mut changed = false;
+            for (item_id, effect_id) in effects {
+                changed |=
+                    editor
+                        .active_document_mut()
+                        .move_item_effect(item_id, effect_id, target_index);
+            }
+            changed
+        })
     }
 
     pub fn add_item_effect(
@@ -42,19 +44,19 @@ impl TimelineEditor {
             .next_effect_id
             .ok_or(TimelineEditError::IdentifierExhausted)?;
         let instance_id = EffectInstanceId::new(raw_effect_id);
-        let before = self.history_snapshot();
-        if !self.active_document_mut().add_item_effect(
-            id,
-            instance_id,
-            plugin_id,
-            effect_id,
-            schema,
-        ) {
-            return Err(TimelineEditError::ItemNotFound(id));
-        }
-        self.next_effect_id = raw_effect_id.checked_add(1).filter(|id| *id != u64::MAX);
-        self.finish_project_edit(Some(before), None);
-        Ok(instance_id)
+        self.try_edit_project(None, |editor| {
+            if !editor.active_document_mut().add_item_effect(
+                id,
+                instance_id,
+                plugin_id,
+                effect_id,
+                schema,
+            ) {
+                return Err(TimelineEditError::ItemNotFound(id));
+            }
+            editor.next_effect_id = raw_effect_id.checked_add(1).filter(|id| *id != u64::MAX);
+            Ok((instance_id, true))
+        })
     }
 
     pub(in crate::timeline) fn effect_move_target(
@@ -102,24 +104,25 @@ impl TimelineEditor {
         if !self.is_item_selected(item_id) {
             return false;
         }
-        let before = self.history_snapshot();
-        let changed = self
-            .active_document_mut()
-            .remove_item_effect(item_id, effect_id);
-        if changed && self.active_edit_target == Some((item_id, effect_id)) {
-            self.active_edit_target = None;
-        }
-        if changed
-            && let Some(scene_id) = self.active_scene_id()
-            && let Some(scene) = self.project_mut().scenes.get_mut(&scene_id)
-        {
-            for argument in &mut scene.arguments {
-                argument.bindings.retain(|binding| {
-                    !(binding.item_id() == item_id
-                        && binding.owner() == SceneBindingOwner::Effect(effect_id))
-                });
+        self.edit_project_if_changed(None, |editor| {
+            let changed = editor
+                .active_document_mut()
+                .remove_item_effect(item_id, effect_id);
+            if changed && editor.active_edit_target == Some((item_id, effect_id)) {
+                editor.active_edit_target = None;
             }
-        }
-        self.finish_project_edit_if_changed(changed, Some(before), None)
+            if changed
+                && let Some(scene_id) = editor.active_scene_id()
+                && let Some(scene) = editor.project_mut().scenes.get_mut(&scene_id)
+            {
+                for argument in &mut scene.arguments {
+                    argument.bindings.retain(|binding| {
+                        !(binding.item_id() == item_id
+                            && binding.owner() == SceneBindingOwner::Effect(effect_id))
+                    });
+                }
+            }
+            changed
+        })
     }
 }

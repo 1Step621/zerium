@@ -27,8 +27,11 @@ project I/O. Engine code must not depend on UI entities.
 `TimelineProject` holds persistent documents, scenes, resolution, and project
 identity. `timeline::document` owns item storage and layer indexes; its
 `placement` and `editing` modules handle interval operations and value
-transactions without exposing those indexes. Persistent changes go through `TimelineEditor` to keep validation,
-revision, and history consistent. Selection, preview visibility, playhead, and
+transactions without exposing those indexes. Persistent changes go through
+`TimelineEditor`; the edit boundary in `timeline::history` records changed
+commands and advances revision. Commands prepare fallible multi-owner changes
+before committing them. Animation gestures keep their own starting snapshot
+and grouping across updates. Selection, preview visibility, playhead, and
 history are session state. Preview-only changes do not increment project revision
 or enter history. Grouping inside a scene preserves argument connections
 through inputs on the new nested scene, with constraints still applied by the
@@ -55,7 +58,17 @@ persistence share these paths, so reordering an array does not redirect its
 animations or bindings.
 
 Property schemas define types, defaults, constraints, and scalar permissions.
-Commands validate all affected values and bindings before committing a multi-owner edit.
+Stored items are read through `source_items_in_scope`; resolved reads use
+`property_value` or `evaluated_property_value`. Whole-item resolution builds
+each property through the same pipeline. `timeline::properties` resolves defaults
+and scene arguments, then delegates per-property animation and constraints to the
+animation module. Scene argument resolution accepts either definition defaults
+or placed instance values. Baking arguments into detached items uses the same
+resolver and stores only connected properties, preserving inheritance for
+unbound scene inputs. Inspector, rendering, and audio use this evaluation path.
+Owner and array-element matching uses resolved items so inherited values
+participate consistently. Commands validate all affected values and bindings
+before committing a multi-owner edit.
 Animation tracks address individual scalars; interpolation belongs to the
 animation module. A track may repeat its editable pattern with a frame period
 and cycle phase. `AnimationClock` maps between pattern positions and timeline

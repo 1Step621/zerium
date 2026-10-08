@@ -1,8 +1,12 @@
-use std::{collections::VecDeque, sync::Arc, time::Instant};
+use std::{
+    collections::VecDeque,
+    sync::Arc,
+    time::{Duration, Instant},
+};
 
 use super::{
     EffectInstanceId, Frame, ItemId, PropertyAddress, ResizeEdge, ResizeMode, SceneId,
-    TimelineTime, project::TimelineProject, selection::SelectionState,
+    TimelineEditor, TimelineTime, project::TimelineProject, selection::SelectionState,
 };
 
 #[derive(Clone, Debug, PartialEq)]
@@ -116,5 +120,89 @@ impl<S, K: PartialEq> EditHistory<S, K> {
                 .as_ref()
                 .is_some_and(|(previous, at)| previous == key && at.elapsed() <= max_interval)
         })
+    }
+}
+
+const HISTORY_COALESCE_INTERVAL: Duration = Duration::from_millis(750);
+
+impl TimelineEditor {
+    pub(super) fn history_snapshot_for_edit(
+        &self,
+        key: Option<&HistoryKey>,
+    ) -> Option<HistorySnapshot> {
+        let scoped_key = key.map(|key| (self.active_scene_id(), key.clone()));
+        self.history
+            .begins_group(scoped_key.as_ref(), HISTORY_COALESCE_INTERVAL)
+            .then(|| self.history_snapshot())
+    }
+
+    pub(super) fn finish_project_edit(
+        &mut self,
+        before: Option<HistorySnapshot>,
+        key: Option<HistoryKey>,
+    ) {
+        let scoped_key = key.map(|key| (self.active_scene_id(), key));
+        self.history.record(before, scoped_key);
+        self.advance_project_revision();
+    }
+
+    /// Own the history and revision boundary; the command reports its actual change.
+    pub(super) fn edit_project<T>(
+        &mut self,
+        key: Option<HistoryKey>,
+        update: impl FnOnce(&mut Self) -> (T, bool),
+    ) -> T {
+        let before = self.history_snapshot_for_edit(key.as_ref());
+        let (value, changed) = update(self);
+        if changed {
+            self.finish_project_edit(before, key);
+        }
+        value
+    }
+
+    pub(super) fn edit_project_if_changed(
+        &mut self,
+        key: Option<HistoryKey>,
+        update: impl FnOnce(&mut Self) -> bool,
+    ) -> bool {
+        self.edit_project(key, |editor| {
+            let changed = update(editor);
+            (changed, changed)
+        })
+    }
+
+    pub(super) fn try_edit_project<T, E>(
+        &mut self,
+        key: Option<HistoryKey>,
+        update: impl FnOnce(&mut Self) -> Result<(T, bool), E>,
+    ) -> Result<T, E> {
+        self.edit_project(key, |editor| {
+            let result = update(editor);
+            let changed = result.as_ref().is_ok_and(|(_, changed)| *changed);
+            (result.map(|(value, _)| value), changed)
+        })
+    }
+
+    pub(super) fn edit_project_option<T>(
+        &mut self,
+        key: Option<HistoryKey>,
+        update: impl FnOnce(&mut Self) -> Option<T>,
+    ) -> Option<T> {
+        self.edit_project(key, |editor| {
+            let value = update(editor);
+            let changed = value.is_some();
+            (value, changed)
+        })
+    }
+
+    /// Creation and subsequent file initialization share the newly allocated item's group.
+    pub(super) fn edit_item_creation<E>(
+        &mut self,
+        create: impl FnOnce(&mut Self) -> Result<ItemId, E>,
+    ) -> Result<ItemId, E> {
+        let before = self.history_snapshot();
+        let id = create(self)?;
+        self.finish_project_edit(Some(before), Some(HistoryKey::ItemCreation(id)));
+        Ok(id)
     }
 }

@@ -475,8 +475,8 @@ impl PropertyInspector {
                                         move |font, _, cx| {
                                             inspector.update(cx, |inspector, cx| {
                                                 if inspector
-                                                    .inspector_item_at_playhead(cx)
-                                                    .is_some_and(|item| item.id == item_id)
+                                                    .inspector_item_id(cx)
+                                                    .is_some_and(|id| id == item_id)
                                                     && inspector.set_scalar(
                                                         &target,
                                                         PropertyValue::String(font),

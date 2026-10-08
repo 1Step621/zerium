@@ -49,10 +49,7 @@ impl Preview {
 
     fn update_scalar(editor: &mut TimelineEditor, scalar: &PreviewScalarValue, value: f32) -> bool {
         let address = &scalar.address;
-        if editor
-            .single_selected_item()
-            .is_none_or(|item| item.id != address.item_id)
-        {
+        if editor.selected_item_ids().count() != 1 || !editor.is_item_selected(address.item_id) {
             return false;
         }
         let Some(value) = address.schema(editor).and_then(|schema| {
