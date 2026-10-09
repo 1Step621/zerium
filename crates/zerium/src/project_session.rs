@@ -1,4 +1,7 @@
-use std::collections::HashMap;
+use std::{
+    collections::HashMap,
+    path::{Path, PathBuf},
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct ProjectSessionId(u64);
@@ -21,6 +24,7 @@ pub(crate) struct ProjectOperation {
 
 pub(crate) struct ProjectSession {
     id: ProjectSessionId,
+    path: Option<PathBuf>,
     next_session: u64,
     next_operation: u64,
     operations: HashMap<u64, ProjectActivity>,
@@ -30,6 +34,7 @@ impl Default for ProjectSession {
     fn default() -> Self {
         Self {
             id: ProjectSessionId(1),
+            path: None,
             next_session: 2,
             next_operation: 1,
             operations: HashMap::new(),
@@ -46,7 +51,16 @@ impl ProjectSession {
         self.id == id
     }
 
-    pub(crate) fn advance(&mut self) -> ProjectSessionId {
+    pub(crate) fn path(&self) -> Option<&Path> {
+        self.path.as_deref()
+    }
+
+    pub(crate) fn set_path(&mut self, path: Option<PathBuf>) {
+        self.path = path.map(|path| std::path::absolute(&path).unwrap_or(path));
+    }
+
+    pub(crate) fn advance(&mut self, path: Option<PathBuf>) -> ProjectSessionId {
+        self.set_path(path);
         self.id = ProjectSessionId(self.next_session);
         self.next_session = self.next_session.saturating_add(1);
         self.operations.clear();

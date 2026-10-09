@@ -177,19 +177,19 @@ impl Explorer {
         cx: &mut Context<Self>,
     ) -> Self {
         let session_id = session.read(cx).id();
-        let initial_directory = UserDirs::new()
-            .map(|directories| directories.home_dir().to_path_buf())
-            .or_else(|| std::env::current_dir().ok())
-            .unwrap_or_else(|| PathBuf::from("."));
-        let session_subscription = cx.observe(&session, |this, _, cx| {
-            let session_id = this.session.read(cx).id();
-            if session_id == this.session_id {
+        let initial_directory = Self::default_directory(session.read(cx));
+        let mut project_path = session.read(cx).path().map(Path::to_path_buf);
+        let session_subscription = cx.observe(&session, move |this, _, cx| {
+            let session = this.session.read(cx);
+            let session_id = session.id();
+            let path = session.path().map(Path::to_path_buf);
+            if session_id == this.session_id && path == project_path {
                 return;
             }
+            let directory = Self::default_directory(session);
             this.session_id = session_id;
-            this.load_generation = this.load_generation.saturating_add(1);
-            this._load_task = Task::ready(());
-            cx.notify();
+            project_path = path;
+            this.load_directory(directory, cx);
         });
         let mut explorer = Self {
             plugins,
@@ -208,6 +208,16 @@ impl Explorer {
         };
         explorer.load_directory(initial_directory, cx);
         explorer
+    }
+
+    fn default_directory(session: &ProjectSession) -> PathBuf {
+        session
+            .path()
+            .and_then(Path::parent)
+            .map(Path::to_path_buf)
+            .or_else(|| UserDirs::new().map(|directories| directories.home_dir().to_path_buf()))
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."))
     }
 
     fn import_target(&self, path: &Path) -> Option<FileImportTarget> {

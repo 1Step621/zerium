@@ -28,7 +28,6 @@ pub(crate) struct ProjectController {
     animation_selection: Entity<AnimationSelection>,
     session: Entity<ProjectSession>,
     notifications: Entity<UiNotifications>,
-    path: Option<PathBuf>,
     saved_revision: u64,
     operation: Option<ProjectOperation>,
     _task: Task<()>,
@@ -48,7 +47,6 @@ impl ProjectController {
             animation_selection,
             session,
             notifications,
-            path: None,
             saved_revision: 0,
             operation: None,
             _task: Task::ready(()),
@@ -77,7 +75,7 @@ impl ProjectController {
     }
 
     pub(crate) fn save(&mut self, cx: &mut Context<Self>) {
-        self.save_to(self.path.clone(), cx);
+        self.save_to(self.session.read(cx).path().map(Path::to_path_buf), cx);
     }
 
     pub(crate) fn save_as(&mut self, cx: &mut Context<Self>) {
@@ -99,8 +97,9 @@ impl ProjectController {
     pub(crate) fn window_title(&self, cx: &App) -> String {
         let dirty = self.editor.read(cx).project_revision() != self.saved_revision;
         let name = self
-            .path
-            .as_deref()
+            .session
+            .read(cx)
+            .path()
             .and_then(Path::file_stem)
             .map(|name| name.to_string_lossy());
         match name {
@@ -150,7 +149,7 @@ impl ProjectController {
         cx: &mut Context<Self>,
     ) {
         self.session.update(cx, |session, cx| {
-            session.advance();
+            session.advance(path);
             cx.notify();
         });
         self.transport
@@ -161,7 +160,6 @@ impl ProjectController {
             update(editor);
             cx.notify();
         });
-        self.path = path;
         self.saved_revision = self.editor.read(cx).project_revision();
         cx.notify();
     }
@@ -297,7 +295,7 @@ impl ProjectController {
         let Some(operation) = self.begin_operation(ProjectActivity::Save, cx) else {
             return;
         };
-        let current_path = self.path.clone();
+        let current_path = self.session.read(cx).path().map(Path::to_path_buf);
         // Save captures the current edit immediately; Save As captures after path selection.
         let snapshot = path.as_ref().map(|_| self.editor.read(cx).snapshot());
         let editor = self.editor.clone();
@@ -357,7 +355,10 @@ impl ProjectController {
                     }
                     match result {
                         Ok(Some((path, revision))) => {
-                            controller.path = Some(path.clone());
+                            controller.session.update(cx, |session, cx| {
+                                session.set_path(Some(path.clone()));
+                                cx.notify();
+                            });
                             controller.saved_revision = revision;
                             controller.notifications.update(cx, |notifications, cx| {
                                 notifications.push_success(

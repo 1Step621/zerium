@@ -1,13 +1,18 @@
 use rust_i18n::t;
 
-use std::{path::PathBuf, sync::Arc, time::Instant};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+    time::Instant,
+};
 
 use ::ui::{
-    ContextModal as _, StyledExt as _,
+    ContextModal as _, Disableable as _, IconName, Sizable as _, StyledExt as _,
+    button::Button,
     modal::{Modal, ModalButtonProps},
 };
 use futures::StreamExt as _;
-use gpui::{Context, Entity, SharedString, Subscription, Task, Window, div, prelude::*, px};
+use gpui::{App, Context, Entity, SharedString, Subscription, Task, Window, div, prelude::*, px};
 
 use crate::{
     engine::{
@@ -22,7 +27,7 @@ use zerium_core::timeline::{TimelineEditor, TimelineView};
 
 enum ExportState {
     Idle,
-    ChoosingPath(ProjectOperation),
+    Pending(ProjectOperation),
     Exporting {
         operation: ProjectOperation,
         completed_frames: u64,
@@ -33,7 +38,7 @@ enum ExportState {
 impl ExportState {
     fn operation(&self) -> Option<ProjectOperation> {
         match self {
-            Self::ChoosingPath(operation) | Self::Exporting { operation, .. } => Some(*operation),
+            Self::Pending(operation) | Self::Exporting { operation, .. } => Some(*operation),
             _ => None,
         }
     }
@@ -47,6 +52,7 @@ pub(crate) struct ExportController {
     session_id: ProjectSessionId,
     notifications: Entity<UiNotifications>,
     state: ExportState,
+    output: Option<PathBuf>,
     _task: Task<()>,
     _session_subscription: Subscription,
 }
@@ -63,12 +69,12 @@ impl ExportController {
         let session_id = session.read(cx).id();
         let session_subscription = cx.observe(&session, |this, _, cx| {
             let session_id = this.session.read(cx).id();
-            if session_id == this.session_id {
-                return;
+            if session_id != this.session_id {
+                this.session_id = session_id;
+                this._task = Task::ready(());
+                this.state = ExportState::Idle;
+                this.output = None;
             }
-            this.session_id = session_id;
-            this._task = Task::ready(());
-            this.state = ExportState::Idle;
             cx.notify();
         });
         Self {
@@ -79,6 +85,7 @@ impl ExportController {
             session_id,
             notifications,
             state: ExportState::Idle,
+            output: None,
             _task: Task::ready(()),
             _session_subscription: session_subscription,
         }
@@ -111,7 +118,12 @@ impl ExportController {
         let duration_label = format_duration(frame_rate.frame_to_seconds(frame_count));
         let frame_rate_label = format!("{:.2} fps", frame_rate.frames_per_second());
         let controller = cx.entity();
-        window.open_modal(cx, move |modal: Modal, _, _| {
+        let session_id = self.session.read(cx).id();
+        window.open_modal(cx, move |modal: Modal, _, cx| {
+            let export = controller.read(cx);
+            let output = export.output_path(cx).display().to_string();
+            let busy = export.is_busy();
+            let destination_controller = controller.clone();
             let confirm_controller = controller.clone();
             modal
                 .title(
@@ -120,19 +132,47 @@ impl ExportController {
                         .font_normal()
                         .child(t!("export.title").to_string()),
                 )
-                .width(px(440.))
+                .width(px(560.))
                 .confirm()
                 .button_props(
                     ModalButtonProps::default()
-                        .ok_text(t!("export.choose_destination").to_string())
+                        .ok_text(t!("export.start").to_string())
                         .cancel_text(t!("common.cancel").to_string()),
                 )
                 .on_ok(move |_, window, cx| {
                     confirm_controller.update(cx, |controller, cx| {
-                        controller.choose_output(window, cx);
-                    });
-                    true
+                        if controller.is_busy()
+                            || !controller.session.read(cx).is_current(session_id)
+                        {
+                            return false;
+                        }
+                        controller.request_export(window, cx);
+                        true
+                    })
                 })
+                .child(summary_row(
+                    t!("export.destination").to_string(),
+                    div()
+                        .w_full()
+                        .flex()
+                        .items_center()
+                        .gap_2()
+                        .child(div().min_w_0().flex_1().truncate().child(output.clone()))
+                        .child(
+                            Button::new("export-destination")
+                                .small()
+                                .icon(IconName::Folder)
+                                .tooltip(format!("{}\n{output}", t!("export.choose_destination")))
+                                .disabled(busy)
+                                .on_click(move |_, window, cx| {
+                                    destination_controller.update(cx, |controller, cx| {
+                                        if controller.session.read(cx).is_current(session_id) {
+                                            controller.choose_output(window, cx);
+                                        }
+                                    });
+                                }),
+                        ),
+                ))
                 .child(summary_row(
                     t!("export.format").to_string(),
                     "MP4 / H.264 + AAC",
@@ -152,7 +192,116 @@ impl ExportController {
         });
     }
 
+    fn output_path(&self, cx: &App) -> PathBuf {
+        if let Some(output) = &self.output {
+            return output.clone();
+        }
+        if let Some(path) = self.session.read(cx).path() {
+            return path.with_extension("mp4");
+        }
+        let initial_directory = directories::UserDirs::new()
+            .map(|directories| {
+                directories
+                    .video_dir()
+                    .unwrap_or(directories.home_dir())
+                    .to_path_buf()
+            })
+            .or_else(|| std::env::current_dir().ok())
+            .unwrap_or_else(|| PathBuf::from("."));
+        initial_directory.join("output.mp4")
+    }
+
     fn choose_output(&mut self, _: &mut Window, cx: &mut Context<Self>) {
+        if self.is_busy() {
+            return;
+        }
+        let output = self.output_path(cx);
+        let receiver = cx.prompt_for_new_path(
+            output.parent().unwrap_or(Path::new(".")),
+            output.file_name().and_then(|name| name.to_str()),
+        );
+        let session = self.session.clone();
+        let operation = session.update(cx, |session, cx| {
+            let operation = session.begin(ProjectActivity::SelectFile);
+            cx.notify();
+            operation
+        });
+        self.state = ExportState::Pending(operation);
+        cx.notify();
+        self._task = cx.spawn(async move |controller, cx| {
+            let result = receiver
+                .await
+                .map_err(|error| t!("export.destination_picker_failed", error = error).to_string())
+                .and_then(|result| {
+                    result.map_err(|error| {
+                        t!("export.select_destination_failed", error = error).to_string()
+                    })
+                });
+            let _ = controller.update(cx, |controller, cx| {
+                if !controller.finish_operation(operation, cx) {
+                    return;
+                }
+                match result {
+                    Ok(Some(mut output)) => {
+                        if !output
+                            .extension()
+                            .and_then(|extension| extension.to_str())
+                            .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"))
+                        {
+                            output.set_extension("mp4");
+                        }
+                        controller.output = Some(output);
+                    }
+                    Ok(None) => {}
+                    Err(error) => controller.notifications.update(cx, |notifications, cx| {
+                        notifications.push(error, cx);
+                    }),
+                }
+            });
+        });
+    }
+
+    fn request_export(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let output = self.output_path(cx);
+        if !output.exists() {
+            self.start_export(output, cx);
+            return;
+        }
+        let controller = cx.entity();
+        let session_id = self.session.read(cx).id();
+        // Open after the export settings modal closes.
+        window.defer(cx, move |window, cx| {
+            window.open_modal(cx, move |modal: Modal, _, _| {
+                let controller = controller.clone();
+                let destination = output.clone();
+                modal
+                    .title(
+                        div()
+                            .font_family(crate::ui::theme::FONT_FAMILY)
+                            .font_normal()
+                            .child(t!("export.overwrite_title").to_string()),
+                    )
+                    .confirm()
+                    .button_props(
+                        ModalButtonProps::default()
+                            .ok_text(t!("export.overwrite").to_string())
+                            .cancel_text(t!("common.cancel").to_string()),
+                    )
+                    .on_ok(move |_, _, cx| {
+                        controller.update(cx, |controller, cx| {
+                            if controller.session.read(cx).is_current(session_id) {
+                                controller.start_export(destination.clone(), cx);
+                            }
+                        });
+                        true
+                    })
+                    .child(t!("export.overwrite_confirmation").to_string())
+                    .child(div().text_sm().child(output.display().to_string()))
+            });
+        });
+    }
+
+    fn start_export(&mut self, output: PathBuf, cx: &mut Context<Self>) {
         if self.is_busy() {
             return;
         }
@@ -176,48 +325,20 @@ impl ExportController {
         };
         let snapshot = self.editor.read(cx).snapshot();
         let media_readers = self.media_readers.clone();
-        let initial_directory = directories::UserDirs::new()
-            .and_then(|directories| {
-                directories
-                    .video_dir()
-                    .or_else(|| Some(directories.home_dir()))
-                    .map(ToOwned::to_owned)
-            })
-            .or_else(|| std::env::current_dir().ok())
-            .unwrap_or_else(|| PathBuf::from("."));
-        let receiver = cx.prompt_for_new_path(&initial_directory, Some("zerium-export.mp4"));
         let session = self.session.clone();
         let operation = session.update(cx, |session, cx| {
             let operation = session.begin(ProjectActivity::Export);
             cx.notify();
             operation
         });
-        self.state = ExportState::ChoosingPath(operation);
+        self.state = ExportState::Pending(operation);
         cx.notify();
 
         self._task = cx.spawn(async move |controller, cx| {
+            if !session.read_with(cx, |session, _| session.operation_is_current(operation)) {
+                return;
+            }
             let result = async {
-                let selected = receiver
-                    .await
-                    .map_err(|error| {
-                        t!("export.destination_picker_failed", error = error).to_string()
-                    })?
-                    .map_err(|error| {
-                        t!("export.select_destination_failed", error = error).to_string()
-                    })?;
-                let Some(mut output) = selected else {
-                    return Ok(None);
-                };
-                if !session.read_with(cx, |session, _| session.operation_is_current(operation)) {
-                    return Ok(None);
-                }
-                if !output
-                    .extension()
-                    .and_then(|extension| extension.to_str())
-                    .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"))
-                {
-                    output.set_extension("mp4");
-                }
                 let total_frames = snapshot.end_frame_exclusive().get();
                 let _ = controller.update(cx, |controller, cx| {
                     controller.update_progress(operation, 0, total_frames, cx);
@@ -227,7 +348,7 @@ impl ExportController {
                 };
                 let (progress_tx, mut progress_rx) = futures::channel::mpsc::unbounded();
                 // Blocking export runs on its own thread; the UI only consumes progress.
-                let _ = std::thread::Builder::new()
+                std::thread::Builder::new()
                     .name("zerium-export".to_owned())
                     .spawn(move || {
                         let result = export_timeline(
@@ -238,7 +359,8 @@ impl ExportController {
                             progress_tx.clone(),
                         );
                         let _ = progress_tx.unbounded_send(ExportProgress::Finished(result));
-                    });
+                    })
+                    .map_err(|error| t!("export.failed", error = error).to_string())?;
                 // Limit progress updates to roughly 100 per export.
                 let quantum = total_frames.div_ceil(100).max(1);
                 let mut last_reported = 0;
@@ -270,14 +392,12 @@ impl ExportController {
                 };
                 result.map_err(|error| t!("export.failed", error = error).to_string())?;
                 let fps = total_frames as f64 / started.elapsed().as_secs_f64().max(f64::EPSILON);
-                Ok(Some(
-                    t!(
-                        "export.complete",
-                        name = output_name(&output),
-                        fps = format!("{fps:.1}")
-                    )
-                    .to_string(),
-                ))
+                Ok(t!(
+                    "export.complete",
+                    name = output_name(&output),
+                    fps = format!("{fps:.1}")
+                )
+                .to_string())
             }
             .await;
             let _ = controller.update(cx, |controller, cx| {
@@ -306,14 +426,9 @@ impl ExportController {
         cx.notify();
     }
 
-    fn finish_export(
-        &mut self,
-        operation: ProjectOperation,
-        result: Result<Option<String>, String>,
-        cx: &mut Context<Self>,
-    ) {
+    fn finish_operation(&mut self, operation: ProjectOperation, cx: &mut Context<Self>) -> bool {
         if self.state.operation() != Some(operation) {
-            return;
+            return false;
         }
         let current = self.session.update(cx, |session, cx| {
             let current = session.finish(operation);
@@ -323,12 +438,24 @@ impl ExportController {
             current
         });
         if !current {
-            return;
+            return false;
         }
         self.state = ExportState::Idle;
+        cx.notify();
+        true
+    }
+
+    fn finish_export(
+        &mut self,
+        operation: ProjectOperation,
+        result: Result<String, String>,
+        cx: &mut Context<Self>,
+    ) {
+        if !self.finish_operation(operation, cx) {
+            return;
+        }
         match result {
-            Ok(None) => {}
-            Ok(Some(message)) => {
+            Ok(message) => {
                 self.notifications.update(cx, |notifications, cx| {
                     notifications.push_success(message, cx);
                 });
@@ -339,11 +466,10 @@ impl ExportController {
                 });
             }
         }
-        cx.notify();
     }
 }
 
-fn summary_row(label: impl Into<SharedString>, value: impl Into<SharedString>) -> gpui::Div {
+fn summary_row(label: impl Into<SharedString>, value: impl IntoElement) -> gpui::Div {
     div()
         .w_full()
         .flex()
@@ -356,7 +482,7 @@ fn summary_row(label: impl Into<SharedString>, value: impl Into<SharedString>) -
                 .text_color(gpui::rgb(0x888888))
                 .child(label.into()),
         )
-        .child(div().min_w_0().flex_1().child(value.into()))
+        .child(div().min_w_0().flex_1().child(value))
 }
 
 fn output_name(path: &std::path::Path) -> &str {
