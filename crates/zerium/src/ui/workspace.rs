@@ -1,7 +1,7 @@
 use rust_i18n::t;
 
 use ::ui::{
-    ActiveTheme as _, ContextModal as _, Root, Selectable as _, Sizable as _,
+    ActiveTheme as _, ContextModal as _, Disableable as _, Root, Selectable as _, Sizable as _,
     button::{Button, ButtonVariants as _},
     menu::popup_menu::PopupMenuExt as _,
     notification::Notification,
@@ -229,6 +229,7 @@ impl Render for Workspace {
             window.push_notification(notification, cx);
         }
         let export_progress = self.export_controller.read(cx).export_progress();
+        let cancelling = self.export_controller.read(cx).is_cancelling();
         let can_undo = self.timeline.read(cx).can_undo(cx);
         let can_redo = self.timeline.read(cx).can_redo(cx);
         let can_copy = self.timeline.read(cx).can_copy_items(cx);
@@ -367,14 +368,16 @@ impl Render for Workspace {
                                         .text_xs()
                                         .whitespace_nowrap()
                                         .text_color(colors.muted_foreground)
-                                        .child(
+                                        .child(if cancelling {
+                                            t!("export.cancelling").to_string()
+                                        } else {
                                             t!(
                                                 "workspace.exporting",
                                                 completed = completed,
                                                 total = total
                                             )
-                                            .to_string(),
-                                        ),
+                                            .to_string()
+                                        }),
                                 )
                                 .child(
                                     div()
@@ -390,6 +393,18 @@ impl Render for Workspace {
                                                 .rounded_full()
                                                 .bg(colors.foreground),
                                         ),
+                                )
+                                .child(
+                                    Button::new("cancel-export")
+                                        .xsmall()
+                                        .ghost()
+                                        .label(t!("common.cancel").to_string())
+                                        .disabled(cancelling)
+                                        .on_click(cx.listener(|this, _, _, cx| {
+                                            this.export_controller.update(cx, |export, cx| {
+                                                export.cancel(cx);
+                                            });
+                                        })),
                                 ),
                         )
                     }),

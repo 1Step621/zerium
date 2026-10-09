@@ -299,7 +299,7 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                     });
                     window.on_window_should_close(cx, move |window, cx| {
                         let _keep_native_window_alive = &close_window_lifetime_guard;
-                        let export_busy = close_export_controller.read(cx).is_busy();
+                        let export_busy = close_export_controller.read(cx).is_exporting();
                         close_project_controller.update(cx, |project, cx| {
                             project.should_close(export_busy, window, cx)
                         })

@@ -33,6 +33,7 @@ _version: 1
 "export.choose_destination": "保存先を選択"
 "export.destination": "保存先"
 "export.start": "書き出し開始"
+"export.cancelling": "書き出しを中止中…"
 "export.overwrite_title": "ファイルの上書き"
 "export.overwrite_confirmation": "既存の書き出しファイルを上書きしますか？"
 "export.overwrite": "上書き"

@@ -2,7 +2,10 @@ use rust_i18n::t;
 
 use std::{
     path::{Path, PathBuf},
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Instant,
 };
 
@@ -25,23 +28,11 @@ use crate::{
 };
 use zerium_core::timeline::{TimelineEditor, TimelineView};
 
-enum ExportState {
-    Idle,
-    Pending(ProjectOperation),
-    Exporting {
-        operation: ProjectOperation,
-        completed_frames: u64,
-        total_frames: u64,
-    },
-}
-
-impl ExportState {
-    fn operation(&self) -> Option<ProjectOperation> {
-        match self {
-            Self::Pending(operation) | Self::Exporting { operation, .. } => Some(*operation),
-            _ => None,
-        }
-    }
+struct ExportJob {
+    operation: ProjectOperation,
+    cancelled: Arc<AtomicBool>,
+    completed_frames: u64,
+    total_frames: u64,
 }
 
 pub(crate) struct ExportController {
@@ -51,9 +42,11 @@ pub(crate) struct ExportController {
     session: Entity<ProjectSession>,
     session_id: ProjectSessionId,
     notifications: Entity<UiNotifications>,
-    state: ExportState,
+    job: Option<ExportJob>,
+    output_selection: Option<ProjectOperation>,
     output: Option<PathBuf>,
-    _task: Task<()>,
+    _export_task: Task<()>,
+    _output_selection_task: Task<()>,
     _session_subscription: Subscription,
 }
 
@@ -70,9 +63,12 @@ impl ExportController {
         let session_subscription = cx.observe(&session, |this, _, cx| {
             let session_id = this.session.read(cx).id();
             if session_id != this.session_id {
+                this.cancel(cx);
                 this.session_id = session_id;
-                this._task = Task::ready(());
-                this.state = ExportState::Idle;
+                this._export_task = Task::ready(());
+                this._output_selection_task = Task::ready(());
+                this.job = None;
+                this.output_selection = None;
                 this.output = None;
             }
             cx.notify();
@@ -84,31 +80,41 @@ impl ExportController {
             session,
             session_id,
             notifications,
-            state: ExportState::Idle,
+            job: None,
+            output_selection: None,
             output: None,
-            _task: Task::ready(()),
+            _export_task: Task::ready(()),
+            _output_selection_task: Task::ready(()),
             _session_subscription: session_subscription,
         }
     }
 
-    pub(crate) fn is_busy(&self) -> bool {
-        self.state.operation().is_some()
+    pub(crate) fn is_exporting(&self) -> bool {
+        self.job.is_some()
     }
 
-    /// Progress fraction while exporting, if an export is running.
+    /// Completed and total frame counts while an export is running.
     pub(crate) fn export_progress(&self) -> Option<(u64, u64)> {
-        match self.state {
-            ExportState::Exporting {
-                completed_frames,
-                total_frames,
-                ..
-            } => Some((completed_frames, total_frames)),
-            _ => None,
+        self.job
+            .as_ref()
+            .map(|job| (job.completed_frames, job.total_frames))
+    }
+
+    pub(crate) fn is_cancelling(&self) -> bool {
+        self.job
+            .as_ref()
+            .is_some_and(|job| job.cancelled.load(Ordering::Relaxed))
+    }
+
+    pub(crate) fn cancel(&self, cx: &mut Context<Self>) {
+        if let Some(job) = &self.job {
+            job.cancelled.store(true, Ordering::Relaxed);
+            cx.notify();
         }
     }
 
     pub(crate) fn open_dialog(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        if self.is_busy() {
+        if self.is_exporting() || self.output_selection.is_some() {
             return;
         }
         let editor = self.editor.read(cx);
@@ -122,7 +128,7 @@ impl ExportController {
         window.open_modal(cx, move |modal: Modal, _, cx| {
             let export = controller.read(cx);
             let output = export.output_path(cx).display().to_string();
-            let busy = export.is_busy();
+            let busy = export.is_exporting() || export.output_selection.is_some();
             let destination_controller = controller.clone();
             let confirm_controller = controller.clone();
             modal
@@ -141,7 +147,8 @@ impl ExportController {
                 )
                 .on_ok(move |_, window, cx| {
                     confirm_controller.update(cx, |controller, cx| {
-                        if controller.is_busy()
+                        if controller.is_exporting()
+                            || controller.output_selection.is_some()
                             || !controller.session.read(cx).is_current(session_id)
                         {
                             return false;
@@ -164,10 +171,10 @@ impl ExportController {
                                 .icon(IconName::Folder)
                                 .tooltip(format!("{}\n{output}", t!("export.choose_destination")))
                                 .disabled(busy)
-                                .on_click(move |_, window, cx| {
+                                .on_click(move |_, _, cx| {
                                     destination_controller.update(cx, |controller, cx| {
                                         if controller.session.read(cx).is_current(session_id) {
-                                            controller.choose_output(window, cx);
+                                            controller.choose_output(cx);
                                         }
                                     });
                                 }),
@@ -211,8 +218,8 @@ impl ExportController {
         initial_directory.join("output.mp4")
     }
 
-    fn choose_output(&mut self, _: &mut Window, cx: &mut Context<Self>) {
-        if self.is_busy() {
+    fn choose_output(&mut self, cx: &mut Context<Self>) {
+        if self.is_exporting() || self.output_selection.is_some() {
             return;
         }
         let output = self.output_path(cx);
@@ -226,9 +233,9 @@ impl ExportController {
             cx.notify();
             operation
         });
-        self.state = ExportState::Pending(operation);
+        self.output_selection = Some(operation);
         cx.notify();
-        self._task = cx.spawn(async move |controller, cx| {
+        self._output_selection_task = cx.spawn(async move |controller, cx| {
             let result = receiver
                 .await
                 .map_err(|error| t!("export.destination_picker_failed", error = error).to_string())
@@ -238,9 +245,20 @@ impl ExportController {
                     })
                 });
             let _ = controller.update(cx, |controller, cx| {
-                if !controller.finish_operation(operation, cx) {
+                if controller.output_selection != Some(operation) {
                     return;
                 }
+                let current = controller.session.update(cx, |session, cx| {
+                    let current = session.finish(operation);
+                    if current {
+                        cx.notify();
+                    }
+                    current
+                });
+                if !current {
+                    return;
+                }
+                controller.output_selection = None;
                 match result {
                     Ok(Some(mut output)) => {
                         if !output
@@ -257,6 +275,7 @@ impl ExportController {
                         notifications.push(error, cx);
                     }),
                 }
+                cx.notify();
             });
         });
     }
@@ -302,7 +321,7 @@ impl ExportController {
     }
 
     fn start_export(&mut self, output: PathBuf, cx: &mut Context<Self>) {
-        if self.is_busy() {
+        if self.is_exporting() || self.output_selection.is_some() {
             return;
         }
         let renderer = match self
@@ -314,7 +333,6 @@ impl ExportController {
                 eprintln!("dedicated export device unavailable, sharing preview device: {error}");
                 let Some(renderer) = self.render_runtime.read(cx).renderer() else {
                     let message = t!("export.gpu_renderer_unavailable").to_string();
-                    self.state = ExportState::Idle;
                     self.notifications
                         .update(cx, |notifications, cx| notifications.push(message, cx));
                     cx.notify();
@@ -331,18 +349,21 @@ impl ExportController {
             cx.notify();
             operation
         });
-        self.state = ExportState::Pending(operation);
+        let cancelled = Arc::new(AtomicBool::new(false));
+        let total_frames = snapshot.end_frame_exclusive().get();
+        self.job = Some(ExportJob {
+            operation,
+            cancelled: cancelled.clone(),
+            completed_frames: 0,
+            total_frames,
+        });
         cx.notify();
 
-        self._task = cx.spawn(async move |controller, cx| {
+        self._export_task = cx.spawn(async move |controller, cx| {
             if !session.read_with(cx, |session, _| session.operation_is_current(operation)) {
                 return;
             }
             let result = async {
-                let total_frames = snapshot.end_frame_exclusive().get();
-                let _ = controller.update(cx, |controller, cx| {
-                    controller.update_progress(operation, 0, total_frames, cx);
-                });
                 let settings = ExportSettings {
                     output: output.clone(),
                 };
@@ -356,11 +377,12 @@ impl ExportController {
                             renderer,
                             media_readers,
                             settings,
+                            &cancelled,
                             progress_tx.clone(),
                         );
                         let _ = progress_tx.unbounded_send(ExportProgress::Finished(result));
                     })
-                    .map_err(|error| t!("export.failed", error = error).to_string())?;
+                    .map_err(ExportError::encoding)?;
                 // Limit progress updates to roughly 100 per export.
                 let quantum = total_frames.div_ceil(100).max(1);
                 let mut last_reported = 0;
@@ -373,12 +395,7 @@ impl ExportController {
                             {
                                 last_reported = completed;
                                 let _ = controller.update(cx, |controller, cx| {
-                                    controller.update_progress(
-                                        operation,
-                                        completed,
-                                        total_frames,
-                                        cx,
-                                    );
+                                    controller.update_progress(operation, completed, cx);
                                 });
                             }
                         }
@@ -390,7 +407,7 @@ impl ExportController {
                         }
                     }
                 };
-                result.map_err(|error| t!("export.failed", error = error).to_string())?;
+                result?;
                 let fps = total_frames as f64 / started.elapsed().as_secs_f64().max(f64::EPSILON);
                 Ok(t!(
                     "export.complete",
@@ -409,26 +426,30 @@ impl ExportController {
     fn update_progress(
         &mut self,
         operation: ProjectOperation,
-        completed_frames: u64,
-        total_frames: u64,
+        completed: u64,
         cx: &mut Context<Self>,
     ) {
-        if self.state.operation() != Some(operation)
-            || !self.session.read(cx).operation_is_current(operation)
+        if let Some(job) = &mut self.job
+            && job.operation == operation
+            && self.session.read(cx).operation_is_current(operation)
         {
-            return;
+            job.completed_frames = completed.min(job.total_frames);
+            cx.notify();
         }
-        self.state = ExportState::Exporting {
-            operation,
-            completed_frames: completed_frames.min(total_frames),
-            total_frames,
-        };
-        cx.notify();
     }
 
-    fn finish_operation(&mut self, operation: ProjectOperation, cx: &mut Context<Self>) -> bool {
-        if self.state.operation() != Some(operation) {
-            return false;
+    fn finish_export(
+        &mut self,
+        operation: ProjectOperation,
+        result: Result<String, ExportError>,
+        cx: &mut Context<Self>,
+    ) {
+        if self
+            .job
+            .as_ref()
+            .is_none_or(|job| job.operation != operation)
+        {
+            return;
         }
         let current = self.session.update(cx, |session, cx| {
             let current = session.finish(operation);
@@ -438,31 +459,20 @@ impl ExportController {
             current
         });
         if !current {
-            return false;
-        }
-        self.state = ExportState::Idle;
-        cx.notify();
-        true
-    }
-
-    fn finish_export(
-        &mut self,
-        operation: ProjectOperation,
-        result: Result<String, String>,
-        cx: &mut Context<Self>,
-    ) {
-        if !self.finish_operation(operation, cx) {
             return;
         }
+        self.job = None;
+        cx.notify();
         match result {
             Ok(message) => {
                 self.notifications.update(cx, |notifications, cx| {
                     notifications.push_success(message, cx);
                 });
             }
+            Err(ExportError::Cancelled) => {}
             Err(error) => {
                 self.notifications.update(cx, |notifications, cx| {
-                    notifications.push(error, cx);
+                    notifications.push(t!("export.failed", error = error).to_string(), cx);
                 });
             }
         }

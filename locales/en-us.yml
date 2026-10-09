@@ -33,6 +33,7 @@ _version: 1
 "export.choose_destination": "Choose destination"
 "export.destination": "Destination"
 "export.start": "Export"
+"export.cancelling": "Cancelling export…"
 "export.overwrite_title": "Overwrite file"
 "export.overwrite_confirmation": "Replace the existing export file?"
 "export.overwrite": "Replace"

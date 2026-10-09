@@ -2,7 +2,11 @@ use std::{
     collections::HashMap,
     fmt,
     path::PathBuf,
-    sync::{Arc, atomic::AtomicBool, mpsc},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+        mpsc,
+    },
     thread,
     time::Duration,
 };
@@ -34,6 +38,8 @@ pub(crate) struct ExportSettings {
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub(crate) enum ExportError {
+    #[error("Export cancelled")]
+    Cancelled,
     #[error("{0}")]
     InvalidTimeline(String),
     #[error(transparent)]
@@ -77,8 +83,12 @@ pub(crate) fn export_timeline(
     renderer: Arc<FrameRenderer>,
     media_readers: Arc<MediaReaderRegistry>,
     settings: ExportSettings,
+    cancelled: &AtomicBool,
     progress: futures::channel::mpsc::UnboundedSender<ExportProgress>,
 ) -> Result<(), ExportError> {
+    if cancelled.load(Ordering::Relaxed) {
+        return Err(ExportError::Cancelled);
+    }
     let frame_count = timeline.end_frame_exclusive().get();
     if frame_count == 0 {
         return Err(ExportError::InvalidTimeline(
@@ -118,6 +128,9 @@ pub(crate) fn export_timeline(
     .map_err(ExportError::encoding)?;
     let video_frame_rate = VideoFrameRate::new(frame_rate.numerator(), frame_rate.denominator())
         .ok_or_else(|| ExportError::encoding("Invalid output frame rate"))?;
+    if cancelled.load(Ordering::Relaxed) {
+        return Err(ExportError::Cancelled);
+    }
     let mut readbacks = ExportFramePipeline::new(renderer, size, EXPORT_PIPELINE_DEPTH)?;
     thread::scope(|scope| {
         let output = settings.output;
@@ -132,6 +145,7 @@ pub(crate) fn export_timeline(
                     audio_graph,
                     frame_rate,
                     output_spec,
+                    cancelled,
                 )
             })
             .map_err(|error| {
@@ -149,6 +163,7 @@ pub(crate) fn export_timeline(
                     size,
                     frame_count,
                     decoded_scenes_tx,
+                    cancelled,
                 )
             })
             .map_err(|error| {
@@ -157,6 +172,9 @@ pub(crate) fn export_timeline(
 
         let render_result: Result<(), ExportError> = (|| {
             for _ in 0..frame_count {
+                if cancelled.load(Ordering::Relaxed) {
+                    return Err(ExportError::Cancelled);
+                }
                 let (frame_index, scene) = decoded_scenes_rx.recv().map_err(|_| {
                     ExportError::encoding("Video decoding thread terminated unexpectedly")
                 })??;
@@ -167,6 +185,9 @@ pub(crate) fn export_timeline(
                     progress.unbounded_send(ExportProgress::Frame(frame_index.saturating_add(1)));
             }
             while let Some(frame) = readbacks.finish_next()? {
+                if cancelled.load(Ordering::Relaxed) {
+                    return Err(ExportError::Cancelled);
+                }
                 send_frame(&frames_to_encode, frame)?;
             }
             frames_to_encode
@@ -182,6 +203,11 @@ pub(crate) fn export_timeline(
                 "Video encoding thread terminated unexpectedly",
             ))
         });
+        // Cancellation also closes pipeline channels; report its cause rather
+        // than the resulting disconnect errors from the other workers.
+        if let Err(ExportError::Cancelled) = encoding_result {
+            return Err(ExportError::Cancelled);
+        }
         render_result?;
         decode_result
             .map_err(|_| ExportError::encoding("Video decoding thread terminated unexpectedly"))?;
@@ -195,12 +221,15 @@ fn decode_scenes(
     size: RenderSize,
     frame_count: u64,
     scenes: mpsc::SyncSender<Result<(u64, RenderScene), ExportError>>,
+    cancelled: &AtomicBool,
 ) {
     let composition_size = RenderSize::from(timeline.resolution());
     let mut decoders = HashMap::<MediaInputId, ExportDecoder>::new();
     let mut text_frames = TextFrameCache::new();
-    let cancelled = AtomicBool::new(false);
     for frame_index in 0..frame_count {
+        if cancelled.load(Ordering::Relaxed) {
+            break;
+        }
         let frame = Frame::new(frame_index);
         let render_time = TimelineTime::from_frame(frame);
         let active_items = timeline.active_items_at(frame);
@@ -211,13 +240,7 @@ fn decode_scenes(
             size,
             RenderQuality::Full,
             |request| {
-                decode_texture_frame(
-                    &timeline,
-                    request,
-                    &mut decoders,
-                    &media_readers,
-                    &cancelled,
-                )
+                decode_texture_frame(&timeline, request, &mut decoders, &media_readers, cancelled)
             },
             |request| text_frames.frame_for(request, composition_size),
         )
@@ -245,7 +268,11 @@ fn encode_frames(
     mut audio_graph: AudioTimelineGraph,
     frame_rate: FrameRate,
     output_spec: VideoOutputSpec,
+    cancelled: &AtomicBool,
 ) -> Result<(), ExportError> {
+    if cancelled.load(Ordering::Relaxed) {
+        return Err(ExportError::Cancelled);
+    }
     let transaction = AtomicFileTransaction::new(&output).map_err(|error| {
         ExportError::encoding(format!(
             "Failed to create output temporary file '{}': {error}",
@@ -271,8 +298,14 @@ fn encode_frames(
     )
     .map_err(ExportError::encoding)?;
     for message in frames {
+        if cancelled.load(Ordering::Relaxed) {
+            return Err(ExportError::Cancelled);
+        }
         let EncoderMessage::Frame { index, yuv } = message else {
             encoder.finish().map_err(ExportError::encoding)?;
+            if cancelled.load(Ordering::Relaxed) {
+                return Err(ExportError::Cancelled);
+            }
             transaction.commit().map_err(|error| {
                 ExportError::encoding(format!(
                     "Failed to finalize output '{}': {error}",
@@ -300,6 +333,9 @@ fn encode_frames(
                 .encode_audio(&audio)
                 .map_err(ExportError::encoding)?;
         }
+    }
+    if cancelled.load(Ordering::Relaxed) {
+        return Err(ExportError::Cancelled);
     }
     Err(ExportError::encoding(
         "Export input closed before rendering completed",
