@@ -21,7 +21,7 @@ pub use bounds::{OutputBoundsSchema, program_context};
 pub use bundle::Plugin;
 pub use capability::{
     AudioCapability, MAX_DECIMAL_PLACES, MAX_TEXTURE_INPUTS, MediaPlaybackSchema,
-    PlaybackProperties, TextStyle, TextureInput, TimeMappingProperties,
+    PlaybackProperties, RenderResultView, TextStyle, TextureInput, TimeMappingProperties,
 };
 pub use category::{EffectCategory, ItemCategory};
 pub use editor::EditorCapability;

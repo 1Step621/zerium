@@ -29,7 +29,7 @@ const YUV_CONVERT: &str = include_str!("yuv.wgsl");
 
 use pipelines::{ComputePipeline, RasterPipeline, TexturePipeline};
 pub(crate) use readback::ExportFramePipeline;
-use resources::{RenderResources, VideoTextureCache};
+use resources::{FrameResources, NodeResources, VideoTextureCache};
 pub(crate) use runtime::RenderRuntime;
 pub(crate) use scene::{MediaFrameRequest, RenderError, RenderQuality, RenderScene, RenderSize};
 use zerium_shader::{EffectShaderId, ItemShaderId};
@@ -62,8 +62,8 @@ pub(crate) struct RendererDevice {
 /// shared between concurrent consumers.
 pub(crate) struct FrameRenderer {
     shared: Arc<RendererDevice>,
-    resources: Mutex<HashMap<u32, RenderResources>>,
-    local_resources: Mutex<Vec<RenderResources>>,
+    frame_resources: Mutex<Option<FrameResources>>,
+    local_resources: Mutex<Vec<NodeResources>>,
     video_textures: Mutex<VideoTextureCache>,
 }
 
@@ -75,7 +75,7 @@ impl RendererDevice {
     pub(crate) fn create_session(self: &Arc<Self>) -> FrameRenderer {
         FrameRenderer {
             shared: self.clone(),
-            resources: Mutex::new(HashMap::new()),
+            frame_resources: Mutex::new(None),
             local_resources: Mutex::new(Vec::new()),
             video_textures: Mutex::new(VideoTextureCache::default()),
         }

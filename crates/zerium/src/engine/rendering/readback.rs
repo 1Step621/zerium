@@ -5,6 +5,8 @@ use std::{
     sync::{Arc, mpsc},
 };
 
+use super::encoder::render_pass;
+use super::pipelines::raster_pipeline;
 use super::{FrameRenderer, OUTPUT_FORMAT, RenderError, RenderScene, RenderSize, YUV_CONVERT};
 
 /// YUV420P planes are single-channel 8-bit targets.
@@ -142,34 +144,18 @@ impl ExportFramePipeline {
                     immediate_size: 0,
                 });
         let yuv_pipeline = |entry: &str, label: &str| {
-            renderer
-                .shared
-                .device
-                .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some(label),
-                    layout: Some(&pipeline_layout),
-                    vertex: wgpu::VertexState {
-                        module: &module,
-                        entry_point: Some("vertex_main"),
-                        compilation_options: Default::default(),
-                        buffers: &[],
-                    },
-                    primitive: Default::default(),
-                    depth_stencil: None,
-                    multisample: Default::default(),
-                    fragment: Some(wgpu::FragmentState {
-                        module: &module,
-                        entry_point: Some(entry),
-                        compilation_options: Default::default(),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format: YUV_FORMAT,
-                            blend: None,
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
-                    }),
-                    multiview_mask: None,
-                    cache: None,
-                })
+            raster_pipeline(
+                &renderer.shared.device,
+                &pipeline_layout,
+                &module,
+                ["vertex_main", entry],
+                wgpu::ColorTargetState {
+                    format: YUV_FORMAT,
+                    blend: None,
+                    write_mask: wgpu::ColorWrites::ALL,
+                },
+                label,
+            )
         };
         let y_pipeline = yuv_pipeline("y_main", "zerium-export-y-pipeline");
         let u_pipeline = yuv_pipeline("u_main", "zerium-export-u-pipeline");
@@ -363,20 +349,12 @@ impl ExportFramePipeline {
         pipeline: &wgpu::RenderPipeline,
         label: &str,
     ) {
-        let color_attachments = [Some(wgpu::RenderPassColorAttachment {
-            view: target_view,
-            depth_slice: None,
-            resolve_target: None,
-            ops: wgpu::Operations {
-                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                store: wgpu::StoreOp::Store,
-            },
-        })];
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some(label),
-            color_attachments: &color_attachments,
-            ..Default::default()
-        });
+        let mut pass = render_pass(
+            encoder,
+            target_view,
+            wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+            label,
+        );
         pass.set_pipeline(pipeline);
         pass.set_bind_group(0, bind_group, &[]);
         pass.draw(0..3, 0..1);

@@ -2059,6 +2059,93 @@
           "default": false
         }
       ]
+    },
+    {
+      "id": "camera",
+      "label": { "ja-JP": "カメラ", "en-US": "Camera" },
+      "category": "composite",
+      "tags": ["撮影", "移動", "ズーム", "camera", "zoom"],
+      "symbol": "◉",
+      "render": {
+        "shader": { "module": "camera" },
+        "bounds": {
+          "min": ["viewport::min::x", "viewport::min::y"],
+          "max": ["viewport::max::x", "viewport::max::y"]
+        },
+        "inputs": [
+          {
+            "type": "render_result",
+            "id": "render_result",
+            "start_offset": "start_offset",
+            "end_offset": "end_offset",
+            "hide_original": "hide_original",
+            "view": { "position": "position", "zoom": "zoom", "angle": "angle" }
+          }
+        ]
+      },
+      "properties": [
+        {
+          "id": "start_offset",
+          "label": { "ja-JP": "開始オフセット", "en-US": "Start Offset" },
+          "type": "u32",
+          "default": 1,
+          "constraints": { "min": 1, "max": 30 },
+          "ui": { "step": 1 }
+        },
+        {
+          "id": "end_offset",
+          "label": { "ja-JP": "終了オフセット", "en-US": "End Offset" },
+          "type": "u32",
+          "default": 30,
+          "constraints": { "min": 1, "max": 30 },
+          "ui": { "step": 1 }
+        },
+        {
+          "id": "hide_original",
+          "label": { "ja-JP": "原本を隠す", "en-US": "Hide Original" },
+          "type": "bool",
+          "default": true
+        },
+        {
+          "id": "position",
+          "label": { "ja-JP": "撮影位置", "en-US": "Camera Position" },
+          "type": "tuple",
+          "elements": [
+            {
+              "type": "f32",
+              "default": 0,
+              "animatable": true,
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
+            },
+            {
+              "type": "f32",
+              "default": 0,
+              "animatable": true,
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "zoom",
+          "label": { "ja-JP": "ズーム", "en-US": "Zoom" },
+          "type": "f32",
+          "default": 100,
+          "animatable": true,
+          "constraints": { "min": 1, "max": 1000 },
+          "ui": { "unit": "%", "step": 1 }
+        },
+        {
+          "id": "angle",
+          "label": { "ja-JP": "角度", "en-US": "Angle" },
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": -360, "max": 360 },
+          "ui": { "unit": "°", "step": 1 }
+        }
+      ]
     }
   ],
   "effects": [

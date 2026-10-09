@@ -12,8 +12,9 @@ var composite_sampler: sampler;
 struct CompositeInfo {
     input_size: vec2<u32>,
     output_size: vec2<u32>,
-    // Input image footprint in the output texture's pixel coordinates.
-    input_rect: vec4<f32>,
+    // Output pixel coordinates to input UV coordinates.
+    uv_x: vec4<f32>,
+    uv_y: vec4<f32>,
 };
 
 @group(0) @binding(2)
@@ -34,29 +35,26 @@ fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> CompositeVertexOutpu
 }
 
 fn composite_sample(input: CompositeVertexOutput) -> vec4<f32> {
-    if any(composite_info.input_rect.xy != vec2(0.0))
-        || any(composite_info.input_rect.zw != vec2<f32>(composite_info.output_size))
-    {
-        let uv = (input.position.xy - composite_info.input_rect.xy)
-            / composite_info.input_rect.zw;
+    let pixel = vec3(input.position.xy, 1.0);
+    let uv = vec2(dot(composite_info.uv_x.xyz, pixel), dot(composite_info.uv_y.xyz, pixel));
+    let dx = vec2(composite_info.uv_x.x, composite_info.uv_y.x);
+    let dy = vec2(composite_info.uv_x.y, composite_info.uv_y.y);
+    let aligned = all(composite_info.uv_x.xyz == vec3(1.0 / f32(composite_info.output_size.x), 0.0, 0.0))
+        && all(composite_info.uv_y.xyz == vec3(0.0, 1.0 / f32(composite_info.output_size.y), 0.0));
+    if !aligned {
         if any(uv < vec2(0.0)) || any(uv >= vec2(1.0)) {
             return vec4(0.0);
         }
-        let ratio = vec2<f32>(composite_info.input_size) / composite_info.input_rect.zw;
-        let scale = min(u32(round(max(ratio.x, ratio.y))), 4u);
-        if scale <= 1u {
-            return textureSample(composite_input, composite_sampler, uv);
-        }
+        let size = vec2<f32>(composite_info.input_size);
+        let scale = clamp(u32(round(max(length(dx * size), length(dy * size)))), 1u, 4u);
         var result = vec4(0.0);
         for (var y = 0u; y < scale; y += 1u) {
             for (var x = 0u; x < scale; x += 1u) {
-                let offset = (vec2(f32(x), f32(y)) + vec2(0.5)) / f32(scale)
-                    - vec2(0.5);
-                result += textureSample(
-                    composite_input,
-                    composite_sampler,
-                    uv + offset / composite_info.input_rect.zw,
-                );
+                let offset = (vec2(f32(x), f32(y)) + vec2(0.5)) / f32(scale) - vec2(0.5);
+                let sample_uv = uv + dx * offset.x + dy * offset.y;
+                if all(sample_uv >= vec2(0.0)) && all(sample_uv < vec2(1.0)) {
+                    result += textureSample(composite_input, composite_sampler, sample_uv);
+                }
             }
         }
         return result / f32(scale * scale);

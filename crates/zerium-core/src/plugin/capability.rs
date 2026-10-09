@@ -59,6 +59,15 @@ pub struct MediaPlacement {
     pub origin: Option<String>,
 }
 
+/// Camera coordinates for a render-result capture, resolved from owner properties.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct RenderResultView {
+    pub position: String,
+    pub zoom: String,
+    pub angle: String,
+}
+
 /// Property references shared by text and number rasterization.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -104,6 +113,7 @@ pub enum TextureInput {
         start_offset: String,
         end_offset: String,
         hide_original: String,
+        view: Option<RenderResultView>,
     },
 }
 
@@ -196,6 +206,7 @@ impl TextureInput {
                 start_offset,
                 end_offset,
                 hide_original,
+                view,
                 ..
             } => {
                 validate_render_result_properties(
@@ -206,6 +217,17 @@ impl TextureInput {
                     end_offset,
                     hide_original,
                 )?;
+                if let Some(view) = view {
+                    references.pair(&view.position)?;
+                    references.scalar(&view.angle, ScalarPropertyType::F32)?;
+                    references.check(&view.zoom, "an f32 with a positive minimum", |property| {
+                        property.scalar_type(None, None) == Some(&ScalarPropertyType::F32)
+                            && property
+                                .configuration_constraints(None)
+                                .min
+                                .is_some_and(|minimum| minimum > 0.)
+                    })?;
+                }
             }
             Self::Media {
                 file,

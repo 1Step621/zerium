@@ -736,6 +736,16 @@
             "start_offset": { "$ref": "#/$defs/wgslId" },
             "end_offset": { "$ref": "#/$defs/wgslId" },
             "hide_original": { "$ref": "#/$defs/wgslId" },
+            "view": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["position", "zoom", "angle"],
+              "properties": {
+                "position": { "$ref": "#/$defs/wgslId" },
+                "zoom": { "$ref": "#/$defs/wgslId" },
+                "angle": { "$ref": "#/$defs/wgslId" }
+              }
+            },
             "id": { "$ref": "#/$defs/wgslId" }
           }
         }

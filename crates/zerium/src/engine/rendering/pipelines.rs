@@ -25,7 +25,7 @@ pub(super) struct TexturePipeline {
     pub(super) pipeline: wgpu::RenderPipeline,
     pub(super) vertex_count: u32,
     pub(super) bind_group_layout: wgpu::BindGroupLayout,
-    pub(super) input_ids: Vec<String>,
+    pub(super) input_count: usize,
 }
 
 use zerium_shader::validate_render_shader;
@@ -330,68 +330,30 @@ impl RendererBuilder {
             label: Some("zerium-composite-shader"),
             source: wgpu::ShaderSource::Wgsl(COMPOSITE.into()),
         });
-        let premultiplied_blend = wgpu::BlendState {
-            color: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::One,
-                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                operation: wgpu::BlendOperation::Add,
+        let composite_pipeline = raster_pipeline(
+            &device,
+            &composite_pipeline_layout,
+            &composite_module,
+            ["vertex_main", "fragment_main"],
+            wgpu::ColorTargetState {
+                format: SCENE_FORMAT,
+                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
             },
-            alpha: wgpu::BlendComponent {
-                src_factor: wgpu::BlendFactor::One,
-                dst_factor: wgpu::BlendFactor::OneMinusSrcAlpha,
-                operation: wgpu::BlendOperation::Add,
+            "zerium-composite_pipeline",
+        );
+        let output_pipeline = raster_pipeline(
+            &device,
+            &composite_pipeline_layout,
+            &composite_module,
+            ["vertex_main", "output_fragment_main"],
+            wgpu::ColorTargetState {
+                format: OUTPUT_FORMAT,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
             },
-        };
-        let composite_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("zerium-composite-pipeline"),
-            layout: Some(&composite_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &composite_module,
-                entry_point: Some("vertex_main"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            primitive: Default::default(),
-            depth_stencil: None,
-            multisample: Default::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &composite_module,
-                entry_point: Some("fragment_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: SCENE_FORMAT,
-                    blend: Some(premultiplied_blend),
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
-        let output_pipeline = device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-            label: Some("zerium-output-transform-pipeline"),
-            layout: Some(&composite_pipeline_layout),
-            vertex: wgpu::VertexState {
-                module: &composite_module,
-                entry_point: Some("vertex_main"),
-                compilation_options: Default::default(),
-                buffers: &[],
-            },
-            primitive: Default::default(),
-            depth_stencil: None,
-            multisample: Default::default(),
-            fragment: Some(wgpu::FragmentState {
-                module: &composite_module,
-                entry_point: Some("output_fragment_main"),
-                compilation_options: Default::default(),
-                targets: &[Some(wgpu::ColorTargetState {
-                    format: OUTPUT_FORMAT,
-                    blend: None,
-                    write_mask: wgpu::ColorWrites::ALL,
-                })],
-            }),
-            multiview_mask: None,
-            cache: None,
-        });
+            "zerium-output_pipeline",
+        );
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("zerium-effect-sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -579,33 +541,18 @@ impl RendererDevice {
                 label: Some(&label),
                 source: wgpu::ShaderSource::Wgsl(wgsl.as_ref().into()),
             });
-        let pipeline = self
-            .device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(&label),
-                layout: Some(&self.temporal_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &module,
-                    entry_point: Some(&vertex_entry),
-                    compilation_options: Default::default(),
-                    buffers: &[],
-                },
-                primitive: Default::default(),
-                depth_stencil: None,
-                multisample: Default::default(),
-                fragment: Some(wgpu::FragmentState {
-                    module: &module,
-                    entry_point: Some(&fragment_entry),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: SCENE_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                multiview_mask: None,
-                cache: None,
-            });
+        let pipeline = raster_pipeline(
+            &self.device,
+            &self.temporal_pipeline_layout,
+            &module,
+            [&vertex_entry, &fragment_entry],
+            wgpu::ColorTargetState {
+                format: SCENE_FORMAT,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            },
+            &label,
+        );
         if let Some(error) = pollster::block_on(error_scope.pop()) {
             return Err(RenderError::backend(format!(
                 "temporal effect reducer '{}' is incompatible with the render pipeline: {error}",
@@ -642,7 +589,8 @@ impl RendererDevice {
             )));
         }
         let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let sampler_binding = u32::try_from(2 + input_ids.len())
+        let input_count = input_ids.len();
+        let sampler_binding = u32::try_from(2 + input_count)
             .map_err(|_| RenderError::backend("too many texture inputs"))?;
         let metadata_binding = sampler_binding + 1;
         let mut layout_entries = vec![
@@ -667,18 +615,16 @@ impl RendererDevice {
                 count: None,
             },
         ];
-        layout_entries.extend(
-            (0..input_ids.len()).map(|index| wgpu::BindGroupLayoutEntry {
-                binding: u32::try_from(index + 2).expect("texture binding index exceeds u32"),
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            }),
-        );
+        layout_entries.extend((0..input_count).map(|index| wgpu::BindGroupLayoutEntry {
+            binding: u32::try_from(index + 2).expect("texture binding index exceeds u32"),
+            visibility: wgpu::ShaderStages::FRAGMENT,
+            ty: wgpu::BindingType::Texture {
+                sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                view_dimension: wgpu::TextureViewDimension::D2,
+                multisampled: false,
+            },
+            count: None,
+        }));
         layout_entries.push(wgpu::BindGroupLayoutEntry {
             binding: sampler_binding,
             visibility: wgpu::ShaderStages::FRAGMENT,
@@ -691,7 +637,7 @@ impl RendererDevice {
             ty: wgpu::BindingType::Buffer {
                 ty: wgpu::BufferBindingType::Uniform,
                 has_dynamic_offset: false,
-                min_binding_size: NonZeroU64::new(((input_ids.len() + 1) * 16) as u64),
+                min_binding_size: NonZeroU64::new(((input_count + 1) * 16) as u64),
             },
             count: None,
         });
@@ -714,33 +660,18 @@ impl RendererDevice {
                 label: Some(&label),
                 source: wgpu::ShaderSource::Wgsl(wgsl.as_ref().into()),
             });
-        let pipeline = self
-            .device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(&label),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &module,
-                    entry_point: Some(&vertex_entry),
-                    compilation_options: Default::default(),
-                    buffers: &[],
-                },
-                primitive: Default::default(),
-                depth_stencil: None,
-                multisample: Default::default(),
-                fragment: Some(wgpu::FragmentState {
-                    module: &module,
-                    entry_point: Some(&fragment_entry),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: SCENE_FORMAT,
-                        blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                multiview_mask: None,
-                cache: None,
-            });
+        let pipeline = raster_pipeline(
+            &self.device,
+            &pipeline_layout,
+            &module,
+            [&vertex_entry, &fragment_entry],
+            wgpu::ColorTargetState {
+                format: SCENE_FORMAT,
+                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            },
+            &label,
+        );
         if let Some(error) = pollster::block_on(error_scope.pop()) {
             return Err(RenderError::backend(format!(
                 "texture item shader '{}' is incompatible with the render pipeline: {error}",
@@ -753,7 +684,7 @@ impl RendererDevice {
                 pipeline,
                 vertex_count,
                 bind_group_layout,
-                input_ids,
+                input_count,
             },
         );
         Ok(())
@@ -782,33 +713,18 @@ impl RendererDevice {
                 label: Some(&descriptor.label),
                 source: wgpu::ShaderSource::Wgsl(descriptor.wgsl.as_ref().into()),
             });
-        let pipeline = self
-            .device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(&descriptor.label),
-                layout: Some(&self.pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &module,
-                    entry_point: Some(&descriptor.vertex_entry),
-                    compilation_options: Default::default(),
-                    buffers: &[],
-                },
-                primitive: Default::default(),
-                depth_stencil: None,
-                multisample: Default::default(),
-                fragment: Some(wgpu::FragmentState {
-                    module: &module,
-                    entry_point: Some(&descriptor.fragment_entry),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: SCENE_FORMAT,
-                        blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                multiview_mask: None,
-                cache: None,
-            });
+        let pipeline = raster_pipeline(
+            &self.device,
+            &self.pipeline_layout,
+            &module,
+            [&descriptor.vertex_entry, &descriptor.fragment_entry],
+            wgpu::ColorTargetState {
+                format: SCENE_FORMAT,
+                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            },
+            &descriptor.label,
+        );
         if let Some(error) = pollster::block_on(error_scope.pop()) {
             return Err(RenderError::backend(format!(
                 "item shader '{}' is incompatible with the render pipeline: {error}",
@@ -846,33 +762,18 @@ impl RendererDevice {
                 label: Some(&descriptor.label),
                 source: wgpu::ShaderSource::Wgsl(descriptor.wgsl.as_ref().into()),
             });
-        let pipeline = self
-            .device
-            .create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some(&descriptor.label),
-                layout: Some(&self.effect_pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &module,
-                    entry_point: Some(&descriptor.vertex_entry),
-                    compilation_options: Default::default(),
-                    buffers: &[],
-                },
-                primitive: Default::default(),
-                depth_stencil: None,
-                multisample: Default::default(),
-                fragment: Some(wgpu::FragmentState {
-                    module: &module,
-                    entry_point: Some(&descriptor.fragment_entry),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: SCENE_FORMAT,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                multiview_mask: None,
-                cache: None,
-            });
+        let pipeline = raster_pipeline(
+            &self.device,
+            &self.effect_pipeline_layout,
+            &module,
+            [&descriptor.vertex_entry, &descriptor.fragment_entry],
+            wgpu::ColorTargetState {
+                format: SCENE_FORMAT,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            },
+            &descriptor.label,
+        );
         if let Some(error) = pollster::block_on(error_scope.pop()) {
             return Err(RenderError::backend(format!(
                 "effect shader '{}' is incompatible with the render pipeline: {error}",
@@ -888,4 +789,35 @@ impl RendererDevice {
         );
         Ok(())
     }
+}
+
+pub(super) fn raster_pipeline(
+    device: &wgpu::Device,
+    layout: &wgpu::PipelineLayout,
+    module: &wgpu::ShaderModule,
+    entries: [&str; 2],
+    target: wgpu::ColorTargetState,
+    label: &str,
+) -> wgpu::RenderPipeline {
+    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+        label: Some(label),
+        layout: Some(layout),
+        vertex: wgpu::VertexState {
+            module,
+            entry_point: Some(entries[0]),
+            compilation_options: Default::default(),
+            buffers: &[],
+        },
+        primitive: Default::default(),
+        depth_stencil: None,
+        multisample: Default::default(),
+        fragment: Some(wgpu::FragmentState {
+            module,
+            entry_point: Some(entries[1]),
+            compilation_options: Default::default(),
+            targets: &[Some(target)],
+        }),
+        multiview_mask: None,
+        cache: None,
+    })
 }

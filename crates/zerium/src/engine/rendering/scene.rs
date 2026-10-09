@@ -8,8 +8,8 @@ use zerium_core::plugin::{
     ComputeDispatchDimension, EffectInputSpace, EffectPassSchema, ItemSchema, TextureInput,
 };
 use zerium_core::timeline::{
-    EffectInstance, EffectInstanceId, ItemId, LayerId, ProjectResolution, TimelineItem,
-    TimelineTime, TimelineView,
+    EffectInstance, EffectInstanceId, ItemId, ProjectResolution, TimelineItem, TimelineTime,
+    TimelineView,
 };
 use zerium_shader::{EffectShaderId, ItemShaderId};
 
@@ -100,7 +100,6 @@ pub(crate) struct RenderEffect {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RenderTemporalSample {
     pub frame_offset: f32,
-    pub time: TimelineTime,
     /// A missing node is an intentionally transparent sample at a clip boundary.
     pub input: Option<SceneNodeId>,
 }
@@ -119,12 +118,23 @@ pub(crate) enum RenderEffectPassKind {
     Temporal(Vec<RenderTemporalSample>),
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct RenderNodeMetadata {
-    pub layer: LayerId,
-    pub clip_start: TimelineTime,
-    pub clip_end: TimelineTime,
-    pub path: Vec<ItemId>,
+/// View of a composition: position is its focal point, zoom is a scale factor,
+/// and angle is the camera's clockwise rotation in degrees.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(crate) struct RenderView {
+    pub position: [f32; 2],
+    pub zoom: f32,
+    pub angle: f32,
+}
+
+impl Default for RenderView {
+    fn default() -> Self {
+        Self {
+            position: [0.; 2],
+            zoom: 1.,
+            angle: 0.,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -132,6 +142,7 @@ pub(crate) enum RenderNodeContent {
     Item(RenderItem),
     Scene {
         children: Vec<SceneNodeId>,
+        view: RenderView,
         effects: Vec<RenderEffect>,
         render_scale: u32,
     },
@@ -141,7 +152,6 @@ pub(crate) enum RenderNodeContent {
 /// `Scene` node and are therefore applied once after all children are blended.
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RenderNode {
-    pub metadata: RenderNodeMetadata,
     pub content: RenderNodeContent,
     pub render_scale: u32,
 }

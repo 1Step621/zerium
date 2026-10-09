@@ -1,7 +1,6 @@
 use super::scene::MediaFrameRequest;
 use super::scene::{
-    RenderEffect, RenderItem, RenderItemSource, RenderNodeContent, RenderNodeMetadata,
-    RenderTemporalSample,
+    RenderEffect, RenderItem, RenderItemSource, RenderNodeContent, RenderTemporalSample, RenderView,
 };
 use super::scene::{RenderError, RenderNode, RenderQuality, RenderScene, RenderSize, SceneNodeId};
 use super::surface::{SurfaceRect, item_bounds};
@@ -269,12 +268,6 @@ where
             .map(|effect| effect.schema().render().scale)
             .max()
             .unwrap_or(1);
-        let metadata = RenderNodeMetadata {
-            layer: node.layer,
-            clip_start: TimelineTime::from_frame(node.clip.start),
-            clip_end: TimelineTime::from_frame(node.clip.end_exclusive()),
-            path: path.to_vec(),
-        };
         let mut content = match &node.item.kind {
             TimelineItemKind::Plugin {
                 plugin_id,
@@ -317,6 +310,7 @@ where
                 let children = self.render_scope(&child_scope, time, depth)?;
                 RenderNodeContent::Scene {
                     children,
+                    view: RenderView::default(),
                     effects: Vec::new(),
                     render_scale,
                 }
@@ -331,7 +325,7 @@ where
                 effects: target, ..
             } => *target = effects,
         }
-        let id = self.push_node(metadata, content);
+        let id = self.push_node(content);
         self.node_cache.insert(key, Some(id));
         Ok(Some(id))
     }
@@ -349,6 +343,7 @@ where
                 children,
                 effects,
                 render_scale,
+                ..
             } => (*render_scale, children, effects),
         };
         inputs
@@ -358,15 +353,10 @@ where
             .fold(scale, u32::max)
     }
 
-    fn push_node(
-        &mut self,
-        metadata: RenderNodeMetadata,
-        content: RenderNodeContent,
-    ) -> SceneNodeId {
+    fn push_node(&mut self, content: RenderNodeContent) -> SceneNodeId {
         let render_scale = self.content_scale(&content);
         let id = self.nodes.len();
         self.nodes.push(RenderNode {
-            metadata,
             content,
             render_scale,
         });
@@ -440,7 +430,6 @@ where
                 let input = self.render_node(path, Some(effect_index), sample_time, depth + 1)?;
                 Ok(RenderTemporalSample {
                     frame_offset: offset as f32,
-                    time: sample_time,
                     input,
                 })
             })
@@ -456,12 +445,6 @@ where
         target_size: RenderSize,
         depth: usize,
     ) -> Result<Vec<SceneNodeId>, E> {
-        let metadata = RenderNodeMetadata {
-            layer: node.layer,
-            clip_start: TimelineTime::from_frame(node.clip.start),
-            clip_end: TimelineTime::from_frame(node.clip.end_exclusive()),
-            path: node.path.clone(),
-        };
         let mut inputs = Vec::with_capacity(source.inputs.len());
         for (index, capability) in source.inputs.iter().enumerate() {
             let input = match capability {
@@ -494,7 +477,7 @@ where
                             rgba: Arc::from([0u8; 4]),
                         })
                     });
-                    self.frame_node(metadata.clone(), frame, target_size)
+                    self.frame_node(frame, target_size)
                 }
                 TextureInput::Text { .. } | TextureInput::Number { .. } => {
                     let frame = (self.text_frame)(TextFrameRequest {
@@ -508,12 +491,13 @@ where
                         label: source.label,
                         target_size,
                     })?;
-                    self.frame_node(metadata.clone(), frame, target_size)
+                    self.frame_node(frame, target_size)
                 }
                 TextureInput::RenderResult {
                     start_offset,
                     end_offset,
                     hide_original,
+                    view,
                     ..
                 } => {
                     let settings = RenderResultSettings::from_properties(
@@ -529,14 +513,29 @@ where
                             children.push(child);
                         }
                     }
-                    self.push_node(
-                        metadata.clone(),
-                        RenderNodeContent::Scene {
-                            children,
-                            effects: Vec::new(),
-                            render_scale: 1,
-                        },
-                    )
+                    self.push_node(RenderNodeContent::Scene {
+                        children,
+                        view: view.as_ref().map_or_else(RenderView::default, |view| {
+                            let value = |id: &str, index| {
+                                source
+                                    .properties
+                                    .property(id)
+                                    .and_then(|value| value.scalar_at(index))
+                                    .and_then(|value| value.as_f32())
+                                    .expect("capture view properties come from validated schemas")
+                            };
+                            RenderView {
+                                position: [
+                                    value(&view.position, Some(0)),
+                                    value(&view.position, Some(1)),
+                                ],
+                                zoom: value(&view.zoom, None) / 100.,
+                                angle: value(&view.angle, None),
+                            }
+                        }),
+                        effects: Vec::new(),
+                        render_scale: 1,
+                    })
                 }
             };
             inputs.push(input);
@@ -544,24 +543,16 @@ where
         Ok(inputs)
     }
 
-    fn frame_node(
-        &mut self,
-        metadata: RenderNodeMetadata,
-        frame: Arc<RgbaFrame>,
-        target_size: RenderSize,
-    ) -> SceneNodeId {
-        self.push_node(
-            metadata,
-            RenderNodeContent::Item(RenderItem {
-                shader: ItemShaderId::host_capability_frame(),
-                source: RenderItemSource::Texture(vec![frame]),
-                inputs: Vec::new(),
-                properties: Vec::new(),
-                effects: Vec::new(),
-                target_size,
-                render_scale: 1,
-                output_bounds: SurfaceRect::viewport(RenderSize::from(self.timeline.resolution())),
-            }),
-        )
+    fn frame_node(&mut self, frame: Arc<RgbaFrame>, target_size: RenderSize) -> SceneNodeId {
+        self.push_node(RenderNodeContent::Item(RenderItem {
+            shader: ItemShaderId::host_capability_frame(),
+            source: RenderItemSource::Texture(vec![frame]),
+            inputs: Vec::new(),
+            properties: Vec::new(),
+            effects: Vec::new(),
+            target_size,
+            render_scale: 1,
+            output_bounds: SurfaceRect::viewport(RenderSize::from(self.timeline.resolution())),
+        }))
     }
 }

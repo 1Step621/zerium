@@ -333,6 +333,25 @@ either order, and supplies transparency for out-of-range layers. Offsets inside
 a scene are local to that scene. The `hide_original` bool controls whether those
 layers also appear in the scene's normal output.
 
+An optional `view` maps the capture through a camera before it is clipped to the
+scene viewport:
+
+```json
+"view": { "position": "position", "zoom": "zoom", "angle": "angle" }
+```
+
+`position` references an f32 pair in scene pixels, with `(0, 0)` at the scene
+center. `zoom` references an f32 percentage with a positive minimum (`100` is
+unchanged). `angle` references an f32 clockwise camera angle in degrees. Moving
+the camera right moves the captured image left; rotating the camera clockwise
+rotates the image counterclockwise. These properties use ordinary animation.
+
+Each captured item's own bounds are rendered before the view is applied, so
+objects outside the scene viewport can enter the shot. A captured scene or
+render-result output is already clipped to its own viewport. Nested captures
+therefore transform the completed inner image. The bundled Camera item uses
+this view with `hide_original` enabled by default and offsets `1..30`.
+
 ## Editor features
 
 Items and effects can declare an `editor` array. Each feature supplies its own
