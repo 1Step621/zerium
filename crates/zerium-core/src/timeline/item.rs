@@ -8,7 +8,7 @@ use crate::property::{
 };
 
 use super::{
-    FrameRate, ResizeMode, TimeMapping,
+    BlendMode, FrameRate, ResizeMode, TimeMapping,
     aspect_ratio::AspectRatio,
     ids::{EffectInstanceId, ItemId, LayerId, SceneId},
     properties::resolve_property,
@@ -152,6 +152,7 @@ pub struct TimelineItem {
     pub id: ItemId,
     pub start: Frame,
     pub duration: FrameDuration,
+    pub blend_mode: BlendMode,
     pub kind: TimelineItemKind,
     pub properties: PropertyValues,
     pub animations: ScalarAnimations,
@@ -170,6 +171,7 @@ impl TimelineItem {
             id,
             start,
             duration,
+            blend_mode: BlendMode::Normal,
             kind: TimelineItemKind::Scene { scene_id },
             properties: PropertyValues::default(),
             animations: ScalarAnimations::default(),

@@ -305,6 +305,7 @@ impl TimelineDocument {
                 id,
                 start,
                 duration,
+                blend_mode: super::BlendMode::Normal,
                 kind: TimelineItemKind::Plugin {
                     plugin_id,
                     item_id,

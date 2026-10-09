@@ -15,10 +15,14 @@ struct CompositeInfo {
     // Output pixel coordinates to input UV coordinates.
     uv_x: vec4<f32>,
     uv_y: vec4<f32>,
+    blend_mode: vec4<u32>,
 };
 
 @group(0) @binding(2)
 var<uniform> composite_info: CompositeInfo;
+
+@group(1) @binding(0)
+var composite_backdrop: texture_2d<f32>;
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> CompositeVertexOutput {
@@ -108,6 +112,53 @@ fn scene_to_srgb(color: vec3<f32>) -> vec3<f32> {
 @fragment
 fn fragment_main(input: CompositeVertexOutput) -> @location(0) vec4<f32> {
     return composite_sample(input);
+}
+
+// Modes match timeline::BlendMode. Colors remain in scene-linear space.
+fn blend_color(backdrop: vec3<f32>, source: vec3<f32>) -> vec3<f32> {
+    switch composite_info.blend_mode.x {
+        case 1u: { return min(backdrop, source); }
+        case 2u: { return backdrop * source; }
+        case 3u: { return max(backdrop, source); }
+        case 4u: { return backdrop + source - backdrop * source; }
+        // Addition retains HDR headroom rather than clipping at display white.
+        case 5u: { return backdrop + source; }
+        case 6u: {
+            return select(2.0 * backdrop * source,
+                1.0 - 2.0 * (1.0 - backdrop) * (1.0 - source), backdrop > vec3(0.5));
+        }
+        case 7u: {
+            let d = select(sqrt(max(backdrop, vec3(0.0))),
+                ((16.0 * backdrop - 12.0) * backdrop + 4.0) * backdrop, backdrop <= vec3(0.25));
+            return select(backdrop + (2.0 * source - 1.0) * (d - backdrop),
+                backdrop - (1.0 - 2.0 * source) * backdrop * (1.0 - backdrop), source <= vec3(0.5));
+        }
+        case 8u: {
+            return select(2.0 * backdrop * source,
+                1.0 - 2.0 * (1.0 - backdrop) * (1.0 - source), source > vec3(0.5));
+        }
+        case 9u: { return abs(backdrop - source); }
+        case 10u: { return backdrop + source - 2.0 * backdrop * source; }
+        default: { return source; }
+    }
+}
+
+@fragment
+fn blend_fragment_main(input: CompositeVertexOutput) -> @location(0) vec4<f32> {
+    let source = composite_sample(input);
+    let backdrop = textureLoad(composite_backdrop, vec2<i32>(input.position.xy), 0);
+    if source.a <= 0.0 {
+        return backdrop;
+    }
+    if backdrop.a <= 0.0 {
+        return source;
+    }
+    // Source-over with a blend function, using premultiplied input/output:
+    // https://www.w3.org/TR/compositing-1/#blending
+    let blended = blend_color(backdrop.rgb / backdrop.a, source.rgb / source.a);
+    let color = (1.0 - source.a) * backdrop.rgb + (1.0 - backdrop.a) * source.rgb
+        + source.a * backdrop.a * blended;
+    return vec4(color, source.a + backdrop.a * (1.0 - source.a));
 }
 
 // GPUI samples an embedded sRGB surface with hardware decode before composing

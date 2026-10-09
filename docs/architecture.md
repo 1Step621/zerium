@@ -79,6 +79,13 @@ independent render sessions. `RendererDevice` owns immutable GPU state;
 scene boundaries and sample time, including for temporal effects. Item surfaces
 use declared bounds; scenes composite into the viewport before applying effects.
 
+Blend mode is a persisted setting shared by all timeline items, separate from
+plugin properties. The inspector header edits it for its current item scope.
+Each item's completed surface is blended into its parent scene after its
+effects, using scene-linear colors and premultiplied alpha. Scene instances and
+render-result captures composite their children against a transparent backdrop;
+their completed image then participates in the containing scene's composition.
+
 ## Localization
 
 Startup selects the shared `rust-i18n` locale. Core label accessors use it;

@@ -314,6 +314,29 @@ impl RendererBuilder {
                 bind_group_layouts: &[Some(&composite_bind_group_layout)],
                 immediate_size: 0,
             });
+        let backdrop_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("zerium-backdrop-bind-group-layout"),
+                entries: &[wgpu::BindGroupLayoutEntry {
+                    binding: 0,
+                    visibility: wgpu::ShaderStages::FRAGMENT,
+                    ty: wgpu::BindingType::Texture {
+                        sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                        view_dimension: wgpu::TextureViewDimension::D2,
+                        multisampled: false,
+                    },
+                    count: None,
+                }],
+            });
+        let blend_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("zerium-blend-pipeline-layout"),
+                bind_group_layouts: &[
+                    Some(&composite_bind_group_layout),
+                    Some(&backdrop_bind_group_layout),
+                ],
+                immediate_size: 0,
+            });
         validate_render_shader(
             "zerium.composite",
             COMPOSITE,
@@ -325,6 +348,12 @@ impl RendererBuilder {
             COMPOSITE,
             "vertex_main",
             "output_fragment_main",
+        )?;
+        validate_render_shader(
+            "zerium.blend",
+            COMPOSITE,
+            "vertex_main",
+            "blend_fragment_main",
         )?;
         let composite_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
             label: Some("zerium-composite-shader"),
@@ -354,6 +383,18 @@ impl RendererBuilder {
             },
             "zerium-output_pipeline",
         );
+        let blend_pipeline = raster_pipeline(
+            &device,
+            &blend_pipeline_layout,
+            &composite_module,
+            ["vertex_main", "blend_fragment_main"],
+            wgpu::ColorTargetState {
+                format: SCENE_FORMAT,
+                blend: None,
+                write_mask: wgpu::ColorWrites::ALL,
+            },
+            "zerium-blend-pipeline",
+        );
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("zerium-effect-sampler"),
             address_mode_u: wgpu::AddressMode::ClampToEdge,
@@ -376,10 +417,12 @@ impl RendererBuilder {
                 effect_pipeline_layout,
                 temporal_pipeline_layout,
                 composite_bind_group_layout,
+                backdrop_bind_group_layout,
                 effect_pipelines: HashMap::new(),
                 temporal_pipelines: HashMap::new(),
                 compute_pipelines: HashMap::new(),
                 composite_pipeline,
+                blend_pipeline,
                 output_pipeline,
                 texture_pipelines: HashMap::new(),
                 sampler,

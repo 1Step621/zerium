@@ -1,4 +1,5 @@
 mod aspect_ratio;
+mod blend_mode;
 mod commands;
 mod document;
 mod editor;
@@ -18,6 +19,7 @@ mod view;
 mod visibility;
 
 pub use aspect_ratio::AspectRatio;
+pub use blend_mode::BlendMode;
 pub use commands::{
     AnimationEdit, AnimationEditTarget, AnimationStopEdit, SceneArgumentEditError,
     TimelineEditError,

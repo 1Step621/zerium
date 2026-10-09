@@ -1,4 +1,5 @@
 use rust_i18n::t;
+use zerium_core::timeline::BlendMode;
 
 use super::control::{Control, ControlTree, EffectGroup, GroupKind};
 use super::rows::RenderCtx;
@@ -12,6 +13,7 @@ pub(super) struct SelectionView {
     pub has_visual: bool,
     pub items_hidden: bool,
     pub item_visibility_mixed: bool,
+    pub blend_mode: Option<BlendMode>,
 }
 
 impl Render for PropertyInspector {
@@ -110,6 +112,10 @@ impl PropertyInspector {
         };
         let item = selected_items.first()?.clone();
         let multiple = selected_items.len() > 1;
+        let blend_mode = selected_items
+            .iter()
+            .all(|selected| selected.blend_mode == item.blend_mode)
+            .then_some(item.blend_mode);
         let hidden_state = self.editor.read(cx).items_hidden_state(self.scope);
         let schema = Self::selected_schema(&item);
         let effects = if multiple {
@@ -142,6 +148,7 @@ impl PropertyInspector {
             has_visual,
             items_hidden: hidden_state == Some(true),
             item_visibility_mixed: hidden_state.is_none() && multiple,
+            blend_mode,
         })
     }
 
@@ -350,9 +357,41 @@ impl PropertyInspector {
         selector: gpui::AnyElement,
     ) -> Div {
         let editor = render.editor.clone();
+        let blend_editor = render.editor.clone();
         let scope = render.scope;
+        let blend_mode = view.blend_mode;
         pane_header(render.colors)
             .child(div().min_w_0().flex_1().overflow_hidden().child(selector))
+            .child(
+                Button::new("selected-item-blend-mode")
+                    .small()
+                    .compact()
+                    .ghost()
+                    .dropdown_caret(true)
+                    .label(blend_mode.map_or_else(
+                        || t!("inspector.mixed_blend_mode").to_string(),
+                        |mode| t!(format!("blend_mode.{}", mode.id())).to_string(),
+                    ))
+                    .tooltip(t!("inspector.blend_mode").to_string())
+                    .popup_menu(move |menu, _, _| {
+                        BlendMode::ALL.into_iter().fold(menu, |menu, mode| {
+                            let editor = blend_editor.clone();
+                            menu.item(
+                                PopupMenuItem::new(
+                                    t!(format!("blend_mode.{}", mode.id())).to_string(),
+                                )
+                                .checked(blend_mode == Some(mode))
+                                .on_click(move |_, _, cx| {
+                                    editor.update(cx, |editor, cx| {
+                                        if editor.set_items_blend_mode(scope, mode) {
+                                            cx.notify();
+                                        }
+                                    });
+                                }),
+                            )
+                        })
+                    }),
+            )
             .child(
                 Button::new("toggle-selected-item-visibility")
                     .xsmall()

@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
 use zerium_core::plugin::{ComputeDispatchDimension, EffectInputSpace};
+use zerium_core::timeline::BlendMode;
 use zerium_shader::{EffectShaderId, ItemShaderId};
 
 pub(super) type RenderNodeId = usize;
@@ -70,6 +71,7 @@ pub(super) struct GpuComposite {
     pub(super) output_size: [u32; 2],
     pub(super) uv_x: [f32; 4],
     pub(super) uv_y: [f32; 4],
+    pub(super) blend_mode: [u32; 4],
 }
 
 impl GpuComposite {
@@ -79,6 +81,7 @@ impl GpuComposite {
         output_size: RenderSize,
         output: SurfaceRect,
         view: RenderView,
+        blend_mode: BlendMode,
     ) -> Self {
         let (sin, cos) = view.angle.to_radians().sin_cos();
         let inverse = [
@@ -105,6 +108,7 @@ impl GpuComposite {
             output_size: [output_size.width, output_size.height],
             uv_x: row(0),
             uv_y: row(1),
+            blend_mode: [blend_mode as u32, 0, 0, 0],
         }
     }
 }
@@ -123,9 +127,16 @@ pub(super) enum RenderCommand {
         shader: ItemShaderId,
     },
     Surface {
-        node: RenderNodeId,
+        layer: RenderLayer,
         render_scale: u32,
     },
+}
+
+/// Blending belongs to the edge into a scene, not to the reusable input surface.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) struct RenderLayer {
+    pub(super) node: RenderNodeId,
+    pub(super) blend_mode: BlendMode,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -153,7 +164,7 @@ pub(super) struct RenderNodeCommand {
 pub(super) enum RenderNodeCommandKind {
     Source(RenderSourceCommand),
     Composite {
-        children: Vec<RenderNodeId>,
+        children: Vec<RenderLayer>,
         view: RenderView,
     },
     Effect {
@@ -257,7 +268,7 @@ pub(super) enum RenderNodeKey {
         owner: Arc<RenderNodeKey>,
     },
     Composite {
-        children: Vec<Arc<RenderNodeKey>>,
+        children: Vec<(Arc<RenderNodeKey>, BlendMode)>,
         view: [u32; 4],
     },
     Effect {
@@ -630,13 +641,20 @@ impl SceneEncoder<'_> {
             } => {
                 let children = children
                     .iter()
-                    .map(|child| self.encode_node(*child))
-                    .collect::<Result<Vec<_>, _>>()?;
+                    .map(|child| {
+                        Ok(RenderLayer {
+                            node: self.encode_node(*child)?,
+                            blend_mode: self.scene.nodes[*child].blend_mode,
+                        })
+                    })
+                    .collect::<Result<Vec<_>, RenderError>>()?;
                 let composite = self.intern_node(
                     RenderNodeKey::Composite {
                         children: children
                             .iter()
-                            .map(|child| self.output.node_keys[*child].clone())
+                            .map(|child| {
+                                (self.output.node_keys[child.node].clone(), child.blend_mode)
+                            })
                             .collect(),
                         view: [
                             view.position[0].to_bits(),
@@ -677,27 +695,31 @@ pub(super) fn encode_scene(scene: &RenderScene) -> Result<EncodedScene, RenderEr
     let viewport = SurfaceRect::viewport(scene.composition_size);
     for node in &scene.roots {
         let root = encoder.encode_node(*node)?;
+        let blend_mode = scene.nodes[*node].blend_mode;
         match &encoder.output.nodes[root].kind {
             RenderNodeCommandKind::Source(RenderSourceCommand::Item {
                 shader,
                 instance,
                 capabilities,
-            }) if capabilities.is_empty() => match encoder.output.commands.last_mut() {
-                Some(RenderCommand::Items(batch))
-                    if batch.shader == *shader && batch.instances.end == *instance =>
-                {
-                    batch.instances.end = instance + 1;
+            }) if capabilities.is_empty() && blend_mode == BlendMode::Normal => {
+                match encoder.output.commands.last_mut() {
+                    Some(RenderCommand::Items(batch))
+                        if batch.shader == *shader && batch.instances.end == *instance =>
+                    {
+                        batch.instances.end = instance + 1;
+                    }
+                    _ => encoder
+                        .output
+                        .commands
+                        .push(RenderCommand::Items(ItemBatch {
+                            shader: shader.clone(),
+                            instances: *instance..instance + 1,
+                        })),
                 }
-                _ => encoder
-                    .output
-                    .commands
-                    .push(RenderCommand::Items(ItemBatch {
-                        shader: shader.clone(),
-                        instances: *instance..instance + 1,
-                    })),
-            },
+            }
             RenderNodeCommandKind::Source(RenderSourceCommand::Texture { index, shader })
-                if encoder.output.nodes[root].bounds == viewport =>
+                if encoder.output.nodes[root].bounds == viewport
+                    && blend_mode == BlendMode::Normal =>
             {
                 encoder.output.commands.push(RenderCommand::Texture {
                     index: *index,
@@ -705,7 +727,10 @@ pub(super) fn encode_scene(scene: &RenderScene) -> Result<EncodedScene, RenderEr
                 });
             }
             _ => encoder.output.commands.push(RenderCommand::Surface {
-                node: root,
+                layer: RenderLayer {
+                    node: root,
+                    blend_mode,
+                },
                 render_scale: scene.nodes[*node].render_scale,
             }),
         }
@@ -728,8 +753,8 @@ fn shared_node_slots(
 ) -> Vec<Option<usize>> {
     let mut references = vec![0_usize; nodes.len()];
     for command in commands {
-        if let RenderCommand::Surface { node, .. } = command {
-            references[*node] += 1;
+        if let RenderCommand::Surface { layer, .. } = command {
+            references[layer.node] += 1;
         }
     }
     for node in nodes {
@@ -751,7 +776,7 @@ fn shared_node_slots(
             }
             RenderNodeCommandKind::Composite { children, .. } => {
                 for child in children {
-                    references[*child] += 1;
+                    references[child.node] += 1;
                 }
             }
             RenderNodeCommandKind::TemporalEffect {

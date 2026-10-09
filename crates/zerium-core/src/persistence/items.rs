@@ -10,8 +10,8 @@ use crate::{
         PropertyPath, PropertySchema, PropertyValue, PropertyValues, materialized_property_values,
     },
     timeline::{
-        EffectInstance, EffectInstanceId, Frame, FrameDuration, ItemId, LayerId, ProjectId,
-        SceneId, TimelineItem, TimelineItemKind,
+        BlendMode, EffectInstance, EffectInstanceId, Frame, FrameDuration, ItemId, LayerId,
+        ProjectId, SceneId, TimelineItem, TimelineItemKind,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -91,6 +91,8 @@ pub(super) struct ProjectItem {
     layer: u64,
     start: u64,
     duration: u64,
+    #[serde(default)]
+    blend_mode: BlendMode,
     kind: ProjectItemKind,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
     properties: BTreeMap<String, PropertyValue>,
@@ -120,6 +122,7 @@ impl ProjectItem {
             layer: layer.get(),
             start: item.start.get(),
             duration: item.duration.get(),
+            blend_mode: item.blend_mode,
             kind: match &item.kind {
                 TimelineItemKind::Scene { scene_id } => ProjectItemKind::Scene {
                     project_high: scene_id.project().high(),
@@ -249,6 +252,7 @@ impl ProjectItem {
             id: ItemId(self.id),
             start: Frame::new(self.start),
             duration,
+            blend_mode: self.blend_mode,
             kind,
             properties,
             animations,

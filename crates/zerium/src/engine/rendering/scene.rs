@@ -8,8 +8,8 @@ use zerium_core::plugin::{
     ComputeDispatchDimension, EffectInputSpace, EffectPassSchema, ItemSchema, TextureInput,
 };
 use zerium_core::timeline::{
-    EffectInstance, EffectInstanceId, ItemId, ProjectResolution, TimelineItem, TimelineTime,
-    TimelineView,
+    BlendMode, EffectInstance, EffectInstanceId, ItemId, ProjectResolution, TimelineItem,
+    TimelineTime, TimelineView,
 };
 use zerium_shader::{EffectShaderId, ItemShaderId};
 
@@ -154,6 +154,8 @@ pub(crate) enum RenderNodeContent {
 pub(crate) struct RenderNode {
     pub content: RenderNodeContent,
     pub render_scale: u32,
+    /// Used only when this completed node is composited into its parent scene.
+    pub blend_mode: BlendMode,
 }
 
 #[derive(Clone, Copy, Debug)]

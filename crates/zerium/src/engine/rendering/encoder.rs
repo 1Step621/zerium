@@ -12,6 +12,7 @@ use std::num::NonZeroU64;
 use std::ops::Range;
 use std::sync::Arc;
 use zerium_core::plugin::{ComputeDispatchDimension, EffectInputSpace};
+use zerium_core::timeline::BlendMode;
 use zerium_shader::{EffectShaderId, ItemShaderId, capability_input};
 
 #[derive(Clone)]
@@ -193,19 +194,39 @@ impl FrameRenderer {
         source: &RenderedSurface,
         view: RenderView,
     ) {
-        let info = GpuComposite::new(source.size, source.rect, target_size, target_rect, view);
+        let info = GpuComposite::new(
+            source.size,
+            source.rect,
+            target_size,
+            target_rect,
+            view,
+            BlendMode::Normal,
+        );
+        self.encode_composite_pass(encoder, target, &source.view, info, None);
+    }
 
-        let buffer = self.shared.device.create_buffer(&wgpu::BufferDescriptor {
-            label: Some("zerium-spatial-composite-info"),
-            size: size_of::<GpuComposite>() as u64,
-            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-            mapped_at_creation: false,
+    fn composite_layer(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        target: &RenderTarget,
+        backdrop: Option<&RenderTarget>,
+        source: &RenderedSurface,
+        info: GpuComposite,
+    ) {
+        let backdrop = (info.blend_mode[0] != BlendMode::Normal as u32).then(|| {
+            let backdrop = backdrop.expect("non-normal layers have a backdrop texture");
+            encoder.copy_texture_to_texture(
+                target.texture.as_image_copy(),
+                backdrop.texture.as_image_copy(),
+                wgpu::Extent3d {
+                    width: info.output_size[0],
+                    height: info.output_size[1],
+                    depth_or_array_layers: 1,
+                },
+            );
+            &backdrop.view
         });
-        self.shared
-            .queue
-            .write_buffer(&buffer, 0, bytemuck::bytes_of(&info));
-        let input = self.composite_input_bind_group(&source.view, &buffer);
-        self.encode_composite_pass(encoder, target, &input);
+        self.encode_composite_pass(encoder, &target.view, &source.view, info, backdrop);
     }
 
     fn render_surface(
@@ -443,13 +464,16 @@ impl FrameRenderer {
                     self.local_resources(context, node_id, node.bounds, None)?;
                 self.clear_target(encoder, &resources.targets[0].view);
                 for child in children {
-                    match &context.encoded.nodes[*child].kind {
+                    match &context.encoded.nodes[child.node].kind {
                         RenderNodeCommandKind::Source(RenderSourceCommand::Transparent) => {}
                         RenderNodeCommandKind::Source(RenderSourceCommand::Item {
                             shader,
                             instance,
                             capabilities,
-                        }) if capabilities.is_empty() && *view == RenderView::default() => {
+                        }) if capabilities.is_empty()
+                            && *view == RenderView::default()
+                            && child.blend_mode == BlendMode::Normal =>
+                        {
                             let inputs = self.capability_bind_group(&[], &resources.source.view);
                             self.encode_item_pass(
                                 encoder,
@@ -464,14 +488,20 @@ impl FrameRenderer {
                             );
                         }
                         _ => {
-                            let surface = self.render_surface(encoder, context, *child)?;
-                            self.spatial_composite(
+                            let surface = self.render_surface(encoder, context, child.node)?;
+                            self.composite_layer(
                                 encoder,
-                                &resources.targets[0].view,
-                                rect,
-                                resources.size,
+                                &resources.targets[0],
+                                Some(&resources.targets[1]),
                                 &surface,
-                                *view,
+                                GpuComposite::new(
+                                    surface.size,
+                                    surface.rect,
+                                    resources.size,
+                                    rect,
+                                    *view,
+                                    child.blend_mode,
+                                ),
                             );
                         }
                     }
@@ -678,16 +708,45 @@ impl FrameRenderer {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         target_view: &wgpu::TextureView,
-        input: &wgpu::BindGroup,
+        source: &wgpu::TextureView,
+        info: GpuComposite,
+        backdrop: Option<&wgpu::TextureView>,
     ) {
+        let buffer = self.shared.device.create_buffer(&wgpu::BufferDescriptor {
+            label: Some("zerium-spatial-composite-info"),
+            size: size_of::<GpuComposite>() as u64,
+            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+            mapped_at_creation: false,
+        });
+        self.shared
+            .queue
+            .write_buffer(&buffer, 0, bytemuck::bytes_of(&info));
+        let input = self.composite_input_bind_group(source, &buffer);
+        let backdrop = backdrop.map(|view| {
+            self.shared
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("zerium-blend-backdrop"),
+                    layout: &self.shared.backdrop_bind_group_layout,
+                    entries: &[wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: wgpu::BindingResource::TextureView(view),
+                    }],
+                })
+        });
         let mut pass = render_pass(
             encoder,
             target_view,
             wgpu::LoadOp::Load,
             "zerium-effect-composite-pass",
         );
-        pass.set_pipeline(&self.shared.composite_pipeline);
-        pass.set_bind_group(0, input, &[]);
+        if let Some(backdrop) = &backdrop {
+            pass.set_pipeline(&self.shared.blend_pipeline);
+            pass.set_bind_group(1, backdrop, &[]);
+        } else {
+            pass.set_pipeline(&self.shared.composite_pipeline);
+        }
+        pass.set_bind_group(0, &input, &[]);
         pass.draw(0..3, 0..1);
     }
 
@@ -922,7 +981,10 @@ impl FrameRenderer {
                         wgpu::LoadOp::Load,
                     );
                 }
-                RenderCommand::Surface { node, render_scale } => {
+                RenderCommand::Surface {
+                    layer,
+                    render_scale,
+                } => {
                     let cached_nodes = &resources.node_caches[render_scale];
                     let rendered_shared_nodes =
                         rendered_by_scale.entry(*render_scale).or_insert_with(|| {
@@ -944,14 +1006,20 @@ impl FrameRenderer {
                         rendered_shared_nodes,
                         textures,
                     };
-                    let surface = self.render_surface(encoder, &mut context, *node)?;
-                    self.spatial_composite(
+                    let surface = self.render_surface(encoder, &mut context, layer.node)?;
+                    self.composite_layer(
                         encoder,
-                        target_view,
-                        SurfaceRect::viewport(resources.composition_size),
-                        resources.size,
+                        &resources.scene,
+                        resources.backdrop.as_ref(),
                         &surface,
-                        RenderView::default(),
+                        GpuComposite::new(
+                            surface.size,
+                            surface.rect,
+                            resources.size,
+                            SurfaceRect::viewport(resources.composition_size),
+                            RenderView::default(),
+                            layer.blend_mode,
+                        ),
                     );
                 }
             }
@@ -999,6 +1067,16 @@ impl FrameRenderer {
         let frame = frame_resources
             .as_mut()
             .expect("frame resources were created");
+        if frame.backdrop.is_none() && encoded.commands.iter().any(|command| {
+            matches!(command, RenderCommand::Surface { layer, .. } if layer.blend_mode != BlendMode::Normal)
+        }) {
+            frame.backdrop = Some(RenderTarget::new(
+                &self.shared.device,
+                scene.size,
+                wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                "zerium-frame-backdrop",
+            ));
+        }
         let required_scales = encoded
             .commands
             .iter()

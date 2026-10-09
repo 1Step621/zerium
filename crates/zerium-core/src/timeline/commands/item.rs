@@ -3,14 +3,30 @@ use std::collections::{HashMap, HashSet};
 use crate::media::ImportedFile;
 use crate::timeline::history::HistoryKey;
 use crate::timeline::{
-    EffectInstanceId, Frame, ItemId, LayerId, ResizeEdge, ResizeMode, SceneBindingOwner,
-    SceneBindingTarget, SceneId, TimelineEditor, TimelineItem,
+    BlendMode, EditScope, EffectInstanceId, Frame, ItemId, LayerId, ResizeEdge, ResizeMode,
+    SceneBindingOwner, SceneBindingTarget, SceneId, TimelineEditor, TimelineItem,
 };
 
 use super::{TimelineEditError, scene::remove_bindings_for_items};
 
 // Item, effect, animation, and layout commands.
 impl TimelineEditor {
+    pub fn set_items_blend_mode(&mut self, scope: EditScope, mode: BlendMode) -> bool {
+        let ids = scope.item_ids(self);
+        self.edit_project_if_changed(None, |editor| {
+            let mut changed = false;
+            for id in ids {
+                if let Some(item) = editor.active_document_mut().item_mut(id)
+                    && item.blend_mode != mode
+                {
+                    item.blend_mode = mode;
+                    changed = true;
+                }
+            }
+            changed
+        })
+    }
+
     pub fn add_item(
         &mut self,
         layer: LayerId,

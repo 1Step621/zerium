@@ -10,6 +10,7 @@ use super::{FrameRenderer, PROPERTY_WORD_SIZE, SCENE_FORMAT, VIDEO_FRAME_FORMAT}
 use crate::engine::frame::RgbaFrame;
 use std::num::NonZeroU64;
 use std::sync::Arc;
+use zerium_core::timeline::BlendMode;
 
 pub(super) struct TextureResource {
     pub(super) input_count: usize,
@@ -60,6 +61,7 @@ pub(super) struct FrameResources {
     pub(super) composition_size: RenderSize,
     pub(super) items: ItemResources,
     pub(super) scene: RenderTarget,
+    pub(super) backdrop: Option<RenderTarget>,
     pub(super) output_input: wgpu::BindGroup,
     pub(super) empty_capabilities: wgpu::BindGroup,
     pub(super) node_caches: std::collections::HashMap<u32, Vec<CachedNode>>,
@@ -288,7 +290,9 @@ impl FrameRenderer {
         let target = RenderTarget::new(
             &self.shared.device,
             scene.size,
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            wgpu::TextureUsages::RENDER_ATTACHMENT
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::COPY_SRC,
             "zerium-scene-linear-texture",
         );
         let info = self.shared.device.create_buffer(&wgpu::BufferDescriptor {
@@ -307,6 +311,7 @@ impl FrameRenderer {
                 scene.size,
                 viewport,
                 RenderView::default(),
+                BlendMode::Normal,
             )),
         );
         let output_input = self.composite_input_bind_group(&target.view, &info);
@@ -325,6 +330,7 @@ impl FrameRenderer {
             composition_size: scene.composition_size,
             items,
             scene: target,
+            backdrop: None,
             output_input,
             empty_capabilities,
             node_caches: Default::default(),

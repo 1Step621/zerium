@@ -10,7 +10,8 @@ use crate::engine::frame::RgbaFrame;
 use std::{collections::HashMap, sync::Arc};
 use zerium_core::plugin::{EffectPassSchema, TextureInput};
 use zerium_core::timeline::{
-    EffectInstance, EffectInstanceId, LayerId, RenderResultSettings, TimelineItem, TimelineItemKind,
+    BlendMode, EffectInstance, EffectInstanceId, LayerId, RenderResultSettings, TimelineItem,
+    TimelineItemKind,
 };
 use zerium_core::timeline::{EvaluatedSceneNode, ItemId, TimelineTime, TimelineView};
 use zerium_shader::ItemShaderId;
@@ -325,7 +326,7 @@ where
                 effects: target, ..
             } => *target = effects,
         }
-        let id = self.push_node(content);
+        let id = self.push_node(content, owner.blend_mode);
         self.node_cache.insert(key, Some(id));
         Ok(Some(id))
     }
@@ -353,12 +354,13 @@ where
             .fold(scale, u32::max)
     }
 
-    fn push_node(&mut self, content: RenderNodeContent) -> SceneNodeId {
+    fn push_node(&mut self, content: RenderNodeContent, blend_mode: BlendMode) -> SceneNodeId {
         let render_scale = self.content_scale(&content);
         let id = self.nodes.len();
         self.nodes.push(RenderNode {
             content,
             render_scale,
+            blend_mode,
         });
         id
     }
@@ -513,29 +515,33 @@ where
                             children.push(child);
                         }
                     }
-                    self.push_node(RenderNodeContent::Scene {
-                        children,
-                        view: view.as_ref().map_or_else(RenderView::default, |view| {
-                            let value = |id: &str, index| {
-                                source
-                                    .properties
-                                    .property(id)
-                                    .and_then(|value| value.scalar_at(index))
-                                    .and_then(|value| value.as_f32())
-                                    .expect("capture view properties come from validated schemas")
-                            };
-                            RenderView {
-                                position: [
-                                    value(&view.position, Some(0)),
-                                    value(&view.position, Some(1)),
-                                ],
-                                zoom: value(&view.zoom, None) / 100.,
-                                angle: value(&view.angle, None),
-                            }
-                        }),
-                        effects: Vec::new(),
-                        render_scale: 1,
-                    })
+                    let view = view.as_ref().map_or_else(RenderView::default, |view| {
+                        let value = |id: &str, index| {
+                            source
+                                .properties
+                                .property(id)
+                                .and_then(|value| value.scalar_at(index))
+                                .and_then(|value| value.as_f32())
+                                .expect("validated capture view property")
+                        };
+                        RenderView {
+                            position: [
+                                value(&view.position, Some(0)),
+                                value(&view.position, Some(1)),
+                            ],
+                            zoom: value(&view.zoom, None) / 100.,
+                            angle: value(&view.angle, None),
+                        }
+                    });
+                    self.push_node(
+                        RenderNodeContent::Scene {
+                            children,
+                            view,
+                            effects: Vec::new(),
+                            render_scale: 1,
+                        },
+                        BlendMode::Normal,
+                    )
                 }
             };
             inputs.push(input);
@@ -544,15 +550,18 @@ where
     }
 
     fn frame_node(&mut self, frame: Arc<RgbaFrame>, target_size: RenderSize) -> SceneNodeId {
-        self.push_node(RenderNodeContent::Item(RenderItem {
-            shader: ItemShaderId::host_capability_frame(),
-            source: RenderItemSource::Texture(vec![frame]),
-            inputs: Vec::new(),
-            properties: Vec::new(),
-            effects: Vec::new(),
-            target_size,
-            render_scale: 1,
-            output_bounds: SurfaceRect::viewport(RenderSize::from(self.timeline.resolution())),
-        }))
+        self.push_node(
+            RenderNodeContent::Item(RenderItem {
+                shader: ItemShaderId::host_capability_frame(),
+                source: RenderItemSource::Texture(vec![frame]),
+                inputs: Vec::new(),
+                properties: Vec::new(),
+                effects: Vec::new(),
+                target_size,
+                render_scale: 1,
+                output_bounds: SurfaceRect::viewport(RenderSize::from(self.timeline.resolution())),
+            }),
+            BlendMode::Normal,
+        )
     }
 }
