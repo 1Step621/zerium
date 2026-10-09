@@ -31,8 +31,8 @@ use zerium_core::{
         SegmentInterpolation,
     },
     timeline::{
-        AnimationEdit, AnimationEditTarget, Frame, FrameDuration, FrameRate, PropertyAddress,
-        TimelineEditor, TimelineTime,
+        AnimationEdit, AnimationEditTarget, BeatGuide, Frame, FrameDuration, FrameRate,
+        PropertyAddress, TimelineEditor, TimelineTime,
     },
 };
 
@@ -68,7 +68,7 @@ enum GraphInteraction {
     StopDrag {
         stop: usize,
         time: TimelineTime,
-        snap_frame: Frame,
+        snap_playhead: Frame,
         follow_focus: Option<usize>,
     },
     SuppressClick,
@@ -115,8 +115,9 @@ struct CurvePaintColors {
 
 #[derive(Clone)]
 struct CurveGrid {
-    major: Vec<(f64, f32)>,
-    minor: Vec<f32>,
+    ruler_ticks: Vec<(f64, f32)>,
+    beat_ticks: Vec<f32>,
+    frame_ticks: Vec<f32>,
     values: Vec<(f64, f32)>,
 }
 
@@ -179,7 +180,6 @@ impl AnimationCurveEditor {
     const GRAPH_INSET_BOTTOM: f32 = 28.;
     const SCREEN_EDGE_EPSILON: f32 = 0.001;
     const OVERVIEW_STOP_HANDLE_WIDTH: f32 = 12.;
-    const OVERVIEW_SNAP_DISTANCE: f32 = 8.;
     /// Pointer travel that promotes a graph press from "possible click" to a
     /// playhead scrub.
     const PRESS_DRAG_THRESHOLD_PX: f32 = 4.;

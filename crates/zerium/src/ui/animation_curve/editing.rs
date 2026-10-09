@@ -104,8 +104,8 @@ impl AnimationCurveEditor {
         };
         self.animation_edit = Some(edit);
         let time = Self::time_at_source_progress(&selected, progress);
-        let snap_frame = self.editor.read(cx).playhead();
-        let follow_focus = (TimelineTime::from_frame(snap_frame) == time)
+        let snap_playhead = self.editor.read(cx).playhead();
+        let follow_focus = (TimelineTime::from_frame(snap_playhead) == time)
             .then(|| self.selection.read(cx).focused_segment())
             .flatten()
             .filter(|segment| *segment == stop || segment.saturating_add(1) == stop);
@@ -114,7 +114,7 @@ impl AnimationCurveEditor {
         self.graph_interaction = GraphInteraction::StopDrag {
             stop,
             time,
-            snap_frame,
+            snap_playhead,
             follow_focus,
         };
         cx.notify();
@@ -124,15 +124,16 @@ impl AnimationCurveEditor {
         &mut self,
         drag: &StopPositionDrag,
         pointer_x: f32,
+        snap_disabled: bool,
         cx: &mut Context<Self>,
     ) {
-        let (snap_frame, follow_focus) = match self.graph_interaction {
+        let (snap_playhead, follow_focus) = match self.graph_interaction {
             GraphInteraction::StopDrag {
                 stop,
-                snap_frame,
+                snap_playhead,
                 follow_focus,
                 ..
-            } if stop == drag.stop => (snap_frame, follow_focus),
+            } if stop == drag.stop => (snap_playhead, follow_focus),
             _ => return,
         };
         let Some(selected) = self.selected_curve(cx) else {
@@ -163,20 +164,26 @@ impl AnimationCurveEditor {
             .frames()
             .round()
             .clamp(minimum, maximum);
-        let snap_frame_value = snap_frame.get() as f64;
-        let snap_x = plot_left
-            + plot_width
-                * selected
-                    .clock
-                    .pattern_progress_at(TimelineTime::from_frame(snap_frame));
-        let time = if (minimum..=maximum).contains(&snap_frame_value)
-            && (pointer_x - snap_x).abs() <= Self::OVERVIEW_SNAP_DISTANCE
-        {
-            snap_frame_value
-        } else {
-            requested_time
-        };
-        let time = TimelineTime::from_frames(time);
+        let mut time = TimelineTime::from_frames(requested_time);
+        if !snap_disabled {
+            let editor = self.editor.read(cx);
+            let frame_rate = editor.frame_rate();
+            let seconds = time.seconds(frame_rate);
+            let pixels_per_second = f64::from(plot_width) * frame_rate.frames_per_second()
+                / selected.clock.span_frames();
+            let offset = time_grid::snap_offset_seconds(
+                &[seconds],
+                editor,
+                snap_playhead,
+                [],
+                pixels_per_second,
+            );
+            time = TimelineTime::from_frames(
+                ((seconds + offset) * frame_rate.frames_per_second())
+                    .round()
+                    .clamp(minimum, maximum),
+            );
+        }
         let Some(edit) = &mut self.animation_edit else {
             return;
         };
@@ -186,7 +193,7 @@ impl AnimationCurveEditor {
         self.graph_interaction = GraphInteraction::StopDrag {
             stop: drag.stop,
             time,
-            snap_frame,
+            snap_playhead,
             follow_focus,
         };
         if changed {

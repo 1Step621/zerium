@@ -15,7 +15,7 @@ impl Timeline {
         &self,
         colors: ThemeColor,
         viewport_width: f32,
-        grid: TimelineGrid,
+        ruler_ticks: Rc<Vec<(f64, f32)>>,
         cx: &mut Context<Self>,
     ) -> Div {
         let viewport = self.viewport;
@@ -31,7 +31,7 @@ impl Timeline {
             )
         };
         let playhead_x = viewport.x_at_seconds(playhead_seconds);
-        let ruler_ticks = grid.major_ticks.as_ref().clone();
+        let ruler_ticks = ruler_ticks.as_ref().clone();
         let active_scene_name = active_scene
             .and_then(|id| {
                 scenes
@@ -169,11 +169,6 @@ impl Timeline {
                         div()
                             .absolute()
                             .size_full()
-                            .child(Self::grid_canvas(
-                                grid,
-                                colors.border.opacity(0.45),
-                                colors.border.opacity(0.20),
-                            ))
                             .children(ruler_ticks.into_iter().map(|(seconds, tick_x)| {
                                 div()
                                     .absolute()
@@ -590,7 +585,7 @@ impl Timeline {
                             timeline_id,
                             address: target,
                             edit: Rc::new(RefCell::new(None)),
-                            snap_frame,
+                            snap_playhead: Cell::new(snap_frame),
                             follow_focus,
                         };
                         let start_editor = timeline_editor.clone();
@@ -623,6 +618,7 @@ impl Timeline {
                                         cx.stop_propagation();
                                         // A press redraws the marker; initialize the retained
                                         // payload only when GPUI starts the drag.
+                                        drag.snap_playhead.set(start_editor.read(cx).playhead());
                                         *drag.edit.borrow_mut() =
                                             start_editor.read(cx).begin_animation_edit(
                                                 &drag.address,
@@ -853,8 +849,13 @@ impl Render for Timeline {
         self.viewport
             .follow_playhead(playhead, viewport_width, frame_rate);
         let active_scene_is_empty = active_scene.is_some_and(|(_, is_empty)| is_empty);
-        let grid = Self::timeline_grid(self.viewport, viewport_width, frame_rate);
-        let ruler = self.ruler(colors, viewport_width, grid.clone(), cx);
+        let grid = Self::timeline_grid(
+            self.viewport,
+            viewport_width,
+            frame_rate,
+            self.editor.read(cx).beat_guide(),
+        );
+        let ruler = self.ruler(colors, viewport_width, grid.ruler_ticks.clone(), cx);
         let animation_selection = self.animation_selection.read(cx);
         let row_state = LayerRenderState {
             editor: self.editor.clone(),

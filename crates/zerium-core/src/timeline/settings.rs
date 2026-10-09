@@ -1,8 +1,69 @@
 use std::{num::NonZeroU32, str::FromStr};
 
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use super::FrameRate;
+
+/// Project-wide guide spacing and origin, independent of the frame grid.
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub struct BeatGuide {
+    bpm: f32,
+    offset_seconds: f32,
+}
+
+impl BeatGuide {
+    pub const fn new(bpm: f32, offset_seconds: f32) -> Option<Self> {
+        if bpm.is_finite() && bpm > 0. && offset_seconds.is_finite() {
+            Some(Self {
+                bpm,
+                offset_seconds,
+            })
+        } else {
+            None
+        }
+    }
+
+    pub const fn bpm(self) -> f32 {
+        self.bpm
+    }
+
+    pub const fn offset_seconds(self) -> f32 {
+        self.offset_seconds
+    }
+
+    pub fn beat_seconds(self) -> f64 {
+        60. / f64::from(self.bpm)
+    }
+}
+
+impl Default for BeatGuide {
+    fn default() -> Self {
+        Self {
+            bpm: 60.,
+            offset_seconds: 0.,
+        }
+    }
+}
+
+impl<'de> Deserialize<'de> for BeatGuide {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Fields {
+            bpm: f32,
+            #[serde(default)]
+            offset_seconds: f32,
+        }
+
+        let fields = Fields::deserialize(deserializer)?;
+        Self::new(fields.bpm, fields.offset_seconds).ok_or_else(|| {
+            serde::de::Error::custom(
+                "BPM must be finite and greater than zero, and its offset must be finite",
+            )
+        })
+    }
+}
 
 /// Pixel dimensions of the project's final frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

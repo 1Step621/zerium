@@ -34,7 +34,7 @@ impl Timeline {
         let start = if window.modifiers().alt {
             raw_start
         } else {
-            self.snap_frame(raw_start, None, &[], cx)
+            self.snap_frame(raw_start, &[], cx)
         };
         let item = if include_item {
             self.editor

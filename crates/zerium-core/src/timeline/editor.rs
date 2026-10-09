@@ -16,7 +16,7 @@ use super::{
     property_address::{property_schemas, resolve_property_schema},
     scene::SceneDefinition,
     selection::{EditScope, SelectionState},
-    settings::{ProjectResolution, ProjectSettingsError},
+    settings::{BeatGuide, ProjectResolution, ProjectSettingsError},
     time::{Frame, FrameRate, TimelineTime},
     view::TimelineSnapshot,
     visibility::PreviewVisibility,
@@ -81,6 +81,7 @@ impl TimelineEditor {
                 document,
                 scenes: HashMap::new(),
                 resolution,
+                beat_guide: BeatGuide::default(),
             }),
             media_cache: Arc::default(),
             scene_path: Vec::new(),
@@ -194,6 +195,7 @@ impl TimelineEditor {
             document,
             HashMap::new(),
             resolution,
+            BeatGuide::default(),
             playhead,
         );
     }
@@ -204,6 +206,7 @@ impl TimelineEditor {
         document: TimelineDocument,
         scenes: HashMap<SceneId, SceneDefinition>,
         resolution: ProjectResolution,
+        beat_guide: BeatGuide,
         playhead: Frame,
     ) {
         self.next_scene_id = scenes
@@ -219,6 +222,7 @@ impl TimelineEditor {
             document,
             scenes,
             resolution,
+            beat_guide,
         });
         self.media_cache = Arc::default();
         self.scene_path.clear();
@@ -272,12 +276,20 @@ impl TimelineEditor {
         self.project().resolution
     }
 
+    pub fn beat_guide(&self) -> BeatGuide {
+        self.project().beat_guide
+    }
+
     pub fn update_project_settings(
         &mut self,
         resolution: ProjectResolution,
         frame_rate: FrameRate,
+        beat_guide: BeatGuide,
     ) -> Result<bool, ProjectSettingsError> {
-        if self.project().resolution == resolution && self.frame_rate() == frame_rate {
+        if self.resolution() == resolution
+            && self.frame_rate() == frame_rate
+            && self.beat_guide() == beat_guide
+        {
             return Ok(false);
         }
         let document = self.project().document.retimed(frame_rate)?;
@@ -299,6 +311,7 @@ impl TimelineEditor {
                 project.document = document;
                 project.scenes = scenes;
                 project.resolution = resolution;
+                project.beat_guide = beat_guide;
             }
             editor.playhead = playhead;
             editor.playback_time = None;

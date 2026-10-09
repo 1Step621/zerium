@@ -197,7 +197,7 @@ impl Timeline {
 
         let mut pointer = self.pointer_frame(pointer_x, window, cx);
         if !snap_disabled {
-            pointer = self.snap_frame(pointer, None, &drag.origins, cx);
+            pointer = self.snap_frame(pointer, &drag.origins, cx);
         }
         self.editor.update_if_changed(cx, |editor| {
             editor.resize_items(
@@ -246,6 +246,7 @@ impl Timeline {
         };
 
         self.item_move_origin = Some(ItemMoveOrigin {
+            snap_playhead: self.editor.read(cx).playhead(),
             item_id,
             items,
             pointer_x: f32::from(event.position.x),
@@ -371,11 +372,6 @@ impl Timeline {
     ) -> i64 {
         let editor = self.editor.read(cx);
         let frame_rate = editor.frame_rate();
-        let moving_ids = origin
-            .items
-            .iter()
-            .map(|item| item.item_id)
-            .collect::<HashSet<_>>();
         let moving_times = origin
             .items
             .iter()
@@ -392,18 +388,11 @@ impl Timeline {
                 ]
             })
             .collect::<Vec<_>>();
-        let mut targets = vec![editor.playhead_seconds()];
-        for (_, start, end) in editor
-            .item_time_ranges()
-            .filter(|(item_id, _, _)| !moving_ids.contains(item_id))
-        {
-            targets.push(frame_rate.frame_to_seconds(start));
-            targets.push(frame_rate.frame_to_seconds(end));
-        }
-        let offset = model::snap_offset_seconds(
+        let offset = time_grid::snap_offset_seconds(
             &moving_times,
-            &targets,
-            self.viewport.ruler_step(),
+            editor,
+            origin.snap_playhead,
+            origin.items.iter().map(|item| item.item_id),
             self.viewport.pixels_per_second(),
         );
         let snapped = frame_delta.saturating_add(frame_rate.seconds_delta_to_frames(offset));
@@ -413,32 +402,17 @@ impl Timeline {
     pub(super) fn snap_frame(
         &self,
         frame: Frame,
-        moving_duration: Option<FrameDuration>,
         excluded_items: &[TimelineItem],
         cx: &Context<Self>,
     ) -> Frame {
         let editor = self.editor.read(cx);
         let frame_rate = editor.frame_rate();
         let start_seconds = frame_rate.frame_to_seconds(frame);
-        let mut moving_times = vec![start_seconds];
-        if let Some(duration) = moving_duration {
-            moving_times.push(
-                frame_rate.frame_to_seconds(Frame::new(frame.get().saturating_add(duration.get()))),
-            );
-        }
-
-        let mut targets = vec![editor.playhead_seconds()];
-        for (_, start, end) in editor
-            .item_time_ranges()
-            .filter(|(item_id, _, _)| !excluded_items.iter().any(|item| item.id == *item_id))
-        {
-            targets.push(frame_rate.frame_to_seconds(start));
-            targets.push(frame_rate.frame_to_seconds(end));
-        }
-        let offset = model::snap_offset_seconds(
-            &moving_times,
-            &targets,
-            self.viewport.ruler_step(),
+        let offset = time_grid::snap_offset_seconds(
+            &[start_seconds],
+            editor,
+            editor.playhead(),
+            excluded_items.iter().map(|item| item.id),
             self.viewport.pixels_per_second(),
         );
         frame_rate.seconds_to_frame((start_seconds + offset).max(0.))
@@ -472,15 +446,16 @@ impl Timeline {
         ));
         if !snap_disabled {
             let editor = self.editor.read(cx);
-            let playhead_x = LAYER_HEADER_WIDTH
-                + self
-                    .viewport
-                    .x_at_seconds(editor.frame_rate().frame_to_seconds(drag.snap_frame));
-            if range.contains(&TimelineTime::from_frame(drag.snap_frame))
-                && (pointer_x - playhead_x).abs() <= ANIMATION_STOP_SNAP_DISTANCE
-            {
-                frame = drag.snap_frame;
-            }
+            let frame_rate = editor.frame_rate();
+            let seconds = frame_rate.frame_to_seconds(frame);
+            let offset = time_grid::snap_offset_seconds(
+                &[seconds],
+                editor,
+                drag.snap_playhead.get(),
+                [],
+                self.viewport.pixels_per_second(),
+            );
+            frame = frame_rate.seconds_to_frame(seconds + offset);
         }
         let changed = self.editor.update(cx, |editor, cx| {
             let changed = editor

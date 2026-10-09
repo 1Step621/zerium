@@ -10,7 +10,7 @@ use super::{
     item::TimelineItem,
     project::TimelineProject,
     scene::SceneDefinition,
-    settings::ProjectResolution,
+    settings::{BeatGuide, ProjectResolution},
     time::{Frame, FrameRate, TimelineTime},
 };
 
@@ -60,6 +60,10 @@ impl TimelineSnapshot {
 
     pub fn resolution(&self) -> ProjectResolution {
         self.project.resolution
+    }
+
+    pub fn beat_guide(&self) -> BeatGuide {
+        self.project.beat_guide
     }
 
     pub fn items(&self) -> impl Iterator<Item = &TimelineItem> {

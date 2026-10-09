@@ -22,7 +22,7 @@ impl Timeline {
             self.editor.read(cx).frame_rate(),
         );
         if !event.event.modifiers.alt {
-            start = self.snap_frame(start, None, &[], cx);
+            start = self.snap_frame(start, &[], cx);
         }
         let target = ExplorerDropTarget {
             layer: LayerId::new(layer_index as u64),
@@ -65,7 +65,7 @@ impl Timeline {
             self.explorer_drop_target
                 .filter(|target| target.layer == layer)
                 .map(|target| target.start)
-                .unwrap_or_else(|| self.snap_frame(raw_pointer, None, &[], cx))
+                .unwrap_or_else(|| self.snap_frame(raw_pointer, &[], cx))
         };
         self.explorer_drop_target = None;
         window.focus(&self.focus_handle, cx);

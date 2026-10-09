@@ -14,8 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::plugin::PluginRegistry;
 use crate::timeline::{
-    Frame, FrameRate, ProjectId, ProjectResolution, SceneDefinition, SceneId, TimelineDocument,
-    TimelineEditor, TimelineSnapshot, TimelineView,
+    BeatGuide, Frame, FrameRate, ProjectId, ProjectResolution, SceneDefinition, SceneId,
+    TimelineDocument, TimelineEditor, TimelineSnapshot, TimelineView,
 };
 
 pub const PROJECT_EXTENSION: &str = "zero";
@@ -26,6 +26,7 @@ pub struct LoadedProject {
     document: TimelineDocument,
     scenes: HashMap<SceneId, SceneDefinition>,
     resolution: ProjectResolution,
+    beat_guide: BeatGuide,
     playhead: Frame,
     media_cache: crate::media::MediaMetadataCache,
 }
@@ -37,6 +38,7 @@ impl LoadedProject {
             self.document,
             self.scenes,
             self.resolution,
+            self.beat_guide,
             self.playhead,
         );
         editor.replace_media_cache(self.media_cache);
@@ -69,6 +71,8 @@ struct ProjectFile {
     project_low: u64,
     resolution: [u32; 2],
     frame_rate: [u32; 2],
+    #[serde(default)]
+    beat_guide: BeatGuide,
     playhead: u64,
     items: Vec<ProjectItem>,
     scenes: Vec<ProjectScene>,
@@ -103,6 +107,7 @@ impl ProjectFile {
                 snapshot.frame_rate().numerator(),
                 snapshot.frame_rate().denominator(),
             ],
+            beat_guide: snapshot.beat_guide(),
             playhead: snapshot.playhead().get(),
             items,
             scenes,
@@ -195,6 +200,7 @@ impl ProjectFile {
             document: TimelineDocument::from_items(frame_rate, items),
             scenes,
             resolution,
+            beat_guide: self.beat_guide,
             playhead: Frame::new(self.playhead),
             media_cache: self
                 .media_cache

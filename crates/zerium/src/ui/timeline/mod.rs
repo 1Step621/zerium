@@ -24,8 +24,8 @@ use crate::{
     project_session::{ProjectActivity, ProjectSession, ProjectSessionId},
 };
 use zerium_core::timeline::{
-    AnimationEdit, AnimationEditTarget, Frame, FrameDuration, FrameRate, ItemId, LayerId,
-    PropertyAddress, ResizeEdge, ResizeMode, SceneId, TimelineEditError, TimelineEditor,
+    AnimationEdit, AnimationEditTarget, BeatGuide, Frame, FrameDuration, FrameRate, ItemId,
+    LayerId, PropertyAddress, ResizeEdge, ResizeMode, SceneId, TimelineEditError, TimelineEditor,
     TimelineItem, TimelineTime,
 };
 
@@ -52,7 +52,6 @@ use viewport::TimelineViewport;
 const LAYER_HEADER_WIDTH: f32 = 200.;
 const SCENE_SWITCHER_LABEL_WIDTH: usize = 12;
 const ZOOM_STEP: f32 = 1.05;
-const ANIMATION_STOP_SNAP_DISTANCE: f32 = 8.;
 
 fn layer_scroll_base(handle: &UniformListScrollHandle) -> gpui::ScrollHandle {
     handle.0.borrow().base_handle.clone()
@@ -85,7 +84,7 @@ struct MoveAnimationStop {
     timeline_id: EntityId,
     address: PropertyAddress,
     edit: Rc<RefCell<Option<AnimationEdit>>>,
-    snap_frame: Frame,
+    snap_playhead: Cell<Frame>,
     follow_focus: Option<usize>,
 }
 
@@ -111,6 +110,7 @@ struct MovingItemOrigin {
 
 #[derive(Clone, Debug)]
 struct ItemMoveOrigin {
+    snap_playhead: Frame,
     item_id: ItemId,
     items: Vec<MovingItemOrigin>,
     pointer_x: f32,
@@ -194,8 +194,9 @@ fn is_marquee_pointer_down(event: &MouseDownEvent) -> bool {
 
 #[derive(Clone)]
 struct TimelineGrid {
-    major_ticks: Rc<Vec<(f64, f32)>>,
-    minor_ticks: Rc<Vec<f32>>,
+    ruler_ticks: Rc<Vec<(f64, f32)>>,
+    beat_ticks: Rc<Vec<f32>>,
+    frame_ticks: Rc<Vec<f32>>,
 }
 
 #[derive(Clone, Copy)]
@@ -366,52 +367,36 @@ impl Timeline {
         time_grid::format_timestamp(seconds)
     }
 
-    fn visible_ticks(
-        viewport: TimelineViewport,
-        viewport_width: f32,
-        step: f64,
-    ) -> Vec<(f64, f32)> {
-        let (visible_start, visible_end) = viewport.visible_time_range(viewport_width);
-        time_grid::visible_seconds(visible_start, visible_end, step)
-            .into_iter()
-            .map(|seconds| (seconds, viewport.x_at_seconds(seconds)))
-            .collect()
-    }
-
-    fn visible_frame_ticks(
-        viewport: TimelineViewport,
-        viewport_width: f32,
-        frame_rate: FrameRate,
-        step_frames: u64,
-    ) -> Vec<(Frame, f32)> {
-        let (visible_start, visible_end) = viewport.visible_time_range(viewport_width);
-        time_grid::visible_frames(visible_start, visible_end, frame_rate, step_frames)
-            .into_iter()
-            .map(|frame| {
-                let seconds = frame_rate.frame_to_seconds(frame);
-                (frame, viewport.x_at_seconds(seconds))
-            })
-            .collect()
-    }
-
     fn timeline_grid(
         viewport: TimelineViewport,
         viewport_width: f32,
         frame_rate: FrameRate,
+        beat_guide: BeatGuide,
     ) -> TimelineGrid {
-        let major_ticks = Self::visible_ticks(viewport, viewport_width, viewport.ruler_step());
-        let minor_ticks = Self::visible_frame_ticks(
-            viewport,
-            viewport_width,
-            frame_rate,
-            viewport.frame_grid_step(frame_rate),
-        )
-        .into_iter()
-        .map(|(_, x)| x)
-        .collect();
+        let (start, end) = viewport.visible_time_range(viewport_width);
+        let pixels_per_second = viewport.pixels_per_second();
+        let positions = |grid: time_grid::Grid| {
+            grid.visible_times(start, end)
+                .into_iter()
+                .map(|seconds| viewport.x_at_seconds(seconds))
+                .collect()
+        };
+        let ruler_ticks = time_grid::Grid::seconds(pixels_per_second)
+            .visible_times(start, end)
+            .into_iter()
+            .map(|seconds| (seconds, viewport.x_at_seconds(seconds)))
+            .collect();
         TimelineGrid {
-            major_ticks: Rc::new(major_ticks),
-            minor_ticks: Rc::new(minor_ticks),
+            ruler_ticks: Rc::new(ruler_ticks),
+            beat_ticks: Rc::new(positions(time_grid::Grid::beats(
+                pixels_per_second,
+                beat_guide,
+                frame_rate,
+            ))),
+            frame_ticks: Rc::new(positions(time_grid::Grid::frames(
+                pixels_per_second,
+                frame_rate,
+            ))),
         }
     }
 
@@ -421,12 +406,15 @@ impl Timeline {
         color: Hsla,
         window: &mut Window,
     ) {
-        let mut builder = PathBuilder::stroke(px(1.));
+        let scale = window.scale_factor();
+        let pixel = px(1. / scale);
+        let mut builder = PathBuilder::stroke(pixel);
         for tick_x in positions {
             if tick_x < -1. || tick_x > f32::from(bounds.size.width) + 1. {
                 continue;
             }
-            let x = bounds.origin.x + px(tick_x) + px(0.5);
+            let x =
+                px(((f32::from(bounds.origin.x) + tick_x) * scale).floor() / scale) + pixel * 0.5;
             builder.move_to(point(x, bounds.origin.y));
             builder.line_to(point(x, bounds.origin.y + bounds.size.height));
         }
@@ -441,13 +429,13 @@ impl Timeline {
             move |bounds, grid, window, _| {
                 Self::paint_vertical_lines(
                     bounds,
-                    grid.minor_ticks.iter().copied(),
+                    grid.frame_ticks.iter().copied(),
                     color_minor,
                     window,
                 );
                 Self::paint_vertical_lines(
                     bounds,
-                    grid.major_ticks.iter().map(|(_, x)| *x),
+                    grid.beat_ticks.iter().copied(),
                     color_major,
                     window,
                 );
@@ -488,7 +476,10 @@ impl Timeline {
 
         let viewport_width = Self::track_viewport_width(window);
         let cursor_x = (f32::from(event.position.x) - LAYER_HEADER_WIDTH).clamp(0., viewport_width);
-        if self.viewport.zoom_horizontal(factor, cursor_x) {
+        if self
+            .viewport
+            .zoom_horizontal(factor, cursor_x, self.editor.read(cx).frame_rate())
+        {
             cx.notify();
         }
     }

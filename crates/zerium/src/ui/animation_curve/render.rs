@@ -118,14 +118,11 @@ impl Render for AnimationCurveEditor {
         };
         let playhead_position = [playhead_progress, curve.evaluate(playhead_progress)];
         let axis_suffix = selected.axis_suffix.clone();
-        let mut curve_grid = self.time_grid(
-            selected.start_seconds,
-            selected.duration_seconds,
-            selected.frame_rate,
-        );
+        let beat_guide = self.editor.read(cx).beat_guide();
+        let mut curve_grid = self.time_grid(&selected, beat_guide);
         curve_grid.values = Self::value_grid(selected.value_min, selected.value_max);
         let value_ticks = curve_grid.values.clone();
-        let time_ticks = curve_grid.major.clone();
+        let time_ticks = curve_grid.ruler_ticks.clone();
         let begin_scrub_editor = curve_editor.clone();
         let update_scrub_editor = curve_editor.clone();
         let finish_scrub_editor = curve_editor.clone();
@@ -483,6 +480,21 @@ impl Render for AnimationCurveEditor {
             GraphInteraction::StopDrag { stop, .. } => Some(stop),
             _ => None,
         };
+        let overview_start = selected.clock.start_time().seconds(selected.frame_rate);
+        let overview_duration =
+            selected.clock.span_frames() / selected.frame_rate.frames_per_second();
+        let overview_pixels_per_second = self.graph_pixels_per_second(overview_duration as f32);
+        let mut overview_ticks = [
+            time_grid::Grid::frames(overview_pixels_per_second, selected.frame_rate),
+            time_grid::Grid::beats(overview_pixels_per_second, beat_guide, selected.frame_rate),
+        ]
+        .into_iter()
+        .flat_map(|grid| grid.visible_times(overview_start, overview_start + overview_duration))
+        .map(|seconds| ((seconds - overview_start) / overview_duration) as f32)
+        .filter(|progress| (0. ..=1.).contains(progress))
+        .collect::<Vec<_>>();
+        overview_ticks.sort_unstable_by(f32::total_cmp);
+        overview_ticks.dedup();
         let segment_overview = div()
             .w_full()
             .h(px(8.))
@@ -504,6 +516,7 @@ impl Render for AnimationCurveEditor {
                                 editor.move_stop_from_overview(
                                     &drag,
                                     f32::from(event.event.position.x),
+                                    event.event.modifiers.alt,
                                     cx,
                                 );
                             });
@@ -543,6 +556,15 @@ impl Render for AnimationCurveEditor {
                             },
                         )
                     })
+                    .children(overview_ticks.into_iter().map(|progress| {
+                        div()
+                            .absolute()
+                            .left(relative(progress))
+                            .top_0()
+                            .bottom_0()
+                            .w(px(1.))
+                            .bg(colors.foreground.opacity(0.45))
+                    }))
                     .children(overview_stops.into_iter().enumerate().filter_map({
                         let overview_editor = curve_editor.clone();
                         move |(stop, position)| {

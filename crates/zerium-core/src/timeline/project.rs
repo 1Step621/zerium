@@ -4,7 +4,7 @@ use super::{
     document::TimelineDocument,
     ids::{ProjectId, SceneId},
     scene::SceneDefinition,
-    settings::ProjectResolution,
+    settings::{BeatGuide, ProjectResolution},
 };
 
 /// Persistent state for one timeline project. Mutations are coordinated by
@@ -15,4 +15,5 @@ pub(super) struct TimelineProject {
     pub(super) document: TimelineDocument,
     pub(super) scenes: HashMap<SceneId, SceneDefinition>,
     pub(super) resolution: ProjectResolution,
+    pub(super) beat_guide: BeatGuide,
 }

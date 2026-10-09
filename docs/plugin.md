@@ -250,21 +250,7 @@ property references. Share property IDs to synchronize their settings.
 
 A visual `playback` block requires the first four references; audio requires all
 five. The three time-mapping references must be distinct. All settings in this
-table must disable animation and set `scene_bindable: false`. For example:
-
-```json
-{
-  "id": "rate",
-  "label": { "en-US": "Playback speed" },
-  "type": { "value": "f32" },
-  "default": { "f32": 1 },
-  "configurations": [{
-    "scene_bindable": false,
-    "constraints": { "min": 0.25, "max": 4 },
-    "ui": { "unit": "×", "step": 0.01, "drag_step": 0.01 }
-  }]
-}
-```
+table must disable animation and set `scene_bindable: false`.
 
 Playback reads the interval from `source_start` to `source_start + source_duration`
 at the declared speed. Intervals can extend beyond the stream. Stop produces
@@ -303,35 +289,18 @@ A text input declares all properties used by the rasterizer:
 
 ### Number
 
-A number input uses the same `style` and rasterizer as text:
+A `number` capability uses the same `style` and rasterizer as [text](#text),
+with `value` and `decimal_places` references instead of `text`.
 
-```json
-{
-  "type": "number",
-  "id": "text",
-  "value": "value",
-  "decimal_places": "decimal_places",
-  "style": {
-    "size": "size",
-    "font_family": "font_family",
-    "font_size": "font_size",
-    "color": "color",
-    "outline_width": "outline_width",
-    "outline_color": "outline_color",
-    "bold": "bold",
-    "italic": "italic",
-    "horizontal_alignment": "horizontal_alignment",
-    "vertical_alignment": "vertical_alignment"
-  }
-}
-```
+| Reference | Property type | Meaning |
+| --- | --- | --- |
+| `value` | `f32`, `i32`, or `u32` | Number to display |
+| `decimal_places` | `u32` constrained to `0..=10` | Fixed decimal precision |
 
-`value` references an `f32`, `i32`, or `u32` property. `decimal_places` references
-a `u32` property constrained to `0..=10`. After animation evaluation, the number
-is rounded for display with exactly that many decimal places, including trailing
-zeros: `12.3` with two places displays as `12.30`. This does not change the stored
-value or its animation. The bundled Number item defaults to zero decimal places.
-Its texture ID is `text`, and it uses its own `number.wesl` shader.
+Formatting happens after animation evaluation and includes trailing zeros:
+`12.3` with two places displays as `12.30`. It does not change the stored value
+or its animation. See the bundled [Number declaration](../plugins/zerium.builtin/plugin.json)
+and [shader](../plugins/zerium.builtin/number.wesl).
 
 ### Render result
 
@@ -548,20 +517,6 @@ Effects declare an ordered, non-empty `passes` array:
 
 ```json
 {
-  "id": "blur",
-  "label": { "en-US": "Blur" },
-  "category": { "id": "blur", "label": { "en-US": "Blur" } },
-  "output_bounds": {
-    "min": ["input::min::x - p::radius * 4", "input::min::y - p::radius * 4"],
-    "max": ["input::max::x + p::radius * 4", "input::max::y + p::radius * 4"]
-  },
-  "properties": [{
-    "id": "radius",
-    "label": { "en-US": "Radius" },
-    "type": { "value": "f32" },
-    "default": { "f32": 8 },
-    "configurations": [{ "animatable": true }]
-  }],
   "passes": [{
     "type": "compute",
     "shader": { "module": "blur" },

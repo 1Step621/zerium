@@ -43,48 +43,39 @@ impl AnimationCurveEditor {
         }
     }
 
-    pub(super) fn time_grid(
-        &self,
-        start_seconds: f32,
-        duration_seconds: f32,
-        frame_rate: FrameRate,
-    ) -> CurveGrid {
-        let duration_seconds = duration_seconds.max(f32::EPSILON);
-        let visible_start = start_seconds;
-        let visible_end = start_seconds + duration_seconds;
-        let pixels_per_second = self.graph_pixels_per_second(duration_seconds);
-        let major_step = time_grid::ruler_step(pixels_per_second);
-        let frame_step = time_grid::frame_grid_step(pixels_per_second, frame_rate);
-        let item_end = start_seconds + duration_seconds;
-        let is_visible = |seconds: f64| {
-            (f64::from(visible_start)..=f64::from(visible_end)).contains(&seconds)
-                && (f64::from(start_seconds)..=f64::from(item_end)).contains(&seconds)
-        };
-        let to_normalized = |seconds: f64| {
-            ((seconds - f64::from(start_seconds)) / f64::from(duration_seconds)) as f32
+    pub(super) fn time_grid(&self, selected: &SelectedCurve, beat_guide: BeatGuide) -> CurveGrid {
+        let frame_rate = selected.frame_rate;
+        let start = f64::from(selected.start_seconds);
+        let duration = f64::from(selected.duration_seconds).max(f64::EPSILON);
+        let end = start + duration;
+        let pixels_per_second = self.graph_pixels_per_second(selected.duration_seconds);
+        let to_normalized = |seconds: f64| ((seconds - start) / duration) as f32;
+        // Repeat labels use pattern time; guides retain their timeline origin.
+        let timeline_start = selected
+            .clock
+            .time_at(selected.source_stop_positions[selected.source_segment])
+            .seconds(frame_rate);
+        let timeline_ticks = |grid: time_grid::Grid| {
+            grid.visible_times(timeline_start, timeline_start + duration)
+                .into_iter()
+                .map(|seconds| ((seconds - timeline_start) / duration) as f32)
+                .filter(|progress| (0. ..=1.).contains(progress))
+                .collect()
         };
 
         CurveGrid {
-            major: time_grid::visible_seconds(
-                f64::from(visible_start),
-                f64::from(visible_end),
-                major_step,
-            )
-            .into_iter()
-            .filter(|seconds| is_visible(*seconds))
-            .map(|seconds| (seconds, to_normalized(seconds)))
-            .collect(),
-            minor: time_grid::visible_frames(
-                f64::from(visible_start),
-                f64::from(visible_end),
+            ruler_ticks: time_grid::Grid::seconds(pixels_per_second)
+                .visible_times(start, end)
+                .into_iter()
+                .filter(|seconds| (start..=end).contains(seconds))
+                .map(|seconds| (seconds, to_normalized(seconds)))
+                .collect(),
+            frame_ticks: timeline_ticks(time_grid::Grid::frames(pixels_per_second, frame_rate)),
+            beat_ticks: timeline_ticks(time_grid::Grid::beats(
+                pixels_per_second,
+                beat_guide,
                 frame_rate,
-                frame_step,
-            )
-            .into_iter()
-            .map(|frame| frame_rate.frame_to_seconds(frame))
-            .filter(|seconds| is_visible(*seconds))
-            .map(to_normalized)
-            .collect(),
+            )),
             values: Vec::new(),
         }
     }

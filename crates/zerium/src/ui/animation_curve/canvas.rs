@@ -45,6 +45,15 @@ impl AnimationCurveEditor {
                         origin.y + height * (1. - position[1]),
                     )
                 };
+                let scale = window.scale_factor();
+                let pixel = px(1. / scale);
+                let to_grid_point = |position| {
+                    let position = to_point(position);
+                    point(
+                        px((f32::from(position.x) * scale).floor() / scale) + pixel * 0.5,
+                        px((f32::from(position.y) * scale).floor() / scale) + pixel * 0.5,
+                    )
+                };
 
                 window.with_content_mask(
                     Some(gpui::ContentMask {
@@ -54,23 +63,23 @@ impl AnimationCurveEditor {
                         ),
                     }),
                     |window| {
-                        let mut minor_grid_path = PathBuilder::stroke(px(1.));
-                        for x in &state.grid.minor {
-                            minor_grid_path.move_to(to_point([*x, 0.]));
-                            minor_grid_path.line_to(to_point([*x, 1.]));
+                        let mut minor_grid_path = PathBuilder::stroke(pixel);
+                        for x in &state.grid.frame_ticks {
+                            minor_grid_path.move_to(to_grid_point([*x, 0.]));
+                            minor_grid_path.line_to(to_grid_point([*x, 1.]));
                         }
                         if let Ok(path) = minor_grid_path.build() {
                             window.paint_path(path, state.colors.grid_minor);
                         }
 
-                        let mut major_grid_path = PathBuilder::stroke(px(1.));
-                        for (_, x) in &state.grid.major {
-                            major_grid_path.move_to(to_point([*x, 0.]));
-                            major_grid_path.line_to(to_point([*x, 1.]));
+                        let mut major_grid_path = PathBuilder::stroke(pixel);
+                        for x in &state.grid.beat_ticks {
+                            major_grid_path.move_to(to_grid_point([*x, 0.]));
+                            major_grid_path.line_to(to_grid_point([*x, 1.]));
                         }
                         for (_, normalized) in &state.grid.values {
-                            major_grid_path.move_to(to_point([0., *normalized]));
-                            major_grid_path.line_to(to_point([1., *normalized]));
+                            major_grid_path.move_to(to_grid_point([0., *normalized]));
+                            major_grid_path.line_to(to_grid_point([1., *normalized]));
                         }
                         if let Ok(path) = major_grid_path.build() {
                             window.paint_path(path, state.colors.grid_major);

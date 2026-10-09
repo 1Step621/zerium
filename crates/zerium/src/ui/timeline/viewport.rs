@@ -1,13 +1,11 @@
 use zerium_core::timeline::{Frame, FrameRate};
 
-use super::super::time_grid;
-
 pub(super) const INITIAL_LAYER_HEIGHT: f32 = 30.;
 const MIN_LAYER_HEIGHT: f32 = 28.;
 const MAX_LAYER_HEIGHT: f32 = 96.;
 const BASE_PIXELS_PER_SECOND: f64 = 1_400. / 60.;
 const MIN_HORIZONTAL_ZOOM: f64 = 0.05;
-const MAX_HORIZONTAL_ZOOM: f64 = 20.;
+const MAX_PIXELS_PER_FRAME: f64 = 20.;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) struct TimelineViewport {
@@ -50,10 +48,17 @@ impl TimelineViewport {
         true
     }
 
-    pub(super) fn zoom_horizontal(&mut self, factor: f32, cursor_x: f32) -> bool {
+    pub(super) fn zoom_horizontal(
+        &mut self,
+        factor: f32,
+        cursor_x: f32,
+        frame_rate: FrameRate,
+    ) -> bool {
         let old_pixels_per_second = self.pixels_per_second();
-        let zoom =
-            (self.horizontal_zoom * factor as f64).clamp(MIN_HORIZONTAL_ZOOM, MAX_HORIZONTAL_ZOOM);
+        let maximum = (frame_rate.frames_per_second() * MAX_PIXELS_PER_FRAME
+            / BASE_PIXELS_PER_SECOND)
+            .max(1.);
+        let zoom = (self.horizontal_zoom * factor as f64).clamp(MIN_HORIZONTAL_ZOOM, maximum);
         if zoom == self.horizontal_zoom {
             return false;
         }
@@ -111,13 +116,5 @@ impl TimelineViewport {
 
         let visible_seconds = viewport_width.max(1.) as f64 / self.pixels_per_second();
         self.horizontal_offset_seconds = (playhead_seconds - visible_seconds / 2.).max(0.);
-    }
-
-    pub(super) fn ruler_step(self) -> f64 {
-        time_grid::ruler_step(self.pixels_per_second())
-    }
-
-    pub(super) fn frame_grid_step(self, frame_rate: FrameRate) -> u64 {
-        time_grid::frame_grid_step(self.pixels_per_second(), frame_rate)
     }
 }
