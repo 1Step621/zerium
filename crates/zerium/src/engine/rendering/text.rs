@@ -10,7 +10,7 @@ use cosmic_text::{
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::engine::frame::RgbaFrame;
-use zerium_core::plugin::{Capability, TextCapability};
+use zerium_core::plugin::{Capability, MAX_DECIMAL_PLACES, TextStyle};
 use zerium_core::property::{PropertyValue, PropertyValues};
 use zerium_core::timeline::{EffectInstanceId, ItemId, TimelineItem};
 
@@ -25,7 +25,7 @@ pub(crate) struct TextSourceId {
 
 pub(crate) struct TextFrameRequest<'a> {
     pub id: TextSourceId,
-    pub capability: &'a TextCapability,
+    pub capability: &'a Capability,
     pub properties: &'a PropertyValues,
     pub label: &'a str,
     pub target_size: RenderSize,
@@ -99,7 +99,7 @@ impl TextFrameCache {
                 );
             for (effect_id, capabilities) in owners {
                 for (capability_index, capability) in capabilities.iter().enumerate() {
-                    if matches!(capability, Capability::Text(_)) {
+                    if capability.text_style().is_some() {
                         self.active.insert(TextSourceId {
                             item_id: item.id,
                             effect_id,
@@ -183,9 +183,14 @@ impl TextFrameCache {
         request: &TextFrameRequest<'_>,
         composition_size: RenderSize,
     ) -> Result<TextSignature, RenderError> {
-        let TextCapability {
+        let missing = || {
+            RenderError::backend(format!(
+                "text source '{}' has invalid properties",
+                request.label
+            ))
+        };
+        let TextStyle {
             size,
-            text,
             font_family,
             font_size,
             color,
@@ -195,8 +200,7 @@ impl TextFrameCache {
             italic,
             horizontal_alignment,
             vertical_alignment,
-            ..
-        } = request.capability;
+        } = request.capability.text_style().ok_or_else(missing)?;
         let property = |id: &str| request.properties.property(id);
         let string_array = |id: &str| {
             property(id)?
@@ -212,17 +216,29 @@ impl TextFrameCache {
                 value.scalar_at(Some(1))?.numeric_scalar()? as f32,
             ])
         };
-        let missing = || {
-            RenderError::backend(format!(
-                "text source '{}' has invalid properties",
-                request.label
-            ))
-        };
-        Ok(TextSignature {
-            content: property(text)
+        let content = match request.capability {
+            Capability::Text { text, .. } => property(text)
                 .and_then(PropertyValue::as_str)
                 .ok_or_else(missing)?
                 .to_owned(),
+            Capability::Number {
+                value,
+                decimal_places,
+                ..
+            } => {
+                let value = property(value)
+                    .and_then(PropertyValue::numeric_scalar)
+                    .ok_or_else(missing)?;
+                let precision = property(decimal_places)
+                    .and_then(PropertyValue::as_u32)
+                    .filter(|precision| *precision <= MAX_DECIMAL_PLACES)
+                    .ok_or_else(missing)? as usize;
+                format!("{value:.precision$}")
+            }
+            _ => return Err(missing()),
+        };
+        Ok(TextSignature {
+            content,
             font_families: string_array(font_family).ok_or_else(missing)?,
             font_size: property(font_size)
                 .and_then(PropertyValue::as_f32)

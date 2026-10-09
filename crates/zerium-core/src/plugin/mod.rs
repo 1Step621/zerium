@@ -20,8 +20,8 @@ pub use abi::{PropertyLayout, abi_size, scalar_abi_size, value_string_count};
 pub use bounds::{OutputBoundsSchema, program_context};
 pub use bundle::Plugin;
 pub use capability::{
-    AudioCapability, Capability, MAX_CAPABILITIES, MediaPlaybackSchema, PlaybackProperties,
-    TextCapability, TimeMappingProperties,
+    AudioCapability, Capability, MAX_CAPABILITIES, MAX_DECIMAL_PLACES, MediaPlaybackSchema,
+    PlaybackProperties, TextStyle, TimeMappingProperties,
 };
 pub use category::CatalogCategory;
 pub use editor::EditorCapability;

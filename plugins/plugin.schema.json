@@ -678,6 +678,34 @@
       },
       "properties": { "file": { "type": ["string", "null"], "minLength": 1 } }
     },
+    "textStyle": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "size",
+        "font_family",
+        "font_size",
+        "color",
+        "outline_width",
+        "outline_color",
+        "bold",
+        "italic",
+        "horizontal_alignment",
+        "vertical_alignment"
+      ],
+      "properties": {
+        "size": { "$ref": "#/$defs/wgslId" },
+        "font_family": { "$ref": "#/$defs/wgslId" },
+        "font_size": { "$ref": "#/$defs/wgslId" },
+        "color": { "$ref": "#/$defs/wgslId" },
+        "outline_width": { "$ref": "#/$defs/wgslId" },
+        "outline_color": { "$ref": "#/$defs/wgslId" },
+        "bold": { "$ref": "#/$defs/wgslId" },
+        "italic": { "$ref": "#/$defs/wgslId" },
+        "horizontal_alignment": { "$ref": "#/$defs/wgslId" },
+        "vertical_alignment": { "$ref": "#/$defs/wgslId" }
+      }
+    },
     "capability": {
       "oneOf": [
         {
@@ -705,35 +733,24 @@
         {
           "type": "object",
           "additionalProperties": false,
-          "required": [
-            "type",
-            "id",
-            "size",
-            "text",
-            "font_family",
-            "font_size",
-            "color",
-            "outline_width",
-            "outline_color",
-            "bold",
-            "italic",
-            "horizontal_alignment",
-            "vertical_alignment"
-          ],
+          "required": ["type", "id", "text", "style"],
           "properties": {
             "type": { "const": "text" },
-            "size": { "$ref": "#/$defs/wgslId" },
+            "id": { "$ref": "#/$defs/wgslId" },
             "text": { "$ref": "#/$defs/wgslId" },
-            "font_family": { "$ref": "#/$defs/wgslId" },
-            "font_size": { "$ref": "#/$defs/wgslId" },
-            "color": { "$ref": "#/$defs/wgslId" },
-            "outline_width": { "$ref": "#/$defs/wgslId" },
-            "outline_color": { "$ref": "#/$defs/wgslId" },
-            "bold": { "$ref": "#/$defs/wgslId" },
-            "italic": { "$ref": "#/$defs/wgslId" },
-            "horizontal_alignment": { "$ref": "#/$defs/wgslId" },
-            "vertical_alignment": { "$ref": "#/$defs/wgslId" },
-            "id": { "$ref": "#/$defs/wgslId" }
+            "style": { "$ref": "#/$defs/textStyle" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["type", "id", "value", "decimal_places", "style"],
+          "properties": {
+            "type": { "const": "number" },
+            "id": { "$ref": "#/$defs/wgslId" },
+            "value": { "$ref": "#/$defs/wgslId" },
+            "decimal_places": { "$ref": "#/$defs/wgslId" },
+            "style": { "$ref": "#/$defs/textStyle" }
           }
         },
         {

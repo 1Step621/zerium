@@ -497,14 +497,14 @@ where
                     });
                     self.frame_node(metadata.clone(), frame, target_size)
                 }
-                Capability::Text(text) => {
+                Capability::Text { .. } | Capability::Number { .. } => {
                     let frame = (self.text_frame)(TextFrameRequest {
                         id: TextSourceId {
                             item_id: source.item_id,
                             effect_id: source.effect_id,
                             capability_index: index,
                         },
-                        capability: text,
+                        capability,
                         properties: source.properties,
                         label: source.label,
                         target_size,

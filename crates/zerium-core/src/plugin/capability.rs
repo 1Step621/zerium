@@ -11,6 +11,8 @@ use super::validation::PropertyReferences;
 use crate::property::{PropertySchema, PropertyType, ScalarPropertyType};
 
 pub(super) const MAX_RENDER_RESULT_OFFSET: u32 = 30;
+/// Maximum fixed decimal precision of a number input.
+pub const MAX_DECIMAL_PLACES: u32 = 10;
 
 pub(super) fn validate_render_result_properties(
     owner_kind: &str,
@@ -58,12 +60,11 @@ pub struct MediaPlacement {
     pub origin: Option<String>,
 }
 
+/// Property references shared by text and number rasterization.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
-pub struct TextCapability {
-    pub id: String,
+pub struct TextStyle {
     pub size: String,
-    pub text: String,
     pub font_family: String,
     pub font_size: String,
     pub color: String,
@@ -88,7 +89,17 @@ pub enum Capability {
         placement: Option<MediaPlacement>,
         playback: Option<MediaPlaybackSchema>,
     },
-    Text(TextCapability),
+    Text {
+        id: String,
+        text: String,
+        style: TextStyle,
+    },
+    Number {
+        id: String,
+        value: String,
+        decimal_places: String,
+        style: TextStyle,
+    },
     RenderResult {
         id: String,
         start_offset: String,
@@ -100,9 +111,17 @@ pub enum Capability {
 impl Capability {
     pub fn id(&self) -> &str {
         match self {
-            Self::Text(text) => &text.id,
-            Self::RenderResult { id, .. } => id,
-            Self::Media { id, .. } => id,
+            Self::Text { id, .. }
+            | Self::Number { id, .. }
+            | Self::RenderResult { id, .. }
+            | Self::Media { id, .. } => id,
+        }
+    }
+
+    pub fn text_style(&self) -> Option<&TextStyle> {
+        match self {
+            Self::Text { style, .. } | Self::Number { style, .. } => Some(style),
+            _ => None,
         }
     }
 
@@ -144,46 +163,38 @@ impl Capability {
         let context = format!("{owner_kind} '{owner_id}' capability '{}'", self.id());
         let references = PropertyReferences::new(&context, properties);
         match self {
-            Self::Text(TextCapability {
-                size,
-                text,
-                font_family,
-                font_size,
-                color,
-                outline_width,
-                outline_color,
-                bold,
-                italic,
-                horizontal_alignment,
-                vertical_alignment,
-                ..
-            }) => {
-                references.pair(size)?;
+            Self::Text { text, .. } => {
                 references.scalar(text, ScalarPropertyType::String)?;
-                references.check(font_family, "an array of strings", |property| {
+            }
+            Self::Number {
+                value,
+                decimal_places,
+                ..
+            } => {
+                references.check(value, "an f32, i32, or u32 value", |property| {
                     matches!(
                         property.ty(),
-                        PropertyType::Array {
-                            element_type: crate::property::PropertyValueType::Scalar(
-                                ScalarPropertyType::String,
-                            ),
-                            ..
-                        }
+                        PropertyType::Value(PropertyValueType::Scalar(
+                            ScalarPropertyType::F32
+                                | ScalarPropertyType::I32
+                                | ScalarPropertyType::U32
+                        ))
                     )
                 })?;
-                references.scalar(font_size, ScalarPropertyType::F32)?;
-                references.scalar(color, ScalarPropertyType::Color)?;
-                references.scalar(outline_width, ScalarPropertyType::F32)?;
-                references.scalar(outline_color, ScalarPropertyType::Color)?;
-                references.scalar(bold, ScalarPropertyType::Bool)?;
-                references.scalar(italic, ScalarPropertyType::Bool)?;
-                for property_id in [horizontal_alignment, vertical_alignment] {
-                    references.check(
-                        property_id,
-                        "an enum containing exactly 0, 1, and 2",
-                        |property| matches!(property.ty(), PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Enum(enumeration))) if enumeration.values().len() == 3 && [0, 1, 2].iter().all(|value| enumeration.values().contains(value))),
-                    )?;
-                }
+                references.check(
+                    decimal_places,
+                    &format!("a u32 constrained to 0..={MAX_DECIMAL_PLACES}"),
+                    |property| {
+                        property.ty()
+                            == &PropertyType::Value(PropertyValueType::Scalar(
+                                ScalarPropertyType::U32,
+                            ))
+                            && property
+                                .configuration_constraints(None)
+                                .max
+                                .is_some_and(|max| max <= f64::from(MAX_DECIMAL_PLACES))
+                    },
+                )?;
             }
             Self::RenderResult {
                 start_offset,
@@ -227,6 +238,38 @@ impl Capability {
                     }
                 }
             }
+        }
+        if let Some(style) = self.text_style() {
+            style.validate(&references)?;
+        }
+        Ok(())
+    }
+}
+
+impl TextStyle {
+    fn validate(&self, references: &PropertyReferences<'_>) -> Result<(), PluginError> {
+        references.pair(&self.size)?;
+        references.check(&self.font_family, "an array of strings", |property| {
+            matches!(
+                property.ty(),
+                PropertyType::Array {
+                    element_type: PropertyValueType::Scalar(ScalarPropertyType::String),
+                    ..
+                }
+            )
+        })?;
+        references.scalar(&self.font_size, ScalarPropertyType::F32)?;
+        references.scalar(&self.color, ScalarPropertyType::Color)?;
+        references.scalar(&self.outline_width, ScalarPropertyType::F32)?;
+        references.scalar(&self.outline_color, ScalarPropertyType::Color)?;
+        references.scalar(&self.bold, ScalarPropertyType::Bool)?;
+        references.scalar(&self.italic, ScalarPropertyType::Bool)?;
+        for property_id in [&self.horizontal_alignment, &self.vertical_alignment] {
+            references.check(
+                property_id,
+                "an enum containing exactly 0, 1, and 2",
+                |property| matches!(property.ty(), PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Enum(enumeration))) if enumeration.values().len() == 3 && [0, 1, 2].iter().all(|value| enumeration.values().contains(value))),
+            )?;
         }
         Ok(())
     }

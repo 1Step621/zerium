@@ -1063,17 +1063,19 @@
         {
           "type": "text",
           "id": "text",
-          "size": "size",
           "text": "text",
-          "font_family": "font_family",
-          "font_size": "font_size",
-          "color": "color",
-          "outline_width": "outline_width",
-          "outline_color": "outline_color",
-          "bold": "bold",
-          "italic": "italic",
-          "horizontal_alignment": "horizontal_alignment",
-          "vertical_alignment": "vertical_alignment"
+          "style": {
+            "size": "size",
+            "font_family": "font_family",
+            "font_size": "font_size",
+            "color": "color",
+            "outline_width": "outline_width",
+            "outline_color": "outline_color",
+            "bold": "bold",
+            "italic": "italic",
+            "horizontal_alignment": "horizontal_alignment",
+            "vertical_alignment": "vertical_alignment"
+          }
         }
       ],
       "editor": [
@@ -1164,6 +1166,241 @@
           "default": { "string": "テキスト" },
           "label": { "ja-JP": "テキスト", "en-US": "Text" },
           "configurations": [{ "ui": { "multiline": true } }]
+        },
+        {
+          "id": "font_family",
+          "type": { "array": { "element_type": "string", "max_items": 1024 } },
+          "default": { "array": [] },
+          "append_default": { "string": "" },
+          "label": { "ja-JP": "フォント", "en-US": "Font" },
+          "configurations": [{ "ui": { "editor": "font_family" } }]
+        },
+        {
+          "id": "font_size",
+          "type": { "value": "f32" },
+          "default": { "f32": 64 },
+          "label": { "ja-JP": "文字サイズ", "en-US": "Font Size" },
+          "configurations": [
+            {
+              "animatable": true,
+              "constraints": { "min": 1, "max": 1000 },
+              "ui": { "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "color",
+          "type": { "value": "color" },
+          "default": { "color": [1, 1, 1, 1] },
+          "label": { "ja-JP": "色", "en-US": "Color" },
+          "configurations": [{ "animatable": true }]
+        },
+        {
+          "id": "outline_width",
+          "type": { "value": "f32" },
+          "default": { "f32": 0 },
+          "label": { "ja-JP": "枠線", "en-US": "Outline" },
+          "configurations": [
+            {
+              "animatable": true,
+              "constraints": { "min": 0, "max": 64 },
+              "ui": { "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "outline_color",
+          "type": { "value": "color" },
+          "default": { "color": [1, 1, 1, 1] },
+          "label": { "ja-JP": "枠線色", "en-US": "Outline Color" },
+          "configurations": [{ "animatable": true }]
+        },
+        {
+          "id": "horizontal_alignment",
+          "type": { "value": { "enum": [0, 1, 2] } },
+          "default": { "enum": 1 },
+          "label": { "ja-JP": "左右揃え", "en-US": "Horizontal Alignment" },
+          "configurations": [
+            {
+              "ui": {
+                "enum_variants": {
+                  "0": { "ja-JP": "左揃え", "en-US": "Left" },
+                  "1": { "ja-JP": "中央揃え", "en-US": "Center" },
+                  "2": { "ja-JP": "右揃え", "en-US": "Right" }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "vertical_alignment",
+          "type": { "value": { "enum": [0, 1, 2] } },
+          "default": { "enum": 1 },
+          "label": { "ja-JP": "上下揃え", "en-US": "Vertical Alignment" },
+          "configurations": [
+            {
+              "ui": {
+                "enum_variants": {
+                  "0": { "ja-JP": "上揃え", "en-US": "Top" },
+                  "1": { "ja-JP": "中央揃え", "en-US": "Center" },
+                  "2": { "ja-JP": "下揃え", "en-US": "Bottom" }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "bold",
+          "type": { "value": "bool" },
+          "default": { "bool": false },
+          "label": { "ja-JP": "太字", "en-US": "Bold" },
+          "configurations": [{}]
+        },
+        {
+          "id": "italic",
+          "type": { "value": "bool" },
+          "default": { "bool": false },
+          "label": { "ja-JP": "イタリック", "en-US": "Italic" },
+          "configurations": [{}]
+        }
+      ]
+    },
+    {
+      "id": "number",
+      "output_bounds": {
+        "min": [
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
+        ],
+        "max": [
+          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
+          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
+        ]
+      },
+      "label": { "ja-JP": "数値", "en-US": "Number" },
+      "category": {
+        "id": "text",
+        "label": { "ja-JP": "テキスト", "en-US": "Text" }
+      },
+      "tags": ["数値", "カウンター", "number", "counter"],
+      "symbol": "#",
+      "shader": { "module": "number" },
+      "capabilities": [
+        {
+          "type": "number",
+          "id": "text",
+          "value": "value",
+          "decimal_places": "decimal_places",
+          "style": {
+            "size": "size",
+            "font_family": "font_family",
+            "font_size": "font_size",
+            "color": "color",
+            "outline_width": "outline_width",
+            "outline_color": "outline_color",
+            "bold": "bold",
+            "italic": "italic",
+            "horizontal_alignment": "horizontal_alignment",
+            "vertical_alignment": "vertical_alignment"
+          }
+        }
+      ],
+      "editor": [
+        { "type": "position", "property": "position" },
+        {
+          "type": "size",
+          "property": "size",
+          "position": "position",
+          "origin": "origin"
+        },
+        { "type": "aspect_lock", "property": "size" }
+      ],
+      "properties": [
+        {
+          "id": "position",
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
+          "label": { "ja-JP": "位置", "en-US": "Position" },
+          "configurations": [
+            {
+              "animatable": true,
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
+            },
+            {
+              "animatable": true,
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "origin",
+          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
+          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
+          "label": { "ja-JP": "原点", "en-US": "Origin" },
+          "configurations": [
+            {
+              "ui": {
+                "label": { "ja-JP": "X", "en-US": "X" },
+                "enum_variants": {
+                  "0": { "ja-JP": "左", "en-US": "Left" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "右", "en-US": "Right" }
+                }
+              }
+            },
+            {
+              "ui": {
+                "label": { "ja-JP": "Y", "en-US": "Y" },
+                "enum_variants": {
+                  "0": { "ja-JP": "上", "en-US": "Top" },
+                  "1": { "ja-JP": "中央", "en-US": "Center" },
+                  "2": { "ja-JP": "下", "en-US": "Bottom" }
+                }
+              }
+            }
+          ]
+        },
+        {
+          "id": "size",
+          "type": { "value": ["f32", "f32"] },
+          "default": { "tuple": [{ "f32": 640 }, { "f32": 240 }] },
+          "label": { "ja-JP": "サイズ", "en-US": "Size" },
+          "configurations": [
+            {
+              "animatable": true,
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": {
+                "label": { "ja-JP": "幅", "en-US": "Width" },
+                "unit": "px"
+              }
+            },
+            {
+              "animatable": true,
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": {
+                "label": { "ja-JP": "高さ", "en-US": "Height" },
+                "unit": "px"
+              }
+            }
+          ]
+        },
+        {
+          "id": "value",
+          "type": { "value": "f32" },
+          "default": { "f32": 0 },
+          "label": { "ja-JP": "値", "en-US": "Value" },
+          "configurations": [{ "animatable": true, "ui": { "step": 1 } }]
+        },
+        {
+          "id": "decimal_places",
+          "type": { "value": "u32" },
+          "default": { "u32": 0 },
+          "label": { "ja-JP": "小数点以下の桁数", "en-US": "Decimal Places" },
+          "configurations": [
+            { "constraints": { "min": 0, "max": 10 }, "ui": { "step": 1 } }
+          ]
         },
         {
           "id": "font_family",

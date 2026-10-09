@@ -580,7 +580,7 @@ impl PropertyInspector {
             "array-{}-add",
             group.target.key
         )))
-        .xsmall()
+        .small()
         .w_full()
         .label(t!("rows.add_element", label = group.property.label()).to_string())
         .disabled(add_disabled)

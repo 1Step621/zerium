@@ -280,23 +280,58 @@ A text input declares all properties used by the rasterizer:
 {
   "type": "text",
   "id": "title",
-  "size": "size",
   "text": "text",
-  "font_family": "font_family",
-  "font_size": "font_size",
-  "color": "color",
-  "outline_width": "outline_width",
-  "outline_color": "outline_color",
-  "bold": "bold",
-  "italic": "italic",
-  "horizontal_alignment": "horizontal_alignment",
-  "vertical_alignment": "vertical_alignment"
+  "style": {
+    "size": "size",
+    "font_family": "font_family",
+    "font_size": "font_size",
+    "color": "color",
+    "outline_width": "outline_width",
+    "outline_color": "outline_color",
+    "bold": "bold",
+    "italic": "italic",
+    "horizontal_alignment": "horizontal_alignment",
+    "vertical_alignment": "vertical_alignment"
+  }
 }
 ```
 
-`size` is a two-`f32` tuple, `font_family` is a string array, and `text` is a
-string. Font size and outline width are `f32`; colors are `color`; bold and italic
-are `bool`. Alignment enums must contain exactly `0`, `1`, and `2`.
+`text` references a `string` property. In `style`, `size` is a two-`f32` tuple and
+`font_family` is a string array. Font size and outline width are `f32`; colors are
+`color`; bold and italic are `bool`. Alignment enums must contain exactly `0`,
+`1`, and `2`.
+
+### Number
+
+A number input uses the same `style` and rasterizer as text:
+
+```json
+{
+  "type": "number",
+  "id": "text",
+  "value": "value",
+  "decimal_places": "decimal_places",
+  "style": {
+    "size": "size",
+    "font_family": "font_family",
+    "font_size": "font_size",
+    "color": "color",
+    "outline_width": "outline_width",
+    "outline_color": "outline_color",
+    "bold": "bold",
+    "italic": "italic",
+    "horizontal_alignment": "horizontal_alignment",
+    "vertical_alignment": "vertical_alignment"
+  }
+}
+```
+
+`value` references an `f32`, `i32`, or `u32` property. `decimal_places` references
+a `u32` property constrained to `0..=10`. After animation evaluation, the number
+is rounded for display with exactly that many decimal places, including trailing
+zeros: `12.3` with two places displays as `12.30`. This does not change the stored
+value or its animation. The bundled Number item defaults to zero decimal places.
+Its texture ID is `text`, and it uses its own `number.wesl` shader.
 
 ### Render result
 
