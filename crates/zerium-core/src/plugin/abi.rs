@@ -3,16 +3,18 @@ use std::mem::size_of;
 use super::PluginError;
 use super::identifier::validate_wgsl_identifier;
 use crate::property::{
-    MAX_STRING_BYTES, PropertySchema, PropertyType, PropertyValue, PropertyValueType,
-    PropertyValues, ScalarPropertyType,
+    MAX_STRING_BYTES, PropertyDefinition, PropertySchema, PropertyValue, PropertyValues,
+    ScalarPropertyType, ValueSchema,
 };
 
 /// Property blocks are copied for every rendered instance/pass. Large data belongs in a separate
 /// resource, not in this per-frame ABI.
 pub(super) const MAX_PROPERTY_BLOCK_BYTES: usize = 8 * 1024 * 1024;
 
+/// Declarations and their compiled shader offsets share one immutable contract.
 #[derive(Clone, Debug, PartialEq)]
 pub struct PropertyLayout {
+    properties: Vec<PropertySchema>,
     fields: Box<[PropertyLayoutField]>,
     header_size: usize,
     worst_case_size: usize,
@@ -20,86 +22,97 @@ pub struct PropertyLayout {
 
 #[derive(Clone, Debug, PartialEq)]
 struct PropertyLayoutField {
-    id: Box<str>,
-    ty: PropertyType,
+    property_index: usize,
     offset: usize,
 }
 
-impl PropertyLayoutField {
-    fn value<'a>(
-        &self,
-        owner_kind: &str,
-        owner_id: &str,
-        values: &'a PropertyValues,
-    ) -> Result<&'a PropertyValue, PluginError> {
-        values.property(&self.id).ok_or_else(|| {
-            PluginError::invalid_definition(format!(
-                "{owner_kind} '{owner_id}' is missing property '{}'",
-                self.id
-            ))
-        })
-    }
-}
-
 impl PropertyLayout {
-    pub(super) fn compile<'a>(
+    pub(super) fn compile(
         owner_kind: &str,
         owner_id: &str,
-        declarations: impl IntoIterator<Item = (&'a str, &'a PropertyType)>,
+        properties: Vec<PropertySchema>,
     ) -> Result<Self, PluginError> {
-        let declarations = declarations.into_iter().collect::<Vec<_>>();
-        validate_property_names(owner_kind, owner_id, declarations.iter().copied())?;
-        let mut fields = Vec::with_capacity(declarations.len());
+        let mut ids = std::collections::HashSet::new();
+        let mut shader_fields = std::collections::HashSet::from(["_raw".to_owned()]);
+        let mut fields = Vec::with_capacity(properties.len());
         let mut header_size = 0_usize;
-        for &(id, ty) in &declarations {
-            if !ty.has_shader_values() {
+        let mut worst_case_size = 0_usize;
+        for (property_index, property) in properties.iter().enumerate() {
+            let id = property.id();
+            validate_wgsl_identifier("property", id)?;
+            if !ids.insert(id) {
+                return Err(PluginError::invalid_definition(format!(
+                    "{owner_kind} '{owner_id}' has duplicate property ID '{id}'"
+                )));
+            }
+            if !property
+                .value_schema()
+                .scalars()
+                .iter()
+                .any(|scalar| scalar.ty.is_shader_value())
+            {
                 continue;
             }
-            let size = header_abi_size(ty);
+            let field = if matches!(property.definition(), PropertyDefinition::Array { .. }) {
+                format!("{id}_len")
+            } else {
+                id.to_owned()
+            };
+            if !shader_fields.insert(field.clone()) {
+                return Err(PluginError::invalid_definition(format!(
+                    "{owner_kind} '{owner_id}' has conflicting shader property field '{field}'"
+                )));
+            }
+            let size = match property.definition() {
+                PropertyDefinition::Array { .. } => 8,
+                PropertyDefinition::Value(schema) => abi_size(schema),
+            };
             let next = header_size.checked_add(size).ok_or_else(|| {
                 PluginError::invalid_definition(format!(
                     "{owner_kind} '{owner_id}' property layout overflow"
                 ))
             })?;
             fields.push(PropertyLayoutField {
-                id: id.into(),
-                ty: ty.clone(),
+                property_index,
                 offset: header_size,
             });
             header_size = next;
-        }
-
-        let mut worst_case_size = header_size;
-        for field in &fields {
+            let payload_size = max_dynamic_size(property)?;
             worst_case_size = worst_case_size
-                .checked_add(max_dynamic_size(&field.ty)?)
+                .checked_add(size)
+                .and_then(|total| total.checked_add(payload_size))
                 .ok_or_else(|| property_budget_error(owner_kind, owner_id))?;
         }
+
         if worst_case_size > MAX_PROPERTY_BLOCK_BYTES {
             return Err(property_budget_error(owner_kind, owner_id));
         }
 
         Ok(Self {
+            properties,
             fields: fields.into_boxed_slice(),
             header_size,
             worst_case_size,
         })
     }
 
-    pub fn fields(&self) -> impl ExactSizeIterator<Item = (&str, &PropertyType, usize)> {
+    pub fn properties(&self) -> &[PropertySchema] {
+        &self.properties
+    }
+
+    pub fn fields(&self) -> impl ExactSizeIterator<Item = (&PropertySchema, usize)> {
         self.fields
             .iter()
-            .map(|field| (field.id.as_ref(), &field.ty, field.offset))
+            .map(|field| (&self.properties[field.property_index], field.offset))
     }
 
     pub fn pack(
         &self,
         owner_kind: &str,
         owner_id: &str,
-        properties: &[PropertySchema],
         values: &PropertyValues,
     ) -> Result<Vec<u8>, PluginError> {
-        values.validate_for(owner_kind, owner_id, properties)?;
+        values.validate_for(owner_kind, owner_id, &self.properties)?;
         let actual_size = self.actual_size(owner_kind, owner_id, values)?;
         if actual_size > MAX_PROPERTY_BLOCK_BYTES || actual_size > self.worst_case_size {
             return Err(property_budget_error(owner_kind, owner_id));
@@ -107,15 +120,23 @@ impl PropertyLayout {
 
         let mut bytes = vec![0; self.header_size];
         bytes.reserve(actual_size - self.header_size);
-        for field in &self.fields {
-            let value = field.value(owner_kind, owner_id, values)?;
-            match (&field.ty, value) {
-                (PropertyType::Array { element_type, .. }, PropertyValue::Array(values)) => {
+        for (property, offset) in self.fields() {
+            let value = values
+                .property(property.id())
+                .expect("all properties were validated before packing");
+            match (property.definition(), value) {
+                (
+                    PropertyDefinition::Array {
+                        element: element_schema,
+                        ..
+                    },
+                    PropertyValue::Array(values),
+                ) => {
                     let data_offset = u32::try_from(bytes.len())
                         .map_err(|_| property_budget_error(owner_kind, owner_id))?;
-                    write_u32(&mut bytes, field.offset, data_offset);
-                    write_u32(&mut bytes, field.offset + 4, values.len() as u32);
-                    let element_size = abi_size(element_type);
+                    write_u32(&mut bytes, offset, data_offset);
+                    write_u32(&mut bytes, offset + 4, values.len() as u32);
+                    let element_size = abi_size(element_schema);
                     let data_size = values
                         .len()
                         .checked_mul(element_size)
@@ -129,20 +150,15 @@ impl PropertyLayout {
                         pack_value(
                             &mut bytes,
                             data_offset as usize + index * element_size,
-                            element_type,
+                            element_schema,
                             element.value(),
                         )?;
                     }
                 }
-                (ty, value) => {
-                    let PropertyType::Value(value_type) = ty else {
-                        return Err(PluginError::invalid_definition(format!(
-                            "{owner_kind} '{owner_id}' property '{}' has an invalid ABI type",
-                            field.id
-                        )));
-                    };
-                    pack_value(&mut bytes, field.offset, value_type, value)?;
+                (PropertyDefinition::Value(schema), value) => {
+                    pack_value(&mut bytes, offset, schema, value)?;
                 }
+                _ => unreachable!("property values were validated before packing"),
             }
         }
         debug_assert_eq!(bytes.len(), actual_size);
@@ -156,16 +172,12 @@ impl PropertyLayout {
         values: &PropertyValues,
     ) -> Result<usize, PluginError> {
         let mut size = self.header_size;
-        for field in &self.fields {
-            let value = field.value(owner_kind, owner_id, values)?;
-            if !field.ty.allows(value) {
-                return Err(PluginError::invalid_definition(format!(
-                    "{owner_kind} '{owner_id}' property '{}' value does not match its type",
-                    field.id
-                )));
-            }
+        for (property, _) in self.fields() {
+            let value = values
+                .property(property.id())
+                .expect("all properties were validated before packing");
             size = size
-                .checked_add(dynamic_value_size(&field.ty, value)?)
+                .checked_add(dynamic_value_size(property, value)?)
                 .ok_or_else(|| property_budget_error(owner_kind, owner_id))?;
             if size > MAX_PROPERTY_BLOCK_BYTES {
                 return Err(property_budget_error(owner_kind, owner_id));
@@ -175,37 +187,6 @@ impl PropertyLayout {
     }
 }
 
-pub(super) fn validate_property_names<'a>(
-    owner_kind: &str,
-    owner_id: &str,
-    properties: impl IntoIterator<Item = (&'a str, &'a PropertyType)>,
-) -> Result<(), PluginError> {
-    let mut ids = std::collections::HashSet::new();
-    let mut fields = std::collections::HashSet::from(["_raw".to_owned()]);
-    for (id, ty) in properties {
-        validate_wgsl_identifier("property", id)?;
-        if !ids.insert(id) {
-            return Err(PluginError::invalid_definition(format!(
-                "{owner_kind} '{owner_id}' has duplicate property ID '{id}'"
-            )));
-        }
-        if !ty.has_shader_values() {
-            continue;
-        }
-        let field = if matches!(ty, PropertyType::Array { .. }) {
-            format!("{id}_len")
-        } else {
-            id.to_owned()
-        };
-        if !fields.insert(field.clone()) {
-            return Err(PluginError::invalid_definition(format!(
-                "{owner_kind} '{owner_id}' has conflicting shader property field '{field}'"
-            )));
-        }
-    }
-    Ok(())
-}
-
 fn property_budget_error(owner_kind: &str, owner_id: &str) -> PluginError {
     PluginError::invalid_definition(format!(
         "{owner_kind} '{owner_id}' property ABI exceeds the {} byte budget",
@@ -213,34 +194,22 @@ fn property_budget_error(owner_kind: &str, owner_id: &str) -> PluginError {
     ))
 }
 
-fn header_abi_size(ty: &PropertyType) -> usize {
-    match ty {
-        PropertyType::Array { .. } => 8,
-        PropertyType::Value(value_type) => abi_size(value_type),
-    }
+pub fn value_string_count(schema: &ValueSchema) -> usize {
+    schema
+        .scalars()
+        .iter()
+        .filter(|scalar| scalar.ty == ScalarPropertyType::String)
+        .count()
 }
 
-pub fn value_string_count(ty: &PropertyValueType) -> usize {
-    match ty {
-        PropertyValueType::Scalar(ty) => usize::from(matches!(ty, ScalarPropertyType::String)),
-        PropertyValueType::Tuple(tuple) => tuple
-            .scalars()
-            .iter()
-            .filter(|ty| matches!(ty, ScalarPropertyType::String))
-            .count(),
-    }
-}
-
-fn max_dynamic_size(ty: &PropertyType) -> Result<usize, PluginError> {
-    let value_type = ty.value_type();
-    let payload = value_string_count(value_type) * aligned_size(MAX_STRING_BYTES);
-    match ty {
-        PropertyType::Value(_) => Ok(payload),
-        PropertyType::Array {
-            element_type,
-            max_items,
-            ..
-        } => (abi_size(element_type) + payload)
+fn max_dynamic_size(property: &PropertySchema) -> Result<usize, PluginError> {
+    let schema = property.value_schema();
+    let payload = value_string_count(schema) * aligned_size(MAX_STRING_BYTES);
+    match property.definition() {
+        PropertyDefinition::Value(_) => Ok(payload),
+        PropertyDefinition::Array {
+            element, max_items, ..
+        } => (abi_size(element) + payload)
             .checked_mul(*max_items as usize)
             .ok_or_else(|| PluginError::invalid_definition("property ABI maximum size overflows")),
     }
@@ -260,11 +229,12 @@ pub const fn scalar_abi_size(ty: &ScalarPropertyType) -> usize {
     word_count * size_of::<u32>()
 }
 
-pub fn abi_size(ty: &PropertyValueType) -> usize {
-    match ty {
-        PropertyValueType::Scalar(ty) => scalar_abi_size(ty),
-        PropertyValueType::Tuple(tuple) => tuple.scalars().iter().map(scalar_abi_size).sum(),
-    }
+pub fn abi_size(schema: &ValueSchema) -> usize {
+    schema
+        .scalars()
+        .iter()
+        .map(|scalar| scalar_abi_size(&scalar.ty))
+        .sum()
 }
 
 fn value_payload_size(value: &PropertyValue) -> usize {
@@ -275,15 +245,22 @@ fn value_payload_size(value: &PropertyValue) -> usize {
     }
 }
 
-fn dynamic_value_size(ty: &PropertyType, value: &PropertyValue) -> Result<usize, PluginError> {
-    match (ty, value) {
-        (PropertyType::Array { element_type, .. }, PropertyValue::Array(values)) => {
-            values.iter().try_fold(0usize, |total, element| {
-                total
-                    .checked_add(abi_size(element_type) + value_payload_size(element.value()))
-                    .ok_or_else(|| PluginError::invalid_definition("property ABI size overflows"))
-            })
-        }
+fn dynamic_value_size(
+    property: &PropertySchema,
+    value: &PropertyValue,
+) -> Result<usize, PluginError> {
+    match (property.definition(), value) {
+        (
+            PropertyDefinition::Array {
+                element: element_schema,
+                ..
+            },
+            PropertyValue::Array(values),
+        ) => values.iter().try_fold(0usize, |total, element| {
+            total
+                .checked_add(abi_size(element_schema) + value_payload_size(element.value()))
+                .ok_or_else(|| PluginError::invalid_definition("property ABI size overflows"))
+        }),
         _ => Ok(value_payload_size(value)),
     }
 }
@@ -331,16 +308,16 @@ fn pack_scalar(
 fn pack_value(
     bytes: &mut Vec<u8>,
     offset: usize,
-    ty: &PropertyValueType,
+    schema: &ValueSchema,
     value: &PropertyValue,
 ) -> Result<(), PluginError> {
-    match (ty, value) {
-        (PropertyValueType::Scalar(ty), value) => pack_scalar(bytes, offset, ty, value)?,
-        (PropertyValueType::Tuple(tuple), PropertyValue::Tuple(values)) => {
+    match (schema, value) {
+        (ValueSchema::Scalar(scalar), value) => pack_scalar(bytes, offset, &scalar.ty, value)?,
+        (ValueSchema::Tuple(tuple), PropertyValue::Tuple(values)) => {
             let mut byte_offset = offset;
-            for (ty, value) in tuple.scalars().iter().zip(values) {
-                pack_scalar(bytes, byte_offset, ty, value)?;
-                byte_offset += scalar_abi_size(ty);
+            for (scalar, value) in tuple.iter().zip(values) {
+                pack_scalar(bytes, byte_offset, &scalar.ty, value)?;
+                byte_offset += scalar_abi_size(&scalar.ty);
             }
         }
         _ => unreachable!("property value type was validated before packing"),

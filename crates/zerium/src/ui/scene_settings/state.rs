@@ -71,7 +71,7 @@ impl SceneSettings {
                         ControlId::scene_argument_default(scene_id, argument_id),
                         value.clone(),
                     )),
-                    PropertyValue::Color(value) => colors.push((argument_id.to_owned(), *value)),
+                    PropertyValue::Color(value) => colors.push((argument_id.to_owned(), value)),
                     _ => {}
                 }
             }

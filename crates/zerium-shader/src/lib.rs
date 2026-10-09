@@ -16,8 +16,8 @@ use thiserror::Error;
 use zerium_core::plugin::{PluginError, PluginRegistry};
 
 pub use compile::{compile_plugins, validate_compute_shader, validate_render_shader};
-pub use contract::{ShaderContract, ShaderProperty, shader_contract_fingerprint, shader_contracts};
-pub use generate::generate;
+pub use contract::{ShaderContract, ShaderProperty, shader_contracts};
+pub use generate::{generate, shader_contract_fingerprint};
 pub use loader::{load_filesystem_plugin, plugin_from_parts};
 pub use types::{
     CompiledEffectShader, CompiledPluginShaders, ComputeShaderDescriptor, EffectShaderDescriptor,

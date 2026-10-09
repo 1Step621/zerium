@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use crate::animation::{AnimationClock, ScalarAnimations, ScalarTrack};
 use crate::media::{MediaAsset, MediaMetadataCache, MediaPlayback};
-use crate::plugin::{Capability, EffectSchema, ItemSchema};
+use crate::plugin::{EffectSchema, ItemSchema, TextureInput};
 use crate::property::{
     PropertyElementId, PropertyPath, PropertySchema, PropertyValue, PropertyValues,
 };
@@ -56,10 +56,10 @@ impl RenderResultSettings {
 }
 
 fn render_result_settings_for(
-    capability: &Capability,
+    capability: &TextureInput,
     properties: &PropertyValues,
 ) -> Option<RenderResultSettings> {
-    let Capability::RenderResult {
+    let TextureInput::RenderResult {
         start_offset,
         end_offset,
         hide_original,
@@ -129,7 +129,7 @@ impl EffectInstance {
 
     pub fn render_result_settings(&self) -> impl Iterator<Item = RenderResultSettings> + '_ {
         self.schema()
-            .capabilities()
+            .inputs()
             .iter()
             .filter_map(|capability| render_result_settings_for(capability, &self.properties))
     }
@@ -307,7 +307,7 @@ impl TimelineItem {
     pub fn render_result_ranges(&self) -> impl Iterator<Item = RenderResultSettings> + '_ {
         self.schema()
             .into_iter()
-            .flat_map(|schema| schema.capabilities())
+            .flat_map(|schema| schema.inputs())
             .filter_map(|capability| render_result_settings_for(capability, &self.properties))
             .chain(
                 self.effects
@@ -351,9 +351,9 @@ impl TimelineItem {
         let (capabilities, properties) = match effect_id {
             Some(id) => {
                 let effect = self.effect(id)?;
-                (effect.schema().capabilities(), &effect.properties)
+                (effect.schema().inputs(), &effect.properties)
             }
-            None => (self.schema()?.capabilities(), &self.properties),
+            None => (self.schema()?.inputs(), &self.properties),
         };
         let capability = capabilities
             .iter()
@@ -398,17 +398,17 @@ impl TimelineItem {
     pub(crate) fn validate_playback(&self) -> Result<(), super::TimelineEditError> {
         let owners = self
             .schema()
-            .map(|schema| (schema.capabilities(), &self.properties))
+            .map(|schema| (schema.inputs(), &self.properties))
             .into_iter()
             .chain(
                 self.effects
                     .iter()
-                    .map(|effect| (effect.schema().capabilities(), &effect.properties)),
+                    .map(|effect| (effect.schema().inputs(), &effect.properties)),
             );
         for (capabilities, properties) in owners {
             for ids in capabilities
                 .iter()
-                .filter_map(Capability::playback_properties)
+                .filter_map(TextureInput::playback_properties)
             {
                 MediaPlayback::from_properties(ids, properties)?;
             }

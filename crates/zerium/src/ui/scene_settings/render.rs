@@ -409,7 +409,7 @@ impl SceneSettings {
         if let PropertyValue::Bool(checked) = argument.schema.default_value() {
             details = details.child(Self::scene_bool_row(
                 argument.id.clone(),
-                *checked,
+                checked,
                 render.editor,
             ));
         }

@@ -225,7 +225,7 @@ impl TimelineDocument {
             let Some(item_schema) = item.schema() else {
                 return false;
             };
-            if item_schema.shader().is_none() {
+            if item_schema.render().is_none() {
                 return false;
             }
         }

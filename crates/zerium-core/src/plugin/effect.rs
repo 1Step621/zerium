@@ -7,7 +7,7 @@ use super::CatalogCategory;
 use super::OutputBoundsSchema;
 use super::PluginError;
 use super::abi::PropertyLayout;
-use super::capability::{Capability, validate_capabilities};
+use super::capability::{TextureInput, validate_texture_inputs};
 use super::editor::{EditorCapability, validate_editors};
 use super::passes::EffectPassSchema;
 use super::validation::{validate_catalog_entry, validate_property_schemas};
@@ -30,14 +30,22 @@ pub struct EffectSchema {
     label: LocalizedText,
     category: CatalogCategory,
     tags: Vec<String>,
-    render_scale: u32,
-    output_bounds: OutputBoundsSchema,
-    input_space: EffectInputSpace,
+    render: EffectRenderSchema,
     editor: Vec<EditorCapability>,
-    capabilities: Vec<Capability>,
-    properties: Vec<PropertySchema>,
-    passes: Vec<EffectPassSchema>,
-    property_abi: PropertyLayout,
+    property_layout: PropertyLayout,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct EffectRenderSchema {
+    #[serde(default = "default_effect_render_scale")]
+    pub scale: u32,
+    pub bounds: OutputBoundsSchema,
+    #[serde(default)]
+    pub input_space: EffectInputSpace,
+    #[serde(default)]
+    pub inputs: Vec<TextureInput>,
+    pub passes: Vec<EffectPassSchema>,
 }
 
 #[derive(Deserialize)]
@@ -48,17 +56,10 @@ struct EffectSchemaDefinition {
     category: CatalogCategory,
     #[serde(default)]
     tags: Vec<String>,
-    #[serde(default = "default_effect_render_scale")]
-    render_scale: u32,
-    output_bounds: OutputBoundsSchema,
-    #[serde(default)]
-    input_space: EffectInputSpace,
+    render: EffectRenderSchema,
     #[serde(default)]
     editor: Vec<EditorCapability>,
-    #[serde(default)]
-    capabilities: Vec<Capability>,
     properties: Vec<PropertySchema>,
-    passes: Vec<EffectPassSchema>,
 }
 
 impl<'de> Deserialize<'de> for EffectSchema {
@@ -67,28 +68,17 @@ impl<'de> Deserialize<'de> for EffectSchema {
         D: Deserializer<'de>,
     {
         let definition = EffectSchemaDefinition::deserialize(deserializer)?;
-        let property_abi = PropertyLayout::compile(
-            "effect",
-            &definition.id,
-            definition
-                .properties
-                .iter()
-                .map(|property| (property.id(), property.ty())),
-        )
-        .map_err(D::Error::custom)?;
+        let property_layout =
+            PropertyLayout::compile("effect", &definition.id, definition.properties)
+                .map_err(D::Error::custom)?;
         let schema = Self {
             id: definition.id,
             label: definition.label,
             category: definition.category,
             tags: definition.tags,
-            render_scale: definition.render_scale,
-            output_bounds: definition.output_bounds,
-            input_space: definition.input_space,
+            render: definition.render,
             editor: definition.editor,
-            capabilities: definition.capabilities,
-            properties: definition.properties,
-            passes: definition.passes,
-            property_abi,
+            property_layout,
         };
         schema.validate().map_err(D::Error::custom)?;
         Ok(schema)
@@ -100,6 +90,10 @@ const fn default_effect_render_scale() -> u32 {
 }
 
 impl EffectSchema {
+    pub fn render(&self) -> &EffectRenderSchema {
+        &self.render
+    }
+
     pub fn id(&self) -> &str {
         &self.id
     }
@@ -120,18 +114,6 @@ impl EffectSchema {
         &self.tags
     }
 
-    pub const fn render_scale(&self) -> u32 {
-        self.render_scale
-    }
-
-    pub fn output_bounds(&self) -> &OutputBoundsSchema {
-        &self.output_bounds
-    }
-
-    pub const fn input_space(&self) -> EffectInputSpace {
-        self.input_space
-    }
-
     pub fn editor(&self) -> &[EditorCapability] {
         &self.editor
     }
@@ -149,72 +131,72 @@ impl EffectSchema {
     }
 
     pub fn properties(&self) -> &[PropertySchema] {
-        &self.properties
+        self.property_layout.properties()
     }
 
     pub fn file_properties(&self) -> impl Iterator<Item = &PropertySchema> {
-        self.properties.iter().filter(|property| property.is_file())
+        self.properties()
+            .iter()
+            .filter(|property| property.is_file())
     }
 
     pub fn file_property(&self, id: &str) -> Option<&PropertySchema> {
         self.property(id).filter(|property| property.is_file())
     }
 
-    pub fn capabilities(&self) -> &[Capability] {
-        &self.capabilities
+    pub fn inputs(&self) -> &[TextureInput] {
+        &self.render.inputs
     }
 
     pub fn media_sources(&self) -> impl Iterator<Item = crate::media::MediaSource<'_>> {
-        self.capabilities
+        self.render
+            .inputs
             .iter()
-            .filter_map(Capability::media_source)
+            .filter_map(TextureInput::media_source)
     }
 
     pub fn property_layout(&self) -> &PropertyLayout {
-        &self.property_abi
-    }
-
-    pub fn passes(&self) -> &[EffectPassSchema] {
-        &self.passes
+        &self.property_layout
     }
 
     pub(super) fn validate(&self) -> Result<(), PluginError> {
         self.category.validate("effect", &self.id)?;
         validate_catalog_entry("effect", &self.id, &self.label, &self.tags)?;
-        validate_property_schemas("effect", &self.id, &self.properties)?;
-        self.output_bounds
-            .validate("effect", &self.id, &self.properties)?;
-        validate_capabilities("effect", &self.id, &self.properties, &self.capabilities)?;
-        validate_editors("effect", &self.id, &self.properties, &self.editor)?;
-        if self.input_space == EffectInputSpace::Source
-            && (self.passes.len() != 1
-                || !matches!(self.passes[0], EffectPassSchema::Render { .. }))
+        validate_property_schemas("effect", &self.id, self.properties())?;
+        self.render
+            .bounds
+            .validate("effect", &self.id, self.properties())?;
+        validate_texture_inputs("effect", &self.id, self.properties(), &self.render.inputs)?;
+        validate_editors("effect", &self.id, self.properties(), &self.editor)?;
+        if self.render.input_space == EffectInputSpace::Source
+            && (self.render.passes.len() != 1
+                || !matches!(self.render.passes[0], EffectPassSchema::Render { .. }))
         {
             return Err(PluginError::invalid_definition(format!(
                 "effect '{}' source input space requires one render pass",
                 self.id
             )));
         }
-        if !(1..=4).contains(&self.render_scale) {
+        if !(1..=4).contains(&self.render.scale) {
             return Err(PluginError::invalid_definition(format!(
-                "effect '{}' render_scale must be between 1 and 4",
+                "effect '{}' render.scale must be between 1 and 4",
                 self.id
             )));
         }
-        if self.passes.is_empty() {
+        if self.render.passes.is_empty() {
             return Err(PluginError::invalid_definition(format!(
                 "effect '{}' must define at least one pass",
                 self.id
             )));
         }
-        for (pass_index, pass) in self.passes.iter().enumerate() {
-            pass.validate(&self.id, &self.properties, pass_index)?;
+        for (pass_index, pass) in self.render.passes.iter().enumerate() {
+            pass.validate(&self.id, self.properties(), pass_index)?;
         }
         Ok(())
     }
 
     pub fn property(&self, id: &str) -> Option<&PropertySchema> {
-        self.properties.iter().find(|property| property.id == id)
+        self.properties().iter().find(|property| property.id == id)
     }
 }
 

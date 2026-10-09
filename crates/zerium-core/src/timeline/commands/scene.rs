@@ -385,23 +385,19 @@ impl TimelineEditor {
                 SceneArgumentPreset::File => PropertyValue::File(None),
             };
             let ty = preset.ty();
-            let animatable = ty
-                .value_type()
-                .scalars()
-                .all(|(_, ty)| ty.is_interpolatable());
-            let schema = PropertySchema {
-                id: argument_id.clone(),
-                label: label.into(),
+            let animatable = ty.is_interpolatable();
+            let schema = PropertySchema::new_scalar(
+                argument_id.clone(),
+                label.into(),
                 ty,
                 default,
-                append_default: None,
-                configurations: vec![PropertyConfiguration {
+                PropertyConfiguration {
                     scene_bindable: true,
                     editable: true,
                     animatable,
                     ..Default::default()
-                }],
-            };
+                },
+            );
             let schema = schema
                 .for_scene_argument()
                 .expect("supported scene argument types must produce an argument schema");
@@ -584,7 +580,7 @@ impl TimelineEditor {
         let Some(argument) = scene.argument(argument_id) else {
             return Err(SceneArgumentEditError::ArgumentNotFound);
         };
-        if resolved.schema.ty() != argument.schema.ty() {
+        if !resolved.schema.same_type(&argument.schema) {
             return Err(SceneArgumentEditError::IncompatibleContract);
         }
         self.try_edit_project(None, |editor| {
@@ -616,7 +612,7 @@ impl TimelineEditor {
         if !argument.bindings.contains(target) {
             return Err(SceneArgumentEditError::TargetNotFound);
         }
-        let value = argument.schema.default_value().clone();
+        let value = argument.schema.default_value();
         self.try_edit_project(None, |editor| {
             editor
                 .apply_scene_binding(scene_id, target, value)
@@ -645,7 +641,7 @@ impl TimelineEditor {
             .and_then(|scene| scene.argument(argument_id))
             .ok_or(SceneArgumentEditError::ArgumentNotFound)?;
         let bindings = argument.bindings.clone();
-        let value = argument.schema.default_value().clone();
+        let value = argument.schema.default_value();
         self.try_edit_project(None, |editor| {
             for target in &bindings {
                 editor

@@ -1,6 +1,5 @@
 //! Named shader inputs and editor roles for items and effects.
 
-use crate::property::PropertyValueType;
 use std::collections::HashSet;
 
 use serde::Deserialize;
@@ -8,7 +7,9 @@ use serde::Deserialize;
 use super::PluginError;
 use super::identifier::{validate_logical_id, validate_wgsl_identifier};
 use super::validation::PropertyReferences;
-use crate::property::{PropertySchema, PropertyType, ScalarPropertyType};
+use crate::property::{
+    PropertyDefinition, PropertySchema, ScalarPropertyType, ScalarSchema, ValueSchema,
+};
 
 pub(super) const MAX_RENDER_RESULT_OFFSET: u32 = 30;
 /// Maximum fixed decimal precision of a number input.
@@ -29,8 +30,7 @@ pub(super) fn validate_render_result_properties(
             id,
             &format!("u32 constrained to 1..={MAX_RENDER_RESULT_OFFSET}"),
             |property| {
-                property.ty()
-                    == &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::U32))
+                property.scalar_type(None, None) == Some(&ScalarPropertyType::U32)
                     && property
                         .configuration_constraints(None)
                         .min
@@ -44,8 +44,7 @@ pub(super) fn validate_render_result_properties(
     }
     references
         .check(hide_original, "a bool value", |property| {
-            property.ty()
-                == &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Bool))
+            property.scalar_type(None, None) == Some(&ScalarPropertyType::Bool)
         })
         .map(|_| ())
 }
@@ -80,7 +79,7 @@ pub struct TextStyle {
 #[allow(clippy::large_enum_variant)]
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
-pub enum Capability {
+pub enum TextureInput {
     Media {
         id: String,
         file: String,
@@ -108,7 +107,7 @@ pub enum Capability {
     },
 }
 
-impl Capability {
+impl TextureInput {
     pub fn id(&self) -> &str {
         match self {
             Self::Text { id, .. }
@@ -154,13 +153,13 @@ impl Capability {
         owner_id: &str,
         properties: &[PropertySchema],
     ) -> Result<(), PluginError> {
-        validate_wgsl_identifier("capability", self.id())?;
+        validate_wgsl_identifier("texture input", self.id())?;
         if self.id() == "capability_sampler" {
             return Err(PluginError::invalid_definition(format!(
-                "{owner_kind} '{owner_id}' capability ID 'capability_sampler' is reserved"
+                "{owner_kind} '{owner_id}' input ID 'capability_sampler' is reserved"
             )));
         }
-        let context = format!("{owner_kind} '{owner_id}' capability '{}'", self.id());
+        let context = format!("{owner_kind} '{owner_id}' input '{}'", self.id());
         let references = PropertyReferences::new(&context, properties);
         match self {
             Self::Text { text, .. } => {
@@ -173,22 +172,19 @@ impl Capability {
             } => {
                 references.check(value, "an f32, i32, or u32 value", |property| {
                     matches!(
-                        property.ty(),
-                        PropertyType::Value(PropertyValueType::Scalar(
+                        property.scalar_type(None, None),
+                        Some(
                             ScalarPropertyType::F32
                                 | ScalarPropertyType::I32
                                 | ScalarPropertyType::U32
-                        ))
+                        )
                     )
                 })?;
                 references.check(
                     decimal_places,
                     &format!("a u32 constrained to 0..={MAX_DECIMAL_PLACES}"),
                     |property| {
-                        property.ty()
-                            == &PropertyType::Value(PropertyValueType::Scalar(
-                                ScalarPropertyType::U32,
-                            ))
+                        property.scalar_type(None, None) == Some(&ScalarPropertyType::U32)
                             && property
                                 .configuration_constraints(None)
                                 .max
@@ -251,9 +247,12 @@ impl TextStyle {
         references.pair(&self.size)?;
         references.check(&self.font_family, "an array of strings", |property| {
             matches!(
-                property.ty(),
-                PropertyType::Array {
-                    element_type: PropertyValueType::Scalar(ScalarPropertyType::String),
+                property.definition(),
+                PropertyDefinition::Array {
+                    element: ValueSchema::Scalar(ScalarSchema {
+                        ty: ScalarPropertyType::String,
+                        ..
+                    }),
                     ..
                 }
             )
@@ -268,7 +267,7 @@ impl TextStyle {
             references.check(
                 property_id,
                 "an enum containing exactly 0, 1, and 2",
-                |property| matches!(property.ty(), PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Enum(enumeration))) if enumeration.values().len() == 3 && [0, 1, 2].iter().all(|value| enumeration.values().contains(value))),
+                |property| matches!(property.scalar_type(None, None), Some(ScalarPropertyType::Enum(enumeration)) if enumeration.values().len() == 3 && [0, 1, 2].into_iter().all(|value| enumeration.contains(value))),
             )?;
         }
         Ok(())
@@ -283,10 +282,7 @@ pub struct AudioCapability {
     file: String,
     reader: String,
     volume: String,
-    source_start: String,
-    source_duration: String,
-    playback_speed: String,
-    end_behavior: String,
+    playback: MediaPlaybackSchema,
     preserve_pitch: String,
 }
 
@@ -304,12 +300,7 @@ impl AudioCapability {
     }
 
     pub fn playback_properties(&self) -> PlaybackProperties<'_> {
-        PlaybackProperties {
-            source_start: &self.source_start,
-            source_duration: &self.source_duration,
-            playback_speed: &self.playback_speed,
-            end_behavior: &self.end_behavior,
-        }
+        self.playback.playback_properties()
     }
 
     pub fn preserve_pitch_property(&self) -> &str {
@@ -331,8 +322,7 @@ impl AudioCapability {
         let references = PropertyReferences::new(&context, properties);
         references.check(&self.file, "a file property", |property| property.is_file())?;
         references.check(&self.volume, "an f32 value", |property| {
-            property.ty()
-                == &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::F32))
+            property.scalar_type(None, None) == Some(&ScalarPropertyType::F32)
         })?;
         self.playback_properties()
             .validate("item", id, properties)?;
@@ -340,8 +330,7 @@ impl AudioCapability {
             &self.preserve_pitch,
             "a bool value without animation or scene bindings",
             |property| {
-                property.ty()
-                    == &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Bool))
+                property.scalar_type(None, None) == Some(&ScalarPropertyType::Bool)
                     && !property.is_animatable(None)
                     && !property.is_scene_bindable(None)
             },
@@ -416,10 +405,7 @@ impl TimeMappingProperties<'_> {
                 "a distinct f32 property without animation or scene bindings",
                 |property| {
                     ids.insert(property_id)
-                        && property.ty()
-                            == &PropertyType::Value(PropertyValueType::Scalar(
-                                ScalarPropertyType::F32,
-                            ))
+                        && property.scalar_type(None, None) == Some(&ScalarPropertyType::F32)
                         && !property.is_animatable(None)
                         && !property.is_scene_bindable(None)
                 },
@@ -427,7 +413,7 @@ impl TimeMappingProperties<'_> {
             let crate::property::PropertyValue::F32(value) = property.default_value() else {
                 return Err(invalid_defaults());
             };
-            *default = *value;
+            *default = value;
         }
         crate::timeline::TimeMapping::new(defaults[0], defaults[1], defaults[2])
             .map_err(|_| invalid_defaults())?;
@@ -455,7 +441,7 @@ impl<'a> PlaybackProperties<'a> {
             self.end_behavior,
             "an enum [0, 1, 2] property without animation or scene bindings",
             |property| {
-                matches!(property.ty(), PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Enum(enumeration))) if enumeration.values() == [0, 1, 2])
+                matches!(property.scalar_type(None, None), Some(ScalarPropertyType::Enum(enumeration)) if enumeration.values().len() == 3 && [0, 1, 2].into_iter().all(|value| enumeration.contains(value)))
                     && !property.is_animatable(None)
                     && !property.is_scene_bindable(None)
             },
@@ -463,26 +449,26 @@ impl<'a> PlaybackProperties<'a> {
     }
 }
 
-pub const MAX_CAPABILITIES: usize = 8;
+pub const MAX_TEXTURE_INPUTS: usize = 8;
 
-pub(super) fn validate_capabilities(
+pub(super) fn validate_texture_inputs(
     owner_kind: &str,
     owner_id: &str,
     properties: &[PropertySchema],
-    capabilities: &[Capability],
+    inputs: &[TextureInput],
 ) -> Result<(), PluginError> {
-    if capabilities.len() > MAX_CAPABILITIES {
+    if inputs.len() > MAX_TEXTURE_INPUTS {
         return Err(PluginError::invalid_definition(format!(
-            "{owner_kind} '{owner_id}' exceeds {MAX_CAPABILITIES} shader capabilities"
+            "{owner_kind} '{owner_id}' exceeds {MAX_TEXTURE_INPUTS} texture inputs"
         )));
     }
     let mut ids = HashSet::new();
-    for capability in capabilities {
-        capability.validate(owner_kind, owner_id, properties)?;
-        if !ids.insert(capability.id()) {
+    for input in inputs {
+        input.validate(owner_kind, owner_id, properties)?;
+        if !ids.insert(input.id()) {
             return Err(PluginError::invalid_definition(format!(
-                "{owner_kind} '{owner_id}' has duplicate capability ID '{}'",
-                capability.id()
+                "{owner_kind} '{owner_id}' has duplicate input ID '{}'",
+                input.id()
             )));
         }
     }

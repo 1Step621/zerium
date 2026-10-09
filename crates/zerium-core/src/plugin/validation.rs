@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use crate::localized_text::LocalizedText;
-use crate::property::{PropertySchema, PropertyType, PropertyValueType, ScalarPropertyType};
+use crate::property::{PropertyDefinition, PropertySchema, ScalarPropertyType, ValueSchema};
 
 use super::PluginError;
 use super::identifier::validate_logical_id;
@@ -117,7 +117,9 @@ impl<'a> PropertyReferences<'a> {
         ty: ScalarPropertyType,
     ) -> Result<&'a PropertySchema, PluginError> {
         self.check(id, &format!("a {ty:?} value"), |property| {
-            matches!(property.ty(), PropertyType::Value(PropertyValueType::Scalar(actual)) if *actual == ty)
+            property
+                .scalar_type(None, None)
+                .is_some_and(|actual| actual.same_type(&ty))
         })
     }
 
@@ -125,22 +127,22 @@ impl<'a> PropertyReferences<'a> {
         self.check(
             id,
             "a tuple of two f32 values",
-            |property| matches!(property.ty(), PropertyType::Value(ty) if is_f32_pair(ty)),
+            |property| matches!(property.definition(), PropertyDefinition::Value(value) if is_f32_pair(value)),
         )
     }
 
     /// Two placement axes, each selecting start (0), center (1), or end (2).
     pub(super) fn origin(&self, id: &str) -> Result<&'a PropertySchema, PluginError> {
         self.check(id, "a tuple of two enums each containing exactly 0..=2", |property| {
-            matches!(property.ty(), PropertyType::Value(PropertyValueType::Tuple(tuple))
-                if tuple.scalars().len() == 2 && tuple.scalars().iter().all(|ty| {
-                    matches!(ty, ScalarPropertyType::Enum(enumeration)
-                        if enumeration.values().len() == 3 && (0..=2).all(|value| enumeration.values().contains(&value)))
+            matches!(property.definition(), PropertyDefinition::Value(ValueSchema::Tuple(tuple))
+                if tuple.len() == 2 && tuple.iter().all(|scalar| {
+                    matches!(&scalar.ty, ScalarPropertyType::Enum(enumeration)
+                        if enumeration.values().len() == 3 && (0..=2).all(|value| enumeration.contains(value)))
                 }))
         })
     }
 }
 
-pub(super) fn is_f32_pair(ty: &PropertyValueType) -> bool {
-    matches!(ty, PropertyValueType::Tuple(tuple) if tuple.scalars() == [ScalarPropertyType::F32, ScalarPropertyType::F32])
+pub(super) fn is_f32_pair(schema: &ValueSchema) -> bool {
+    matches!(schema, ValueSchema::Tuple(tuple) if tuple.len() == 2 && tuple.iter().all(|scalar| scalar.ty == ScalarPropertyType::F32))
 }

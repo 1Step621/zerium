@@ -38,10 +38,12 @@ the plugin and do not edit its files manually. See the
       "label": { "ja-JP": "サンプル", "en-US": "Example" }
     },
     "symbol": "■",
-    "shader": { "module": "shape" },
-    "output_bounds": {
-      "min": ["viewport::min::x", "viewport::min::y"],
-      "max": ["viewport::max::x", "viewport::max::y"]
+    "render": {
+      "shader": { "module": "shape" },
+      "bounds": {
+        "min": ["viewport::min::x", "viewport::min::y"],
+        "max": ["viewport::max::x", "viewport::max::y"]
+      }
     }
   }]
 }
@@ -65,9 +67,11 @@ from `editor`. Capabilities reference these properties rather than adding their
 own controls.
 
 Scalar types are `f32`, `i32`, `u32`, `bool`, `color`, `string`, `file`, and finite
-`enum` contracts. `type` and `default` use tagged values: `{"value":"f32"}` has
-an `{"f32":0}` default. Tuples contain 2–64 scalars; arrays contain scalars or
-tuples. Nested tuples and nested arrays are unsupported.
+`enum` contracts. Each scalar declares its type, plain default value, and optional
+editing settings together: `"type": "f32", "default": 0`. Tuples contain 2–64
+scalar declarations; arrays contain scalars or tuples. Nested tuples and nested
+arrays are unsupported. Project values retain type tags and stable array-element
+IDs; these are not part of plugin authoring.
 
 For example, a position property declares two independently editable scalars:
 
@@ -75,17 +79,16 @@ For example, a position property declares two independently editable scalars:
 {
   "id": "position",
   "label": { "en-US": "Position" },
-  "type": { "value": ["f32", "f32"] },
-  "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
-  "configurations": [
-    { "animatable": true, "ui": { "label": { "en-US": "X" }, "unit": "px", "step": 1 } },
-    { "animatable": true, "ui": { "label": { "en-US": "Y" }, "unit": "px", "step": 1 } }
+  "type": "tuple",
+  "elements": [
+    { "type": "f32", "default": 0, "animatable": true, "ui": { "label": { "en-US": "X" }, "unit": "px", "step": 1 } },
+    { "type": "f32", "default": 0, "animatable": true, "ui": { "label": { "en-US": "Y" }, "unit": "px", "step": 1 } }
   ]
 }
 ```
 
-`configurations` is required: one entry per scalar, including each scalar position
-in an array's element type.
+Settings belong on each scalar declaration, including the scalars inside tuple
+and array element declarations.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
@@ -93,7 +96,7 @@ in an array's element type.
 | `animatable` | `false` | Allow numeric or color animation |
 | `scene_bindable` | `true` | Allow exposure as a scene argument |
 | `constraints` | Unrestricted | Validate defaults, edits, loaded values, and animation endpoints |
-| `ui` | Scalar defaults | Labels, units, visibility, numeric steps, enum labels, and editor hints |
+| `ui` | Scalar defaults | Labels, units, visibility, numeric steps, and editor hints |
 
 Numeric bounds belong in each scalar's `constraints`. Units are the same in
 projects, shaders, and controls. `ui.step` sets the step-button increment;
@@ -103,29 +106,33 @@ visible; color is a single scalar.
 
 ### Arrays
 
-Array declarations require `max_items` and `append_default`; `min_items` defaults
-to zero. Configurations describe one element and apply to every element.
-Non-empty defaults use stable positive element IDs:
+Array declarations require `element`, `max_items`, and a plain `default` array;
+`min_items` defaults to zero. The element declaration provides the default and
+settings for newly added elements:
 
 ```json
 {
   "id": "points",
   "label": { "en-US": "Points" },
-  "type": { "array": { "element_type": ["f32", "f32"], "min_items": 3, "max_items": 1024 } },
-  "default": { "array": [
-    { "id": 1, "value": { "tuple": [{ "f32": 0 }, { "f32": 0 }] } },
-    { "id": 2, "value": { "tuple": [{ "f32": 100 }, { "f32": 0 }] } },
-    { "id": 3, "value": { "tuple": [{ "f32": 50 }, { "f32": 100 }] } }
-  ] },
-  "append_default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
-  "configurations": [{}, {}]
+  "type": "array",
+  "element": {
+    "type": "tuple",
+    "elements": [
+      { "type": "f32", "default": 0 },
+      { "type": "f32", "default": 0 }
+    ]
+  },
+  "min_items": 3,
+  "max_items": 1024,
+  "default": [[0, 0], [100, 0], [50, 100]]
 }
 ```
 
-`append_default` is a tagged element value without an ID and must satisfy the
-element type and constraints. New elements always use this value. Elements can
-be bound to scene arguments individually; a whole array cannot. Shaders receive
-ordered values without element IDs.
+Element defaults and array defaults must satisfy their types and constraints.
+The host assigns initial element IDs in declaration order, starting at one, and
+preserves IDs when editing and saving projects. Elements can be bound to scene
+arguments individually; a whole array cannot. Shaders receive ordered values
+without element IDs.
 
 String arrays use text inputs. Set `ui.editor: "font_family"` for a system-font
 picker when the array represents fallback fonts.
@@ -138,17 +145,18 @@ Finite choices are declared in the type:
 {
   "id": "mode",
   "label": { "en-US": "Mode" },
-  "type": { "value": { "enum": [0, 1] } },
-  "default": { "enum": 0 },
-  "configurations": [{ "ui": { "enum_variants": {
-    "0": { "en-US": "Outside" },
-    "1": { "en-US": "Inside" }
-  } } }]
+  "type": "enum",
+  "default": 0,
+  "variants": [
+    { "value": 0, "label": { "en-US": "Outside" } },
+    { "value": 1, "label": { "en-US": "Inside" } }
+  ]
 }
 ```
 
-`ui.enum_variants` must label every member exactly once when provided; otherwise
-numeric labels are used. Enums are represented as `u32` in shaders.
+Values must be unique. Each label is optional and falls back to its numeric
+value; displayed choices must remain distinct. Labels affect presentation, not
+type compatibility. Enums are represented as `u32` in shaders.
 
 Animation tracks address individual scalars, including tuple and array-element
 scalars. `f32`, `i32`, `u32`, and colors interpolate; other scalar types and array
@@ -161,9 +169,9 @@ interpolation rounds to integer values.
 {
   "id": "source_file",
   "label": { "en-US": "Source" },
-  "type": { "value": "file" },
-  "default": { "file": null },
-  "configurations": [{ "ui": { "extensions": ["mp4", "mov"] } }]
+  "type": "file",
+  "default": null,
+  "ui": { "extensions": ["mp4", "mov"] }
 }
 ```
 
@@ -178,7 +186,7 @@ automatically create inputs. Readers are declared on the inputs.
 
 ## Visual and audio inputs
 
-Items and effects declare visual inputs in `capabilities`. Array order fixes GPU
+Items and effects declare visual inputs in `render.inputs`. Array order fixes GPU
 binding order; IDs must be unique WGSL identifiers. At most eight inputs are
 allowed, and `capability_sampler` is reserved. Input textures contain scene-linear,
 premultiplied color and are imported by ID from the generated entity interface.
@@ -225,11 +233,13 @@ inputs:
     "file": "source_file",
     "reader": "zerium.ffmpeg",
     "volume": "volume",
-    "source_start": "source_start",
-    "source_duration": "source_duration",
-    "playback_speed": "rate",
-    "end_behavior": "end_behavior",
-    "preserve_pitch": "preserve_pitch"
+    "preserve_pitch": "preserve_pitch",
+    "playback": {
+      "source_start": "source_start",
+      "source_duration": "source_duration",
+      "playback_speed": "rate",
+      "end_behavior": "end_behavior"
+    }
   }]
 }
 ```
@@ -248,8 +258,9 @@ property references. Share property IDs to synchronize their settings.
 | `end_behavior` | Enum `[0, 1, 2]` | Stop, loop, hold |
 | `preserve_pitch` (audio) | `bool` | Preserve pitch when changing speed |
 
-A visual `playback` block requires the first four references; audio requires all
-five. The three time-mapping references must be distinct. All settings in this
+Visual and audio inputs use the same `playback` block with the first four
+references. Audio additionally requires `preserve_pitch` outside that block.
+The three time-mapping references must be distinct. All settings in this
 table must disable animation and set `scene_bindable: false`.
 
 Playback reads the interval from `source_start` to `source_start + source_duration`
@@ -398,13 +409,13 @@ A shader `module` is a WGSL identifier resolved to `<module>.wesl` in the plugin
 root. Other root-level WESL files can be imported as helpers; `generated` is
 reserved for the host interface.
 
-`generated/<entity_id>.wesl` contains an entity's typed properties and capability
+`generated/<entity_id>.wesl` contains an entity's typed properties and texture
 inputs and is shared by all its effect passes. Shared shaders can import
 `package::generated::host::entity` to use the current owner's interface.
 Visual item and effect IDs must be WGSL identifiers and distinct across both
 kinds. Names beginning with `_` are private.
 
-Regenerate when entity IDs or shader kinds, property IDs/types/order, capability
+Regenerate when entity IDs, property IDs/types/order, input
 IDs/order, or the host API change. Labels, defaults, enum choices, and array
 length limits do not require regeneration. Distribute WESL and generated
 interfaces; the host links them to WGSL when loading.
@@ -438,17 +449,24 @@ helpers, including `rotate`, `srgb`, and `scene_color`, live in
 
 ## Render surfaces and bounds
 
-Each item and effect declares an `output_bounds` rectangle in composition pixels.
-The host evaluates its four edges before allocating the surface. Item effects
+Visual items and effects group drawing declarations in `render`: `bounds`,
+`inputs`, and either an item `shader` or effect `passes`. Items may omit `render`
+when they only provide audio or editor behavior. Item `vertex_count` defaults to
+six; effect `scale` defaults to one.
+
+`render.bounds` is a rectangle in composition pixels. The host evaluates its
+four edges before allocating the surface. Item effects
 can preserve content outside the viewport; a scene composites its children into
 the viewport before applying scene effects, clipping offscreen content there.
 Scene effects render inside the viewport regardless of their declared bounds.
 
 ```json
 {
-  "output_bounds": {
-    "min": ["input::min::x - p::radius", "input::min::y - p::radius"],
-    "max": ["input::max::x + p::radius", "input::max::y + p::radius"]
+  "render": {
+    "bounds": {
+      "min": ["input::min::x - p::radius", "input::min::y - p::radius"],
+      "max": ["input::max::x + p::radius", "input::max::y + p::radius"]
+    }
   }
 }
 ```
@@ -502,7 +520,7 @@ See the bundled `rotate_3d` effect for a matching implementation.
 
 ### Effect input coordinates
 
-`input_space` defaults to `"output"`: the input is composited into the output
+`render.input_space` defaults to `"output"`: the input is composited into the output
 rectangle and can be sampled with output UVs. With `"source"`, the input keeps
 its own rectangle; this requires exactly one render pass.
 
@@ -513,19 +531,21 @@ composition positions. A `render_result` texture is scene-sized; sample it with
 
 ## Effects and passes
 
-Effects declare an ordered, non-empty `passes` array:
+Effects declare an ordered, non-empty `render.passes` array:
 
 ```json
 {
-  "passes": [{
-    "type": "compute",
-    "shader": { "module": "blur" },
-    "dispatch": ["width", "height", "one"],
-    "constants": [
-      { "id": "direction_x", "value": { "f32": 1 } },
-      { "id": "direction_y", "value": { "f32": 0 } }
-    ]
-  }]
+  "render": {
+    "passes": [{
+      "type": "compute",
+      "shader": { "module": "blur" },
+      "dispatch": ["width", "height", "one"],
+      "constants": [
+        { "id": "direction_x", "value": { "f32": 1 } },
+        { "id": "direction_y", "value": { "f32": 0 } }
+      ]
+    }]
+  }
 }
 ```
 
@@ -537,7 +557,7 @@ or `bool` and are imported from WESL's virtual `constants` module, for example
 
 Render and compute passes receive `effect_input` (current input), `effect_source`
 (the image at the start of the regular pass chain), and `effect_sampler`. Compute
-passes write with `store(position, color)`. Capability inputs use the generated
+passes write with `store(position, color)`. Texture inputs use the generated
 entity interface and `capability_sampler`, which is generated only when needed.
 
 ### Temporal passes

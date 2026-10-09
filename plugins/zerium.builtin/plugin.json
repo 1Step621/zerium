@@ -5,16 +5,6 @@
   "items": [
     {
       "id": "rectangle",
-      "output_bounds": {
-        "min": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
-        ],
-        "max": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
-        ]
-      },
       "label": { "ja-JP": "四角形", "en-US": "Rectangle" },
       "category": {
         "id": "shape",
@@ -22,8 +12,19 @@
       },
       "tags": ["矩形", "長方形", "square", "box"],
       "symbol": "■",
-      "shader": { "module": "rectangle" },
-      "capabilities": [],
+      "render": {
+        "shader": { "module": "rectangle" },
+        "bounds": {
+          "min": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
+          ],
+          "max": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
+          ]
+        }
+      },
       "editor": [
         { "type": "position", "property": "position" },
         {
@@ -37,16 +38,19 @@
       "properties": [
         {
           "id": "position",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": { "ja-JP": "位置", "en-US": "Position" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
             },
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
@@ -55,39 +59,39 @@
         },
         {
           "id": "origin",
-          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
-          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
           "label": { "ja-JP": "原点", "en-US": "Origin" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
-              "ui": {
-                "label": { "ja-JP": "X", "en-US": "X" },
-                "enum_variants": {
-                  "0": { "ja-JP": "左", "en-US": "Left" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "右", "en-US": "Right" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "左", "en-US": "Left" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "右", "en-US": "Right" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "X", "en-US": "X" } }
             },
             {
-              "ui": {
-                "label": { "ja-JP": "Y", "en-US": "Y" },
-                "enum_variants": {
-                  "0": { "ja-JP": "上", "en-US": "Top" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "下", "en-US": "Bottom" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "上", "en-US": "Top" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "下", "en-US": "Bottom" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "Y", "en-US": "Y" } }
             }
           ]
         },
         {
           "id": "size",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 320 }, { "f32": 180 }] },
           "label": { "ja-JP": "サイズ", "en-US": "Size" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 320,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -96,6 +100,8 @@
               }
             },
             {
+              "type": "f32",
+              "default": 180,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -107,38 +113,24 @@
         },
         {
           "id": "color",
-          "type": { "value": "color" },
-          "default": { "color": [1, 0.28, 0.035, 1] },
           "label": { "ja-JP": "色", "en-US": "Color" },
-          "configurations": [{ "animatable": true }]
+          "type": "color",
+          "default": [1, 0.28, 0.035, 1],
+          "animatable": true
         },
         {
           "id": "corner_radius",
-          "type": { "value": "f32" },
-          "default": { "f32": 0 },
           "label": { "ja-JP": "角丸", "en-US": "Corner Radius" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 5000 },
-              "ui": { "unit": "px" }
-            }
-          ]
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 5000 },
+          "ui": { "unit": "px" }
         }
       ]
     },
     {
       "id": "triangle",
-      "output_bounds": {
-        "min": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
-        ],
-        "max": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
-        ]
-      },
       "label": { "ja-JP": "三角形", "en-US": "Triangle" },
       "category": {
         "id": "shape",
@@ -146,8 +138,19 @@
       },
       "tags": ["さんかく", "triangle"],
       "symbol": "▲",
-      "shader": { "module": "triangle" },
-      "capabilities": [],
+      "render": {
+        "shader": { "module": "triangle" },
+        "bounds": {
+          "min": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
+          ],
+          "max": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
+          ]
+        }
+      },
       "editor": [
         { "type": "position", "property": "position" },
         {
@@ -161,16 +164,19 @@
       "properties": [
         {
           "id": "position",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": { "ja-JP": "位置", "en-US": "Position" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
             },
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
@@ -179,39 +185,39 @@
         },
         {
           "id": "origin",
-          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
-          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
           "label": { "ja-JP": "原点", "en-US": "Origin" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
-              "ui": {
-                "label": { "ja-JP": "X", "en-US": "X" },
-                "enum_variants": {
-                  "0": { "ja-JP": "左", "en-US": "Left" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "右", "en-US": "Right" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "左", "en-US": "Left" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "右", "en-US": "Right" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "X", "en-US": "X" } }
             },
             {
-              "ui": {
-                "label": { "ja-JP": "Y", "en-US": "Y" },
-                "enum_variants": {
-                  "0": { "ja-JP": "上", "en-US": "Top" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "下", "en-US": "Bottom" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "上", "en-US": "Top" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "下", "en-US": "Bottom" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "Y", "en-US": "Y" } }
             }
           ]
         },
         {
           "id": "size",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 240 }, { "f32": 200 }] },
           "label": { "ja-JP": "サイズ", "en-US": "Size" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 240,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -220,6 +226,8 @@
               }
             },
             {
+              "type": "f32",
+              "default": 200,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -231,38 +239,24 @@
         },
         {
           "id": "color",
-          "type": { "value": "color" },
-          "default": { "color": [1, 0.52, 0.06, 1] },
           "label": { "ja-JP": "色", "en-US": "Color" },
-          "configurations": [{ "animatable": true }]
+          "type": "color",
+          "default": [1, 0.52, 0.06, 1],
+          "animatable": true
         },
         {
           "id": "apex_position",
-          "type": { "value": "f32" },
-          "default": { "f32": 50 },
           "label": { "ja-JP": "頂点位置", "en-US": "Vertex Position" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 100 },
-              "ui": { "unit": "%", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 50,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 100 },
+          "ui": { "unit": "%", "step": 1 }
         }
       ]
     },
     {
       "id": "ellipse",
-      "output_bounds": {
-        "min": [
-          "placement_center(p::position::v0, p::diameter::v0, p::origin::v0) - (math::abs(p::diameter::v0) / 2)",
-          "placement_center(p::position::v1, p::diameter::v1, p::origin::v1) - (math::abs(p::diameter::v1) / 2)"
-        ],
-        "max": [
-          "placement_center(p::position::v0, p::diameter::v0, p::origin::v0) + (math::abs(p::diameter::v0) / 2)",
-          "placement_center(p::position::v1, p::diameter::v1, p::origin::v1) + (math::abs(p::diameter::v1) / 2)"
-        ]
-      },
       "label": { "ja-JP": "楕円", "en-US": "Ellipse" },
       "category": {
         "id": "shape",
@@ -270,8 +264,19 @@
       },
       "tags": ["円", "丸", "circle", "oval"],
       "symbol": "●",
-      "shader": { "module": "ellipse" },
-      "capabilities": [],
+      "render": {
+        "shader": { "module": "ellipse" },
+        "bounds": {
+          "min": [
+            "placement_center(p::position::v0, p::diameter::v0, p::origin::v0) - (math::abs(p::diameter::v0) / 2)",
+            "placement_center(p::position::v1, p::diameter::v1, p::origin::v1) - (math::abs(p::diameter::v1) / 2)"
+          ],
+          "max": [
+            "placement_center(p::position::v0, p::diameter::v0, p::origin::v0) + (math::abs(p::diameter::v0) / 2)",
+            "placement_center(p::position::v1, p::diameter::v1, p::origin::v1) + (math::abs(p::diameter::v1) / 2)"
+          ]
+        }
+      },
       "editor": [
         { "type": "position", "property": "position" },
         {
@@ -285,16 +290,19 @@
       "properties": [
         {
           "id": "position",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": { "ja-JP": "位置", "en-US": "Position" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
             },
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
@@ -303,39 +311,39 @@
         },
         {
           "id": "origin",
-          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
-          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
           "label": { "ja-JP": "原点", "en-US": "Origin" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
-              "ui": {
-                "label": { "ja-JP": "X", "en-US": "X" },
-                "enum_variants": {
-                  "0": { "ja-JP": "左", "en-US": "Left" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "右", "en-US": "Right" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "左", "en-US": "Left" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "右", "en-US": "Right" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "X", "en-US": "X" } }
             },
             {
-              "ui": {
-                "label": { "ja-JP": "Y", "en-US": "Y" },
-                "enum_variants": {
-                  "0": { "ja-JP": "上", "en-US": "Top" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "下", "en-US": "Bottom" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "上", "en-US": "Top" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "下", "en-US": "Bottom" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "Y", "en-US": "Y" } }
             }
           ]
         },
         {
           "id": "diameter",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 120 }, { "f32": 120 }] },
           "label": { "ja-JP": "直径", "en-US": "Diameter" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 120,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -344,6 +352,8 @@
               }
             },
             {
+              "type": "f32",
+              "default": 120,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -355,25 +365,15 @@
         },
         {
           "id": "color",
-          "type": { "value": "color" },
-          "default": { "color": [0.92, 0.18, 0.025, 1] },
           "label": { "ja-JP": "色", "en-US": "Color" },
-          "configurations": [{ "animatable": true }]
+          "type": "color",
+          "default": [0.92, 0.18, 0.025, 1],
+          "animatable": true
         }
       ]
     },
     {
       "id": "spline_path",
-      "output_bounds": {
-        "min": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) * 1.504 / 2 + math::abs(p::width))",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) * 1.504 / 2 + math::abs(p::width))"
-        ],
-        "max": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) * 1.504 / 2 + math::abs(p::width))",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) * 1.504 / 2 + math::abs(p::width))"
-        ]
-      },
       "label": { "ja-JP": "スプラインパス", "en-US": "Spline Path" },
       "category": {
         "id": "shape",
@@ -381,8 +381,19 @@
       },
       "tags": ["曲線", "パス", "スプライン", "spline", "path"],
       "symbol": "〰",
-      "shader": { "module": "spline_path" },
-      "capabilities": [],
+      "render": {
+        "shader": { "module": "spline_path" },
+        "bounds": {
+          "min": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) * 1.504 / 2 + math::abs(p::width))",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) * 1.504 / 2 + math::abs(p::width))"
+          ],
+          "max": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) * 1.504 / 2 + math::abs(p::width))",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) * 1.504 / 2 + math::abs(p::width))"
+          ]
+        }
+      },
       "editor": [
         { "type": "position", "property": "position" },
         {
@@ -412,16 +423,19 @@
       "properties": [
         {
           "id": "position",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": { "ja-JP": "経路の位置", "en-US": "Path Position" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
             },
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
@@ -430,39 +444,39 @@
         },
         {
           "id": "origin",
-          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
-          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
           "label": { "ja-JP": "原点", "en-US": "Origin" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
-              "ui": {
-                "label": { "ja-JP": "X", "en-US": "X" },
-                "enum_variants": {
-                  "0": { "ja-JP": "左", "en-US": "Left" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "右", "en-US": "Right" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "左", "en-US": "Left" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "右", "en-US": "Right" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "X", "en-US": "X" } }
             },
             {
-              "ui": {
-                "label": { "ja-JP": "Y", "en-US": "Y" },
-                "enum_variants": {
-                  "0": { "ja-JP": "上", "en-US": "Top" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "下", "en-US": "Bottom" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "上", "en-US": "Top" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "下", "en-US": "Bottom" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "Y", "en-US": "Y" } }
             }
           ]
         },
         {
           "id": "size",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 320 }, { "f32": 240 }] },
           "label": { "ja-JP": "経路のサイズ", "en-US": "Path Size" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 320,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -471,6 +485,8 @@
               }
             },
             {
+              "type": "f32",
+              "default": 240,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -482,138 +498,110 @@
         },
         {
           "id": "points",
-          "type": {
-            "array": {
-              "element_type": ["f32", "f32"],
-              "max_items": 64,
-              "min_items": 2
-            }
-          },
-          "default": {
-            "array": [
-              { "id": 1, "value": { "tuple": [{ "f32": 0 }, { "f32": 70 }] } },
-              { "id": 2, "value": { "tuple": [{ "f32": 30 }, { "f32": 25 }] } },
-              { "id": 3, "value": { "tuple": [{ "f32": 70 }, { "f32": 75 }] } },
-              { "id": 4, "value": { "tuple": [{ "f32": 100 }, { "f32": 30 }] } }
+          "label": { "ja-JP": "経路の点", "en-US": "Path Points" },
+          "type": "array",
+          "element": {
+            "type": "tuple",
+            "elements": [
+              {
+                "type": "f32",
+                "default": 50,
+                "animatable": true,
+                "constraints": { "min": 0, "max": 100 },
+                "ui": {
+                  "label": { "ja-JP": "X", "en-US": "X" },
+                  "unit": "%",
+                  "step": 1
+                }
+              },
+              {
+                "type": "f32",
+                "default": 50,
+                "animatable": true,
+                "constraints": { "min": 0, "max": 100 },
+                "ui": {
+                  "label": { "ja-JP": "Y", "en-US": "Y" },
+                  "unit": "%",
+                  "step": 1
+                }
+              }
             ]
           },
-          "append_default": { "tuple": [{ "f32": 50 }, { "f32": 50 }] },
-          "label": { "ja-JP": "経路の点", "en-US": "Path Points" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 100 },
-              "ui": {
-                "label": { "ja-JP": "X", "en-US": "X" },
-                "unit": "%",
-                "step": 1
-              }
-            },
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 100 },
-              "ui": {
-                "label": { "ja-JP": "Y", "en-US": "Y" },
-                "unit": "%",
-                "step": 1
-              }
-            }
+          "max_items": 64,
+          "min_items": 2,
+          "default": [
+            [0, 70],
+            [30, 25],
+            [70, 75],
+            [100, 30]
           ]
         },
         {
           "id": "tension",
-          "type": { "value": "f32" },
-          "default": { "f32": 0 },
           "label": { "ja-JP": "テンション", "en-US": "Tension" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": -100, "max": 100 },
-              "ui": { "unit": "%", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": -100, "max": 100 },
+          "ui": { "unit": "%", "step": 1 }
         },
         {
           "id": "width",
-          "type": { "value": "f32" },
-          "default": { "f32": 8 },
           "label": { "ja-JP": "線幅", "en-US": "Stroke Width" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 1000 },
-              "ui": { "unit": "px", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 8,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 1000 },
+          "ui": { "unit": "px", "step": 1 }
         },
         {
           "id": "color",
-          "type": { "value": "color" },
-          "default": { "color": [1, 0.52, 0.06, 1] },
           "label": { "ja-JP": "線の色", "en-US": "Stroke Color" },
-          "configurations": [{ "animatable": true }]
+          "type": "color",
+          "default": [1, 0.52, 0.06, 1],
+          "animatable": true
         },
         {
           "id": "closed",
-          "type": { "value": "bool" },
-          "default": { "bool": false },
           "label": { "ja-JP": "パスを閉じる", "en-US": "Close Path" },
-          "configurations": [{}]
+          "type": "bool",
+          "default": false
         },
         {
           "id": "fill_enabled",
-          "type": { "value": "bool" },
-          "default": { "bool": false },
           "label": { "ja-JP": "塗りつぶす", "en-US": "Fill" },
-          "configurations": [{}]
+          "type": "bool",
+          "default": false
         },
         {
           "id": "fill_color",
-          "type": { "value": "color" },
-          "default": { "color": [1, 0.52, 0.06, 1] },
           "label": { "ja-JP": "塗りの色", "en-US": "Fill Color" },
-          "configurations": [{ "animatable": true }]
+          "type": "color",
+          "default": [1, 0.52, 0.06, 1],
+          "animatable": true
         },
         {
           "id": "stroke_start",
-          "type": { "value": "f32" },
-          "default": { "f32": 0 },
           "label": { "ja-JP": "線の開始", "en-US": "Stroke Start" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 100 },
-              "ui": { "unit": "%", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 100 },
+          "ui": { "unit": "%", "step": 1 }
         },
         {
           "id": "stroke_end",
-          "type": { "value": "f32" },
-          "default": { "f32": 100 },
           "label": { "ja-JP": "線の終了", "en-US": "Stroke End" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 100 },
-              "ui": { "unit": "%", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 100,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 100 },
+          "ui": { "unit": "%", "step": 1 }
         }
       ]
     },
     {
       "id": "polygon",
-      "output_bounds": {
-        "min": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
-        ],
-        "max": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
-        ]
-      },
       "label": { "ja-JP": "多角形", "en-US": "Polygon" },
       "category": {
         "id": "shape",
@@ -621,8 +609,19 @@
       },
       "tags": ["ポリゴン", "polygon"],
       "symbol": "⬟",
-      "shader": { "module": "polygon" },
-      "capabilities": [],
+      "render": {
+        "shader": { "module": "polygon" },
+        "bounds": {
+          "min": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
+          ],
+          "max": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
+          ]
+        }
+      },
       "editor": [
         { "type": "position", "property": "position" },
         {
@@ -643,16 +642,19 @@
       "properties": [
         {
           "id": "position",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": { "ja-JP": "位置", "en-US": "Position" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
             },
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
@@ -661,39 +663,39 @@
         },
         {
           "id": "origin",
-          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
-          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
           "label": { "ja-JP": "原点", "en-US": "Origin" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
-              "ui": {
-                "label": { "ja-JP": "X", "en-US": "X" },
-                "enum_variants": {
-                  "0": { "ja-JP": "左", "en-US": "Left" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "右", "en-US": "Right" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "左", "en-US": "Left" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "右", "en-US": "Right" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "X", "en-US": "X" } }
             },
             {
-              "ui": {
-                "label": { "ja-JP": "Y", "en-US": "Y" },
-                "enum_variants": {
-                  "0": { "ja-JP": "上", "en-US": "Top" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "下", "en-US": "Bottom" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "上", "en-US": "Top" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "下", "en-US": "Bottom" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "Y", "en-US": "Y" } }
             }
           ]
         },
         {
           "id": "size",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 320 }, { "f32": 240 }] },
           "label": { "ja-JP": "サイズ", "en-US": "Size" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 320,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -702,6 +704,8 @@
               }
             },
             {
+              "type": "f32",
+              "default": 240,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -713,67 +717,54 @@
         },
         {
           "id": "points",
-          "type": {
-            "array": {
-              "element_type": ["f32", "f32"],
-              "max_items": 1024,
-              "min_items": 3
-            }
-          },
-          "default": {
-            "array": [
-              { "id": 1, "value": { "tuple": [{ "f32": 50 }, { "f32": 0 }] } },
+          "label": { "ja-JP": "頂点", "en-US": "Vertex" },
+          "type": "array",
+          "element": {
+            "type": "tuple",
+            "elements": [
               {
-                "id": 2,
-                "value": { "tuple": [{ "f32": 100 }, { "f32": 100 }] }
+                "type": "f32",
+                "default": 50,
+                "animatable": true,
+                "constraints": { "min": 0, "max": 100 },
+                "ui": {
+                  "label": { "ja-JP": "X", "en-US": "X" },
+                  "unit": "%",
+                  "step": 1
+                }
               },
-              { "id": 3, "value": { "tuple": [{ "f32": 0 }, { "f32": 100 }] } }
+              {
+                "type": "f32",
+                "default": 50,
+                "animatable": true,
+                "constraints": { "min": 0, "max": 100 },
+                "ui": {
+                  "label": { "ja-JP": "Y", "en-US": "Y" },
+                  "unit": "%",
+                  "step": 1
+                }
+              }
             ]
           },
-          "append_default": { "tuple": [{ "f32": 50 }, { "f32": 50 }] },
-          "label": { "ja-JP": "頂点", "en-US": "Vertex" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 100 },
-              "ui": {
-                "label": { "ja-JP": "X", "en-US": "X" },
-                "unit": "%",
-                "step": 1
-              }
-            },
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 100 },
-              "ui": {
-                "label": { "ja-JP": "Y", "en-US": "Y" },
-                "unit": "%",
-                "step": 1
-              }
-            }
+          "max_items": 1024,
+          "min_items": 3,
+          "default": [
+            [50, 0],
+            [100, 100],
+            [0, 100]
           ]
         },
         {
           "id": "color",
-          "type": { "value": "color" },
-          "default": { "color": [1, 0.52, 0.06, 1] },
           "label": { "ja-JP": "色", "en-US": "Color" },
-          "configurations": [{ "animatable": true }]
+          "type": "color",
+          "default": [1, 0.52, 0.06, 1],
+          "animatable": true
         }
       ]
     },
     {
       "id": "line",
-      "output_bounds": {
-        "min": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - ((math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - ((math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2)"
-        ],
-        "max": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + ((math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + ((math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2)"
-        ]
-      },
       "label": { "ja-JP": "直線", "en-US": "Line" },
       "category": {
         "id": "shape",
@@ -781,8 +772,19 @@
       },
       "tags": ["線", "line"],
       "symbol": "╱",
-      "shader": { "module": "line" },
-      "capabilities": [],
+      "render": {
+        "shader": { "module": "line" },
+        "bounds": {
+          "min": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - ((math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - ((math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2)"
+          ],
+          "max": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + ((math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + ((math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2)"
+          ]
+        }
+      },
       "editor": [
         { "type": "position", "property": "position" },
         {
@@ -796,16 +798,19 @@
       "properties": [
         {
           "id": "position",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": { "ja-JP": "位置", "en-US": "Position" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
             },
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
@@ -814,39 +819,39 @@
         },
         {
           "id": "origin",
-          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
-          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
           "label": { "ja-JP": "原点", "en-US": "Origin" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
-              "ui": {
-                "label": { "ja-JP": "X", "en-US": "X" },
-                "enum_variants": {
-                  "0": { "ja-JP": "左", "en-US": "Left" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "右", "en-US": "Right" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "左", "en-US": "Left" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "右", "en-US": "Right" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "X", "en-US": "X" } }
             },
             {
-              "ui": {
-                "label": { "ja-JP": "Y", "en-US": "Y" },
-                "enum_variants": {
-                  "0": { "ja-JP": "上", "en-US": "Top" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "下", "en-US": "Bottom" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "上", "en-US": "Top" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "下", "en-US": "Bottom" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "Y", "en-US": "Y" } }
             }
           ]
         },
         {
           "id": "size",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 400 }, { "f32": 12 }] },
           "label": { "ja-JP": "サイズ", "en-US": "Size" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 400,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -855,6 +860,8 @@
               }
             },
             {
+              "type": "f32",
+              "default": 12,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -866,45 +873,30 @@
         },
         {
           "id": "angle",
-          "type": { "value": "f32" },
-          "default": { "f32": 0 },
           "label": { "ja-JP": "角度", "en-US": "Angle" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": -360, "max": 360 },
-              "ui": { "unit": "°", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": -360, "max": 360 },
+          "ui": { "unit": "°", "step": 1 }
         },
         {
           "id": "color",
-          "type": { "value": "color" },
-          "default": { "color": [1, 1, 1, 1] },
           "label": { "ja-JP": "色", "en-US": "Color" },
-          "configurations": [{ "animatable": true }]
+          "type": "color",
+          "default": [1, 1, 1, 1],
+          "animatable": true
         },
         {
           "id": "round_ends",
-          "type": { "value": "bool" },
-          "default": { "bool": true },
           "label": { "ja-JP": "端を丸める", "en-US": "Round Ends" },
-          "configurations": [{}]
+          "type": "bool",
+          "default": true
         }
       ]
     },
     {
       "id": "star",
-      "output_bounds": {
-        "min": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
-        ],
-        "max": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
-        ]
-      },
       "label": { "ja-JP": "星", "en-US": "Star" },
       "category": {
         "id": "shape",
@@ -912,8 +904,19 @@
       },
       "tags": ["スター", "star"],
       "symbol": "★",
-      "shader": { "module": "star" },
-      "capabilities": [],
+      "render": {
+        "shader": { "module": "star" },
+        "bounds": {
+          "min": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
+          ],
+          "max": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
+          ]
+        }
+      },
       "editor": [
         { "type": "position", "property": "position" },
         {
@@ -927,16 +930,19 @@
       "properties": [
         {
           "id": "position",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": { "ja-JP": "位置", "en-US": "Position" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
             },
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
@@ -945,39 +951,39 @@
         },
         {
           "id": "origin",
-          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
-          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
           "label": { "ja-JP": "原点", "en-US": "Origin" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
-              "ui": {
-                "label": { "ja-JP": "X", "en-US": "X" },
-                "enum_variants": {
-                  "0": { "ja-JP": "左", "en-US": "Left" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "右", "en-US": "Right" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "左", "en-US": "Left" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "右", "en-US": "Right" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "X", "en-US": "X" } }
             },
             {
-              "ui": {
-                "label": { "ja-JP": "Y", "en-US": "Y" },
-                "enum_variants": {
-                  "0": { "ja-JP": "上", "en-US": "Top" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "下", "en-US": "Bottom" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "上", "en-US": "Top" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "下", "en-US": "Bottom" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "Y", "en-US": "Y" } }
             }
           ]
         },
         {
           "id": "size",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 240 }, { "f32": 240 }] },
           "label": { "ja-JP": "サイズ", "en-US": "Size" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 240,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -986,6 +992,8 @@
               }
             },
             {
+              "type": "f32",
+              "default": 240,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -997,60 +1005,41 @@
         },
         {
           "id": "points",
-          "type": { "value": "u32" },
-          "default": { "u32": 5 },
           "label": { "ja-JP": "頂点数", "en-US": "Vertex Count" },
-          "configurations": [
-            { "constraints": { "min": 3, "max": 16 }, "ui": { "step": 1 } }
-          ]
+          "type": "u32",
+          "default": 5,
+          "constraints": { "min": 3, "max": 16 },
+          "ui": { "step": 1 }
         },
         {
           "id": "inner_radius",
-          "type": { "value": "f32" },
-          "default": { "f32": 45 },
           "label": { "ja-JP": "内側半径", "en-US": "Inner Radius" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 5, "max": 95 },
-              "ui": { "unit": "%", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 45,
+          "animatable": true,
+          "constraints": { "min": 5, "max": 95 },
+          "ui": { "unit": "%", "step": 1 }
         },
         {
           "id": "rotation",
-          "type": { "value": "f32" },
-          "default": { "f32": 0 },
           "label": { "ja-JP": "回転", "en-US": "Rotation" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": -360, "max": 360 },
-              "ui": { "unit": "°", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": -360, "max": 360 },
+          "ui": { "unit": "°", "step": 1 }
         },
         {
           "id": "color",
-          "type": { "value": "color" },
-          "default": { "color": [1, 0.74, 0.04, 1] },
           "label": { "ja-JP": "色", "en-US": "Color" },
-          "configurations": [{ "animatable": true }]
+          "type": "color",
+          "default": [1, 0.74, 0.04, 1],
+          "animatable": true
         }
       ]
     },
     {
       "id": "text",
-      "output_bounds": {
-        "min": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
-        ],
-        "max": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
-        ]
-      },
       "label": { "ja-JP": "テキスト", "en-US": "Text" },
       "category": {
         "id": "text",
@@ -1058,26 +1047,38 @@
       },
       "tags": ["文字", "字幕", "title", "caption"],
       "symbol": "T",
-      "shader": { "module": "text" },
-      "capabilities": [
-        {
-          "type": "text",
-          "id": "text",
-          "text": "text",
-          "style": {
-            "size": "size",
-            "font_family": "font_family",
-            "font_size": "font_size",
-            "color": "color",
-            "outline_width": "outline_width",
-            "outline_color": "outline_color",
-            "bold": "bold",
-            "italic": "italic",
-            "horizontal_alignment": "horizontal_alignment",
-            "vertical_alignment": "vertical_alignment"
+      "render": {
+        "shader": { "module": "text" },
+        "bounds": {
+          "min": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
+          ],
+          "max": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
+          ]
+        },
+        "inputs": [
+          {
+            "type": "text",
+            "id": "text",
+            "text": "text",
+            "style": {
+              "size": "size",
+              "font_family": "font_family",
+              "font_size": "font_size",
+              "color": "color",
+              "outline_width": "outline_width",
+              "outline_color": "outline_color",
+              "bold": "bold",
+              "italic": "italic",
+              "horizontal_alignment": "horizontal_alignment",
+              "vertical_alignment": "vertical_alignment"
+            }
           }
-        }
-      ],
+        ]
+      },
       "editor": [
         { "type": "position", "property": "position" },
         {
@@ -1092,16 +1093,19 @@
       "properties": [
         {
           "id": "position",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": { "ja-JP": "位置", "en-US": "Position" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
             },
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
@@ -1110,39 +1114,39 @@
         },
         {
           "id": "origin",
-          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
-          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
           "label": { "ja-JP": "原点", "en-US": "Origin" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
-              "ui": {
-                "label": { "ja-JP": "X", "en-US": "X" },
-                "enum_variants": {
-                  "0": { "ja-JP": "左", "en-US": "Left" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "右", "en-US": "Right" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "左", "en-US": "Left" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "右", "en-US": "Right" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "X", "en-US": "X" } }
             },
             {
-              "ui": {
-                "label": { "ja-JP": "Y", "en-US": "Y" },
-                "enum_variants": {
-                  "0": { "ja-JP": "上", "en-US": "Top" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "下", "en-US": "Bottom" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "上", "en-US": "Top" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "下", "en-US": "Bottom" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "Y", "en-US": "Y" } }
             }
           ]
         },
         {
           "id": "size",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 640 }, { "f32": 240 }] },
           "label": { "ja-JP": "サイズ", "en-US": "Size" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 640,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -1151,6 +1155,8 @@
               }
             },
             {
+              "type": "f32",
+              "default": 240,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -1162,121 +1168,93 @@
         },
         {
           "id": "text",
-          "type": { "value": "string" },
-          "default": { "string": "テキスト" },
           "label": { "ja-JP": "テキスト", "en-US": "Text" },
-          "configurations": [{ "ui": { "multiline": true } }]
+          "type": "string",
+          "default": "テキスト",
+          "ui": { "multiline": true }
         },
         {
           "id": "font_family",
-          "type": { "array": { "element_type": "string", "max_items": 1024 } },
-          "default": { "array": [] },
-          "append_default": { "string": "" },
           "label": { "ja-JP": "フォント", "en-US": "Font" },
-          "configurations": [{ "ui": { "editor": "font_family" } }]
+          "type": "array",
+          "element": {
+            "type": "string",
+            "default": "",
+            "ui": { "editor": "font_family" }
+          },
+          "max_items": 1024,
+          "default": []
         },
         {
           "id": "font_size",
-          "type": { "value": "f32" },
-          "default": { "f32": 64 },
           "label": { "ja-JP": "文字サイズ", "en-US": "Font Size" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 1, "max": 1000 },
-              "ui": { "unit": "px" }
-            }
-          ]
+          "type": "f32",
+          "default": 64,
+          "animatable": true,
+          "constraints": { "min": 1, "max": 1000 },
+          "ui": { "unit": "px" }
         },
         {
           "id": "color",
-          "type": { "value": "color" },
-          "default": { "color": [1, 1, 1, 1] },
           "label": { "ja-JP": "色", "en-US": "Color" },
-          "configurations": [{ "animatable": true }]
+          "type": "color",
+          "default": [1, 1, 1, 1],
+          "animatable": true
         },
         {
           "id": "outline_width",
-          "type": { "value": "f32" },
-          "default": { "f32": 0 },
           "label": { "ja-JP": "枠線", "en-US": "Outline" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 64 },
-              "ui": { "unit": "px" }
-            }
-          ]
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 64 },
+          "ui": { "unit": "px" }
         },
         {
           "id": "outline_color",
-          "type": { "value": "color" },
-          "default": { "color": [1, 1, 1, 1] },
           "label": { "ja-JP": "枠線色", "en-US": "Outline Color" },
-          "configurations": [{ "animatable": true }]
+          "type": "color",
+          "default": [1, 1, 1, 1],
+          "animatable": true
         },
         {
           "id": "horizontal_alignment",
-          "type": { "value": { "enum": [0, 1, 2] } },
-          "default": { "enum": 1 },
           "label": { "ja-JP": "左右揃え", "en-US": "Horizontal Alignment" },
-          "configurations": [
-            {
-              "ui": {
-                "enum_variants": {
-                  "0": { "ja-JP": "左揃え", "en-US": "Left" },
-                  "1": { "ja-JP": "中央揃え", "en-US": "Center" },
-                  "2": { "ja-JP": "右揃え", "en-US": "Right" }
-                }
-              }
-            }
-          ]
+          "type": "enum",
+          "variants": [
+            { "value": 0, "label": { "ja-JP": "左揃え", "en-US": "Left" } },
+            { "value": 1, "label": { "ja-JP": "中央揃え", "en-US": "Center" } },
+            { "value": 2, "label": { "ja-JP": "右揃え", "en-US": "Right" } }
+          ],
+          "default": 1
         },
         {
           "id": "vertical_alignment",
-          "type": { "value": { "enum": [0, 1, 2] } },
-          "default": { "enum": 1 },
           "label": { "ja-JP": "上下揃え", "en-US": "Vertical Alignment" },
-          "configurations": [
-            {
-              "ui": {
-                "enum_variants": {
-                  "0": { "ja-JP": "上揃え", "en-US": "Top" },
-                  "1": { "ja-JP": "中央揃え", "en-US": "Center" },
-                  "2": { "ja-JP": "下揃え", "en-US": "Bottom" }
-                }
-              }
-            }
-          ]
+          "type": "enum",
+          "variants": [
+            { "value": 0, "label": { "ja-JP": "上揃え", "en-US": "Top" } },
+            { "value": 1, "label": { "ja-JP": "中央揃え", "en-US": "Center" } },
+            { "value": 2, "label": { "ja-JP": "下揃え", "en-US": "Bottom" } }
+          ],
+          "default": 1
         },
         {
           "id": "bold",
-          "type": { "value": "bool" },
-          "default": { "bool": false },
           "label": { "ja-JP": "太字", "en-US": "Bold" },
-          "configurations": [{}]
+          "type": "bool",
+          "default": false
         },
         {
           "id": "italic",
-          "type": { "value": "bool" },
-          "default": { "bool": false },
           "label": { "ja-JP": "イタリック", "en-US": "Italic" },
-          "configurations": [{}]
+          "type": "bool",
+          "default": false
         }
       ]
     },
     {
       "id": "number",
-      "output_bounds": {
-        "min": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
-        ],
-        "max": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
-        ]
-      },
       "label": { "ja-JP": "数値", "en-US": "Number" },
       "category": {
         "id": "text",
@@ -1284,27 +1262,39 @@
       },
       "tags": ["数値", "カウンター", "number", "counter"],
       "symbol": "#",
-      "shader": { "module": "number" },
-      "capabilities": [
-        {
-          "type": "number",
-          "id": "text",
-          "value": "value",
-          "decimal_places": "decimal_places",
-          "style": {
-            "size": "size",
-            "font_family": "font_family",
-            "font_size": "font_size",
-            "color": "color",
-            "outline_width": "outline_width",
-            "outline_color": "outline_color",
-            "bold": "bold",
-            "italic": "italic",
-            "horizontal_alignment": "horizontal_alignment",
-            "vertical_alignment": "vertical_alignment"
+      "render": {
+        "shader": { "module": "number" },
+        "bounds": {
+          "min": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
+          ],
+          "max": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
+          ]
+        },
+        "inputs": [
+          {
+            "type": "number",
+            "id": "text",
+            "value": "value",
+            "decimal_places": "decimal_places",
+            "style": {
+              "size": "size",
+              "font_family": "font_family",
+              "font_size": "font_size",
+              "color": "color",
+              "outline_width": "outline_width",
+              "outline_color": "outline_color",
+              "bold": "bold",
+              "italic": "italic",
+              "horizontal_alignment": "horizontal_alignment",
+              "vertical_alignment": "vertical_alignment"
+            }
           }
-        }
-      ],
+        ]
+      },
       "editor": [
         { "type": "position", "property": "position" },
         {
@@ -1318,16 +1308,19 @@
       "properties": [
         {
           "id": "position",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": { "ja-JP": "位置", "en-US": "Position" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
             },
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
@@ -1336,39 +1329,39 @@
         },
         {
           "id": "origin",
-          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
-          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
           "label": { "ja-JP": "原点", "en-US": "Origin" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
-              "ui": {
-                "label": { "ja-JP": "X", "en-US": "X" },
-                "enum_variants": {
-                  "0": { "ja-JP": "左", "en-US": "Left" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "右", "en-US": "Right" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "左", "en-US": "Left" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "右", "en-US": "Right" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "X", "en-US": "X" } }
             },
             {
-              "ui": {
-                "label": { "ja-JP": "Y", "en-US": "Y" },
-                "enum_variants": {
-                  "0": { "ja-JP": "上", "en-US": "Top" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "下", "en-US": "Bottom" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "上", "en-US": "Top" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "下", "en-US": "Bottom" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "Y", "en-US": "Y" } }
             }
           ]
         },
         {
           "id": "size",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 640 }, { "f32": 240 }] },
           "label": { "ja-JP": "サイズ", "en-US": "Size" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 640,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -1377,6 +1370,8 @@
               }
             },
             {
+              "type": "f32",
+              "default": 240,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -1388,130 +1383,102 @@
         },
         {
           "id": "value",
-          "type": { "value": "f32" },
-          "default": { "f32": 0 },
           "label": { "ja-JP": "値", "en-US": "Value" },
-          "configurations": [{ "animatable": true, "ui": { "step": 1 } }]
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "ui": { "step": 1 }
         },
         {
           "id": "decimal_places",
-          "type": { "value": "u32" },
-          "default": { "u32": 0 },
           "label": { "ja-JP": "小数点以下の桁数", "en-US": "Decimal Places" },
-          "configurations": [
-            { "constraints": { "min": 0, "max": 10 }, "ui": { "step": 1 } }
-          ]
+          "type": "u32",
+          "default": 0,
+          "constraints": { "min": 0, "max": 10 },
+          "ui": { "step": 1 }
         },
         {
           "id": "font_family",
-          "type": { "array": { "element_type": "string", "max_items": 1024 } },
-          "default": { "array": [] },
-          "append_default": { "string": "" },
           "label": { "ja-JP": "フォント", "en-US": "Font" },
-          "configurations": [{ "ui": { "editor": "font_family" } }]
+          "type": "array",
+          "element": {
+            "type": "string",
+            "default": "",
+            "ui": { "editor": "font_family" }
+          },
+          "max_items": 1024,
+          "default": []
         },
         {
           "id": "font_size",
-          "type": { "value": "f32" },
-          "default": { "f32": 64 },
           "label": { "ja-JP": "文字サイズ", "en-US": "Font Size" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 1, "max": 1000 },
-              "ui": { "unit": "px" }
-            }
-          ]
+          "type": "f32",
+          "default": 64,
+          "animatable": true,
+          "constraints": { "min": 1, "max": 1000 },
+          "ui": { "unit": "px" }
         },
         {
           "id": "color",
-          "type": { "value": "color" },
-          "default": { "color": [1, 1, 1, 1] },
           "label": { "ja-JP": "色", "en-US": "Color" },
-          "configurations": [{ "animatable": true }]
+          "type": "color",
+          "default": [1, 1, 1, 1],
+          "animatable": true
         },
         {
           "id": "outline_width",
-          "type": { "value": "f32" },
-          "default": { "f32": 0 },
           "label": { "ja-JP": "枠線", "en-US": "Outline" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 64 },
-              "ui": { "unit": "px" }
-            }
-          ]
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 64 },
+          "ui": { "unit": "px" }
         },
         {
           "id": "outline_color",
-          "type": { "value": "color" },
-          "default": { "color": [1, 1, 1, 1] },
           "label": { "ja-JP": "枠線色", "en-US": "Outline Color" },
-          "configurations": [{ "animatable": true }]
+          "type": "color",
+          "default": [1, 1, 1, 1],
+          "animatable": true
         },
         {
           "id": "horizontal_alignment",
-          "type": { "value": { "enum": [0, 1, 2] } },
-          "default": { "enum": 1 },
           "label": { "ja-JP": "左右揃え", "en-US": "Horizontal Alignment" },
-          "configurations": [
-            {
-              "ui": {
-                "enum_variants": {
-                  "0": { "ja-JP": "左揃え", "en-US": "Left" },
-                  "1": { "ja-JP": "中央揃え", "en-US": "Center" },
-                  "2": { "ja-JP": "右揃え", "en-US": "Right" }
-                }
-              }
-            }
-          ]
+          "type": "enum",
+          "variants": [
+            { "value": 0, "label": { "ja-JP": "左揃え", "en-US": "Left" } },
+            { "value": 1, "label": { "ja-JP": "中央揃え", "en-US": "Center" } },
+            { "value": 2, "label": { "ja-JP": "右揃え", "en-US": "Right" } }
+          ],
+          "default": 1
         },
         {
           "id": "vertical_alignment",
-          "type": { "value": { "enum": [0, 1, 2] } },
-          "default": { "enum": 1 },
           "label": { "ja-JP": "上下揃え", "en-US": "Vertical Alignment" },
-          "configurations": [
-            {
-              "ui": {
-                "enum_variants": {
-                  "0": { "ja-JP": "上揃え", "en-US": "Top" },
-                  "1": { "ja-JP": "中央揃え", "en-US": "Center" },
-                  "2": { "ja-JP": "下揃え", "en-US": "Bottom" }
-                }
-              }
-            }
-          ]
+          "type": "enum",
+          "variants": [
+            { "value": 0, "label": { "ja-JP": "上揃え", "en-US": "Top" } },
+            { "value": 1, "label": { "ja-JP": "中央揃え", "en-US": "Center" } },
+            { "value": 2, "label": { "ja-JP": "下揃え", "en-US": "Bottom" } }
+          ],
+          "default": 1
         },
         {
           "id": "bold",
-          "type": { "value": "bool" },
-          "default": { "bool": false },
           "label": { "ja-JP": "太字", "en-US": "Bold" },
-          "configurations": [{}]
+          "type": "bool",
+          "default": false
         },
         {
           "id": "italic",
-          "type": { "value": "bool" },
-          "default": { "bool": false },
           "label": { "ja-JP": "イタリック", "en-US": "Italic" },
-          "configurations": [{}]
+          "type": "bool",
+          "default": false
         }
       ]
     },
     {
       "id": "video",
-      "output_bounds": {
-        "min": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
-        ],
-        "max": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
-        ]
-      },
       "label": { "ja-JP": "動画", "en-US": "Video" },
       "category": {
         "id": "media",
@@ -1519,37 +1486,51 @@
       },
       "tags": ["映像", "movie", "clip"],
       "symbol": "▶",
-      "shader": { "module": "media" },
-      "capabilities": [
-        {
-          "type": "media",
-          "id": "source",
-          "file": "source",
-          "reader": "zerium.ffmpeg",
-          "playback": {
-            "source_start": "source_start",
-            "source_duration": "source_duration",
-            "playback_speed": "playback_speed",
-            "end_behavior": "end_behavior"
-          },
-          "placement": {
-            "position": "position",
-            "size": "size",
-            "origin": "origin"
+      "render": {
+        "shader": { "module": "media" },
+        "bounds": {
+          "min": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
+          ],
+          "max": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
+          ]
+        },
+        "inputs": [
+          {
+            "type": "media",
+            "id": "source",
+            "file": "source",
+            "reader": "zerium.ffmpeg",
+            "playback": {
+              "source_start": "source_start",
+              "source_duration": "source_duration",
+              "playback_speed": "playback_speed",
+              "end_behavior": "end_behavior"
+            },
+            "placement": {
+              "position": "position",
+              "size": "size",
+              "origin": "origin"
+            }
           }
-        }
-      ],
+        ]
+      },
       "audio": [
         {
           "id": "source",
           "file": "source",
           "reader": "zerium.ffmpeg",
           "volume": "volume",
-          "source_start": "source_start",
-          "source_duration": "source_duration",
-          "playback_speed": "playback_speed",
-          "end_behavior": "end_behavior",
-          "preserve_pitch": "preserve_pitch"
+          "preserve_pitch": "preserve_pitch",
+          "playback": {
+            "source_start": "source_start",
+            "source_duration": "source_duration",
+            "playback_speed": "playback_speed",
+            "end_behavior": "end_behavior"
+          }
         }
       ],
       "editor": [
@@ -1571,16 +1552,19 @@
       "properties": [
         {
           "id": "position",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": { "ja-JP": "位置", "en-US": "Position" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
             },
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
@@ -1589,39 +1573,39 @@
         },
         {
           "id": "origin",
-          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
-          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
           "label": { "ja-JP": "原点", "en-US": "Origin" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
-              "ui": {
-                "label": { "ja-JP": "X", "en-US": "X" },
-                "enum_variants": {
-                  "0": { "ja-JP": "左", "en-US": "Left" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "右", "en-US": "Right" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "左", "en-US": "Left" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "右", "en-US": "Right" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "X", "en-US": "X" } }
             },
             {
-              "ui": {
-                "label": { "ja-JP": "Y", "en-US": "Y" },
-                "enum_variants": {
-                  "0": { "ja-JP": "上", "en-US": "Top" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "下", "en-US": "Bottom" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "上", "en-US": "Top" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "下", "en-US": "Bottom" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "Y", "en-US": "Y" } }
             }
           ]
         },
         {
           "id": "size",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 960 }, { "f32": 540 }] },
           "label": { "ja-JP": "サイズ", "en-US": "Size" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 960,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -1630,6 +1614,8 @@
               }
             },
             {
+              "type": "f32",
+              "default": 540,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -1641,108 +1627,72 @@
         },
         {
           "id": "volume",
-          "type": { "value": "f32" },
-          "default": { "f32": 1 },
           "label": { "ja-JP": "音量", "en-US": "Volume" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 2 },
-              "ui": { "step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": 1,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 2 },
+          "ui": { "step": 0.01 }
         },
         {
           "id": "source_start",
           "label": { "ja-JP": "ソース開始", "en-US": "Source start" },
-          "type": { "value": "f32" },
-          "default": { "f32": 0 },
-          "configurations": [
-            {
-              "scene_bindable": false,
-              "constraints": { "min": 0 },
-              "ui": { "unit": "s", "step": 0.1, "drag_step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": 0,
+          "scene_bindable": false,
+          "constraints": { "min": 0 },
+          "ui": { "unit": "s", "step": 0.1, "drag_step": 0.01 }
         },
         {
           "id": "source_duration",
           "label": { "ja-JP": "ソース長", "en-US": "Source duration" },
-          "type": { "value": "f32" },
-          "default": { "f32": 5 },
-          "configurations": [
-            {
-              "scene_bindable": false,
-              "constraints": { "min": 0 },
-              "ui": { "unit": "s", "step": 0.1, "drag_step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": 5,
+          "scene_bindable": false,
+          "constraints": { "min": 0 },
+          "ui": { "unit": "s", "step": 0.1, "drag_step": 0.01 }
         },
         {
           "id": "playback_speed",
           "label": { "ja-JP": "再生速度", "en-US": "Playback speed" },
-          "type": { "value": "f32" },
-          "default": { "f32": 1 },
-          "configurations": [
-            {
-              "scene_bindable": false,
-              "constraints": { "min": 0.25, "max": 4 },
-              "ui": { "unit": "×", "step": 0.01, "drag_step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": 1,
+          "scene_bindable": false,
+          "constraints": { "min": 0.25, "max": 4 },
+          "ui": { "unit": "×", "step": 0.01, "drag_step": 0.01 }
         },
         {
           "id": "end_behavior",
           "label": { "ja-JP": "終端動作", "en-US": "End behavior" },
-          "type": { "value": { "enum": [0, 1, 2] } },
-          "default": { "enum": 0 },
-          "configurations": [
-            {
-              "scene_bindable": false,
-              "ui": {
-                "enum_variants": {
-                  "0": { "ja-JP": "停止", "en-US": "Stop" },
-                  "1": { "ja-JP": "ループ", "en-US": "Loop" },
-                  "2": { "ja-JP": "保持", "en-US": "Hold" }
-                }
-              }
-            }
-          ]
+          "type": "enum",
+          "variants": [
+            { "value": 0, "label": { "ja-JP": "停止", "en-US": "Stop" } },
+            { "value": 1, "label": { "ja-JP": "ループ", "en-US": "Loop" } },
+            { "value": 2, "label": { "ja-JP": "保持", "en-US": "Hold" } }
+          ],
+          "default": 0,
+          "scene_bindable": false
         },
         {
           "id": "preserve_pitch",
           "label": { "ja-JP": "ピッチを維持", "en-US": "Preserve pitch" },
-          "type": { "value": "bool" },
-          "default": { "bool": true },
-          "configurations": [{ "scene_bindable": false }]
+          "type": "bool",
+          "default": true,
+          "scene_bindable": false
         },
         {
           "id": "source",
           "label": { "ja-JP": "動画", "en-US": "Video" },
-          "type": { "value": "file" },
-          "default": { "file": null },
-          "configurations": [
-            {
-              "ui": {
-                "extensions": ["mp4", "mov", "mkv", "webm", "avi", "m4v", "gif"]
-              }
-            }
-          ]
+          "type": "file",
+          "default": null,
+          "ui": {
+            "extensions": ["mp4", "mov", "mkv", "webm", "avi", "m4v", "gif"]
+          }
         }
       ]
     },
     {
       "id": "image",
-      "output_bounds": {
-        "min": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
-        ],
-        "max": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
-        ]
-      },
       "label": { "ja-JP": "画像", "en-US": "Image" },
       "category": {
         "id": "media",
@@ -1750,20 +1700,32 @@
       },
       "tags": ["静止画", "写真", "photo", "picture"],
       "symbol": "▧",
-      "shader": { "module": "media" },
-      "capabilities": [
-        {
-          "type": "media",
-          "id": "source",
-          "file": "source",
-          "reader": "zerium.ffmpeg",
-          "placement": {
-            "position": "position",
-            "size": "size",
-            "origin": "origin"
+      "render": {
+        "shader": { "module": "media" },
+        "bounds": {
+          "min": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
+          ],
+          "max": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
+          ]
+        },
+        "inputs": [
+          {
+            "type": "media",
+            "id": "source",
+            "file": "source",
+            "reader": "zerium.ffmpeg",
+            "placement": {
+              "position": "position",
+              "size": "size",
+              "origin": "origin"
+            }
           }
-        }
-      ],
+        ]
+      },
       "editor": [
         { "type": "position", "property": "position" },
         {
@@ -1777,16 +1739,19 @@
       "properties": [
         {
           "id": "position",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": { "ja-JP": "位置", "en-US": "Position" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
             },
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
@@ -1795,39 +1760,39 @@
         },
         {
           "id": "origin",
-          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
-          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
           "label": { "ja-JP": "原点", "en-US": "Origin" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
-              "ui": {
-                "label": { "ja-JP": "X", "en-US": "X" },
-                "enum_variants": {
-                  "0": { "ja-JP": "左", "en-US": "Left" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "右", "en-US": "Right" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "左", "en-US": "Left" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "右", "en-US": "Right" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "X", "en-US": "X" } }
             },
             {
-              "ui": {
-                "label": { "ja-JP": "Y", "en-US": "Y" },
-                "enum_variants": {
-                  "0": { "ja-JP": "上", "en-US": "Top" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "下", "en-US": "Bottom" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "上", "en-US": "Top" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "下", "en-US": "Bottom" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "Y", "en-US": "Y" } }
             }
           ]
         },
         {
           "id": "size",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 960 }, { "f32": 540 }] },
           "label": { "ja-JP": "サイズ", "en-US": "Size" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 960,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -1836,6 +1801,8 @@
               }
             },
             {
+              "type": "f32",
+              "default": 540,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -1848,38 +1815,16 @@
         {
           "id": "source",
           "label": { "ja-JP": "画像", "en-US": "Image" },
-          "type": { "value": "file" },
-          "default": { "file": null },
-          "configurations": [
-            {
-              "ui": {
-                "extensions": [
-                  "png",
-                  "jpg",
-                  "jpeg",
-                  "webp",
-                  "bmp",
-                  "tif",
-                  "tiff"
-                ]
-              }
-            }
-          ]
+          "type": "file",
+          "default": null,
+          "ui": {
+            "extensions": ["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff"]
+          }
         }
       ]
     },
     {
       "id": "svg",
-      "output_bounds": {
-        "min": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
-        ],
-        "max": [
-          "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
-          "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
-        ]
-      },
       "label": { "ja-JP": "SVG", "en-US": "SVG" },
       "category": {
         "id": "media",
@@ -1887,20 +1832,32 @@
       },
       "tags": ["ベクター", "vector", "svg"],
       "symbol": "▧",
-      "shader": { "module": "media" },
-      "capabilities": [
-        {
-          "type": "media",
-          "id": "source",
-          "file": "source",
-          "reader": "zerium.svg",
-          "placement": {
-            "position": "position",
-            "size": "size",
-            "origin": "origin"
+      "render": {
+        "shader": { "module": "media" },
+        "bounds": {
+          "min": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
+          ],
+          "max": [
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
+          ]
+        },
+        "inputs": [
+          {
+            "type": "media",
+            "id": "source",
+            "file": "source",
+            "reader": "zerium.svg",
+            "placement": {
+              "position": "position",
+              "size": "size",
+              "origin": "origin"
+            }
           }
-        }
-      ],
+        ]
+      },
       "editor": [
         { "type": "position", "property": "position" },
         {
@@ -1914,16 +1871,19 @@
       "properties": [
         {
           "id": "position",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": { "ja-JP": "位置", "en-US": "Position" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
             },
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
@@ -1932,39 +1892,39 @@
         },
         {
           "id": "origin",
-          "type": { "value": [{ "enum": [0, 1, 2] }, { "enum": [0, 1, 2] }] },
-          "default": { "tuple": [{ "enum": 1 }, { "enum": 1 }] },
           "label": { "ja-JP": "原点", "en-US": "Origin" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
-              "ui": {
-                "label": { "ja-JP": "X", "en-US": "X" },
-                "enum_variants": {
-                  "0": { "ja-JP": "左", "en-US": "Left" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "右", "en-US": "Right" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "左", "en-US": "Left" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "右", "en-US": "Right" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "X", "en-US": "X" } }
             },
             {
-              "ui": {
-                "label": { "ja-JP": "Y", "en-US": "Y" },
-                "enum_variants": {
-                  "0": { "ja-JP": "上", "en-US": "Top" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "下", "en-US": "Bottom" }
-                }
-              }
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "上", "en-US": "Top" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "下", "en-US": "Bottom" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "Y", "en-US": "Y" } }
             }
           ]
         },
         {
           "id": "size",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 960 }, { "f32": 540 }] },
           "label": { "ja-JP": "サイズ", "en-US": "Size" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 960,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -1973,6 +1933,8 @@
               }
             },
             {
+              "type": "f32",
+              "default": 540,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -1985,18 +1947,14 @@
         {
           "id": "source",
           "label": { "ja-JP": "SVG", "en-US": "SVG" },
-          "type": { "value": "file" },
-          "default": { "file": null },
-          "configurations": [{ "ui": { "extensions": ["svg"] } }]
+          "type": "file",
+          "default": null,
+          "ui": { "extensions": ["svg"] }
         }
       ]
     },
     {
       "id": "audio",
-      "output_bounds": {
-        "min": ["viewport::min::x", "viewport::min::y"],
-        "max": ["viewport::max::x", "viewport::max::y"]
-      },
       "label": { "ja-JP": "音声", "en-US": "Audio" },
       "category": {
         "id": "media",
@@ -2004,18 +1962,19 @@
       },
       "tags": ["音楽", "サウンド", "music", "sound"],
       "symbol": "♪",
-      "capabilities": [],
       "audio": [
         {
           "id": "source",
           "file": "source",
           "reader": "zerium.ffmpeg",
           "volume": "volume",
-          "source_start": "source_start",
-          "source_duration": "source_duration",
-          "playback_speed": "playback_speed",
-          "end_behavior": "end_behavior",
-          "preserve_pitch": "preserve_pitch"
+          "preserve_pitch": "preserve_pitch",
+          "playback": {
+            "source_start": "source_start",
+            "source_duration": "source_duration",
+            "playback_speed": "playback_speed",
+            "end_behavior": "end_behavior"
+          }
         }
       ],
       "editor": [
@@ -2029,110 +1988,72 @@
       "properties": [
         {
           "id": "volume",
-          "type": { "value": "f32" },
-          "default": { "f32": 1 },
           "label": { "ja-JP": "音量", "en-US": "Volume" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 2 },
-              "ui": { "step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": 1,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 2 },
+          "ui": { "step": 0.01 }
         },
         {
           "id": "source_start",
           "label": { "ja-JP": "ソース開始", "en-US": "Source start" },
-          "type": { "value": "f32" },
-          "default": { "f32": 0 },
-          "configurations": [
-            {
-              "scene_bindable": false,
-              "constraints": { "min": 0 },
-              "ui": { "unit": "s", "step": 0.1, "drag_step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": 0,
+          "scene_bindable": false,
+          "constraints": { "min": 0 },
+          "ui": { "unit": "s", "step": 0.1, "drag_step": 0.01 }
         },
         {
           "id": "source_duration",
           "label": { "ja-JP": "ソース長", "en-US": "Source duration" },
-          "type": { "value": "f32" },
-          "default": { "f32": 5 },
-          "configurations": [
-            {
-              "scene_bindable": false,
-              "constraints": { "min": 0 },
-              "ui": { "unit": "s", "step": 0.1, "drag_step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": 5,
+          "scene_bindable": false,
+          "constraints": { "min": 0 },
+          "ui": { "unit": "s", "step": 0.1, "drag_step": 0.01 }
         },
         {
           "id": "playback_speed",
           "label": { "ja-JP": "再生速度", "en-US": "Playback speed" },
-          "type": { "value": "f32" },
-          "default": { "f32": 1 },
-          "configurations": [
-            {
-              "scene_bindable": false,
-              "constraints": { "min": 0.25, "max": 4 },
-              "ui": { "unit": "×", "step": 0.01, "drag_step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": 1,
+          "scene_bindable": false,
+          "constraints": { "min": 0.25, "max": 4 },
+          "ui": { "unit": "×", "step": 0.01, "drag_step": 0.01 }
         },
         {
           "id": "end_behavior",
           "label": { "ja-JP": "終端動作", "en-US": "End behavior" },
-          "type": { "value": { "enum": [0, 1, 2] } },
-          "default": { "enum": 0 },
-          "configurations": [
-            {
-              "scene_bindable": false,
-              "ui": {
-                "enum_variants": {
-                  "0": { "ja-JP": "停止", "en-US": "Stop" },
-                  "1": { "ja-JP": "ループ", "en-US": "Loop" },
-                  "2": { "ja-JP": "保持", "en-US": "Hold" }
-                }
-              }
-            }
-          ]
+          "type": "enum",
+          "variants": [
+            { "value": 0, "label": { "ja-JP": "停止", "en-US": "Stop" } },
+            { "value": 1, "label": { "ja-JP": "ループ", "en-US": "Loop" } },
+            { "value": 2, "label": { "ja-JP": "保持", "en-US": "Hold" } }
+          ],
+          "default": 0,
+          "scene_bindable": false
         },
         {
           "id": "preserve_pitch",
           "label": { "ja-JP": "ピッチを維持", "en-US": "Preserve pitch" },
-          "type": { "value": "bool" },
-          "default": { "bool": true },
-          "configurations": [{ "scene_bindable": false }]
+          "type": "bool",
+          "default": true,
+          "scene_bindable": false
         },
         {
           "id": "source",
           "label": { "ja-JP": "音声", "en-US": "Audio" },
-          "type": { "value": "file" },
-          "default": { "file": null },
-          "configurations": [
-            {
-              "ui": {
-                "extensions": [
-                  "wav",
-                  "mp3",
-                  "m4a",
-                  "aac",
-                  "flac",
-                  "ogg",
-                  "opus"
-                ]
-              }
-            }
-          ]
+          "type": "file",
+          "default": null,
+          "ui": {
+            "extensions": ["wav", "mp3", "m4a", "aac", "flac", "ogg", "opus"]
+          }
         }
       ]
     },
     {
       "id": "render_result",
-      "output_bounds": {
-        "min": ["viewport::min::x", "viewport::min::y"],
-        "max": ["viewport::max::x", "viewport::max::y"]
-      },
       "label": { "ja-JP": "レンダー結果", "en-US": "Render Result" },
       "category": {
         "id": "composite",
@@ -2140,41 +2061,44 @@
       },
       "tags": ["レイヤー", "範囲", "render", "composite"],
       "symbol": "▣",
-      "shader": { "module": "render_result" },
-      "capabilities": [
-        {
-          "type": "render_result",
-          "id": "render_result",
-          "start_offset": "start_offset",
-          "end_offset": "end_offset",
-          "hide_original": "hide_original"
-        }
-      ],
+      "render": {
+        "shader": { "module": "render_result" },
+        "bounds": {
+          "min": ["viewport::min::x", "viewport::min::y"],
+          "max": ["viewport::max::x", "viewport::max::y"]
+        },
+        "inputs": [
+          {
+            "type": "render_result",
+            "id": "render_result",
+            "start_offset": "start_offset",
+            "end_offset": "end_offset",
+            "hide_original": "hide_original"
+          }
+        ]
+      },
       "properties": [
         {
           "id": "start_offset",
-          "type": { "value": "u32" },
-          "default": { "u32": 1 },
           "label": { "ja-JP": "開始オフセット", "en-US": "Start Offset" },
-          "configurations": [
-            { "constraints": { "min": 1, "max": 30 }, "ui": { "step": 1 } }
-          ]
+          "type": "u32",
+          "default": 1,
+          "constraints": { "min": 1, "max": 30 },
+          "ui": { "step": 1 }
         },
         {
           "id": "end_offset",
-          "type": { "value": "u32" },
-          "default": { "u32": 1 },
           "label": { "ja-JP": "終了オフセット", "en-US": "End Offset" },
-          "configurations": [
-            { "constraints": { "min": 1, "max": 30 }, "ui": { "step": 1 } }
-          ]
+          "type": "u32",
+          "default": 1,
+          "constraints": { "min": 1, "max": 30 },
+          "ui": { "step": 1 }
         },
         {
           "id": "hide_original",
-          "type": { "value": "bool" },
-          "default": { "bool": false },
           "label": { "ja-JP": "原本を隠す", "en-US": "Hide Original" },
-          "configurations": [{}]
+          "type": "bool",
+          "default": false
         }
       ]
     }
@@ -2182,80 +2106,83 @@
   "effects": [
     {
       "id": "layer_mask",
-      "output_bounds": {
-        "min": ["viewport::min::x", "viewport::min::y"],
-        "max": ["viewport::max::x", "viewport::max::y"]
-      },
       "label": { "ja-JP": "レイヤーマスク", "en-US": "Layer Mask" },
       "category": {
         "id": "composite",
         "label": { "ja-JP": "合成", "en-US": "Composite" }
       },
       "tags": ["切り抜き", "アルファ", "範囲", "mask", "layers"],
-      "capabilities": [
-        {
-          "start_offset": "start_offset",
-          "end_offset": "end_offset",
-          "hide_original": "hide_original",
-          "id": "behind",
-          "type": "render_result"
-        }
-      ],
-      "passes": [{ "type": "render", "shader": { "module": "layer_mask" } }],
+      "render": {
+        "passes": [{ "type": "render", "shader": { "module": "layer_mask" } }],
+        "bounds": {
+          "min": ["viewport::min::x", "viewport::min::y"],
+          "max": ["viewport::max::x", "viewport::max::y"]
+        },
+        "inputs": [
+          {
+            "start_offset": "start_offset",
+            "end_offset": "end_offset",
+            "hide_original": "hide_original",
+            "id": "behind",
+            "type": "render_result"
+          }
+        ]
+      },
       "properties": [
         {
           "id": "start_offset",
-          "type": { "value": "u32" },
-          "default": { "u32": 1 },
           "label": { "ja-JP": "開始オフセット", "en-US": "Start Offset" },
-          "configurations": [
-            { "constraints": { "min": 1, "max": 30 }, "ui": { "step": 1 } }
-          ]
+          "type": "u32",
+          "default": 1,
+          "constraints": { "min": 1, "max": 30 },
+          "ui": { "step": 1 }
         },
         {
           "id": "end_offset",
-          "type": { "value": "u32" },
-          "default": { "u32": 1 },
           "label": { "ja-JP": "終了オフセット", "en-US": "End Offset" },
-          "configurations": [
-            { "constraints": { "min": 1, "max": 30 }, "ui": { "step": 1 } }
-          ]
+          "type": "u32",
+          "default": 1,
+          "constraints": { "min": 1, "max": 30 },
+          "ui": { "step": 1 }
         },
         {
           "id": "hide_original",
-          "type": { "value": "bool" },
-          "default": { "bool": true },
           "label": { "ja-JP": "原本を隠す", "en-US": "Hide Original" },
-          "configurations": [{}]
+          "type": "bool",
+          "default": true
         },
         {
           "id": "invert_mask",
-          "type": { "value": "bool" },
-          "default": { "bool": false },
           "label": { "ja-JP": "マスクを反転", "en-US": "Invert Mask" },
-          "configurations": [{}]
+          "type": "bool",
+          "default": false
         }
       ]
     },
     {
       "id": "follow_spline",
-      "input_space": "source",
-      "output_bounds": {
-        "min": [
-          "p::position::v0 - (math::abs(p::size::v0) * 1.504 + input::size::x) / 2 - 4",
-          "p::position::v1 - (math::abs(p::size::v1) * 1.504 + input::size::y) / 2 - 4"
-        ],
-        "max": [
-          "p::position::v0 + (math::abs(p::size::v0) * 1.504 + input::size::x) / 2 + 4",
-          "p::position::v1 + (math::abs(p::size::v1) * 1.504 + input::size::y) / 2 + 4"
-        ]
-      },
       "label": { "ja-JP": "スプライン追従", "en-US": "Follow Spline" },
       "category": {
         "id": "transform",
         "label": { "ja-JP": "変形", "en-US": "Transform" }
       },
       "tags": ["経路", "パス", "移動", "spline", "path", "motion"],
+      "render": {
+        "passes": [
+          { "type": "render", "shader": { "module": "follow_spline" } }
+        ],
+        "bounds": {
+          "min": [
+            "p::position::v0 - (math::abs(p::size::v0) * 1.504 + input::size::x) / 2 - 4",
+            "p::position::v1 - (math::abs(p::size::v1) * 1.504 + input::size::y) / 2 - 4"
+          ],
+          "max": [
+            "p::position::v0 + (math::abs(p::size::v0) * 1.504 + input::size::x) / 2 + 4",
+            "p::position::v1 + (math::abs(p::size::v1) * 1.504 + input::size::y) / 2 + 4"
+          ]
+        },
+        "input_space": "source"
+      },
       "editor": [
         { "type": "position", "property": "position" },
         { "type": "size", "property": "size", "position": "position" },
@@ -2275,20 +2202,22 @@
           "size": "size"
         }
       ],
-      "passes": [{ "type": "render", "shader": { "module": "follow_spline" } }],
       "properties": [
         {
           "id": "position",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": { "ja-JP": "経路の位置", "en-US": "Path Position" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
             },
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
@@ -2297,11 +2226,12 @@
         },
         {
           "id": "size",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 320 }, { "f32": 240 }] },
           "label": { "ja-JP": "経路のサイズ", "en-US": "Path Size" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 320,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -2310,6 +2240,8 @@
               }
             },
             {
+              "type": "f32",
+              "default": 240,
               "animatable": true,
               "constraints": { "min": 1, "max": 10000 },
               "ui": {
@@ -2321,112 +2253,108 @@
         },
         {
           "id": "points",
-          "type": {
-            "array": {
-              "element_type": ["f32", "f32"],
-              "max_items": 64,
-              "min_items": 2
-            }
-          },
-          "default": {
-            "array": [
-              { "id": 1, "value": { "tuple": [{ "f32": 0 }, { "f32": 70 }] } },
-              { "id": 2, "value": { "tuple": [{ "f32": 30 }, { "f32": 25 }] } },
-              { "id": 3, "value": { "tuple": [{ "f32": 70 }, { "f32": 75 }] } },
-              { "id": 4, "value": { "tuple": [{ "f32": 100 }, { "f32": 30 }] } }
+          "label": { "ja-JP": "経路の点", "en-US": "Path Points" },
+          "type": "array",
+          "element": {
+            "type": "tuple",
+            "elements": [
+              {
+                "type": "f32",
+                "default": 50,
+                "animatable": true,
+                "constraints": { "min": 0, "max": 100 },
+                "ui": {
+                  "label": { "ja-JP": "X", "en-US": "X" },
+                  "unit": "%",
+                  "step": 1
+                }
+              },
+              {
+                "type": "f32",
+                "default": 50,
+                "animatable": true,
+                "constraints": { "min": 0, "max": 100 },
+                "ui": {
+                  "label": { "ja-JP": "Y", "en-US": "Y" },
+                  "unit": "%",
+                  "step": 1
+                }
+              }
             ]
           },
-          "append_default": { "tuple": [{ "f32": 50 }, { "f32": 50 }] },
-          "label": { "ja-JP": "経路の点", "en-US": "Path Points" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 100 },
-              "ui": {
-                "label": { "ja-JP": "X", "en-US": "X" },
-                "unit": "%",
-                "step": 1
-              }
-            },
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 100 },
-              "ui": {
-                "label": { "ja-JP": "Y", "en-US": "Y" },
-                "unit": "%",
-                "step": 1
-              }
-            }
+          "max_items": 64,
+          "min_items": 2,
+          "default": [
+            [0, 70],
+            [30, 25],
+            [70, 75],
+            [100, 30]
           ]
         },
         {
           "id": "tension",
-          "type": { "value": "f32" },
-          "default": { "f32": 0 },
           "label": { "ja-JP": "テンション", "en-US": "Tension" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": -100, "max": 100 },
-              "ui": { "unit": "%", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": -100, "max": 100 },
+          "ui": { "unit": "%", "step": 1 }
         },
         {
           "id": "closed",
-          "type": { "value": "bool" },
-          "default": { "bool": false },
           "label": { "ja-JP": "パスを閉じる", "en-US": "Close Path" },
-          "configurations": [{}]
+          "type": "bool",
+          "default": false
         },
         {
           "id": "progress",
-          "type": { "value": "f32" },
-          "default": { "f32": 0 },
           "label": { "ja-JP": "進度", "en-US": "Progress" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 100 },
-              "ui": { "unit": "%", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 100 },
+          "ui": { "unit": "%", "step": 1 }
         }
       ]
     },
     {
       "id": "translate",
-      "input_space": "source",
-      "output_bounds": {
-        "min": [
-          "input::min::x + p::offset::v0",
-          "input::min::y + p::offset::v1"
-        ],
-        "max": [
-          "input::max::x + p::offset::v0",
-          "input::max::y + p::offset::v1"
-        ]
-      },
       "label": { "ja-JP": "移動", "en-US": "Translate" },
       "category": {
         "id": "transform",
         "label": { "ja-JP": "変形", "en-US": "Transform" }
       },
       "tags": ["位置", "ずらす", "position", "move"],
-      "passes": [{ "type": "render", "shader": { "module": "translate" } }],
+      "render": {
+        "passes": [{ "type": "render", "shader": { "module": "translate" } }],
+        "bounds": {
+          "min": [
+            "input::min::x + p::offset::v0",
+            "input::min::y + p::offset::v1"
+          ],
+          "max": [
+            "input::max::x + p::offset::v0",
+            "input::max::y + p::offset::v1"
+          ]
+        },
+        "input_space": "source"
+      },
       "properties": [
         {
           "id": "offset",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": { "ja-JP": "移動量", "en-US": "Translation" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
             },
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
@@ -2437,35 +2365,38 @@
     },
     {
       "id": "scale",
-      "input_space": "source",
-      "output_bounds": {
-        "min": [
-          "input::center::x + (input::min::x - input::center::x) * p::amount::v0 / 100",
-          "input::center::y + (input::min::y - input::center::y) * p::amount::v1 / 100"
-        ],
-        "max": [
-          "input::center::x + (input::max::x - input::center::x) * p::amount::v0 / 100",
-          "input::center::y + (input::max::y - input::center::y) * p::amount::v1 / 100"
-        ]
-      },
       "label": { "ja-JP": "拡縮", "en-US": "Scale" },
       "category": {
         "id": "transform",
         "label": { "ja-JP": "変形", "en-US": "Transform" }
       },
       "tags": ["サイズ", "拡大", "縮小", "scale", "resize", "zoom"],
+      "render": {
+        "passes": [{ "type": "render", "shader": { "module": "scale" } }],
+        "bounds": {
+          "min": [
+            "input::center::x + (input::min::x - input::center::x) * p::amount::v0 / 100",
+            "input::center::y + (input::min::y - input::center::y) * p::amount::v1 / 100"
+          ],
+          "max": [
+            "input::center::x + (input::max::x - input::center::x) * p::amount::v0 / 100",
+            "input::center::y + (input::max::y - input::center::y) * p::amount::v1 / 100"
+          ]
+        },
+        "input_space": "source"
+      },
       "editor": [
         { "type": "aspect_lock", "property": "amount", "default": true }
       ],
-      "passes": [{ "type": "render", "shader": { "module": "scale" } }],
       "properties": [
         {
           "id": "amount",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 100 }, { "f32": 100 }] },
           "label": { "ja-JP": "拡縮率", "en-US": "Scale" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 100,
               "animatable": true,
               "constraints": { "min": 0, "max": 1000 },
               "ui": {
@@ -2475,6 +2406,8 @@
               }
             },
             {
+              "type": "f32",
+              "default": 100,
               "animatable": true,
               "constraints": { "min": 0, "max": 1000 },
               "ui": {
@@ -2489,50 +2422,51 @@
     },
     {
       "id": "rotate_2d",
-      "input_space": "source",
-      "output_bounds": {
-        "min": [
-          "p::center::v0 + (input::center::x - p::center::v0) * math::cos(p::angle * 3.141592653589793 / 180) - (input::center::y - p::center::v1) * math::sin(p::angle * 3.141592653589793 / 180) - (math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * input::size::x + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * input::size::y) / 2",
-          "p::center::v1 + (input::center::x - p::center::v0) * math::sin(p::angle * 3.141592653589793 / 180) + (input::center::y - p::center::v1) * math::cos(p::angle * 3.141592653589793 / 180) - (math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * input::size::x + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * input::size::y) / 2"
-        ],
-        "max": [
-          "p::center::v0 + (input::center::x - p::center::v0) * math::cos(p::angle * 3.141592653589793 / 180) - (input::center::y - p::center::v1) * math::sin(p::angle * 3.141592653589793 / 180) + (math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * input::size::x + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * input::size::y) / 2",
-          "p::center::v1 + (input::center::x - p::center::v0) * math::sin(p::angle * 3.141592653589793 / 180) + (input::center::y - p::center::v1) * math::cos(p::angle * 3.141592653589793 / 180) + (math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * input::size::x + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * input::size::y) / 2"
-        ]
-      },
       "label": { "ja-JP": "回転", "en-US": "Rotation" },
       "category": {
         "id": "transform",
         "label": { "ja-JP": "変形", "en-US": "Transform" }
       },
       "tags": ["角度", "rotate", "rotation"],
-      "passes": [{ "type": "render", "shader": { "module": "rotate_2d" } }],
+      "render": {
+        "passes": [{ "type": "render", "shader": { "module": "rotate_2d" } }],
+        "bounds": {
+          "min": [
+            "p::center::v0 + (input::center::x - p::center::v0) * math::cos(p::angle * 3.141592653589793 / 180) - (input::center::y - p::center::v1) * math::sin(p::angle * 3.141592653589793 / 180) - (math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * input::size::x + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * input::size::y) / 2",
+            "p::center::v1 + (input::center::x - p::center::v0) * math::sin(p::angle * 3.141592653589793 / 180) + (input::center::y - p::center::v1) * math::cos(p::angle * 3.141592653589793 / 180) - (math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * input::size::x + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * input::size::y) / 2"
+          ],
+          "max": [
+            "p::center::v0 + (input::center::x - p::center::v0) * math::cos(p::angle * 3.141592653589793 / 180) - (input::center::y - p::center::v1) * math::sin(p::angle * 3.141592653589793 / 180) + (math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * input::size::x + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * input::size::y) / 2",
+            "p::center::v1 + (input::center::x - p::center::v0) * math::sin(p::angle * 3.141592653589793 / 180) + (input::center::y - p::center::v1) * math::cos(p::angle * 3.141592653589793 / 180) + (math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * input::size::x + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * input::size::y) / 2"
+          ]
+        },
+        "input_space": "source"
+      },
       "properties": [
         {
           "id": "angle",
-          "type": { "value": "f32" },
-          "default": { "f32": 0 },
           "label": { "ja-JP": "角度", "en-US": "Angle" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": -360, "max": 360 },
-              "ui": { "unit": "°", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": -360, "max": 360 },
+          "ui": { "unit": "°", "step": 1 }
         },
         {
           "id": "center",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": { "ja-JP": "中心", "en-US": "Center" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
             },
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
@@ -2543,38 +2477,41 @@
     },
     {
       "id": "rotate_3d",
-      "input_space": "source",
-      "output_bounds": {
-        "min": [
-          "projected_rect_min_x((input::min::x, input::min::y), (input::max::x, input::max::y), (p::rotation::v0, p::rotation::v1, p::rotation::v2), (p::center::v0, p::center::v1), max((p::perspective, 1.0)), 0.1)",
-          "projected_rect_min_y((input::min::x, input::min::y), (input::max::x, input::max::y), (p::rotation::v0, p::rotation::v1, p::rotation::v2), (p::center::v0, p::center::v1), max((p::perspective, 1.0)), 0.1)"
-        ],
-        "max": [
-          "projected_rect_max_x((input::min::x, input::min::y), (input::max::x, input::max::y), (p::rotation::v0, p::rotation::v1, p::rotation::v2), (p::center::v0, p::center::v1), max((p::perspective, 1.0)), 0.1)",
-          "projected_rect_max_y((input::min::x, input::min::y), (input::max::x, input::max::y), (p::rotation::v0, p::rotation::v1, p::rotation::v2), (p::center::v0, p::center::v1), max((p::perspective, 1.0)), 0.1)"
-        ]
-      },
       "label": { "ja-JP": "3D回転", "en-US": "3D Rotation" },
       "category": {
         "id": "transform",
         "label": { "ja-JP": "変形", "en-US": "Transform" }
       },
       "tags": ["立体", "遠近", "perspective", "rotation"],
-      "passes": [
-        {
-          "type": "render",
-          "shader": { "module": "rotate_3d" },
-          "constants": [{ "id": "near_clip_ratio", "value": { "f32": 0.1 } }]
-        }
-      ],
+      "render": {
+        "passes": [
+          {
+            "type": "render",
+            "shader": { "module": "rotate_3d" },
+            "constants": [{ "id": "near_clip_ratio", "value": { "f32": 0.1 } }]
+          }
+        ],
+        "bounds": {
+          "min": [
+            "projected_rect_min_x((input::min::x, input::min::y), (input::max::x, input::max::y), (p::rotation::v0, p::rotation::v1, p::rotation::v2), (p::center::v0, p::center::v1), max((p::perspective, 1.0)), 0.1)",
+            "projected_rect_min_y((input::min::x, input::min::y), (input::max::x, input::max::y), (p::rotation::v0, p::rotation::v1, p::rotation::v2), (p::center::v0, p::center::v1), max((p::perspective, 1.0)), 0.1)"
+          ],
+          "max": [
+            "projected_rect_max_x((input::min::x, input::min::y), (input::max::x, input::max::y), (p::rotation::v0, p::rotation::v1, p::rotation::v2), (p::center::v0, p::center::v1), max((p::perspective, 1.0)), 0.1)",
+            "projected_rect_max_y((input::min::x, input::min::y), (input::max::x, input::max::y), (p::rotation::v0, p::rotation::v1, p::rotation::v2), (p::center::v0, p::center::v1), max((p::perspective, 1.0)), 0.1)"
+          ]
+        },
+        "input_space": "source"
+      },
       "properties": [
         {
           "id": "rotation",
-          "type": { "value": ["f32", "f32", "f32"] },
-          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }, { "f32": 0 }] },
           "label": { "ja-JP": "回転", "en-US": "Rotation" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -360, "max": 360 },
               "ui": {
@@ -2584,6 +2521,8 @@
               }
             },
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -360, "max": 360 },
               "ui": {
@@ -2593,6 +2532,8 @@
               }
             },
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -360, "max": 360 },
               "ui": {
@@ -2605,29 +2546,28 @@
         },
         {
           "id": "perspective",
-          "type": { "value": "f32" },
-          "default": { "f32": 1000 },
           "label": { "ja-JP": "遠近感", "en-US": "Perspective" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 50, "max": 5000 },
-              "ui": { "unit": "px", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 1000,
+          "animatable": true,
+          "constraints": { "min": 50, "max": 5000 },
+          "ui": { "unit": "px", "step": 1 }
         },
         {
           "id": "center",
-          "type": { "value": ["f32", "f32"] },
-          "default": { "tuple": [{ "f32": 0 }, { "f32": 0 }] },
           "label": { "ja-JP": "中心", "en-US": "Center" },
-          "configurations": [
+          "type": "tuple",
+          "elements": [
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
             },
             {
+              "type": "f32",
+              "default": 0,
               "animatable": true,
               "constraints": { "min": -1000000, "max": 1000000 },
               "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
@@ -2638,672 +2578,597 @@
     },
     {
       "id": "color_adjustment",
-      "output_bounds": {
-        "min": ["input::min::x", "input::min::y"],
-        "max": ["input::max::x", "input::max::y"]
-      },
       "label": { "ja-JP": "色調補正", "en-US": "Color Adjustment" },
       "category": {
         "id": "color_adjustment",
         "label": { "ja-JP": "カラー調整", "en-US": "Color Adjustment" }
       },
       "tags": ["明るさ", "コントラスト", "彩度", "color correction", "grading"],
-      "passes": [
-        { "type": "render", "shader": { "module": "color_adjustment" } }
-      ],
+      "render": {
+        "passes": [
+          { "type": "render", "shader": { "module": "color_adjustment" } }
+        ],
+        "bounds": {
+          "min": ["input::min::x", "input::min::y"],
+          "max": ["input::max::x", "input::max::y"]
+        }
+      },
       "properties": [
         {
           "id": "brightness",
-          "type": { "value": "f32" },
-          "default": { "f32": 0 },
           "label": { "ja-JP": "明るさ", "en-US": "Brightness" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": -1, "max": 1 },
-              "ui": { "step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": -1, "max": 1 },
+          "ui": { "step": 0.01 }
         },
         {
           "id": "contrast",
-          "type": { "value": "f32" },
-          "default": { "f32": 1 },
           "label": { "ja-JP": "コントラスト", "en-US": "Contrast" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 3 },
-              "ui": { "step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": 1,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 3 },
+          "ui": { "step": 0.01 }
         },
         {
           "id": "saturation",
-          "type": { "value": "f32" },
-          "default": { "f32": 1 },
           "label": { "ja-JP": "彩度", "en-US": "Saturation" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 3 },
-              "ui": { "step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": 1,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 3 },
+          "ui": { "step": 0.01 }
         },
         {
           "id": "temperature",
-          "type": { "value": "f32" },
-          "default": { "f32": 0 },
           "label": { "ja-JP": "色温度", "en-US": "Temperature" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": -1, "max": 1 },
-              "ui": { "step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": -1, "max": 1 },
+          "ui": { "step": 0.01 }
         },
         {
           "id": "tint",
-          "type": { "value": "f32" },
-          "default": { "f32": 0 },
           "label": { "ja-JP": "色かぶり", "en-US": "Tint" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": -1, "max": 1 },
-              "ui": { "step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": -1, "max": 1 },
+          "ui": { "step": 0.01 }
         },
         {
           "id": "gamma",
-          "type": { "value": "f32" },
-          "default": { "f32": 1 },
           "label": { "ja-JP": "ガンマ", "en-US": "Gamma" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0.1, "max": 3 },
-              "ui": { "step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": 1,
+          "animatable": true,
+          "constraints": { "min": 0.1, "max": 3 },
+          "ui": { "step": 0.01 }
         }
       ]
     },
     {
       "id": "opacity",
-      "output_bounds": {
-        "min": ["input::min::x", "input::min::y"],
-        "max": ["input::max::x", "input::max::y"]
-      },
       "label": { "ja-JP": "不透明度", "en-US": "Opacity" },
       "category": {
         "id": "color_adjustment",
         "label": { "ja-JP": "カラー調整", "en-US": "Color Adjustment" }
       },
       "tags": ["透明", "透過", "alpha", "transparency"],
-      "passes": [{ "type": "render", "shader": { "module": "opacity" } }],
+      "render": {
+        "passes": [{ "type": "render", "shader": { "module": "opacity" } }],
+        "bounds": {
+          "min": ["input::min::x", "input::min::y"],
+          "max": ["input::max::x", "input::max::y"]
+        }
+      },
       "properties": [
         {
           "id": "opacity",
-          "type": { "value": "f32" },
-          "default": { "f32": 100 },
           "label": { "ja-JP": "不透明度", "en-US": "Opacity" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 100 },
-              "ui": { "unit": "%", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 100,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 100 },
+          "ui": { "unit": "%", "step": 1 }
         }
       ]
     },
     {
       "id": "linear_gradient",
-      "output_bounds": {
-        "min": ["input::min::x", "input::min::y"],
-        "max": ["input::max::x", "input::max::y"]
-      },
       "label": { "ja-JP": "線形グラデーション", "en-US": "Linear Gradient" },
       "category": {
         "id": "fill",
         "label": { "ja-JP": "塗り", "en-US": "Fill" }
       },
       "tags": ["グラデ", "gradient", "fill"],
-      "passes": [
-        { "type": "render", "shader": { "module": "linear_gradient" } }
-      ],
+      "render": {
+        "passes": [
+          { "type": "render", "shader": { "module": "linear_gradient" } }
+        ],
+        "bounds": {
+          "min": ["input::min::x", "input::min::y"],
+          "max": ["input::max::x", "input::max::y"]
+        }
+      },
       "properties": [
         {
           "id": "start_color",
-          "type": { "value": "color" },
-          "default": { "color": [0.08, 0.12, 0.28, 1] },
           "label": { "ja-JP": "開始色", "en-US": "Start Color" },
-          "configurations": [{ "animatable": true }]
+          "type": "color",
+          "default": [0.08, 0.12, 0.28, 1],
+          "animatable": true
         },
         {
           "id": "end_color",
-          "type": { "value": "color" },
-          "default": { "color": [0.92, 0.18, 0.32, 1] },
           "label": { "ja-JP": "終了色", "en-US": "End Color" },
-          "configurations": [{ "animatable": true }]
+          "type": "color",
+          "default": [0.92, 0.18, 0.32, 1],
+          "animatable": true
         },
         {
           "id": "angle",
-          "type": { "value": "f32" },
-          "default": { "f32": 0 },
           "label": { "ja-JP": "角度", "en-US": "Angle" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": -360, "max": 360 },
-              "ui": { "unit": "°", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": -360, "max": 360 },
+          "ui": { "unit": "°", "step": 1 }
         }
       ]
     },
     {
       "id": "glow",
-      "output_bounds": {
-        "min": [
-          "input::min::x - math::abs(p::width) * 4",
-          "input::min::y - math::abs(p::width) * 4"
-        ],
-        "max": [
-          "input::max::x + math::abs(p::width) * 4",
-          "input::max::y + math::abs(p::width) * 4"
-        ]
-      },
       "label": { "ja-JP": "光彩", "en-US": "Glow" },
       "category": {
         "id": "style",
         "label": { "ja-JP": "スタイル", "en-US": "Style" }
       },
       "tags": ["発光", "ネオン", "bloom", "neon"],
-      "render_scale": 2,
+      "render": {
+        "passes": [
+          {
+            "type": "compute",
+            "shader": { "module": "glow_blur" },
+            "constants": [
+              { "id": "direction_x", "value": { "f32": 1 } },
+              { "id": "direction_y", "value": { "f32": 0 } },
+              { "id": "radius_scale", "value": { "f32": 0.57735027 } }
+            ]
+          },
+          {
+            "type": "compute",
+            "shader": { "module": "glow_blur" },
+            "constants": [
+              { "id": "direction_x", "value": { "f32": 0 } },
+              { "id": "direction_y", "value": { "f32": 1 } },
+              { "id": "radius_scale", "value": { "f32": 0.57735027 } }
+            ]
+          },
+          {
+            "type": "compute",
+            "shader": { "module": "glow_blur" },
+            "constants": [
+              { "id": "direction_x", "value": { "f32": 1 } },
+              { "id": "direction_y", "value": { "f32": 0 } },
+              { "id": "radius_scale", "value": { "f32": 0.81649658 } }
+            ]
+          },
+          {
+            "type": "compute",
+            "shader": { "module": "glow_blur" },
+            "constants": [
+              { "id": "direction_x", "value": { "f32": 0 } },
+              { "id": "direction_y", "value": { "f32": 1 } },
+              { "id": "radius_scale", "value": { "f32": 0.81649658 } }
+            ]
+          },
+          { "type": "render", "shader": { "module": "glow" } }
+        ],
+        "bounds": {
+          "min": [
+            "input::min::x - math::abs(p::width) * 4",
+            "input::min::y - math::abs(p::width) * 4"
+          ],
+          "max": [
+            "input::max::x + math::abs(p::width) * 4",
+            "input::max::y + math::abs(p::width) * 4"
+          ]
+        },
+        "scale": 2
+      },
       "properties": [
         {
           "id": "width",
-          "type": { "value": "f32" },
-          "default": { "f32": 20 },
           "label": { "ja-JP": "半径", "en-US": "Radius" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 128 },
-              "ui": { "unit": "px", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 20,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 128 },
+          "ui": { "unit": "px", "step": 1 }
         },
         {
           "id": "intensity",
-          "type": { "value": "f32" },
-          "default": { "f32": 100 },
           "label": { "ja-JP": "強さ", "en-US": "Strength" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 500 },
-              "ui": { "unit": "%", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 100,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 500 },
+          "ui": { "unit": "%", "step": 1 }
         },
         {
           "id": "spread",
-          "type": { "value": "f32" },
-          "default": { "f32": 20 },
           "label": { "ja-JP": "広がり", "en-US": "Spread" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 100 },
-              "ui": { "unit": "%", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 20,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 100 },
+          "ui": { "unit": "%", "step": 1 }
         },
         {
           "id": "color",
-          "type": { "value": "color" },
-          "default": { "color": [0.1, 0.55, 1, 1] },
           "label": { "ja-JP": "色", "en-US": "Color" },
-          "configurations": [{ "animatable": true }]
+          "type": "color",
+          "default": [0.1, 0.55, 1, 1],
+          "animatable": true
         }
-      ],
-      "passes": [
-        {
-          "type": "compute",
-          "shader": { "module": "glow_blur" },
-          "constants": [
-            { "id": "direction_x", "value": { "f32": 1 } },
-            { "id": "direction_y", "value": { "f32": 0 } },
-            { "id": "radius_scale", "value": { "f32": 0.57735027 } }
-          ]
-        },
-        {
-          "type": "compute",
-          "shader": { "module": "glow_blur" },
-          "constants": [
-            { "id": "direction_x", "value": { "f32": 0 } },
-            { "id": "direction_y", "value": { "f32": 1 } },
-            { "id": "radius_scale", "value": { "f32": 0.57735027 } }
-          ]
-        },
-        {
-          "type": "compute",
-          "shader": { "module": "glow_blur" },
-          "constants": [
-            { "id": "direction_x", "value": { "f32": 1 } },
-            { "id": "direction_y", "value": { "f32": 0 } },
-            { "id": "radius_scale", "value": { "f32": 0.81649658 } }
-          ]
-        },
-        {
-          "type": "compute",
-          "shader": { "module": "glow_blur" },
-          "constants": [
-            { "id": "direction_x", "value": { "f32": 0 } },
-            { "id": "direction_y", "value": { "f32": 1 } },
-            { "id": "radius_scale", "value": { "f32": 0.81649658 } }
-          ]
-        },
-        { "type": "render", "shader": { "module": "glow" } }
       ]
     },
     {
       "id": "outline",
-      "output_bounds": {
-        "min": [
-          "input::min::x - math::abs(p::width) * 1",
-          "input::min::y - math::abs(p::width) * 1"
-        ],
-        "max": [
-          "input::max::x + math::abs(p::width) * 1",
-          "input::max::y + math::abs(p::width) * 1"
-        ]
-      },
       "label": { "ja-JP": "枠線", "en-US": "Outline" },
       "category": {
         "id": "style",
         "label": { "ja-JP": "スタイル", "en-US": "Style" }
       },
       "tags": ["縁取り", "ストローク", "border", "stroke"],
-      "render_scale": 2,
+      "render": {
+        "passes": [
+          {
+            "type": "compute",
+            "shader": { "module": "outline_distance_field" },
+            "constants": [{ "id": "phase", "value": { "u32": 0 } }]
+          },
+          {
+            "type": "compute",
+            "shader": { "module": "outline_distance_field" },
+            "constants": [{ "id": "phase", "value": { "u32": 1 } }]
+          },
+          {
+            "type": "compute",
+            "shader": { "module": "outline_distance_field" },
+            "constants": [{ "id": "phase", "value": { "u32": 2 } }]
+          },
+          { "type": "render", "shader": { "module": "outline" } }
+        ],
+        "bounds": {
+          "min": [
+            "input::min::x - math::abs(p::width) * 1",
+            "input::min::y - math::abs(p::width) * 1"
+          ],
+          "max": [
+            "input::max::x + math::abs(p::width) * 1",
+            "input::max::y + math::abs(p::width) * 1"
+          ]
+        },
+        "scale": 2
+      },
       "properties": [
         {
           "id": "width",
-          "type": { "value": "f32" },
-          "default": { "f32": 4 },
           "label": { "ja-JP": "太さ", "en-US": "Thickness" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 64 },
-              "ui": { "unit": "px", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 4,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 64 },
+          "ui": { "unit": "px", "step": 1 }
         },
         {
           "id": "position",
-          "type": { "value": { "enum": [0, 1, 2] } },
-          "default": { "enum": 0 },
           "label": { "ja-JP": "位置", "en-US": "Position" },
-          "configurations": [
-            {
-              "ui": {
-                "enum_variants": {
-                  "0": { "ja-JP": "外側", "en-US": "Outside" },
-                  "1": { "ja-JP": "中央", "en-US": "Center" },
-                  "2": { "ja-JP": "内側", "en-US": "Inside" }
-                }
-              }
-            }
-          ]
+          "type": "enum",
+          "variants": [
+            { "value": 0, "label": { "ja-JP": "外側", "en-US": "Outside" } },
+            { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+            { "value": 2, "label": { "ja-JP": "内側", "en-US": "Inside" } }
+          ],
+          "default": 0
         },
         {
           "id": "color",
-          "type": { "value": "color" },
-          "default": { "color": [1, 1, 1, 1] },
           "label": { "ja-JP": "色", "en-US": "Color" },
-          "configurations": [{ "animatable": true }]
+          "type": "color",
+          "default": [1, 1, 1, 1],
+          "animatable": true
         }
-      ],
-      "passes": [
-        {
-          "type": "compute",
-          "shader": { "module": "outline_distance_field" },
-          "constants": [{ "id": "phase", "value": { "u32": 0 } }]
-        },
-        {
-          "type": "compute",
-          "shader": { "module": "outline_distance_field" },
-          "constants": [{ "id": "phase", "value": { "u32": 1 } }]
-        },
-        {
-          "type": "compute",
-          "shader": { "module": "outline_distance_field" },
-          "constants": [{ "id": "phase", "value": { "u32": 2 } }]
-        },
-        { "type": "render", "shader": { "module": "outline" } }
       ]
     },
     {
       "id": "vignette",
-      "output_bounds": {
-        "min": ["input::min::x", "input::min::y"],
-        "max": ["input::max::x", "input::max::y"]
-      },
       "label": { "ja-JP": "ビネット", "en-US": "Vignette" },
       "category": {
         "id": "style",
         "label": { "ja-JP": "スタイル", "en-US": "Style" }
       },
       "tags": ["周辺減光", "vignette"],
-      "passes": [{ "type": "render", "shader": { "module": "vignette" } }],
+      "render": {
+        "passes": [{ "type": "render", "shader": { "module": "vignette" } }],
+        "bounds": {
+          "min": ["input::min::x", "input::min::y"],
+          "max": ["input::max::x", "input::max::y"]
+        }
+      },
       "properties": [
         {
           "id": "amount",
-          "type": { "value": "f32" },
-          "default": { "f32": 0.45 },
           "label": { "ja-JP": "強さ", "en-US": "Strength" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 1 },
-              "ui": { "step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": 0.45,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 1 },
+          "ui": { "step": 0.01 }
         },
         {
           "id": "softness",
-          "type": { "value": "f32" },
-          "default": { "f32": 0.5 },
           "label": { "ja-JP": "ぼかし", "en-US": "Blur" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0.01, "max": 1 },
-              "ui": { "step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": 0.5,
+          "animatable": true,
+          "constraints": { "min": 0.01, "max": 1 },
+          "ui": { "step": 0.01 }
         },
         {
           "id": "roundness",
-          "type": { "value": "f32" },
-          "default": { "f32": 1 },
           "label": { "ja-JP": "丸み", "en-US": "Roundness" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0.25, "max": 4 },
-              "ui": { "step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": 1,
+          "animatable": true,
+          "constraints": { "min": 0.25, "max": 4 },
+          "ui": { "step": 0.01 }
         }
       ]
     },
     {
       "id": "pixelate",
-      "output_bounds": {
-        "min": ["input::min::x", "input::min::y"],
-        "max": ["input::max::x", "input::max::y"]
-      },
       "label": { "ja-JP": "ピクセル化", "en-US": "Pixelate" },
       "category": {
         "id": "filter",
         "label": { "ja-JP": "フィルター", "en-US": "Filter" }
       },
       "tags": ["モザイク", "ドット", "mosaic", "pixel"],
-      "passes": [{ "type": "render", "shader": { "module": "pixelate" } }],
+      "render": {
+        "passes": [{ "type": "render", "shader": { "module": "pixelate" } }],
+        "bounds": {
+          "min": ["input::min::x", "input::min::y"],
+          "max": ["input::max::x", "input::max::y"]
+        }
+      },
       "properties": [
         {
           "id": "block_size",
-          "type": { "value": "f32" },
-          "default": { "f32": 12 },
           "label": { "ja-JP": "ブロック幅", "en-US": "Block Width" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 1, "max": 256 },
-              "ui": { "unit": "px", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 12,
+          "animatable": true,
+          "constraints": { "min": 1, "max": 256 },
+          "ui": { "unit": "px", "step": 1 }
         }
       ]
     },
     {
       "id": "chromatic_aberration",
-      "output_bounds": {
-        "min": [
-          "input::min::x - math::abs(p::amount) * 1",
-          "input::min::y - math::abs(p::amount) * 1"
-        ],
-        "max": [
-          "input::max::x + math::abs(p::amount) * 1",
-          "input::max::y + math::abs(p::amount) * 1"
-        ]
-      },
       "label": { "ja-JP": "色収差", "en-US": "Chromatic Aberration" },
       "category": {
         "id": "filter",
         "label": { "ja-JP": "フィルター", "en-US": "Filter" }
       },
       "tags": ["色ずれ", "RGBずれ", "chromatic", "fringing"],
-      "passes": [
-        { "type": "render", "shader": { "module": "chromatic_aberration" } }
-      ],
+      "render": {
+        "passes": [
+          { "type": "render", "shader": { "module": "chromatic_aberration" } }
+        ],
+        "bounds": {
+          "min": [
+            "input::min::x - math::abs(p::amount) * 1",
+            "input::min::y - math::abs(p::amount) * 1"
+          ],
+          "max": [
+            "input::max::x + math::abs(p::amount) * 1",
+            "input::max::y + math::abs(p::amount) * 1"
+          ]
+        }
+      },
       "properties": [
         {
           "id": "amount",
-          "type": { "value": "f32" },
-          "default": { "f32": 4 },
           "label": { "ja-JP": "ずれ", "en-US": "Offset" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 100 },
-              "ui": { "unit": "px", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 4,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 100 },
+          "ui": { "unit": "px", "step": 1 }
         },
         {
           "id": "angle",
-          "type": { "value": "f32" },
-          "default": { "f32": 0 },
           "label": { "ja-JP": "角度", "en-US": "Angle" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": -180, "max": 180 },
-              "ui": { "unit": "°", "step": 1 }
-            }
-          ]
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": -180, "max": 180 },
+          "ui": { "unit": "°", "step": 1 }
         }
       ]
     },
     {
       "id": "gaussian_blur",
-      "output_bounds": {
-        "min": [
-          "input::min::x - math::abs(p::radius) * 4",
-          "input::min::y - math::abs(p::radius) * 4"
-        ],
-        "max": [
-          "input::max::x + math::abs(p::radius) * 4",
-          "input::max::y + math::abs(p::radius) * 4"
-        ]
-      },
       "label": { "ja-JP": "ガウスぼかし", "en-US": "Gaussian Blur" },
       "category": {
         "id": "filter",
         "label": { "ja-JP": "フィルター", "en-US": "Filter" }
       },
       "tags": ["ぼかし", "ブラー", "soft focus", "blur"],
+      "render": {
+        "passes": [
+          {
+            "type": "compute",
+            "shader": { "module": "gaussian_blur" },
+            "constants": [
+              { "id": "direction_x", "value": { "f32": 1 } },
+              { "id": "direction_y", "value": { "f32": 0 } },
+              { "id": "radius_scale", "value": { "f32": 0.70710678 } }
+            ]
+          },
+          {
+            "type": "compute",
+            "shader": { "module": "gaussian_blur" },
+            "constants": [
+              { "id": "direction_x", "value": { "f32": 0 } },
+              { "id": "direction_y", "value": { "f32": 1 } },
+              { "id": "radius_scale", "value": { "f32": 0.70710678 } }
+            ]
+          },
+          {
+            "type": "compute",
+            "shader": { "module": "gaussian_blur" },
+            "constants": [
+              { "id": "direction_x", "value": { "f32": 1 } },
+              { "id": "direction_y", "value": { "f32": 0 } },
+              { "id": "radius_scale", "value": { "f32": 0.70710678 } }
+            ]
+          },
+          {
+            "type": "compute",
+            "shader": { "module": "gaussian_blur" },
+            "constants": [
+              { "id": "direction_x", "value": { "f32": 0 } },
+              { "id": "direction_y", "value": { "f32": 1 } },
+              { "id": "radius_scale", "value": { "f32": 0.70710678 } }
+            ]
+          }
+        ],
+        "bounds": {
+          "min": [
+            "input::min::x - math::abs(p::radius) * 4",
+            "input::min::y - math::abs(p::radius) * 4"
+          ],
+          "max": [
+            "input::max::x + math::abs(p::radius) * 4",
+            "input::max::y + math::abs(p::radius) * 4"
+          ]
+        }
+      },
       "properties": [
         {
           "id": "radius",
-          "type": { "value": "f32" },
-          "default": { "f32": 12 },
           "label": { "ja-JP": "半径", "en-US": "Radius" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 64 },
-              "ui": { "unit": "px", "step": 1 }
-            }
-          ]
-        }
-      ],
-      "passes": [
-        {
-          "type": "compute",
-          "shader": { "module": "gaussian_blur" },
-          "constants": [
-            { "id": "direction_x", "value": { "f32": 1 } },
-            { "id": "direction_y", "value": { "f32": 0 } },
-            { "id": "radius_scale", "value": { "f32": 0.70710678 } }
-          ]
-        },
-        {
-          "type": "compute",
-          "shader": { "module": "gaussian_blur" },
-          "constants": [
-            { "id": "direction_x", "value": { "f32": 0 } },
-            { "id": "direction_y", "value": { "f32": 1 } },
-            { "id": "radius_scale", "value": { "f32": 0.70710678 } }
-          ]
-        },
-        {
-          "type": "compute",
-          "shader": { "module": "gaussian_blur" },
-          "constants": [
-            { "id": "direction_x", "value": { "f32": 1 } },
-            { "id": "direction_y", "value": { "f32": 0 } },
-            { "id": "radius_scale", "value": { "f32": 0.70710678 } }
-          ]
-        },
-        {
-          "type": "compute",
-          "shader": { "module": "gaussian_blur" },
-          "constants": [
-            { "id": "direction_x", "value": { "f32": 0 } },
-            { "id": "direction_y", "value": { "f32": 1 } },
-            { "id": "radius_scale", "value": { "f32": 0.70710678 } }
-          ]
+          "type": "f32",
+          "default": 12,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 64 },
+          "ui": { "unit": "px", "step": 1 }
         }
       ]
     },
     {
       "id": "motion_blur",
-      "output_bounds": {
-        "min": ["input::min::x", "input::min::y"],
-        "max": ["input::max::x", "input::max::y"]
-      },
       "label": { "ja-JP": "モーションブラー", "en-US": "Motion Blur" },
       "category": {
         "id": "filter",
         "label": { "ja-JP": "フィルター", "en-US": "Filter" }
       },
       "tags": ["残像", "動き", "速度", "motion blur", "temporal"],
+      "render": {
+        "passes": [
+          {
+            "type": "temporal",
+            "sampling": {
+              "type": "range",
+              "sample_count": "samples",
+              "start_offset": "start_offset",
+              "end_offset": "end_offset"
+            },
+            "reducer": { "module": "motion_blur" }
+          }
+        ],
+        "bounds": {
+          "min": ["input::min::x", "input::min::y"],
+          "max": ["input::max::x", "input::max::y"]
+        }
+      },
       "properties": [
         {
           "id": "samples",
-          "type": { "value": "u32" },
-          "default": { "u32": 8 },
           "label": { "ja-JP": "サンプル数", "en-US": "Samples" },
-          "configurations": [
-            { "constraints": { "min": 1, "max": 16 }, "ui": { "step": 1 } }
-          ]
+          "type": "u32",
+          "default": 8,
+          "constraints": { "min": 1, "max": 16 },
+          "ui": { "step": 1 }
         },
         {
           "id": "start_offset",
-          "type": { "value": "f32" },
-          "default": { "f32": -0.25 },
           "label": { "ja-JP": "開始位置", "en-US": "Start Position" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": -32, "max": 32 },
-              "ui": { "unit": "F", "step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": -0.25,
+          "animatable": true,
+          "constraints": { "min": -32, "max": 32 },
+          "ui": { "unit": "F", "step": 0.01 }
         },
         {
           "id": "end_offset",
-          "type": { "value": "f32" },
-          "default": { "f32": 0.25 },
           "label": { "ja-JP": "終了位置", "en-US": "End Position" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": -32, "max": 32 },
-              "ui": { "unit": "F", "step": 0.01 }
-            }
-          ]
-        }
-      ],
-      "passes": [
-        {
-          "type": "temporal",
-          "sampling": {
-            "type": "range",
-            "sample_count": "samples",
-            "start_offset": "start_offset",
-            "end_offset": "end_offset"
-          },
-          "reducer": { "module": "motion_blur" }
+          "type": "f32",
+          "default": 0.25,
+          "animatable": true,
+          "constraints": { "min": -32, "max": 32 },
+          "ui": { "unit": "F", "step": 0.01 }
         }
       ]
     },
     {
       "id": "pixel_sort",
-      "output_bounds": {
-        "min": ["input::min::x", "input::min::y"],
-        "max": ["input::max::x", "input::max::y"]
-      },
       "label": { "ja-JP": "ピクセルソート", "en-US": "Pixel Sort" },
       "category": {
         "id": "filter",
         "label": { "ja-JP": "フィルター", "en-US": "Filter" }
       },
       "tags": ["グリッチ", "並べ替え", "glitch", "sort"],
+      "render": {
+        "passes": [
+          {
+            "type": "compute",
+            "shader": { "module": "pixel_sort" },
+            "dispatch": ["width", "height", "one"]
+          }
+        ],
+        "bounds": {
+          "min": ["input::min::x", "input::min::y"],
+          "max": ["input::max::x", "input::max::y"]
+        }
+      },
       "properties": [
         {
           "id": "threshold",
-          "type": { "value": "f32" },
-          "default": { "f32": 0.25 },
           "label": { "ja-JP": "しきい値", "en-US": "Threshold" },
-          "configurations": [
-            {
-              "animatable": true,
-              "constraints": { "min": 0, "max": 1 },
-              "ui": { "step": 0.01 }
-            }
-          ]
+          "type": "f32",
+          "default": 0.25,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 1 },
+          "ui": { "step": 0.01 }
         },
         {
           "id": "vertical",
-          "type": { "value": "bool" },
-          "default": { "bool": false },
           "label": { "ja-JP": "縦方向", "en-US": "Vertical" },
-          "configurations": [{}]
+          "type": "bool",
+          "default": false
         },
         {
           "id": "descending",
-          "type": { "value": "bool" },
-          "default": { "bool": false },
           "label": { "ja-JP": "明るい順", "en-US": "Lightness" },
-          "configurations": [{}]
-        }
-      ],
-      "passes": [
-        {
-          "type": "compute",
-          "shader": { "module": "pixel_sort" },
-          "dispatch": ["width", "height", "one"]
+          "type": "bool",
+          "default": false
         }
       ]
     }

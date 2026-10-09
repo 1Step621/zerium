@@ -1,15 +1,12 @@
 //! Presentation metadata for property controls.
 
-use std::{
-    collections::{BTreeMap, BTreeSet, HashSet},
-    path::Path,
-};
+use std::{collections::HashSet, path::Path};
 
 use serde::{Deserialize, Serialize};
 
-use super::{PropertyError, types::EnumPropertyType};
+use super::PropertyError;
 use crate::localized_text::LocalizedText;
-use crate::property::{PropertyType, PropertyValueType, ScalarPropertyType};
+use crate::property::ScalarPropertyType;
 
 fn is_one(value: &f32) -> bool {
     *value == 1.
@@ -42,8 +39,6 @@ pub struct PropertyUi {
     drag_step: Option<f32>,
     #[serde(skip_serializing_if = "is_true")]
     visible: bool,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    enum_variants: BTreeMap<u32, LocalizedText>,
     #[serde(default, skip_serializing_if = "is_false")]
     multiline: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -60,7 +55,6 @@ impl Default for PropertyUi {
             step: 1.,
             drag_step: None,
             visible: true,
-            enum_variants: BTreeMap::new(),
             multiline: false,
             editor: None,
             extensions: Vec::new(),
@@ -88,20 +82,6 @@ impl PropertyUi {
                         .iter()
                         .any(|allowed| allowed.eq_ignore_ascii_case(extension))
                 })
-    }
-
-    pub fn enum_options(&self, ty: &EnumPropertyType) -> Vec<(u32, String)> {
-        ty.values()
-            .iter()
-            .map(|value| {
-                (
-                    *value,
-                    self.enum_label(*value)
-                        .map(str::to_owned)
-                        .unwrap_or_else(|| value.to_string()),
-                )
-            })
-            .collect()
     }
 
     pub fn label(&self) -> Option<&str> {
@@ -132,16 +112,13 @@ impl PropertyUi {
         matches!(self.editor, Some(PropertyEditor::FontFamily))
     }
 
-    pub(super) fn enum_label(&self, value: u32) -> Option<&str> {
-        self.enum_variants.get(&value).map(LocalizedText::resolve)
-    }
-
     pub(super) fn validate(
         &self,
         owner_kind: &str,
         owner_id: &str,
         property_id: &str,
-        ty: &PropertyType,
+        ty: &ScalarPropertyType,
+        is_array: bool,
     ) -> Result<(), PropertyError> {
         let invalid = |message: &str| {
             PropertyError::invalid_definition(format!(
@@ -161,20 +138,10 @@ impl PropertyUi {
         if self.label.as_ref().is_some_and(LocalizedText::is_empty) {
             return Err(invalid("UI scalar label must not be empty"));
         }
-        if self.multiline
-            && *ty != PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::String))
-        {
+        if self.multiline && (is_array || *ty != ScalarPropertyType::String) {
             return Err(invalid("ui.multiline requires a string type"));
         }
-        if self.uses_font_family_editor()
-            && !matches!(
-                ty,
-                PropertyType::Array {
-                    element_type: PropertyValueType::Scalar(ScalarPropertyType::String),
-                    ..
-                }
-            )
-        {
+        if self.uses_font_family_editor() && (!is_array || *ty != ScalarPropertyType::String) {
             return Err(invalid(
                 "ui.editor requires an array of strings for the font_family editor",
             ));
@@ -182,70 +149,20 @@ impl PropertyUi {
 
         let mut seen = HashSet::new();
         if !self.extensions.is_empty()
-            && (!matches!(
-                ty.value_type(),
-                PropertyValueType::Scalar(ScalarPropertyType::File)
-            ) || !self.extensions.iter().all(|extension| {
-                !extension.is_empty()
-                    && extension
-                        .bytes()
-                        .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
-                    && seen.insert(extension)
-            }))
+            && (*ty != ScalarPropertyType::File
+                || !self.extensions.iter().all(|extension| {
+                    !extension.is_empty()
+                        && extension
+                            .bytes()
+                            .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit())
+                        && seen.insert(extension)
+                }))
         {
             return Err(invalid(
                 "ui.extensions requires a file type and unique lowercase extensions",
             ));
         }
 
-        self.validate_enum_variants(ty, invalid)
-    }
-
-    fn validate_enum_variants(
-        &self,
-        ty: &PropertyType,
-        invalid: impl Fn(&str) -> PropertyError,
-    ) -> Result<(), PropertyError> {
-        let value_type = ty.value_type();
-        let PropertyValueType::Scalar(ScalarPropertyType::Enum(enumeration)) = value_type else {
-            return self
-                .enum_variants
-                .is_empty()
-                .then_some(())
-                .ok_or_else(|| invalid("UI enum_variants requires an enum type"));
-        };
-
-        if !self.enum_variants.is_empty()
-            && (self.enum_variants.len() != enumeration.values().len()
-                || enumeration
-                    .values()
-                    .iter()
-                    .any(|value| !self.enum_variants.contains_key(value)))
-        {
-            return Err(invalid(
-                "UI enum_variants must define a label for every enum value",
-            ));
-        }
-        if self.enum_variants.values().any(LocalizedText::is_empty) {
-            return Err(invalid("UI enum variant labels must not be empty"));
-        }
-        let locales = self
-            .enum_variants
-            .values()
-            .flat_map(LocalizedText::locales)
-            .map(str::to_lowercase)
-            .chain(std::iter::once("en-us".to_owned()))
-            .collect::<BTreeSet<_>>();
-        for locale in locales {
-            let mut labels = HashSet::new();
-            if self
-                .enum_variants
-                .values()
-                .any(|label| !labels.insert(label.resolve_for(&locale).to_lowercase()))
-            {
-                return Err(invalid("UI enum variant labels must be unique"));
-            }
-        }
         Ok(())
     }
 }

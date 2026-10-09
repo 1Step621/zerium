@@ -74,7 +74,7 @@ fn capture_property_overrides(
         .filter(|(id, value)| {
             schema
                 .and_then(|schema| schema.iter().find(|property| property.id() == *id))
-                .is_none_or(|property| property.default_value() != *value)
+                .is_none_or(|property| property.default_value() != **value)
         })
         .map(|(id, value)| {
             let mut value = value.clone();
@@ -238,7 +238,7 @@ impl ProjectItem {
             effects.push(effect.into_effect(project_path, plugins)?);
         }
         if !effects.is_empty()
-            && matches!(&kind, TimelineItemKind::Plugin { schema, .. } if schema.shader().is_none())
+            && matches!(&kind, TimelineItemKind::Plugin { schema, .. } if schema.render().is_none())
         {
             return Err(ProjectError::invalid_data(
                 "Effects cannot be set on items without video",

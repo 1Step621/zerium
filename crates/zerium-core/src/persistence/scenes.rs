@@ -54,10 +54,9 @@ impl ProjectScene {
         let mut ids = HashSet::new();
         let mut schemas = Vec::with_capacity(self.arguments.len());
         for argument in &mut self.arguments {
-            argument
-                .schema
-                .default
-                .map_file_paths(&mut |path| resolve_path(path, project_path));
+            let mut default = argument.schema.default_value();
+            default.map_file_paths(&mut |path| resolve_path(path, project_path));
+            argument.schema.set_default(default);
             argument
                 .schema
                 .validate("scene", &self.name)
@@ -99,9 +98,9 @@ pub(super) struct ProjectSceneArgument {
 impl ProjectSceneArgument {
     fn capture(argument: &SceneArgument, project_path: &Path) -> Self {
         let mut schema = argument.schema.clone();
-        schema
-            .default
-            .map_file_paths(&mut |path| make_relative(path, project_path));
+        let mut default = schema.default_value();
+        default.map_file_paths(&mut |path| make_relative(path, project_path));
+        schema.set_default(default);
         Self {
             schema,
             bindings: argument.bindings.clone(),
@@ -147,7 +146,7 @@ pub(super) fn validate_scenes(
                         scene.name, property_id
                     )));
                 }
-                if resolved.schema.ty() != argument.schema.ty() {
+                if !resolved.schema.same_type(&argument.schema) {
                     return Err(ProjectError::invalid_data(format!(
                         "Scene '{}' argument '{}' does not match the binding target type",
                         scene.name,

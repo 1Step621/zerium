@@ -2,10 +2,7 @@
 
 use super::{PropertyError, constraints::PropertyConstraints, metadata::PropertyUi};
 use crate::localized_text::LocalizedText;
-use crate::property::{
-    PropertyElement, PropertyElementId, PropertyType, PropertyValue, PropertyValueType,
-    ScalarPropertyType,
-};
+use crate::property::{PropertyElement, PropertyElementId, PropertyValue, ScalarPropertyType};
 use serde::{Deserialize, Serialize};
 
 const MAX_ARRAY_ITEMS: u32 = 1_000_000;
@@ -46,36 +43,115 @@ impl Default for PropertyConfiguration {
 }
 
 impl PropertyConfiguration {
-    fn valid_for(&self, ty: &ScalarPropertyType) -> bool {
-        !self.animatable || ty.is_interpolatable()
-    }
-
     fn validate(
         &self,
         owner_kind: &str,
         owner_id: &str,
         property_id: &str,
         scalar_type: &ScalarPropertyType,
-        ui_type: &PropertyType,
+        is_array: bool,
         default: Option<&PropertyValue>,
     ) -> Result<(), PropertyError> {
         self.constraints
             .validate(owner_kind, owner_id, property_id, scalar_type, default)?;
-        self.ui.validate(owner_kind, owner_id, property_id, ui_type)
+        self.ui
+            .validate(owner_kind, owner_id, property_id, scalar_type, is_array)
     }
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq, Serialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct PropertySchema {
     pub(crate) id: String,
     pub(crate) label: LocalizedText,
-    #[serde(rename = "type")]
-    pub(crate) ty: PropertyType,
-    pub(crate) default: PropertyValue,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub(crate) append_default: Option<PropertyValue>,
-    pub(crate) configurations: Vec<PropertyConfiguration>,
+    pub(super) definition: PropertyDefinition,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum PropertyDefinition {
+    Value(ValueSchema),
+    Array {
+        element: ValueSchema,
+        min_items: u32,
+        max_items: u32,
+        default: Vec<PropertyElement>,
+    },
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub enum ValueSchema {
+    Scalar(ScalarSchema),
+    Tuple(Vec<ScalarSchema>),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct ScalarSchema {
+    pub ty: ScalarPropertyType,
+    pub default: PropertyValue,
+    pub configuration: PropertyConfiguration,
+}
+
+impl ValueSchema {
+    pub fn scalars(&self) -> &[ScalarSchema] {
+        match self {
+            Self::Scalar(scalar) => std::slice::from_ref(scalar),
+            Self::Tuple(elements) => elements,
+        }
+    }
+
+    pub fn scalar(&self, index: Option<usize>) -> Option<&ScalarSchema> {
+        match (self, index) {
+            (Self::Scalar(scalar), None) => Some(scalar),
+            (Self::Tuple(elements), Some(index)) => elements.get(index),
+            _ => None,
+        }
+    }
+
+    fn scalars_mut(&mut self) -> &mut [ScalarSchema] {
+        match self {
+            Self::Scalar(scalar) => std::slice::from_mut(scalar),
+            Self::Tuple(elements) => elements,
+        }
+    }
+
+    fn same_type(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Scalar(left), Self::Scalar(right)) => left.ty.same_type(&right.ty),
+            (Self::Tuple(left), Self::Tuple(right)) => {
+                left.len() == right.len()
+                    && left
+                        .iter()
+                        .zip(right)
+                        .all(|(left, right)| left.ty.same_type(&right.ty))
+            }
+            _ => false,
+        }
+    }
+
+    fn allows(&self, value: &PropertyValue) -> bool {
+        match (self, value) {
+            (Self::Scalar(scalar), value) => scalar.ty.allows(value),
+            (Self::Tuple(scalars), PropertyValue::Tuple(values)) => {
+                scalars.len() == values.len()
+                    && scalars
+                        .iter()
+                        .zip(values)
+                        .all(|(scalar, value)| scalar.ty.allows(value))
+            }
+            _ => false,
+        }
+    }
+
+    pub(super) fn default_value(&self) -> PropertyValue {
+        match self {
+            Self::Scalar(scalar) => scalar.default.clone(),
+            Self::Tuple(elements) => PropertyValue::Tuple(
+                elements
+                    .iter()
+                    .map(|scalar| scalar.default.clone())
+                    .collect(),
+            ),
+        }
+    }
 }
 
 pub struct ResolvedPropertyScalar<'a> {
@@ -85,11 +161,44 @@ pub struct ResolvedPropertyScalar<'a> {
 }
 
 impl PropertySchema {
-    /// Resolve an override through this contract, falling back to the declared default.
+    pub(crate) fn new_scalar(
+        id: String,
+        label: LocalizedText,
+        ty: ScalarPropertyType,
+        default: PropertyValue,
+        configuration: PropertyConfiguration,
+    ) -> Self {
+        Self {
+            id,
+            label,
+            definition: PropertyDefinition::Value(ValueSchema::Scalar(ScalarSchema {
+                ty,
+                default,
+                configuration,
+            })),
+        }
+    }
+
+    pub fn value_schema(&self) -> &ValueSchema {
+        match &self.definition {
+            PropertyDefinition::Value(value) | PropertyDefinition::Array { element: value, .. } => {
+                value
+            }
+        }
+    }
+
+    fn value_schema_mut(&mut self) -> &mut ValueSchema {
+        match &mut self.definition {
+            PropertyDefinition::Value(value) | PropertyDefinition::Array { element: value, .. } => {
+                value
+            }
+        }
+    }
+
     pub(crate) fn resolve_value(&self, value: Option<&PropertyValue>) -> PropertyValue {
         value
             .and_then(|value| self.constrained_value(value))
-            .unwrap_or_else(|| self.default_value().clone())
+            .unwrap_or_else(|| self.default_value())
     }
 
     pub fn scalar_type(
@@ -97,12 +206,10 @@ impl PropertySchema {
         element_id: Option<PropertyElementId>,
         scalar_index: Option<usize>,
     ) -> Option<&ScalarPropertyType> {
-        let value_type = match (element_id, self.ty()) {
-            (Some(_), PropertyType::Array { element_type, .. })
-            | (None, PropertyType::Value(element_type)) => element_type,
-            _ => return None,
-        };
-        value_type.scalar_at(scalar_index)
+        if element_id.is_some() != matches!(self.definition, PropertyDefinition::Array { .. }) {
+            return None;
+        }
+        Some(&self.value_schema().scalar(scalar_index)?.ty)
     }
 
     pub fn resolve_scalar<'a>(
@@ -116,16 +223,36 @@ impl PropertySchema {
         ty.allows(value).then_some(ResolvedPropertyScalar {
             value,
             ty,
-            configuration: self.configurations.get(scalar_index.unwrap_or(0))?,
+            configuration: self.configuration(scalar_index),
+        })
+    }
+
+    pub(crate) fn scalar_projection(
+        &self,
+        value: &PropertyValue,
+        element_id: Option<PropertyElementId>,
+        scalar_index: Option<usize>,
+    ) -> Option<Self> {
+        let resolved = self.resolve_scalar(value, element_id, scalar_index)?;
+        let mut scalar = self.value_schema().scalar(scalar_index)?.clone();
+        scalar.default = scalar
+            .configuration
+            .constraints
+            .clamp_value(resolved.value)?;
+        Some(Self {
+            id: self.id.clone(),
+            label: self.label.clone(),
+            definition: PropertyDefinition::Value(ValueSchema::Scalar(scalar)),
         })
     }
 
     pub fn configuration(&self, scalar_index: Option<usize>) -> &PropertyConfiguration {
-        &self.configurations[scalar_index.unwrap_or(0)]
+        // Whole-tuple permission checks visit all scalars; scalar controls supply their index.
+        &self.value_schema().scalars()[scalar_index.unwrap_or(0)].configuration
     }
 
     pub fn configuration_mut(&mut self, scalar_index: Option<usize>) -> &mut PropertyConfiguration {
-        &mut self.configurations[scalar_index.unwrap_or(0)]
+        &mut self.value_schema_mut().scalars_mut()[scalar_index.unwrap_or(0)].configuration
     }
 
     pub fn configuration_ui(&self, scalar_index: Option<usize>) -> &PropertyUi {
@@ -154,44 +281,118 @@ impl PropertySchema {
         self.label.resolve()
     }
 
-    pub fn ty(&self) -> &PropertyType {
-        &self.ty
+    pub fn definition(&self) -> &PropertyDefinition {
+        &self.definition
     }
 
-    /// Whether this is a standalone file scalar, as required by media inputs.
+    pub fn same_type(&self, other: &Self) -> bool {
+        match (&self.definition, &other.definition) {
+            (PropertyDefinition::Value(left), PropertyDefinition::Value(right)) => {
+                left.same_type(right)
+            }
+            (
+                PropertyDefinition::Array {
+                    element: left,
+                    min_items: left_min,
+                    max_items: left_max,
+                    ..
+                },
+                PropertyDefinition::Array {
+                    element: right,
+                    min_items: right_min,
+                    max_items: right_max,
+                    ..
+                },
+            ) => left_min == right_min && left_max == right_max && left.same_type(right),
+            _ => false,
+        }
+    }
+
+    pub(crate) fn allows_type(&self, value: &PropertyValue) -> bool {
+        match (&self.definition, value) {
+            (PropertyDefinition::Value(schema), value) => schema.allows(value),
+            (
+                PropertyDefinition::Array {
+                    element,
+                    min_items,
+                    max_items,
+                    ..
+                },
+                PropertyValue::Array(values),
+            ) => {
+                let mut ids = std::collections::HashSet::with_capacity(values.len());
+                values.len() >= *min_items as usize
+                    && values.len() <= *max_items as usize
+                    && values.iter().all(|value| {
+                        value.element_id().is_valid()
+                            && ids.insert(value.element_id())
+                            && element.allows(value.value())
+                    })
+            }
+            _ => false,
+        }
+    }
+
     pub fn is_file(&self) -> bool {
         matches!(
-            self.ty,
-            PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::File))
+            &self.definition,
+            PropertyDefinition::Value(ValueSchema::Scalar(ScalarSchema {
+                ty: ScalarPropertyType::File,
+                ..
+            }))
         )
     }
 
-    pub fn default_value(&self) -> &PropertyValue {
-        &self.default
+    pub fn default_value(&self) -> PropertyValue {
+        match &self.definition {
+            PropertyDefinition::Value(value) => value.default_value(),
+            PropertyDefinition::Array { default, .. } => PropertyValue::Array(default.clone()),
+        }
     }
 
-    pub fn append_default_value(&self) -> Option<&PropertyValue> {
-        self.append_default.as_ref()
+    pub fn element_default_value(&self) -> Option<PropertyValue> {
+        match &self.definition {
+            PropertyDefinition::Array { element, .. } => Some(element.default_value()),
+            _ => None,
+        }
+    }
+
+    pub(crate) fn set_default(&mut self, value: PropertyValue) {
+        match (&mut self.definition, value) {
+            (PropertyDefinition::Value(ValueSchema::Scalar(scalar)), value) => {
+                scalar.default = value
+            }
+            (
+                PropertyDefinition::Value(ValueSchema::Tuple(elements)),
+                PropertyValue::Tuple(values),
+            ) => {
+                for (scalar, value) in elements.iter_mut().zip(values) {
+                    scalar.default = value;
+                }
+            }
+            (PropertyDefinition::Array { default, .. }, PropertyValue::Array(values)) => {
+                *default = values
+            }
+            _ => unreachable!("default value was validated against the schema"),
+        }
     }
 
     pub fn is_editable(&self, scalar_index: Option<usize>) -> bool {
         scalar_index.map_or_else(
             || {
-                self.configurations
+                self.value_schema()
+                    .scalars()
                     .iter()
-                    .all(|configuration| configuration.editable)
+                    .all(|scalar| scalar.configuration.editable)
             },
             |index| self.configuration(Some(index)).editable,
         )
     }
 
     pub fn is_animatable(&self, scalar_index: Option<usize>) -> bool {
-        let configuration = scalar_index.map_or_else(
-            || (self.configurations.len() == 1).then(|| self.configuration(None)),
-            |index| Some(self.configuration(Some(index))),
-        );
-        configuration
-            .is_some_and(|configuration| configuration.editable && configuration.animatable)
+        self.value_schema()
+            .scalar(scalar_index)
+            .is_some_and(|scalar| scalar.configuration.editable && scalar.configuration.animatable)
     }
 
     pub fn is_scene_bindable(&self, scalar_index: Option<usize>) -> bool {
@@ -199,17 +400,18 @@ impl PropertySchema {
     }
 
     pub fn is_visible(&self) -> bool {
-        self.configurations
+        self.value_schema()
+            .scalars()
             .iter()
-            .any(|configuration| configuration.ui.is_visible())
+            .any(|scalar| scalar.configuration.ui.is_visible())
     }
 
     pub fn accepts_value(&self, value: &PropertyValue) -> bool {
-        self.ty.allows(value) && self.accepts_constraints(value)
+        self.allows_type(value) && self.accepts_constraints(value)
     }
 
     pub fn constrained_value(&self, value: &PropertyValue) -> Option<PropertyValue> {
-        if !self.ty.allows(value) {
+        if !self.allows_type(value) {
             return None;
         }
         self.constrain_scalars(value)
@@ -247,103 +449,50 @@ impl PropertySchema {
     }
 
     pub(crate) fn validate(&self, owner_kind: &str, owner_id: &str) -> Result<(), PropertyError> {
+        let invalid = |message| self.validation_error(owner_kind, owner_id, message);
         if self.id.trim().is_empty() {
-            return Err(self.validation_error(owner_kind, owner_id, "id must not be empty"));
+            return Err(invalid("id must not be empty"));
         }
-
         if self.label.is_empty() {
-            return Err(self.validation_error(owner_kind, owner_id, "label must not be empty"));
+            return Err(invalid("label must not be empty"));
         }
-        if let PropertyType::Array {
+        if let PropertyDefinition::Array {
             min_items,
             max_items,
             ..
-        } = &self.ty
+        } = &self.definition
+            && (!(1..=MAX_ARRAY_ITEMS).contains(max_items) || min_items > max_items)
         {
-            if !(1..=MAX_ARRAY_ITEMS).contains(max_items) {
-                return Err(self.validation_error(
-                    owner_kind,
-                    owner_id,
-                    &format!("max_items must be between 1 and {MAX_ARRAY_ITEMS}"),
-                ));
-            }
-            if min_items > max_items {
-                return Err(self.validation_error(
-                    owner_kind,
-                    owner_id,
-                    "min_items must not exceed max_items",
-                ));
-            }
-        }
-
-        let component_type = self.ty.value_type();
-        let scalar_types = match component_type {
-            PropertyValueType::Scalar(scalar) => std::slice::from_ref(scalar),
-            PropertyValueType::Tuple(tuple) => tuple.scalars(),
-        };
-        if self.configurations.len() != scalar_types.len()
-            || self
-                .configurations
-                .iter()
-                .zip(scalar_types)
-                .any(|(configuration, ty)| !configuration.valid_for(ty))
-        {
-            return Err(self.validation_error(
-                owner_kind,
-                owner_id,
-                "has scalar metadata that does not match its type",
+            return Err(invalid(
+                "array length bounds must satisfy 0 <= min_items <= max_items <= 1000000, with max_items > 0",
             ));
         }
-        if !self.ty.allows(&self.default) {
-            return Err(self.validation_error(
-                owner_kind,
-                owner_id,
-                "default does not match its type",
-            ));
-        }
-
-        for (index, (configuration, ty)) in self.configurations.iter().zip(scalar_types).enumerate()
-        {
-            let scalar_ui_type = PropertyType::Value(PropertyValueType::Scalar(ty.clone()));
-            let ui_type = if matches!(component_type, PropertyValueType::Scalar(_)) {
-                &self.ty
-            } else {
-                &scalar_ui_type
-            };
-            let default = matches!(&self.ty, PropertyType::Value(_))
-                .then(|| self.default.scalar_at(Some(index)).unwrap_or(&self.default));
-            configuration.validate(owner_kind, owner_id, &self.id, ty, ui_type, default)?;
-        }
-        if !self.accepts_constraints(&self.default) {
-            return Err(PropertyError::invalid_definition(format!(
-                "{owner_kind} '{owner_id}' property '{}' default violates its constraints",
-                self.id
-            )));
-        }
-        let (element_type, value) = match (&self.ty, &self.append_default) {
-            (PropertyType::Array { .. }, None) => {
-                return Err(self.validation_error(
-                    owner_kind,
-                    owner_id,
-                    "array property requires append_default",
+        for scalar in self.value_schema().scalars() {
+            if (scalar.configuration.animatable && !scalar.ty.is_interpolatable())
+                || !scalar.ty.allows(&scalar.default)
+            {
+                return Err(invalid(
+                    "scalar default or animation settings do not match its type",
                 ));
             }
-            (PropertyType::Value(_), Some(_)) => {
-                return Err(self.validation_error(
-                    owner_kind,
-                    owner_id,
-                    "append_default requires an array property",
-                ));
-            }
-            (PropertyType::Value(_), None) => return Ok(()),
-            (PropertyType::Array { element_type, .. }, Some(value)) => (element_type, value),
-        };
-        if !element_type.allows(value) || !self.accepts_constraints(value) {
-            return Err(self.validation_error(
+            let is_array = matches!(
+                &self.definition,
+                PropertyDefinition::Array {
+                    element: ValueSchema::Scalar(_),
+                    ..
+                }
+            );
+            scalar.configuration.validate(
                 owner_kind,
                 owner_id,
-                "append_default violates the element type or constraints",
-            ));
+                &self.id,
+                &scalar.ty,
+                is_array,
+                Some(&scalar.default),
+            )?;
+        }
+        if !self.accepts_value(&self.default_value()) {
+            return Err(invalid("default violates the type or constraints"));
         }
         Ok(())
     }

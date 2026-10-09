@@ -95,6 +95,15 @@ impl ProjectFile {
             })
             .collect::<Result<Vec<_>, _>>()?;
         scenes.sort_by_key(|scene| scene.id);
+        let argument_files: Vec<_> = snapshot
+            .scenes()
+            .flat_map(|scene| {
+                scene
+                    .arguments
+                    .iter()
+                    .filter_map(|arg| arg.schema.default_value().file().map(Path::to_path_buf))
+            })
+            .collect();
         Ok(Self {
             format_version: FORMAT_VERSION,
             project_high: snapshot.project_id().high(),
@@ -118,12 +127,7 @@ impl ProjectFile {
                         .items()
                         .chain(snapshot.scenes().flat_map(|scene| scene.items()))
                         .flat_map(item_files)
-                        .chain(snapshot.scenes().flat_map(|scene| {
-                            scene
-                                .arguments
-                                .iter()
-                                .filter_map(|arg| arg.schema.default_value().file())
-                        })),
+                        .chain(argument_files.iter().map(|path| path.as_path())),
                 )
                 .mapped_paths(|path| make_relative(path, project_path)),
         })

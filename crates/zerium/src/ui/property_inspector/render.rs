@@ -118,7 +118,7 @@ impl PropertyInspector {
             item.effects.clone()
         };
         let has_visual = schema
-            .is_some_and(|schema| schema.shader().is_some() && (!multiple || !effects.is_empty()))
+            .is_some_and(|schema| schema.render().is_some() && (!multiple || !effects.is_empty()))
             || (item.scene_id().is_some() && !multiple);
         let available_effects = {
             let editor = self.editor.read(cx);

@@ -9,38 +9,95 @@ use super::value::{MAX_STRING_BYTES, PropertyValue};
 pub(super) const MAX_TUPLE_ELEMENTS: usize = 64;
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(try_from = "Vec<u32>", into = "Vec<u32>")]
+#[serde(deny_unknown_fields)]
+pub struct EnumVariant {
+    pub value: u32,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub label: Option<crate::localized_text::LocalizedText>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(try_from = "Vec<EnumVariant>", into = "Vec<EnumVariant>")]
 pub struct EnumPropertyType {
-    values: Box<[u32]>,
+    variants: Box<[EnumVariant]>,
 }
 
 impl EnumPropertyType {
-    pub(super) fn new(values: Vec<u32>) -> Result<Self, &'static str> {
-        let mut seen = std::collections::HashSet::new();
-        if values.is_empty() || !values.iter().all(|value| seen.insert(*value)) {
+    pub(super) fn new(variants: Vec<EnumVariant>) -> Result<Self, &'static str> {
+        let mut seen = HashSet::new();
+        if variants.is_empty() || !variants.iter().all(|variant| seen.insert(variant.value)) {
             return Err("enum values must be unique and non-empty");
         }
+        if variants.iter().any(|variant| {
+            variant
+                .label
+                .as_ref()
+                .is_some_and(crate::localized_text::LocalizedText::is_empty)
+        }) {
+            return Err("enum variant labels must not be empty");
+        }
+        let locales = variants
+            .iter()
+            .filter_map(|variant| variant.label.as_ref())
+            .flat_map(crate::localized_text::LocalizedText::locales)
+            .map(str::to_lowercase)
+            .chain(std::iter::once("en-us".to_owned()))
+            .collect::<std::collections::BTreeSet<_>>();
+        for locale in locales {
+            let mut labels = HashSet::new();
+            if variants.iter().any(|variant| {
+                !labels.insert(variant.label.as_ref().map_or_else(
+                    || variant.value.to_string(),
+                    |label| label.resolve_for(&locale).to_lowercase(),
+                ))
+            }) {
+                return Err("enum variant labels must be unique");
+            }
+        }
         Ok(Self {
-            values: values.into(),
+            variants: variants.into(),
         })
     }
 
-    pub fn values(&self) -> &[u32] {
-        &self.values
+    pub fn values(&self) -> impl ExactSizeIterator<Item = u32> + '_ {
+        self.variants.iter().map(|variant| variant.value)
+    }
+
+    pub fn contains(&self, value: u32) -> bool {
+        self.values().any(|candidate| candidate == value)
+    }
+
+    pub fn variants(&self) -> &[EnumVariant] {
+        &self.variants
+    }
+
+    pub fn options(&self) -> Vec<(u32, String)> {
+        self.variants
+            .iter()
+            .map(|variant| {
+                (
+                    variant.value,
+                    variant.label.as_ref().map_or_else(
+                        || variant.value.to_string(),
+                        |label| label.resolve().to_owned(),
+                    ),
+                )
+            })
+            .collect()
     }
 }
 
-impl TryFrom<Vec<u32>> for EnumPropertyType {
+impl TryFrom<Vec<EnumVariant>> for EnumPropertyType {
     type Error = &'static str;
 
-    fn try_from(values: Vec<u32>) -> Result<Self, Self::Error> {
-        Self::new(values)
+    fn try_from(variants: Vec<EnumVariant>) -> Result<Self, Self::Error> {
+        Self::new(variants)
     }
 }
 
-impl From<EnumPropertyType> for Vec<u32> {
+impl From<EnumPropertyType> for Vec<EnumVariant> {
     fn from(value: EnumPropertyType) -> Self {
-        value.values.into()
+        value.variants.into()
     }
 }
 
@@ -58,6 +115,17 @@ pub enum ScalarPropertyType {
 }
 
 impl ScalarPropertyType {
+    /// Display labels do not affect binding or common-control type compatibility.
+    pub fn same_type(&self, other: &Self) -> bool {
+        match (self, other) {
+            (Self::Enum(left), Self::Enum(right)) => {
+                left.values().len() == right.values().len()
+                    && left.values().all(|value| right.contains(value))
+            }
+            _ => self == other,
+        }
+    }
+
     pub const fn is_interpolatable(&self) -> bool {
         matches!(self, Self::F32 | Self::I32 | Self::U32 | Self::Color)
     }
@@ -79,145 +147,8 @@ impl ScalarPropertyType {
             (Self::Color, PropertyValue::Color(values)) => {
                 values.iter().all(|value| value.is_finite())
             }
-            (Self::Enum(ty), PropertyValue::Enum(value)) => ty.values().contains(value),
+            (Self::Enum(ty), PropertyValue::Enum(value)) => ty.contains(*value),
             _ => false,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(try_from = "Vec<ScalarPropertyType>", into = "Vec<ScalarPropertyType>")]
-pub struct TuplePropertyType {
-    scalars: Box<[ScalarPropertyType]>,
-}
-
-impl TuplePropertyType {
-    pub fn new(scalars: impl Into<Box<[ScalarPropertyType]>>) -> Option<Self> {
-        let scalars = scalars.into();
-        (2..=MAX_TUPLE_ELEMENTS)
-            .contains(&scalars.len())
-            .then_some(Self { scalars })
-    }
-
-    pub fn scalars(&self) -> &[ScalarPropertyType] {
-        &self.scalars
-    }
-}
-
-impl TryFrom<Vec<ScalarPropertyType>> for TuplePropertyType {
-    type Error = String;
-
-    fn try_from(scalars: Vec<ScalarPropertyType>) -> Result<Self, Self::Error> {
-        Self::new(scalars).ok_or_else(|| {
-            format!("tuple must contain between 2 and {MAX_TUPLE_ELEMENTS} elements")
-        })
-    }
-}
-
-impl From<TuplePropertyType> for Vec<ScalarPropertyType> {
-    fn from(value: TuplePropertyType) -> Self {
-        value.scalars.into()
-    }
-}
-
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(untagged)]
-pub enum PropertyValueType {
-    Scalar(ScalarPropertyType),
-    Tuple(TuplePropertyType),
-}
-
-impl PropertyValueType {
-    pub fn allows(&self, value: &PropertyValue) -> bool {
-        match self {
-            Self::Scalar(ty) => ty.allows(value),
-            Self::Tuple(tuple) => {
-                let PropertyValue::Tuple(values) = value else {
-                    return false;
-                };
-                values.len() == tuple.scalars().len()
-                    && values
-                        .iter()
-                        .zip(tuple.scalars())
-                        .all(|(value, ty)| ty.allows(value))
-            }
-        }
-    }
-
-    /// Scalars with their structural tuple index; a standalone scalar has no index.
-    pub fn scalars(&self) -> impl Iterator<Item = (Option<usize>, &ScalarPropertyType)> {
-        let (scalars, tuple) = match self {
-            Self::Scalar(ty) => (std::slice::from_ref(ty), false),
-            Self::Tuple(tuple) => (tuple.scalars(), true),
-        };
-        scalars
-            .iter()
-            .enumerate()
-            .map(move |(index, ty)| (tuple.then_some(index), ty))
-    }
-
-    /// Resolve one structural scalar; color remains one scalar.
-    pub fn scalar_at(&self, scalar_index: Option<usize>) -> Option<&ScalarPropertyType> {
-        match (self, scalar_index) {
-            (Self::Scalar(ty), None) => Some(ty),
-            (Self::Tuple(tuple), Some(index)) => tuple.scalars().get(index),
-            _ => None,
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum PropertyType {
-    Value(PropertyValueType),
-    Array {
-        element_type: PropertyValueType,
-        #[serde(default, skip_serializing_if = "is_zero")]
-        min_items: u32,
-        max_items: u32,
-    },
-}
-
-fn is_zero(value: &u32) -> bool {
-    *value == 0
-}
-
-impl PropertyType {
-    pub fn value_type(&self) -> &PropertyValueType {
-        match self {
-            Self::Value(ty)
-            | Self::Array {
-                element_type: ty, ..
-            } => ty,
-        }
-    }
-
-    pub fn has_shader_values(&self) -> bool {
-        self.value_type()
-            .scalars()
-            .any(|(_, ty)| ty.is_shader_value())
-    }
-
-    pub fn allows(&self, value: &PropertyValue) -> bool {
-        match self {
-            Self::Value(ty) => ty.allows(value),
-            Self::Array {
-                element_type,
-                min_items,
-                max_items,
-            } => {
-                let PropertyValue::Array(values) = value else {
-                    return false;
-                };
-                let mut ids = HashSet::with_capacity(values.len());
-                values.len() >= *min_items as usize
-                    && values.len() <= *max_items as usize
-                    && values.iter().all(|element| {
-                        element.element_id().is_valid()
-                            && ids.insert(element.element_id())
-                            && element_type.allows(element.value())
-                    })
-            }
         }
     }
 }

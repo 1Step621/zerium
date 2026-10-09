@@ -8,8 +8,6 @@ description = "Zerium shader interface generation, compilation, and validation"
 
 [dependencies]
 naga.workspace = true
-serde.workspace = true
-serde_json.workspace = true
 thiserror.workspace = true
 wesl = "0.5"
 zerium-core.workspace = true

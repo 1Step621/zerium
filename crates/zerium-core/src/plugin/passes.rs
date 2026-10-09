@@ -3,8 +3,8 @@ use super::identifier::validate_wgsl_identifier;
 use super::shader::validate_shader_module;
 use super::{PluginError, ShaderKind, ShaderSchema};
 use crate::property::{
-    PropertySchema, PropertyType, PropertyValue, PropertyValueType, PropertyValues,
-    ScalarPropertyType,
+    PropertyDefinition, PropertySchema, PropertyValue, PropertyValues, ScalarPropertyType,
+    ScalarSchema, ValueSchema,
 };
 use serde::Deserialize;
 
@@ -176,9 +176,7 @@ impl TemporalSamplingSchema {
             properties
                 .iter()
                 .find(|property| property.id() == id)
-                .filter(|property| {
-                    property.ty() == &PropertyType::Value(PropertyValueType::Scalar(ty))
-                })
+                .filter(|property| property.scalar_type(None, None) == Some(&ty))
                 .ok_or_else(|| {
                     PluginError::invalid_definition(format!(
                         "effect '{effect_id}' temporal property '{id}' has the wrong type"
@@ -208,11 +206,12 @@ impl TemporalSamplingSchema {
             }
             Self::Offsets { offsets } => {
                 let valid = matches!(
-                    properties.iter().find(|property| property.id() == offsets).map(|property| property.ty()),
-                    Some(PropertyType::Array {
-                        element_type: PropertyValueType::Scalar(ScalarPropertyType::F32),
+                    properties.iter().find(|property| property.id() == offsets).map(|property| property.definition()),
+                    Some(PropertyDefinition::Array {
+                        element: ValueSchema::Scalar(ScalarSchema { ty: ScalarPropertyType::F32, .. }),
                         min_items,
                         max_items,
+                        ..
                     }) if *min_items >= 1 && *max_items <= MAX_TEMPORAL_SAMPLES
                 );
                 if !valid {

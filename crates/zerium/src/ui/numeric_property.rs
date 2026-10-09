@@ -1,5 +1,5 @@
 use ::ui::input::{NumberInputEvent, StepAction};
-use zerium_core::property::{PropertySchema, PropertyType, PropertyValue, ScalarPropertyType};
+use zerium_core::property::{PropertySchema, PropertyValue, ScalarPropertyType};
 
 pub(super) fn snap_to_step(value: f64, step: f64) -> f64 {
     if !step.is_finite() || step <= 0. {
@@ -67,7 +67,7 @@ pub(super) fn numeric_input_spec(
     property: &PropertySchema,
     scalar_index: Option<usize>,
 ) -> Option<NumericInputSpec> {
-    let scalar_type = property.ty().value_type().scalar_at(scalar_index)?.clone();
+    let scalar_type = property.value_schema().scalar(scalar_index)?.ty.clone();
     if !property.configuration_ui(scalar_index).is_visible() {
         return None;
     }
@@ -105,10 +105,7 @@ impl NumericInput {
     }
 
     pub(super) fn for_schema(schema: &PropertySchema) -> Option<Self> {
-        let PropertyType::Value(value_type) = schema.ty() else {
-            return None;
-        };
-        Self::new(value_type.scalar_at(None)?.clone())
+        Self::new(schema.scalar_type(None, None)?.clone())
     }
 
     pub(super) fn step(&self, float_step: f64) -> f64 {

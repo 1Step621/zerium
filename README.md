@@ -59,7 +59,7 @@ Under active development: all features, including the project file format, are s
   - A video editor developed by KEN-kun, embraced by countless creators across Japanese internet culture.
   - Huge respect for offering it for free and making it accessible to beginners while remaining powerful enough for advanced editing.
 - [Adachi Rei](https://mechanicalgirl.jp/adachi-rei/)
-  - A **cute** synthesized voice character created by [missile](https://x.com/missile_39) at Mechanical Girl!
+  - A **cute** synthesized voice character created by [missile](https://x.com/missile_39) at Mechanical Girl LLC.
   - The word "Rei" means "zero" in Japanese, which inspired the name "Zerium".
 
 ## Contributing

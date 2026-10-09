@@ -39,7 +39,6 @@ pub(super) struct TextControl {
 #[derive(Clone)]
 pub(super) struct ChoiceControl {
     pub common: LeafControl,
-    pub ty: ScalarPropertyType,
     pub options: Vec<(String, u32)>,
 }
 
@@ -233,7 +232,7 @@ impl PropertyInspector {
         };
         items.iter().skip(1).all(|item| {
             schema(item).is_some_and(|property| {
-                property.is_visible() && property.ty() == shared_property.ty()
+                property.is_visible() && property.same_type(shared_property)
             })
         })
     }
@@ -336,9 +335,15 @@ impl PropertyInspector {
             || property.label().to_owned(),
             |(index, _)| format!("{} {}", property.label(), index + 1),
         );
-        let ty = property.ty().value_type();
-        ty.scalars()
-            .filter_map(|(scalar_index, scalar_type)| {
+        let tuple = matches!(property.value_schema(), ValueSchema::Tuple(_));
+        property
+            .value_schema()
+            .scalars()
+            .iter()
+            .enumerate()
+            .filter_map(|(index, scalar)| {
+                let scalar_index = tuple.then_some(index);
+                let scalar_type = &scalar.ty;
                 let value = value.scalar_at(scalar_index)?.clone();
                 let scalar_ui = property.configuration_ui(scalar_index);
                 if !scalar_ui.is_visible() {
@@ -386,9 +391,8 @@ impl PropertyInspector {
                     (ScalarPropertyType::Enum(enumeration), PropertyValue::Enum(_)) => {
                         Control::Choice(ChoiceControl {
                             common,
-                            ty: scalar_type.clone(),
-                            options: scalar_ui
-                                .enum_options(enumeration)
+                            options: enumeration
+                                .options()
                                 .into_iter()
                                 .map(|(value, label)| (label, value))
                                 .collect(),
@@ -484,14 +488,7 @@ impl PropertyInspector {
             None,
             resolution,
         );
-        if matches!(
-            property.ty(),
-            PropertyType::Value(PropertyValueType::Tuple(_))
-                | PropertyType::Array {
-                    element_type: PropertyValueType::Tuple(_),
-                    ..
-                }
-        ) {
+        if matches!(property.value_schema(), ValueSchema::Tuple(_)) {
             Self::group_controls(
                 ControlId::group(&key),
                 property.label().to_owned(),
@@ -512,11 +509,11 @@ impl PropertyInspector {
         if !property.is_visible() {
             return None;
         }
-        let PropertyType::Array {
-            element_type,
+        let PropertyDefinition::Array {
             min_items,
             max_items,
-        } = property.ty()
+            ..
+        } = property.definition()
         else {
             return None;
         };
@@ -524,13 +521,10 @@ impl PropertyInspector {
         let PropertyValue::Array(values) = value else {
             return None;
         };
-        let element_kind = match element_type {
-            PropertyValueType::Scalar(ScalarPropertyType::String)
-                if property.configuration_ui(None).uses_font_family_editor() =>
-            {
-                ElementKind::FontFamily
-            }
-            _ => ElementKind::Scalar,
+        let element_kind = if property.configuration_ui(None).uses_font_family_editor() {
+            ElementKind::FontFamily
+        } else {
+            ElementKind::Scalar
         };
         let target = PropertyTarget {
             key: key.clone(),
@@ -611,7 +605,7 @@ impl PropertyInspector {
     fn resolve_common(
         resolution: &ControlResolution<'_>,
         common: &mut LeafControl,
-        ty: &PropertyType,
+        ty: &ScalarPropertyType,
     ) {
         let multiple = resolution.selected_items.len() > 1;
         common.animatable &= !multiple;
@@ -668,42 +662,18 @@ impl PropertyInspector {
         control: &mut Control,
         scalar_type: &ScalarPropertyType,
     ) {
-        match control {
-            Control::Group { .. } => {}
+        let common = match control {
+            Control::Group { .. } => return,
+            Control::Number(number) => &mut number.common,
+            Control::Text(text) => &mut text.common,
+            Control::Choice(choice) => &mut choice.common,
+            Control::Bool(common) | Control::Color(common) => common,
             Control::File(common) => {
-                Self::resolve_common(
-                    resolution,
-                    common,
-                    &PropertyType::Value(PropertyValueType::Scalar(scalar_type.clone())),
-                );
                 common.read_only |= resolution.selected_items.len() > 1;
+                common
             }
-            Control::Number(number) => Self::resolve_common(
-                resolution,
-                &mut number.common,
-                &PropertyType::Value(PropertyValueType::Scalar(number.spec.scalar_type.clone())),
-            ),
-            Control::Text(text) => Self::resolve_common(
-                resolution,
-                &mut text.common,
-                &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::String)),
-            ),
-            Control::Bool(boolean) => Self::resolve_common(
-                resolution,
-                boolean,
-                &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Bool)),
-            ),
-            Control::Choice(choice) => Self::resolve_common(
-                resolution,
-                &mut choice.common,
-                &PropertyType::Value(PropertyValueType::Scalar(choice.ty.clone())),
-            ),
-            Control::Color(color) => Self::resolve_common(
-                resolution,
-                color,
-                &PropertyType::Value(PropertyValueType::Scalar(ScalarPropertyType::Color)),
-            ),
-        }
+        };
+        Self::resolve_common(resolution, common, scalar_type);
     }
 
     pub(super) fn scene_field_binding(
@@ -711,7 +681,7 @@ impl PropertyInspector {
         animation_enabled: bool,
         scene_bindable: bool,
         target: SceneBindingTarget,
-        ty: &PropertyType,
+        ty: &ScalarPropertyType,
         arguments: &[SceneArgumentOption],
     ) -> Option<SceneFieldBinding> {
         if !editing_scene || animation_enabled || !scene_bindable {
@@ -725,7 +695,12 @@ impl PropertyInspector {
         });
         let compatible = arguments
             .iter()
-            .filter(|argument| argument.schema.ty() == ty)
+            .filter(|argument| {
+                argument
+                    .schema
+                    .scalar_type(None, None)
+                    .is_some_and(|actual| actual.same_type(ty))
+            })
             .map(|argument| (argument.id.clone(), argument.label.clone()))
             .collect::<Vec<_>>();
         if connected.is_none() && compatible.is_empty() {

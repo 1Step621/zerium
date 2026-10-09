@@ -11,7 +11,7 @@ pub fn plugin_from_parts(
     stale_message: impl Into<String>,
 ) -> Result<Plugin, PluginError> {
     let contracts = shader_contracts(&manifest)?;
-    if fingerprint.trim() != shader_contract_fingerprint(&contracts)? {
+    if fingerprint.trim() != shader_contract_fingerprint(&contracts) {
         return Err(PluginError::invalid_definition(stale_message));
     }
     if !modules.contains_key("package::generated::host::util") {

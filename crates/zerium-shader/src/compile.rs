@@ -18,20 +18,20 @@ pub fn compile_plugins(
 ) -> Result<Arc<CompiledPluginShaders>, ShaderError> {
     let mut compiled = CompiledPluginShaders::default();
     for (plugin_id, schema) in plugins.items() {
-        if let Some(shader) = schema.shader() {
+        if let Some(render) = schema.render() {
             let id = ItemShaderId::plugin_item(plugin_id, schema.id());
             compiled.items.push(compile_item_shader(
                 plugins,
                 plugin_id,
                 schema.id(),
-                shader,
+                &render.shader,
                 id,
-                schema.vertex_count(),
+                render.vertex_count,
             )?);
         }
     }
     for (plugin_id, schema) in plugins.effects() {
-        for (pass_index, pass) in schema.passes().iter().enumerate() {
+        for (pass_index, pass) in schema.render().passes.iter().enumerate() {
             let id = EffectShaderId::plugin_pass(plugin_id, schema.id(), pass_index);
             let source: Arc<str> = compile_plugin_shader(
                 plugins,

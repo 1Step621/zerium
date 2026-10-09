@@ -9,7 +9,7 @@ pub(crate) const MAX_STRING_BYTES: usize = 4_096;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
 #[serde(transparent)]
-pub struct PropertyElementId(u64);
+pub struct PropertyElementId(pub(super) u64);
 
 impl PropertyElementId {
     pub const fn is_valid(self) -> bool {
@@ -277,7 +277,7 @@ impl PropertyValues {
         Self {
             values: properties
                 .iter()
-                .map(|property| (property.id.clone(), property.default_value().clone()))
+                .map(|property| (property.id.clone(), property.default_value()))
                 .collect(),
         }
     }

@@ -5,7 +5,7 @@ use crate::engine::frame::RgbaFrame;
 use std::sync::Arc;
 use thiserror::Error;
 use zerium_core::plugin::{
-    Capability, ComputeDispatchDimension, EffectInputSpace, EffectPassSchema, ItemSchema,
+    ComputeDispatchDimension, EffectInputSpace, EffectPassSchema, ItemSchema, TextureInput,
 };
 use zerium_core::timeline::{
     EffectInstance, EffectInstanceId, ItemId, LayerId, ProjectResolution, TimelineItem,
@@ -180,20 +180,20 @@ impl RenderScene {
                 let Some(effect) = item.effects.iter().find(|effect| effect.id == effect_id) else {
                     return target_size;
                 };
-                (effect.schema().capabilities(), &effect.properties)
+                (effect.schema().inputs(), &effect.properties)
             }
             None => {
                 let Some(schema) = item.schema() else {
                     return target_size;
                 };
-                (schema.capabilities(), &item.properties)
+                (schema.inputs(), &item.properties)
             }
         };
         let Some(size_property) = capabilities
             .iter()
             .find(|capability| capability.id() == input_id)
             .and_then(|capability| match capability {
-                Capability::Media {
+                TextureInput::Media {
                     placement: Some(placement),
                     ..
                 } => Some(placement.size.as_str()),
@@ -232,7 +232,7 @@ impl RenderScene {
         let render_scale = item
             .effects
             .iter()
-            .map(|effect| effect.schema().render_scale())
+            .map(|effect| effect.schema().render().scale)
             .max()
             .unwrap_or(1);
         size.checked_scale(render_scale).ok_or_else(|| {
@@ -306,15 +306,11 @@ impl RenderScene {
         let schema = effect.schema();
         let properties = schema
             .property_layout()
-            .pack(
-                "effect",
-                schema.id(),
-                schema.properties(),
-                &effect.properties,
-            )
+            .pack("effect", schema.id(), &effect.properties)
             .expect("timeline effect properties come from the validated schema");
         let passes = schema
-            .passes()
+            .render()
+            .passes
             .iter()
             .zip(temporal_samples)
             .enumerate()
@@ -340,15 +336,18 @@ impl RenderScene {
         RenderEffect {
             passes,
             inputs: Vec::new(),
-            output_bounds: BoundsOperation::from_schema(schema.output_bounds(), &effect.properties),
-            input_space: schema.input_space(),
+            output_bounds: BoundsOperation::from_schema(
+                &schema.render().bounds,
+                &effect.properties,
+            ),
+            input_space: schema.render().input_space,
         }
     }
 
     pub(super) fn pack_item_properties(item: &TimelineItem, schema: &ItemSchema) -> Vec<u8> {
         schema
             .property_layout()
-            .pack("item", schema.id(), schema.properties(), &item.properties)
+            .pack("item", schema.id(), &item.properties)
             .expect("validated plugin properties must match their schema")
     }
 }

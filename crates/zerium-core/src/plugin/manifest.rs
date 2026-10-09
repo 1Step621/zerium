@@ -91,11 +91,14 @@ impl PluginManifest {
         let item_modules = self
             .items
             .iter()
-            .filter_map(|schema| schema.shader().map(super::ShaderSchema::module));
-        let effect_modules = self
-            .effects
-            .iter()
-            .flat_map(|effect| effect.passes().iter().map(|pass| pass.shader_module()));
+            .filter_map(|schema| schema.render().map(|render| render.shader.module()));
+        let effect_modules = self.effects.iter().flat_map(|effect| {
+            effect
+                .render()
+                .passes
+                .iter()
+                .map(|pass| pass.shader_module())
+        });
         item_modules.chain(effect_modules)
     }
 }

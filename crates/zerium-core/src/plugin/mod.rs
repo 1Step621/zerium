@@ -20,15 +20,15 @@ pub use abi::{PropertyLayout, abi_size, scalar_abi_size, value_string_count};
 pub use bounds::{OutputBoundsSchema, program_context};
 pub use bundle::Plugin;
 pub use capability::{
-    AudioCapability, Capability, MAX_CAPABILITIES, MAX_DECIMAL_PLACES, MediaPlaybackSchema,
-    PlaybackProperties, TextStyle, TimeMappingProperties,
+    AudioCapability, MAX_DECIMAL_PLACES, MAX_TEXTURE_INPUTS, MediaPlaybackSchema,
+    PlaybackProperties, TextStyle, TextureInput, TimeMappingProperties,
 };
 pub use category::CatalogCategory;
 pub use editor::EditorCapability;
-pub use effect::{EffectInputSpace, EffectSchema};
+pub use effect::{EffectInputSpace, EffectRenderSchema, EffectSchema};
 pub use error::PluginError;
 pub use identifier::validate_wgsl_identifier;
-pub use item::ItemSchema;
+pub use item::{ItemRenderSchema, ItemSchema};
 pub use manifest::PluginManifest;
 pub use passes::{
     ComputeDispatchDimension, EffectPassSchema, PassConstantSchema, PassConstantValue,

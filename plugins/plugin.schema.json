@@ -99,22 +99,16 @@
         "file",
         "reader",
         "volume",
-        "source_start",
-        "source_duration",
-        "playback_speed",
-        "end_behavior",
-        "preserve_pitch"
+        "preserve_pitch",
+        "playback"
       ],
       "properties": {
         "id": { "$ref": "#/$defs/logicalId" },
         "file": { "$ref": "#/$defs/wgslId" },
         "reader": { "$ref": "#/$defs/logicalId" },
         "volume": { "$ref": "#/$defs/wgslId" },
-        "source_start": { "$ref": "#/$defs/wgslId" },
-        "source_duration": { "$ref": "#/$defs/wgslId" },
-        "playback_speed": { "$ref": "#/$defs/wgslId" },
-        "end_behavior": { "$ref": "#/$defs/wgslId" },
-        "preserve_pitch": { "$ref": "#/$defs/wgslId" }
+        "preserve_pitch": { "$ref": "#/$defs/wgslId" },
+        "playback": { "$ref": "#/$defs/mediaPlayback" }
       }
     },
     "editorCapability": {
@@ -271,92 +265,19 @@
         }
       ]
     },
-    "scalarType": {
-      "oneOf": [
-        { "enum": ["f32", "i32", "u32", "bool", "color", "string", "file"] },
-        { "$ref": "#/$defs/enumType" }
-      ]
-    },
-    "tupleType": {
-      "type": "array",
-      "minItems": 2,
-      "maxItems": 64,
-      "items": { "$ref": "#/$defs/scalarType" }
-    },
-    "arrayValueType": {
-      "oneOf": [
-        { "$ref": "#/$defs/scalarType" },
-        { "$ref": "#/$defs/tupleType" }
-      ]
-    },
-    "enumType": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["enum"],
-      "properties": {
-        "enum": {
-          "type": "array",
-          "minItems": 1,
-          "uniqueItems": true,
-          "items": { "type": "integer", "minimum": 0, "maximum": 4294967295 }
-        }
-      }
-    },
-    "propertyType": {
-      "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["value"],
-          "properties": { "value": { "$ref": "#/$defs/arrayValueType" } }
-        },
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["array"],
-          "properties": {
-            "array": {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["element_type", "max_items"],
-              "properties": {
-                "element_type": { "$ref": "#/$defs/arrayValueType" },
-                "min_items": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 1000000
-                },
-                "max_items": {
-                  "type": "integer",
-                  "minimum": 1,
-                  "maximum": 1000000
-                }
-              }
-            }
-          }
-        }
-      ]
-    },
     "property": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "label", "type", "default", "configurations"],
-      "if": { "properties": { "type": { "required": ["array"] } } },
-      "then": { "required": ["append_default"] },
-      "else": { "not": { "required": ["append_default"] } },
-      "properties": {
-        "id": { "$ref": "#/$defs/wgslId" },
-        "label": { "$ref": "#/$defs/localizedText" },
-        "type": { "$ref": "#/$defs/propertyType" },
-        "default": { "$ref": "#/$defs/propertyValue" },
-        "append_default": { "$ref": "#/$defs/propertyValue" },
-        "configurations": {
-          "type": "array",
-          "minItems": 1,
-          "maxItems": 64,
-          "items": { "$ref": "#/$defs/configuration" }
-        }
-      }
+      "allOf": [
+        {
+          "type": "object",
+          "required": ["id", "label"],
+          "properties": {
+            "id": { "$ref": "#/$defs/wgslId" },
+            "label": { "$ref": "#/$defs/localizedText" }
+          }
+        },
+        { "oneOf": [{ "$ref": "#/$defs/value" }, { "$ref": "#/$defs/array" }] }
+      ],
+      "unevaluatedProperties": false
     },
     "outputBounds": {
       "type": "object",
@@ -386,16 +307,9 @@
     "item": {
       "type": "object",
       "additionalProperties": false,
-      "if": { "required": ["shader"] },
+      "if": { "required": ["render"] },
       "then": { "properties": { "id": { "$ref": "#/$defs/wgslId" } } },
-      "required": [
-        "id",
-        "label",
-        "category",
-        "symbol",
-        "capabilities",
-        "output_bounds"
-      ],
+      "required": ["id", "label", "category", "symbol"],
       "properties": {
         "id": { "$ref": "#/$defs/logicalId" },
         "label": { "$ref": "#/$defs/localizedText" },
@@ -405,23 +319,16 @@
           "items": { "type": "string", "minLength": 1 }
         },
         "symbol": { "type": "string", "minLength": 1 },
-        "capabilities": { "$ref": "#/$defs/capabilities" },
         "audio": {
           "type": "array",
           "items": { "$ref": "#/$defs/audioCapability" }
         },
         "editor": { "$ref": "#/$defs/editorCapabilities" },
-        "output_bounds": { "$ref": "#/$defs/outputBounds" },
         "properties": {
           "type": "array",
           "items": { "$ref": "#/$defs/property" }
         },
-        "shader": { "$ref": "#/$defs/shader" },
-        "vertex_count": {
-          "type": "integer",
-          "minimum": 1,
-          "maximum": 4294967295
-        }
+        "render": { "$ref": "#/$defs/itemRender" }
       }
     },
     "passConstant": {
@@ -556,14 +463,7 @@
     "effect": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "id",
-        "label",
-        "category",
-        "properties",
-        "passes",
-        "output_bounds"
-      ],
+      "required": ["id", "label", "category", "properties", "render"],
       "properties": {
         "id": {
           "allOf": [
@@ -577,9 +477,6 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1 }
         },
-        "render_scale": { "type": "integer", "minimum": 1, "maximum": 4 },
-        "output_bounds": { "$ref": "#/$defs/outputBounds" },
-        "input_space": { "enum": ["output", "source"] },
         "editor": {
           "$ref": "#/$defs/editorCapabilities",
           "not": {
@@ -589,37 +486,17 @@
             }
           }
         },
-        "capabilities": { "$ref": "#/$defs/capabilities" },
         "properties": {
           "type": "array",
           "items": { "$ref": "#/$defs/property" }
         },
-        "passes": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "oneOf": [
-              { "$ref": "#/$defs/renderPass" },
-              { "$ref": "#/$defs/computePass" },
-              { "$ref": "#/$defs/temporalPass" }
-            ]
-          }
-        }
+        "render": { "$ref": "#/$defs/effectRender" }
       }
-    },
-    "fixedScalarType": {
-      "oneOf": [
-        { "enum": ["f32", "i32", "u32", "bool", "color"] },
-        { "$ref": "#/$defs/enumType" }
-      ]
     },
     "propertyConstraints": {
       "type": "object",
       "additionalProperties": false,
-      "properties": {
-        "min": { "type": "number" },
-        "max": { "type": "number" }
-      }
+      "properties": { "min": { "type": "number" }, "max": { "type": "number" } }
     },
     "scalarUi": {
       "type": "object",
@@ -636,47 +513,8 @@
           "type": "array",
           "uniqueItems": true,
           "items": { "type": "string", "pattern": "^[a-z0-9]+$" }
-        },
-        "enum_variants": {
-          "type": "object",
-          "minProperties": 1,
-          "patternProperties": {
-            "^[0-9]+$": { "$ref": "#/$defs/localizedText" }
-          },
-          "additionalProperties": false
         }
       }
-    },
-    "configuration": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "scene_bindable": { "type": "boolean", "default": true },
-        "editable": { "type": "boolean", "default": true },
-        "animatable": { "type": "boolean", "default": false },
-        "constraints": { "$ref": "#/$defs/propertyConstraints" },
-        "ui": { "$ref": "#/$defs/scalarUi" }
-      }
-    },
-    "propertyValue": {
-      "type": "object",
-      "minProperties": 1,
-      "maxProperties": 1,
-      "propertyNames": {
-        "enum": [
-          "f32",
-          "i32",
-          "u32",
-          "enum",
-          "bool",
-          "tuple",
-          "color",
-          "string",
-          "array",
-          "file"
-        ]
-      },
-      "properties": { "file": { "type": ["string", "null"], "minLength": 1 } }
     },
     "textStyle": {
       "type": "object",
@@ -706,7 +544,138 @@
         "vertical_alignment": { "$ref": "#/$defs/wgslId" }
       }
     },
-    "capability": {
+    "enumVariant": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["value"],
+      "properties": {
+        "value": { "type": "integer", "minimum": 0, "maximum": 4294967295 },
+        "label": { "$ref": "#/$defs/localizedText" }
+      }
+    },
+    "scalar": {
+      "allOf": [
+        { "$ref": "#/$defs/scalarSettings" },
+        {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["type", "default"],
+              "properties": {
+                "type": { "const": "f32" },
+                "default": {
+                  "type": "number",
+                  "minimum": -3.4028234663852886e38,
+                  "maximum": 3.4028234663852886e38
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": ["type", "default"],
+              "properties": {
+                "type": { "const": "i32" },
+                "default": {
+                  "type": "integer",
+                  "minimum": -2147483648,
+                  "maximum": 2147483647
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": ["type", "default"],
+              "properties": {
+                "type": { "const": "u32" },
+                "default": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": ["type", "default", "variants"],
+              "properties": {
+                "type": { "const": "enum" },
+                "default": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 4294967295
+                },
+                "variants": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": { "$ref": "#/$defs/enumVariant" }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": ["type", "default"],
+              "properties": {
+                "type": { "const": "bool" },
+                "default": { "type": "boolean" }
+              }
+            },
+            {
+              "type": "object",
+              "required": ["type", "default"],
+              "properties": {
+                "type": { "const": "color" },
+                "default": {
+                  "type": "array",
+                  "minItems": 4,
+                  "maxItems": 4,
+                  "items": {
+                    "type": "number",
+                    "minimum": -3.4028234663852886e38,
+                    "maximum": 3.4028234663852886e38
+                  }
+                }
+              }
+            },
+            {
+              "type": "object",
+              "required": ["type", "default"],
+              "properties": {
+                "type": { "const": "string" },
+                "default": { "type": "string" }
+              }
+            },
+            {
+              "type": "object",
+              "required": ["type", "default"],
+              "properties": {
+                "type": { "const": "file" },
+                "default": { "type": ["string", "null"], "minLength": 1 }
+              }
+            }
+          ]
+        }
+      ]
+    },
+    "tuple": {
+      "type": "object",
+      "required": ["type", "elements"],
+      "properties": {
+        "type": { "const": "tuple" },
+        "elements": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 64,
+          "items": {
+            "allOf": [{ "$ref": "#/$defs/scalar" }],
+            "unevaluatedProperties": false
+          }
+        }
+      }
+    },
+    "value": {
+      "oneOf": [{ "$ref": "#/$defs/scalar" }, { "$ref": "#/$defs/tuple" }]
+    },
+    "textureInput": {
       "oneOf": [
         {
           "type": "object",
@@ -773,10 +742,82 @@
         }
       ]
     },
-    "capabilities": {
+    "textureInputs": {
       "type": "array",
       "maxItems": 8,
-      "items": { "$ref": "#/$defs/capability" }
+      "items": { "$ref": "#/$defs/textureInput" }
+    },
+    "itemRender": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["shader", "bounds"],
+      "properties": {
+        "shader": { "$ref": "#/$defs/shader" },
+        "vertex_count": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4294967295,
+          "default": 6
+        },
+        "bounds": { "$ref": "#/$defs/outputBounds" },
+        "inputs": { "$ref": "#/$defs/textureInputs" }
+      }
+    },
+    "effectRender": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["bounds", "passes"],
+      "properties": {
+        "scale": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 4,
+          "default": 1
+        },
+        "input_space": { "enum": ["output", "source"], "default": "output" },
+        "bounds": { "$ref": "#/$defs/outputBounds" },
+        "inputs": { "$ref": "#/$defs/textureInputs" },
+        "passes": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              { "$ref": "#/$defs/renderPass" },
+              { "$ref": "#/$defs/computePass" },
+              { "$ref": "#/$defs/temporalPass" }
+            ]
+          }
+        }
+      }
+    },
+    "scalarSettings": {
+      "type": "object",
+      "properties": {
+        "scene_bindable": { "type": "boolean", "default": true },
+        "editable": { "type": "boolean", "default": true },
+        "animatable": { "type": "boolean", "default": false },
+        "constraints": { "$ref": "#/$defs/propertyConstraints" },
+        "ui": { "$ref": "#/$defs/scalarUi" }
+      }
+    },
+    "array": {
+      "type": "object",
+      "required": ["type", "element", "max_items", "default"],
+      "properties": {
+        "type": { "const": "array" },
+        "element": {
+          "allOf": [{ "$ref": "#/$defs/value" }],
+          "unevaluatedProperties": false
+        },
+        "min_items": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1000000,
+          "default": 0
+        },
+        "max_items": { "type": "integer", "minimum": 1, "maximum": 1000000 },
+        "default": { "type": "array" }
+      }
     }
   }
 }

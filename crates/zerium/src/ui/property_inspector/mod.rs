@@ -40,8 +40,8 @@ use number_drag::PropertyValueDragOrigin;
 use path::InspectorPath;
 use zerium_core::plugin::ItemSchema;
 use zerium_core::property::{
-    PropertyElement, PropertyElementId, PropertySchema, PropertyType, PropertyValue,
-    PropertyValueType, ScalarPropertyType,
+    PropertyDefinition, PropertyElement, PropertyElementId, PropertySchema, PropertyValue,
+    ScalarPropertyType, ValueSchema,
 };
 use zerium_core::timeline::{
     AnimationStopEdit, EditScope, EffectInstance, EffectInstanceId, ItemId, PropertyAddress,

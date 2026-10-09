@@ -3,8 +3,7 @@ use std::collections::HashMap;
 use serde::{Deserialize, Serialize};
 
 use crate::property::{
-    PropertyElementId, PropertyPath, PropertySchema, PropertyType, PropertyValue,
-    PropertyValueType, ScalarPropertyType,
+    PropertyElementId, PropertyPath, PropertySchema, PropertyValue, ScalarPropertyType,
 };
 
 use super::{
@@ -126,10 +125,13 @@ pub fn resolve_scene_binding(
     let (value, animations) = match target.owner() {
         SceneBindingOwner::Effect(effect_id) => {
             let effect = item.effect(effect_id)?;
-            (effect.properties.property(property_id)?, &effect.animations)
+            (
+                effect.properties.property(property_id)?.clone(),
+                &effect.animations,
+            )
         }
         SceneBindingOwner::Item => {
-            let value = item.properties.property(property_id).or_else(|| {
+            let value = item.properties.property(property_id).cloned().or_else(|| {
                 let nested = scenes.get(&item.scene_id()?)?;
                 nested
                     .argument(property_id)
@@ -139,12 +141,7 @@ pub fn resolve_scene_binding(
         }
     };
     let animated = animations.track(&target.path).is_some();
-    let resolved = schema.resolve_scalar(value, target.element_id(), target.scalar_index())?;
-    let mut schema = schema.clone();
-    schema.ty = PropertyType::Value(PropertyValueType::Scalar(resolved.ty.clone()));
-    schema.configurations = vec![resolved.configuration.clone()];
-    schema.append_default = None;
-    schema.default = schema.constrained_value(resolved.value)?;
+    let schema = schema.scalar_projection(&value, target.element_id(), target.scalar_index())?;
     Some(ResolvedSceneBinding { schema, animated })
 }
 
@@ -173,7 +170,8 @@ pub(crate) fn apply_scene_binding_to_item(
             let current = item
                 .properties
                 .property(property_id)
-                .unwrap_or(binding_schema.default_value());
+                .cloned()
+                .unwrap_or_else(|| binding_schema.default_value());
             let value = current.replaced_at(target.element_id(), target.scalar_index(), value)?;
             item.properties.set(target_schema, value).ok()
         }
@@ -192,8 +190,8 @@ pub enum SceneArgumentPreset {
 }
 
 impl SceneArgumentPreset {
-    pub fn ty(self) -> PropertyType {
-        let scalar = match self {
+    pub fn ty(self) -> ScalarPropertyType {
+        match self {
             Self::File => ScalarPropertyType::File,
             Self::Number => ScalarPropertyType::F32,
             Self::SignedInteger => ScalarPropertyType::I32,
@@ -201,31 +199,26 @@ impl SceneArgumentPreset {
             Self::Boolean => ScalarPropertyType::Bool,
             Self::Color => ScalarPropertyType::Color,
             Self::Text => ScalarPropertyType::String,
-        };
-        PropertyType::Value(PropertyValueType::Scalar(scalar))
+        }
     }
 }
 
 impl PropertySchema {
     pub fn for_scene_argument(mut self) -> Option<Self> {
-        if !matches!(self.ty, PropertyType::Value(PropertyValueType::Scalar(_))) {
-            return None;
-        }
-        self.default = self.constrained_value(self.default_value())?;
+        self.scalar_type(None, None)?;
+        self.set_default(self.constrained_value(&self.default_value())?);
         // A scene argument is its own editable input contract. The source
         // property's editability only controls direct edits on the bound
         // plugin property.
         self.configuration_mut(None).editable = true;
-        for configuration in &mut self.configurations {
-            configuration.scene_bindable = true;
-        }
+        self.configuration_mut(None).scene_bindable = true;
         Some(self)
     }
 
     pub fn with_scene_default(&self, value: &PropertyValue) -> Option<Self> {
         let default = self.constrained_value(value)?;
         let mut next = self.clone();
-        next.default = default;
+        next.set_default(default);
         Some(next)
     }
 
@@ -234,11 +227,11 @@ impl PropertySchema {
         settings: crate::property::NumericSettings,
     ) -> Option<Self> {
         let (default, constraints) = settings.into_parts();
-        if !self.ty().allows(&default) {
+        if !self.allows_type(&default) {
             return None;
         }
         let mut next = self.clone();
-        next.default = default;
+        next.set_default(default);
         next.configuration_mut(None).constraints = constraints;
         Some(next)
     }

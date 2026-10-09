@@ -10,7 +10,7 @@ use super::OutputBoundsSchema;
 use super::PluginError;
 use super::abi::PropertyLayout;
 use super::capability::{
-    AudioCapability, Capability, TimeMappingProperties, validate_capabilities,
+    AudioCapability, TextureInput, TimeMappingProperties, validate_texture_inputs,
 };
 use super::editor::{EditorCapability, validate_editors};
 use super::shader::ShaderSchema;
@@ -24,14 +24,21 @@ pub struct ItemSchema {
     category: CatalogCategory,
     tags: Vec<String>,
     symbol: String,
-    shader: Option<ShaderSchema>,
-    vertex_count: u32,
-    capabilities: Vec<Capability>,
+    render: Option<ItemRenderSchema>,
     audio: Vec<AudioCapability>,
     editor: Vec<EditorCapability>,
-    output_bounds: OutputBoundsSchema,
-    properties: Vec<PropertySchema>,
-    property_abi: PropertyLayout,
+    property_layout: PropertyLayout,
+}
+
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct ItemRenderSchema {
+    pub shader: ShaderSchema,
+    #[serde(default = "default_vertex_count")]
+    pub vertex_count: u32,
+    pub bounds: OutputBoundsSchema,
+    #[serde(default)]
+    pub inputs: Vec<TextureInput>,
 }
 
 #[derive(Deserialize)]
@@ -44,16 +51,11 @@ struct ItemSchemaDefinition {
     tags: Vec<String>,
     symbol: String,
     #[serde(default)]
-    shader: Option<ShaderSchema>,
-    #[serde(default = "default_vertex_count")]
-    vertex_count: u32,
-    #[serde(default)]
-    capabilities: Vec<Capability>,
+    render: Option<ItemRenderSchema>,
     #[serde(default)]
     audio: Vec<AudioCapability>,
     #[serde(default)]
     editor: Vec<EditorCapability>,
-    output_bounds: OutputBoundsSchema,
     #[serde(default)]
     properties: Vec<PropertySchema>,
 }
@@ -64,29 +66,19 @@ impl<'de> Deserialize<'de> for ItemSchema {
         D: Deserializer<'de>,
     {
         let definition = ItemSchemaDefinition::deserialize(deserializer)?;
-        let property_abi = PropertyLayout::compile(
-            "item",
-            &definition.id,
-            definition
-                .properties
-                .iter()
-                .map(|property| (property.id(), property.ty())),
-        )
-        .map_err(D::Error::custom)?;
+        let property_layout =
+            PropertyLayout::compile("item", &definition.id, definition.properties)
+                .map_err(D::Error::custom)?;
         let schema = Self {
             id: definition.id,
             label: definition.label,
             category: definition.category,
             tags: definition.tags,
             symbol: definition.symbol,
-            shader: definition.shader,
-            vertex_count: definition.vertex_count,
-            capabilities: definition.capabilities,
+            render: definition.render,
             audio: definition.audio,
             editor: definition.editor,
-            output_bounds: definition.output_bounds,
-            properties: definition.properties,
-            property_abi,
+            property_layout,
         };
         schema.validate().map_err(D::Error::custom)?;
         Ok(schema)
@@ -94,16 +86,14 @@ impl<'de> Deserialize<'de> for ItemSchema {
 }
 
 impl ItemSchema {
-    pub fn shader(&self) -> Option<&ShaderSchema> {
-        self.shader.as_ref()
+    pub fn render(&self) -> Option<&ItemRenderSchema> {
+        self.render.as_ref()
     }
 
-    pub const fn vertex_count(&self) -> u32 {
-        self.vertex_count
-    }
-
-    pub fn capabilities(&self) -> &[Capability] {
-        &self.capabilities
+    pub fn inputs(&self) -> &[TextureInput] {
+        self.render
+            .as_ref()
+            .map_or(&[], |render| render.inputs.as_slice())
     }
 
     pub fn id(&self) -> &str {
@@ -131,19 +121,17 @@ impl ItemSchema {
     }
 
     pub fn properties(&self) -> &[PropertySchema] {
-        &self.properties
-    }
-
-    pub fn output_bounds(&self) -> &OutputBoundsSchema {
-        &self.output_bounds
+        self.property_layout.properties()
     }
 
     pub fn property_layout(&self) -> &PropertyLayout {
-        &self.property_abi
+        &self.property_layout
     }
 
     pub fn file_properties(&self) -> impl Iterator<Item = &PropertySchema> {
-        self.properties.iter().filter(|property| property.is_file())
+        self.properties()
+            .iter()
+            .filter(|property| property.is_file())
     }
 
     pub fn audio(&self) -> &[AudioCapability] {
@@ -167,40 +155,36 @@ impl ItemSchema {
     pub(super) fn validate(&self) -> Result<(), PluginError> {
         self.category.validate("item", &self.id)?;
         validate_catalog_entry("item", &self.id, &self.label, &self.tags)?;
-        validate_property_schemas("item", &self.id, &self.properties)?;
-        self.output_bounds
-            .validate("item", &self.id, &self.properties)?;
-        validate_capabilities("item", &self.id, &self.properties, &self.capabilities)?;
-        validate_editors("item", &self.id, &self.properties, &self.editor)?;
+        validate_property_schemas("item", &self.id, self.properties())?;
+        if let Some(render) = &self.render {
+            render
+                .bounds
+                .validate("item", &self.id, self.properties())?;
+            validate_texture_inputs("item", &self.id, self.properties(), &render.inputs)?;
+            render.shader.validate("item", &self.id)?;
+            if render.vertex_count == 0 {
+                return Err(PluginError::invalid_definition(format!(
+                    "item '{}' vertex count must be non-zero",
+                    self.id
+                )));
+            }
+        }
+        validate_editors("item", &self.id, self.properties(), &self.editor)?;
         if self.symbol.trim().is_empty() {
             return Err(PluginError::invalid_definition(format!(
                 "item '{}' symbol must not be empty",
                 self.id
             )));
         }
-        if self.shader.is_none() && self.audio.is_empty() && self.editor.is_empty() {
+        if self.render.is_none() && self.audio.is_empty() && self.editor.is_empty() {
             return Err(PluginError::invalid_definition(format!(
-                "item '{}' must define a shader, audio role, or editor role",
-                self.id
-            )));
-        }
-        if let Some(shader) = &self.shader {
-            shader.validate("item", &self.id)?;
-            if self.vertex_count == 0 {
-                return Err(PluginError::invalid_definition(format!(
-                    "item '{}' vertex count must be non-zero",
-                    self.id
-                )));
-            }
-        } else if !self.capabilities.is_empty() {
-            return Err(PluginError::invalid_definition(format!(
-                "item '{}' has capabilities without a shader",
+                "item '{}' must define render, audio, or editor behavior",
                 self.id
             )));
         }
         let mut audio_inputs = HashSet::new();
         for input in &self.audio {
-            input.validate(&self.id, &self.properties)?;
+            input.validate(&self.id, self.properties())?;
             if !audio_inputs.insert(input.id()) {
                 return Err(PluginError::invalid_definition(format!(
                     "item '{}' has duplicate audio input '{}'",
@@ -213,14 +197,14 @@ impl ItemSchema {
     }
 
     pub fn media_sources(&self) -> impl Iterator<Item = crate::media::MediaSource<'_>> {
-        self.capabilities
+        self.inputs()
             .iter()
-            .filter_map(Capability::media_source)
+            .filter_map(TextureInput::media_source)
             .chain(self.audio.iter().map(AudioCapability::media_source))
     }
 
     pub fn property(&self, id: &str) -> Option<&PropertySchema> {
-        self.properties.iter().find(|property| property.id == id)
+        self.properties().iter().find(|property| property.id == id)
     }
 
     pub fn editor(&self) -> &[EditorCapability] {

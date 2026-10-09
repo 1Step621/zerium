@@ -10,7 +10,7 @@ use cosmic_text::{
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::engine::frame::RgbaFrame;
-use zerium_core::plugin::{Capability, MAX_DECIMAL_PLACES, TextStyle};
+use zerium_core::plugin::{MAX_DECIMAL_PLACES, TextStyle, TextureInput};
 use zerium_core::property::{PropertyValue, PropertyValues};
 use zerium_core::timeline::{EffectInstanceId, ItemId, TimelineItem};
 
@@ -25,7 +25,7 @@ pub(crate) struct TextSourceId {
 
 pub(crate) struct TextFrameRequest<'a> {
     pub id: TextSourceId,
-    pub capability: &'a Capability,
+    pub capability: &'a TextureInput,
     pub properties: &'a PropertyValues,
     pub label: &'a str,
     pub target_size: RenderSize,
@@ -90,12 +90,12 @@ impl TextFrameCache {
         for item in items {
             let owners = item
                 .schema()
-                .map(|schema| (None, schema.capabilities()))
+                .map(|schema| (None, schema.inputs()))
                 .into_iter()
                 .chain(
                     item.effects
                         .iter()
-                        .map(|effect| (Some(effect.id), effect.schema().capabilities())),
+                        .map(|effect| (Some(effect.id), effect.schema().inputs())),
                 );
             for (effect_id, capabilities) in owners {
                 for (capability_index, capability) in capabilities.iter().enumerate() {
@@ -217,11 +217,11 @@ impl TextFrameCache {
             ])
         };
         let content = match request.capability {
-            Capability::Text { text, .. } => property(text)
+            TextureInput::Text { text, .. } => property(text)
                 .and_then(PropertyValue::as_str)
                 .ok_or_else(missing)?
                 .to_owned(),
-            Capability::Number {
+            TextureInput::Number {
                 value,
                 decimal_places,
                 ..

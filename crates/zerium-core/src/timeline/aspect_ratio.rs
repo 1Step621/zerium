@@ -47,7 +47,7 @@ impl AspectRatio {
         value: &PropertyValue,
         edited_axis: Option<usize>,
     ) -> Option<PropertyValue> {
-        if !property.ty().allows(value) {
+        if !property.allows_type(value) {
             return None;
         }
         let mut axis = edited_axis.unwrap_or(0);

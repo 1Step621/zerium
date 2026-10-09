@@ -9,7 +9,7 @@ use super::text::TextFrameRequest;
 use super::text::TextSourceId;
 use crate::engine::frame::RgbaFrame;
 use std::{collections::HashMap, sync::Arc};
-use zerium_core::plugin::{Capability, EffectPassSchema};
+use zerium_core::plugin::{EffectPassSchema, TextureInput};
 use zerium_core::timeline::{
     EffectInstance, EffectInstanceId, LayerId, RenderResultSettings, TimelineItem, TimelineItemKind,
 };
@@ -111,23 +111,22 @@ impl SceneCompositionPlan {
     }
 }
 
-/// Values shared by every capability renderer, regardless of whether the
-/// capability belongs to an item shader or an effect pass.
-struct CapabilitySource<'a> {
+/// An item's or effect's texture inputs and their shared property values.
+struct InputSource<'a> {
     item_id: ItemId,
     effect_id: Option<EffectInstanceId>,
-    capabilities: &'a [Capability],
+    inputs: &'a [TextureInput],
     properties: &'a zerium_core::property::PropertyValues,
     label: &'a str,
 }
 
-impl<'a> CapabilitySource<'a> {
+impl<'a> InputSource<'a> {
     fn item(item: &'a TimelineItem) -> Self {
         let schema = item.schema().expect("renderable item has a schema");
         Self {
             item_id: item.id,
             effect_id: None,
-            capabilities: schema.capabilities(),
+            inputs: schema.inputs(),
             properties: &item.properties,
             label: schema.label(),
         }
@@ -138,7 +137,7 @@ impl<'a> CapabilitySource<'a> {
         Self {
             item_id,
             effect_id: Some(effect.id),
-            capabilities: schema.capabilities(),
+            inputs: schema.inputs(),
             properties: &effect.properties,
             label: schema.label(),
         }
@@ -146,7 +145,7 @@ impl<'a> CapabilitySource<'a> {
 }
 
 /// One frame's CPU render graph. All dependencies refer to shared node IDs;
-/// item and scene effects use the same temporal sampling and capability resolver.
+/// item and scene effects use the same temporal sampling and texture input resolver.
 pub(super) struct SceneBuilder<'a, M, T> {
     timeline: &'a dyn TimelineView,
     size: RenderSize,
@@ -267,7 +266,7 @@ where
             .effects
             .iter()
             .take(effect_count)
-            .map(|effect| effect.schema().render_scale())
+            .map(|effect| effect.schema().render().scale)
             .max()
             .unwrap_or(1);
         let metadata = RenderNodeMetadata {
@@ -283,13 +282,13 @@ where
                 schema,
             } => {
                 let item = &node.item;
-                if schema.shader().is_none() {
+                let Some(render) = schema.render() else {
                     self.node_cache.insert(key, None);
                     return Ok(None);
-                }
+                };
                 let target_size = self.scaled_size(render_scale)?;
-                let inputs = self.render_capabilities(
-                    CapabilitySource::item(item),
+                let inputs = self.render_inputs(
+                    InputSource::item(item),
                     node,
                     &composition,
                     time,
@@ -305,7 +304,7 @@ where
                     target_size,
                     render_scale,
                     output_bounds: item_bounds(
-                        schema.output_bounds(),
+                        &render.bounds,
                         &item.properties,
                         RenderSize::from(self.timeline.resolution()),
                     ),
@@ -386,7 +385,7 @@ where
         let mut effects = Vec::with_capacity(count);
         for (effect_index, instance) in node.item.effects.iter().take(count).enumerate() {
             let mut samples = Vec::new();
-            for pass in instance.schema().passes() {
+            for pass in &instance.schema().render().passes {
                 samples.push(match pass {
                     EffectPassSchema::Temporal { sampling, .. } => sampling
                         .sample_offsets(&instance.properties)
@@ -398,8 +397,8 @@ where
                 });
             }
             let mut effect = RenderScene::render_effect(instance, samples);
-            effect.inputs = self.render_capabilities(
-                CapabilitySource::effect(node.item.id, instance),
+            effect.inputs = self.render_inputs(
+                InputSource::effect(node.item.id, instance),
                 node,
                 composition,
                 time,
@@ -448,9 +447,9 @@ where
             .collect()
     }
 
-    fn render_capabilities(
+    fn render_inputs(
         &mut self,
-        source: CapabilitySource<'_>,
+        source: InputSource<'_>,
         node: &EvaluatedSceneNode,
         composition: &SceneCompositionPlan,
         time: TimelineTime,
@@ -463,10 +462,10 @@ where
             clip_end: TimelineTime::from_frame(node.clip.end_exclusive()),
             path: node.path.clone(),
         };
-        let mut inputs = Vec::with_capacity(source.capabilities.len());
-        for (index, capability) in source.capabilities.iter().enumerate() {
+        let mut inputs = Vec::with_capacity(source.inputs.len());
+        for (index, capability) in source.inputs.iter().enumerate() {
             let input = match capability {
-                Capability::Media { .. } => {
+                TextureInput::Media { .. } => {
                     let key = (
                         source.item_id,
                         source.effect_id,
@@ -497,7 +496,7 @@ where
                     });
                     self.frame_node(metadata.clone(), frame, target_size)
                 }
-                Capability::Text { .. } | Capability::Number { .. } => {
+                TextureInput::Text { .. } | TextureInput::Number { .. } => {
                     let frame = (self.text_frame)(TextFrameRequest {
                         id: TextSourceId {
                             item_id: source.item_id,
@@ -511,7 +510,7 @@ where
                     })?;
                     self.frame_node(metadata.clone(), frame, target_size)
                 }
-                Capability::RenderResult {
+                TextureInput::RenderResult {
                     start_offset,
                     end_offset,
                     hide_original,

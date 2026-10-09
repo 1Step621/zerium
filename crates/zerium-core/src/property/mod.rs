@@ -2,6 +2,7 @@
 use thiserror::Error;
 
 mod constraints;
+mod declaration;
 mod metadata;
 mod numeric;
 mod path;
@@ -13,10 +14,10 @@ pub use constraints::PropertyConstraints;
 pub use metadata::PropertyUi;
 pub use numeric::NumericSettings;
 pub use path::PropertyPath;
-pub use schema::{PropertyConfiguration, PropertySchema};
-pub use types::{
-    EnumPropertyType, PropertyType, PropertyValueType, ScalarPropertyType, TuplePropertyType,
+pub use schema::{
+    PropertyConfiguration, PropertyDefinition, PropertySchema, ScalarSchema, ValueSchema,
 };
+pub use types::{EnumPropertyType, EnumVariant, ScalarPropertyType};
 pub(crate) use value::MAX_STRING_BYTES;
 pub use value::materialized_property_values;
 pub use value::{PropertyElement, PropertyElementId, PropertyValue, PropertyValues};

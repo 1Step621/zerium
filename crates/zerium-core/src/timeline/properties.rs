@@ -35,6 +35,7 @@ impl<'a> SceneArguments<'a> {
             let input = self
                 .values
                 .and_then(|values| values.property(argument.schema.id()))
+                .cloned()
                 .unwrap_or_else(|| argument.schema.default_value());
             for binding in argument.bindings.iter().filter(|binding| {
                 binding.matches(address.item_id, address.effect_id, &address.property_id)
@@ -44,7 +45,7 @@ impl<'a> SceneArguments<'a> {
                 };
                 let input = resolved
                     .schema
-                    .constrained_value(input)
+                    .constrained_value(&input)
                     .expect("validated scene argument must satisfy its target type");
                 value = value
                     .replaced_at(binding.element_id(), binding.scalar_index(), input)

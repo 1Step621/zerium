@@ -67,6 +67,7 @@ impl TimelineEditor {
                 let current = item
                     .property_values(effect)?
                     .property(path.property_id())
+                    .cloned()
                     .unwrap_or_else(|| schema.default_value());
                 let value = match &edit {
                     PropertyEdit::Set(value) => value.clone(),

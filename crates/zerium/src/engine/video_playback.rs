@@ -861,13 +861,12 @@ impl VideoPlaybackEngine {
             };
             let owners = std::iter::once((
                 None,
-                item.schema()
-                    .map_or(&[][..], |schema| schema.capabilities()),
+                item.schema().map_or(&[][..], |schema| schema.inputs()),
             ))
             .chain(
                 item.effects
                     .iter()
-                    .map(|effect| (Some(effect.id), effect.schema().capabilities())),
+                    .map(|effect| (Some(effect.id), effect.schema().inputs())),
             );
             for (effect_id, capabilities) in owners {
                 for capability in capabilities {

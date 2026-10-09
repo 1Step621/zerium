@@ -4,10 +4,7 @@ use std::{
     path::{Path, PathBuf},
 };
 
-use crate::{
-    ShaderContract, ShaderError, capability_input, plugin_directory, shader_contract_fingerprint,
-    shader_contracts,
-};
+use crate::{ShaderContract, ShaderError, capability_input, plugin_directory, shader_contracts};
 use zerium_core::plugin::{PluginManifest, ShaderKind};
 
 mod property;
@@ -50,34 +47,61 @@ fn write_generated(
     generated: &Path,
     contracts: &BTreeMap<String, ShaderContract>,
 ) -> Result<(), ShaderError> {
-    write(
-        generated,
-        MANIFEST_FINGERPRINT,
-        &shader_contract_fingerprint(contracts)?,
-    )?;
+    let modules = generated_modules(contracts);
+    write(generated, MANIFEST_FINGERPRINT, &fingerprint(&modules))?;
     let host = generated.join("host");
     fs::create_dir(&host).map_err(|error| ShaderError::io("create", &host, error))?;
-    write(&host, "util.wesl", UTIL_INTERFACE)?;
-    write(&host, "_context.wesl", include_str!("wesl/_context.wesl"))?;
+    for (name, source) in modules {
+        write(generated, &name, &source)?;
+    }
+    Ok(())
+}
+
+fn generated_modules(contracts: &BTreeMap<String, ShaderContract>) -> BTreeMap<String, String> {
+    let mut modules = BTreeMap::from([
+        ("host/util.wesl".to_owned(), UTIL_INTERFACE.to_owned()),
+        (
+            "host/_context.wesl".to_owned(),
+            include_str!("wesl/_context.wesl").to_owned(),
+        ),
+    ]);
     for kind in ShaderKind::ALL {
-        write(
-            &host,
-            &format!("{}.wesl", kind.module_name()),
-            host_interface(kind),
-        )?;
-        write(
-            &host,
-            &format!("{}.wesl", kind.internal_module_name()),
-            &internal_interface(kind),
-        )?;
+        modules.insert(
+            format!("host/{}.wesl", kind.module_name()),
+            host_interface(kind).to_owned(),
+        );
+        modules.insert(
+            format!("host/{}.wesl", kind.internal_module_name()),
+            internal_interface(kind),
+        );
     }
     for (module, contract) in contracts {
         let source = property::interface(&contract.properties, contract.kind)
             + "\n"
             + &capability_interface(&contract.input_ids);
-        write(generated, &format!("{module}.wesl"), &source)?;
+        modules.insert(format!("{module}.wesl"), source);
     }
-    Ok(())
+    modules
+}
+
+pub fn shader_contract_fingerprint(contracts: &BTreeMap<String, ShaderContract>) -> String {
+    fingerprint(&generated_modules(contracts))
+}
+
+fn fingerprint(modules: &BTreeMap<String, String>) -> String {
+    let mut hash = 0xcbf2_9ce4_8422_2325_u64;
+    for (name, source) in modules {
+        // File boundaries are explicit; normalize content exactly as write() does.
+        for byte in name
+            .bytes()
+            .chain([0])
+            .chain(source.trim_end().bytes())
+            .chain([b'\n', 0])
+        {
+            hash = (hash ^ u64::from(byte)).wrapping_mul(0x0000_0100_0000_01b3);
+        }
+    }
+    format!("{hash:016x}")
 }
 
 fn install_generated(root: &Path, staging: &Path) -> Result<(), ShaderError> {

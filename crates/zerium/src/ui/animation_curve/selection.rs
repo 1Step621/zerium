@@ -63,7 +63,7 @@ impl AnimationSelection {
             .source_items_in_scope(zerium_core::timeline::EditScope::Selection)
             .filter_map(|item| {
                 let target = editor.corresponding_property_address(address, item.id)?;
-                (target.schema(editor)?.ty() == schema.ty() && Self::has_track(&target, editor))
+                (target.schema(editor)?.same_type(schema) && Self::has_track(&target, editor))
                     .then_some(target)
             })
             .collect()

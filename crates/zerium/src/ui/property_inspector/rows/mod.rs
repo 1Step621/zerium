@@ -372,13 +372,7 @@ impl PropertyInspector {
     ) -> gpui::AnyElement {
         let item_id = ctx.item_id;
         let property_label = group.property.label().to_owned();
-        let rows_are_tuples = matches!(
-            group.property.ty(),
-            PropertyType::Array {
-                element_type: PropertyValueType::Tuple(_),
-                ..
-            }
-        );
+        let rows_are_tuples = matches!(group.property.value_schema(), ValueSchema::Tuple(_));
         let rows_have_scene_binding = group.has_scene_binding;
         let mut rows = div().w_full().min_w_0().flex().flex_col().gap_1();
         for (element_index, row) in group.elements.iter().enumerate() {
@@ -573,9 +567,8 @@ impl PropertyInspector {
         let add_address = group.target.address(item_id);
         let next_value = group
             .property
-            .append_default_value()
-            .expect("array properties declare append_default")
-            .clone();
+            .element_default_value()
+            .expect("array properties declare an element default");
         let add_control = Button::new(SharedString::from(format!(
             "array-{}-add",
             group.target.key
