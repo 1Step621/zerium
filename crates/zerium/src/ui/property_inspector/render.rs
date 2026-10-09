@@ -394,7 +394,7 @@ impl PropertyInspector {
             )
             .child(
                 Button::new("toggle-selected-item-visibility")
-                    .xsmall()
+                    .small()
                     .compact()
                     .ghost()
                     .icon(if view.items_hidden {
@@ -536,7 +536,7 @@ impl PropertyInspector {
                             "toggle-effect-visibility-{}",
                             effect_id.get()
                         )))
-                        .xsmall()
+                        .small()
                         .compact()
                         .ghost()
                         .icon(if hidden {
@@ -562,7 +562,7 @@ impl PropertyInspector {
                             "move-effect-up-{}",
                             effect_id.get()
                         )))
-                        .xsmall()
+                        .small()
                         .compact()
                         .ghost()
                         .icon(IconName::ChevronUp)
@@ -581,7 +581,7 @@ impl PropertyInspector {
                             "move-effect-down-{}",
                             effect_id.get()
                         )))
-                        .xsmall()
+                        .small()
                         .compact()
                         .ghost()
                         .icon(IconName::ChevronDown)
@@ -601,9 +601,11 @@ impl PropertyInspector {
                                 "remove-effect-{}",
                                 effect_id.get()
                             )))
-                            .xsmall()
+                            .small()
                             .compact()
-                            .label(t!("common.delete").to_string())
+                            .ghost()
+                            .icon(IconName::Delete)
+                            .tooltip(t!("common.delete").to_string())
                             .on_click(move |_, _, cx| {
                                 remove_editor.update(cx, |editor, cx| {
                                     if editor.remove_item_effect(item_id, effect_id) {

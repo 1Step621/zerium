@@ -182,7 +182,7 @@ impl PropertyInspector {
     ) -> gpui::AnyElement {
         let menu_inspector = inspector.clone();
         Button::new(key)
-            .xsmall()
+            .small()
             .compact()
             .ghost()
             .icon(IconName::Link)
@@ -248,7 +248,7 @@ impl PropertyInspector {
     fn keyframe_base(id: SharedString, selected: bool, tooltip: String) -> Button {
         Button::new(id)
             .icon(Icon::new(IconName::Keyframe))
-            .xsmall()
+            .small()
             .compact()
             .ghost()
             .selected(selected)
@@ -348,7 +348,7 @@ impl PropertyInspector {
         let address = group.target.address(ctx.item_id);
         let key = group.target.key.scalar(Some(edit.element_id()), None);
         Button::new(SharedString::from(format!("array-{key}-{suffix}")))
-            .xsmall()
+            .small()
             .compact()
             .ghost()
             .icon(icon)
@@ -692,7 +692,7 @@ impl PropertyInspector {
             .w_full()
             .flex()
             .items_center()
-            .gap_2()
+            .gap_1()
             .when(!component_is_bound, |this| {
                 this.child(
                     div()

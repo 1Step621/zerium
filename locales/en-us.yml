@@ -130,8 +130,6 @@ _version: 1
 "args.color": "Color"
 "args.string": "String"
 "args.binding_count": "%{count} bindings"
-"args.collapse": "Collapse advanced settings"
-"args.expand": "Expand advanced settings"
 "args.remove": "Remove argument"
 "args.default": "Default"
 "args.minimum": "Minimum"

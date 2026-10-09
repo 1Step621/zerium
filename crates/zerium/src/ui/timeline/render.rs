@@ -7,8 +7,9 @@ impl Timeline {
         Button::new(id)
             .icon(icon)
             .tooltip(tooltip)
-            .xsmall()
+            .small()
             .compact()
+            .ghost()
     }
 
     fn ruler(
@@ -249,7 +250,7 @@ impl Timeline {
                     "toggle-layer-visibility-{}",
                     layer.get()
                 )))
-                .xsmall()
+                .small()
                 .compact()
                 .ghost()
                 .icon(if hidden {
@@ -1019,7 +1020,7 @@ impl Render for Timeline {
                                 .child(t!("timeline.empty_scene").to_string())
                                 .child(
                                     Button::new("timeline-delete-empty-scene")
-                                        .xsmall()
+                                        .small()
                                         .danger()
                                         .icon(IconName::Delete)
                                         .label(t!("timeline.delete_scene").to_string())

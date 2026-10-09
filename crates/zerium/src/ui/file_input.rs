@@ -81,7 +81,7 @@ pub(crate) fn file_picker(
         .child(
             div().min_w_0().flex_1().child(
                 Button::new(SharedString::from(format!("select-{key}")))
-                    .xsmall()
+                    .small()
                     .compact()
                     .w_full()
                     .min_w_0()
@@ -103,7 +103,7 @@ pub(crate) fn file_picker(
             row.child(
                 div().flex_none().child(
                     Button::new(SharedString::from(format!("clear-{key}")))
-                        .xsmall()
+                        .small()
                         .compact()
                         .ghost()
                         .icon(IconName::Xmark)

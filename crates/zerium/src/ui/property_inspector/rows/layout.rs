@@ -155,31 +155,31 @@ impl PropertyInspector {
         let value_input = Self::number_editor(common, spec, input, disabled, ctx);
         let select_inspector = ctx.inspector.clone();
         let select_target = common.target.clone();
-        let row = div()
-            .min_w_0()
-            .w_full()
-            .flex()
-            .items_center()
-            .gap_2()
-            .when(disabled, |this| {
-                this.text_color(ctx.colors.muted_foreground)
-            })
-            .when(!common.read_only, |this| {
-                this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                    select_inspector.update(cx, |inspector, cx| {
-                        inspector.select_animation(&select_target, cx);
-                    });
+        let row = Self::compact_row(
+            Self::animation_scalar_label(common, ctx),
+            div()
+                .min_w_0()
+                .flex_1()
+                .flex()
+                .items_center()
+                .gap_1()
+                .when(!is_bound, |this| {
+                    this.child(div().min_w_0().flex().flex_1().child(value_input))
                 })
+                .when_some(animation_button, |this, button| this.child(button))
+                .when_some(binding_button, |this, button| this.child(button)),
+        )
+        .when(disabled, |this| {
+            this.text_color(ctx.colors.muted_foreground)
+        })
+        .when(!common.read_only, |this| {
+            this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                select_inspector.update(cx, |inspector, cx| {
+                    inspector.select_animation(&select_target, cx);
+                });
             })
-            .when_some(Self::animation_scalar_label(common, ctx), |this, label| {
-                this.child(label)
-            })
-            .when(!is_bound, |this| {
-                this.child(div().min_w_0().flex().flex_1().child(value_input))
-            })
-            .when_some(animation_button, |this, button| this.child(button))
-            .when_some(binding_button, |this, button| this.child(button))
-            .into_any_element();
+        })
+        .into_any_element();
         (row, is_bound)
     }
 
@@ -648,7 +648,7 @@ impl PropertyInspector {
                 .child(div().flex_1().min_w_0().child(row))
                 .child(
                     Button::new(SharedString::from(format!("reset-{}", common.target.key)))
-                        .xsmall()
+                        .small()
                         .compact()
                         .ghost()
                         .icon(IconName::Undo)

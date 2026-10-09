@@ -100,7 +100,7 @@ impl Render for ExplorerFileDrag {
             .text_sm()
             .text_color(colors.foreground)
             .shadow_lg()
-            .child(Icon::new(IconName::Page).xsmall())
+            .child(Icon::new(IconName::Page).small())
             .child(
                 div()
                     .min_w_0()
@@ -499,7 +499,7 @@ impl Explorer {
                 Button::new("explorer-parent")
                     .icon(IconName::ChevronUp)
                     .tooltip(t!("explorer.parent_folder").to_string())
-                    .xsmall()
+                    .small()
                     .ghost()
                     .disabled(!has_parent)
                     .on_click(cx.listener(Self::open_parent)),
@@ -508,7 +508,7 @@ impl Explorer {
                 Button::new("explorer-home")
                     .icon(IconName::Home)
                     .tooltip(t!("explorer.home").to_string())
-                    .xsmall()
+                    .small()
                     .ghost()
                     .on_click(cx.listener(Self::open_home)),
             )
@@ -534,7 +534,7 @@ impl Explorer {
                 Button::new("explorer-refresh")
                     .icon(IconName::Refresh)
                     .tooltip(t!("explorer.refresh").to_string())
-                    .xsmall()
+                    .small()
                     .ghost()
                     .on_click(cx.listener(Self::refresh)),
             )
@@ -588,14 +588,14 @@ impl Explorer {
                     .when(is_directory, |this| {
                         this.child(
                             Icon::new(IconName::Folder)
-                                .xsmall()
+                                .small()
                                 .text_color(colors.primary),
                         )
                     })
                     .when(!is_directory, |this| {
                         this.child(
                             Icon::new(IconName::Page)
-                                .xsmall()
+                                .small()
                                 .text_color(colors.muted_foreground),
                         )
                     }),

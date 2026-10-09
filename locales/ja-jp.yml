@@ -130,8 +130,6 @@ _version: 1
 "args.color": "色"
 "args.string": "文字列"
 "args.binding_count": "%{count}件接続"
-"args.collapse": "詳細設定を折り畳む"
-"args.expand": "詳細設定を展開"
 "args.remove": "引数を削除"
 "args.default": "デフォルト"
 "args.minimum": "最小"

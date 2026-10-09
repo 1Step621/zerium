@@ -396,7 +396,7 @@ impl Render for Workspace {
                                 )
                                 .child(
                                     Button::new("cancel-export")
-                                        .xsmall()
+                                        .small()
                                         .ghost()
                                         .label(t!("common.cancel").to_string())
                                         .disabled(cancelling)

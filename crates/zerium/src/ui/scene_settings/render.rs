@@ -112,14 +112,6 @@ impl SceneSettings {
             )
     }
 
-    fn toggle_scene_argument_expanded(&mut self, argument_id: &str, cx: &mut Context<Self>) {
-        let key = argument_id.to_owned();
-        if !self.expanded_scene_arguments.insert(key.clone()) {
-            self.expanded_scene_arguments.remove(&key);
-        }
-        cx.notify();
-    }
-
     fn scene_settings_elements(
         &self,
         arguments: &[SceneArgumentOption],
@@ -213,7 +205,6 @@ impl SceneSettings {
         argument: SceneArgumentOption,
         render: &SceneSettingsRenderCtx<'_>,
     ) -> gpui::AnyElement {
-        let expanded = self.expanded_scene_arguments.contains(&argument.id);
         let name_input = self
             .store
             .text_inputs
@@ -222,7 +213,6 @@ impl SceneSettings {
                 &argument.id,
             ))
             .map(|state| state.input.clone());
-        let details = expanded.then(|| self.scene_argument_details(&argument, render));
 
         div()
             .w_full()
@@ -232,9 +222,9 @@ impl SceneSettings {
             .flex_none()
             .gap_2()
             .child(Self::scene_argument_header(
-                index, count, &argument, name_input, expanded, render,
+                index, count, &argument, name_input, render,
             ))
-            .when_some(details, |this, details| this.child(details))
+            .child(self.scene_argument_details(&argument, render))
             .into_any_element()
     }
 
@@ -243,15 +233,12 @@ impl SceneSettings {
         count: usize,
         argument: &SceneArgumentOption,
         name_input: Option<Entity<InputState>>,
-        expanded: bool,
         render: &SceneSettingsRenderCtx<'_>,
     ) -> Div {
         let move_up_editor = render.editor.clone();
         let move_up_id = argument.id.clone();
         let move_down_editor = render.editor.clone();
         let move_down_id = argument.id.clone();
-        let expand_settings = render.settings.clone();
-        let expand_id = argument.id.clone();
         let remove_settings = render.settings.clone();
         let remove_id = argument.id.clone();
 
@@ -284,7 +271,7 @@ impl SceneSettings {
                     "move-scene-argument-up-{}",
                     argument.id
                 )))
-                .xsmall()
+                .small()
                 .compact()
                 .flex_none()
                 .ghost()
@@ -304,7 +291,7 @@ impl SceneSettings {
                     "move-scene-argument-down-{}",
                     argument.id
                 )))
-                .xsmall()
+                .small()
                 .compact()
                 .flex_none()
                 .ghost()
@@ -321,35 +308,10 @@ impl SceneSettings {
             )
             .child(
                 Button::new(SharedString::from(format!(
-                    "toggle-scene-argument-settings-{}",
-                    argument.id
-                )))
-                .xsmall()
-                .compact()
-                .flex_none()
-                .ghost()
-                .icon(if expanded {
-                    IconName::ChevronDown
-                } else {
-                    IconName::ChevronRight
-                })
-                .tooltip(if expanded {
-                    t!("args.collapse").to_string()
-                } else {
-                    t!("args.expand").to_string()
-                })
-                .on_click(move |_, _, cx| {
-                    expand_settings.update(cx, |settings, cx| {
-                        settings.toggle_scene_argument_expanded(&expand_id, cx);
-                    });
-                }),
-            )
-            .child(
-                Button::new(SharedString::from(format!(
                     "remove-scene-argument-{}",
                     argument.id
                 )))
-                .xsmall()
+                .small()
                 .compact()
                 .flex_none()
                 .ghost()

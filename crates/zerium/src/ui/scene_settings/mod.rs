@@ -106,7 +106,6 @@ pub(crate) struct SceneSettings {
     file_input: Entity<FileInputController>,
     scene_id: Option<SceneId>,
     store: SettingsStore,
-    expanded_scene_arguments: HashSet<String>,
     focus_handle: FocusHandle,
     scroll_handle: ScrollHandle,
     _subscriptions: Vec<Subscription>,
@@ -133,7 +132,6 @@ impl SceneSettings {
             ],
             file_input,
             store: SettingsStore::default(),
-            expanded_scene_arguments: HashSet::new(),
             focus_handle: cx.focus_handle(),
             scroll_handle: ScrollHandle::new(),
         };
@@ -146,7 +144,6 @@ impl SceneSettings {
         if self.scene_id != scene_id {
             self.scene_id = scene_id;
             self.store = SettingsStore::default();
-            self.expanded_scene_arguments.clear();
             self.scroll_handle = ScrollHandle::new();
         }
         self.sync_inputs(window, cx);
@@ -170,7 +167,6 @@ impl SceneSettings {
         }) else {
             return false;
         };
-        self.expanded_scene_arguments.insert(argument_id.to_owned());
         self.scroll_handle.scroll_to_top_of_item(index + 2);
         cx.notify();
         true

@@ -40,8 +40,6 @@ impl SceneSettings {
         };
         let mut texts = vec![(ControlId::scene_name(scene_id), name)];
         let mut colors = Vec::new();
-        self.expanded_scene_arguments
-            .retain(|id| arguments.iter().any(|argument| argument.schema.id() == id));
         for argument in arguments {
             let argument_id = argument.schema.id();
             let label = if argument.schema.label().is_empty() {
