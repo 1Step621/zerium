@@ -69,8 +69,12 @@ pub(super) struct GpuCompute {
 pub(super) struct GpuComposite {
     pub(super) input_size: [u32; 2],
     pub(super) output_size: [u32; 2],
-    pub(super) uv_x: [f32; 4],
-    pub(super) uv_y: [f32; 4],
+    pub(super) source_x: [f32; 4],
+    pub(super) source_y: [f32; 4],
+    // Axis-aligned source-texel footprint of one output pixel.
+    pub(super) footprint: [f32; 2],
+    pub(super) copy_pixels: u32,
+    pub(super) _padding: u32,
     pub(super) blend_mode: [u32; 4],
 }
 
@@ -89,25 +93,38 @@ impl GpuComposite {
             [sin / view.zoom, cos / view.zoom],
         ];
         let row = |axis: usize| {
-            let extent = input.max[axis] - input.min[axis];
+            let density = f64::from([input_size.width, input_size.height][axis])
+                / (input.max[axis] - input.min[axis]);
             [
-                inverse[axis][0] * ((output.max[0] - output.min[0]) / extent) as f32
-                    / output_size.width as f32,
-                inverse[axis][1] * ((output.max[1] - output.min[1]) / extent) as f32
-                    / output_size.height as f32,
+                (f64::from(inverse[axis][0]) * (output.max[0] - output.min[0]) * density
+                    / f64::from(output_size.width)) as f32,
+                (f64::from(inverse[axis][1]) * (output.max[1] - output.min[1]) * density
+                    / f64::from(output_size.height)) as f32,
                 ((f64::from(view.position[axis])
                     + f64::from(inverse[axis][0]) * output.min[0]
                     + f64::from(inverse[axis][1]) * output.min[1]
                     - input.min[axis])
-                    / extent) as f32,
+                    * density) as f32,
                 0.,
             ]
         };
+        let source_x = row(0);
+        let source_y = row(1);
+        let footprint = [
+            (source_x[0].abs() + source_x[1].abs()).max(1.),
+            (source_y[0].abs() + source_y[1].abs()).max(1.),
+        ];
+        let copy_pixels = input_size == output_size
+            && source_x[..3] == [1., 0., 0.]
+            && source_y[..3] == [0., 1., 0.];
         Self {
             input_size: [input_size.width, input_size.height],
             output_size: [output_size.width, output_size.height],
-            uv_x: row(0),
-            uv_y: row(1),
+            source_x,
+            source_y,
+            footprint,
+            copy_pixels: u32::from(copy_pixels),
+            _padding: 0,
             blend_mode: [blend_mode as u32, 0, 0, 0],
         }
     }

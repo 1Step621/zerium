@@ -79,6 +79,11 @@ independent render sessions. `RendererDevice` owns immutable GPU state;
 scene boundaries and sample time, including for temporal effects. Item surfaces
 use declared bounds; scenes composite into the viewport before applying effects.
 
+Surface resampling preserves unchanged pixels, uses bilinear filtering for
+magnification, and averages source texels by their overlap with the output-pixel
+footprint for minification. Rotated footprints use an axis-aligned bounding box;
+pixels outside the source surface are transparent.
+
 Blend mode is a persisted setting shared by all timeline items, separate from
 plugin properties. The inspector header edits it for its current item scope.
 Each item's completed surface is blended into its parent scene after its

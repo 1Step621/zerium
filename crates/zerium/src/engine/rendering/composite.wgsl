@@ -1,6 +1,5 @@
 struct CompositeVertexOutput {
     @builtin(position) position: vec4<f32>,
-    @location(0) uv: vec2<f32>,
 };
 
 @group(0) @binding(0)
@@ -12,9 +11,12 @@ var composite_sampler: sampler;
 struct CompositeInfo {
     input_size: vec2<u32>,
     output_size: vec2<u32>,
-    // Output pixel coordinates to input UV coordinates.
-    uv_x: vec4<f32>,
-    uv_y: vec4<f32>,
+    // Output pixel coordinates to source texel coordinates.
+    source_x: vec4<f32>,
+    source_y: vec4<f32>,
+    footprint: vec2<f32>,
+    copy_pixels: u32,
+    _padding: u32,
     blend_mode: vec4<u32>,
 };
 
@@ -34,64 +36,46 @@ fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> CompositeVertexOutpu
     let position = positions[vertex_index];
     var output: CompositeVertexOutput;
     output.position = vec4(position, 0.0, 1.0);
-    output.uv = position * vec2(0.5, -0.5) + vec2(0.5);
     return output;
 }
 
+// Bilinear filtering with transparent pixels outside the surface. Clamp-to-edge
+// provides the edge texel; coverage supplies the missing transparent neighbors.
+fn sample_surface(pixel: vec2<f32>) -> vec4<f32> {
+    let size = vec2<f32>(composite_info.input_size);
+    let coverage = clamp(pixel + vec2(0.5), vec2(0.0), vec2(1.0))
+        * clamp(size + vec2(0.5) - pixel, vec2(0.0), vec2(1.0));
+    return textureSampleLevel(composite_input, composite_sampler, pixel / size, 0.0)
+        * coverage.x * coverage.y;
+}
+
 fn composite_sample(input: CompositeVertexOutput) -> vec4<f32> {
+    if composite_info.copy_pixels != 0u {
+        return textureLoad(composite_input, vec2<i32>(input.position.xy), 0);
+    }
     let pixel = vec3(input.position.xy, 1.0);
-    let uv = vec2(dot(composite_info.uv_x.xyz, pixel), dot(composite_info.uv_y.xyz, pixel));
-    let dx = vec2(composite_info.uv_x.x, composite_info.uv_y.x);
-    let dy = vec2(composite_info.uv_x.y, composite_info.uv_y.y);
-    let aligned = all(composite_info.uv_x.xyz == vec3(1.0 / f32(composite_info.output_size.x), 0.0, 0.0))
-        && all(composite_info.uv_y.xyz == vec3(0.0, 1.0 / f32(composite_info.output_size.y), 0.0));
-    if !aligned {
-        if any(uv < vec2(0.0)) || any(uv >= vec2(1.0)) {
-            return vec4(0.0);
-        }
-        let size = vec2<f32>(composite_info.input_size);
-        let scale = clamp(u32(round(max(length(dx * size), length(dy * size)))), 1u, 4u);
-        var result = vec4(0.0);
-        for (var y = 0u; y < scale; y += 1u) {
-            for (var x = 0u; x < scale; x += 1u) {
-                let offset = (vec2(f32(x), f32(y)) + vec2(0.5)) / f32(scale) - vec2(0.5);
-                let sample_uv = uv + dx * offset.x + dy * offset.y;
-                if all(sample_uv >= vec2(0.0)) && all(sample_uv < vec2(1.0)) {
-                    result += textureSample(composite_input, composite_sampler, sample_uv);
-                }
-            }
-        }
-        return result / f32(scale * scale);
+    let center = vec2(dot(composite_info.source_x.xyz, pixel), dot(composite_info.source_y.xyz, pixel));
+    let footprint = composite_info.footprint;
+    if all(footprint == vec2(1.0)) {
+        return sample_surface(center);
     }
-    if all(composite_info.input_size == composite_info.output_size) {
-        let position = min(
-            vec2<u32>(input.position.xy),
-            composite_info.input_size - vec2(1u),
-        );
-        return textureLoad(composite_input, vec2<i32>(position), 0);
-    }
-
-    let scale = max(composite_info.input_size.x / composite_info.output_size.x, 1u);
-    if scale == 1u {
-        return textureSample(composite_input, composite_sampler, input.uv);
-    }
-
-    let output_position = min(
-        vec2<u32>(input.position.xy),
-        composite_info.output_size - vec2(1u),
-    );
-    let first = output_position * scale;
+    // Integrate a box covering the transformed pixel footprint. Fractional
+    // overlap weights make resizing and panning continuous; clipping iteration
+    // bounds treats pixels outside the texture as transparent.
+    let size = vec2<f32>(composite_info.input_size);
+    let first = center - footprint * 0.5;
+    let last = center + footprint * 0.5;
+    let begin = vec2<i32>(clamp(floor(first), vec2(0.0), size));
+    let end = vec2<i32>(clamp(ceil(last), vec2(0.0), size));
     var result = vec4(0.0);
-    for (var offset_y = 0u; offset_y < scale; offset_y += 1u) {
-        for (var offset_x = 0u; offset_x < scale; offset_x += 1u) {
-            let source_position = min(
-                first + vec2(offset_x, offset_y),
-                composite_info.input_size - vec2(1u),
-            );
-            result += textureLoad(composite_input, source_position, 0);
+    for (var y = begin.y; y < end.y; y += 1) {
+        for (var x = begin.x; x < end.x; x += 1) {
+            let pixel_min = vec2(f32(x), f32(y));
+            let overlap = max(min(last, pixel_min + vec2(1.0)) - max(first, pixel_min), vec2(0.0));
+            result += textureLoad(composite_input, vec2(x, y), 0) * overlap.x * overlap.y;
         }
     }
-    return result / f32(scale * scale);
+    return result / (footprint.x * footprint.y);
 }
 
 fn scene_to_srgb_channel(value: f32) -> f32 {
