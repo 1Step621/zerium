@@ -23,7 +23,7 @@ pub use capability::{
     AudioCapability, MAX_DECIMAL_PLACES, MAX_TEXTURE_INPUTS, MediaPlaybackSchema,
     PlaybackProperties, TextStyle, TextureInput, TimeMappingProperties,
 };
-pub use category::CatalogCategory;
+pub use category::{EffectCategory, ItemCategory};
 pub use editor::EditorCapability;
 pub use effect::{EffectInputSpace, EffectRenderSchema, EffectSchema};
 pub use error::PluginError;
@@ -37,13 +37,13 @@ pub use registry::PluginRegistry;
 pub use shader::{ShaderKind, ShaderSchema};
 
 pub trait PluginCatalogEntry {
+    type Category;
+
     fn id(&self) -> &str;
 
     fn label(&self) -> &str;
 
-    fn category_id(&self) -> &str;
-
-    fn category(&self) -> &str;
+    fn category(&self) -> Self::Category;
 
     fn tags(&self) -> &[String];
 }

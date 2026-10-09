@@ -11,13 +11,42 @@ use gpui::{
     Subscription, Task, Window, div, prelude::*, px,
 };
 
-use zerium_core::plugin::PluginCatalogEntry;
+use zerium_core::plugin::{EffectCategory, ItemCategory, PluginCatalogEntry};
+
+#[derive(Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub(crate) enum SearchPickerCategory {
+    Item(ItemCategory),
+    Effect(EffectCategory),
+    Named(SharedString),
+}
+
+impl SearchPickerCategory {
+    fn label(&self) -> SharedString {
+        let id = match self {
+            Self::Item(category) => category.id(),
+            Self::Effect(category) => category.id(),
+            Self::Named(label) => return label.clone(),
+        };
+        t!(format!("category.{id}")).to_string().into()
+    }
+}
+
+impl From<ItemCategory> for SearchPickerCategory {
+    fn from(category: ItemCategory) -> Self {
+        Self::Item(category)
+    }
+}
+
+impl From<EffectCategory> for SearchPickerCategory {
+    fn from(category: EffectCategory) -> Self {
+        Self::Effect(category)
+    }
+}
 
 #[derive(Clone)]
 pub(crate) struct SearchPickerEntry<T> {
     label: SharedString,
-    category_id: SharedString,
-    category: SharedString,
+    category: SearchPickerCategory,
     searchable_text: String,
     value: T,
 }
@@ -28,23 +57,18 @@ impl<T> SearchPickerEntry<T> {
         category: impl Into<SharedString>,
         value: T,
     ) -> Self {
-        let category = category.into();
-        Self::with_category_id(label, category.clone(), category, value)
+        Self::with_category(label, SearchPickerCategory::Named(category.into()), value)
     }
 
-    fn with_category_id(
+    fn with_category(
         label: impl Into<SharedString>,
-        category_id: impl Into<SharedString>,
-        category: impl Into<SharedString>,
+        category: SearchPickerCategory,
         value: T,
     ) -> Self {
         let label = label.into();
-        let category_id = category_id.into();
-        let category = category.into();
-        let searchable_text = format!("{label}\n{category}").to_lowercase();
+        let searchable_text = format!("{label}\n{}", category.label()).to_lowercase();
         Self {
             label,
-            category_id,
             category,
             searchable_text,
             value,
@@ -62,22 +86,20 @@ impl<T> SearchPickerEntry<T> {
         self
     }
 
-    pub(crate) fn from_plugin_schema(
+    pub(crate) fn from_plugin_schema<S: PluginCatalogEntry>(
         plugin_id: &str,
-        schema: &impl PluginCatalogEntry,
+        schema: &S,
         value: T,
-    ) -> Self {
-        Self::with_category_id(
-            schema.label().to_owned(),
-            schema.category_id().to_owned(),
-            schema.category().to_owned(),
-            value,
-        )
-        .search_terms(
-            [plugin_id, schema.id()]
-                .into_iter()
-                .chain(schema.tags().iter().map(String::as_str)),
-        )
+    ) -> Self
+    where
+        S::Category: Into<SearchPickerCategory>,
+    {
+        Self::with_category(schema.label().to_owned(), schema.category().into(), value)
+            .search_terms(
+                [plugin_id, schema.id()]
+                    .into_iter()
+                    .chain(schema.tags().iter().map(String::as_str)),
+            )
     }
 
     fn matches(&self, query: &str) -> bool {
@@ -89,8 +111,7 @@ impl<T> SearchPickerEntry<T> {
 }
 
 struct SearchPickerSection {
-    category_id: SharedString,
-    category: SharedString,
+    category: SearchPickerCategory,
     entry_indices: Vec<usize>,
 }
 
@@ -103,8 +124,8 @@ struct SearchPickerDelegate<T> {
 impl<T> SearchPickerDelegate<T> {
     fn new(mut entries: Vec<SearchPickerEntry<T>>) -> Self {
         entries.sort_by(|left, right| {
-            left.category_id
-                .cmp(&right.category_id)
+            left.category
+                .cmp(&right.category)
                 .then_with(|| left.label.to_lowercase().cmp(&right.label.to_lowercase()))
         });
         let visible_sections = Self::matching_sections(&entries, "");
@@ -127,10 +148,9 @@ impl<T> SearchPickerDelegate<T> {
         {
             if sections
                 .last()
-                .is_none_or(|section| section.category_id != entry.category_id)
+                .is_none_or(|section| section.category != entry.category)
             {
                 sections.push(SearchPickerSection {
-                    category_id: entry.category_id.clone(),
                     category: entry.category.clone(),
                     entry_indices: Vec::new(),
                 });
@@ -141,12 +161,6 @@ impl<T> SearchPickerDelegate<T> {
                 .entry_indices
                 .push(index);
         }
-        sections.sort_by(|left, right| {
-            left.category
-                .to_lowercase()
-                .cmp(&right.category.to_lowercase())
-                .then_with(|| left.category_id.cmp(&right.category_id))
-        });
         sections
     }
 
@@ -210,7 +224,7 @@ impl<T: Clone + 'static> ListDelegate for SearchPickerDelegate<T> {
         _: &mut Window,
         cx: &mut Context<List<Self>>,
     ) -> Option<impl IntoElement> {
-        let category = self.visible_sections.get(section)?.category.clone();
+        let category = self.visible_sections.get(section)?.category.label();
         (!category.is_empty()).then(|| {
             div()
                 .w_full()

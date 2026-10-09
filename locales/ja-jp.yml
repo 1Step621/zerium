@@ -203,3 +203,13 @@ _version: 1
 "curve.period": "周期"
 "curve.phase": "位相"
 "curve.repeat_hint": "編集したパターンを繰り返します。往復の周期は行きと帰りを合わせた長さです。"
+
+"category.shape": "図形"
+"category.text": "テキスト"
+"category.media": "メディア"
+"category.composite": "合成"
+"category.transform": "変形"
+"category.color": "カラー"
+"category.style": "スタイル"
+"category.filter": "フィルター"
+"category.other": "その他"

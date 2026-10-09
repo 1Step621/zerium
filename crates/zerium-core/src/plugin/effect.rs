@@ -3,7 +3,7 @@
 use crate::localized_text::LocalizedText;
 use serde::{Deserialize, Deserializer, de::Error as _};
 
-use super::CatalogCategory;
+use super::EffectCategory;
 use super::OutputBoundsSchema;
 use super::PluginError;
 use super::abi::PropertyLayout;
@@ -28,7 +28,7 @@ pub enum EffectInputSpace {
 pub struct EffectSchema {
     id: String,
     label: LocalizedText,
-    category: CatalogCategory,
+    category: EffectCategory,
     tags: Vec<String>,
     render: EffectRenderSchema,
     editor: Vec<EditorCapability>,
@@ -53,7 +53,7 @@ pub struct EffectRenderSchema {
 struct EffectSchemaDefinition {
     id: String,
     label: LocalizedText,
-    category: CatalogCategory,
+    category: EffectCategory,
     #[serde(default)]
     tags: Vec<String>,
     render: EffectRenderSchema,
@@ -102,12 +102,8 @@ impl EffectSchema {
         self.label.resolve()
     }
 
-    pub fn category(&self) -> &str {
-        self.category.label()
-    }
-
-    pub fn category_id(&self) -> &str {
-        self.category.id()
+    pub fn category(&self) -> EffectCategory {
+        self.category
     }
 
     pub fn tags(&self) -> &[String] {
@@ -160,7 +156,6 @@ impl EffectSchema {
     }
 
     pub(super) fn validate(&self) -> Result<(), PluginError> {
-        self.category.validate("effect", &self.id)?;
         validate_catalog_entry("effect", &self.id, &self.label, &self.tags)?;
         validate_property_schemas("effect", &self.id, self.properties())?;
         self.render
@@ -201,6 +196,8 @@ impl EffectSchema {
 }
 
 impl super::PluginCatalogEntry for EffectSchema {
+    type Category = EffectCategory;
+
     fn id(&self) -> &str {
         self.id()
     }
@@ -209,12 +206,8 @@ impl super::PluginCatalogEntry for EffectSchema {
         self.label()
     }
 
-    fn category(&self) -> &str {
-        self.category()
-    }
-
-    fn category_id(&self) -> &str {
-        self.category_id()
+    fn category(&self) -> EffectCategory {
+        self.category
     }
 
     fn tags(&self) -> &[String] {

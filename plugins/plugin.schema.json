@@ -36,14 +36,13 @@
       "minLength": 1,
       "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*$"
     },
-    "catalogCategory": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "label"],
-      "properties": {
-        "id": { "$ref": "#/$defs/logicalId" },
-        "label": { "$ref": "#/$defs/localizedText" }
-      }
+    "itemCategory": {
+      "type": "string",
+      "enum": ["shape", "text", "media", "composite", "other"]
+    },
+    "effectCategory": {
+      "type": "string",
+      "enum": ["transform", "color", "style", "filter", "composite", "other"]
     },
     "wgslId": {
       "type": "string",
@@ -313,7 +312,7 @@
       "properties": {
         "id": { "$ref": "#/$defs/logicalId" },
         "label": { "$ref": "#/$defs/localizedText" },
-        "category": { "$ref": "#/$defs/catalogCategory" },
+        "category": { "$ref": "#/$defs/itemCategory" },
         "tags": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 }
@@ -472,7 +471,7 @@
           ]
         },
         "label": { "$ref": "#/$defs/localizedText" },
-        "category": { "$ref": "#/$defs/catalogCategory" },
+        "category": { "$ref": "#/$defs/effectCategory" },
         "tags": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 }

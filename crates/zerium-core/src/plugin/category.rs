@@ -1,34 +1,49 @@
-//! Stable grouping identity and localized display label for catalog categories.
+//! Fixed categories for item and effect catalog entries.
 
 use serde::Deserialize;
 
-use crate::localized_text::LocalizedText;
-
-use super::{PluginError, identifier::validate_logical_id};
-
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct CatalogCategory {
-    id: String,
-    label: LocalizedText,
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum ItemCategory {
+    Shape,
+    Text,
+    Media,
+    Composite,
+    Other,
 }
 
-impl CatalogCategory {
-    pub fn id(&self) -> &str {
-        &self.id
-    }
-
-    pub fn label(&self) -> &str {
-        self.label.resolve()
-    }
-
-    pub fn validate(&self, kind: &str, owner_id: &str) -> Result<(), PluginError> {
-        validate_logical_id("category", &self.id)?;
-        if self.label.is_empty() {
-            return Err(PluginError::invalid_definition(format!(
-                "{kind} '{owner_id}' category label must not be empty"
-            )));
+impl ItemCategory {
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Shape => "shape",
+            Self::Text => "text",
+            Self::Media => "media",
+            Self::Composite => "composite",
+            Self::Other => "other",
         }
-        Ok(())
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectCategory {
+    Transform,
+    Color,
+    Style,
+    Filter,
+    Composite,
+    Other,
+}
+
+impl EffectCategory {
+    pub const fn id(self) -> &'static str {
+        match self {
+            Self::Transform => "transform",
+            Self::Color => "color",
+            Self::Style => "style",
+            Self::Filter => "filter",
+            Self::Composite => "composite",
+            Self::Other => "other",
+        }
     }
 }

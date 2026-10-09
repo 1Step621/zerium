@@ -203,3 +203,13 @@ _version: 1
 "curve.period": "Period"
 "curve.phase": "Phase"
 "curve.repeat_hint": "Repeat the edited pattern. A ping-pong period includes both the forward and return directions."
+
+"category.shape": "Shape"
+"category.text": "Text"
+"category.media": "Media"
+"category.composite": "Composite"
+"category.transform": "Transform"
+"category.color": "Color"
+"category.style": "Style"
+"category.filter": "Filter"
+"category.other": "Other"

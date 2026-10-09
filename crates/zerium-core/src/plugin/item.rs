@@ -5,7 +5,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Deserializer, de::Error as _};
 
-use super::CatalogCategory;
+use super::ItemCategory;
 use super::OutputBoundsSchema;
 use super::PluginError;
 use super::abi::PropertyLayout;
@@ -21,7 +21,7 @@ use crate::property::PropertySchema;
 pub struct ItemSchema {
     id: String,
     label: LocalizedText,
-    category: CatalogCategory,
+    category: ItemCategory,
     tags: Vec<String>,
     symbol: String,
     render: Option<ItemRenderSchema>,
@@ -46,7 +46,7 @@ pub struct ItemRenderSchema {
 struct ItemSchemaDefinition {
     id: String,
     label: LocalizedText,
-    category: CatalogCategory,
+    category: ItemCategory,
     #[serde(default)]
     tags: Vec<String>,
     symbol: String,
@@ -104,12 +104,8 @@ impl ItemSchema {
         self.label.resolve()
     }
 
-    pub fn category(&self) -> &str {
-        self.category.label()
-    }
-
-    pub fn category_id(&self) -> &str {
-        self.category.id()
+    pub fn category(&self) -> ItemCategory {
+        self.category
     }
 
     pub fn tags(&self) -> &[String] {
@@ -153,7 +149,6 @@ impl ItemSchema {
     }
 
     pub(super) fn validate(&self) -> Result<(), PluginError> {
-        self.category.validate("item", &self.id)?;
         validate_catalog_entry("item", &self.id, &self.label, &self.tags)?;
         validate_property_schemas("item", &self.id, self.properties())?;
         if let Some(render) = &self.render {
@@ -245,6 +240,8 @@ const fn default_vertex_count() -> u32 {
 }
 
 impl super::PluginCatalogEntry for ItemSchema {
+    type Category = ItemCategory;
+
     fn id(&self) -> &str {
         self.id()
     }
@@ -253,12 +250,8 @@ impl super::PluginCatalogEntry for ItemSchema {
         self.label()
     }
 
-    fn category(&self) -> &str {
-        self.category()
-    }
-
-    fn category_id(&self) -> &str {
-        self.category_id()
+    fn category(&self) -> ItemCategory {
+        self.category
     }
 
     fn tags(&self) -> &[String] {

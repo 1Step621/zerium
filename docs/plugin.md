@@ -33,10 +33,7 @@ the plugin and do not edit its files manually. See the
   "items": [{
     "id": "shape",
     "label": { "ja-JP": "図形", "en-US": "Shape" },
-    "category": {
-      "id": "example",
-      "label": { "ja-JP": "サンプル", "en-US": "Example" }
-    },
+    "category": "shape",
     "symbol": "■",
     "render": {
       "shader": { "module": "shape" },
@@ -57,8 +54,13 @@ otherwise.
 Display labels are locale maps keyed by BCP 47 tags. Zerium selects
 `ZERIUM_LANGUAGE`, the system locale, or `en-US`, in that order. Lookup tries a
 case-insensitive exact match, `en-US`, then the first translation ordered by
-locale key; region tags do not fall back to language-only tags. Entries with
-the same category ID are grouped together across plugins.
+locale key; region tags do not fall back to language-only tags.
+
+Items select `shape`, `text`, `media`, `composite`, or `other`. Effects select
+`transform`, `color`, `style`, `filter`, `composite`, or `other`.
+These are separate fixed lists owned by Zerium. Category labels and translations
+come from Zerium; plugins cannot define new categories or override their labels.
+Entries in the same category are grouped together across plugins.
 
 ## Properties
 
