@@ -1,4 +1,5 @@
 mod control;
+mod copy;
 mod edit;
 mod number_drag;
 mod path;
@@ -19,7 +20,7 @@ use ::ui::{
     button::{Button, ButtonVariants as _},
     color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState},
     input::{Input, InputEvent, InputState, NumberInput, NumberInputEvent},
-    menu::{PopupMenuItem, popup_menu::PopupMenuExt as _},
+    menu::{PopupMenuItem, context_menu::ContextMenuExt as _, popup_menu::PopupMenuExt as _},
     popover::Popover,
     switch::Switch,
 };
@@ -38,7 +39,6 @@ use crate::ui::search_picker::{SearchPicker, SearchPickerEntry};
 use crate::ui::session::UiNotifications;
 use number_drag::PropertyValueDragOrigin;
 use path::InspectorPath;
-use zerium_core::plugin::ItemSchema;
 use zerium_core::property::{
     PropertyDefinition, PropertyElement, PropertyElementId, PropertySchema, PropertyValue,
     ScalarPropertyType, ValueSchema,

@@ -1146,7 +1146,7 @@
           "id": "text",
           "label": { "ja-JP": "テキスト", "en-US": "Text" },
           "type": "string",
-          "default": "テキスト",
+          "default": "Text",
           "ui": { "multiline": true }
         },
         {

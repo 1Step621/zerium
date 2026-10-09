@@ -231,10 +231,9 @@ impl TimelineEditor {
         self.selection.clear();
         self.active_edit_target = None;
         self.visibility.clear();
-        self.project_revision = 0;
-        self.next_project_revision = 1;
         self.history.clear();
-        self.advance_render_revision();
+        // Reopening the same project must invalidate outstanding edit targets.
+        self.advance_project_revision();
     }
 
     pub fn media_cache(&self) -> &Arc<crate::media::MediaMetadataCache> {
@@ -467,7 +466,12 @@ impl TimelineEditor {
     }
 
     pub fn selected_items(&self) -> Vec<TimelineItem> {
-        self.resolve_items_in_scope(EditScope::Selection, None)
+        self.items_in_scope(EditScope::Selection)
+    }
+
+    /// Items with defaults and scene arguments, before animation evaluation.
+    pub fn items_in_scope(&self, scope: EditScope) -> Vec<TimelineItem> {
+        self.resolve_items_in_scope(scope, None)
     }
 
     /// Stored items, without defaults, scene arguments or animation evaluation.

@@ -117,15 +117,10 @@ impl PropertyInspector {
             .all(|selected| selected.blend_mode == item.blend_mode)
             .then_some(item.blend_mode);
         let hidden_state = self.editor.read(cx).items_hidden_state(self.scope);
-        let schema = Self::selected_schema(&item);
-        let effects = if multiple {
-            Self::common_effects(&selected_items)
-        } else {
-            item.effects.clone()
-        };
-        let has_visual = schema
-            .is_some_and(|schema| schema.render().is_some() && (!multiple || !effects.is_empty()))
-            || (item.scene_id().is_some() && !multiple);
+        let has_visual = item.scene_id().is_some()
+            || item
+                .schema()
+                .is_some_and(|schema| schema.render().is_some());
         let available_effects = {
             let editor = self.editor.read(cx);
             editor
@@ -209,27 +204,36 @@ impl PropertyInspector {
                 }
             }
         }
-        let effects = (!effect_controls.is_empty() || view.has_visual).then(|| {
-            div()
-                .w_full()
-                .flex()
-                .flex_col()
-                .gap_3()
-                .child(
-                    div()
-                        .w_full()
-                        .h(px(1.))
-                        .flex_none()
-                        .bg(render.colors.border),
-                )
-                .children(effect_controls)
-                .when(view.has_visual && !view.multiple, |this| {
-                    this.child(Self::add_effect_picker(
-                        view.available_effects.clone(),
-                        render.inspector.clone(),
-                    ))
-                })
-        });
+        let effects =
+            (!effect_controls.is_empty() || view.has_visual && !view.multiple).then(|| {
+                div()
+                    .id("effect-stack")
+                    .relative()
+                    .w_full()
+                    .flex()
+                    .flex_col()
+                    .gap_3()
+                    .when(effect_controls.is_empty(), |this| {
+                        let inspector = render.inspector.clone();
+                        this.context_menu(move |menu, _, cx| {
+                            inspector.update(cx, |this, cx| this.effect_menu(menu, None, cx))
+                        })
+                    })
+                    .child(
+                        div()
+                            .w_full()
+                            .h(px(1.))
+                            .flex_none()
+                            .bg(render.colors.border),
+                    )
+                    .children(effect_controls)
+                    .when(view.has_visual && !view.multiple, |this| {
+                        this.child(Self::add_effect_picker(
+                            view.available_effects.clone(),
+                            render.inspector.clone(),
+                        ))
+                    })
+            });
         let item_editor = render.editor.clone();
         let item_controls = div()
             .w_full()
@@ -456,12 +460,23 @@ impl PropertyInspector {
             .filter_map(|control| Self::control_element(control, render))
             .collect::<Vec<_>>();
 
+        let inspector = render.inspector.clone();
         div()
+            .id(SharedString::from(format!(
+                "effect-card-{}",
+                effect_id.get()
+            )))
+            .relative()
             .w_full()
             .flex()
             .flex_col()
             .gap_2()
             .pb_3()
+            .when(!view.multiple, |this| {
+                this.context_menu(move |menu, _, cx| {
+                    inspector.update(cx, |this, cx| this.effect_menu(menu, Some(effect_id), cx))
+                })
+            })
             .border_b_1()
             .border_color(render.colors.border)
             .when(!view.multiple, |this| {

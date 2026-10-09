@@ -208,10 +208,6 @@ impl PropertyOwner<'_> {
 }
 
 impl PropertyInspector {
-    pub(super) fn selected_schema(item: &TimelineItem) -> Option<&ItemSchema> {
-        item.schema()
-    }
-
     pub(super) fn property_is_common(
         editor: &TimelineEditor,
         items: &[TimelineItem],

@@ -1,8 +1,68 @@
-use crate::timeline::{EditScope, EffectInstanceId, ItemId, SceneBindingOwner, TimelineEditor};
+use crate::timeline::{
+    EditScope, EffectInstance, EffectInstanceId, ItemId, SceneBindingOwner, TimelineEditor,
+};
 
 use super::TimelineEditError;
 
 impl TimelineEditor {
+    /// Append copies with fresh project-wide IDs, as a single undoable edit.
+    pub fn paste_effects(
+        &mut self,
+        id: ItemId,
+        sources: &[EffectInstance],
+        hidden: &[EffectInstanceId],
+    ) -> Result<bool, TimelineEditError> {
+        if !self.is_item_selected(id) {
+            return Err(TimelineEditError::NothingSelected);
+        }
+        let item = self.item(id).ok_or(TimelineEditError::ItemNotFound(id))?;
+        if item.scene_id().is_none() && item.schema().is_none_or(|schema| schema.render().is_none())
+        {
+            return Err(TimelineEditError::NonVisualItem);
+        }
+        if sources.is_empty() {
+            return Ok(false);
+        }
+        for source in sources {
+            if self
+                .plugins
+                .effect(&source.plugin_id, &source.effect_id)
+                .is_none()
+            {
+                return Err(TimelineEditError::PluginEffectNotFound {
+                    plugin_id: source.plugin_id.clone(),
+                    effect_id: source.effect_id.clone(),
+                });
+            }
+        }
+        let mut next_id = self.next_effect_id;
+        let mut hidden_copies = Vec::new();
+        let effects = sources
+            .iter()
+            .map(|source| {
+                let raw_id = next_id.ok_or(TimelineEditError::IdentifierExhausted)?;
+                next_id = raw_id.checked_add(1).filter(|id| *id != u64::MAX);
+                let mut effect = source.clone();
+                effect.id = EffectInstanceId::new(raw_id);
+                if hidden.contains(&source.id) {
+                    hidden_copies.push(effect.id);
+                }
+                Ok(effect)
+            })
+            .collect::<Result<Vec<_>, TimelineEditError>>()?;
+        Ok(self.edit_project_if_changed(None, |editor| {
+            editor
+                .active_document_mut()
+                .item_mut(id)
+                .expect("paste target was validated before mutation")
+                .effects
+                .extend(effects);
+            editor.next_effect_id = next_id;
+            editor.visibility.toggle_effects(hidden_copies);
+            true
+        }))
+    }
+
     pub fn move_effect(
         &mut self,
         scope: EditScope,

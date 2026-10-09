@@ -154,7 +154,7 @@ impl MediaMetadataCache {
         previous != current.media.len()
     }
 
-    pub(crate) fn retained_paths<'a>(&self, paths: impl Iterator<Item = &'a Path>) -> Self {
+    pub fn retained_paths<'a>(&self, paths: impl Iterator<Item = &'a Path>) -> Self {
         Self(
             paths
                 .filter_map(|path| {

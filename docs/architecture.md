@@ -62,6 +62,17 @@ applies validated overrides to current defaults. Project and clipboard input
 is validated before constructing core state; filesystem access and atomic
 replacement belong to `engine::project_io`.
 
+The system clipboard contains only selected items. Single effects and effect
+suffixes (from the clicked effect through the end) share an application-local
+buffer, separate from the interval interpolation buffer. Inspector and graph
+context menus copy and paste these values without changing the system clipboard.
+Effect copy and paste are available only when the inspector targets a single
+item, not in the Common view. Effects append with fresh IDs. Curve menus fix the
+paste interval and synchronized targets when opened, using the usual animation
+edit validation. Project revisions are not reused when reopening a project,
+so old edit targets remain invalid. Preview visibility travels with copied
+effects and remains session state. Each paste is one undoable edit.
+
 ## Plugins and rendering
 
 Core validates manifests and provides registry lookup. Shader loads bundles and

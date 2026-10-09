@@ -1,5 +1,8 @@
 use super::*;
-use crate::ui::TimelineEditorEntityExt as _;
+use crate::ui::{TimelineEditorEntityExt as _, copy_buffer::CopyBuffer};
+use ::ui::menu::PopupMenu;
+use rust_i18n::t;
+use std::cell::RefCell;
 
 impl AnimationCurveEditor {
     fn stop_location_at_time(&self, time: TimelineTime, cx: &App) -> Option<(SelectedCurve, f32)> {
@@ -294,5 +297,54 @@ impl AnimationCurveEditor {
         self.editor.update_if_changed(cx, |editor| {
             editor.set_animation_interpolation(&mut edit, interpolation)
         });
+    }
+
+    pub(super) fn curve_menu(&self, menu: PopupMenu, cx: &Context<Self>) -> PopupMenu {
+        let action_context = self.focus_handle.clone();
+        let selected = self.selected_curve(cx);
+        let interpolation = selected
+            .as_ref()
+            .and_then(|selected| selected.curve.interpolations.first().copied());
+        let copied = cx
+            .try_global::<CopyBuffer>()
+            .and_then(|buffer| buffer.curve);
+        let paste = copied.and_then(|interpolation| {
+            let selected = selected.as_ref()?;
+            let edit = self.editor.read(cx).begin_animation_edit(
+                &selected.address,
+                AnimationEditTarget::Segment(selected.source_segment),
+                true,
+            )?;
+            Some((interpolation, RefCell::new(edit)))
+        });
+        let paste_editor = cx.entity();
+        menu.action_context(action_context)
+            .menu_handler_with_icon_and_disabled(
+                t!("clipboard.copy_curve").to_string(),
+                IconName::Copy,
+                interpolation.is_none(),
+                move |_, cx| {
+                    if let Some(interpolation) = interpolation {
+                        cx.default_global::<CopyBuffer>().curve = Some(interpolation);
+                    }
+                },
+            )
+            .menu_handler_with_icon_and_disabled(
+                t!("clipboard.paste_curve").to_string(),
+                IconName::PasteClipboard,
+                paste.is_none(),
+                move |_, cx| {
+                    if let Some((interpolation, edit)) = &paste {
+                        paste_editor.update(cx, |view, cx| {
+                            view.editor.update_if_changed(cx, |editor| {
+                                editor.set_animation_interpolation(
+                                    &mut edit.borrow_mut(),
+                                    *interpolation,
+                                )
+                            });
+                        });
+                    }
+                },
+            )
     }
 }

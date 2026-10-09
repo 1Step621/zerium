@@ -448,8 +448,7 @@ impl Render for AnimationCurveEditor {
             .when(curve.has_handles(), |controls| controls.child(fit_selector));
         let context_menu_editor = curve_editor.clone();
         let graph = graph.context_menu(move |menu, window, cx| {
-            let action_context = context_menu_editor.read(cx).focus_handle.clone();
-            let menu = menu.action_context(action_context);
+            let menu = context_menu_editor.update(cx, |this, cx| this.curve_menu(menu, cx));
             let position = window.mouse_position();
             let Some(index) = context_menu_editor
                 .read(cx)
@@ -458,20 +457,16 @@ impl Render for AnimationCurveEditor {
                 return menu;
             };
             let source_stop = source_segment + index;
-            if source_stop == 0 || source_stop + 1 == source_stop_count {
-                return menu.item(PopupMenuItem::Label(
-                    t!("curve.endpoint_stop_delete_error").to_string().into(),
-                ));
-            }
             let remove_editor = context_menu_editor.clone();
-            menu.item(
-                PopupMenuItem::new(t!("curve.delete_stop").to_string()).on_click(
-                    move |_, _, cx| {
-                        remove_editor.update(cx, |editor, cx| {
-                            editor.remove_source_stop(source_stop, cx);
-                        });
-                    },
-                ),
+            menu.separator().menu_handler_with_icon_and_disabled(
+                t!("curve.delete_stop").to_string(),
+                IconName::Delete,
+                source_stop == 0 || source_stop + 1 == source_stop_count,
+                move |_, cx| {
+                    remove_editor.update(cx, |editor, cx| {
+                        editor.remove_source_stop(source_stop, cx);
+                    });
+                },
             )
         });
         let overview_drag_editor = curve_editor.clone();
@@ -639,20 +634,16 @@ impl Render for AnimationCurveEditor {
                             )
                         };
                         if let Some(source_stop) = source_stop {
-                            if source_stop == 0 || source_stop + 1 == source_stop_count {
-                                return menu.item(PopupMenuItem::Label(
-                                    t!("curve.endpoint_stop_delete_error").to_string().into(),
-                                ));
-                            }
                             let remove_editor = overview_context_menu_editor.clone();
-                            return menu.item(
-                                PopupMenuItem::new(t!("curve.delete_stop").to_string()).on_click(
-                                    move |_, _, cx| {
-                                        remove_editor.update(cx, |editor, cx| {
-                                            editor.remove_source_stop(source_stop, cx);
-                                        });
-                                    },
-                                ),
+                            return menu.menu_handler_with_icon_and_disabled(
+                                t!("curve.delete_stop").to_string(),
+                                IconName::Delete,
+                                source_stop == 0 || source_stop + 1 == source_stop_count,
+                                move |_, cx| {
+                                    remove_editor.update(cx, |editor, cx| {
+                                        editor.remove_source_stop(source_stop, cx);
+                                    });
+                                },
                             );
                         }
                         let Some(frame) = frame else {

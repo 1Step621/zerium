@@ -63,6 +63,8 @@ pub enum TimelineEditError {
     RecursiveSceneReference,
     #[error("No target item is selected")]
     NothingSelected,
+    #[error("Effects require a visual item")]
+    NonVisualItem,
     #[error("Could not allocate a new ID")]
     IdentifierExhausted,
     #[error("Cannot place item at the specified position")]

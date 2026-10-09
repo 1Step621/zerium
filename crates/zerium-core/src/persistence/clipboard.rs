@@ -5,7 +5,7 @@ use super::{
     paths::item_files,
 };
 use crate::timeline::{
-    LayerId, ProjectId, SceneBindingTarget, SceneId, TimelineEditor, TimelineItem,
+    EffectInstanceId, LayerId, ProjectId, SceneBindingTarget, SceneId, TimelineEditor, TimelineItem,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -22,6 +22,7 @@ pub struct DecodedTimelineClipboard {
     pub source_scene: Option<SceneId>,
     pub items: Vec<(LayerId, TimelineItem)>,
     pub scene_bindings: Vec<(String, SceneBindingTarget)>,
+    pub hidden_effects: Vec<EffectInstanceId>,
 }
 
 pub fn encode_timeline_clipboard(
@@ -50,6 +51,12 @@ pub fn encode_timeline_clipboard(
     let mut items = items.to_vec();
     editor.resolve_active_scene_arguments(items.iter_mut().map(|(_, item)| item));
     let file = TimelineClipboardFile {
+        hidden_effects: items
+            .iter()
+            .flat_map(|(_, item)| &item.effects)
+            .filter(|effect| editor.is_effect_hidden(effect.id))
+            .map(|effect| effect.id)
+            .collect(),
         format: TIMELINE_CLIPBOARD_FORMAT.to_owned(),
         format_version: TIMELINE_CLIPBOARD_FORMAT_VERSION,
         source_scene: source_scene
@@ -127,17 +134,27 @@ pub fn decode_timeline_clipboard(
             ));
         }
     }
+    if file
+        .hidden_effects
+        .iter()
+        .any(|id| !effect_ids.contains(&id.get()))
+    {
+        return Err(ProjectError::invalid_data("Invalid clipboard visibility"));
+    }
     Ok(DecodedTimelineClipboard {
         media_cache: file.media_cache,
         source_scene,
         items,
         scene_bindings: file.scene_bindings,
+        hidden_effects: file.hidden_effects,
     })
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct TimelineClipboardFile {
+    #[serde(default)]
+    hidden_effects: Vec<EffectInstanceId>,
     #[serde(default)]
     media_cache: crate::media::MediaMetadataCache,
     format: String,

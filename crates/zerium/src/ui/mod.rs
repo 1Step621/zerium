@@ -3,6 +3,7 @@ use gpui::{Context, Entity};
 use zerium_core::timeline::TimelineEditor;
 
 pub(crate) mod animation_curve;
+mod copy_buffer;
 pub(crate) mod explorer;
 pub(crate) mod export;
 pub(crate) mod file_input;

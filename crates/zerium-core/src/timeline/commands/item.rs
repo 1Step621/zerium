@@ -124,6 +124,7 @@ impl TimelineEditor {
         sources: &[(LayerId, TimelineItem)],
         source_scene: Option<SceneId>,
         source_bindings: &[(String, SceneBindingTarget)],
+        source_hidden_effects: &[EffectInstanceId],
         target_layer: LayerId,
         target_start: Frame,
     ) -> Option<Vec<ItemId>> {
@@ -206,6 +207,11 @@ impl TimelineEditor {
                 .collect::<Vec<_>>();
             editor.commit_project_state(next_project);
             editor.next_effect_id = next_effect_id;
+            editor.visibility.toggle_effects(
+                source_hidden_effects
+                    .iter()
+                    .filter_map(|id| effect_ids.get(id).copied()),
+            );
             editor.selection.set(pasted.iter().copied().collect());
             Some(pasted)
         })
