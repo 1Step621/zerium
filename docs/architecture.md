@@ -97,13 +97,8 @@ fallbacks are described in [Plugin API v1](plugin.md#manifest).
 
 ## Application updates
 
-`WorkspaceUpdate` checks GitHub Releases and downloads updates in a Workspace
-background task on launch, then updates readiness directly. Velopack applies
-pending updates on the next launch, preserving launch arguments. The header
-also offers an immediate restart through the existing project close checks.
-Update application happens before normal startup or after process exit, outside
-the active editing session.
-
-Nix builds disable `self-update`, excluding the updater dependency and UI.
-Feature selection stays at the app and UI module boundaries; disabled builds
-provide an empty UI implementation.
+The app checks GitHub Releases and downloads updates in a detached background
+task on launch. Velopack applies pending updates before normal startup on the
+next launch, preserving launch arguments. Failures are logged and retried on a
+later launch. Nix builds disable `self-update`, excluding the updater dependency;
+feature selection stays at the app module boundary.

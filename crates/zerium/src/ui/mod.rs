@@ -21,11 +21,6 @@ pub(crate) mod theme;
 pub(crate) mod time_grid;
 pub(crate) mod timeline;
 pub(crate) mod transport;
-#[cfg(feature = "self-update")]
-pub(crate) mod update;
-#[cfg(not(feature = "self-update"))]
-#[path = "update_disabled.rs"]
-pub(crate) mod update;
 pub(crate) mod workspace;
 
 pub(crate) trait TimelineEditorEntityExt {

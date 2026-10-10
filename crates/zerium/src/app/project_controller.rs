@@ -389,7 +389,6 @@ impl ProjectController {
         export_busy: bool,
         window: &mut Window,
         cx: &mut Context<Self>,
-        on_discard: impl Fn(&mut Window, &mut App) + 'static,
     ) -> bool {
         if self.operation.is_some() || export_busy || self.session.read(cx).is_busy() {
             let activities = self.session.read(cx).busy_activities();
@@ -426,7 +425,7 @@ impl ProjectController {
             return true;
         }
 
-        project_dialogs::confirm_exit(window, cx, on_discard);
+        project_dialogs::confirm_exit(window, cx);
         false
     }
 }

@@ -1,3 +1,6 @@
+use gpui::{App, AppContext as _};
+use velopack::{UpdateCheck, UpdateManager, sources::GithubSource};
+
 #[cfg(target_os = "windows")]
 #[path = "windows_install.rs"]
 mod windows_install;
@@ -18,4 +21,23 @@ pub(crate) fn initialize() {
         }
     }
     updater.run();
+}
+
+pub(crate) fn start(cx: &mut App) {
+    cx.background_spawn(async {
+        match download_update() {
+            Ok(()) | Err(velopack::Error::NotInstalled(_)) => {}
+            Err(error) => eprintln!("automatic update failed: {error}"),
+        }
+    })
+    .detach();
+}
+
+fn download_update() -> Result<(), velopack::Error> {
+    let source = GithubSource::new("https://github.com/1Step621/zerium", None, false);
+    let manager = UpdateManager::new(source, None, None)?;
+    if let UpdateCheck::UpdateAvailable(update) = manager.check_for_updates()? {
+        manager.download_updates(&update, None)?;
+    }
+    Ok(())
 }
