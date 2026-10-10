@@ -21,16 +21,21 @@ jobs:
     runs-on: ${{ matrix.os }}
     outputs:
       version: ${{ steps.release.outputs.version }}
+    env:
+      VPK_CHANNEL: ${{ matrix.channel }}
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: ubuntu-latest
             artifact: zerium-linux-x86_64
+            channel: linux-x86_64
           - os: macos-15
             artifact: zerium-macos-aarch64
+            channel: osx-aarch64
           - os: windows-latest
             artifact: zerium-windows-x86_64
+            channel: win-x86_64
 
     steps:
       - name: Check out source
@@ -78,6 +83,16 @@ jobs:
       - name: Build release binary
         run: cargo build --locked --release
 
+      - name: Download previous release for delta generation
+        shell: bash
+        env:
+          VPK_TOKEN: ${{ github.token }}
+        run: |
+          rm -rf dist
+          vpk download github --repoUrl "https://github.com/${{ github.repository }}" --outputDir dist
+          # A retry may download this version; it cannot serve as its own delta base.
+          rm -f "dist/zerium-${ZERIUM_RELEASE_VERSION}-${VPK_CHANNEL}-full.nupkg"
+
       - name: Package Linux release
         if: runner.os == 'Linux'
         shell: bash
@@ -102,7 +117,7 @@ jobs:
             dist/*.msi
             dist/*-Setup.pkg
             dist/releases.*.json
-            dist/*.nupkg
+            dist/zerium-${{ steps.release.outputs.version }}-*.nupkg
             dist/install.sh
             dist/zerium.desktop
             dist/zerium.png

@@ -5,7 +5,7 @@ app_dir="target/package/Zerium.app"
 
 version="${ZERIUM_RELEASE_VERSION:?release version is required}"
 
-rm -rf "$app_dir" dist
+rm -rf "$app_dir"
 mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources" dist
 cp target/release/zerium "$app_dir/Contents/MacOS/zerium"
 cp LICENSE "$app_dir/Contents/Resources/LICENSE"
@@ -26,4 +26,4 @@ dylibbundler \
   -s "$(brew --prefix)/opt/ffmpeg/lib"
 vpk pack --packId zerium --packTitle Zerium --packVersion "$version" \
   --packDir "$app_dir" --mainExe zerium --runtime osx-arm64 \
-  --channel osx-aarch64 --outputDir dist
+  --outputDir dist

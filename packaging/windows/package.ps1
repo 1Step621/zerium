@@ -5,7 +5,7 @@ if (-not $env:EDITBIN) {
 }
 
 $packageDir = Join-Path $env:RUNNER_TEMP 'zerium-package'
-Remove-Item -Recurse -Force $packageDir, dist -ErrorAction SilentlyContinue
+Remove-Item -Recurse -Force $packageDir -ErrorAction SilentlyContinue
 New-Item -ItemType Directory -Force $packageDir, dist | Out-Null
 Copy-Item target\release\zerium.exe $packageDir\zerium.exe
 # Rust's MSVC entry point works for both subsystems. Change only the copy's
@@ -41,7 +41,7 @@ Copy-Item LICENSE $licensePath
 
 & vpk pack --packId zerium --packTitle Zerium --packAuthors Zerium `
     --packVersion $env:ZERIUM_RELEASE_VERSION --packDir $packageDir `
-    --mainExe zerium.exe --runtime win-x64 --channel win-x86_64 `
+    --mainExe zerium.exe --runtime win-x64 `
     --icon assets\zerium.ico `
     --msi --instLocation PerUser --instLicense $licensePath --outputDir dist
 if ($LASTEXITCODE -ne 0) {

@@ -3,7 +3,7 @@ set -euo pipefail
 
 version="${ZERIUM_RELEASE_VERSION:?release version is required}"
 appdir="target/package/zerium.AppDir"
-rm -rf dist "$appdir"
+rm -rf "$appdir"
 mkdir -p dist "$appdir/usr/bin" "$appdir/usr/lib"
 mkdir -p "$appdir/usr/share/applications" "$appdir/usr/share/icons/hicolor/256x256/apps" "$appdir/usr/share/mime/packages"
 strip -s target/release/zerium
@@ -24,7 +24,7 @@ ln -s zerium.png "$appdir/.DirIcon"
 vpk pack --packId zerium --packTitle Zerium \
   --packVersion "$version" \
   --packDir "$appdir" --mainExe zerium --runtime linux-x64 \
-  --channel linux-x86_64 --outputDir dist
+  --outputDir dist
 
 # The installer uses the same desktop integration files as the AppImage.
 sed "s/@VERSION@/$version/g" packaging/linux/install.sh.in > dist/install.sh
