@@ -13,6 +13,11 @@ fn resize_hints() -> Vec<Hint> {
 fn navigation_hints() -> Vec<Hint> {
     vec![
         Hint::gesture(
+            "hints.right_drag",
+            "hints.marquee_selection",
+            gpui::Modifiers::default(),
+        ),
+        Hint::gesture(
             "hints.scroll",
             "hints.zoom_time",
             gpui::Modifiers::control(),
@@ -242,7 +247,23 @@ impl Timeline {
                                 },
                             ),
                     )
-                    .operation_hints(navigation_hints()),
+                    .operation_hints([
+                        Hint::gesture(
+                            "hints.scroll",
+                            "hints.zoom_time",
+                            gpui::Modifiers::control(),
+                        ),
+                        Hint::gesture(
+                            "hints.scroll",
+                            "hints.zoom_layers",
+                            gpui::Modifiers::control_shift(),
+                        ),
+                        Hint::gesture(
+                            "hints.scroll",
+                            "hints.scroll_layers",
+                            gpui::Modifiers::alt(),
+                        ),
+                    ]),
             )
     }
 
@@ -575,7 +596,9 @@ impl Timeline {
                                     });
                                     cx.new(|_| drag.clone())
                                 })
-                                .operation_hints(resize_hints()),
+                                .operation_hints(
+                                    navigation_hints().into_iter().chain(resize_hints()),
+                                ),
                         )
                         .child(
                             div()
@@ -602,7 +625,9 @@ impl Timeline {
                                     });
                                     cx.new(|_| drag.clone())
                                 })
-                                .operation_hints(resize_hints()),
+                                .operation_hints(
+                                    navigation_hints().into_iter().chain(resize_hints()),
+                                ),
                         ),
                 )
                 .children(animation_stops.into_iter().map(|(time, repeated)| {
@@ -676,25 +701,25 @@ impl Timeline {
                                         cx.new(|_| drag.clone())
                                     })
                             })
-                            .operation_hints(if movable {
-                                vec![Hint::gesture(
-                                    "hints.drag",
-                                    "hints.independent_stop",
-                                    gpui::Modifiers::alt(),
-                                )]
-                            } else {
-                                Vec::new()
-                            })
+                            .operation_hints(navigation_hints().into_iter().chain(movable.then(
+                                || {
+                                    Hint::gesture(
+                                        "hints.drag",
+                                        "hints.independent_stop",
+                                        gpui::Modifiers::alt(),
+                                    )
+                                },
+                            )))
                     }
                 }))
-                .operation_hints([
+                .operation_hints(navigation_hints().into_iter().chain([
                     Hint::gesture(
                         "hints.click",
                         "hints.toggle_selection",
                         gpui::Modifiers::shift(),
                     ),
                     Hint::gesture("hints.drag", "hints.no_snap", gpui::Modifiers::alt()),
-                ])
+                ]))
                 .into_any_element(),
         )
     }

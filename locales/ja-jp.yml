@@ -228,6 +228,8 @@ _version: 1
 "category.filter": "フィルター"
 "category.other": "その他"
 "hints.drag": "ドラッグ"
+"hints.right_drag": "右ドラッグ"
+"hints.marquee_selection": "矩形選択"
 "hints.click": "クリック"
 "hints.scroll": "ホイール"
 "hints.fine_adjustment": "微調整"

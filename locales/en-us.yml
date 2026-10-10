@@ -228,6 +228,8 @@ _version: 1
 "category.filter": "Filter"
 "category.other": "Other"
 "hints.drag": "Drag"
+"hints.right_drag": "Right drag"
+"hints.marquee_selection": "Box select"
 "hints.click": "Click"
 "hints.scroll": "Wheel"
 "hints.fine_adjustment": "Fine adjustment"
