@@ -8,7 +8,7 @@ use crate::{
 use super::{
     document::TimelineDocument,
     evaluation::{evaluated_items_at_time, visible_items},
-    history::{EditHistory, HistorySnapshot, ScopedHistoryKey},
+    history::{EditHistory, HistoryKey, HistorySnapshot, ScopedHistoryKey},
     ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId},
     item::TimelineItem,
     project::TimelineProject,
@@ -45,6 +45,8 @@ pub struct TimelineEditor {
     project_revision: u64,
     next_project_revision: u64,
     pub(super) history: EditHistory<HistorySnapshot, ScopedHistoryKey>,
+    /// Override individual command keys while applying a gesture update.
+    pub(super) history_group: Option<HistoryKey>,
 }
 
 impl TimelineEditor {
@@ -96,6 +98,7 @@ impl TimelineEditor {
             project_revision: 0,
             next_project_revision: 1,
             history: EditHistory::new(HISTORY_LIMIT),
+            history_group: None,
         }
     }
 

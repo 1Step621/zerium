@@ -1,15 +1,16 @@
 use zerium_core::{
     property::{PropertyElementId, PropertySchema, PropertyValue},
     timeline::{
-        EffectInstanceId, Frame, PropertyAddress, TimelineEditor, TimelineItem, TimelineTime,
+        EditGesture, EffectInstanceId, Frame, PropertyAddress, TimelineEditor, TimelineItem,
+        TimelineTime,
     },
 };
 
 use super::Preview;
 use gpui::{
-    Context, CursorStyle, Empty, EntityId, Hsla, MouseButton, MouseDownEvent, Render, SharedString,
-    Window, div, prelude::*, px, relative,
+    Bounds, Context, CursorStyle, Hsla, Pixels, Point, div, point, prelude::*, px, relative, size,
 };
+use zerium_core::timeline::ProjectResolution;
 
 #[derive(Clone)]
 struct PreviewScalarValue {
@@ -34,34 +35,78 @@ struct PreviewScalarControl {
 }
 
 impl PreviewScalarControl {
-    fn key(&self) -> SharedString {
-        format!(
-            "preview-scalar-{:?}-{:?}-{}",
-            self.scalar.address,
-            self.scalar.stop,
-            self.units_per_value.is_sign_negative()
-        )
-        .into()
+    fn same_target(&self, other: &Self) -> bool {
+        self.scalar.address == other.scalar.address && self.scalar.stop == other.scalar.stop
     }
 
-    fn cursor(&self) -> CursorStyle {
-        if self.scalar.axis() == 0 {
+    fn cursor(controls: &[Self]) -> CursorStyle {
+        let Some(first) = controls.first() else {
+            return CursorStyle::Arrow;
+        };
+        if controls
+            .iter()
+            .any(|control| control.scalar.axis() != first.scalar.axis())
+        {
+            CursorStyle::Crosshair
+        } else if first.scalar.axis() == 0 {
             CursorStyle::ResizeLeftRight
         } else {
             CursorStyle::ResizeUpDown
         }
     }
-}
 
-#[derive(Clone)]
-pub(super) struct PreviewEditorDrag {
-    preview_id: EntityId,
-    control_key: SharedString,
-}
+    fn screen_position(
+        &self,
+        bounds: Bounds<Pixels>,
+        resolution: ProjectResolution,
+    ) -> Point<Pixels> {
+        point(
+            bounds.origin.x
+                + bounds.size.width * (self.position[0] / resolution.width() as f32 + 0.5),
+            bounds.origin.y
+                + bounds.size.height * (self.position[1] / resolution.height() as f32 + 0.5),
+        )
+    }
 
-impl Render for PreviewEditorDrag {
-    fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
-        Empty
+    fn at_pointer(
+        controls: &[Self],
+        pointer: Point<Pixels>,
+        bounds: Bounds<Pixels>,
+        resolution: ProjectResolution,
+    ) -> Vec<Self> {
+        if !bounds.contains(&pointer) {
+            return Vec::new();
+        }
+        let mut candidates = controls
+            .iter()
+            .filter_map(|control| {
+                let position = control.screen_position(bounds, resolution);
+                let extent = if control.scalar.axis() == 0 {
+                    size(px(8.), px(20.))
+                } else {
+                    size(px(20.), px(8.))
+                };
+                Bounds::new(
+                    position - point(extent.width / 2., extent.height / 2.),
+                    extent,
+                )
+                .contains(&pointer)
+                .then(|| {
+                    let delta = pointer - position;
+                    let distance = f32::from(delta.x).powi(2) + f32::from(delta.y).powi(2);
+                    (control.clone(), distance)
+                })
+            })
+            .collect::<Vec<_>>();
+        candidates.sort_by(|(_, a), (_, b)| a.total_cmp(b));
+        let mut targets = Vec::new();
+        for (control, _) in candidates {
+            // Opposite size handles can overlap but still edit the same value.
+            if !targets.iter().any(|target| control.same_target(target)) {
+                targets.push(control);
+            }
+        }
+        targets
     }
 }
 
@@ -79,18 +124,23 @@ pub(super) struct PreviewEditorOverlay {
     spline_path: Vec<[f32; 2]>,
 }
 
-pub(super) struct PreviewScalarDragOrigin {
-    control: PreviewScalarControl,
-    pointer: f32,
+pub(super) struct PreviewEditorDrag {
+    controls: Vec<PreviewScalarControl>,
+    pointer: Point<Pixels>,
     composition_units_per_pixel: f32,
+    pub(super) gesture: EditGesture,
 }
 
-impl PreviewScalarDragOrigin {
-    fn value_at(&self, pointer: [f32; 2]) -> f32 {
-        self.control.scalar.value
-            + (pointer[self.control.scalar.axis()] - self.pointer)
-                * self.composition_units_per_pixel
-                / self.control.units_per_value
+impl PreviewEditorDrag {
+    fn value_at(&self, control: &PreviewScalarControl, pointer: Point<Pixels>) -> f32 {
+        let delta = pointer - self.pointer;
+        let delta = if control.scalar.axis() == 0 {
+            delta.x
+        } else {
+            delta.y
+        };
+        control.scalar.value
+            + f32::from(delta) * self.composition_units_per_pixel / control.units_per_value
     }
 }
 

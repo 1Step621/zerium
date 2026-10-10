@@ -2,10 +2,9 @@
 use std::{collections::HashMap, ops::RangeInclusive};
 
 use crate::animation::{ScalarTrack, SegmentInterpolation};
-use crate::timeline::history::{HistoryKey, HistorySnapshot};
 use crate::timeline::{PropertyAddress, TimelineEditor, TimelineItem, TimelineTime};
 
-use super::EditContext;
+use super::EditGesture;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AnimationEditTarget {
@@ -42,9 +41,7 @@ enum AnimationEditKind {
 pub struct AnimationEdit {
     targets: Vec<Target>,
     kind: AnimationEditKind,
-    before: Option<HistorySnapshot>,
-    context: EditContext,
-    group_revision: u64,
+    gesture: EditGesture,
 }
 
 impl AnimationEdit {
@@ -151,9 +148,7 @@ impl TimelineEditor {
         Some(AnimationEdit {
             targets,
             kind,
-            before: Some(self.history_snapshot()),
-            context: self.edit_context(),
-            group_revision: self.project_revision(),
+            gesture: self.begin_edit_gesture(),
         })
     }
 
@@ -215,16 +210,7 @@ impl TimelineEditor {
         edit: &mut AnimationEdit,
         update: impl Fn(&TimelineItem, usize, &mut ScalarTrack) -> Option<bool>,
     ) -> bool {
-        // Undo, scene navigation or an unrelated project edit ends this gesture.
-        if edit.context != self.edit_context() {
-            return false;
-        }
-        let key = HistoryKey::AnimationGesture(edit.group_revision);
-        if edit.before.is_none()
-            && !self
-                .history
-                .is_current_group(&(edit.context.scene_id, key.clone()))
-        {
+        if !edit.gesture.is_current(self) {
             return false;
         }
         let mut updates = HashMap::new();
@@ -249,13 +235,15 @@ impl TimelineEditor {
         if !changed {
             return false;
         }
-        for (address, track) in updates {
-            *self
-                .animation_track_mut(address.item_id, address.effect_id, &address.path())
-                .expect("all gesture targets were validated before mutation") = track;
-        }
-        self.finish_project_edit(edit.before.take(), Some(key));
-        edit.context = self.edit_context();
-        true
+        self.edit_gesture(&mut edit.gesture, |editor| {
+            editor.edit_project_if_changed(None, |editor| {
+                for (address, track) in updates {
+                    *editor
+                        .animation_track_mut(address.item_id, address.effect_id, &address.path())
+                        .expect("all gesture targets were validated before mutation") = track;
+                }
+                true
+            });
+        })
     }
 }

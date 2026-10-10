@@ -16,7 +16,7 @@ pub(super) enum HistoryKey {
     AspectRatioLock(ItemId, Option<EffectInstanceId>),
     AnimationStopValue(PropertyAddress, TimelineTime),
     AnimationRepeat(PropertyAddress),
-    AnimationGesture(u64),
+    Gesture(u64),
     ItemsResize(Vec<ItemId>, ResizeEdge, ResizeMode),
     ItemsMove(Vec<ItemId>),
     SceneName(SceneId),
@@ -130,7 +130,18 @@ impl TimelineEditor {
         &self,
         key: Option<&HistoryKey>,
     ) -> Option<HistorySnapshot> {
-        let scoped_key = key.map(|key| (self.active_scene_id(), key.clone()));
+        let scoped_key = self
+            .history_group
+            .as_ref()
+            .or(key)
+            .map(|key| (self.active_scene_id(), key.clone()));
+        if self.history_group.is_some()
+            && scoped_key
+                .as_ref()
+                .is_some_and(|key| self.history.is_current_group(key))
+        {
+            return None;
+        }
         self.history
             .begins_group(scoped_key.as_ref(), HISTORY_COALESCE_INTERVAL)
             .then(|| self.history_snapshot())
@@ -141,7 +152,11 @@ impl TimelineEditor {
         before: Option<HistorySnapshot>,
         key: Option<HistoryKey>,
     ) {
-        let scoped_key = key.map(|key| (self.active_scene_id(), key));
+        let scoped_key = self
+            .history_group
+            .clone()
+            .or(key)
+            .map(|key| (self.active_scene_id(), key));
         self.history.record(before, scoped_key);
         self.advance_project_revision();
     }

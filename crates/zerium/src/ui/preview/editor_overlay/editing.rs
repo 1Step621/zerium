@@ -2,48 +2,56 @@ use super::*;
 use crate::ui::TimelineEditorEntityExt as _;
 
 impl Preview {
-    pub(super) fn begin_scalar_drag(
+    pub(super) fn begin_editor_drag(
         &mut self,
-        control: &PreviewScalarControl,
+        controls: Vec<PreviewScalarControl>,
+        pointer: Point<Pixels>,
         composition_units_per_pixel: f32,
-        event: &MouseDownEvent,
         cx: &mut Context<Self>,
     ) {
-        if event.button != MouseButton::Left || composition_units_per_pixel <= 0. {
+        if controls.is_empty() || composition_units_per_pixel <= 0. {
             return;
         }
-        self.editor
-            .update(cx, |editor, _| editor.finish_history_group());
-        self.editor_drag = Some(PreviewScalarDragOrigin {
-            control: control.clone(),
-            pointer: [f32::from(event.position.x), f32::from(event.position.y)]
-                [control.scalar.axis()],
+        let gesture = self
+            .editor
+            .update(cx, |editor, _| editor.begin_edit_gesture());
+        self.editor_drag = Some(PreviewEditorDrag {
+            controls,
+            pointer,
             composition_units_per_pixel,
+            gesture,
         });
         cx.notify();
     }
 
-    pub(in crate::ui::preview) fn move_editor_control_from_pointer(
+    pub(super) fn move_editor_controls_from_pointer(
         &mut self,
-        drag: &PreviewEditorDrag,
-        pointer: [f32; 2],
-        window: &mut Window,
+        pointer: Point<Pixels>,
         cx: &mut Context<Self>,
     ) {
-        if drag.preview_id != cx.entity_id() {
-            return;
-        }
-        let Some(origin) = &self.editor_drag else {
+        let Some(origin) = &mut self.editor_drag else {
             return;
         };
-        if origin.control.key() != drag.control_key {
-            return;
+        let updates = origin
+            .controls
+            .iter()
+            .map(|control| (control.scalar.clone(), origin.value_at(control, pointer)))
+            .collect::<Vec<_>>();
+        self.editor.update_if_changed(cx, |editor| {
+            editor.edit_gesture(&mut origin.gesture, |editor| {
+                for (scalar, value) in updates {
+                    Self::update_scalar(editor, &scalar, value);
+                }
+            })
+        });
+    }
+
+    pub(in crate::ui::preview) fn end_editor_drag(&mut self, cx: &mut Context<Self>) {
+        if self.editor_drag.take().is_some() {
+            self.editor
+                .update(cx, |editor, _| editor.finish_history_group());
+            cx.notify();
         }
-        cx.set_active_drag_cursor_style(origin.control.cursor(), window);
-        let scalar = origin.control.scalar.clone();
-        let value = origin.value_at(pointer);
-        self.editor
-            .update_if_changed(cx, |editor| Self::update_scalar(editor, &scalar, value));
     }
 
     fn update_scalar(editor: &mut TimelineEditor, scalar: &PreviewScalarValue, value: f32) -> bool {

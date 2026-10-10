@@ -11,7 +11,7 @@ mod editor_overlay;
 mod frame;
 mod render;
 
-use editor_overlay::PreviewScalarDragOrigin;
+use editor_overlay::PreviewEditorDrag;
 
 use crate::{
     engine::{
@@ -76,7 +76,7 @@ pub(crate) struct Preview {
     error: Option<SharedString>,
     playback_error: Option<SharedString>,
     rendered_frame: Option<RenderedFrame>,
-    editor_drag: Option<PreviewScalarDragOrigin>,
+    editor_drag: Option<PreviewEditorDrag>,
     _subscriptions: Vec<Subscription>,
     _video_playback_task: Task<()>,
 }

@@ -21,7 +21,7 @@ mod visibility;
 pub use aspect_ratio::AspectRatio;
 pub use blend_mode::BlendMode;
 pub use commands::{
-    AnimationEdit, AnimationEditTarget, AnimationStopEdit, SceneArgumentEditError,
+    AnimationEdit, AnimationEditTarget, AnimationStopEdit, EditGesture, SceneArgumentEditError,
     TimelineEditError,
 };
 pub use document::TimelineDocument;

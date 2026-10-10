@@ -1,82 +1,144 @@
-use gpui::{PathBuilder, canvas, point};
+use gpui::{
+    DispatchPhase, HitboxBehavior, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
+    PathBuilder, canvas, fill,
+};
 
 use super::*;
 
 impl Preview {
-    fn scalar_control(
+    fn scalar_controls(
         &self,
-        control: PreviewScalarControl,
-        resolution: zerium_core::timeline::ProjectResolution,
-        composition_units_per_pixel: f32,
+        controls: Vec<PreviewScalarControl>,
+        resolution: ProjectResolution,
         color: Hsla,
         cx: &Context<Self>,
     ) -> impl IntoElement {
-        let axis = control.scalar.axis();
-        let key = control.key();
-        let active = matches!(&self.editor_drag, Some(origin)
-            if origin.control.key() == key);
-        let position = [
-            control.position[0] / resolution.width() as f32 + 0.5,
-            control.position[1] / resolution.height() as f32 + 0.5,
-        ];
-        let drag = PreviewEditorDrag {
-            preview_id: cx.entity_id(),
-            control_key: key.clone(),
-        };
-        let hit_size = if axis == 0 { [8., 20.] } else { [20., 8.] };
-        let preview_size = [resolution.width() as f32, resolution.height() as f32]
-            .map(|extent| extent / composition_units_per_pixel);
-        let guide = div()
-            .absolute()
-            .bg(color.opacity(0.6))
-            .invisible()
-            .group_hover(key.clone(), |style| style.visible())
-            .when(active, |this| this.visible())
-            .when(axis == 0, |this| {
-                this.left(px(hit_size[0] / 2.))
-                    .top(px(hit_size[1] / 2. - position[1] * preview_size[1]))
-                    .w(px(1.))
-                    .h(px(preview_size[1]))
-            })
-            .when(axis == 1, |this| {
-                this.top(px(hit_size[1] / 2.))
-                    .left(px(hit_size[0] / 2. - position[0] * preview_size[0]))
-                    .h(px(1.))
-                    .w(px(preview_size[0]))
-            });
-        div()
-            .id(key.clone())
-            .group(key)
-            .absolute()
-            .left(relative(position[0]))
-            .top(relative(position[1]))
-            .ml(px(-hit_size[0] / 2.))
-            .mt(px(-hit_size[1] / 2.))
-            .w(px(hit_size[0]))
-            .h(px(hit_size[1]))
-            .cursor(control.cursor())
-            .child(guide)
-            .child(
-                div()
-                    .absolute()
-                    .bg(color)
-                    .when(axis == 0, |this| {
-                        this.left(px(3.)).top(px(4.)).w(px(2.)).h(px(12.))
-                    })
-                    .when(axis == 1, |this| {
-                        this.top(px(3.)).left(px(4.)).h(px(2.)).w(px(12.))
-                    }),
-            )
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(move |this, event, _, cx| {
-                    this.begin_scalar_drag(&control, composition_units_per_pixel, event, cx);
-                }),
-            )
-            .on_drag(drag, move |drag, _, _, cx| {
-                cx.stop_propagation();
-                cx.new(|_| drag.clone())
-            })
+        let preview = cx.entity();
+        let active = self.editor_drag.as_ref().map(|drag| drag.controls.clone());
+        canvas(
+            |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
+            move |bounds, hitbox, window, _| {
+                let hovered = if hitbox.is_hovered(window) {
+                    PreviewScalarControl::at_pointer(
+                        &controls,
+                        window.mouse_position(),
+                        bounds,
+                        resolution,
+                    )
+                } else {
+                    Vec::new()
+                };
+                let highlighted = active.as_ref().unwrap_or(&hovered);
+                let cursor = PreviewScalarControl::cursor(highlighted);
+                if active.is_some() {
+                    window.set_window_cursor_style(cursor);
+                } else {
+                    window.set_cursor_style(cursor, &hitbox);
+                }
+                for control in &controls {
+                    let position = control.screen_position(bounds, resolution);
+                    let axis = control.scalar.axis();
+                    let extent = if axis == 0 {
+                        size(px(2.), px(12.))
+                    } else {
+                        size(px(12.), px(2.))
+                    };
+                    let handle_bounds = Bounds::new(
+                        position - point(extent.width / 2., extent.height / 2.),
+                        extent,
+                    );
+                    let highlighted = highlighted.iter().any(|target| control.same_target(target));
+                    if highlighted {
+                        let guide_bounds = if axis == 0 {
+                            Bounds::new(
+                                point(position.x, bounds.origin.y),
+                                size(px(1.), bounds.size.height),
+                            )
+                        } else {
+                            Bounds::new(
+                                point(bounds.origin.x, position.y),
+                                size(bounds.size.width, px(1.)),
+                            )
+                        };
+                        window.paint_quad(fill(guide_bounds, color.opacity(0.6)));
+                    }
+                    window.paint_quad(fill(handle_bounds, color));
+                }
+                window.on_mouse_event({
+                    let preview = preview.clone();
+                    let controls = controls.clone();
+                    let hitbox = hitbox.clone();
+                    move |event: &MouseDownEvent, phase, window, cx| {
+                        if phase != DispatchPhase::Bubble
+                            || event.button != MouseButton::Left
+                            || !hitbox.is_hovered(window)
+                        {
+                            return;
+                        }
+                        let targets = PreviewScalarControl::at_pointer(
+                            &controls,
+                            event.position,
+                            bounds,
+                            resolution,
+                        );
+                        if targets.is_empty() {
+                            return;
+                        }
+                        preview.update(cx, |preview, cx| {
+                            preview.begin_editor_drag(
+                                targets,
+                                event.position,
+                                resolution.width() as f32 / f32::from(bounds.size.width),
+                                cx,
+                            );
+                        });
+                        cx.stop_propagation();
+                    }
+                });
+                window.on_mouse_event({
+                    let preview = preview.clone();
+                    move |event: &MouseUpEvent, phase, _, cx| {
+                        if phase == DispatchPhase::Capture && event.button == MouseButton::Left {
+                            preview.update(cx, |preview, cx| preview.end_editor_drag(cx));
+                        }
+                    }
+                });
+                window.on_mouse_event(move |event: &MouseMoveEvent, phase, window, cx| {
+                    if phase != DispatchPhase::Capture {
+                        return;
+                    }
+                    if preview.read(cx).editor_drag.is_some() {
+                        preview.update(cx, |preview, cx| {
+                            if event.pressed_button == Some(MouseButton::Left) {
+                                preview.move_editor_controls_from_pointer(event.position, cx);
+                            } else {
+                                preview.end_editor_drag(cx);
+                            }
+                        });
+                        cx.stop_propagation();
+                        return;
+                    }
+                    let targets = if hitbox.is_hovered(window) {
+                        PreviewScalarControl::at_pointer(
+                            &controls,
+                            event.position,
+                            bounds,
+                            resolution,
+                        )
+                    } else {
+                        Vec::new()
+                    };
+                    if targets.len() != hovered.len()
+                        || !targets.iter().zip(&hovered).all(|(a, b)| a.same_target(b))
+                    {
+                        cx.notify(preview.entity_id());
+                    }
+                });
+            },
+        )
+        .absolute()
+        .inset_0()
+        .size_full()
     }
 
     fn size_overlay(
@@ -137,7 +199,6 @@ impl Preview {
         &self,
         overlay: PreviewEditorOverlay,
         resolution: zerium_core::timeline::ProjectResolution,
-        composition_units_per_pixel: f32,
         color: Hsla,
         cx: &Context<Self>,
     ) -> impl IntoElement {
@@ -167,8 +228,6 @@ impl Preview {
                     .rounded_full()
                     .bg(color)
             }))
-            .children(overlay.controls.into_iter().map(|control| {
-                self.scalar_control(control, resolution, composition_units_per_pixel, color, cx)
-            }))
+            .child(self.scalar_controls(overlay.controls, resolution, color, cx))
     }
 }

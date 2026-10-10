@@ -1,10 +1,10 @@
 //! Preview layout, playback controls and editor interaction surfaces.
-use super::{Preview, editor_overlay::PreviewEditorDrag};
+use super::Preview;
 use crate::ui::{time_grid, transport::ScrubSource};
 use ::ui::{ActiveTheme as _, slider::Slider};
 use gpui::{
-    Context, DragMoveEvent, Hsla, MouseButton, MouseDownEvent, MouseUpEvent, Render, SharedString,
-    Window, div, prelude::*, px, relative, wgpu_surface,
+    Context, Hsla, MouseButton, MouseDownEvent, MouseUpEvent, Render, SharedString, Window, div,
+    prelude::*, px, relative, wgpu_surface,
 };
 
 impl Preview {
@@ -183,10 +183,14 @@ impl Render for Preview {
             .or_else(|| self.error.clone())
             .or_else(|| self.playback_error.clone());
         let overlay = self.selected_editor_overlay(frame, cx);
-        let composition_units_per_pixel = surface.as_ref().map_or(0., |surface| {
-            let logical_width = surface.size().0 as f32 / window.scale_factor();
-            resolution.width() as f32 / logical_width.max(1.)
-        });
+        if overlay.is_none()
+            || self
+                .editor_drag
+                .as_ref()
+                .is_some_and(|drag| !drag.gesture.is_current(self.editor.read(cx)))
+        {
+            self.end_editor_drag(cx);
+        }
 
         div()
             .size_full()
@@ -223,36 +227,6 @@ impl Render for Preview {
                                         .w_full()
                                         .max_h_full()
                                         .aspect_ratio(aspect_ratio)
-                                        .on_drag_move(cx.listener(
-                                            |this,
-                                             event: &DragMoveEvent<PreviewEditorDrag>,
-                                             window,
-                                             cx| {
-                                                let drag = event.drag(cx).clone();
-                                                this.move_editor_control_from_pointer(
-                                                    &drag,
-                                                    [
-                                                        f32::from(event.event.position.x),
-                                                        f32::from(event.event.position.y),
-                                                    ],
-                                                    window,
-                                                    cx,
-                                                );
-                                            },
-                                        ))
-                                        .capture_any_mouse_up(cx.listener(
-                                            |this, event: &MouseUpEvent, _, cx| {
-                                                if event.button == MouseButton::Left {
-                                                    let changed = this.editor_drag.take().is_some();
-                                                    if changed {
-                                                        this.editor.update(cx, |editor, _| {
-                                                            editor.finish_history_group()
-                                                        });
-                                                        cx.notify();
-                                                    }
-                                                }
-                                            },
-                                        ))
                                         .child(
                                             wgpu_surface(surface)
                                                 .absolute()
@@ -264,7 +238,6 @@ impl Render for Preview {
                                             this.child(self.editor_overlay(
                                                 overlay,
                                                 resolution,
-                                                composition_units_per_pixel,
                                                 colors.primary,
                                                 cx,
                                             ))
