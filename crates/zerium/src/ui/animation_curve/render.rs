@@ -1,6 +1,7 @@
 use rust_i18n::t;
 
 use super::*;
+use crate::ui::operation_hints::{Hint, OperationHintExt as _};
 
 const EASING_FAMILIES: &[(&str, EasingFamily)] = &[
     ("Bezier", EasingFamily::Bezier),
@@ -342,6 +343,15 @@ impl Render for AnimationCurveEditor {
                                             });
                                         }
                                     })
+                                    .operation_hints(if visible {
+                                        vec![Hint::gesture(
+                                            "hints.drag",
+                                            "hints.independent_curve",
+                                            gpui::Modifiers::alt(),
+                                        )]
+                                    } else {
+                                        Vec::new()
+                                    })
                                     .into_any_element(),
                             )
                         })
@@ -608,6 +618,11 @@ impl Render for AnimationCurveEditor {
                                                 colors.muted_foreground
                                             }),
                                     )
+                                    .operation_hints([Hint::gesture(
+                                        "hints.drag",
+                                        "hints.independent_stop",
+                                        gpui::Modifiers::alt(),
+                                    )])
                             })
                         }
                     }))

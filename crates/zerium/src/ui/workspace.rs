@@ -10,6 +10,7 @@ use ::ui::{
 };
 use gpui::{Context, FocusHandle, Render, Subscription, Window, div, prelude::*, px};
 
+use super::operation_hints::OperationHintExt as _;
 use crate::app::actions::*;
 
 pub(crate) const WORKSPACE_KEY_CONTEXT: &str = "ZeriumWorkspace";
@@ -40,6 +41,7 @@ pub(crate) struct Workspace {
     pub(crate) notifications: gpui::Entity<crate::ui::session::UiNotifications>,
     pub(crate) forwarded_notifications: u64,
     pub(crate) focus_handle: FocusHandle,
+    pub(crate) operation_hints: gpui::Entity<super::operation_hints::OperationHintBar>,
     pub(crate) _subscriptions: Vec<Subscription>,
 }
 
@@ -243,6 +245,7 @@ impl Render for Workspace {
             .id("workspace")
             .key_context(WORKSPACE_KEY_CONTEXT)
             .track_focus(&self.focus_handle)
+            .track_operation_hints(&self.operation_hints)
             .on_action(cx.listener(Self::copy_selected_items))
             .on_action(cx.listener(Self::cut_selected_items))
             .on_action(cx.listener(Self::paste_items))
@@ -446,6 +449,7 @@ impl Render for Workspace {
                         ),
                 ),
             )
+            .child(self.operation_hints.clone())
             .when_some(drawer_layer, |this, layer| this.child(layer))
             .when_some(modal_layer, |this, layer| this.child(layer))
             .when_some(notification_layer, |this, layer| this.child(layer))

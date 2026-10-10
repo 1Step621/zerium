@@ -1,6 +1,34 @@
 use rust_i18n::t;
 
 use super::*;
+use crate::ui::operation_hints::{Hint, OperationHintExt as _};
+
+fn resize_hints() -> Vec<Hint> {
+    vec![
+        Hint::gesture("hints.drag", "hints.stretch", gpui::Modifiers::shift()),
+        Hint::gesture("hints.drag", "hints.no_snap", gpui::Modifiers::alt()),
+    ]
+}
+
+fn navigation_hints() -> Vec<Hint> {
+    vec![
+        Hint::gesture(
+            "hints.scroll",
+            "hints.zoom_time",
+            gpui::Modifiers::control(),
+        ),
+        Hint::gesture(
+            "hints.scroll",
+            "hints.zoom_layers",
+            gpui::Modifiers::control_shift(),
+        ),
+        Hint::gesture(
+            "hints.scroll",
+            "hints.scroll_layers",
+            gpui::Modifiers::alt(),
+        ),
+    ]
+}
 
 impl Timeline {
     fn transport_button(id: &'static str, icon: Icon, tooltip: String) -> Button {
@@ -213,11 +241,16 @@ impl Timeline {
                                     )
                                 },
                             ),
-                    ),
+                    )
+                    .operation_hints(navigation_hints()),
             )
     }
 
-    fn layer_header(layer_number: usize, state: &LayerRenderState, cx: &mut Context<Self>) -> Div {
+    fn layer_header(
+        layer_number: usize,
+        state: &LayerRenderState,
+        cx: &mut Context<Self>,
+    ) -> impl IntoElement {
         let layer = LayerId::new(layer_number.saturating_sub(1) as u64);
         let hidden = state.hidden_layers.contains(&layer);
         let editor = state.editor.clone();
@@ -276,6 +309,18 @@ impl Timeline {
                     .rounded_full()
                     .bg(state.colors.muted_foreground),
             )
+            .operation_hints([
+                Hint::gesture(
+                    "hints.scroll",
+                    "hints.zoom_time",
+                    gpui::Modifiers::control(),
+                ),
+                Hint::gesture(
+                    "hints.scroll",
+                    "hints.zoom_layers",
+                    gpui::Modifiers::control_shift(),
+                ),
+            ])
     }
 
     fn timeline_item(
@@ -286,7 +331,7 @@ impl Timeline {
         clip_height: f32,
         visible_range: (f64, f64),
         cx: &mut Context<Self>,
-    ) -> Option<Stateful<Div>> {
+    ) -> Option<gpui::AnyElement> {
         let TimelineItemRenderData {
             item,
             label: item_label,
@@ -529,7 +574,8 @@ impl Timeline {
                                         ResizeMode::Trim
                                     });
                                     cx.new(|_| drag.clone())
-                                }),
+                                })
+                                .operation_hints(resize_hints()),
                         )
                         .child(
                             div()
@@ -555,7 +601,8 @@ impl Timeline {
                                         ResizeMode::Trim
                                     });
                                     cx.new(|_| drag.clone())
-                                }),
+                                })
+                                .operation_hints(resize_hints()),
                         ),
                 )
                 .children(animation_stops.into_iter().map(|(time, repeated)| {
@@ -629,8 +676,26 @@ impl Timeline {
                                         cx.new(|_| drag.clone())
                                     })
                             })
+                            .operation_hints(if movable {
+                                vec![Hint::gesture(
+                                    "hints.drag",
+                                    "hints.independent_stop",
+                                    gpui::Modifiers::alt(),
+                                )]
+                            } else {
+                                Vec::new()
+                            })
                     }
-                })),
+                }))
+                .operation_hints([
+                    Hint::gesture(
+                        "hints.click",
+                        "hints.toggle_selection",
+                        gpui::Modifiers::shift(),
+                    ),
+                    Hint::gesture("hints.drag", "hints.no_snap", gpui::Modifiers::alt()),
+                ])
+                .into_any_element(),
         )
     }
 
@@ -682,12 +747,11 @@ impl Timeline {
 
         div()
             .id(("timeline-layer", layer_index))
+            .relative()
             .h(px(state.layer_height))
             .w_full()
             .flex_none()
             .flex()
-            .border_b_1()
-            .border_color(state.colors.table_row_border)
             .bg(if layer_index.is_multiple_of(2) {
                 state.colors.background
             } else {
@@ -791,7 +855,16 @@ impl Timeline {
                                         .bg(state.colors.primary),
                                 )
                             }),
-                    ),
+                    )
+                    .operation_hints(navigation_hints()),
+            )
+            .child(
+                div()
+                    .absolute()
+                    .bottom_0()
+                    .w_full()
+                    .h(px(1.))
+                    .bg(state.colors.table_row_border),
             )
     }
 }

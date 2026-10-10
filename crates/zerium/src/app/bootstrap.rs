@@ -262,6 +262,42 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                     let close_project_controller = project_controller.clone();
                     let close_export_controller = export_controller.clone();
                     let close_window_lifetime_guard = preview.read(cx).window_lifetime_guard();
+                    let operation_hints = cx.new({
+                        let transport = transport.clone();
+                        let inspector = property_inspector.clone();
+                        move |_| {
+                            use crate::ui::operation_hints::{Hint, OperationHintBar};
+                            OperationHintBar::new(move |_, cx| {
+                                let playing = transport.read(cx).is_playing();
+                                let mut hints = vec![
+                                    Hint::action(
+                                        TogglePlayback,
+                                        if playing {
+                                            "hints.stop_return"
+                                        } else {
+                                            "timeline.play"
+                                        },
+                                    ),
+                                    Hint::action(
+                                        TogglePlaybackInPlace,
+                                        if playing {
+                                            "hints.stop_here"
+                                        } else {
+                                            "timeline.play"
+                                        },
+                                    ),
+                                    Hint::action(OpenItemPicker, "hints.add_item"),
+                                ];
+                                if inspector.read(cx).can_add_effect(cx) {
+                                    hints.push(Hint::action(
+                                        OpenEffectPicker,
+                                        "inspector.add_effect",
+                                    ));
+                                }
+                                hints
+                            })
+                        }
+                    });
                     let workspace = cx.new(|cx: &mut Context<Workspace>| {
                         let mut subscriptions = vec![
                             cx.observe(&animation_selection, |_, _, cx| cx.notify()),
@@ -295,6 +331,7 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             notifications,
                             forwarded_notifications: 0,
                             focus_handle: cx.focus_handle(),
+                            operation_hints,
                             _subscriptions: subscriptions,
                         }
                     });

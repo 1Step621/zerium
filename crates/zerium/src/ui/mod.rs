@@ -10,6 +10,7 @@ pub(crate) mod file_input;
 mod input;
 mod number_input;
 mod numeric_property;
+pub(crate) mod operation_hints;
 pub(crate) mod pane;
 pub(crate) mod preview;
 pub(crate) mod project_dialogs;

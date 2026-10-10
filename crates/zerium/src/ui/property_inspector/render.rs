@@ -117,10 +117,7 @@ impl PropertyInspector {
         let selector = self.target_selector(cx);
         let render = self.render_context(item, cx);
         let header = Self::item_header(item, &render, selector, cx);
-        let has_visual = item.scene_id().is_some()
-            || item
-                .schema()
-                .is_some_and(|schema| schema.render().is_some());
+        let has_visual = self.can_add_effect(cx);
         let mut controls = Vec::new();
         let mut effect_controls = Vec::new();
         for control in self.store.tree.roots.iter().cloned() {
@@ -199,17 +196,24 @@ impl PropertyInspector {
             .into_any_element()
     }
 
+    pub(crate) fn can_add_effect(&self, cx: &App) -> bool {
+        let editor = self.editor.read(cx);
+        self.inspector_item_id(cx)
+            .and_then(|id| editor.item(id))
+            .is_some_and(|item| {
+                item.scene_id().is_some()
+                    || item
+                        .schema()
+                        .is_some_and(|schema| schema.render().is_some())
+            })
+    }
+
     pub(crate) fn open_effect_picker(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if let Some(picker) = self.effect_picker.clone() {
             picker.focus_handle(cx).focus(window, cx);
             return;
         }
-        let editor = self.editor.read(cx);
-        let Some(item) = self.inspector_item_id(cx).and_then(|id| editor.item(id)) else {
-            return;
-        };
-        if item.scene_id().is_none() && item.schema().is_none_or(|schema| schema.render().is_none())
-        {
+        if !self.can_add_effect(cx) {
             return;
         }
         let picker = Self::effect_search_picker(&self.editor, cx.entity(), window, cx);

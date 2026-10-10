@@ -1,4 +1,5 @@
 use super::numeric_property::NumericInput;
+use super::operation_hints::{Hint, OperationHintExt as _};
 use ::ui::input::{InputEvent, InputState, NumberInput, NumberInputEvent};
 use gpui::{
     Context, Empty, Entity, EntityId, MouseButton, MouseDownEvent, Render, Subscription, Window,
@@ -89,5 +90,14 @@ pub(super) fn number_input_drag<T: 'static>(
             })
         })
         .child(value_input)
+        .operation_hints(if disabled {
+            Vec::new()
+        } else {
+            vec![Hint::gesture(
+                "hints.drag",
+                "hints.fine_adjustment",
+                gpui::Modifiers::shift(),
+            )]
+        })
         .into_any_element()
 }
