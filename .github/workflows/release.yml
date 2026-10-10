@@ -97,7 +97,16 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
-          path: dist/*
+          path: |
+            dist/*.AppImage
+            dist/*.msi
+            dist/*-Setup.pkg
+            dist/releases.*.json
+            dist/*.nupkg
+            dist/install.sh
+            dist/zerium.desktop
+            dist/zerium.png
+            dist/zerium.xml
           if-no-files-found: error
 
   release:
