@@ -164,15 +164,16 @@ impl PropertyInspector {
                 })
         });
         let item_editor = render.editor.clone();
-        let item_controls = div()
-            .w_full()
-            .flex()
-            .flex_col()
-            .gap_3()
+        let item_controls = Self::property_grid()
+            .gap_y_3()
             .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                 Self::activate_edit_target(&item_editor, None, cx);
             })
-            .children(controls);
+            .children(
+                controls
+                    .into_iter()
+                    .flat_map(super::rows::PropertyRow::into_cells),
+            );
         div()
             .size_full()
             .flex()
@@ -281,16 +282,16 @@ impl PropertyInspector {
         });
     }
 
-    fn control_element(control: Control, render: &RenderCtx) -> Option<gpui::AnyElement> {
+    fn control_element(control: Control, render: &RenderCtx) -> Option<super::rows::PropertyRow> {
         match control {
             Control::Group {
+                id,
                 label,
                 children,
                 kind,
-                ..
             } => match kind {
                 GroupKind::Plain(extensions) => {
-                    Some(Self::group_box(label, &children, &extensions, render))
+                    Some(Self::group_box(id, label, &children, &extensions, render))
                 }
                 GroupKind::Elements(group) => Some(Self::elements_section(
                     &group,
@@ -431,7 +432,13 @@ impl PropertyInspector {
                 focused,
                 render,
             ))
-            .children(controls)
+            .child(
+                Self::property_grid().gap_y_2().children(
+                    controls
+                        .into_iter()
+                        .flat_map(super::rows::PropertyRow::into_cells),
+                ),
+            )
             .into_any_element()
     }
 

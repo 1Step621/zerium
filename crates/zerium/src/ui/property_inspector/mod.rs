@@ -98,29 +98,9 @@ pub(crate) struct PropertyInspector {
 }
 
 impl PropertyInspector {
-    pub(super) const PROPERTY_LABEL_WIDTH: f32 = 90.;
-    pub(super) const SCALAR_LABEL_WIDTH: f32 = 40.;
     pub(super) const DRAG_RANGE_PIXELS: f64 = 200.;
     pub(super) const MIN_STEP_MULTIPLIER: f64 = 0.1;
     pub(super) const MAX_STEP_MULTIPLIER: f64 = 2.;
-
-    pub(super) fn property_label_column(label: impl Into<SharedString>) -> Div {
-        div()
-            .w(px(Self::PROPERTY_LABEL_WIDTH))
-            .min_h(px(24.))
-            .min_w_0()
-            .flex_none()
-            .flex()
-            .items_center()
-            .child(
-                div()
-                    .w_full()
-                    .min_w_0()
-                    .text_sm()
-                    .whitespace_normal()
-                    .child(label.into()),
-            )
-    }
 
     pub(crate) fn new(
         editor: Entity<TimelineEditor>,

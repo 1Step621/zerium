@@ -25,32 +25,53 @@ pub(super) struct RenderCtx<'a> {
 
 #[derive(Clone, Copy)]
 enum AnimationLabelWidth {
-    Fixed(f32),
+    Content,
     Fill,
 }
 
-impl PropertyInspector {
-    // Layout primitives. Editors below only build their value widget and
-    // these helpers provide the shared labeled/compact row geometry.
-    fn labeled_row(label: gpui::AnyElement, content: Div) -> Div {
-        div()
-            .w_full()
-            .flex()
-            .items_center()
-            .gap_3()
-            .child(label)
-            .child(content)
+pub(super) struct PropertyRow {
+    label: Option<gpui::AnyElement>,
+    content: Div,
+}
+
+impl PropertyRow {
+    fn new(label: impl Into<Option<gpui::AnyElement>>, content: Div) -> Self {
+        Self {
+            label: label.into(),
+            content,
+        }
     }
 
-    fn compact_row(label: Option<gpui::AnyElement>, content: Div) -> Div {
+    pub(super) fn into_cells(self) -> Vec<gpui::AnyElement> {
+        let content = self.content.min_w_0().w_full();
+        match self.label {
+            Some(label) => vec![label, content.into_any_element()],
+            None => vec![content.col_span_full().into_any_element()],
+        }
+    }
+}
+
+impl IntoElement for PropertyRow {
+    type Element = Div;
+
+    fn into_element(self) -> Div {
+        PropertyInspector::property_grid().children(self.into_cells())
+    }
+}
+
+impl PropertyInspector {
+    pub(super) fn property_grid() -> Div {
         div()
+            .grid()
+            .grid_template_columns([
+                gpui::GridTrackSize::FitContent(gpui::relative(0.3)),
+                gpui::GridTrackSize::Fraction(1.),
+            ])
             .min_w_0()
             .w_full()
-            .flex()
             .items_center()
-            .gap_2()
-            .when_some(label, |this, label| this.child(label))
-            .child(content)
+            .gap_x_3()
+            .gap_y_1()
     }
 
     fn animation_address_is_focused(common: &LeafControl, ctx: &RenderCtx) -> bool {
@@ -62,13 +83,13 @@ impl PropertyInspector {
         common: &LeafControl,
         ctx: &RenderCtx,
         width: AnimationLabelWidth,
-        id_prefix: &str,
+        id: SharedString,
     ) -> gpui::AnyElement {
         let target = common.target.clone();
         let focused = Self::animation_address_is_focused(common, ctx);
         let inspector = ctx.inspector.clone();
         Self::animation_label_base(label.into(), width, focused, ctx)
-            .id(SharedString::from(format!("{id_prefix}-{:?}", common.id)))
+            .id(id)
             .when(common.animation_enabled, |this| {
                 this.cursor_pointer().on_click(move |_, _, cx| {
                     inspector.update(cx, |inspector, cx| {
@@ -85,26 +106,27 @@ impl PropertyInspector {
         focused: bool,
         ctx: &RenderCtx,
     ) -> Div {
+        let tooltip = label.clone();
         let text = div()
-            .w_full()
             .min_w_0()
+            .flex_1()
             .text_sm()
-            .when(matches!(width, AnimationLabelWidth::Fixed(_)), |this| {
-                this.whitespace_normal()
-            })
-            .when(matches!(width, AnimationLabelWidth::Fill), |this| {
-                this.overflow_hidden().whitespace_nowrap().text_ellipsis()
-            })
+            .overflow_hidden()
+            .whitespace_nowrap()
+            .text_ellipsis()
             .when(focused, |this| this.text_color(ctx.colors.primary))
-            .child(label);
+            .child(label.replace(['\n', '\r'], " "));
         let label = div()
             .min_h(px(24.))
             .min_w_0()
             .flex()
             .items_center()
+            .tooltip(move |window, cx| {
+                ::ui::tooltip::Tooltip::new(tooltip.clone()).build(window, cx)
+            })
             .child(text);
         match width {
-            AnimationLabelWidth::Fixed(width) => label.w(px(width)).flex_none(),
+            AnimationLabelWidth::Content => label.max_w(px(90.)),
             AnimationLabelWidth::Fill => label.w_0().flex_1(),
         }
     }
@@ -118,8 +140,8 @@ impl PropertyInspector {
             label,
             common,
             ctx,
-            AnimationLabelWidth::Fixed(Self::PROPERTY_LABEL_WIDTH),
-            "property-label",
+            AnimationLabelWidth::Content,
+            format!("property-label-{:?}", common.id).into(),
         )
     }
 
@@ -129,8 +151,8 @@ impl PropertyInspector {
                 label,
                 common,
                 ctx,
-                AnimationLabelWidth::Fixed(Self::SCALAR_LABEL_WIDTH),
-                "scalar-label",
+                AnimationLabelWidth::Content,
+                format!("scalar-label-{:?}", common.id).into(),
             )
         })
     }
@@ -140,17 +162,19 @@ impl PropertyInspector {
         children: &[Control],
         ctx: &RenderCtx,
         width: AnimationLabelWidth,
-        id_prefix: &str,
+        id: SharedString,
     ) -> gpui::AnyElement {
         if let [child] = children
             && let Some(common) = child.common()
         {
-            return Self::focused_animation_label(label, common, ctx, width, id_prefix);
+            return Self::focused_animation_label(label, common, ctx, width, id);
         }
         let focused = children
             .iter()
             .any(|child| Self::control_contains_focused_animation(child, ctx));
-        Self::animation_label_base(label.into(), width, focused, ctx).into_any_element()
+        Self::animation_label_base(label.into(), width, focused, ctx)
+            .id(id)
+            .into_any_element()
     }
 
     fn control_contains_focused_animation(control: &Control, ctx: &RenderCtx) -> bool {
@@ -359,7 +383,7 @@ impl PropertyInspector {
         ctx: &RenderCtx,
         separator_color: gpui::Hsla,
         allow_structure_edit: bool,
-    ) -> gpui::AnyElement {
+    ) -> PropertyRow {
         let property_label = group.property.label().to_owned();
         let rows_are_tuples = matches!(group.property.value_schema(), ValueSchema::Tuple(_));
         let rows_have_scene_binding = group.has_scene_binding;
@@ -391,21 +415,19 @@ impl PropertyInspector {
                 )
             });
             let mut row_has_binding = is_scene_bound;
-            let mut value_rows = div()
-                .min_w_0()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .when(rows_are_tuples, |this| this.w_full())
-                .when(!rows_are_tuples, |this| this.flex_1());
+            let mut value_rows = if rows_are_tuples {
+                Self::property_grid().gap_x_2()
+            } else {
+                div().min_w_0().flex_1().flex().flex_col().gap_1()
+            };
             if group.element_kind != ElementKind::FontFamily {
                 for control in row_controls {
-                    let row = if rows_are_tuples {
-                        Self::scalar_compact_row(control, ctx)
-                    } else {
-                        Self::element_scalar(control, ctx)
-                    };
-                    if let Some((row, bound)) = row {
+                    if rows_are_tuples {
+                        if let Some((row, bound)) = Self::scalar_compact_row(control, ctx) {
+                            row_has_binding |= bound;
+                            value_rows = value_rows.children(row.into_cells());
+                        }
+                    } else if let Some((row, bound)) = Self::element_scalar(control, ctx) {
                         row_has_binding |= bound;
                         value_rows = value_rows.child(row);
                     }
@@ -526,7 +548,7 @@ impl PropertyInspector {
                                 row_controls,
                                 ctx,
                                 AnimationLabelWidth::Fill,
-                                "element-label",
+                                format!("element-label-{key:?}").into(),
                             ))
                             .when(allow_structure_edit, |this| this.child(structure_buttons))
                             .when_some(binding_button, |this, button| this.child(button)),
@@ -567,32 +589,27 @@ impl PropertyInspector {
                 });
             });
 
-        div()
-            .w_full()
-            .flex()
-            .items_start()
-            .gap_3()
-            .child(Self::animation_container_label(
-                property_label,
-                children,
-                ctx,
-                AnimationLabelWidth::Fixed(Self::PROPERTY_LABEL_WIDTH),
-                "group-label",
-            ))
-            .child(
-                div()
-                    .w_0()
-                    .min_w_0()
-                    .flex_1()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(rows)
-                    .when(allow_structure_edit, |this| {
-                        this.child(div().pt_1().child(add_control))
-                    }),
-            )
-            .into_any_element()
+        PropertyRow::new(
+            div()
+                .self_start()
+                .child(Self::animation_container_label(
+                    property_label,
+                    children,
+                    ctx,
+                    AnimationLabelWidth::Content,
+                    format!("group-label-{:?}", group.target).into(),
+                ))
+                .into_any_element(),
+            div()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(rows)
+                .when(allow_structure_edit, |this| {
+                    this.child(div().pt_1().child(add_control))
+                }),
+        )
     }
 
     /// Array element scalar rendering. Tuple components go through the
@@ -602,12 +619,9 @@ impl PropertyInspector {
         match control {
             Control::Number(number) if number.common.target.scalar_index.is_some() => {
                 let input = ctx.store.text(&number.common.id)?;
-                Some(Self::number_compact_row(
-                    &number.common,
-                    &number.spec,
-                    &input,
-                    ctx,
-                ))
+                let (row, bound) =
+                    Self::number_compact_row(&number.common, &number.spec, &input, ctx);
+                Some((row.into_any_element(), bound))
             }
             Control::Number(number) => Self::element_number(number, ctx),
             Control::Color(color) => {
@@ -623,7 +637,7 @@ impl PropertyInspector {
                     color.binding.clone(),
                     ctx,
                 );
-                Some((row, bound))
+                Some((row.into_any_element(), bound))
             }
             Control::Text(_) | Control::Bool(_) | Control::Choice(_) => {
                 let row = Self::scalar_full_row(control, ctx)?;
@@ -631,9 +645,10 @@ impl PropertyInspector {
                     .common()
                     .and_then(|common| common.binding.as_ref())
                     .is_some_and(|binding| binding.connected.is_some());
-                Some((row, bound))
+                Some((row.into_any_element(), bound))
             }
-            Control::File(_) => Self::scalar_compact_row(control, ctx),
+            Control::File(_) => Self::scalar_compact_row(control, ctx)
+                .map(|(row, bound)| (row.into_any_element(), bound)),
             Control::Group { .. } => None,
         }
     }

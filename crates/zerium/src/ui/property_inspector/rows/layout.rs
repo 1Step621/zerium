@@ -7,7 +7,7 @@ impl PropertyInspector {
         common: &LeafControl,
         render: &RenderCtx<'_>,
         compact: bool,
-    ) -> gpui::AnyElement {
+    ) -> PropertyRow {
         let address = common.target.clone();
         let disabled = render.selecting_file
             || common.read_only
@@ -16,38 +16,43 @@ impl PropertyInspector {
                 .as_ref()
                 .is_some_and(|binding| binding.connected.is_some());
 
-        div()
-            .w_full()
-            .flex()
-            .items_start()
-            .gap_3()
-            .when(!compact, |this| {
-                this.child(Self::property_label_column(common.label.clone()))
-            })
-            .when_some(
-                compact
-                    .then(|| Self::animation_scalar_label(common, render))
-                    .flatten(),
-                |this, label| this.child(label),
-            )
-            .child(div().min_w_0().flex_1().flex().flex_col().gap_1().child(
-                crate::ui::file_input::file_picker(
-                    &render.file_input,
-                    SharedString::from(format!("file-{:?}", common.id)),
-                    crate::ui::file_input::FileTarget::Property(address.clone()),
-                    common.value.file(),
-                    render.selecting_file,
-                    disabled,
-                ),
+        let label = if compact {
+            Self::animation_scalar_label(common, render)
+        } else {
+            Some(Self::animation_property_label(
+                common.label.clone(),
+                common,
+                render,
             ))
-            .when_some(common.binding.clone(), |row, binding| {
-                row.child(Self::scene_binding_button(
-                    binding,
-                    &render.inspector,
-                    SharedString::from(format!("file-binding-{:?}", common.id)),
-                ))
-            })
-            .into_any_element()
+        };
+        PropertyRow::new(
+            label,
+            div()
+                .min_w_0()
+                .flex()
+                .items_start()
+                .gap_1()
+                .child(
+                    div()
+                        .min_w_0()
+                        .flex_1()
+                        .child(crate::ui::file_input::file_picker(
+                            &render.file_input,
+                            SharedString::from(format!("file-{:?}", common.id)),
+                            crate::ui::file_input::FileTarget::Property(address),
+                            common.value.file(),
+                            render.selecting_file,
+                            disabled,
+                        )),
+                )
+                .when_some(common.binding.clone(), |row, binding| {
+                    row.child(Self::scene_binding_button(
+                        binding,
+                        &render.inspector,
+                        SharedString::from(format!("file-binding-{:?}", common.id)),
+                    ))
+                }),
+        )
     }
 
     pub(super) fn number_full_row(
@@ -57,11 +62,7 @@ impl PropertyInspector {
         animation_enabled: bool,
         binding: Option<SceneFieldBinding>,
         ctx: &RenderCtx,
-    ) -> Div {
-        let mut label = common.label.clone();
-        if let Some(scalar_label) = common.scalar_label.clone() {
-            label = format!("{label} {scalar_label}");
-        }
+    ) -> PropertyRow {
         let is_bound = binding
             .as_ref()
             .is_some_and(|binding| binding.connected.is_some());
@@ -87,39 +88,33 @@ impl PropertyInspector {
             )
         });
         let value_input = Self::number_editor(common, spec, input, common.read_only, ctx);
-        div()
-            .w_full()
-            .flex()
-            .items_center()
-            .gap_3()
-            .child(Self::animation_property_label(label, common, ctx))
-            .child(
-                div()
-                    .min_w_0()
-                    .flex_1()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .when(!is_bound, |this| {
-                        this.child(
-                            div()
-                                .id(SharedString::from(format!("{:?}", common.target)))
-                                .min_w_0()
-                                .flex()
-                                .flex_1()
-                                .when(!common.read_only, |this| {
-                                    this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                                        select_inspector.update(cx, |inspector, cx| {
-                                            inspector.select_animation(&select_target, cx);
-                                        });
-                                    })
+        PropertyRow::new(
+            Self::animation_property_label(common.label.clone(), common, ctx),
+            div()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap_1()
+                .when(!is_bound, |this| {
+                    this.child(
+                        div()
+                            .id(SharedString::from(format!("{:?}", common.target)))
+                            .min_w_0()
+                            .flex()
+                            .flex_1()
+                            .when(!common.read_only, |this| {
+                                this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                    select_inspector.update(cx, |inspector, cx| {
+                                        inspector.select_animation(&select_target, cx);
+                                    });
                                 })
-                                .child(value_input),
-                        )
-                    })
-                    .when_some(animation_button, |this, button| this.child(button))
-                    .when_some(publish_button, |this, button| this.child(button)),
-            )
+                            })
+                            .child(value_input),
+                    )
+                })
+                .when_some(animation_button, |this, button| this.child(button))
+                .when_some(publish_button, |this, button| this.child(button)),
+        )
     }
 
     pub(super) fn number_compact_row(
@@ -127,7 +122,7 @@ impl PropertyInspector {
         spec: &NumericInputSpec,
         input: &Entity<InputState>,
         ctx: &RenderCtx,
-    ) -> (gpui::AnyElement, bool) {
+    ) -> (PropertyRow, bool) {
         let coordinate_animation_enabled = common.animation_enabled;
         let binding = common.binding.clone();
         let is_bound = binding
@@ -154,11 +149,10 @@ impl PropertyInspector {
         let value_input = Self::number_editor(common, spec, input, disabled, ctx);
         let select_inspector = ctx.inspector.clone();
         let select_target = common.target.clone();
-        let row = Self::compact_row(
+        let row = PropertyRow::new(
             Self::animation_scalar_label(common, ctx),
             div()
                 .min_w_0()
-                .flex_1()
                 .flex()
                 .items_center()
                 .gap_1()
@@ -166,19 +160,18 @@ impl PropertyInspector {
                     this.child(div().min_w_0().flex().flex_1().child(value_input))
                 })
                 .when_some(animation_button, |this, button| this.child(button))
-                .when_some(binding_button, |this, button| this.child(button)),
-        )
-        .when(disabled, |this| {
-            this.text_color(ctx.colors.muted_foreground)
-        })
-        .when(!common.read_only, |this| {
-            this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                select_inspector.update(cx, |inspector, cx| {
-                    inspector.select_animation(&select_target, cx);
-                });
-            })
-        })
-        .into_any_element();
+                .when_some(binding_button, |this, button| this.child(button))
+                .when(disabled, |this| {
+                    this.text_color(ctx.colors.muted_foreground)
+                })
+                .when(!common.read_only, |this| {
+                    this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                        select_inspector.update(cx, |inspector, cx| {
+                            inspector.select_animation(&select_target, cx);
+                        });
+                    })
+                }),
+        );
         (row, is_bound)
     }
 
@@ -188,7 +181,7 @@ impl PropertyInspector {
         input: &Entity<InputState>,
         binding: Option<SceneFieldBinding>,
         ctx: &RenderCtx,
-    ) -> Div {
+    ) -> PropertyRow {
         let is_bound = binding
             .as_ref()
             .is_some_and(|binding| binding.connected.is_some());
@@ -199,11 +192,10 @@ impl PropertyInspector {
                 SharedString::from(format!("bind-scene-argument-{:?}", common.target)),
             )
         });
-        Self::labeled_row(
+        PropertyRow::new(
             Self::animation_property_label(common.label.clone(), common, ctx),
             div()
                 .min_w_0()
-                .flex_1()
                 .flex()
                 .items_center()
                 .gap_1()
@@ -220,7 +212,7 @@ impl PropertyInspector {
         input: &Entity<InputState>,
         binding: Option<SceneFieldBinding>,
         ctx: &RenderCtx,
-    ) -> (gpui::AnyElement, bool) {
+    ) -> (PropertyRow, bool) {
         let is_bound = binding
             .as_ref()
             .is_some_and(|binding| binding.connected.is_some());
@@ -231,11 +223,10 @@ impl PropertyInspector {
                 SharedString::from(format!("bind-scene-argument-{:?}", common.target)),
             )
         });
-        let row = Self::compact_row(
+        let row = PropertyRow::new(
             Self::animation_scalar_label(common, ctx),
             div()
                 .min_w_0()
-                .flex_1()
                 .flex()
                 .items_center()
                 .gap_1()
@@ -243,8 +234,7 @@ impl PropertyInspector {
                     this.child(Self::text_editor(input, multiline, common.read_only))
                 })
                 .when_some(binding_button, |this, button| this.child(button)),
-        )
-        .into_any_element();
+        );
         (row, is_bound)
     }
 
@@ -253,7 +243,7 @@ impl PropertyInspector {
         value: bool,
         binding: Option<SceneFieldBinding>,
         ctx: &RenderCtx,
-    ) -> gpui::AnyElement {
+    ) -> PropertyRow {
         let is_bound = binding
             .as_ref()
             .is_some_and(|binding| binding.connected.is_some());
@@ -265,18 +255,16 @@ impl PropertyInspector {
             )
         });
         let switch = Self::bool_switch(&common.target, value, common.read_only, &ctx.inspector);
-        Self::labeled_row(
+        PropertyRow::new(
             Self::animation_property_label(common.label.clone(), common, ctx),
             div()
                 .min_w_0()
-                .flex_1()
                 .flex()
                 .items_center()
                 .gap_2()
                 .when(!is_bound, |this| this.child(switch))
                 .when_some(binding_button, |this, button| this.child(button)),
         )
-        .into_any_element()
     }
 
     pub(super) fn toggle_compact_row(
@@ -284,7 +272,7 @@ impl PropertyInspector {
         value: bool,
         binding: Option<SceneFieldBinding>,
         ctx: &RenderCtx,
-    ) -> (gpui::AnyElement, bool) {
+    ) -> (PropertyRow, bool) {
         let is_bound = binding
             .as_ref()
             .is_some_and(|binding| binding.connected.is_some());
@@ -296,26 +284,16 @@ impl PropertyInspector {
             )
         });
         let switch = Self::bool_switch(&common.target, value, common.read_only, &ctx.inspector);
-        let row = div()
-            .min_w_0()
-            .w_full()
-            .flex()
-            .items_center()
-            .gap_2()
-            .when_some(Self::animation_scalar_label(common, ctx), |this, label| {
-                this.child(label)
-            })
-            .child(
-                div()
-                    .min_w_0()
-                    .flex_1()
-                    .flex()
-                    .items_center()
-                    .gap_2()
-                    .when(!is_bound, |this| this.child(switch))
-                    .when_some(binding_button, |this, button| this.child(button)),
-            )
-            .into_any_element();
+        let row = PropertyRow::new(
+            Self::animation_scalar_label(common, ctx),
+            div()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap_2()
+                .when(!is_bound, |this| this.child(switch))
+                .when_some(binding_button, |this, button| this.child(button)),
+        );
         (row, is_bound)
     }
 
@@ -325,7 +303,7 @@ impl PropertyInspector {
         options: &[(String, u32)],
         binding: Option<SceneFieldBinding>,
         ctx: &RenderCtx,
-    ) -> gpui::AnyElement {
+    ) -> PropertyRow {
         let bound = binding
             .as_ref()
             .is_some_and(|binding| binding.connected.is_some());
@@ -336,27 +314,24 @@ impl PropertyInspector {
                 SharedString::from(format!("bind-{:?}", common.target)),
             )
         });
-        div()
-            .w_full()
-            .flex()
-            .items_center()
-            .gap_3()
-            .child(Self::animation_property_label(
-                common.label.clone(),
-                common,
-                ctx,
-            ))
-            .when(!bound, |row| {
-                row.child(Self::choice_dropdown(
-                    &common.target,
-                    current,
-                    options,
-                    common.read_only,
-                    &ctx.inspector,
-                ))
-            })
-            .when_some(binding_button, |row, button| row.child(button))
-            .into_any_element()
+        PropertyRow::new(
+            Self::animation_property_label(common.label.clone(), common, ctx),
+            div()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap_1()
+                .when(!bound, |row| {
+                    row.child(Self::choice_dropdown(
+                        &common.target,
+                        current,
+                        options,
+                        common.read_only,
+                        &ctx.inspector,
+                    ))
+                })
+                .when_some(binding_button, |row, button| row.child(button)),
+        )
     }
 
     pub(super) fn dropdown_compact_row(
@@ -365,7 +340,7 @@ impl PropertyInspector {
         options: &[(String, u32)],
         binding: Option<SceneFieldBinding>,
         ctx: &RenderCtx,
-    ) -> (gpui::AnyElement, bool) {
+    ) -> (PropertyRow, bool) {
         let bound = binding
             .as_ref()
             .is_some_and(|binding| binding.connected.is_some());
@@ -376,34 +351,24 @@ impl PropertyInspector {
                 SharedString::from(format!("bind-{:?}", common.target)),
             )
         });
-        let row = div()
-            .min_w_0()
-            .w_full()
-            .flex()
-            .items_center()
-            .gap_2()
-            .when_some(Self::animation_scalar_label(common, ctx), |this, label| {
-                this.child(label)
-            })
-            .child(
-                div()
-                    .min_w_0()
-                    .flex_1()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .when(!bound, |this| {
-                        this.child(Self::choice_dropdown(
-                            &common.target,
-                            current,
-                            options,
-                            common.read_only,
-                            &ctx.inspector,
-                        ))
-                    })
-                    .when_some(binding_button, |this, button| this.child(button)),
-            )
-            .into_any_element();
+        let row = PropertyRow::new(
+            Self::animation_scalar_label(common, ctx),
+            div()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap_1()
+                .when(!bound, |this| {
+                    this.child(Self::choice_dropdown(
+                        &common.target,
+                        current,
+                        options,
+                        common.read_only,
+                        &ctx.inspector,
+                    ))
+                })
+                .when_some(binding_button, |this, button| this.child(button)),
+        );
         (row, bound)
     }
 
@@ -413,7 +378,7 @@ impl PropertyInspector {
         animation_enabled: bool,
         binding: Option<SceneFieldBinding>,
         ctx: &RenderCtx,
-    ) -> gpui::AnyElement {
+    ) -> PropertyRow {
         let is_bound = binding
             .as_ref()
             .is_some_and(|binding| binding.connected.is_some());
@@ -430,42 +395,31 @@ impl PropertyInspector {
         let value = Self::color_editor(common, picker, ctx);
         let select_inspector = ctx.inspector.clone();
         let select_target = common.target.clone();
-        div()
-            .w_full()
-            .flex()
-            .items_center()
-            .gap_3()
-            .child(Self::animation_property_label(
-                common.label.clone(),
-                common,
-                ctx,
-            ))
-            .child(
-                div()
-                    .min_w_0()
-                    .flex_1()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .when(!is_bound, |this| {
-                        this.child(
-                            div()
-                                .min_w_0()
-                                .flex_1()
-                                .when(!common.read_only, |this| {
-                                    this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                                        select_inspector.update(cx, |inspector, cx| {
-                                            inspector.select_animation(&select_target, cx);
-                                        });
-                                    })
+        PropertyRow::new(
+            Self::animation_property_label(common.label.clone(), common, ctx),
+            div()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap_1()
+                .when(!is_bound, |this| {
+                    this.child(
+                        div()
+                            .min_w_0()
+                            .flex_1()
+                            .when(!common.read_only, |this| {
+                                this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                    select_inspector.update(cx, |inspector, cx| {
+                                        inspector.select_animation(&select_target, cx);
+                                    });
                                 })
-                                .child(value),
-                        )
-                    })
-                    .when_some(animation_button, |this, button| this.child(button))
-                    .when_some(binding_button, |this, button| this.child(button)),
-            )
-            .into_any_element()
+                            })
+                            .child(value),
+                    )
+                })
+                .when_some(animation_button, |this, button| this.child(button))
+                .when_some(binding_button, |this, button| this.child(button)),
+        )
     }
 
     pub(super) fn color_compact_row(
@@ -474,7 +428,7 @@ impl PropertyInspector {
         animation_enabled: bool,
         binding: Option<SceneFieldBinding>,
         ctx: &RenderCtx,
-    ) -> (gpui::AnyElement, bool) {
+    ) -> (PropertyRow, bool) {
         let is_bound = binding
             .as_ref()
             .is_some_and(|binding| binding.connected.is_some());
@@ -491,41 +445,31 @@ impl PropertyInspector {
         let value = Self::color_editor(common, picker, ctx);
         let select_inspector = ctx.inspector.clone();
         let select_target = common.target.clone();
-        let row = div()
-            .min_w_0()
-            .w_full()
-            .flex()
-            .items_center()
-            .gap_2()
-            .when_some(Self::animation_scalar_label(common, ctx), |this, label| {
-                this.child(label)
-            })
-            .child(
-                div()
-                    .min_w_0()
-                    .flex_1()
-                    .flex()
-                    .items_center()
-                    .gap_1()
-                    .when(!is_bound, |this| {
-                        this.child(
-                            div()
-                                .min_w_0()
-                                .flex_1()
-                                .when(!common.read_only, |this| {
-                                    this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                                        select_inspector.update(cx, |inspector, cx| {
-                                            inspector.select_animation(&select_target, cx);
-                                        });
-                                    })
+        let row = PropertyRow::new(
+            Self::animation_scalar_label(common, ctx),
+            div()
+                .min_w_0()
+                .flex()
+                .items_center()
+                .gap_1()
+                .when(!is_bound, |this| {
+                    this.child(
+                        div()
+                            .min_w_0()
+                            .flex_1()
+                            .when(!common.read_only, |this| {
+                                this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
+                                    select_inspector.update(cx, |inspector, cx| {
+                                        inspector.select_animation(&select_target, cx);
+                                    });
                                 })
-                                .child(value),
-                        )
-                    })
-                    .when_some(animation_button, |this, button| this.child(button))
-                    .when_some(binding_button, |this, button| this.child(button)),
-            )
-            .into_any_element();
+                            })
+                            .child(value),
+                    )
+                })
+                .when_some(animation_button, |this, button| this.child(button))
+                .when_some(binding_button, |this, button| this.child(button)),
+        );
         (row, is_bound)
     }
 
@@ -534,36 +478,30 @@ impl PropertyInspector {
     pub(in crate::ui::property_inspector) fn scalar_full_row(
         control: &Control,
         ctx: &RenderCtx,
-    ) -> Option<gpui::AnyElement> {
-        let row = match control {
+    ) -> Option<PropertyRow> {
+        let mut row = match control {
             Control::Number(number) => {
                 let common = &number.common;
                 let input = ctx.store.text(&common.id)?;
-                Some(
-                    Self::number_full_row(
-                        common,
-                        &number.spec,
-                        &input,
-                        common.animation_enabled,
-                        common.binding.clone(),
-                        ctx,
-                    )
-                    .into_any_element(),
-                )
+                Some(Self::number_full_row(
+                    common,
+                    &number.spec,
+                    &input,
+                    common.animation_enabled,
+                    common.binding.clone(),
+                    ctx,
+                ))
             }
             Control::Text(text) => {
                 let common = &text.common;
                 let input = ctx.store.text(&common.id)?;
-                Some(
-                    Self::text_full_row(
-                        common,
-                        text.multiline,
-                        &input,
-                        common.binding.clone(),
-                        ctx,
-                    )
-                    .into_any_element(),
-                )
+                Some(Self::text_full_row(
+                    common,
+                    text.multiline,
+                    &input,
+                    common.binding.clone(),
+                    ctx,
+                ))
             }
             Control::Bool(boolean) => {
                 let common = &boolean;
@@ -617,29 +555,27 @@ impl PropertyInspector {
                 .binding
                 .as_ref()
                 .is_some_and(|binding| binding.connected.is_some());
-        Some(
-            div()
-                .w_full()
-                .flex()
-                .items_start()
-                .gap_1()
-                .child(div().flex_1().min_w_0().child(row))
-                .child(
-                    Button::new(SharedString::from(format!("reset-{:?}", common.target)))
-                        .small()
-                        .compact()
-                        .ghost()
-                        .icon(IconName::Undo)
-                        .tooltip(t!("inspector.use_default").to_string())
-                        .disabled(disabled)
-                        .on_click(move |_, _, cx| {
-                            inspector.update(cx, |inspector, cx| {
-                                inspector.reset_property(address.clone(), cx)
-                            });
-                        }),
-                )
-                .into_any_element(),
-        )
+        row.content = div()
+            .w_full()
+            .flex()
+            .items_start()
+            .gap_1()
+            .child(div().flex_1().min_w_0().child(row.content))
+            .child(
+                Button::new(SharedString::from(format!("reset-{:?}", common.target)))
+                    .small()
+                    .compact()
+                    .ghost()
+                    .icon(IconName::Undo)
+                    .tooltip(t!("inspector.use_default").to_string())
+                    .disabled(disabled)
+                    .on_click(move |_, _, cx| {
+                        inspector.update(cx, |inspector, cx| {
+                            inspector.reset_property(address.clone(), cx)
+                        });
+                    }),
+            );
+        Some(row)
     }
 
     /// Compact scalar row for tuple children and array elements.
@@ -647,7 +583,7 @@ impl PropertyInspector {
     pub(super) fn scalar_compact_row(
         control: &Control,
         ctx: &RenderCtx,
-    ) -> Option<(gpui::AnyElement, bool)> {
+    ) -> Option<(PropertyRow, bool)> {
         match control {
             Control::Number(number) => {
                 let common = &number.common;
@@ -714,11 +650,12 @@ impl PropertyInspector {
     /// Grouped tuple rendering: one property label with per-scalar rows.
     /// A lone child renders as a plain full row, matching single scalars.
     pub(in crate::ui::property_inspector) fn group_box(
+        id: ControlId,
         label: String,
         children: &[Control],
         extensions: &[EditorControl],
         ctx: &RenderCtx,
-    ) -> gpui::AnyElement {
+    ) -> PropertyRow {
         if extensions.is_empty()
             && let [child] = children
             && let Some(row) = Self::scalar_full_row(child, ctx)
@@ -729,36 +666,29 @@ impl PropertyInspector {
             .iter()
             .filter_map(|child| Self::scalar_compact_row(child, ctx).map(|(row, _)| row))
             .collect::<Vec<_>>();
-        div()
-            .w_full()
-            .flex()
-            .items_start()
-            .gap_3()
-            .child(Self::animation_container_label(
-                label,
-                children,
-                ctx,
-                AnimationLabelWidth::Fixed(Self::PROPERTY_LABEL_WIDTH),
-                "group-label",
-            ))
-            .child(
-                div()
-                    .w_0()
-                    .min_w_0()
-                    .flex()
-                    .flex_1()
-                    .flex_col()
-                    .gap_1()
-                    .children(extensions.iter().map(|extension| {
-                        div()
-                            .w_full()
-                            .flex()
-                            .items_center()
-                            .justify_end()
-                            .child(Self::editor_control(extension, ctx))
-                    }))
-                    .children(rows),
-            )
-            .into_any_element()
+        PropertyRow::new(
+            div()
+                .self_start()
+                .child(Self::animation_container_label(
+                    label,
+                    children,
+                    ctx,
+                    AnimationLabelWidth::Content,
+                    format!("group-label-{id:?}").into(),
+                ))
+                .into_any_element(),
+            Self::property_grid()
+                .gap_x_2()
+                .children(extensions.iter().map(|extension| {
+                    div()
+                        .col_span_full()
+                        .w_full()
+                        .flex()
+                        .items_center()
+                        .justify_end()
+                        .child(Self::editor_control(extension, ctx))
+                }))
+                .children(rows.into_iter().flat_map(PropertyRow::into_cells)),
+        )
     }
 }
