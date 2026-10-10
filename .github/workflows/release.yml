@@ -11,10 +11,16 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
 
+concurrency:
+  group: release
+  cancel-in-progress: false
+
 jobs:
   build:
     name: Build ${{ matrix.artifact }}
     runs-on: ${{ matrix.os }}
+    outputs:
+      version: ${{ steps.release.outputs.version }}
     strategy:
       fail-fast: false
       matrix:
@@ -49,6 +55,26 @@ jobs:
         shell: pwsh
         run: pwsh -File packaging/windows/install_dependencies.ps1
 
+      - name: Install Velopack tooling
+        uses: actions/setup-dotnet@v5
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Configure release
+        id: release
+        shell: bash
+        run: |
+          dotnet tool install --global vpk --version 1.2.161
+          python3 - <<'PY'
+          import os, tomllib
+          with open("Cargo.toml", "rb") as manifest:
+              version = tomllib.load(manifest)["workspace"]["package"]["version"]
+          with open(os.environ["GITHUB_ENV"], "a") as output:
+              output.write(f"ZERIUM_RELEASE_VERSION={version}\n")
+          with open(os.environ["GITHUB_OUTPUT"], "a") as output:
+              output.write(f"version={version}\n")
+          PY
+
       - name: Build release binary
         run: cargo build --locked --release
 
@@ -75,11 +101,13 @@ jobs:
           if-no-files-found: error
 
   release:
-    name: Create GitHub Release
+    name: Publish GitHub Release
     needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write
+    env:
+      ZERIUM_RELEASE_VERSION: ${{ needs.build.outputs.version }}
     steps:
       - name: Check out source
         uses: actions/checkout@v7
@@ -91,7 +119,7 @@ jobs:
           path: release-assets
           merge-multiple: true
 
-      - name: Create or update GitHub Release
+      - name: Publish GitHub Release
         env:
           GH_TOKEN: ${{ github.token }}
         shell: bash

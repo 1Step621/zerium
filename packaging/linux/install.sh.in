@@ -1,0 +1,47 @@
+#!/bin/sh
+set -eu
+
+# Parse the complete script before installing when streamed through curl | sh.
+{
+    case "$(uname -s)/$(uname -m)" in
+        Linux/x86_64) asset=zerium-linux-x86_64.AppImage ;;
+        *) printf '%s\n' 'Zerium AppImage supports Linux x86_64.' >&2; exit 1 ;;
+    esac
+
+    data_dir="${XDG_DATA_HOME:-$HOME/.local/share}"
+    install_dir="$data_dir/zerium"
+    release_url='https://github.com/1Step621/zerium/releases/download/v@VERSION@'
+
+    mkdir -p "$install_dir"
+    staging_dir="$(mktemp -d "$install_dir/.install.XXXXXXXX")"
+    trap 'rm -rf "$staging_dir"' 0
+    trap 'exit 1' HUP INT TERM
+
+    for file in "$asset" zerium.desktop zerium.png zerium.xml; do
+        curl --fail --location --retry 3 --proto '=https' --proto-redir '=https' \
+            --output "$staging_dir/$file" "$release_url/$file"
+    done
+
+    # Desktop entry values and quoted Exec arguments have separate escaping rules.
+    desktop_exec="$(printf '%s' "$install_dir/zerium.AppImage" | sed \
+        -e 's/\\/\\\\\\\\/g' -e 's/"/\\\\"/g' -e 's/`/\\\\`/g' -e 's/\$/\\\\$/g' -e 's/%/%%/g')"
+    sed '/^Exec=/d' "$staging_dir/zerium.desktop" > "$staging_dir/installed.desktop"
+    printf 'Exec=env "%s" %%f\n' "$desktop_exec" >> "$staging_dir/installed.desktop"
+
+    mkdir -p "$data_dir/applications" \
+        "$data_dir/icons/hicolor/256x256/apps" "$data_dir/mime/packages"
+    chmod 755 "$staging_dir/$asset"
+    install -m644 "$staging_dir/zerium.png" "$data_dir/icons/hicolor/256x256/apps/zerium.png"
+    install -m644 "$staging_dir/zerium.xml" "$data_dir/mime/packages/zerium.xml"
+    install -m644 "$staging_dir/installed.desktop" "$data_dir/applications/zerium.desktop"
+    mv -f "$staging_dir/$asset" "$install_dir/zerium.AppImage"
+
+    if command -v update-desktop-database >/dev/null 2>&1; then
+        update-desktop-database "$data_dir/applications" || true
+    fi
+    if command -v update-mime-database >/dev/null 2>&1; then
+        update-mime-database "$data_dir/mime" || true
+    fi
+
+    printf 'Zerium installed at %s\n' "$install_dir/zerium.AppImage"
+}

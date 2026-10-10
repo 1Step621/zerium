@@ -24,17 +24,15 @@ I/O. Engine code must not depend on UI entities.
 ## Editing and evaluation
 
 Persistent changes go through `TimelineEditor`. Commands validate all affected
-values and bindings before committing; history records changes and advances
-project revision. Animation gestures group their updates into one edit.
-Selection, preview visibility, playhead, and history are session state.
-Preview-only changes do not increment project revision or enter history.
+values and bindings before committing, then record history and advance project
+revision. Each gesture or paste is one undoable edit. Selection, preview
+visibility, playhead, and history are session state; preview-only changes do not
+advance project revision or enter history.
 
-Timeline positions, positive spans, and frame rates use `Frame`, `FrameDuration`,
-and `FrameRate`. Items, layers, and effects have distinct ID types.
-`PropertyPath` identifies a property, an optional stable array element ID, and
-an optional tuple scalar index. Editing, animation, scene bindings, and
-persistence share these paths, so reordering an array does not redirect its
-animations or bindings.
+Editing, animation, scene bindings, and persistence share `PropertyPath`.
+Array elements have stable IDs, so reordering an array does not redirect its
+animations or bindings. The inspector's displayed item is a local editing
+target, independent of timeline selection and curve synchronization.
 
 Property resolution applies plugin defaults, scene arguments, animation, and
 constraints through one pipeline. Stored reads use `item`;
@@ -42,40 +40,30 @@ resolved reads use `property_value` or `evaluated_property_value`. Inspector,
 rendering, and audio share this evaluation. Inspector controls come from
 property schemas; editor extensions are declared separately in plugins.
 
-The inspector edits one selected item at a time. Its item selector retains the
-displayed item while it remains selected; otherwise it chooses the first item
-in ID order. This local target does not change timeline selection or curve
-synchronization. Property and effect commands address one item directly.
-
 Animation tracks address individual scalars. `AnimationClock` maps editable
-pattern positions to timeline time for evaluation, editing, and synchronization,
-including loop and ping-pong repeats. Beat guides affect editing only, without
-retiming content. `ui::time_grid` shares frame-rounded guide positions and snap
-rules between the timeline and curve editor.
+pattern positions to timeline time, including repeats. Evaluation, editing, and
+synchronization use this mapping. Beat guides affect editing only;
+`ui::time_grid` shares their frame-rounded positions and snap rules between the
+timeline and curve editor.
 
 ## Sessions and persistence
 
 Rendering and background work receive immutable `TimelineSnapshot`s and read
 through `TimelineView`. `ProjectSession` tracks project generations so results
 from a replaced project can be ignored. `ProjectController` owns file-operation
-lifetimes and resets transient editor state when replacing a project. File
-selection and I/O use one session operation from start to finish; dialogs and
-workspace layout belong to `ui`.
+lifetimes and resets transient editor state when replacing a project. Project
+revisions are not reused when reopening a project, so old edit targets remain
+invalid. File selection and I/O share one session operation from start to finish.
 
 Project files store property overrides relative to plugin defaults. Loading
 applies validated overrides to current defaults. Project and clipboard input
 is validated before constructing core state; filesystem access and atomic
 replacement belong to `engine::project_io`.
 
-The system clipboard contains only selected items. Single effects and effect
-suffixes (from the clicked effect through the end) share an application-local
-buffer, separate from the interval interpolation buffer. Inspector and graph
-context menus copy and paste these values without changing the system clipboard.
-Pasted effects append to the inspector's displayed item with fresh IDs. Curve
-menus fix the paste interval and synchronized targets when opened, using the
-usual animation edit validation. Project revisions are not reused when reopening a project,
-so old edit targets remain invalid. Preview visibility travels with copied
-effects and remains session state. Each paste is one undoable edit.
+The system clipboard stores copied items. Effects and curve interpolation use
+separate application-local buffers. Item and effect pastes assign fresh IDs;
+all pastes use the usual command validation. Curve edits fix their synchronized
+targets before mutation.
 
 ## Plugins and rendering
 
@@ -91,26 +79,31 @@ audio playback use their own declared property references.
 Preview and export share a `RenderRuntime` and compiled plugin shaders, with
 independent render sessions. `RendererDevice` owns immutable GPU state;
 `FrameRenderer` owns each session's resource pools. Timeline evaluation preserves
-scene boundaries and sample time, including for temporal effects. Item surfaces
-use declared bounds; scenes composite into the viewport before applying effects.
-
-Surface resampling preserves unchanged pixels, uses bilinear filtering for
-magnification, and averages source texels by their overlap with the output-pixel
-footprint for minification. Rotated footprints use an axis-aligned bounding box;
-pixels outside the source surface are transparent.
+scene boundaries and sample time, including for temporal effects.
 
 Blend mode is a persisted setting shared by all timeline items, separate from
-plugin properties. The inspector header edits it for the displayed item.
-Each item's completed surface is blended into its parent scene after its
-effects, using scene-linear colors and premultiplied alpha. Scene instances and
-render-result captures composite their children against a transparent backdrop;
-their completed image then participates in the containing scene's composition.
+plugin properties. Item surfaces use declared bounds; scenes composite into the
+viewport before applying effects. Each item's completed surface is blended into
+its parent scene after its effects, using scene-linear colors and premultiplied
+alpha. Scene instances and render-result captures composite their children
+against a transparent backdrop before participating in the parent scene.
 
 ## Localization
 
-Startup selects the shared `rust-i18n` locale. Core label accessors use it;
-`LocalizedText::resolve_for` supports an explicit locale. Label declarations and
+Startup selects the shared `rust-i18n` locale used by core label accessors and
+the UI. User-authored names are plain text; the UI supplies translated defaults,
+and core owns uniqueness and document edits. Plugin label declarations and
 fallbacks are described in [Plugin API v1](plugin.md#manifest).
 
-User-authored names are plain text. The UI supplies translated default names;
-core owns uniqueness and document edits.
+## Application updates
+
+`WorkspaceUpdate` checks GitHub Releases and downloads updates in a Workspace
+background task on launch, then updates readiness directly. Velopack applies
+pending updates on the next launch, preserving launch arguments. The header
+also offers an immediate restart through the existing project close checks.
+Update application happens before normal startup or after process exit, outside
+the active editing session.
+
+Nix builds disable `self-update`, excluding the updater dependency and UI.
+Feature selection stays at the app and UI module boundaries; disabled builds
+provide an empty UI implementation.

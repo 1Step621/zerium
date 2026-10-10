@@ -37,6 +37,7 @@ pub(crate) struct Workspace {
     pub(crate) animation_curve: gpui::Entity<crate::ui::animation_curve::AnimationCurveEditor>,
     pub(crate) project_controller: gpui::Entity<crate::app::project_controller::ProjectController>,
     pub(crate) export_controller: gpui::Entity<crate::ui::export::ExportController>,
+    pub(crate) updates: super::update::WorkspaceUpdate,
     pub(crate) notifications: gpui::Entity<crate::ui::session::UiNotifications>,
     pub(crate) forwarded_notifications: u64,
     pub(crate) focus_handle: FocusHandle,
@@ -228,6 +229,7 @@ impl Render for Workspace {
             };
             window.push_notification(notification, cx);
         }
+        let update_button = self.updates.button(cx);
         let export_progress = self.export_controller.read(cx).export_progress();
         let cancelling = self.export_controller.read(cx).is_cancelling();
         let can_undo = self.timeline.read(cx).can_undo(cx);
@@ -350,6 +352,7 @@ impl Render for Workspace {
                                     }),
                             ),
                     )
+                    .children(update_button)
                     .when_some(export_progress, |this, (completed, total)| {
                         let fraction = if total == 0 {
                             0.

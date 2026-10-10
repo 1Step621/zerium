@@ -32,42 +32,18 @@ if ($vcRuntimeFiles.Count -eq 0) {
 }
 $vcRuntimeFiles | Copy-Item -Destination $packageDir
 
-$version = (Select-String -Path Cargo.toml -Pattern '^version = "([0-9]+\.[0-9]+\.[0-9]+)"' |
-    Select-Object -First 1).Matches.Groups[1].Value
-$ArchiveName = "zerium-$version-windows-x86_64.msi"
-$versionParts = $version.Split('.')
-$msiBuild = [Math]::Min(65535, [int]$env:GITHUB_RUN_NUMBER)
-$msiVersion = "$($versionParts[0]).$($versionParts[1]).$msiBuild"
+if (-not $env:ZERIUM_RELEASE_VERSION) {
+    throw 'ZERIUM_RELEASE_VERSION is not set.'
+}
 
-$wixBin = (Get-ChildItem "${env:ProgramFiles(x86)}\WiX Toolset v*\bin\candle.exe" |
-    Sort-Object FullName | Select-Object -Last 1).DirectoryName
-$wixDir = Join-Path $env:RUNNER_TEMP 'wix'
-New-Item -ItemType Directory -Force $wixDir | Out-Null
+$licensePath = Join-Path $env:RUNNER_TEMP 'zerium-license.txt'
+Copy-Item LICENSE $licensePath
 
-# Keep the installer agreement in sync with the license shipped in the package.
-$licenseRtfPath = Join-Path $wixDir 'license.rtf'
-$licenseText = [System.IO.File]::ReadAllText((Resolve-Path LICENSE).Path)
-$licenseText = $licenseText.Replace('\', '\\').Replace('{', '\{').Replace('}', '\}')
-$licenseText = $licenseText -replace '\r\n|\r|\n', '\line '
-$licenseRtf = '{\rtf1\ansi\deff0{\fonttbl{\f0\fmodern Courier New;}}\f0\fs18\pard ' + $licenseText + '}'
-[System.IO.File]::WriteAllText($licenseRtfPath, $licenseRtf, [System.Text.Encoding]::ASCII)
-
-& "$wixBin\heat.exe" dir $packageDir `
-    -cg ApplicationFiles `
-    -dr INSTALLFOLDER `
-    -gg -g1 -scom -sreg -srd `
-    -var var.PackageDir `
-    -out "$wixDir\files.wxs"
-& "$wixBin\candle.exe" `
-    "-dPackageDir=$packageDir" `
-    "-dIconPath=$((Resolve-Path assets\zerium.ico).Path)" `
-    "-dProductVersion=$msiVersion" `
-    "-dLicenseRtfPath=$licenseRtfPath" `
-    packaging\windows\zerium.wxs "$wixDir\files.wxs" `
-    -out "$wixDir\"
-& "$wixBin\light.exe" `
-    -ext (Join-Path $wixBin 'WixUIExtension.dll') `
-    -cultures:en-us `
-    "$wixDir\zerium.wixobj" "$wixDir\files.wixobj" `
-    -pdbout "$wixDir\zerium.wixpdb" `
-    -out "dist\$ArchiveName"
+& vpk pack --packId zerium --packTitle Zerium --packAuthors Zerium `
+    --packVersion $env:ZERIUM_RELEASE_VERSION --packDir $packageDir `
+    --mainExe zerium.exe --runtime win-x64 --channel win-x86_64 `
+    --icon assets\zerium.ico `
+    --msi --instLocation PerUser --instLicense $licensePath --outputDir dist
+if ($LASTEXITCODE -ne 0) {
+    throw 'Velopack packaging failed.'
+}

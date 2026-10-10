@@ -69,6 +69,7 @@
 
             strictDeps = true;
             doCheck = false;
+            cargoExtraArgs = "--no-default-features";
 
             nativeBuildInputs = [
               pkgs.pkg-config

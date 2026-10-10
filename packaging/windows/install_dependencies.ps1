@@ -25,5 +25,3 @@ if (-not $vcRuntime) {
     throw 'The x64 Visual C++ runtime was not found on the runner.'
 }
 "VC_RUNTIME_DIR=$($vcRuntime.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
-choco install wixtoolset --no-progress --yes

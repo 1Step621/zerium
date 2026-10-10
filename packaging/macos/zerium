@@ -1,2 +1,0 @@
-#!/bin/sh
-exec /Applications/Zerium.app/Contents/MacOS/zerium "$@"

@@ -1,18 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-version="$({
-  awk '/^\[workspace.package\]/{in_package=1; next} /^\[/{in_package=0} in_package && $1 == "version" {gsub(/"/, "", $3); print $3; exit}' Cargo.toml
-})"
+version="${ZERIUM_RELEASE_VERSION:?release version is required}"
 short_sha="${GITHUB_SHA:0:7}"
-tag="v${version}-${short_sha}"
+tag="v${version}"
 
-if gh release view "$tag" >/dev/null 2>&1; then
+if draft="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)"; then
+  if [[ "$draft" == false ]]; then
+    printf 'Release %s is already published.\n' "$tag"
+    exit 0
+  fi
   gh release upload "$tag" release-assets/* --clobber
+  gh release edit "$tag" --draft=false
 else
   gh release create "$tag" \
     --target "$GITHUB_SHA" \
-    --title "Zerium $version ($short_sha)" \
-    --notes "Automated release build from the release branch at commit $GITHUB_SHA." \
+    --title "Zerium $version" \
+    --notes "Zerium $version ($short_sha)" \
     release-assets/*
 fi

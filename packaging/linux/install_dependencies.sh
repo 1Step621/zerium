@@ -14,7 +14,8 @@ sudo apt-get install --no-install-recommends -y \
   libxkbcommon-dev \
   libxkbcommon-x11-dev \
   patchelf \
-  pkg-config
+  pkg-config \
+  squashfs-tools
 
 ffmpeg_archive="${RUNNER_TEMP:-/tmp}/ffmpeg-n9.0-latest-linux64-gpl-shared-9.0.tar.xz"
 ffmpeg_url="https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-linux64-gpl-shared-9.0.tar.xz"
@@ -23,22 +24,4 @@ mkdir -p target/ffmpeg-sdk
 curl --fail --location --retry 3 --output "$ffmpeg_archive" "$ffmpeg_url"
 tar --extract --xz --file "$ffmpeg_archive" --strip-components=1 --directory target/ffmpeg-sdk
 printf '%s\n' "FFMPEG_DIR=$GITHUB_WORKSPACE/target/ffmpeg-sdk" >> "$GITHUB_ENV"
-printf '%s\n' 'RUSTFLAGS=-C link-arg=-Wl,-rpath,$ORIGIN/../lib/zerium:$ORIGIN/../lib' >> "$GITHUB_ENV"
-
-nfpm_dir="${RUNNER_TEMP:-/tmp}/zerium-nfpm"
-nfpm_archive="$nfpm_dir/nfpm.tar.gz"
-mkdir -p "$nfpm_dir"
-curl --fail --location --retry 3 \
-  --output "$nfpm_archive" \
-  "https://github.com/goreleaser/nfpm/releases/download/v2.47.0/nfpm_2.47.0_Linux_x86_64.tar.gz"
-printf '%s  %s\n' \
-  '0660ca602b2d2d2ae4781a06c692b3eeb9d437ffea05b831d76e41f4a3188783' \
-  "$nfpm_archive" | sha256sum --check
-tar --extract --gzip --file "$nfpm_archive" --directory "$nfpm_dir" nfpm
-printf '%s\n' "$nfpm_dir" >> "$GITHUB_PATH"
-
-appimagetool="${RUNNER_TEMP:-/tmp}/appimagetool"
-curl --fail --location --retry 3 \
-  --output "$appimagetool" \
-  "https://github.com/AppImage/appimagetool/releases/download/1.9.1/appimagetool-x86_64.AppImage"
-chmod +x "$appimagetool"
+printf '%s\n' 'RUSTFLAGS=-C link-arg=-Wl,-rpath,$ORIGIN/../lib' >> "$GITHUB_ENV"

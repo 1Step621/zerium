@@ -15,7 +15,8 @@ A video editor with zero limits.
 
 ## Install
 
-Available formats include MSI, PKG, AppImage, DEB, RPM, Arch Linux packages, ELF binaries, and Nix packages.
+Windows (MSI), macOS (PKG), and Linux (AppImage) downloads are available on
+[GitHub Releases](https://github.com/1Step621/zerium/releases/latest).
 
 ### Nix
 

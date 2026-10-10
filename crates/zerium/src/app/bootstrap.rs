@@ -291,6 +291,7 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             animation_curve,
                             project_controller,
                             export_controller,
+                            updates: crate::ui::update::WorkspaceUpdate::new(session.clone(), cx),
                             notifications,
                             forwarded_notifications: 0,
                             focus_handle: cx.focus_handle(),
@@ -301,7 +302,9 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                         let _keep_native_window_alive = &close_window_lifetime_guard;
                         let export_busy = close_export_controller.read(cx).is_exporting();
                         close_project_controller.update(cx, |project, cx| {
-                            project.should_close(export_busy, window, cx)
+                            project.should_close(export_busy, window, cx, |window, cx| {
+                                window.defer(cx, |window, _| window.remove_window())
+                            })
                         })
                     });
                     let workspace_focus = workspace.read(cx).focus_handle.clone();

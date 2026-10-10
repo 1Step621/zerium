@@ -227,3 +227,7 @@ _version: 1
 "category.style": "スタイル"
 "category.filter": "フィルター"
 "category.other": "その他"
+
+"update.ready": "バージョン %{version} の準備ができました。次回起動時に適用されます。"
+"update.restart": "再起動して更新"
+"update.failed": "アップデートの適用に失敗しました: %{error}"

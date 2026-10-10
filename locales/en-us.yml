@@ -227,3 +227,7 @@ _version: 1
 "category.style": "Style"
 "category.filter": "Filter"
 "category.other": "Other"
+
+"update.ready": "Version %{version} is ready and will be applied on the next launch."
+"update.restart": "Restart to update"
+"update.failed": "Failed to apply update: %{error}"

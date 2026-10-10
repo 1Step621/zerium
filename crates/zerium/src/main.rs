@@ -13,6 +13,8 @@ mod project_session;
 mod ui;
 
 fn main() {
+    app::initialize_updates();
+
     if let Err(error) = run() {
         eprintln!("{error}");
         std::process::exit(1);

@@ -10,6 +10,10 @@ edition = "2026_pre"
 root = "../../plugins/zerium.builtin"
 include = ["../../plugins/zerium.builtin/**/*.wesl"]
 
+[features]
+default = ["self-update"]
+self-update = ["dep:velopack", "dep:winreg"]
+
 [dependencies]
 bytemuck = { version = "1.25", features = ["derive"] }
 cosmic-text = "0.18.2"
@@ -33,6 +37,7 @@ thiserror.workspace = true
 ui = { git = "https://github.com/1Step621/WGPUI-Component", branch = "fix/input-selection-replacement" }
 unicode-segmentation = "1.12"
 url = "2"
+velopack = { version = "=1.2.161", optional = true }
 wgpu = { version = "30", default-features = false }
 zerium-core.workspace = true
 zerium-shader.workspace = true
@@ -40,6 +45,7 @@ zerium-shader.workspace = true
 [target.'cfg(windows)'.dependencies]
 # gpu-allocator 0.28 accepts windows <=0.62.0; share its DX12 types with wgpu-hal.
 windows = { version = "=0.62.0", default-features = false }
+winreg = { version = "0.56", optional = true }
 
 [dev-dependencies]
 gpui = { package = "gpui-ce", git = "https://github.com/1Step621/WGPUI", branch = "fix/input-selection-replacement", features = ["test-support"] }

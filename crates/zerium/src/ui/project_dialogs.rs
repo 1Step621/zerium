@@ -320,11 +320,15 @@ pub(crate) fn confirm_discard(
     );
 }
 
-pub(crate) fn confirm_exit(window: &mut Window, cx: &mut App) {
+pub(crate) fn confirm_exit(
+    window: &mut Window,
+    cx: &mut App,
+    on_confirm: impl Fn(&mut Window, &mut App) + 'static,
+) {
     discard_dialog(
         t!("project.discard_exit").to_string(),
         t!("project.discard_exit_prompt").to_string(),
-        |window, cx| window.defer(cx, |window, _| window.remove_window()),
+        on_confirm,
         window,
         cx,
     );
