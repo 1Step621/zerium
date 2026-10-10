@@ -160,11 +160,7 @@ impl PropertyInspector {
         let id = stop.id.clone();
         self.ensure_text(
             stop.id.clone(),
-            if stop.edit.mixed {
-                String::new()
-            } else {
-                Self::numeric_value_text(&stop.edit.value)
-            },
+            Self::numeric_value_text(&stop.edit.value),
             false,
             |input, window, cx| {
                 subscribe_number_input(
@@ -194,16 +190,12 @@ impl PropertyInspector {
 
     fn ensure_text_control(
         &mut self,
-        item_id: ItemId,
         control: &crate::ui::property_inspector::control::TextControl,
         text: String,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let binding = PropertyBinding {
-            item_id,
-            target: control.common.target.clone(),
-        };
+        let target = control.common.target.clone();
         self.ensure_text(
             control.common.id.clone(),
             text,
@@ -211,7 +203,7 @@ impl PropertyInspector {
             |input, window, cx| {
                 vec![
                     cx.subscribe_in(input, window, move |this, input, event, window, cx| {
-                        this.apply_string_text(&binding, input, event, window, cx);
+                        this.apply_string_text(&target, input, event, window, cx);
                     }),
                 ]
             },
@@ -222,7 +214,6 @@ impl PropertyInspector {
 
     fn ensure_color_control(
         &mut self,
-        item_id: ItemId,
         control: &crate::ui::property_inspector::control::LeafControl,
         window: &mut Window,
         cx: &mut Context<Self>,
@@ -231,16 +222,13 @@ impl PropertyInspector {
             PropertyValue::Color(color) => Self::color_to_hsla(color),
             _ => gpui::Hsla::default(),
         };
-        let binding = PropertyBinding {
-            item_id,
-            target: control.target.clone(),
-        };
+        let target = control.target.clone();
         self.ensure_color(
             control.id.clone(),
             color,
             |picker, window, cx| {
                 cx.subscribe_in(picker, window, move |this, _, event, _, cx| {
-                    this.apply_color(&binding, event, cx);
+                    this.apply_color(&target, event, cx);
                 })
             },
             window,
@@ -267,7 +255,6 @@ impl PropertyInspector {
 
     fn ensure_control_states(
         &mut self,
-        item: &TimelineItem,
         control: &Control,
         seen: &mut HashSet<ControlId>,
         window: &mut Window,
@@ -282,15 +269,11 @@ impl PropertyInspector {
             Control::File(_) => {}
             Control::Group { children, .. } => {
                 for child in children {
-                    self.ensure_control_states(item, child, seen, window, cx);
+                    self.ensure_control_states(child, seen, window, cx);
                 }
             }
             Control::Number(number) => {
-                let text = if number.common.mixed {
-                    String::new()
-                } else {
-                    Self::numeric_value_text(&number.common.value)
-                };
+                let text = Self::numeric_value_text(&number.common.value);
                 self.ensure_number_text(number, text, window, cx);
             }
             Control::Text(text_control) => {
@@ -298,65 +281,45 @@ impl PropertyInspector {
                     PropertyValue::String(value) => value.clone(),
                     _ => String::new(),
                 };
-                self.ensure_text_control(item.id, text_control, text, window, cx);
+                self.ensure_text_control(text_control, text, window, cx);
             }
             Control::Color(color) => {
-                self.ensure_color_control(item.id, color, window, cx);
+                self.ensure_color_control(color, window, cx);
             }
             Control::Bool(_) | Control::Choice(_) => {}
         }
     }
 
-    fn ensure_tree_states(
-        &mut self,
-        item: &TimelineItem,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    fn ensure_tree_states(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let mut seen = HashSet::new();
         let roots = self.store.tree.roots.clone();
         for control in &roots {
-            self.ensure_control_states(item, control, &mut seen, window, cx);
+            self.ensure_control_states(control, &mut seen, window, cx);
         }
         self.store.text_inputs.retain(|id, _| seen.contains(id));
         self.store.color_pickers.retain(|id, _| seen.contains(id));
     }
 
     fn resolved_control_tree(
-        &self,
         editor: &TimelineEditor,
-        selected_items: &[TimelineItem],
+        item: &TimelineItem,
         scene_arguments: &[SceneArgumentOption],
-        editing_scene: bool,
     ) -> ControlTree {
-        let Some(item) = selected_items.first() else {
-            return ControlTree::default();
-        };
-        let multiple = selected_items.len() > 1;
         let resolution = control::ControlResolution {
             editor,
             item,
-            selected_items,
             playhead: zerium_core::timeline::TimelineTime::from_frame(editor.playhead()),
-            editing_scene,
+            editing_scene: editor.active_scene_id().is_some(),
             arguments: scene_arguments,
         };
-        let mut item_controls = Self::item_controls(editor, item, &resolution);
-        item_controls.retain(|control| {
-            Self::property_is_common(editor, selected_items, control.property_id())
-        });
-
-        let effects = if multiple {
-            Self::common_effects(selected_items)
-        } else {
-            item.effects.clone()
-        };
-        let effect_groups: Vec<Control> = effects
-            .into_iter()
+        let item_controls = Self::property_controls(None, &resolution);
+        let effect_groups: Vec<Control> = item
+            .effects
+            .iter()
             .map(|effect| {
-                let controls = Self::effect_controls(&effect, &resolution);
+                let controls = Self::property_controls(Some(effect.id), &resolution);
                 Control::Group {
-                    id: ControlId::effect_group(effect.id),
+                    id: ControlId::EffectGroup(effect.id),
                     label: effect.schema().label().to_owned(),
                     children: controls,
                     kind: control::GroupKind::Effect(control::EffectGroup {
@@ -376,32 +339,32 @@ impl PropertyInspector {
         self.store = ControlStore::default();
     }
 
-    pub(super) fn sync_from_editor(
-        &mut self,
-        editor: &Entity<TimelineEditor>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
+    pub(super) fn sync_from_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         {
-            let editor = editor.read(cx);
-            let stale = matches!(self.scope, EditScope::Item(id)
-                if !editor.is_item_selected(id)
-                    && !(editor.selected_item_ids().next().is_none() && editor.selection_remembers_item(id)));
-            if stale {
-                self.scope = EditScope::Selection;
+            let editor = self.editor.read(cx);
+            if self.item_id.is_none_or(|id| {
+                !editor.is_item_selected(id)
+                    && !(editor.selected_item_ids().next().is_none()
+                        && editor.selection_remembers_item(id))
+            }) {
+                self.item_id = editor.selected_item_ids().next();
                 self.effect_picker = None;
                 self.reset_input_state();
             }
         }
-        let selected_items = {
-            let editor = editor.read(cx);
-            let time = zerium_core::timeline::TimelineTime::from_frame(editor.playhead());
-            editor.evaluated_items_in_scope(self.scope, time)
+        let selected_item = {
+            let editor = self.editor.read(cx);
+            self.item_id
+                .filter(|id| editor.is_item_selected(*id))
+                .and_then(|id| editor.item(id))
+                .map(|item| {
+                    editor.evaluated_item_at(item, TimelineTime::from_frame(editor.playhead()))
+                })
         };
-        let selected_item = selected_items.first().cloned();
         let source = selected_item.as_ref().map(|item| InspectorSource {
             item_id: item.id,
-            properties: editor
+            properties: self
+                .editor
                 .read(cx)
                 .property_schemas(item, None)
                 .cloned()
@@ -412,14 +375,15 @@ impl PropertyInspector {
             self.store.source = source;
         }
         let scene_arguments = self.active_scene_argument_options(&*cx);
-        let editing_scene =
-            self.editor.read(cx).active_scene_id().is_some() && selected_items.len() == 1;
-        self.store.tree = {
-            let editor = editor.read(cx);
-            self.resolved_control_tree(editor, &selected_items, &scene_arguments, editing_scene)
-        };
-        if let Some(item) = selected_item.as_ref() {
-            self.ensure_tree_states(item, window, cx);
+        self.store.tree = selected_item
+            .as_ref()
+            .map(|item| {
+                let editor = self.editor.read(cx);
+                Self::resolved_control_tree(editor, item, &scene_arguments)
+            })
+            .unwrap_or_default();
+        if selected_item.is_some() {
+            self.ensure_tree_states(window, cx);
         } else {
             self.reset_input_state();
         }

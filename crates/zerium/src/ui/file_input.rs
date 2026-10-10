@@ -14,7 +14,7 @@ use rust_i18n::t;
 use std::path::{Path, PathBuf};
 use zerium_core::{
     property::{PropertyUi, PropertyValue, ScalarPropertyType},
-    timeline::{EditScope, PropertyAddress, SceneId, TimelineEditor},
+    timeline::{PropertyAddress, SceneId, TimelineEditor},
 };
 
 #[derive(Clone)]
@@ -54,13 +54,10 @@ pub(crate) fn file_picker(
     key: SharedString,
     target: FileTarget,
     path: Option<&Path>,
-    mixed: bool,
     selecting: bool,
     disabled: bool,
 ) -> Div {
-    let label = if mixed {
-        t!("rows.mixed").to_string()
-    } else if let Some(path) = path {
+    let label = if let Some(path) = path {
         path.file_name()
             .unwrap_or(path.as_os_str())
             .to_string_lossy()
@@ -89,7 +86,7 @@ pub(crate) fn file_picker(
                     .child(div().min_w_0().truncate().child(label))
                     .disabled(disabled || selecting)
                     .tooltip(t!("inspector.choose_file").to_string())
-                    .when_some(path.filter(|_| !mixed), |button, path| {
+                    .when_some(path, |button, path| {
                         button.tooltip(path.display().to_string())
                     })
                     .on_click(move |_, window, cx| {
@@ -99,7 +96,7 @@ pub(crate) fn file_picker(
                     }),
             ),
         )
-        .when(path.is_some() || mixed, |row| {
+        .when(path.is_some(), |row| {
             row.child(
                 div().flex_none().child(
                     Button::new(SharedString::from(format!("clear-{key}")))
@@ -268,7 +265,7 @@ impl FileInputController {
                     return Err("Selection changed".into());
                 }
                 editor
-                    .edit_property(EditScope::Item(address.item_id), &address, value)
+                    .edit_property(&address, value)
                     .map_err(|error| error.to_string())
             }
         }

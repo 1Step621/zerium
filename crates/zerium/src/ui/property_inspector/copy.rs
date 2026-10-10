@@ -13,8 +13,10 @@ impl PropertyInspector {
     ) -> PopupMenu {
         let editor = self.editor.read(cx);
         let mut menu = menu.action_context(self.focus_handle.clone());
-        let items = editor.items_in_scope(self.scope);
-        let [item] = items.as_slice() else {
+        let Some(item) = self
+            .inspector_item_id(cx)
+            .and_then(|id| editor.resolved_item(id))
+        else {
             return menu;
         };
         if let Some(index) =

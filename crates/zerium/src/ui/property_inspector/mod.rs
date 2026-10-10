@@ -2,7 +2,6 @@ mod control;
 mod copy;
 mod edit;
 mod number_drag;
-mod path;
 mod render;
 mod rows;
 mod state;
@@ -38,14 +37,13 @@ use crate::ui::pane::pane_header;
 use crate::ui::search_picker::{SearchPicker, SearchPickerEntry};
 use crate::ui::session::UiNotifications;
 use number_drag::PropertyValueDragOrigin;
-use path::InspectorPath;
 use zerium_core::property::{
     PropertyDefinition, PropertyElement, PropertyElementId, PropertySchema, PropertyValue,
     ScalarPropertyType, ValueSchema,
 };
 use zerium_core::timeline::{
-    AnimationStopEdit, EditScope, EffectInstance, EffectInstanceId, ItemId, PropertyAddress,
-    SceneBindingOwner, SceneBindingTarget, SceneId, TimelineEditor, TimelineItem, TimelineTime,
+    AnimationStopEdit, EffectInstanceId, ItemId, PropertyAddress, SceneBindingOwner,
+    SceneBindingTarget, SceneId, TimelineEditor, TimelineItem, TimelineTime,
 };
 
 pub(super) type EffectPickerTarget = (String, String);
@@ -59,81 +57,13 @@ impl gpui::EventEmitter<SceneArgumentRequested> for PropertyInspector {}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum ControlId {
-    Property(InspectorPath),
+    Property(PropertyAddress),
     AnimationStop {
-        property: InspectorPath,
+        property: PropertyAddress,
         stop: usize,
     },
-    Group(InspectorPath),
+    Group(PropertyAddress),
     EffectGroup(EffectInstanceId),
-}
-
-impl ControlId {
-    fn property(path: &InspectorPath) -> Self {
-        Self::Property(path.clone())
-    }
-
-    fn animation_stop(path: &InspectorPath, stop: usize) -> Self {
-        Self::AnimationStop {
-            property: path.clone(),
-            stop,
-        }
-    }
-
-    fn group(path: &InspectorPath) -> Self {
-        Self::Group(path.clone())
-    }
-
-    fn effect_group(effect_id: EffectInstanceId) -> Self {
-        Self::EffectGroup(effect_id)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct PropertyTarget {
-    key: InspectorPath,
-    property_id: String,
-    effect_id: Option<EffectInstanceId>,
-    element_id: Option<PropertyElementId>,
-    scalar_index: Option<usize>,
-}
-
-impl PropertyTarget {
-    fn selected_address(
-        &self,
-        source: &TimelineItem,
-        item: &TimelineItem,
-    ) -> Option<PropertyAddress> {
-        self.address(source.id).on_item(source, item)
-    }
-
-    fn selected_value(&self, source: &TimelineItem, item: &TimelineItem) -> Option<PropertyValue> {
-        self.selected_address(source, item)?.value(item).cloned()
-    }
-
-    fn address(&self, item_id: ItemId) -> PropertyAddress {
-        PropertyAddress {
-            item_id,
-            effect_id: self.effect_id,
-            property_id: self.property_id.clone(),
-            element_id: self.element_id,
-            scalar_index: self.scalar_index,
-        }
-    }
-
-    fn animation_enabled(&self, source: &TimelineItem, items: &[TimelineItem]) -> bool {
-        items.iter().any(|item| {
-            self.selected_address(source, item).is_some_and(|address| {
-                item.animation_track(
-                    address.effect_id,
-                    &address.property_id,
-                    address.element_id,
-                    address.scalar_index,
-                )
-                .is_some()
-            })
-        })
-    }
 }
 
 #[derive(Clone)]
@@ -151,12 +81,6 @@ pub(super) struct SceneFieldBinding {
     pub compatible: Vec<(String, String)>,
 }
 
-#[derive(Clone)]
-struct PropertyBinding {
-    pub item_id: ItemId,
-    pub target: PropertyTarget,
-}
-
 pub(crate) struct PropertyInspector {
     pub(super) editor: Entity<TimelineEditor>,
     pub(super) animation_selection: Entity<AnimationSelection>,
@@ -166,7 +90,7 @@ pub(crate) struct PropertyInspector {
     pub(super) notifications: Entity<UiNotifications>,
     pub(super) focus_handle: FocusHandle,
     scroll_handle: ScrollHandle,
-    scope: EditScope,
+    item_id: Option<ItemId>,
     store: state::ControlStore,
     pub(super) font_names: Vec<String>,
     pub(super) effect_picker: Option<Entity<SearchPicker<EffectPickerTarget>>>,
@@ -220,11 +144,11 @@ impl PropertyInspector {
                 );
                 if document != next {
                     document = next;
-                    this.scope = EditScope::Selection;
+                    this.item_id = None;
                     this.effect_picker = None;
                     this.reset_input_state();
                 }
-                this.sync_from_editor(&editor, window, cx);
+                this.sync_from_editor(window, cx);
             });
         let animation_selection_subscription =
             cx.observe(&animation_selection, |_, _, cx| cx.notify());
@@ -234,7 +158,7 @@ impl PropertyInspector {
                 return;
             }
             this.session_id = session_id;
-            this.scope = EditScope::Selection;
+            this.item_id = None;
             this.reset_input_state();
             cx.notify();
         });
@@ -248,7 +172,7 @@ impl PropertyInspector {
             notifications,
             focus_handle: cx.focus_handle(),
             scroll_handle: ScrollHandle::new(),
-            scope: EditScope::Selection,
+            item_id: None,
             store: state::ControlStore::default(),
             font_names: {
                 let mut names = cx.text_system().all_font_names();
@@ -264,8 +188,7 @@ impl PropertyInspector {
                 cx.observe(&file_input, |_, _, cx| cx.notify()),
             ],
         };
-        let editor = inspector.editor.clone();
-        inspector.sync_from_editor(&editor, window, cx);
+        inspector.sync_from_editor(window, cx);
         inspector
     }
 }

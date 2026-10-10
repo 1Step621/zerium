@@ -8,7 +8,7 @@ impl PropertyInspector {
         render: &RenderCtx<'_>,
         compact: bool,
     ) -> gpui::AnyElement {
-        let address = common.target.address(render.item_id);
+        let address = common.target.clone();
         let disabled = render.selecting_file
             || common.read_only
             || common
@@ -36,7 +36,6 @@ impl PropertyInspector {
                     SharedString::from(format!("file-{:?}", common.id)),
                     crate::ui::file_input::FileTarget::Property(address.clone()),
                     common.value.file(),
-                    common.mixed,
                     render.selecting_file,
                     disabled,
                 ),
@@ -84,7 +83,7 @@ impl PropertyInspector {
             Self::scene_binding_button(
                 binding,
                 &ctx.inspector,
-                SharedString::from(format!("bind-scene-argument-{}", common.target.key)),
+                SharedString::from(format!("bind-scene-argument-{:?}", common.target)),
             )
         });
         let value_input = Self::number_editor(common, spec, input, common.read_only, ctx);
@@ -104,7 +103,7 @@ impl PropertyInspector {
                     .when(!is_bound, |this| {
                         this.child(
                             div()
-                                .id(SharedString::from(common.target.key.to_string()))
+                                .id(SharedString::from(format!("{:?}", common.target)))
                                 .min_w_0()
                                 .flex()
                                 .flex_1()
@@ -138,7 +137,7 @@ impl PropertyInspector {
             Self::scene_binding_button(
                 binding,
                 &ctx.inspector,
-                SharedString::from(format!("bind-scene-argument-{}", common.target.key)),
+                SharedString::from(format!("bind-scene-argument-{:?}", common.target)),
             )
         });
         let disabled = common.read_only;
@@ -197,7 +196,7 @@ impl PropertyInspector {
             Self::scene_binding_button(
                 binding,
                 &ctx.inspector,
-                SharedString::from(format!("bind-scene-argument-{}", common.target.key)),
+                SharedString::from(format!("bind-scene-argument-{:?}", common.target)),
             )
         });
         Self::labeled_row(
@@ -229,7 +228,7 @@ impl PropertyInspector {
             Self::scene_binding_button(
                 binding,
                 &ctx.inspector,
-                SharedString::from(format!("bind-scene-argument-{}", common.target.key)),
+                SharedString::from(format!("bind-scene-argument-{:?}", common.target)),
             )
         });
         let row = Self::compact_row(
@@ -252,7 +251,6 @@ impl PropertyInspector {
     pub(super) fn toggle_full_row(
         common: &LeafControl,
         value: bool,
-        mixed: bool,
         binding: Option<SceneFieldBinding>,
         ctx: &RenderCtx,
     ) -> gpui::AnyElement {
@@ -263,16 +261,10 @@ impl PropertyInspector {
             Self::scene_binding_button(
                 binding,
                 &ctx.inspector,
-                SharedString::from(format!("bind-scene-argument-{}", common.target.key)),
+                SharedString::from(format!("bind-scene-argument-{:?}", common.target)),
             )
         });
-        let (switch, mixed) = Self::bool_switch(
-            &common.target,
-            value,
-            mixed,
-            common.read_only,
-            &ctx.inspector,
-        );
+        let switch = Self::bool_switch(&common.target, value, common.read_only, &ctx.inspector);
         Self::labeled_row(
             Self::animation_property_label(common.label.clone(), common, ctx),
             div()
@@ -281,9 +273,6 @@ impl PropertyInspector {
                 .flex()
                 .items_center()
                 .gap_2()
-                .when(!is_bound && mixed, |this| {
-                    this.child(div().text_xs().child(t!("rows.mixed").to_string()))
-                })
                 .when(!is_bound, |this| this.child(switch))
                 .when_some(binding_button, |this, button| this.child(button)),
         )
@@ -293,7 +282,6 @@ impl PropertyInspector {
     pub(super) fn toggle_compact_row(
         common: &LeafControl,
         value: bool,
-        mixed: bool,
         binding: Option<SceneFieldBinding>,
         ctx: &RenderCtx,
     ) -> (gpui::AnyElement, bool) {
@@ -304,16 +292,10 @@ impl PropertyInspector {
             Self::scene_binding_button(
                 binding,
                 &ctx.inspector,
-                SharedString::from(format!("bind-scene-argument-{}", common.target.key)),
+                SharedString::from(format!("bind-scene-argument-{:?}", common.target)),
             )
         });
-        let (switch, mixed) = Self::bool_switch(
-            &common.target,
-            value,
-            mixed,
-            common.read_only,
-            &ctx.inspector,
-        );
+        let switch = Self::bool_switch(&common.target, value, common.read_only, &ctx.inspector);
         let row = div()
             .min_w_0()
             .w_full()
@@ -330,9 +312,6 @@ impl PropertyInspector {
                     .flex()
                     .items_center()
                     .gap_2()
-                    .when(!is_bound && mixed, |this| {
-                        this.child(div().text_xs().child(t!("rows.mixed").to_string()))
-                    })
                     .when(!is_bound, |this| this.child(switch))
                     .when_some(binding_button, |this, button| this.child(button)),
             )
@@ -354,7 +333,7 @@ impl PropertyInspector {
             Self::scene_binding_button(
                 binding,
                 &ctx.inspector,
-                SharedString::from(format!("bind-{}", common.target.key)),
+                SharedString::from(format!("bind-{:?}", common.target)),
             )
         });
         div()
@@ -394,7 +373,7 @@ impl PropertyInspector {
             Self::scene_binding_button(
                 binding,
                 &ctx.inspector,
-                SharedString::from(format!("bind-{}", common.target.key)),
+                SharedString::from(format!("bind-{:?}", common.target)),
             )
         });
         let row = div()
@@ -442,7 +421,7 @@ impl PropertyInspector {
             Self::scene_binding_button(
                 binding,
                 &ctx.inspector,
-                SharedString::from(format!("bind-scene-argument-{}", common.target.key)),
+                SharedString::from(format!("bind-scene-argument-{:?}", common.target)),
             )
         });
         let animation_button = (common.animatable && !is_bound).then(|| {
@@ -503,7 +482,7 @@ impl PropertyInspector {
             Self::scene_binding_button(
                 binding,
                 &ctx.inspector,
-                SharedString::from(format!("bind-scene-argument-{}", common.target.key)),
+                SharedString::from(format!("bind-scene-argument-{:?}", common.target)),
             )
         });
         let animation_button = (common.animatable && !is_bound).then(|| {
@@ -594,7 +573,6 @@ impl PropertyInspector {
                 Some(Self::toggle_full_row(
                     common,
                     value,
-                    common.mixed,
                     common.binding.clone(),
                     ctx,
                 ))
@@ -633,7 +611,7 @@ impl PropertyInspector {
             return Some(row);
         }
         let inspector = ctx.inspector.clone();
-        let address = common.target.address(ctx.item_id);
+        let address = common.target.clone();
         let disabled = common.read_only
             || common
                 .binding
@@ -647,7 +625,7 @@ impl PropertyInspector {
                 .gap_1()
                 .child(div().flex_1().min_w_0().child(row))
                 .child(
-                    Button::new(SharedString::from(format!("reset-{}", common.target.key)))
+                    Button::new(SharedString::from(format!("reset-{:?}", common.target)))
                         .small()
                         .compact()
                         .ghost()
@@ -695,7 +673,6 @@ impl PropertyInspector {
                 Some(Self::toggle_compact_row(
                     common,
                     value,
-                    common.mixed,
                     common.binding.clone(),
                     ctx,
                 ))

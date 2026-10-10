@@ -29,8 +29,13 @@ impl AnimationSelection {
                 if retain && Self::has_track(&address, editor) {
                     return;
                 }
-                let candidates = Self::candidates_for(&address, editor);
-                this.focus_candidates(candidates, cx);
+                let target = editor
+                    .selected_item_ids()
+                    .find_map(|id| Self::matching_track(&address, id, editor));
+                match target {
+                    Some(target) => this.select(target, cx),
+                    None => this.clear(cx),
+                }
             }
         });
         Self {
@@ -52,34 +57,27 @@ impl AnimationSelection {
         })
     }
 
-    pub(crate) fn candidates_for(
+    fn matching_track(
         address: &PropertyAddress,
+        item_id: zerium_core::timeline::ItemId,
         editor: &TimelineEditor,
-    ) -> Vec<PropertyAddress> {
-        let Some(schema) = address.schema(editor) else {
-            return Vec::new();
-        };
-        editor
-            .source_items_in_scope(zerium_core::timeline::EditScope::Selection)
-            .filter_map(|item| {
-                let target = editor.corresponding_property_address(address, item.id)?;
-                (target.schema(editor)?.same_type(schema) && Self::has_track(&target, editor))
-                    .then_some(target)
-            })
-            .collect()
+    ) -> Option<PropertyAddress> {
+        let schema = address.schema(editor)?;
+        let target = editor.corresponding_property_address(address, item_id)?;
+        (target.schema(editor)?.same_type(schema) && Self::has_track(&target, editor))
+            .then_some(target)
     }
 
-    pub(crate) fn focus_candidates(
+    pub(crate) fn select_item(
         &mut self,
-        candidates: Vec<PropertyAddress>,
+        item_id: zerium_core::timeline::ItemId,
+        editor: &Entity<TimelineEditor>,
         cx: &mut Context<Self>,
     ) {
         let target = self
             .address
             .as_ref()
-            .filter(|current| candidates.contains(current))
-            .cloned()
-            .or_else(|| candidates.into_iter().next());
+            .and_then(|address| Self::matching_track(address, item_id, editor.read(cx)));
         match target {
             Some(target) => self.select(target, cx),
             None => self.clear(cx),

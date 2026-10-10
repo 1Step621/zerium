@@ -24,7 +24,7 @@ impl PropertyInspector {
             if !editor.is_item_selected(address.item_id) {
                 return Ok(false);
             }
-            let result = editor.reset_property(self.scope, &address);
+            let result = editor.reset_property(&address);
             if result.as_ref().is_ok_and(|changed| *changed) {
                 cx.notify();
             }
@@ -73,50 +73,52 @@ impl PropertyInspector {
     }
 
     pub(super) fn inspector_item_id(&self, cx: &App) -> Option<ItemId> {
-        let item_id = self.store.source.as_ref()?.item_id;
-        self.editor
-            .read(cx)
-            .is_item_selected(item_id)
-            .then_some(item_id)
+        self.item_id
+            .filter(|id| self.editor.read(cx).is_item_selected(*id))
     }
 
     fn inspector_value_at_playhead(
         &self,
-        target: &PropertyTarget,
+        target: &PropertyAddress,
         cx: &App,
     ) -> Option<PropertyValue> {
-        let item_id = self.inspector_item_id(cx)?;
+        if self.inspector_item_id(cx)? != target.item_id {
+            return None;
+        }
         let editor = self.editor.read(cx);
-        editor.evaluated_property_value(
-            &target.address(item_id),
-            TimelineTime::from_frame(editor.playhead()),
-        )
+        editor.evaluated_property_value(target, TimelineTime::from_frame(editor.playhead()))
     }
 
     /// The single domain write channel for every resolved scalar control.
     /// Parsing, clamping, and event filtering stay at the UI boundary; this
-    /// method applies the validated value to the inspector's edit scope.
+    /// method applies the validated value to the displayed item.
     pub(super) fn set_scalar(
         &mut self,
-        target: &PropertyTarget,
+        target: &PropertyAddress,
         value: PropertyValue,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(item_id) = self.inspector_item_id(cx) else {
-            return false;
-        };
-        let editor = self.editor.read(cx);
-        let items = editor
-            .evaluated_items_in_scope(self.scope, TimelineTime::from_frame(editor.playhead()));
-        let Some(source) = items.iter().find(|item| item.id == item_id) else {
-            return false;
-        };
-        if target.animation_enabled(source, &items) {
+        let item_id = target.item_id;
+        if self.inspector_item_id(cx) != Some(item_id) {
             return false;
         }
-        let address = target.address(item_id);
+        let editor = self.editor.read(cx);
+        let Some(item) = editor.item(item_id) else {
+            return false;
+        };
+        if item
+            .animation_track(
+                target.effect_id,
+                &target.property_id,
+                target.element_id,
+                target.scalar_index,
+            )
+            .is_some()
+        {
+            return false;
+        }
         let result = self.editor.update(cx, |editor, cx| {
-            let result = editor.edit_property(self.scope, &address, value);
+            let result = editor.edit_property(target, value);
             if result == Ok(true) {
                 cx.notify();
             }
@@ -133,14 +135,14 @@ impl PropertyInspector {
         }
     }
 
-    fn live_numeric_value(&self, target: &PropertyTarget, cx: &App) -> Option<f64> {
+    fn live_numeric_value(&self, target: &PropertyAddress, cx: &App) -> Option<f64> {
         self.inspector_value_at_playhead(target, cx)?
             .numeric_scalar()
     }
 
     pub(super) fn update_numeric_scalar(
         &mut self,
-        target: &PropertyTarget,
+        target: &PropertyAddress,
         value: f64,
         cx: &mut Context<Self>,
     ) -> bool {
@@ -155,7 +157,7 @@ impl PropertyInspector {
 
     pub(super) fn apply_scalar_step(
         &mut self,
-        target: &PropertyTarget,
+        target: &PropertyAddress,
         spec: &NumericInputSpec,
         input: &Entity<InputState>,
         event: &NumberInputEvent,
@@ -258,7 +260,7 @@ impl PropertyInspector {
     /// Single update channel for string text input.
     pub(super) fn apply_string_text(
         &mut self,
-        binding: &PropertyBinding,
+        target: &PropertyAddress,
         input: &Entity<InputState>,
         event: &InputEvent,
         _: &mut Window,
@@ -268,37 +270,22 @@ impl PropertyInspector {
             return;
         }
         let value = input.read(cx).value().to_string();
-        if self
-            .inspector_item_id(cx)
-            .is_none_or(|id| id != binding.item_id)
-        {
-            return;
-        }
-        self.set_scalar(&binding.target, PropertyValue::String(value), cx);
+        self.set_scalar(target, PropertyValue::String(value), cx);
     }
 
     /// Single update channel for color pickers.
     pub(super) fn apply_color(
         &mut self,
-        binding: &PropertyBinding,
+        target: &PropertyAddress,
         event: &ColorPickerEvent,
         cx: &mut Context<Self>,
     ) {
         let ColorPickerEvent::Change(Some(color)) = event else {
             return;
         };
-        if self
-            .inspector_item_id(cx)
-            .is_none_or(|id| id != binding.item_id)
-            || self
-                .inspector_value_at_playhead(&binding.target, cx)
-                .is_none()
-        {
-            return;
-        }
         let color = Rgba::from(*color);
         let value = PropertyValue::Color([color.r, color.g, color.b, color.a]);
-        self.set_scalar(&binding.target, value, cx);
+        self.set_scalar(target, value, cx);
     }
 
     pub(super) fn handle_value_drag(
@@ -336,7 +323,7 @@ impl PropertyInspector {
 
     pub(super) fn prepare_value_drag(
         &mut self,
-        target: &PropertyTarget,
+        target: &PropertyAddress,
         spec: &NumericInputSpec,
         input_id: &ControlId,
         event: &MouseDownEvent,
@@ -373,38 +360,45 @@ impl PropertyInspector {
         );
     }
 
-    pub(super) fn select_animation(&mut self, property: &PropertyTarget, cx: &mut Context<Self>) {
+    pub(super) fn select_animation(&mut self, address: &PropertyAddress, cx: &mut Context<Self>) {
+        if self.inspector_item_id(cx) != Some(address.item_id)
+            || self
+                .editor
+                .read(cx)
+                .item(address.item_id)
+                .is_none_or(|item| {
+                    item.animation_track(
+                        address.effect_id,
+                        &address.property_id,
+                        address.element_id,
+                        address.scalar_index,
+                    )
+                    .is_none()
+                })
+        {
+            return;
+        }
         self.editor.update(cx, |editor, cx| {
-            if editor.set_active_edit_effect(property.effect_id) {
+            if editor.set_active_edit_effect(address.effect_id) {
                 cx.notify();
             }
         });
-        let editor = self.editor.read(cx);
-        let Some(item_id) = self.store.source.as_ref().map(|source| source.item_id) else {
-            return;
-        };
-        let candidates = AnimationSelection::candidates_for(&property.address(item_id), editor)
-            .into_iter()
-            .filter(|address| self.scope == EditScope::Selection || address.item_id == item_id)
-            .collect();
-        self.animation_selection.update(cx, |selection, cx| {
-            selection.focus_candidates(candidates, cx);
-        });
+        self.animation_selection
+            .update(cx, |selection, cx| selection.select(address.clone(), cx));
     }
 
     pub(super) fn set_animation_enabled(
         &mut self,
-        property: &PropertyTarget,
+        address: &PropertyAddress,
         enabled: bool,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(item_id) = self.inspector_item_id(cx) else {
+        if self.inspector_item_id(cx) != Some(address.item_id) {
             return;
-        };
-        let address = property.address(item_id);
+        }
         let changed = self.editor.update(cx, |editor, cx| {
-            let changed = editor.set_property_animation_enabled(&address, enabled);
+            let changed = editor.set_property_animation_enabled(address, enabled);
             if changed {
                 cx.notify();
             }
@@ -415,9 +409,9 @@ impl PropertyInspector {
         }
         self.animation_selection.update(cx, |selection, cx| {
             if enabled {
-                selection.select(address, cx);
+                selection.select(address.clone(), cx);
             } else {
-                selection.clear_if(&address, cx);
+                selection.clear_if(address, cx);
             }
         });
         cx.notify();
@@ -428,7 +422,6 @@ impl PropertyInspector {
         address: &PropertyAddress,
         edit: ArrayEdit,
     ) -> bool {
-        let scope = EditScope::Item(address.item_id);
         let Some(PropertyValue::Array(mut elements)) = editor.property_value(address) else {
             return false;
         };
@@ -446,7 +439,7 @@ impl PropertyInspector {
             }
             _ => return false,
         }
-        editor.update_property(scope, address, PropertyValue::Array(elements))
+        editor.update_property(address, PropertyValue::Array(elements))
     }
 
     pub(super) fn push_element(
@@ -454,10 +447,9 @@ impl PropertyInspector {
         address: &PropertyAddress,
         value: PropertyValue,
     ) -> bool {
-        let scope = EditScope::Item(address.item_id);
         let Some(mut updated) = editor.property_value(address) else {
             return false;
         };
-        updated.push_element(value) && editor.update_property(scope, address, updated)
+        updated.push_element(value) && editor.update_property(address, updated)
     }
 }

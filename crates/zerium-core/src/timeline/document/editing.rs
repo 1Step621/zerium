@@ -1,15 +1,13 @@
 //! Property transactions, media initialization, and effect edits.
 
-use std::{collections::HashMap, sync::Arc};
+use std::{collections::HashSet, sync::Arc};
 
 use crate::animation::ScalarAnimations;
 use crate::media::ImportedFile;
 use crate::plugin::EffectSchema;
 use crate::property::{PropertySchema, PropertyValue, PropertyValues};
 use crate::timeline::item::{EffectInstance, set_size_values, size_values};
-use crate::timeline::{
-    AspectRatio, EffectInstanceId, ItemId, TimeMapping, TimelineEditError, TimelineItem,
-};
+use crate::timeline::{AspectRatio, EffectInstanceId, ItemId, TimeMapping, TimelineEditError};
 
 use super::{ResizeMode, TimelineDocument};
 
@@ -94,88 +92,57 @@ impl TimelineDocument {
         true
     }
 
-    /// Prepare ordinary property edits, including their effects on timeline placement,
-    /// before committing the complete selection.
-    pub(in crate::timeline) fn set_properties(
+    /// Validate the edited item's playback and placement before committing it.
+    pub(in crate::timeline) fn set_property(
         &mut self,
-        edits: &[(
-            ItemId,
-            Option<EffectInstanceId>,
-            PropertySchema,
-            Option<PropertyValue>,
-        )],
-    ) -> Result<bool, TimelineEditError> {
-        let mut updates = HashMap::new();
-        for (id, effect, property, value) in edits {
-            let original = self
-                .items
-                .get(id)
-                .ok_or(TimelineEditError::ItemNotFound(*id))?;
-            let item = updates
-                .entry(*id)
-                .or_insert_with(|| original.as_ref().clone());
-            Self::set_item_property(item, *effect, property, value.clone());
-        }
-        for (id, item) in &mut updates {
-            item.synchronize_timeline(self.items[id].timeline_mapping(), self.frame_rate)?;
-            item.validate_playback()?;
-            item.start
-                .get()
-                .checked_add(item.duration.get())
-                .ok_or(TimelineEditError::PlacementUnavailable)?;
-        }
-        for ids in self.layer_items.values() {
-            let mut items = ids
-                .iter()
-                .filter_map(|id| {
-                    updates
-                        .get(id)
-                        .or_else(|| self.items.get(id).map(AsRef::as_ref))
-                })
-                .collect::<Vec<_>>();
-            items.sort_unstable_by_key(|item| item.start);
-            if items
-                .windows(2)
-                .any(|pair| pair[0].end_exclusive() > pair[1].start)
-            {
-                return Err(TimelineEditError::PlacementUnavailable);
-            }
-        }
-        let mut changed = false;
-        for (id, item) in updates {
-            if self.items[&id].as_ref() != &item {
-                self.items.insert(id, Arc::new(item));
-                changed = true;
-            }
-        }
-        Ok(changed)
-    }
-
-    /// Commit a value whose edit permissions and constraints were checked for
-    /// the entire selection by the command layer.
-    fn set_item_property(
-        item: &mut TimelineItem,
+        id: ItemId,
         effect_id: Option<EffectInstanceId>,
         property: &PropertySchema,
         value: Option<PropertyValue>,
-    ) {
-        let Some(value) = value else {
-            item.properties.remove(property.id());
-            return;
-        };
-        let (properties, animations) = match effect_id {
-            Some(id) => {
-                let effect = item.effect_mut(id).expect("prepared effect must exist");
-                (&mut effect.properties, &mut effect.animations)
+    ) -> Result<bool, TimelineEditError> {
+        let original = self
+            .items
+            .get(&id)
+            .ok_or(TimelineEditError::ItemNotFound(id))?;
+        let mut item = original.as_ref().clone();
+        if let Some(value) = value {
+            let (properties, animations) = match effect_id {
+                Some(id) => {
+                    let effect = item.effect_mut(id).expect("prepared effect must exist");
+                    (&mut effect.properties, &mut effect.animations)
+                }
+                None => (&mut item.properties, &mut item.animations),
+            };
+            if properties
+                .set(property, value)
+                .expect("prepared value must satisfy its schema")
+            {
+                animations
+                    .retain_valid_for_property(property.id(), properties.property(property.id()));
             }
-            None => (&mut item.properties, &mut item.animations),
-        };
-        let changed = properties
-            .set(property, value)
-            .expect("prepared value must satisfy its schema");
-        if changed {
-            animations.retain_valid_for_property(property.id(), properties.property(property.id()));
+        } else {
+            item.properties.remove(property.id());
         }
+        item.synchronize_timeline(original.timeline_mapping(), self.frame_rate)?;
+        item.validate_playback()?;
+        item.start
+            .get()
+            .checked_add(item.duration.get())
+            .ok_or(TimelineEditError::PlacementUnavailable)?;
+        let layer = self.item_layers[&id];
+        if self.overlaps_on_layer_excluding(
+            layer,
+            item.start,
+            item.end_exclusive(),
+            &HashSet::from([id]),
+        ) {
+            return Err(TimelineEditError::PlacementUnavailable);
+        }
+        if original.as_ref() == &item {
+            return Ok(false);
+        }
+        self.items.insert(id, Arc::new(item));
+        Ok(true)
     }
 
     pub(in crate::timeline) fn set_item_aspect_ratio(

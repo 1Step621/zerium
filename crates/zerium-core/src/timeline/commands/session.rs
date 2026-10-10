@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 
 use crate::timeline::{
-    EditScope, EffectInstanceId, Frame, FrameRate, ItemId, LayerId, ProjectResolution, SceneId,
+    EffectInstanceId, Frame, FrameRate, ItemId, LayerId, ProjectResolution, SceneId,
     TimelineDocument, TimelineEditor, TimelineTime,
 };
 
@@ -93,31 +93,38 @@ impl TimelineEditor {
     }
 
     pub fn toggle_selected_items_visibility(&mut self) -> bool {
-        self.toggle_items_visibility(EditScope::Selection)
-    }
-
-    pub fn toggle_items_visibility(&mut self, scope: EditScope) -> bool {
-        if !self.visibility.toggle_items(scope.item_ids(self)) {
+        if !self
+            .visibility
+            .toggle_items(self.selection.sorted_current())
+        {
             return false;
         }
         self.advance_render_revision();
         true
     }
 
+    pub fn toggle_item_visibility(&mut self, id: ItemId) -> bool {
+        if !self.is_item_selected(id) {
+            return false;
+        }
+        self.visibility.toggle_items([id]);
+        self.advance_render_revision();
+        true
+    }
+
     pub fn toggle_effect_visibility(
         &mut self,
-        scope: EditScope,
+        item_id: ItemId,
         effect_id: EffectInstanceId,
     ) -> bool {
-        let Some((_, effects)) = self.effect_instances(scope, effect_id) else {
-            return false;
-        };
-        if !self
-            .visibility
-            .toggle_effects(effects.into_iter().map(|(_, effect_id)| effect_id))
+        if !self.is_item_selected(item_id)
+            || self
+                .item(item_id)
+                .is_none_or(|item| item.effect(effect_id).is_none())
         {
             return false;
         }
+        self.visibility.toggle_effects([effect_id]);
         self.advance_render_revision();
         true
     }

@@ -1,27 +1,6 @@
 use std::collections::HashSet;
 
-use super::{TimelineEditor, ids::ItemId};
-
-/// The items affected by an edit, independent of the timeline selection itself.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum EditScope {
-    #[default]
-    Selection,
-    Item(ItemId),
-}
-
-impl EditScope {
-    pub(super) fn item_ids(self, editor: &TimelineEditor) -> Vec<ItemId> {
-        match self {
-            Self::Selection => editor.selection.sorted_current(),
-            Self::Item(id) => editor
-                .is_item_selected(id)
-                .then_some(id)
-                .into_iter()
-                .collect(),
-        }
-    }
-}
+use super::ids::ItemId;
 
 /// Editor-local selection, including the remembered selection restored when
 /// the playhead returns to an item's time range.

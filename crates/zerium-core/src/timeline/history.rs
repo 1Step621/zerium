@@ -12,9 +12,9 @@ use super::{
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum HistoryKey {
     ItemCreation(ItemId),
-    Property(Vec<(ItemId, Option<EffectInstanceId>)>, String),
-    AspectRatioLock(Vec<(ItemId, Option<EffectInstanceId>)>),
-    AnimationStopValue(Vec<PropertyAddress>, TimelineTime),
+    Property(ItemId, Option<EffectInstanceId>, String),
+    AspectRatioLock(ItemId, Option<EffectInstanceId>),
+    AnimationStopValue(PropertyAddress, TimelineTime),
     AnimationRepeat(PropertyAddress),
     AnimationGesture(u64),
     ItemsResize(Vec<ItemId>, ResizeEdge, ResizeMode),

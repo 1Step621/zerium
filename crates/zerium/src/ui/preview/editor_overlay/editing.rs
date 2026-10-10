@@ -1,6 +1,5 @@
 use super::*;
 use crate::ui::TimelineEditorEntityExt as _;
-use zerium_core::timeline::EditScope;
 
 impl Preview {
     pub(super) fn begin_scalar_drag(
@@ -63,7 +62,7 @@ impl Preview {
             Some(index) => editor
                 .property_animation_stop(address, index)
                 .is_some_and(|stop| editor.set_property_animation_stop(&stop, value)),
-            None => editor.update_property(EditScope::Item(address.item_id), address, value),
+            None => editor.update_property(address, value),
         }
     }
 }

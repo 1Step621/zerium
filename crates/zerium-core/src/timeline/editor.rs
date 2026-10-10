@@ -15,7 +15,7 @@ use super::{
     properties::{SceneArguments, resolve_item, resolve_property},
     property_address::{property_schemas, resolve_property_schema},
     scene::SceneDefinition,
-    selection::{EditScope, SelectionState},
+    selection::SelectionState,
     settings::{BeatGuide, ProjectResolution, ProjectSettingsError},
     time::{Frame, FrameRate, TimelineTime},
     view::TimelineSnapshot,
@@ -453,8 +453,9 @@ impl TimelineEditor {
         self.frame_rate().frame_to_seconds(self.playhead)
     }
 
-    pub fn selected_item_ids(&self) -> impl Iterator<Item = ItemId> + '_ {
-        self.selection.current.iter().copied()
+    /// Iterate the selection in stable item-ID order.
+    pub fn selected_item_ids(&self) -> impl Iterator<Item = ItemId> {
+        self.selection.sorted_current().into_iter()
     }
 
     pub fn is_item_selected(&self, id: ItemId) -> bool {
@@ -466,45 +467,19 @@ impl TimelineEditor {
     }
 
     pub fn selected_items(&self) -> Vec<TimelineItem> {
-        self.items_in_scope(EditScope::Selection)
-    }
-
-    /// Items with defaults and scene arguments, before animation evaluation.
-    pub fn items_in_scope(&self, scope: EditScope) -> Vec<TimelineItem> {
-        self.resolve_items_in_scope(scope, None)
-    }
-
-    /// Stored items, without defaults, scene arguments or animation evaluation.
-    pub fn source_items_in_scope(&self, scope: EditScope) -> impl Iterator<Item = &TimelineItem> {
-        scope
-            .item_ids(self)
-            .into_iter()
-            .filter_map(|id| self.item(id))
-    }
-
-    pub fn evaluated_items_in_scope(
-        &self,
-        scope: EditScope,
-        time: TimelineTime,
-    ) -> Vec<TimelineItem> {
-        self.resolve_items_in_scope(scope, Some(time))
-    }
-
-    fn resolve_items_in_scope(
-        &self,
-        scope: EditScope,
-        time: Option<TimelineTime>,
-    ) -> Vec<TimelineItem> {
-        self.source_items_in_scope(scope)
-            .map(|item| {
-                resolve_item(
-                    &self.project().scenes,
-                    self.active_scene_arguments(),
-                    item,
-                    time,
-                )
-            })
+        self.selected_item_ids()
+            .filter_map(|id| self.resolved_item(id))
             .collect()
+    }
+
+    /// Defaults and scene arguments, before animation evaluation.
+    pub fn resolved_item(&self, id: ItemId) -> Option<TimelineItem> {
+        Some(resolve_item(
+            &self.project().scenes,
+            self.active_scene_arguments(),
+            self.item(id)?,
+            None,
+        ))
     }
 
     pub(crate) fn resolve_active_scene_arguments<'a>(
@@ -622,11 +597,12 @@ impl TimelineEditor {
     }
 
     pub fn selected_items_hidden_state(&self) -> Option<bool> {
-        self.items_hidden_state(EditScope::Selection)
+        self.visibility
+            .items_hidden_state(self.selection.sorted_current())
     }
 
-    pub fn items_hidden_state(&self, scope: EditScope) -> Option<bool> {
-        self.visibility.items_hidden_state(scope.item_ids(self))
+    pub fn is_item_hidden(&self, id: ItemId) -> bool {
+        self.visibility.is_item_hidden(id)
     }
 
     pub fn is_effect_hidden(&self, effect_id: EffectInstanceId) -> bool {
@@ -635,11 +611,12 @@ impl TimelineEditor {
 
     pub fn can_move_effect(
         &self,
-        scope: EditScope,
+        item_id: ItemId,
         effect_id: EffectInstanceId,
         offset: i32,
     ) -> bool {
-        self.effect_move_target(scope, effect_id, offset).is_some()
+        self.effect_move_target(item_id, effect_id, offset)
+            .is_some()
     }
 
     pub fn item_time_ranges(&self) -> impl Iterator<Item = (ItemId, Frame, Frame)> + '_ {

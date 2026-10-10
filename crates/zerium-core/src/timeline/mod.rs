@@ -36,7 +36,6 @@ pub use scene::{
     SceneArgument, SceneArgumentPreset, SceneBindingOwner, SceneBindingTarget,
     resolve_scene_binding,
 };
-pub use selection::EditScope;
 pub use settings::{BeatGuide, ProjectResolution};
 pub use time::{Frame, FrameDuration, FrameRate, TimelineTime};
 pub use time_mapping::TimeMapping;

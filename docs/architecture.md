@@ -37,10 +37,15 @@ persistence share these paths, so reordering an array does not redirect its
 animations or bindings.
 
 Property resolution applies plugin defaults, scene arguments, animation, and
-constraints through one pipeline. Stored reads use `source_items_in_scope`;
+constraints through one pipeline. Stored reads use `item`;
 resolved reads use `property_value` or `evaluated_property_value`. Inspector,
 rendering, and audio share this evaluation. Inspector controls come from
 property schemas; editor extensions are declared separately in plugins.
+
+The inspector edits one selected item at a time. Its item selector retains the
+displayed item while it remains selected; otherwise it chooses the first item
+in ID order. This local target does not change timeline selection or curve
+synchronization. Property and effect commands address one item directly.
 
 Animation tracks address individual scalars. `AnimationClock` maps editable
 pattern positions to timeline time for evaluation, editing, and synchronization,
@@ -66,10 +71,9 @@ The system clipboard contains only selected items. Single effects and effect
 suffixes (from the clicked effect through the end) share an application-local
 buffer, separate from the interval interpolation buffer. Inspector and graph
 context menus copy and paste these values without changing the system clipboard.
-Effect copy and paste are available only when the inspector targets a single
-item, not in the Common view. Effects append with fresh IDs. Curve menus fix the
-paste interval and synchronized targets when opened, using the usual animation
-edit validation. Project revisions are not reused when reopening a project,
+Pasted effects append to the inspector's displayed item with fresh IDs. Curve
+menus fix the paste interval and synchronized targets when opened, using the
+usual animation edit validation. Project revisions are not reused when reopening a project,
 so old edit targets remain invalid. Preview visibility travels with copied
 effects and remains session state. Each paste is one undoable edit.
 
@@ -96,7 +100,7 @@ footprint for minification. Rotated footprints use an axis-aligned bounding box;
 pixels outside the source surface are transparent.
 
 Blend mode is a persisted setting shared by all timeline items, separate from
-plugin properties. The inspector header edits it for its current item scope.
+plugin properties. The inspector header edits it for the displayed item.
 Each item's completed surface is blended into its parent scene after its
 effects, using scene-linear colors and premultiplied alpha. Scene instances and
 render-result captures composite their children against a transparent backdrop;

@@ -384,7 +384,6 @@ impl SceneSettings {
                     argument_id: argument.id.clone(),
                 },
                 file.as_deref(),
-                false,
                 render.selecting_file,
                 false,
             ));

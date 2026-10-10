@@ -18,8 +18,6 @@ pub(super) struct RenderCtx<'a> {
     pub store: &'a ControlStore,
     pub font_names: &'a [String],
     pub item_id: ItemId,
-    pub scope: EditScope,
-    pub multiple: bool,
     pub selecting_file: bool,
     pub file_input: Entity<FileInputController>,
     pub scene_overrides: std::collections::HashSet<String>,
@@ -56,7 +54,7 @@ impl PropertyInspector {
     }
 
     fn animation_address_is_focused(common: &LeafControl, ctx: &RenderCtx) -> bool {
-        ctx.animation_address.as_ref() == Some(&common.target.address(ctx.item_id))
+        ctx.animation_address.as_ref() == Some(&common.target)
     }
 
     fn focused_animation_label(
@@ -71,17 +69,6 @@ impl PropertyInspector {
         let inspector = ctx.inspector.clone();
         Self::animation_label_base(label.into(), width, focused, ctx)
             .id(SharedString::from(format!("{id_prefix}-{:?}", common.id)))
-            .when(
-                common.animation_enabled && common.animation_stops.is_empty() && ctx.multiple,
-                |this| {
-                    this.tooltip(|window, cx| {
-                        ::ui::tooltip::Tooltip::new(
-                            t!("inspector.animation_individual_edit").to_string(),
-                        )
-                        .build(window, cx)
-                    })
-                },
-            )
             .when(common.animation_enabled, |this| {
                 this.cursor_pointer().on_click(move |_, _, cx| {
                     inspector.update(cx, |inspector, cx| {
@@ -256,7 +243,7 @@ impl PropertyInspector {
     }
 
     fn number_animation_toggle(
-        target: &PropertyTarget,
+        target: &PropertyAddress,
         enabled: bool,
         tooltip: String,
         inspector: &Entity<Self>,
@@ -264,7 +251,7 @@ impl PropertyInspector {
         let inspector = inspector.clone();
         let target = target.clone();
         Self::keyframe_base(
-            SharedString::from(format!("toggle-animation-{}", target.key)),
+            SharedString::from(format!("toggle-animation-{:?}", target)),
             enabled,
             tooltip,
         )
@@ -276,7 +263,7 @@ impl PropertyInspector {
     }
 
     fn coordinate_animation_toggle(
-        target: &PropertyTarget,
+        target: &PropertyAddress,
         enabled: bool,
         disabled: bool,
         visible: bool,
@@ -285,7 +272,7 @@ impl PropertyInspector {
         let inspector = inspector.clone();
         let target = target.clone();
         Self::keyframe_base(
-            SharedString::from(format!("toggle-animation-{}", target.key)),
+            SharedString::from(format!("toggle-animation-{:?}", target)),
             visible,
             if disabled {
                 t!("rows.aspect_auto").to_string()
@@ -307,14 +294,14 @@ impl PropertyInspector {
     }
 
     fn color_animation_toggle(
-        target: &PropertyTarget,
+        target: &PropertyAddress,
         enabled: bool,
         inspector: &Entity<Self>,
     ) -> Button {
         let inspector = inspector.clone();
         let target = target.clone();
         Self::keyframe_base(
-            SharedString::from(format!("toggle-animation-{}", target.key)),
+            SharedString::from(format!("toggle-animation-{:?}", target)),
             enabled,
             if enabled {
                 t!("rows.unanimate").to_string()
@@ -345,9 +332,12 @@ impl PropertyInspector {
             ArrayEdit::Remove(_) => ("remove", IconName::Delete, t!("rows.remove").to_string()),
         };
         let editor = ctx.editor.clone();
-        let address = group.target.address(ctx.item_id);
-        let key = group.target.key.scalar(Some(edit.element_id()), None);
-        Button::new(SharedString::from(format!("array-{key}-{suffix}")))
+        let address = group.target.clone();
+        let key = PropertyAddress {
+            element_id: Some(edit.element_id()),
+            ..group.target.clone()
+        };
+        Button::new(SharedString::from(format!("array-{key:?}-{suffix}")))
             .small()
             .compact()
             .ghost()
@@ -370,13 +360,15 @@ impl PropertyInspector {
         separator_color: gpui::Hsla,
         allow_structure_edit: bool,
     ) -> gpui::AnyElement {
-        let item_id = ctx.item_id;
         let property_label = group.property.label().to_owned();
         let rows_are_tuples = matches!(group.property.value_schema(), ValueSchema::Tuple(_));
         let rows_have_scene_binding = group.has_scene_binding;
         let mut rows = div().w_full().min_w_0().flex().flex_col().gap_1();
         for (element_index, row) in group.elements.iter().enumerate() {
-            let key = group.target.key.scalar(Some(row.element_id()), None);
+            let key = PropertyAddress {
+                element_id: Some(row.element_id()),
+                ..group.target.clone()
+            };
             let row_controls = match children.get(element_index) {
                 Some(Control::Group { children, .. }) => children.as_slice(),
                 _ => &[],
@@ -395,7 +387,7 @@ impl PropertyInspector {
                 Self::scene_binding_button(
                     binding,
                     &ctx.inspector,
-                    SharedString::from(format!("bind-scene-array-{key}")),
+                    SharedString::from(format!("bind-scene-array-{key:?}")),
                 )
             });
             let mut row_has_binding = is_scene_bound;
@@ -438,16 +430,13 @@ impl PropertyInspector {
                         .map(|font| SearchPickerEntry::new(font.clone(), "", font.clone()))
                         .collect::<Vec<_>>();
                     let picker_inspector = ctx.inspector.clone();
-                    let mut picker_target = group.target.clone();
-                    picker_target.element_id = Some(row.element_id());
-                    picker_target.scalar_index = None;
-                    picker_target.key = key.clone();
+                    let picker_target = key.clone();
                     let label = if selected_font.is_empty() {
                         t!("rows.choose_font").to_string()
                     } else {
                         selected_font.clone()
                     };
-                    let mut trigger = Button::new(SharedString::from(format!("{key}-font")))
+                    let mut trigger = Button::new(SharedString::from(format!("{key:?}-font")))
                         .small()
                         .outline()
                         .w_full()
@@ -455,7 +444,7 @@ impl PropertyInspector {
                         .dropdown_caret(true);
                     let trigger_style = trigger.style().clone();
                     value_rows = value_rows.child(
-                        Popover::new(SharedString::from(format!("{key}-font-picker")))
+                        Popover::new(SharedString::from(format!("{key:?}-font-picker")))
                             .trigger_style(trigger_style)
                             .trigger(trigger)
                             .content(move |window, cx| {
@@ -468,15 +457,11 @@ impl PropertyInspector {
                                         t!("rows.search_font").to_string(),
                                         move |font, _, cx| {
                                             inspector.update(cx, |inspector, cx| {
-                                                if inspector
-                                                    .inspector_item_id(cx)
-                                                    .is_some_and(|id| id == item_id)
-                                                    && inspector.set_scalar(
-                                                        &target,
-                                                        PropertyValue::String(font),
-                                                        cx,
-                                                    )
-                                                {
+                                                if inspector.set_scalar(
+                                                    &target,
+                                                    PropertyValue::String(font),
+                                                    cx,
+                                                ) {
                                                     cx.notify();
                                                 }
                                             });
@@ -564,26 +549,23 @@ impl PropertyInspector {
         let add_disabled =
             group.elements.len() >= group.max_items as usize || rows_have_scene_binding;
         let add_editor = ctx.editor.clone();
-        let add_address = group.target.address(item_id);
+        let add_address = group.target.clone();
         let next_value = group
             .property
             .element_default_value()
             .expect("array properties declare an element default");
-        let add_control = Button::new(SharedString::from(format!(
-            "array-{}-add",
-            group.target.key
-        )))
-        .small()
-        .w_full()
-        .label(t!("rows.add_element", label = group.property.label()).to_string())
-        .disabled(add_disabled)
-        .on_click(move |_, _, cx| {
-            add_editor.update(cx, |editor, cx| {
-                if Self::push_element(editor, &add_address, next_value.clone()) {
-                    cx.notify();
-                }
+        let add_control = Button::new(SharedString::from(format!("array-{:?}-add", group.target)))
+            .small()
+            .w_full()
+            .label(t!("rows.add_element", label = group.property.label()).to_string())
+            .disabled(add_disabled)
+            .on_click(move |_, _, cx| {
+                add_editor.update(cx, |editor, cx| {
+                    if Self::push_element(editor, &add_address, next_value.clone()) {
+                        cx.notify();
+                    }
+                });
             });
-        });
 
         div()
             .w_full()
@@ -669,7 +651,7 @@ impl PropertyInspector {
             Self::scene_binding_button(
                 binding,
                 &ctx.inspector,
-                SharedString::from(format!("bind-scene-array-{}", common.target.key)),
+                SharedString::from(format!("bind-scene-array-{:?}", common.target)),
             )
         });
         let value_input = Self::number_editor(common, spec, &input, common.read_only, ctx);
@@ -696,7 +678,7 @@ impl PropertyInspector {
             .when(!component_is_bound, |this| {
                 this.child(
                     div()
-                        .id(SharedString::from(common.target.key.to_string()))
+                        .id(SharedString::from(format!("{:?}", common.target)))
                         .min_w_0()
                         .flex()
                         .flex_1()

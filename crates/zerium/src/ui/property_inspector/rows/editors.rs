@@ -4,7 +4,7 @@ use super::*;
 
 impl PropertyInspector {
     pub(super) fn choice_dropdown(
-        target: &PropertyTarget,
+        target: &PropertyAddress,
         current: u32,
         options: &[(String, u32)],
         read_only: bool,
@@ -18,7 +18,7 @@ impl PropertyInspector {
         let options = options.to_vec();
         let inspector = inspector.clone();
         let target = target.clone();
-        Button::new(SharedString::from(target.key.to_string()))
+        Button::new(SharedString::from(format!("{target:?}")))
             .small()
             .outline()
             .w_full()
@@ -44,22 +44,19 @@ impl PropertyInspector {
     }
 
     pub(super) fn bool_switch(
-        target: &PropertyTarget,
+        target: &PropertyAddress,
         value: bool,
-        mixed: bool,
         read_only: bool,
         inspector: &Entity<Self>,
-    ) -> (Switch, bool) {
-        let checked = value && !mixed;
+    ) -> Switch {
+        let checked = value;
         let inspector = inspector.clone();
         let target = target.clone();
-        let switch = Switch::new(SharedString::from(target.key.to_string()))
+        Switch::new(SharedString::from(format!("{target:?}")))
             .small()
             .checked(checked)
             .disabled(read_only)
-            .tooltip(if mixed {
-                t!("edit.bool_mixed")
-            } else if checked {
+            .tooltip(if checked {
                 t!("edit.turn_off")
             } else {
                 t!("edit.turn_on")
@@ -71,24 +68,20 @@ impl PropertyInspector {
                         cx.notify();
                     }
                 });
-            });
-        (switch, mixed)
+            })
     }
 
     pub(super) fn editor_control(control: &EditorControl, ctx: &RenderCtx) -> Div {
         match control {
             EditorControl::AspectRatioLock {
-                key,
-                effect_id,
+                address,
                 locked,
-                mixed,
                 read_only,
-                multiple,
             } => {
                 let editor = ctx.editor.clone();
-                let effect_id = *effect_id;
-                let scope = ctx.scope;
-                let checked = *locked && !mixed;
+                let effect_id = address.effect_id;
+                let item_id = address.item_id;
+                let checked = *locked;
                 div()
                     .flex()
                     .items_center()
@@ -100,22 +93,19 @@ impl PropertyInspector {
                             .child(t!("edit.aspect_lock").to_string()),
                     )
                     .child(
-                        Switch::new(SharedString::from(format!("aspect-ratio-lock-{key}")))
+                        Switch::new(SharedString::from(format!("aspect-ratio-lock-{address:?}")))
                             .small()
                             .checked(checked)
                             .disabled(*read_only)
-                            .tooltip(if *mixed {
-                                t!("edit.ratio_mixed")
-                            } else if *multiple {
-                                t!("edit.lock_each_ratio")
-                            } else if checked {
+                            .tooltip(if checked {
                                 t!("edit.unlock_ratio")
                             } else {
                                 t!("edit.lock_ratio")
                             })
                             .on_click(move |checked, _, cx| {
                                 editor.update(cx, |editor, cx| {
-                                    if editor.update_aspect_ratio_locked(scope, effect_id, *checked)
+                                    if editor
+                                        .update_aspect_ratio_locked(item_id, effect_id, *checked)
                                     {
                                         cx.notify();
                                     }
@@ -127,7 +117,7 @@ impl PropertyInspector {
     }
 
     pub(super) fn draggable_number_input(
-        target: &PropertyTarget,
+        target: &PropertyAddress,
         spec: &NumericInputSpec,
         input: &Entity<InputState>,
         input_id: &ControlId,
@@ -233,18 +223,15 @@ impl PropertyInspector {
                 .h(px(28.))
                 .flex()
                 .items_center()
-                .when(common.mixed, |this| this.child("—"))
-                .when(!common.mixed, |this| {
-                    this.child(
-                        div()
-                            .size(px(24.))
-                            .rounded_md()
-                            .border_1()
-                            .border_color(ctx.colors.border)
-                            .bg(color)
-                            .opacity(0.55),
-                    )
-                })
+                .child(
+                    div()
+                        .size(px(24.))
+                        .rounded_md()
+                        .border_1()
+                        .border_color(ctx.colors.border)
+                        .bg(color)
+                        .opacity(0.55),
+                )
                 .into_any_element();
         }
         let mut stop_inputs = common
@@ -256,7 +243,6 @@ impl PropertyInspector {
                     ColorPicker::new(&picker)
                         .small()
                         .w_full()
-                        .when(stop.edit.mixed, |picker| picker.label("—"))
                         .into_any_element(),
                 )
             })
@@ -270,10 +256,6 @@ impl PropertyInspector {
             return Self::animation_stop_inputs(start, end, ctx.colors.muted_foreground)
                 .into_any_element();
         }
-        ColorPicker::new(picker)
-            .small()
-            .w_full()
-            .when(common.mixed, |picker| picker.label("—"))
-            .into_any_element()
+        ColorPicker::new(picker).small().w_full().into_any_element()
     }
 }

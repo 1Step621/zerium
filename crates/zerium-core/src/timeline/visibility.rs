@@ -52,6 +52,10 @@ impl PreviewVisibility {
             .then_some(hidden)
     }
 
+    pub(super) fn is_item_hidden(&self, item: ItemId) -> bool {
+        self.items.contains(&item)
+    }
+
     pub(super) fn is_effect_hidden(&self, effect: EffectInstanceId) -> bool {
         self.effects.contains(&effect)
     }

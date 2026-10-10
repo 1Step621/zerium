@@ -3,7 +3,7 @@ use crate::ui::number_input::NumberValueDrag;
 
 #[derive(Clone)]
 pub(super) struct PropertyValueDragOrigin {
-    pub(super) target: PropertyTarget,
+    pub(super) target: PropertyAddress,
     pub(super) input_id: ControlId,
     pub(super) adjustment: crate::ui::numeric_property::NumericDrag,
     pub(super) min: f64,

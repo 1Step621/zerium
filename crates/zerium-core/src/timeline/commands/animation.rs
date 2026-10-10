@@ -1,30 +1,29 @@
 use crate::animation::{AnimationRepeat, ScalarAnimations, ScalarTrack};
 use crate::property::{PropertyPath, PropertyValue};
 use crate::timeline::history::HistoryKey;
-use crate::timeline::{
-    EffectInstanceId, ItemId, PropertyAddress, TimelineEditor, TimelineItem, TimelineTime,
-};
+use crate::timeline::{EffectInstanceId, ItemId, PropertyAddress, TimelineEditor, TimelineTime};
 
 use super::EditContext;
 
-/// A displayed stop and its corresponding value-edit targets. The interval
+/// A displayed stop and its value-edit context. The interval
 /// shown by the inspector determines how equal neighboring values are linked.
 #[derive(Clone)]
 pub struct AnimationStopEdit {
     pub value: PropertyValue,
-    pub mixed: bool,
-    targets: Vec<(PropertyAddress, usize, Option<usize>)>,
+    address: PropertyAddress,
+    index: usize,
+    segment: Option<usize>,
     time: TimelineTime,
     context: EditContext,
 }
 
 impl AnimationStopEdit {
     pub fn address(&self) -> &PropertyAddress {
-        &self.targets[0].0
+        &self.address
     }
 
     pub fn index(&self) -> usize {
-        self.targets[0].1
+        self.index
     }
 }
 
@@ -84,71 +83,30 @@ impl TimelineEditor {
         })
     }
 
-    /// Resolve the current stop or interval on already materialized inspector
-    /// items. Common inputs require matching timeline times on every item.
+    /// Resolve the current stop or interval, linking equal neighboring values.
     pub fn property_animation_stops(
         &self,
-        items: &[TimelineItem],
-        target: &PropertyAddress,
+        address: &PropertyAddress,
         time: TimelineTime,
     ) -> Option<Vec<AnimationStopEdit>> {
-        let source = items.iter().find(|item| item.id == target.item_id)?;
-        let tracks = items
-            .iter()
-            .map(|item| {
-                let address = target.on_item(source, item)?;
-                let track = item.animation_track(
-                    address.effect_id,
-                    &address.property_id,
-                    address.element_id,
-                    address.scalar_index,
-                )?;
-                let clock = item.animation_clock(track);
-                let stops = track
-                    .stop_indices_for_segment(clock.progress_at(time))
-                    .into_iter()
-                    .map(|index| {
-                        let stop = &track.stops()[index];
-                        let stop_time = clock.time_at(stop.position()).rounded();
-                        (index, stop_time, stop.value())
-                    })
-                    .collect::<Vec<_>>();
-                Some((address, stops))
-            })
-            .collect::<Option<Vec<_>>>()?;
-        let (_, source) = tracks.first()?;
-        if source.is_empty()
-            || !tracks.iter().all(|(_, stops)| {
-                stops
-                    .iter()
-                    .map(|(_, time, _)| time)
-                    .eq(source.iter().map(|(_, time, _)| time))
-            })
-        {
-            return None;
-        }
+        let item = self.item(address.item_id)?;
+        let track = self.animation_track(item.id, address.effect_id, &address.path())?;
+        let clock = item.animation_clock(track);
+        let indices = track.stop_indices_for_segment(clock.progress_at(time));
+        let segment = (indices.len() == 2).then(|| indices[0]);
         Some(
-            source
-                .iter()
-                .enumerate()
-                .map(|(offset, (_, time, value))| AnimationStopEdit {
-                    value: (*value).clone(),
-                    mixed: tracks
-                        .iter()
-                        .skip(1)
-                        .any(|(_, stops)| stops[offset].2 != *value),
-                    targets: tracks
-                        .iter()
-                        .map(|(address, stops)| {
-                            (
-                                address.clone(),
-                                stops[offset].0,
-                                (stops.len() == 2).then_some(stops[0].0),
-                            )
-                        })
-                        .collect(),
-                    time: *time,
-                    context: self.edit_context(),
+            indices
+                .into_iter()
+                .map(|index| {
+                    let stop = &track.stops()[index];
+                    AnimationStopEdit {
+                        value: stop.value().clone(),
+                        address: address.clone(),
+                        index,
+                        segment,
+                        time: clock.time_at(stop.position()).rounded(),
+                        context: self.edit_context(),
+                    }
                 })
                 .collect(),
         )
@@ -165,8 +123,9 @@ impl TimelineEditor {
         let stop = track.stops().get(index)?;
         Some(AnimationStopEdit {
             value: stop.value().clone(),
-            mixed: false,
-            targets: vec![(address.clone(), index, None)],
+            address: address.clone(),
+            index,
+            segment: None,
             time: item
                 .animation_clock(track)
                 .time_at(stop.position())
@@ -175,48 +134,36 @@ impl TimelineEditor {
         })
     }
 
-    /// Write exactly the targets resolved for a displayed input. Reject stale
-    /// controls and validate every value before changing any track.
+    /// Reject stale controls and validate the value before changing the track.
     pub fn set_property_animation_stop(
         &mut self,
         stop: &AnimationStopEdit,
         value: PropertyValue,
     ) -> bool {
+        let address = &stop.address;
         if stop.context != self.edit_context()
-            || !stop.targets.iter().all(|(address, index, _)| {
-                self.is_item_selected(address.item_id)
-                    && address.schema(self).is_some_and(|schema| {
-                        schema.is_editable(address.scalar_index)
-                            && schema
-                                .scalar_type(address.element_id, address.scalar_index)
-                                .is_some_and(|ty| ty.allows(&value))
-                            && schema
-                                .configuration_constraints(address.scalar_index)
-                                .allows(&value)
-                    })
-                    && self
-                        .animation_track(address.item_id, address.effect_id, &address.path())
-                        .is_some_and(|track| track.stops().get(*index).is_some())
+            || !self.is_item_selected(address.item_id)
+            || !address.schema(self).is_some_and(|schema| {
+                schema.is_editable(address.scalar_index)
+                    && schema
+                        .scalar_type(address.element_id, address.scalar_index)
+                        .is_some_and(|ty| ty.allows(&value))
+                    && schema
+                        .configuration_constraints(address.scalar_index)
+                        .allows(&value)
             })
+            || self
+                .animation_track(address.item_id, address.effect_id, &address.path())
+                .is_none_or(|track| track.stops().get(stop.index).is_none())
         {
             return false;
         }
-        let key = HistoryKey::AnimationStopValue(
-            stop.targets
-                .iter()
-                .map(|(address, _, _)| address.clone())
-                .collect(),
-            stop.time,
-        );
+        let key = HistoryKey::AnimationStopValue(address.clone(), stop.time);
         self.edit_project_if_changed(Some(key), |editor| {
-            let mut changed = false;
-            for (address, index, segment) in &stop.targets {
-                changed |= editor
-                    .animation_track_mut(address.item_id, address.effect_id, &address.path())
-                    .expect("resolved animation track must exist")
-                    .set_stop(*index, value.clone(), *segment);
-            }
-            changed
+            editor
+                .animation_track_mut(address.item_id, address.effect_id, &address.path())
+                .expect("resolved animation track must exist")
+                .set_stop(stop.index, value, stop.segment)
         })
     }
 
@@ -245,7 +192,7 @@ impl TimelineEditor {
             address.scalar_index,
         )?;
         let stop_time = item.animation_clock(track).time_at(position).rounded();
-        let key = HistoryKey::AnimationStopValue(vec![address.clone()], stop_time);
+        let key = HistoryKey::AnimationStopValue(address.clone(), stop_time);
         self.edit_project_option(Some(key), |editor| {
             editor
                 .animation_track_mut(address.item_id, address.effect_id, &address.path())?

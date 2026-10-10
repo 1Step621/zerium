@@ -1,5 +1,5 @@
 use crate::timeline::{
-    EditScope, EffectInstance, EffectInstanceId, ItemId, SceneBindingOwner, TimelineEditor,
+    EffectInstance, EffectInstanceId, ItemId, SceneBindingOwner, TimelineEditor,
 };
 
 use super::TimelineEditError;
@@ -65,23 +65,17 @@ impl TimelineEditor {
 
     pub fn move_effect(
         &mut self,
-        scope: EditScope,
+        item_id: ItemId,
         effect_id: EffectInstanceId,
         offset: i32,
     ) -> bool {
-        let Some((target_index, effects)) = self.effect_move_target(scope, effect_id, offset)
-        else {
+        let Some(target_index) = self.effect_move_target(item_id, effect_id, offset) else {
             return false;
         };
         self.edit_project_if_changed(None, |editor| {
-            let mut changed = false;
-            for (item_id, effect_id) in effects {
-                changed |=
-                    editor
-                        .active_document_mut()
-                        .move_item_effect(item_id, effect_id, target_index);
-            }
-            changed
+            editor
+                .active_document_mut()
+                .move_item_effect(item_id, effect_id, target_index)
         })
     }
 
@@ -121,43 +115,17 @@ impl TimelineEditor {
 
     pub(in crate::timeline) fn effect_move_target(
         &self,
-        scope: EditScope,
+        item_id: ItemId,
         effect_id: EffectInstanceId,
         offset: i32,
-    ) -> Option<(usize, Vec<(ItemId, EffectInstanceId)>)> {
-        let (source_index, effects) = self.effect_instances(scope, effect_id)?;
-        let target_index = source_index.checked_add_signed(offset as isize)?;
-        effects
-            .iter()
-            .all(|(id, _)| {
-                self.item(*id)
-                    .is_some_and(|item| target_index < item.effects.len())
-            })
-            .then_some((target_index, effects))
-    }
-
-    pub(in crate::timeline) fn effect_instances(
-        &self,
-        scope: EditScope,
-        effect_id: EffectInstanceId,
-    ) -> Option<(usize, Vec<(ItemId, EffectInstanceId)>)> {
-        let item_ids = scope.item_ids(self);
-        let (index, source) = item_ids.iter().find_map(|item_id| {
-            self.item(*item_id)?
-                .effects
-                .iter()
-                .enumerate()
-                .find(|(_, effect)| effect.id == effect_id)
-        })?;
-        let instances = item_ids
-            .into_iter()
-            .map(|item_id| {
-                let effect = self.active_document().item(item_id)?.effects.get(index)?;
-                (effect.plugin_id == source.plugin_id && effect.effect_id == source.effect_id)
-                    .then_some((item_id, effect.id))
-            })
-            .collect::<Option<Vec<_>>>()?;
-        Some((index, instances))
+    ) -> Option<usize> {
+        if !self.is_item_selected(item_id) {
+            return None;
+        }
+        let effects = &self.item(item_id)?.effects;
+        let index = effects.iter().position(|effect| effect.id == effect_id)?;
+        let target = index.checked_add_signed(offset as isize)?;
+        (target < effects.len() && target != index).then_some(target)
     }
 
     pub fn remove_item_effect(&mut self, item_id: ItemId, effect_id: EffectInstanceId) -> bool {
