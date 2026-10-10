@@ -5,8 +5,8 @@ use ::ui::{ActiveTheme as _, Kbd};
 use gpui::{
     Action, AnyElement, App, AsKeystroke as _, Bounds, Context, DispatchPhase, Element, ElementId,
     Entity, Global, GlobalElementId, Hitbox, HitboxBehavior, InspectorElementId, IntoElement,
-    Keystroke, LayoutId, Modifiers, MouseMoveEvent, Pixels, Render, SharedString, Window, WindowId,
-    canvas, div, prelude::*, px,
+    Keystroke, LayoutId, Modifiers, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Render,
+    SharedString, Window, WindowId, canvas, div, prelude::*, px,
 };
 use rust_i18n::t;
 
@@ -67,7 +67,7 @@ impl Hint {
                     if keys.is_empty() {
                         input
                     } else {
-                        format!("{keys} + {input}")
+                        format!("{keys}+{input}")
                     },
                     *modifiers,
                 )
@@ -200,6 +200,7 @@ struct DisplayedHint {
 
 pub(crate) struct OperationHintBar {
     global_hints: HintsProvider,
+    pressed_hints: Option<Rc<[Hint]>>,
     displayed: Vec<DisplayedHint>,
 }
 
@@ -207,6 +208,7 @@ impl OperationHintBar {
     pub(crate) fn new(global_hints: impl Fn(&Window, &App) -> Vec<Hint> + 'static) -> Self {
         Self {
             global_hints: Box::new(global_hints),
+            pressed_hints: None,
             displayed: Vec::new(),
         }
     }
@@ -222,10 +224,26 @@ impl OperationHintBar {
                     window: window.window_handle().window_id(),
                     regions: Vec::new(),
                 });
+                let press_bar = bar.clone();
+                window.on_mouse_event(move |_: &MouseDownEvent, phase, window, cx| {
+                    if phase == DispatchPhase::Capture {
+                        // Capture the scope before the control changes focus or moves.
+                        let _ = press_bar.update(cx, |bar, cx| bar.refresh(window, cx));
+                    }
+                });
                 let mouse_bar = bar.clone();
                 window.on_mouse_event(move |_: &MouseMoveEvent, phase, window, cx| {
                     if phase == DispatchPhase::Capture {
                         let bar = mouse_bar.clone();
+                        window.defer(cx, move |window, cx| {
+                            let _ = bar.update(cx, |bar, cx| bar.refresh(window, cx));
+                        });
+                    }
+                });
+                let release_bar = bar.clone();
+                window.on_mouse_event(move |_: &MouseUpEvent, phase, window, cx| {
+                    if phase == DispatchPhase::Capture {
+                        let bar = release_bar.clone();
                         window.defer(cx, move |window, cx| {
                             let _ = bar.update(cx, |bar, cx| bar.refresh(window, cx));
                         });
@@ -245,8 +263,16 @@ impl OperationHintBar {
             .iter()
             .rev()
             .find(|region| region.hitbox.is_hovered(window));
-        let contextual = hover
-            .map(|region| region.hints.as_ref())
+        if window.pressed_mouse_button().is_none() {
+            self.pressed_hints = None;
+        } else if self.pressed_hints.is_none() {
+            // An empty scope is also retained until the button is released.
+            self.pressed_hints = Some(hover.map(|region| region.hints.clone()).unwrap_or_default());
+        }
+        let contextual = self
+            .pressed_hints
+            .as_deref()
+            .or_else(|| hover.map(|region| region.hints.as_ref()))
             .unwrap_or_default();
         let global = (self.global_hints)(window, cx);
         let displayed = global
