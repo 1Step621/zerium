@@ -81,6 +81,9 @@ fn generated_modules(contracts: &BTreeMap<String, ShaderContract>) -> BTreeMap<S
             + &capability_interface(&contract.input_ids);
         modules.insert(format!("{module}.wesl"), source);
     }
+    for source in modules.values_mut() {
+        *source = source.replace("\r\n", "\n");
+    }
     modules
 }
 
