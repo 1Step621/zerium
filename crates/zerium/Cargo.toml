@@ -47,5 +47,8 @@ zerium-shader.workspace = true
 windows = { version = "=0.62.0", default-features = false }
 winreg = { version = "0.56", optional = true }
 
+[build-dependencies]
+winresource = "0.1"
+
 [dev-dependencies]
 gpui = { package = "gpui-ce", git = "https://github.com/1Step621/WGPUI", branch = "fix/input-selection-replacement", features = ["test-support"] }
