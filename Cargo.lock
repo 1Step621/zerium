@@ -9052,7 +9052,7 @@ checksum = "6df3dc4292935e51816d896edcd52aa30bc297907c26167fec31e2b0c6a32524"
 
 [[package]]
 name = "zerium"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "bytemuck",
  "cosmic-text",
@@ -9087,7 +9087,7 @@ dependencies = [
 
 [[package]]
 name = "zerium-core"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "evalexpr",
  "naga",
@@ -9099,7 +9099,7 @@ dependencies = [
 
 [[package]]
 name = "zerium-shader"
-version = "0.1.4"
+version = "0.1.5"
 dependencies = [
  "naga",
  "thiserror 2.0.20",
