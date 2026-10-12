@@ -17,13 +17,17 @@ if (-not $vcRuntime) {
 
 # Official MSVC runtime and SDK; D3D12 shared-memory APIs require 1.26 or later.
 $gstVersion = '1.26.10'
-$gstRoot = Join-Path $env:RUNNER_TEMP 'gstreamer'
+$gstInstallDir = Join-Path $env:RUNNER_TEMP 'gstreamer'
+$gstRoot = Join-Path $gstInstallDir '1.0\msvc_x86_64'
 foreach ($component in @('gstreamer-1.0', 'gstreamer-1.0-devel')) {
     $name = "$component-msvc-x86_64-$gstVersion.msi"
     $installer = Join-Path $env:RUNNER_TEMP $name
     Invoke-WebRequest "https://gstreamer.freedesktop.org/data/pkg/windows/$gstVersion/msvc/$name" -OutFile $installer
-    $process = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/i', "`"$installer`"", '/quiet', '/norestart', 'ADDLOCAL=ALL', "INSTALLDIR=`"$gstRoot`"")
+    $process = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/i', "`"$installer`"", '/quiet', '/norestart', 'ADDLOCAL=ALL', "INSTALLDIR=`"$gstInstallDir`"")
     if ($process.ExitCode -notin @(0, 3010)) { throw "GStreamer installer failed: $($process.ExitCode)" }
+}
+if (-not (Test-Path (Join-Path $gstRoot 'lib\pkgconfig\glib-2.0.pc'))) {
+    throw "GStreamer development files were not installed in $gstRoot."
 }
 "GSTREAMER_ROOT=$gstRoot" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 "PKG_CONFIG_PATH=$gstRoot\lib\pkgconfig" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append

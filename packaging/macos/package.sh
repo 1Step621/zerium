@@ -16,8 +16,12 @@ bundle_version="${version%%[-+]*}"
 sed "s/__VERSION__/${bundle_version}/g" \
   packaging/macos/Info.plist > "$app_dir/Contents/Info.plist"
 mkdir -p "$app_dir/Contents/Frameworks/gstreamer-1.0"
-cp "$(pkg-config --variable=pluginsdir gstreamer-1.0)"/*.dylib \
-  "$app_dir/Contents/Frameworks/gstreamer-1.0/"
+for plugin in "$(pkg-config --variable=pluginsdir gstreamer-1.0)"/*.dylib; do
+  # Homebrew also links optional plugins whose separate formula is not installed.
+  if [[ -f "$plugin" ]]; then
+    cp "$plugin" "$app_dir/Contents/Frameworks/gstreamer-1.0/"
+  fi
+done
 cp "$(pkg-config --variable=libexecdir gstreamer-1.0)/gstreamer-1.0/gst-plugin-scanner" \
   "$app_dir/Contents/MacOS/gst-plugin-scanner"
 gst_binaries=(-x "$app_dir/Contents/MacOS/gst-plugin-scanner")
