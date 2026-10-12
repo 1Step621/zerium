@@ -160,7 +160,8 @@ impl Preview {
             runtime.set_preview_renderer(renderer);
         });
         let audio_level_sampler = AudioLevelSampler::new(media_readers.clone());
-        let (video_playback, mut video_playback_events) = VideoPlaybackEngine::new(media_readers);
+        let (video_playback, mut video_playback_events) =
+            VideoPlaybackEngine::new(media_readers, render_runtime.read(cx).renderer());
         let video_playback_task = cx.spawn(async move |preview, cx| {
             while let Some(event) = video_playback_events.next().await {
                 let Some(preview) = preview.upgrade() else {
@@ -168,8 +169,13 @@ impl Preview {
                 };
                 preview.update(cx, |preview, cx| {
                     let snapshot = preview.video_playback.handle_event(event);
+                    let redraw = preview.video_playback.needs_redraw()
+                        || preview.playback_error.as_deref() != snapshot.error.as_deref()
+                        || !snapshot.notifications.is_empty();
                     preview.handle_playback_snapshot(&snapshot, cx);
-                    cx.notify();
+                    if redraw {
+                        cx.notify();
+                    }
                 });
             }
         });

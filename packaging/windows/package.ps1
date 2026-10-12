@@ -20,8 +20,12 @@ if ($LASTEXITCODE -ne 0) {
 Copy-Item LICENSE $packageDir\LICENSE
 Copy-Item assets\inter\OFL.txt $packageDir\Inter-OFL.txt
 
-$ffmpegBin = 'target\ffmpeg-sdk\bin'
-Get-ChildItem "$ffmpegBin\*.dll" | Copy-Item -Destination $packageDir
+$gstRoot = $env:GSTREAMER_ROOT
+if (-not $gstRoot) { throw 'GSTREAMER_ROOT is not set.' }
+Get-ChildItem (Join-Path $gstRoot 'bin\*.dll') | Copy-Item -Destination $packageDir
+New-Item -ItemType Directory -Force "$packageDir\lib", "$packageDir\libexec\gstreamer-1.0" | Out-Null
+Copy-Item (Join-Path $gstRoot 'lib\gstreamer-1.0') "$packageDir\lib" -Recurse
+Copy-Item (Join-Path $gstRoot 'libexec\gstreamer-1.0\gst-plugin-scanner.exe') "$packageDir\libexec\gstreamer-1.0"
 $vcRuntimeDir = $env:VC_RUNTIME_DIR
 if (-not $vcRuntimeDir) {
     throw 'VC_RUNTIME_DIR is not set; install_dependencies.ps1 must run first.'

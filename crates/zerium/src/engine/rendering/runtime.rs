@@ -42,7 +42,7 @@ impl RenderRuntime {
 
     /// Creates the dedicated export device lazily, then gives each export an
     /// independent mutable rendering session.
-    pub(crate) fn export_session(&mut self) -> Result<Arc<FrameRenderer>, RenderError> {
+    pub(crate) fn export_session(&mut self) -> Result<FrameRenderer, RenderError> {
         let device = match &self.export_device {
             Some(device) => device.clone(),
             None => {
@@ -51,7 +51,7 @@ impl RenderRuntime {
                 device
             }
         };
-        Ok(Arc::new(device.create_session()))
+        Ok(device.create_session())
     }
 
     pub(crate) fn create_preview_renderer(

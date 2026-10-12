@@ -1,24 +1,18 @@
-mod atomic_file;
-mod audio_source;
-mod audio_timeline;
-mod ffmpeg;
-mod ffmpeg_encoder;
-mod ffmpeg_next;
+//! Media reading, metadata refresh, and playback preparation.
+mod audio;
+mod image;
 mod metadata;
 mod reader;
-mod svg;
+mod video;
+mod visual;
 
-pub(crate) use atomic_file::AtomicFileTransaction;
-pub(crate) use audio_timeline::{
+pub(crate) use audio::{
     AudioClipId, AudioGainEvaluation, AudioTimelineError, AudioTimelineGraph, sample_boundary,
 };
-pub(crate) use ffmpeg_encoder::{
-    FfmpegFileEncoder, VideoColorSpec, VideoEncoderSettings, VideoOutputSpec,
-};
-pub(crate) use ffmpeg_next::estimate_max_keyframe_gap;
 pub(crate) use metadata::{MediaMetadataUpdater, item_readings, prepare_import, refresh_files};
-pub(crate) use reader::bundled_media_readers;
+pub(super) use reader::{AudioDecoderSession, DecodedAudioBlock, VideoDecoderSession};
 pub(crate) use reader::{
     AudioFormat, DecodedVideoFrame, MediaError, MediaInputId, MediaReaderRegistry, VideoDecodeSize,
-    VideoProxy, VideoProxyRequest, VisualDecoderSession,
+    bundled_media_readers,
 };
+pub(crate) use visual::{MediaFrameRequest, VisualDecoder};

@@ -33,6 +33,8 @@
   </array>
   <key>CFBundleShortVersionString</key>
   <string>__VERSION__</string>
+  <key>LSMinimumSystemVersion</key>
+  <string>13.0</string>
   <key>CFBundleVersion</key>
   <string>__VERSION__</string>
 </dict>

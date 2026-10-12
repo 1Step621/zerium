@@ -2,7 +2,7 @@
 
 use std::{fs, path::Path};
 
-use crate::engine::media::AtomicFileTransaction;
+use super::atomic_file::AtomicFileTransaction;
 use zerium_core::{
     persistence::{self, LoadedProject, ProjectError},
     plugin::PluginRegistry,

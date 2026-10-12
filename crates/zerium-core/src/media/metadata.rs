@@ -10,8 +10,11 @@ pub enum MediaKind {
     Video {
         width: u32,
         height: u32,
-        frame_rate: VideoFrameRate,
-        frame_count: u64,
+        /// Nominal cadence, if reported by the stream. Variable-rate streams
+        /// may omit it; decoded timestamps define their frame intervals.
+        frame_rate: Option<VideoFrameRate>,
+        /// Estimated count when a nominal cadence is available.
+        frame_count: Option<u64>,
     },
     Audio {
         channels: Option<u32>,
@@ -23,10 +26,10 @@ pub enum MediaKind {
     },
 }
 
-/// The native cadence of a video stream.
+/// The nominal cadence reported by a video stream.
 ///
-/// This belongs to the media asset rather than the timeline: a timeline frame
-/// is mapped to a native video frame by time before decoding or caching it.
+/// This belongs to the media asset rather than the timeline. Actual decoded
+/// timestamps determine which video frame covers a requested time.
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash, Serialize)]
 #[serde(try_from = "[u32; 2]", into = "[u32; 2]")]
 pub struct VideoFrameRate {
@@ -123,7 +126,10 @@ impl MediaMetadata {
             return Err(MediaMetadataError::InvalidDimensions);
         }
         match self.kind {
-            MediaKind::Video { frame_count: 0, .. } => {
+            MediaKind::Video {
+                frame_count: Some(0),
+                ..
+            } => {
                 return Err(MediaMetadataError::EmptyVideo);
             }
             MediaKind::Audio {

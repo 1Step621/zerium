@@ -13,7 +13,9 @@ const WINDOW_ICON_PNG: &[u8] = include_bytes!("../../../../assets/zerium.png");
 
 pub(crate) fn run(initial_project: Option<PathBuf>) {
     crate::i18n::initialize();
-    let application = Application::with_locale(crate::i18n::locale());
+    let wgpu_options = crate::engine::gstreamer::encoding::wgpu_options();
+    let application =
+        Application::with_wgpu_options_and_locale(wgpu_options, Some(crate::i18n::locale()));
     let open_project = Rc::new(RefCell::new(None::<Box<dyn FnMut(PathBuf)>>));
     application.on_open_urls({
         let open_project = open_project.clone();

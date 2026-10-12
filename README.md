@@ -31,10 +31,12 @@ For NixOS or nix-darwin, add Zerium as a flake input:
 ```nix
 {
   inputs.zerium.url = "github:1Step621/zerium";
+  inputs.zerium.inputs.nixpkgs.follows = "nixpkgs";
 }
 ```
 
-Then add it to your system packages:
+Sharing your system's `nixpkgs` keeps the graphics driver and application libraries
+compatible. Then add it to your system packages:
 
 ```nix
 { inputs, pkgs, ... }:

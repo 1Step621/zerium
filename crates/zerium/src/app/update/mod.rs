@@ -2,7 +2,6 @@ use gpui::{App, AppContext as _};
 use velopack::{UpdateCheck, UpdateManager, sources::GithubSource};
 
 #[cfg(target_os = "windows")]
-#[path = "windows_install.rs"]
 mod windows_install;
 
 pub(crate) fn initialize() {

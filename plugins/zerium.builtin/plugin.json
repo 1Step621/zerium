@@ -1473,7 +1473,7 @@
             "type": "media",
             "id": "source",
             "file": "source",
-            "reader": "zerium.ffmpeg",
+            "reader": "zerium.video",
             "playback": {
               "source_start": "source_start",
               "source_duration": "source_duration",
@@ -1492,7 +1492,7 @@
         {
           "id": "source",
           "file": "source",
-          "reader": "zerium.ffmpeg",
+          "reader": "zerium.audio",
           "volume": "volume",
           "preserve_pitch": "preserve_pitch",
           "playback": {
@@ -1684,7 +1684,7 @@
             "type": "media",
             "id": "source",
             "file": "source",
-            "reader": "zerium.ffmpeg",
+            "reader": "zerium.image",
             "placement": {
               "position": "position",
               "size": "size",
@@ -1927,7 +1927,7 @@
         {
           "id": "source",
           "file": "source",
-          "reader": "zerium.ffmpeg",
+          "reader": "zerium.audio",
           "volume": "volume",
           "preserve_pitch": "preserve_pitch",
           "playback": {

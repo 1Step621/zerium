@@ -6,16 +6,18 @@ use super::scene::{
     RenderEffectPassKind, RenderError, RenderItemSource, RenderScene, RenderSize, RenderView,
 };
 use super::surface::SurfaceRect;
+use super::video_upload::YuvUpload;
 use super::{FrameRenderer, PROPERTY_WORD_SIZE, SCENE_FORMAT, VIDEO_FRAME_FORMAT};
-use crate::engine::frame::RgbaFrame;
+use crate::engine::frame::{FrameData, PixelFrame, PixelPlane, VideoPixels};
+use crate::engine::gstreamer::gpu::NativeVideoPipeline;
 use std::num::NonZeroU64;
 use std::sync::Arc;
 use zerium_core::timeline::BlendMode;
 
 pub(super) struct TextureResource {
     pub(super) input_count: usize,
-    pub(super) frame_target: RenderTarget,
-    _uploaded_frames: Vec<Arc<UploadedVideoFrame>>,
+    pub(super) frame_target: Option<RenderTarget>,
+    pub(super) uploaded_frames: Vec<Arc<UploadedVideoFrame>>,
     _input_properties: wgpu::Buffer,
     _item: wgpu::Buffer,
     _item_properties: wgpu::Buffer,
@@ -23,24 +25,26 @@ pub(super) struct TextureResource {
 }
 
 pub(super) struct UploadedVideoFrame {
-    pub(super) frame: Arc<RgbaFrame>,
+    pub(super) frame: Arc<PixelFrame>,
     _texture: wgpu::Texture,
     pub(super) view: wgpu::TextureView,
 }
 
 #[derive(Default)]
 pub(super) struct VideoTextureCache {
-    // Adjacent project ticks can refer to the same native video frame. Keeping
-    // only the previous scene avoids uploading it twice without mirroring the
-    // much larger CPU frame cache in GPU memory.
+    // Adjacent project ticks share uploaded views. The decoded frame cache owns
+    // each video's final texture and accounts for its GPU memory.
     previous_scene: Vec<Arc<UploadedVideoFrame>>,
-    // Per-frame transient buffers for texture items. Recreating them every
-    // frame stalls the driver under GPU memory pressure, so matching shapes
-    // are parked here and rewritten instead.
-    scratch: Vec<ScratchTextureBuffers>,
+    // Upload planes are scratch resources; converted frames keep only their
+    // final texture. Queue ordering lets consecutive frames reuse this slot.
+    yuv_upload: Option<YuvUpload>,
+    // Texture-item buffers and optional capability targets from the last scene.
+    // Matching shapes are reused instead of allocated on every frame.
+    scratch: Vec<ScratchTextureResources>,
 }
 
-pub(super) struct ScratchTextureBuffers {
+pub(super) struct ScratchTextureResources {
+    frame_target: Option<RenderTarget>,
     pub(super) input_count: usize,
     pub(super) property_size: usize,
     pub(super) input_properties: wgpu::Buffer,
@@ -200,8 +204,11 @@ impl FrameRenderer {
             .video_textures
             .lock()
             .map_err(|_| RenderError::backend("video texture cache lock poisoned"))?;
+        // Drop unmatched resources so changing scenes cannot grow the pool.
+        cache.scratch.clear();
         for resource in resources {
-            cache.scratch.push(ScratchTextureBuffers {
+            cache.scratch.push(ScratchTextureResources {
+                frame_target: resource.frame_target,
                 input_count: resource.input_count,
                 property_size: usize::try_from(resource._item_properties.size()).map_err(|_| {
                     RenderError::backend("texture item property size exceeds usize")
@@ -742,18 +749,24 @@ impl FrameRenderer {
                         let reusable = cache.previous_scene.iter().position(|uploaded| {
                             uploaded.frame.width == frame.width
                                 && uploaded.frame.height == frame.height
+                                && !matches!(uploaded.frame.data, FrameData::Video(_))
+                                && !matches!(frame.data, FrameData::Video(_))
                                 && Arc::strong_count(uploaded) == 1
                                 && !desired_frames
                                     .iter()
                                     .any(|desired| Arc::ptr_eq(&uploaded.frame, desired))
                         });
                         let Some(reusable) = reusable else {
-                            return self.upload_video_frame(frame.clone());
+                            return self.upload_video_frame(frame.clone(), &mut cache.yuv_upload);
                         };
                         let mut uploaded = cache.previous_scene.swap_remove(reusable);
                         let slot = Arc::get_mut(&mut uploaded)
                             .expect("reusable video texture must have a single owner");
-                        self.update_uploaded_video_frame(slot, frame.clone())?;
+                        self.update_uploaded_video_frame(
+                            slot,
+                            frame.clone(),
+                            &mut cache.yuv_upload,
+                        )?;
                         Ok(uploaded)
                     })?;
                 if !current_scene
@@ -783,13 +796,23 @@ impl FrameRenderer {
                     0.,
                 ],
             });
+            let frame = frames
+                .first()
+                .ok_or_else(|| RenderError::backend("capability texture has no frame"))?;
+            let extent = Self::video_frame_extent(frame)?;
             let item_property_size = encoded.properties.len().max(PROPERTY_WORD_SIZE);
             let scratch_index = cache.scratch.iter().position(|scratch| {
-                scratch.input_count == input_count && scratch.property_size == item_property_size
+                scratch.input_count == input_count
+                    && scratch.property_size == item_property_size
+                    && scratch
+                        .frame_target
+                        .as_ref()
+                        .is_none_or(|target| target.texture.size() == extent)
             });
             let scratch = match scratch_index {
                 Some(index) => cache.scratch.swap_remove(index),
-                None => ScratchTextureBuffers {
+                None => ScratchTextureResources {
+                    frame_target: None,
                     input_count,
                     property_size: item_property_size,
                     input_properties: self.shared.device.create_buffer(&wgpu::BufferDescriptor {
@@ -886,28 +909,10 @@ impl FrameRenderer {
                         entries: &bind_entries,
                     })
             };
-            let frame = frames
-                .first()
-                .ok_or_else(|| RenderError::backend("capability texture has no frame"))?;
-            let texture = self.shared.device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("zerium-capability-frame-target"),
-                size: Self::video_frame_extent(frame)?,
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
-                format: SCENE_FORMAT,
-                usage: wgpu::TextureUsages::RENDER_ATTACHMENT
-                    | wgpu::TextureUsages::TEXTURE_BINDING,
-                view_formats: &[],
-            });
-            let frame_target = RenderTarget {
-                view: texture.create_view(&Default::default()),
-                texture,
-            };
             resources.push(TextureResource {
                 input_count,
-                frame_target,
-                _uploaded_frames: uploaded_frames,
+                frame_target: scratch.frame_target,
+                uploaded_frames,
                 _input_properties: input_properties,
                 _item: item,
                 _item_properties: item_properties,
@@ -918,10 +923,23 @@ impl FrameRenderer {
         Ok(resources)
     }
 
+    pub(crate) fn retain_video_frame(&self, frame: &PixelFrame) -> Result<(), RenderError> {
+        if !matches!(frame.data, FrameData::Video(_)) {
+            return Ok(());
+        }
+        let mut cache = self
+            .video_textures
+            .lock()
+            .map_err(|_| RenderError::backend("video texture cache lock poisoned"))?;
+        self.upload_video_frame(Arc::new(frame.clone()), &mut cache.yuv_upload)?;
+        Ok(())
+    }
+
     pub(super) fn update_uploaded_video_frame(
         &self,
         uploaded: &mut UploadedVideoFrame,
-        frame: Arc<RgbaFrame>,
+        frame: Arc<PixelFrame>,
+        yuv_upload: &mut Option<YuvUpload>,
     ) -> Result<(), RenderError> {
         if uploaded.frame.width != frame.width || uploaded.frame.height != frame.height {
             return Err(RenderError::backend(
@@ -929,16 +947,29 @@ impl FrameRenderer {
             ));
         }
         let extent = Self::video_frame_extent(&frame)?;
-        self.write_video_frame(&uploaded._texture, &frame, extent);
+        self.write_video_frame(&uploaded._texture, &frame, extent, yuv_upload)?;
         uploaded.frame = frame;
         Ok(())
     }
 
     pub(super) fn upload_video_frame(
         &self,
-        frame: Arc<RgbaFrame>,
+        frame: Arc<PixelFrame>,
+        yuv_upload: &mut Option<YuvUpload>,
     ) -> Result<Arc<UploadedVideoFrame>, RenderError> {
         let extent = Self::video_frame_extent(&frame)?;
+        if let FrameData::Video(video) = &frame.data
+            && let Some(texture) = video
+                .texture(&self.shared.device)
+                .map_err(|e| RenderError::backend(e.to_string()))?
+        {
+            let view = texture.create_view(&Default::default());
+            return Ok(Arc::new(UploadedVideoFrame {
+                frame,
+                _texture: texture,
+                view,
+            }));
+        }
         let texture = self.shared.device.create_texture(&wgpu::TextureDescriptor {
             label: Some("zerium-video-frame-texture"),
             size: extent,
@@ -946,10 +977,12 @@ impl FrameRenderer {
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
             format: VIDEO_FRAME_FORMAT,
-            usage: wgpu::TextureUsages::COPY_DST | wgpu::TextureUsages::TEXTURE_BINDING,
-            view_formats: &[],
+            usage: wgpu::TextureUsages::COPY_DST
+                | wgpu::TextureUsages::TEXTURE_BINDING
+                | wgpu::TextureUsages::RENDER_ATTACHMENT,
+            view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
         });
-        self.write_video_frame(&texture, &frame, extent);
+        self.write_video_frame(&texture, &frame, extent, yuv_upload)?;
         let view = texture.create_view(&Default::default());
         Ok(Arc::new(UploadedVideoFrame {
             frame,
@@ -958,7 +991,20 @@ impl FrameRenderer {
         }))
     }
 
-    pub(super) fn video_frame_extent(frame: &RgbaFrame) -> Result<wgpu::Extent3d, RenderError> {
+    pub(super) fn video_frame_extent(frame: &PixelFrame) -> Result<wgpu::Extent3d, RenderError> {
+        if frame.width == 0 || frame.height == 0 {
+            return Err(RenderError::backend("video dimensions must be non-zero"));
+        }
+        if let FrameData::Video(video) = &frame.data {
+            if video.info.width() != frame.width || video.info.height() != frame.height {
+                return Err(RenderError::backend("Invalid decoded video dimensions"));
+            }
+            return Ok(wgpu::Extent3d {
+                width: frame.width,
+                height: frame.height,
+                depth_or_array_layers: 1,
+            });
+        }
         let expected_len = usize::try_from(frame.width)
             .ok()
             .and_then(|width| {
@@ -968,10 +1014,10 @@ impl FrameRenderer {
             })
             .and_then(|pixels| pixels.checked_mul(4))
             .ok_or_else(|| RenderError::backend("video frame size overflow"))?;
-        if frame.rgba.len() != expected_len {
+        if frame.byte_len() != expected_len {
             return Err(RenderError::backend(format!(
                 "video frame has {} bytes but {} were expected",
-                frame.rgba.len(),
+                frame.byte_len(),
                 expected_len
             )));
         }
@@ -985,9 +1031,77 @@ impl FrameRenderer {
     pub(super) fn write_video_frame(
         &self,
         texture: &wgpu::Texture,
-        frame: &RgbaFrame,
+        frame: &PixelFrame,
         extent: wgpu::Extent3d,
-    ) {
+        yuv_upload: &mut Option<YuvUpload>,
+    ) -> Result<(), RenderError> {
+        match &frame.data {
+            FrameData::Rgba(bytes) => self.write_video_pixels(
+                texture,
+                extent,
+                VideoPixels::Rgba(PixelPlane {
+                    bytes,
+                    stride: frame.width * 4,
+                }),
+                yuv_upload,
+            )?,
+            FrameData::Video(video) => {
+                match NativeVideoPipeline::import(&self.shared.device, video)? {
+                    Some(input) => self.shared.native_video.convert(
+                        &self.shared.device,
+                        &self.shared.queue,
+                        input,
+                        texture,
+                    ),
+                    None => {
+                        let mapped = video
+                            .map_cpu_pixels()
+                            .map_err(|e| RenderError::backend(e.to_string()))?;
+                        let pixels = mapped
+                            .pixels()
+                            .map_err(|e| RenderError::backend(e.to_string()))?;
+                        self.write_video_pixels(texture, extent, pixels, yuv_upload)?;
+                    }
+                }
+                video.retain_texture(&self.shared.device, texture);
+            }
+        }
+        Ok(())
+    }
+
+    fn write_video_pixels(
+        &self,
+        texture: &wgpu::Texture,
+        extent: wgpu::Extent3d,
+        pixels: VideoPixels<'_>,
+        yuv_upload: &mut Option<YuvUpload>,
+    ) -> Result<(), RenderError> {
+        let plane = match pixels {
+            VideoPixels::Rgba(plane) => plane,
+            VideoPixels::Yuv { format, planes } => {
+                let pipeline = &self.shared.yuv_upload;
+                if yuv_upload
+                    .as_ref()
+                    .is_none_or(|upload| !upload.matches(extent.width, extent.height, &format))
+                {
+                    *yuv_upload = Some(pipeline.create_upload(
+                        &self.shared.device,
+                        extent.width,
+                        extent.height,
+                        &format,
+                    ));
+                }
+                pipeline.convert(
+                    &self.shared.device,
+                    &self.shared.queue,
+                    yuv_upload.as_ref().expect("YUV upload exists"),
+                    &format,
+                    &planes,
+                    texture,
+                );
+                return Ok(());
+            }
+        };
         self.shared.queue.write_texture(
             wgpu::TexelCopyTextureInfo {
                 texture,
@@ -995,13 +1109,14 @@ impl FrameRenderer {
                 origin: wgpu::Origin3d::ZERO,
                 aspect: wgpu::TextureAspect::All,
             },
-            &frame.rgba,
+            plane.bytes,
             wgpu::TexelCopyBufferLayout {
                 offset: 0,
-                bytes_per_row: Some(frame.width.saturating_mul(4)),
-                rows_per_image: Some(frame.height),
+                bytes_per_row: Some(plane.stride),
+                rows_per_image: Some(extent.height),
             },
             extent,
         );
+        Ok(())
     }
 }

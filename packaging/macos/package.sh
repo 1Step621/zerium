@@ -15,15 +15,24 @@ chmod +x "$app_dir/Contents/MacOS/zerium"
 bundle_version="${version%%[-+]*}"
 sed "s/__VERSION__/${bundle_version}/g" \
   packaging/macos/Info.plist > "$app_dir/Contents/Info.plist"
+mkdir -p "$app_dir/Contents/Frameworks/gstreamer-1.0"
+cp "$(pkg-config --variable=pluginsdir gstreamer-1.0)"/*.dylib \
+  "$app_dir/Contents/Frameworks/gstreamer-1.0/"
+cp "$(pkg-config --variable=libexecdir gstreamer-1.0)/gstreamer-1.0/gst-plugin-scanner" \
+  "$app_dir/Contents/MacOS/gst-plugin-scanner"
+gst_binaries=(-x "$app_dir/Contents/MacOS/gst-plugin-scanner")
+for plugin in "$app_dir/Contents/Frameworks/gstreamer-1.0/"*.dylib; do
+  gst_binaries+=(-x "$plugin")
+done
 dylibbundler \
   -od \
   -b \
   -ns \
   -x "$app_dir/Contents/MacOS/zerium" \
+  "${gst_binaries[@]}" \
   -d "$app_dir/Contents/Frameworks" \
   -p "@executable_path/../Frameworks/" \
-  -s "$(brew --prefix)/lib" \
-  -s "$(brew --prefix)/opt/ffmpeg/lib"
+  -s "$(brew --prefix)/lib"
 vpk pack --packId zerium --packTitle Zerium --packVersion "$version" \
   --packDir "$app_dir" --mainExe zerium --runtime osx-arm64 \
   --outputDir dist

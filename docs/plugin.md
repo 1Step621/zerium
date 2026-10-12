@@ -200,7 +200,7 @@ premultiplied color and are imported by ID from the generated entity interface.
   "type": "media",
   "id": "source",
   "file": "source_file",
-  "reader": "zerium.ffmpeg",
+  "reader": "zerium.video",
   "placement": { "position": "position", "size": "size", "origin": "origin" },
   "playback": {
     "source_start": "source_start",
@@ -211,9 +211,11 @@ premultiplied color and are imported by ID from the generated entity interface.
 }
 ```
 
-`file` references a file property; `reader` selects the decoder. Multiple inputs
-can share the file with different readers or playback settings. Missing frames
-produce a transparent texture.
+`file` references a file property; `reader` selects the decoder. The built-in
+`zerium.video` reader handles video, `zerium.image` handles raster images,
+`zerium.audio` handles audio streams (including those in video files), and
+`zerium.svg` handles SVG images. Multiple inputs can share the file with
+different readers or playback settings. Missing frames produce a transparent texture.
 
 `placement` is optional. Its position and size are two-`f32` tuples; its optional
 origin uses the [origin contract](#editor-features). The host uses placement to
@@ -233,7 +235,7 @@ inputs:
   "audio": [{
     "id": "sound",
     "file": "source_file",
-    "reader": "zerium.ffmpeg",
+    "reader": "zerium.audio",
     "volume": "volume",
     "preserve_pitch": "preserve_pitch",
     "playback": {

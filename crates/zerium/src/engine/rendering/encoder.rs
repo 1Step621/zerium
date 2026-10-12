@@ -66,7 +66,7 @@ struct RenderNodeContext<'a> {
     local_pool: &'a mut Vec<NodeResources>,
     available_local_resources: &'a mut Vec<NodeResources>,
     rendered_shared_nodes: &'a mut [bool],
-    textures: &'a [TextureResource],
+    textures: &'a mut [TextureResource],
 }
 
 struct PassBindings<'a> {
@@ -554,17 +554,30 @@ impl FrameRenderer {
             if let RenderNodeCommandKind::Source(RenderSourceCommand::Texture { index, shader }) =
                 &context.encoded.nodes[*capability].kind
             {
-                let texture = context.textures.get(*index).ok_or_else(|| {
+                let texture = context.textures.get_mut(*index).ok_or_else(|| {
                     RenderError::backend("capability texture resource is missing")
                 })?;
+                let frame = &texture.uploaded_frames[0].frame;
+                let target = texture.frame_target.get_or_insert_with(|| {
+                    RenderTarget::new(
+                        &self.shared.device,
+                        RenderSize {
+                            width: frame.width,
+                            height: frame.height,
+                        },
+                        wgpu::TextureUsages::RENDER_ATTACHMENT
+                            | wgpu::TextureUsages::TEXTURE_BINDING,
+                        "zerium-capability-frame-target",
+                    )
+                });
                 self.encode_texture_pass(
                     encoder,
-                    &texture.frame_target.view,
+                    &target.view,
                     &texture.binding,
                     shader,
                     wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
                 );
-                views.push(texture.frame_target.view.clone());
+                views.push(target.view.clone());
             } else {
                 views.push(self.render_surface(encoder, context, *capability)?.view);
             }
@@ -918,7 +931,7 @@ impl FrameRenderer {
         &self,
         encoder: &mut wgpu::CommandEncoder,
         resources: &FrameResources,
-        textures: &[TextureResource],
+        textures: &mut [TextureResource],
         scene: &EncodedScene,
         available_resources: Vec<NodeResources>,
     ) -> Result<FrameEncoding, RenderError> {
@@ -1053,7 +1066,7 @@ impl FrameRenderer {
         self.validate_scene(scene)?;
         let encoded = encode_scene(scene)?;
         let shared_node_count = encoded.shared_node_slots.iter().flatten().count();
-        let texture_resources = self.create_texture_resources(&encoded.textures)?;
+        let mut texture_resources = self.create_texture_resources(&encoded.textures)?;
         let mut frame_resources = self
             .frame_resources
             .lock()
@@ -1138,7 +1151,7 @@ impl FrameRenderer {
         let scene_encoding = self.encode_frame(
             &mut encoder,
             frame,
-            &texture_resources,
+            &mut texture_resources,
             &encoded,
             available_local_resources,
         )?;

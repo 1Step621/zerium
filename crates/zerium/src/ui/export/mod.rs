@@ -19,7 +19,7 @@ use gpui::{App, Context, Entity, SharedString, Subscription, Task, Window, div, 
 
 use crate::{
     engine::{
-        export::{ExportError, ExportProgress, ExportSettings, export_timeline},
+        export::{ExportError, ExportProgress, export_timeline},
         media::MediaReaderRegistry,
         rendering::RenderRuntime,
     },
@@ -338,7 +338,7 @@ impl ExportController {
                     cx.notify();
                     return;
                 };
-                renderer
+                renderer.fork()
             }
         };
         let snapshot = self.editor.read(cx).snapshot();
@@ -364,9 +364,7 @@ impl ExportController {
                 return;
             }
             let result = async {
-                let settings = ExportSettings {
-                    output: output.clone(),
-                };
+                let destination = output.clone();
                 let (progress_tx, mut progress_rx) = futures::channel::mpsc::unbounded();
                 // Blocking export runs on its own thread; the UI only consumes progress.
                 std::thread::Builder::new()
@@ -376,7 +374,7 @@ impl ExportController {
                             snapshot,
                             renderer,
                             media_readers,
-                            settings,
+                            destination,
                             &cancelled,
                             progress_tx.clone(),
                         );

@@ -1,12 +1,12 @@
-use super::scene::MediaFrameRequest;
 use super::scene::{
     RenderEffect, RenderItem, RenderItemSource, RenderNodeContent, RenderTemporalSample, RenderView,
 };
-use super::scene::{RenderError, RenderNode, RenderQuality, RenderScene, RenderSize, SceneNodeId};
+use super::scene::{RenderError, RenderNode, RenderScene, RenderSize, SceneNodeId};
 use super::surface::{SurfaceRect, item_bounds};
 use super::text::TextFrameRequest;
 use super::text::TextSourceId;
-use crate::engine::frame::RgbaFrame;
+use crate::engine::frame::PixelFrame;
+use crate::engine::media::{MediaFrameRequest, MediaInputId, VideoDecodeSize};
 use std::{collections::HashMap, sync::Arc};
 use zerium_core::plugin::{EffectPassSchema, TextureInput};
 use zerium_core::timeline::{
@@ -20,7 +20,7 @@ const MAX_TEMPORAL_DEPTH: usize = 4;
 const MAX_TEMPORAL_RENDER_NODES: usize = 4_096;
 
 type MediaFrameCache =
-    HashMap<(ItemId, Option<EffectInstanceId>, usize, u64, RenderSize), Option<Arc<RgbaFrame>>>;
+    HashMap<(ItemId, Option<EffectInstanceId>, usize, u64, RenderSize), Option<Arc<PixelFrame>>>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct RenderCacheKey {
@@ -149,7 +149,6 @@ impl<'a> InputSource<'a> {
 pub(super) struct SceneBuilder<'a, M, T> {
     timeline: &'a dyn TimelineView,
     size: RenderSize,
-    quality: RenderQuality,
     nodes: Vec<RenderNode>,
     graph_cache: HashMap<u64, Arc<Vec<EvaluatedSceneNode>>>,
     compositions: HashMap<(u64, Vec<ItemId>), Arc<SceneCompositionPlan>>,
@@ -163,21 +162,19 @@ pub(super) struct SceneBuilder<'a, M, T> {
 impl<E, M, T> SceneBuilder<'_, M, T>
 where
     E: From<RenderError>,
-    M: FnMut(MediaFrameRequest<'_>) -> Result<Option<Arc<RgbaFrame>>, E>,
-    T: FnMut(TextFrameRequest<'_>) -> Result<Arc<RgbaFrame>, RenderError>,
+    M: FnMut(MediaFrameRequest) -> Result<Option<Arc<PixelFrame>>, E>,
+    T: FnMut(TextFrameRequest<'_>) -> Result<Arc<PixelFrame>, RenderError>,
 {
     pub(super) fn build(
         timeline: &dyn TimelineView,
         time: TimelineTime,
         size: RenderSize,
-        quality: RenderQuality,
         media_frame: M,
         text_frame: T,
     ) -> Result<RenderScene, E> {
         let mut builder = SceneBuilder {
             timeline,
             size,
-            quality,
             nodes: Vec::new(),
             graph_cache: HashMap::new(),
             compositions: HashMap::new(),
@@ -416,8 +413,7 @@ where
             ))
             .into());
         }
-        self.quality
-            .temporal_offsets(offsets)
+        offsets
             .into_iter()
             .map(|offset| {
                 self.temporal_nodes_remaining = self
@@ -461,24 +457,37 @@ where
                     let frame = match self.media_cache.entry(key) {
                         std::collections::hash_map::Entry::Occupied(entry) => entry.get().clone(),
                         std::collections::hash_map::Entry::Vacant(entry) => {
-                            let frame = (self.media_frame)(MediaFrameRequest {
+                            let input = MediaInputId {
                                 item_id: source.item_id,
                                 effect_id: source.effect_id,
-                                input_id: capability.id(),
-                                time,
+                                input_id: capability.id().to_owned(),
+                            };
+                            let size = RenderScene::media_raster_size_for_input(
+                                &node.item,
+                                source.effect_id,
+                                capability.id(),
                                 target_size,
-                            })?;
+                                RenderSize::from(self.timeline.resolution()),
+                            );
+                            let request = MediaFrameRequest::from_input(
+                                &node.item,
+                                input,
+                                node.item.local_seconds(time, self.timeline.frame_rate()),
+                                self.timeline.media_cache(),
+                                VideoDecodeSize {
+                                    max_width: size.width,
+                                    max_height: size.height,
+                                },
+                            );
+                            let frame = match request {
+                                Some(request) => (self.media_frame)(request)?,
+                                None => None,
+                            };
                             entry.insert(frame.clone());
                             frame
                         }
                     }
-                    .unwrap_or_else(|| {
-                        Arc::new(RgbaFrame {
-                            width: 1,
-                            height: 1,
-                            rgba: Arc::from([0u8; 4]),
-                        })
-                    });
+                    .unwrap_or_else(|| Arc::new(PixelFrame::rgba(1, 1, [0u8; 4])));
                     self.frame_node(frame, target_size)
                 }
                 TextureInput::Text { .. } | TextureInput::Number { .. } => {
@@ -549,7 +558,7 @@ where
         Ok(inputs)
     }
 
-    fn frame_node(&mut self, frame: Arc<RgbaFrame>, target_size: RenderSize) -> SceneNodeId {
+    fn frame_node(&mut self, frame: Arc<PixelFrame>, target_size: RenderSize) -> SceneNodeId {
         self.push_node(
             RenderNodeContent::Item(RenderItem {
                 shader: ItemShaderId::host_capability_frame(),

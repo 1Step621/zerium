@@ -9,96 +9,136 @@ zerium (application)
  └────────> zerium-core (models and editing)
 ```
 
-- [`zerium`](../crates/zerium/src/) owns startup, CLI dispatch, GPUI entities,
-  device and filesystem adapters, and embedded resources.
+- [`zerium`](../crates/zerium/src/) owns startup, GPUI entities, platform adapters,
+  and embedded resources.
 - [`zerium-core`](../crates/zerium-core/src/) owns project, property, animation,
   and plugin models, validation, and editing rules.
-- [`zerium-shader`](../crates/zerium-shader/src/) owns plugin asset loading,
-  generated WESL interfaces, linking, and shader validation.
+- [`zerium-shader`](../crates/zerium-shader/src/) loads plugin assets, generates
+  WESL interfaces, and validates and compiles shaders.
 
-Core and shader do not depend on GPUI, WGPU, FFmpeg, or application code.
+Core and shader do not depend on GPUI, wgpu, GStreamer, or application code.
 Within the application, `app` composes the runtime, `ui` translates user input
 into core commands, and `engine` handles media, rendering, export, and project
 I/O. Engine code must not depend on UI entities.
 
 ## Editing and evaluation
 
-Persistent changes go through `TimelineEditor`. Commands validate all affected
-values and bindings before committing, then record history and advance project
-revision. Each gesture or paste is one undoable edit. Selection, preview
-visibility, playhead, and history are session state; preview-only changes do not
-advance project revision or enter history.
+Persistent changes go through `TimelineEditor`. Commands validate values and
+bindings before committing, record history, and advance project revision.
+Each gesture or paste is one undoable edit. Selection, preview visibility,
+playhead, and history are session state; preview-only changes do not advance
+project revision or enter history.
 
 Editing, animation, scene bindings, and persistence share `PropertyPath`.
-Array elements have stable IDs, so reordering an array does not redirect its
-animations or bindings. The inspector's displayed item is a local editing
-target, independent of timeline selection and curve synchronization.
+Array elements have stable IDs, so reordering preserves their animations and
+bindings. The inspector's editing target is independent of timeline selection.
 
-Property resolution applies plugin defaults, scene arguments, animation, and
-constraints through one pipeline. Stored reads use `item`;
-resolved reads use `property_value` or `evaluated_property_value`. Inspector,
-rendering, and audio share this evaluation. Inspector controls come from
-property schemas; editor extensions are declared separately in plugins.
-
-Animation tracks address individual scalars. `AnimationClock` maps editable
-pattern positions to timeline time, including repeats. Evaluation, editing, and
-synchronization use this mapping. Beat guides affect editing only;
-`ui::time_grid` shares their frame-rounded positions and snap rules between the
-timeline and curve editor.
+Property evaluation applies plugin defaults, scene arguments, animation, and
+constraints through one pipeline shared by the inspector, rendering, and audio.
+Animation tracks address individual scalars; `AnimationClock` maps pattern
+positions to timeline time, including repeats. Beat guides affect editing only.
 
 ## Sessions and persistence
 
-Rendering and background work receive immutable `TimelineSnapshot`s and read
-through `TimelineView`. `ProjectSession` tracks project generations so results
+Rendering reads through `TimelineView`; background work receives immutable
+`TimelineSnapshot`s. `ProjectSession` identifies project generations so results
 from a replaced project can be ignored. `ProjectController` owns file-operation
-lifetimes and resets transient editor state when replacing a project. Project
-revisions are not reused when reopening a project, so old edit targets remain
-invalid. File selection and I/O share one session operation from start to finish.
+lifetimes and resets transient state when replacing a project. Reopening a
+project invalidates old edit targets.
 
 Project files store property overrides relative to plugin defaults. Loading
-applies validated overrides to current defaults. Project and clipboard input
-is validated before constructing core state; filesystem access and atomic
-replacement belong to `engine::project_io`.
+validates input and applies overrides to current defaults. Filesystem access
+and atomic replacement belong to `engine::project_io`.
 
-The system clipboard stores copied items. Effects and curve interpolation use
-separate application-local buffers. Item and effect pastes assign fresh IDs;
-all pastes use the usual command validation. Curve edits fix their synchronized
-targets before mutation.
+Clipboard input uses the same validation as project input. Item and effect
+pastes assign fresh IDs and go through the usual editing commands.
 
-## Plugins and rendering
+## Plugins
 
-Core validates manifests and provides registry lookup. Shader loads bundles and
-validates shader compatibility. The application embeds bundled plugins; plugin
-CLI commands use the same shader implementation. See [Plugin API v1](plugin.md)
+Core validates manifests and provides registry lookup. Shader loads bundles
+and validates shader compatibility. The application embeds bundled plugins;
+plugin CLI commands use the same implementation. See [Plugin API v1](plugin.md)
 for the authoring contract.
 
-FFmpeg handles probing, decoding, conversion, and encoding in process.
-`MediaReaderRegistry` connects declared inputs to concrete readers. Visual and
-audio playback use their own declared property references.
+## Media
 
-Preview and export share a `RenderRuntime` and compiled plugin shaders, with
-independent render sessions. `RendererDevice` owns immutable GPU state;
-`FrameRenderer` owns each session's resource pools. Timeline evaluation preserves
-scene boundaries and sample time, including for temporal effects.
+| Module | Responsibility |
+| --- | --- |
+| [`engine/media`](../crates/zerium/src/engine/media/) | Reader contracts, image/video/audio readers, metadata, and audio timelines |
+| [`engine/gstreamer/input`](../crates/zerium/src/engine/gstreamer/input/) | Audio/video discovery and persistent decoder pipelines |
+| [`engine/gstreamer/gpu`](../crates/zerium/src/engine/gstreamer/gpu/) | Native GPU surface import and conversion into wgpu textures |
+| [`engine/gstreamer/encoding`](../crates/zerium/src/engine/gstreamer/encoding/) | GPU/CPU encoding, audio encoding, and MP4 muxing |
 
-Blend mode is a persisted setting shared by all timeline items, separate from
-plugin properties. Item surfaces use declared bounds; scenes composite into the
-viewport before applying effects. Each item's completed surface is blended into
-its parent scene after its effects, using scene-linear colors and premultiplied
-alpha. Scene instances and render-result captures composite their children
-against a transparent backdrop before participating in the parent scene.
+Scene construction resolves media inputs into `MediaFrameRequest`s containing
+an asset, source time, and raster size. Preview and export use the same
+`VisualDecoder` implementation with independent sessions. Each session reuses
+its decoder while the asset remains unchanged.
+
+Video decodes at source resolution and selects frames by actual presentation
+timestamps. Nearby forward requests continue decoding; backward and distant
+requests seek to a preceding keyframe. Image readers honor requested raster sizes.
+
+Decoder sessions receive the consumer's GPU device and validate native import
+before publishing frames; unsupported surfaces select CPU output for the session.
+Linux negotiates the VA driver's actual DMA-BUF modifier and checks the consumer's
+support before import. Each uploaded video frame retains an owned GPU texture
+so decoder surfaces can be released. Input transfer and export encoding select
+their paths independently.
+
+Audio readers feed a shared timeline mixer. Preview sends mixed audio to CPAL;
+export sends it to the audio encoder.
+
+## Rendering
+
+[`engine/rendering`](../crates/zerium/src/engine/rendering/) builds scenes and
+composites them with wgpu. Preview and export share compiled plugin shaders and
+the rendering implementation. `RendererDevice` owns immutable GPU state;
+`FrameRenderer` owns each consumer's independent resource pools.
+
+Timeline evaluation preserves scene boundaries and temporal effect samples.
+Effects and blending operate in scene-linear light with premultiplied alpha.
+Each item's completed surface is blended into its parent after its effects;
+scene-instance effects run after their children are composited.
+
+## Preview
+
+[`engine/video_playback.rs`](../crates/zerium/src/engine/video_playback.rs)
+schedules only the frames needed by the current scene during playback,
+scrubbing, and stopping. Each input has at most one outstanding decode. When
+demand changes, that decode finishes and its result is cached before the next
+request is selected from the latest demand.
+
+A cache managed by a byte budget retains decoded frames. Preview displays the
+frame covering the requested time, or the closest cached frame while waiting.
+Workers prepare video textures before publishing results to the UI. The UI
+updates demand and redraws when the displayed candidate changes; unchanged
+frames skip scene construction and GPU rendering.
+
+## Export
+
+[`engine/export.rs`](../crates/zerium/src/engine/export.rs) freezes the timeline
+at export start and processes every output frame in order. Scene evaluation
+and decoding, GPU rendering, and encoding overlap through bounded queues.
+Export owns its decoder and rendering sessions independently of preview.
+
+The GPU converts rendered output to limited-range BT.709 NV12. Linux and Windows
+use `gpu-video` for Vulkan Video encoding; macOS uses VideoToolbox. Unsupported
+GPUs or encoder initialization failures select CPU readback and GStreamer's
+x264 encoder. The backend stays fixed for the export; subsequent failures
+are reported.
+
+GStreamer combines compressed H.264 video and AAC audio into MP4. Audio timing
+is adjusted to account for encoder priming. Output is written to a temporary
+file and published atomically only after successful completion.
 
 ## Localization
 
-Startup selects the shared `rust-i18n` locale used by core label accessors and
-the UI. User-authored names are plain text; the UI supplies translated defaults,
-and core owns uniqueness and document edits. Plugin label declarations and
-fallbacks are described in [Plugin API v1](plugin.md#manifest).
+Startup selects a shared `rust-i18n` locale for core labels and the UI.
+User-authored names are plain text; translated defaults come from the UI.
+Plugin label lookup is described in [Plugin API v1](plugin.md#manifest).
 
 ## Application updates
 
-The app checks GitHub Releases and downloads updates in a detached background
-task on launch. Velopack applies pending updates before normal startup on the
-next launch, preserving launch arguments. Failures are logged and retried on a
-later launch. Nix builds disable `self-update`, excluding the updater dependency;
-feature selection stays at the app module boundary.
+The app checks GitHub Releases in the background. Velopack applies pending
+updates before startup on the next launch, preserving launch arguments.
+Nix builds disable the `self-update` feature.

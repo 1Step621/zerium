@@ -4,7 +4,7 @@ use super::scene::{
     RenderNodeContent, RenderScene, RenderSize, RenderTemporalSample, RenderView, SceneNodeId,
 };
 use super::surface::SurfaceRect;
-use crate::engine::frame::RgbaFrame;
+use crate::engine::frame::PixelFrame;
 use bytemuck::{Pod, Zeroable};
 use std::collections::HashMap;
 use std::ops::Range;
@@ -235,7 +235,7 @@ pub(super) struct EncodedScene {
 
 pub(super) struct EncodedTexture {
     pub(super) shader: ItemShaderId,
-    pub(super) frames: Vec<Arc<RgbaFrame>>,
+    pub(super) frames: Vec<Arc<PixelFrame>>,
     pub(super) properties: Vec<u8>,
     pub(super) target_size: RenderSize,
     pub(super) composition_size: RenderSize,

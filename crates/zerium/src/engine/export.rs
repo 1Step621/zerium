@@ -8,33 +8,26 @@ use std::{
         mpsc,
     },
     thread,
-    time::Duration,
 };
 
 use thiserror::Error;
 
 use crate::engine::{
-    frame::RgbaFrame,
+    atomic_file::AtomicFileTransaction,
+    gstreamer::encoding::{
+        ExportFrame, ExportFramePipeline, FileEncoder, VideoEncoderSettings, VideoEncoding,
+        VideoOutputSpec,
+    },
     media::{
-        AtomicFileTransaction, AudioFormat, AudioGainEvaluation, AudioTimelineGraph,
-        FfmpegFileEncoder, MediaInputId, MediaReaderRegistry, VideoColorSpec, VideoDecodeSize,
-        VideoEncoderSettings, VideoOutputSpec, VisualDecoderSession, item_readings, refresh_files,
-        sample_boundary,
+        AudioFormat, AudioGainEvaluation, AudioTimelineGraph, MediaInputId, MediaReaderRegistry,
+        VisualDecoder, item_readings, refresh_files, sample_boundary,
     },
-    rendering::{
-        ExportFramePipeline, FrameRenderer, MediaFrameRequest, RenderQuality, RenderScene,
-        RenderSize, TextFrameCache,
-    },
+    rendering::{FrameRenderer, RenderScene, RenderSize, TextFrameCache},
 };
 use zerium_core::{
-    media::{MediaAsset, VideoFrameRate},
+    media::VideoFrameRate,
     timeline::{Frame, FrameRate, TimelineSnapshot, TimelineTime, TimelineView},
 };
-
-#[derive(Clone, Debug)]
-pub(crate) struct ExportSettings {
-    pub output: PathBuf,
-}
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub(crate) enum ExportError {
@@ -56,9 +49,13 @@ impl ExportError {
     }
 }
 
-struct ExportDecoder {
-    asset: MediaAsset,
-    decoder: VisualDecoderSession,
+impl From<crate::engine::gstreamer::encoding::EncoderError> for ExportError {
+    fn from(error: crate::engine::gstreamer::encoding::EncoderError) -> Self {
+        match error {
+            crate::engine::gstreamer::encoding::EncoderError::Cancelled => Self::Cancelled,
+            error => Self::encoding(error),
+        }
+    }
 }
 
 const EXPORT_AUDIO_FORMAT: AudioFormat = AudioFormat {
@@ -74,15 +71,15 @@ pub(crate) enum ExportProgress {
 }
 
 enum EncoderMessage {
-    Frame { index: u64, yuv: Vec<u8> },
+    Frame(ExportFrame),
     Complete,
 }
 
 pub(crate) fn export_timeline(
     timeline: TimelineSnapshot,
-    renderer: Arc<FrameRenderer>,
+    renderer: FrameRenderer,
     media_readers: Arc<MediaReaderRegistry>,
-    settings: ExportSettings,
+    output: PathBuf,
     cancelled: &AtomicBool,
     progress: futures::channel::mpsc::UnboundedSender<ExportProgress>,
 ) -> Result<(), ExportError> {
@@ -113,7 +110,6 @@ pub(crate) fn export_timeline(
     let output_spec = VideoOutputSpec {
         width: size.width,
         height: size.height,
-        color: VideoColorSpec::BT709_LIMITED,
     }
     .validate()
     .map_err(ExportError::encoding)?;
@@ -131,22 +127,37 @@ pub(crate) fn export_timeline(
     if cancelled.load(Ordering::Relaxed) {
         return Err(ExportError::Cancelled);
     }
-    let mut readbacks = ExportFramePipeline::new(renderer, size, EXPORT_PIPELINE_DEPTH)?;
+    let video_settings = VideoEncoderSettings {
+        output: output_spec,
+        frame_rate: video_frame_rate,
+        gop: frame_rate
+            .frames_per_second()
+            .round()
+            .clamp(1., f64::from(u32::MAX)) as u32,
+        audio: (!audio_graph.is_empty()).then_some(EXPORT_AUDIO_FORMAT),
+    };
+    let decode_device = renderer.gpu().0.clone();
+    let (mut frames, encoding) =
+        ExportFramePipeline::new(renderer, size, EXPORT_PIPELINE_DEPTH, video_settings)?;
     thread::scope(|scope| {
-        let output = settings.output;
         let (frames_to_encode, rendered_frames) = mpsc::sync_channel(EXPORT_PIPELINE_DEPTH);
+        let encoder_failed = frames.failure_signal();
         let encoder_worker = thread::Builder::new()
             .name("zerium-export-encoder".to_owned())
             .spawn_scoped(scope, move || {
-                encode_frames(
+                let result = encode_frames(
                     output,
-                    video_frame_rate,
+                    video_settings,
                     rendered_frames,
                     audio_graph,
                     frame_rate,
-                    output_spec,
+                    encoding,
                     cancelled,
-                )
+                );
+                if result.is_err() {
+                    encoder_failed.store(true, Ordering::Release);
+                }
+                result
             })
             .map_err(|error| {
                 ExportError::encoding(format!("Failed to start video encoding thread: {error}"))
@@ -160,6 +171,7 @@ pub(crate) fn export_timeline(
                 decode_scenes(
                     timeline,
                     media_readers,
+                    &decode_device,
                     size,
                     frame_count,
                     decoded_scenes_tx,
@@ -178,18 +190,22 @@ pub(crate) fn export_timeline(
                 let (frame_index, scene) = decoded_scenes_rx.recv().map_err(|_| {
                     ExportError::encoding("Video decoding thread terminated unexpectedly")
                 })??;
-                if let Some(frame) = readbacks.submit(frame_index, &scene)? {
+                if frames.is_full()
+                    && let Some(frame) = frames.finish_next(cancelled)?
+                {
                     send_frame(&frames_to_encode, frame)?;
                 }
+                frames.submit(frame_index, &scene, cancelled)?;
                 let _ =
                     progress.unbounded_send(ExportProgress::Frame(frame_index.saturating_add(1)));
             }
-            while let Some(frame) = readbacks.finish_next()? {
+            while let Some(frame) = frames.finish_next(cancelled)? {
                 if cancelled.load(Ordering::Relaxed) {
                     return Err(ExportError::Cancelled);
                 }
                 send_frame(&frames_to_encode, frame)?;
             }
+            frames.finish()?;
             frames_to_encode
                 .send(EncoderMessage::Complete)
                 .map_err(|_| ExportError::encoding("Video encoder terminated unexpectedly"))?;
@@ -208,6 +224,11 @@ pub(crate) fn export_timeline(
         if let Err(ExportError::Cancelled) = encoding_result {
             return Err(ExportError::Cancelled);
         }
+        if let Err(error) = &encoding_result
+            && !matches!(error, ExportError::Encoding(message) if message == "Export input closed before rendering completed")
+        {
+            return encoding_result;
+        }
         render_result?;
         decode_result
             .map_err(|_| ExportError::encoding("Video decoding thread terminated unexpectedly"))?;
@@ -218,13 +239,14 @@ pub(crate) fn export_timeline(
 fn decode_scenes(
     timeline: TimelineSnapshot,
     media_readers: Arc<MediaReaderRegistry>,
+    device: &wgpu::Device,
     size: RenderSize,
     frame_count: u64,
     scenes: mpsc::SyncSender<Result<(u64, RenderScene), ExportError>>,
     cancelled: &AtomicBool,
 ) {
     let composition_size = RenderSize::from(timeline.resolution());
-    let mut decoders = HashMap::<MediaInputId, ExportDecoder>::new();
+    let mut decoders = HashMap::<MediaInputId, VisualDecoder>::new();
     let mut text_frames = TextFrameCache::new();
     for frame_index in 0..frame_count {
         if cancelled.load(Ordering::Relaxed) {
@@ -238,9 +260,10 @@ fn decode_scenes(
             &timeline,
             render_time,
             size,
-            RenderQuality::Full,
             |request| {
-                decode_texture_frame(&timeline, request, &mut decoders, &media_readers, cancelled)
+                let decoder = decoders.entry(request.input.clone()).or_default();
+                let decoded = decoder.decode(&media_readers, &request, Some(device), cancelled)?;
+                Ok::<_, ExportError>(Some(Arc::new(decoded.frame)))
             },
             |request| text_frames.frame_for(request, composition_size),
         )
@@ -254,20 +277,20 @@ fn decode_scenes(
 
 fn send_frame(
     sender: &mpsc::SyncSender<EncoderMessage>,
-    (index, yuv): (u64, Vec<u8>),
+    frame: ExportFrame,
 ) -> Result<(), ExportError> {
     sender
-        .send(EncoderMessage::Frame { index, yuv })
+        .send(EncoderMessage::Frame(frame))
         .map_err(|_| ExportError::encoding("Video encoder terminated unexpectedly"))
 }
 
 fn encode_frames(
     output: PathBuf,
-    video_frame_rate: VideoFrameRate,
+    video_settings: VideoEncoderSettings,
     frames: mpsc::Receiver<EncoderMessage>,
     mut audio_graph: AudioTimelineGraph,
     frame_rate: FrameRate,
-    output_spec: VideoOutputSpec,
+    encoding: VideoEncoding,
     cancelled: &AtomicBool,
 ) -> Result<(), ExportError> {
     if cancelled.load(Ordering::Relaxed) {
@@ -280,29 +303,19 @@ fn encode_frames(
         ))
     })?;
     let has_audio = !audio_graph.is_empty();
-    let mut encoder = FfmpegFileEncoder::create(
+    let mut encoder = FileEncoder::create(
         transaction.temporary_path(),
-        VideoEncoderSettings {
-            output: output_spec,
-            frame_rate: video_frame_rate,
-            preset: "medium",
-            crf: 18,
-            gop: frame_rate
-                .frames_per_second()
-                .round()
-                .clamp(1., f64::from(u32::MAX)) as u32,
-            audio: has_audio.then_some(EXPORT_AUDIO_FORMAT),
-            container: Some("mp4"),
-            fast_start: true,
-        },
+        video_settings,
+        encoding,
+        cancelled,
     )
-    .map_err(ExportError::encoding)?;
+    .map_err(ExportError::from)?;
     for message in frames {
         if cancelled.load(Ordering::Relaxed) {
             return Err(ExportError::Cancelled);
         }
-        let EncoderMessage::Frame { index, yuv } = message else {
-            encoder.finish().map_err(ExportError::encoding)?;
+        let EncoderMessage::Frame(frame) = message else {
+            encoder.finish().map_err(ExportError::from)?;
             if cancelled.load(Ordering::Relaxed) {
                 return Err(ExportError::Cancelled);
             }
@@ -314,9 +327,8 @@ fn encode_frames(
             })?;
             return Ok(());
         };
-        encoder
-            .encode_yuv420p(&yuv, index)
-            .map_err(ExportError::encoding)?;
+        let index = frame.index;
+        encoder.encode_frame(frame).map_err(ExportError::from)?;
         if has_audio {
             let start = sample_boundary(index, frame_rate, EXPORT_AUDIO_FORMAT.sample_rate);
             let end = sample_boundary(
@@ -329,9 +341,7 @@ fn encode_frames(
             let audio = audio_graph
                 .render(start, frame_count)
                 .map_err(ExportError::encoding)?;
-            encoder
-                .encode_audio(&audio)
-                .map_err(ExportError::encoding)?;
+            encoder.encode_audio(&audio).map_err(ExportError::from)?;
         }
     }
     if cancelled.load(Ordering::Relaxed) {
@@ -340,79 +350,4 @@ fn encode_frames(
     Err(ExportError::encoding(
         "Export input closed before rendering completed",
     ))
-}
-
-fn decode_texture_frame(
-    timeline: &dyn TimelineView,
-    request: MediaFrameRequest<'_>,
-    decoders: &mut HashMap<MediaInputId, ExportDecoder>,
-    media_readers: &MediaReaderRegistry,
-    cancelled: &AtomicBool,
-) -> Result<Option<Arc<RgbaFrame>>, ExportError> {
-    let MediaFrameRequest {
-        item_id,
-        effect_id,
-        input_id,
-        time,
-        target_size,
-    } = request;
-    let Some(item) = timeline
-        .active_items_at_time(time)
-        .into_iter()
-        .find_map(|(_, item)| (item.id == item_id).then_some(item))
-    else {
-        return Ok(None);
-    };
-    let Some((asset, playback)) = item.media_input(effect_id, input_id, timeline.media_cache())
-    else {
-        return Ok(None);
-    };
-    let local_seconds = item.local_seconds(time, timeline.frame_rate());
-    let presentation_time = if asset.kind.is_temporal() {
-        let Some(sample) = playback.sample(local_seconds, asset.duration) else {
-            return Ok(None);
-        };
-        sample.time
-    } else {
-        Duration::ZERO
-    };
-    let id = MediaInputId {
-        item_id,
-        effect_id,
-        input_id: input_id.to_owned(),
-    };
-    let decoder = match decoders.entry(id) {
-        std::collections::hash_map::Entry::Occupied(mut entry) => {
-            if entry.get().asset != asset {
-                entry.insert(ExportDecoder {
-                    asset: asset.clone(),
-                    decoder: media_readers.open_visual_decoder(&asset)?,
-                });
-            }
-            entry.into_mut()
-        }
-        std::collections::hash_map::Entry::Vacant(entry) => {
-            let decoder = media_readers.open_visual_decoder(&asset)?;
-            entry.insert(ExportDecoder {
-                asset: asset.clone(),
-                decoder,
-            })
-        }
-    };
-    let decode_size = RenderScene::media_raster_size_for_input(
-        &item,
-        effect_id,
-        input_id,
-        target_size,
-        RenderSize::from(timeline.resolution()),
-    );
-    let decoded = decoder.decoder.decode_at(
-        presentation_time,
-        VideoDecodeSize {
-            max_width: decode_size.width,
-            max_height: decode_size.height,
-        },
-        cancelled,
-    )?;
-    Ok(Some(Arc::new(decoded.frame)))
 }

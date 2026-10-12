@@ -3,12 +3,9 @@ use std::time::Instant;
 
 use gpui::{App, Context, Entity};
 
-use crate::{
-    engine::audio_playback::{
-        AudioPlaybackEngine, AudioPlaybackError, AudioPlaybackEvent, AudioSourcePlan,
-        PlaybackClock, audio_plan,
-    },
-    engine::video_playback::VideoPlaybackMode,
+use crate::engine::audio_playback::{
+    AudioPlaybackEngine, AudioPlaybackError, AudioPlaybackEvent, AudioSourcePlan, PlaybackClock,
+    audio_plan,
 };
 use zerium_core::timeline::{Frame, FrameRate, TimelineEditor};
 
@@ -63,14 +60,6 @@ impl TransportController {
 
     pub(crate) fn is_playing(&self) -> bool {
         matches!(self.mode, TransportMode::Playing(_))
-    }
-
-    pub(crate) fn playback_mode(&self) -> VideoPlaybackMode {
-        match self.mode {
-            TransportMode::Stopped => VideoPlaybackMode::Idle,
-            TransportMode::Scrubbing(_) => VideoPlaybackMode::Scrubbing,
-            TransportMode::Playing(_) => VideoPlaybackMode::Playing,
-        }
     }
 
     pub(crate) fn audio_levels(&self, cx: &App) -> [f32; 2] {

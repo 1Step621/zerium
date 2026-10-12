@@ -1,49 +1,18 @@
 use super::scene_builder::SceneBuilder;
 use super::surface::{BoundsOperation, SurfaceRect};
 use super::text::TextFrameRequest;
-use crate::engine::frame::RgbaFrame;
+use crate::engine::frame::PixelFrame;
+use crate::engine::media::MediaFrameRequest;
 use std::sync::Arc;
 use thiserror::Error;
 use zerium_core::plugin::{
     ComputeDispatchDimension, EffectInputSpace, EffectPassSchema, ItemSchema, TextureInput,
 };
 use zerium_core::timeline::{
-    BlendMode, EffectInstance, EffectInstanceId, ItemId, ProjectResolution, TimelineItem,
-    TimelineTime, TimelineView,
+    BlendMode, EffectInstance, EffectInstanceId, ProjectResolution, TimelineItem, TimelineTime,
+    TimelineView,
 };
 use zerium_shader::{EffectShaderId, ItemShaderId};
-
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub(crate) enum RenderQuality {
-    #[default]
-    Full,
-    Realtime {
-        max_temporal_samples: usize,
-    },
-}
-
-impl RenderQuality {
-    pub(super) fn temporal_offsets(self, offsets: Vec<f64>) -> Vec<f64> {
-        let Self::Realtime {
-            max_temporal_samples,
-        } = self
-        else {
-            return offsets;
-        };
-        let limit = max_temporal_samples.max(1);
-        if offsets.len() <= limit {
-            return offsets;
-        }
-        let count = offsets.len();
-        (0..limit)
-            .map(|index| {
-                let bucket_center = (2 * index + 1) * count;
-                let source_index = (bucket_center / (2 * limit)).min(count - 1);
-                offsets[source_index]
-            })
-            .collect()
-    }
-}
 
 pub(super) type SceneNodeId = usize;
 
@@ -74,7 +43,7 @@ impl From<ProjectResolution> for RenderSize {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum RenderItemSource {
     Shader,
-    Texture(Vec<Arc<RgbaFrame>>),
+    Texture(Vec<Arc<PixelFrame>>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -158,15 +127,6 @@ pub(crate) struct RenderNode {
     pub blend_mode: BlendMode,
 }
 
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct MediaFrameRequest<'a> {
-    pub item_id: ItemId,
-    pub effect_id: Option<EffectInstanceId>,
-    pub input_id: &'a str,
-    pub time: TimelineTime,
-    pub target_size: RenderSize,
-}
-
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RenderScene {
     pub size: RenderSize,
@@ -180,7 +140,7 @@ pub(crate) struct RenderScene {
 impl RenderScene {
     /// The media capability declares its placement; the source decides how many
     /// of the requested pixels it can produce.
-    pub(crate) fn media_raster_size_for_input(
+    pub(super) fn media_raster_size_for_input(
         item: &TimelineItem,
         effect_id: Option<EffectInstanceId>,
         input_id: &str,
@@ -237,25 +197,6 @@ impl RenderScene {
         }
     }
 
-    pub(crate) fn render_size_for_item(
-        item: &TimelineItem,
-        size: RenderSize,
-    ) -> Result<RenderSize, RenderError> {
-        let render_scale = item
-            .effects
-            .iter()
-            .map(|effect| effect.schema().render().scale)
-            .max()
-            .unwrap_or(1);
-        size.checked_scale(render_scale).ok_or_else(|| {
-            RenderError::resource_limit(format!(
-                "item '{}' render size at scale {render_scale} overflows",
-                item.intrinsic_label()
-                    .unwrap_or_else(|| "unknown".to_owned())
-            ))
-        })
-    }
-
     pub(super) fn render_items(&self) -> Vec<&RenderItem> {
         self.nodes
             .iter()
@@ -304,11 +245,10 @@ impl RenderScene {
         timeline: &dyn TimelineView,
         time: TimelineTime,
         size: RenderSize,
-        quality: RenderQuality,
-        media_frame: impl FnMut(MediaFrameRequest<'_>) -> Result<Option<Arc<RgbaFrame>>, E>,
-        text_frame: impl FnMut(TextFrameRequest<'_>) -> Result<Arc<RgbaFrame>, RenderError>,
+        media_frame: impl FnMut(MediaFrameRequest) -> Result<Option<Arc<PixelFrame>>, E>,
+        text_frame: impl FnMut(TextFrameRequest<'_>) -> Result<Arc<PixelFrame>, RenderError>,
     ) -> Result<Self, E> {
-        SceneBuilder::build(timeline, time, size, quality, media_frame, text_frame)
+        SceneBuilder::build(timeline, time, size, media_frame, text_frame)
     }
 
     pub(crate) fn render_effect(

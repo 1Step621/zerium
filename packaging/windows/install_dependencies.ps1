@@ -1,16 +1,5 @@
 $ErrorActionPreference = 'Stop'
 
-$ffmpegArchive = Join-Path $env:RUNNER_TEMP 'ffmpeg-n9.0-latest-win64-gpl-shared-9.0.zip'
-# Dated autobuild releases are pruned by BtbN; the latest tag keeps a stable URL.
-$ffmpegUrl = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n9.0-latest-win64-gpl-shared-9.0.zip'
-Remove-Item -Recurse -Force target\ffmpeg-sdk -ErrorAction SilentlyContinue
-Invoke-WebRequest -Uri $ffmpegUrl -OutFile $ffmpegArchive
-Expand-Archive -Path $ffmpegArchive -DestinationPath target\ffmpeg-extract
-$ffmpegRoot = Get-ChildItem target\ffmpeg-extract -Directory | Select-Object -First 1
-Move-Item $ffmpegRoot.FullName target\ffmpeg-sdk
-Remove-Item -Recurse -Force target\ffmpeg-extract
-"FFMPEG_DIR=$env:GITHUB_WORKSPACE\target\ffmpeg-sdk" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
-
 $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
 $vsInstall = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
 $editbin = Get-ChildItem (Join-Path $vsInstall 'VC\Tools\MSVC\*\bin\Hostx64\x64\editbin.exe') -File |
@@ -25,3 +14,20 @@ if (-not $vcRuntime) {
     throw 'The x64 Visual C++ runtime was not found on the runner.'
 }
 "VC_RUNTIME_DIR=$($vcRuntime.FullName)" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+
+# Official MSVC runtime and SDK; D3D12 shared-memory APIs require 1.26 or later.
+$gstVersion = '1.26.10'
+$gstRoot = Join-Path $env:RUNNER_TEMP 'gstreamer'
+foreach ($component in @('gstreamer-1.0', 'gstreamer-1.0-devel')) {
+    $name = "$component-msvc-x86_64-$gstVersion.msi"
+    $installer = Join-Path $env:RUNNER_TEMP $name
+    Invoke-WebRequest "https://gstreamer.freedesktop.org/data/pkg/windows/$gstVersion/msvc/$name" -OutFile $installer
+    $process = Start-Process msiexec.exe -Wait -PassThru -ArgumentList @('/i', "`"$installer`"", '/quiet', '/norestart', 'ADDLOCAL=ALL', "INSTALLDIR=`"$gstRoot`"")
+    if ($process.ExitCode -notin @(0, 3010)) { throw "GStreamer installer failed: $($process.ExitCode)" }
+}
+"GSTREAMER_ROOT=$gstRoot" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+"PKG_CONFIG_PATH=$gstRoot\lib\pkgconfig" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+"$gstRoot\bin" | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
+# Rust's system-deps uses pkg-config even with the MSVC SDK.
+choco install pkgconfiglite --yes --no-progress
+if ($LASTEXITCODE -ne 0) { throw 'Failed to install pkg-config.' }

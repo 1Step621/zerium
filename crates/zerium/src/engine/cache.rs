@@ -13,14 +13,13 @@ struct CachedTimestampValue<V> {
 
 pub(crate) struct TimestampCacheHit<V> {
     pub(crate) presentation_time: Duration,
-    pub(crate) duration: Duration,
     pub(crate) value: V,
 }
 
 /// A byte-budgeted LRU cache keyed by media presentation timestamps.
 ///
-/// A lookup hits only when a cached frame's presentation interval covers the
-/// requested time. Otherwise the caller must decode.
+/// Exact lookups use presentation intervals; preview lookups may select the
+/// nearest cached frame while the requested time is being decoded.
 pub(crate) struct BudgetedTimestampCache<K, V> {
     sequences: HashMap<K, BTreeMap<u64, CachedTimestampValue<V>>>,
     total_cost: usize,
@@ -46,19 +45,7 @@ where
             .is_some()
     }
 
-    pub(crate) fn get_for_time(
-        &mut self,
-        sequence: &K,
-        presentation_time: Duration,
-    ) -> Option<TimestampCacheHit<V>>
-    where
-        V: Clone,
-    {
-        let position = self.position_for_time(sequence, presentation_time)?;
-        self.get_at(sequence, position)
-    }
-
-    pub(crate) fn get_nearest_at_or_before(
+    pub(crate) fn get_nearest(
         &mut self,
         sequence: &K,
         presentation_time: Duration,
@@ -67,25 +54,23 @@ where
         V: Clone,
     {
         let requested = timestamp_position(presentation_time);
-        let position = *self
-            .sequences
-            .get(sequence)?
-            .range(..=requested)
-            .next_back()?
-            .0;
-        self.get_at(sequence, position)
-    }
-
-    pub(crate) fn get_nearest_at_or_after(
-        &mut self,
-        sequence: &K,
-        presentation_time: Duration,
-    ) -> Option<TimestampCacheHit<V>>
-    where
-        V: Clone,
-    {
-        let requested = timestamp_position(presentation_time);
-        let position = *self.sequences.get(sequence)?.range(requested..).next()?.0;
+        let values = self.sequences.get(sequence)?;
+        let position = self
+            .position_for_time(sequence, presentation_time)
+            .or_else(|| {
+                let before = values
+                    .range(..=requested)
+                    .next_back()
+                    .map(|(position, _)| *position);
+                let after = values
+                    .range(requested..)
+                    .next()
+                    .map(|(position, _)| *position);
+                before
+                    .into_iter()
+                    .chain(after)
+                    .min_by_key(|position| (position.abs_diff(requested), *position))
+            })?;
         self.get_at(sequence, position)
     }
 
@@ -98,7 +83,6 @@ where
         cached.last_access = access;
         Some(TimestampCacheHit {
             presentation_time: Duration::from_nanos(position),
-            duration: cached.duration,
             value: cached.value.clone(),
         })
     }
@@ -140,10 +124,11 @@ where
             .collect::<HashSet<_>>();
 
         while self.total_cost > self.budget {
-            let candidate = self
-                .least_recently_used(|key| !protected.contains(key))
-                .or_else(|| self.least_recently_used(|_| true));
+            let candidate = self.least_recently_used(|key| !protected.contains(key));
             let Some((sequence, position)) = candidate else {
+                // The currently requested frames are required to render. They
+                // may exceed the budget (e.g. a single 8K RGBA frame); evicting
+                // them would turn a successful decode into a cache miss.
                 break;
             };
             self.remove(&sequence, position);
@@ -151,11 +136,13 @@ where
     }
 
     fn position_for_time(&self, sequence: &K, requested: Duration) -> Option<u64> {
+        // Match decoder selection at boundaries rounded one nanosecond apart.
         let requested = timestamp_position(requested);
+        let rounded = requested.saturating_add(1);
         let values = self.sequences.get(sequence)?;
-        let (position, cached) = values.range(..=requested).next_back()?;
+        let (position, cached) = values.range(..=rounded).next_back()?;
         let end = position.saturating_add(timestamp_position(cached.duration));
-        (requested < end || (cached.duration.is_zero() && requested == *position))
+        (rounded < end || (cached.duration.is_zero() && requested == *position))
             .then_some(*position)
     }
 

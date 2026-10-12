@@ -9,7 +9,7 @@ use cosmic_text::{
 };
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::engine::frame::RgbaFrame;
+use crate::engine::frame::PixelFrame;
 use zerium_core::plugin::{MAX_DECIMAL_PLACES, TextStyle, TextureInput};
 use zerium_core::property::{PropertyValue, PropertyValues};
 use zerium_core::timeline::{EffectInstanceId, ItemId, TimelineItem};
@@ -50,7 +50,7 @@ struct TextSignature {
 
 struct CachedTextFrame {
     signature: TextSignature,
-    frame: Arc<RgbaFrame>,
+    frame: Arc<PixelFrame>,
     last_used: u64,
 }
 
@@ -131,7 +131,7 @@ impl TextFrameCache {
                 break;
             };
             if let Some(evicted) = self.frames.remove(&candidate) {
-                self.resident_bytes = self.resident_bytes.saturating_sub(evicted.frame.rgba.len());
+                self.resident_bytes = self.resident_bytes.saturating_sub(evicted.frame.byte_len());
             }
         }
     }
@@ -140,7 +140,7 @@ impl TextFrameCache {
         &mut self,
         request: TextFrameRequest<'_>,
         composition_size: RenderSize,
-    ) -> Result<Arc<RgbaFrame>, RenderError> {
+    ) -> Result<Arc<PixelFrame>, RenderError> {
         let signature = Self::signature(&request, composition_size)?;
         let tick = self.next_tick();
         if let Some(cached) = self.frames.get_mut(&request.id)
@@ -150,14 +150,14 @@ impl TextFrameCache {
             return Ok(cached.frame.clone());
         }
         let frame = Arc::new(self.rasterize(&signature)?);
-        let bytes = frame.rgba.len();
+        let bytes = frame.byte_len();
         if bytes > self.byte_budget {
             return Ok(frame);
         }
         if let Some(replaced) = self.frames.remove(&request.id) {
             self.resident_bytes = self
                 .resident_bytes
-                .saturating_sub(replaced.frame.rgba.len());
+                .saturating_sub(replaced.frame.byte_len());
         }
         self.resident_bytes = self.resident_bytes.saturating_add(bytes);
         self.frames.insert(
@@ -174,7 +174,7 @@ impl TextFrameCache {
         {
             self.resident_bytes = self
                 .resident_bytes
-                .saturating_sub(uncached.frame.rgba.len());
+                .saturating_sub(uncached.frame.byte_len());
         }
         Ok(frame)
     }
@@ -270,7 +270,7 @@ impl TextFrameCache {
         })
     }
 
-    fn rasterize(&mut self, signature: &TextSignature) -> Result<RgbaFrame, RenderError> {
+    fn rasterize(&mut self, signature: &TextSignature) -> Result<PixelFrame, RenderError> {
         let scale_x = signature.target_size.width as f32 / signature.composition_size.width as f32;
         let scale_y =
             signature.target_size.height as f32 / signature.composition_size.height as f32;
@@ -397,11 +397,7 @@ impl TextFrameCache {
             signature.color,
             signature.outline_color,
         );
-        Ok(RgbaFrame {
-            width,
-            height,
-            rgba: rgba.into(),
-        })
+        Ok(PixelFrame::rgba(width, height, rgba))
     }
 
     fn family(name: &str) -> Family<'_> {

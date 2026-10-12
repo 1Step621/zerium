@@ -12,7 +12,6 @@
 
   outputs =
     {
-      self,
       nixpkgs,
       crane,
       rust-overlay,
@@ -48,6 +47,32 @@
         pkgs.wayland
       ];
 
+      nativeBuildDeps =
+        pkgs:
+        [
+          pkgs.pkg-config
+          pkgs.makeWrapper
+        ]
+        ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+          pkgs.rustPlatform.bindgenHook
+          pkgs.swift
+        ];
+
+      gstreamerPlugins = pkgs: [
+        pkgs.gst_all_1.gst-plugins-base
+        pkgs.gst_all_1.gst-plugins-good
+        pkgs.gst_all_1.gst-plugins-bad
+        pkgs.gst_all_1.gst-plugins-ugly
+        pkgs.gst_all_1.gst-libav
+      ];
+
+      buildDeps =
+        pkgs:
+        [ pkgs.gst_all_1.gstreamer ]
+        ++ gstreamerPlugins pkgs
+        ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux (linuxRuntimeDeps pkgs)
+        ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.libiconv ];
+
       workspaceToml = fromTOML (builtins.readFile ./Cargo.toml);
       cargoToml = fromTOML (builtins.readFile ./crates/zerium/Cargo.toml);
     in
@@ -64,25 +89,37 @@
           commonArgs = {
             src = ./.;
 
+            cargoVendorDir = craneLib.vendorCargoDeps {
+              src = ./.;
+              overrideVendorGitCheckout =
+                packages: drv:
+                if
+                  lib.any (p: lib.hasPrefix "git+https://github.com/software-mansion/smelter?" p.source) packages
+                then
+                  drv.overrideAttrs (_: {
+                    src = fetchGit {
+                      url = "https://github.com/software-mansion/smelter";
+                      rev = lib.last (lib.splitString "#" (builtins.head packages).source);
+                      allRefs = true;
+                      submodules = false;
+                    };
+                  })
+                else
+                  drv;
+            };
+
             pname = cargoToml.package.name;
             version = workspaceToml.workspace.package.version;
 
             strictDeps = true;
             doCheck = false;
+            env = lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+              MACOSX_DEPLOYMENT_TARGET = "13.0";
+            };
             cargoExtraArgs = "--no-default-features";
 
-            nativeBuildInputs = [
-              pkgs.pkg-config
-              pkgs.rustPlatform.bindgenHook
-            ];
-
-            buildInputs = [
-              pkgs.ffmpeg
-            ]
-            ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux (linuxRuntimeDeps pkgs)
-            ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
-              pkgs.libiconv
-            ];
+            nativeBuildInputs = nativeBuildDeps pkgs;
+            buildInputs = buildDeps pkgs;
           };
 
           cargoArtifacts = craneLib.buildDepsOnly commonArgs;
@@ -99,6 +136,10 @@
                 ];
 
               runtimeDependencies = lib.optionals pkgs.stdenv.hostPlatform.isLinux (linuxRuntimeDeps pkgs);
+
+              postFixup = ''
+                wrapProgram "$out/bin/zerium" --prefix GST_PLUGIN_SYSTEM_PATH_1_0 : "${lib.makeSearchPath "lib/gstreamer-1.0" (gstreamerPlugins pkgs)}"
+              '';
 
               postInstall = lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
                 install -Dm644 packaging/linux/zerium.desktop \
@@ -143,8 +184,13 @@
         in
         {
           default = pkgs.mkShell {
-            inputsFrom = [ self.packages.${system}.zerium ];
             packages = [ rust ];
+            nativeBuildInputs = nativeBuildDeps pkgs;
+            buildInputs = buildDeps pkgs;
+            env = lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
+              MACOSX_DEPLOYMENT_TARGET = "13.0";
+            };
+            GST_PLUGIN_SYSTEM_PATH_1_0 = lib.makeSearchPath "lib/gstreamer-1.0" (gstreamerPlugins pkgs);
             LD_LIBRARY_PATH = lib.optionalString pkgs.stdenv.hostPlatform.isLinux (
               lib.makeLibraryPath (linuxRuntimeDeps pkgs)
             );

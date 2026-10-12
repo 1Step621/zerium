@@ -11,10 +11,8 @@ use thiserror::Error;
 
 use zerium_core::timeline::{FrameRate, ItemId, TimelineItem, TimelineTime};
 
-use super::{
-    audio_source::AudioSource,
-    reader::{AudioFormat, MediaError, MediaReaderRegistry},
-};
+use super::super::reader::{AudioFormat, MediaError, MediaReaderRegistry};
+use super::source::AudioSource;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct AudioClipId {

@@ -13,6 +13,7 @@ mod project_session;
 mod ui;
 
 fn main() {
+    engine::gstreamer::configure_bundle();
     app::initialize_updates();
 
     if let Err(error) = run() {

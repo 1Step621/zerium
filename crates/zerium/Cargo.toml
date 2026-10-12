@@ -20,9 +20,15 @@ cosmic-text = "0.18.2"
 cpal = "0.15"
 directories = "5"
 evalexpr.workspace = true
-ffmpeg-next = { version = "9", default-features = false, features = ["format", "filter", "software-resampling", "software-scaling"] }
 futures = "0.3"
+gstreamer = { version = "0.25", features = ["v1_24"] }
+gstreamer-app = { version = "0.25", features = ["v1_24"] }
+gstreamer-audio = { version = "0.25", features = ["v1_24"] }
+gstreamer-pbutils = { version = "0.25", features = ["v1_24"] }
+gstreamer-video = { version = "0.25", features = ["v1_24"] }
 gpui = { package = "gpui-ce", git = "https://github.com/1Step621/WGPUI", branch = "fix/input-selection-replacement" }
+image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "bmp", "tiff", "gif"] }
+mp4 = "0.14"
 pollster = "0.4"
 resvg = "0.47"
 rfd = "0.17.2"
@@ -42,10 +48,28 @@ wgpu = { version = "30", default-features = false }
 zerium-core.workspace = true
 zerium-shader.workspace = true
 
+[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
+ash = "0.38"
+gpu-video = { git = "https://github.com/software-mansion/smelter", rev = "6637f3df71282c816140cd3bb9821d69b30be2ba" }
+
 [target.'cfg(windows)'.dependencies]
 # gpu-allocator 0.28 accepts windows <=0.62.0; share its DX12 types with wgpu-hal.
 windows = { version = "=0.62.0", default-features = false }
+gstreamer-d3d12 = "0.25"
 winreg = { version = "0.56", optional = true }
+
+[target.'cfg(target_os = "linux")'.dependencies]
+libc = "0.2"
+gstreamer-allocators = { version = "0.25", features = ["v1_24"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libloading = "0.8"
+objc2-core-foundation = "0.3"
+objc2-core-video = { version = "0.3", features = ["objc2-io-surface"] }
+videotoolbox = "0.21"
+apple-cf = "0.11"
+objc2-metal = { version = "0.3", default-features = false, features = ["std", "MTLDevice", "MTLTexture", "MTLPixelFormat", "MTLResource", "objc2-io-surface"] }
+objc2-io-surface = { version = "0.3", default-features = false, features = ["std", "IOSurfaceRef", "objc2-core-foundation"] }
 
 [build-dependencies]
 winresource = "0.1"

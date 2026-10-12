@@ -10,15 +10,15 @@ use std::{
 
 use resvg::{tiny_skia, usvg};
 
-use crate::engine::frame::RgbaFrame;
+use crate::engine::frame::PixelFrame;
 use zerium_core::media::{MediaAsset, MediaKind, MediaMetadata, MediaTarget};
 
-use super::reader::{ImageDecoderSession, MediaError, MediaReader, VideoDecodeSize};
+use super::super::reader::{ImageDecoderSession, MediaError, MediaReader, VideoDecodeSize};
 
-pub(super) const READER_ID: &str = "zerium.svg";
+pub(in crate::engine::media) const READER_ID: &str = "zerium.svg";
 const IMAGE_DURATION: Duration = Duration::from_secs(5);
 
-pub(super) struct SvgMediaReader;
+pub(in crate::engine::media) struct SvgMediaReader;
 
 impl MediaReader for SvgMediaReader {
     fn probe(&self, path: &Path, target: MediaTarget) -> Result<Option<MediaMetadata>, MediaError> {
@@ -80,7 +80,7 @@ fn system_fonts() -> &'static Arc<usvg::fontdb::Database> {
 
 struct SvgDecoder {
     tree: usvg::Tree,
-    cached: Option<RgbaFrame>,
+    cached: Option<PixelFrame>,
 }
 
 impl ImageDecoderSession for SvgDecoder {
@@ -88,7 +88,7 @@ impl ImageDecoderSession for SvgDecoder {
         &mut self,
         size: VideoDecodeSize,
         cancelled: &AtomicBool,
-    ) -> Result<RgbaFrame, MediaError> {
+    ) -> Result<PixelFrame, MediaError> {
         if cancelled.load(Ordering::Relaxed) {
             return Err(MediaError::Cancelled);
         }
@@ -128,11 +128,7 @@ impl ImageDecoderSession for SvgDecoder {
                 }
             }
         }
-        let frame = RgbaFrame {
-            width: size.max_width,
-            height: size.max_height,
-            rgba: Arc::from(rgba),
-        };
+        let frame = PixelFrame::rgba(size.max_width, size.max_height, rgba);
         self.cached = Some(frame.clone());
         Ok(frame)
     }
