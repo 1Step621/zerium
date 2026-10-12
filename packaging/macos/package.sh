@@ -29,7 +29,6 @@ for plugin in "$app_dir/Contents/Frameworks/gstreamer-1.0/"*.dylib; do
   gst_binaries+=(-x "$plugin")
 done
 dylibbundler \
-  -od \
   -b \
   -ns \
   -x "$app_dir/Contents/MacOS/zerium" \

@@ -29,8 +29,13 @@ foreach ($component in @('gstreamer-1.0', 'gstreamer-1.0-devel')) {
 if (-not (Test-Path (Join-Path $gstRoot 'lib\pkgconfig\glib-2.0.pc'))) {
     throw "GStreamer development files were not installed in $gstRoot."
 }
+# GStreamer's D3D12 pkg-config metadata references DirectX-Headers, but the MSI
+# omits that dependency's development files.
+vcpkg install directx-headers:x64-windows
+if ($LASTEXITCODE -ne 0) { throw 'Failed to install DirectX-Headers.' }
+$directXPkgConfig = Join-Path $env:VCPKG_INSTALLATION_ROOT 'installed\x64-windows\lib\pkgconfig'
 "GSTREAMER_ROOT=$gstRoot" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
-"PKG_CONFIG_PATH=$gstRoot\lib\pkgconfig" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
+"PKG_CONFIG_PATH=$gstRoot\lib\pkgconfig;$directXPkgConfig" | Out-File $env:GITHUB_ENV -Encoding utf8 -Append
 "$gstRoot\bin" | Out-File $env:GITHUB_PATH -Encoding utf8 -Append
 # Rust's system-deps uses pkg-config even with the MSVC SDK.
 choco install pkgconfiglite --yes --no-progress
