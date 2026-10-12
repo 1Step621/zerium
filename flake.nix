@@ -56,6 +56,7 @@
         ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
           pkgs.rustPlatform.bindgenHook
           pkgs.swift
+          pkgs.swiftpm
         ];
 
       gstreamerPlugins = pkgs: [
