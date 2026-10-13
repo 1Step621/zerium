@@ -60,15 +60,16 @@
         ];
 
       # apple-cf builds a Swift static library, but Cargo performs the final
-      # link with clang instead of swiftc. Pass the Swift runtime library path
-      # explicitly so Swift's autolinked libraries can be resolved.
+      # link with clang rather than swiftc. Clang needs both the Swift toolchain
+      # libraries and the Swift overlays shipped in the selected macOS SDK.
       darwinRustFlags =
         pkgs:
         let
           swiftLibDir = "${pkgs.swift}/${pkgs.swift.swiftLibSubdir}";
+          sdkSwiftLibDir = "${pkgs.apple-sdk_26.sdkroot}/usr/lib/swift";
           swiftRuntimeDir = "${pkgs.swiftPackages.stdlib}/lib";
         in
-        "-L native=${swiftLibDir} -C link-arg=-Wl,-rpath,${swiftRuntimeDir}";
+        "-L native=${swiftLibDir} -L native=${sdkSwiftLibDir} -C link-arg=-Wl,-rpath,${swiftRuntimeDir}";
 
       gstreamerPlugins = pkgs: [
         pkgs.gst_all_1.gst-plugins-base
@@ -85,6 +86,8 @@
         ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux (linuxRuntimeDeps pkgs)
         ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
           pkgs.libiconv
+          # Swift 6.2 uses SDK 26; Cargo's final clang link must use it too.
+          pkgs.apple-sdk_26
         ];
 
       workspaceToml = fromTOML (builtins.readFile ./Cargo.toml);
