@@ -62,11 +62,13 @@
       # apple-cf builds a Swift static library, but Cargo performs the final
       # link with clang instead of swiftc. Pass the Swift runtime library path
       # explicitly so Swift's autolinked libraries can be resolved.
-      darwinRustFlags = pkgs:
+      darwinRustFlags =
+        pkgs:
         let
-          swiftLibDir = "${pkgs.swift.lib}/${pkgs.swift.swiftModuleSubdir}";
+          swiftLibDir = "${pkgs.swift}/${pkgs.swift.swiftLibSubdir}";
+          swiftRuntimeDir = "${pkgs.swiftPackages.stdlib}/lib";
         in
-        "-L native=${swiftLibDir} -C link-arg=-Wl,-rpath,${swiftLibDir}";
+        "-L native=${swiftLibDir} -C link-arg=-Wl,-rpath,${swiftRuntimeDir}";
 
       gstreamerPlugins = pkgs: [
         pkgs.gst_all_1.gst-plugins-base
