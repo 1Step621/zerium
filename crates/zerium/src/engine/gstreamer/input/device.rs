@@ -187,7 +187,7 @@ mod windows {
         // SAFETY: each HAL guard keeps the renderer's native device alive.
         let adapter_luid = if let Some(hal) = unsafe { device.as_hal::<wgpu::hal::api::Dx12>() } {
             let luid = unsafe { hal.raw_device().GetAdapterLuid() };
-            unsafe { ffi::gst_d3d12_luid_to_int64((&luid as *const _).cast()) }
+            unsafe { ffi::gst_d3d12_luid_to_int64(std::ptr::from_ref(&luid).cast()) }
         } else if let Some(hal) = unsafe { device.as_hal::<wgpu::hal::api::Vulkan>() } {
             let instance = hal.shared_instance().raw_instance();
             let mut id = ash::vk::PhysicalDeviceIDProperties::default();
