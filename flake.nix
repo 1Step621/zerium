@@ -79,6 +79,12 @@
         pkgs.gst_all_1.gst-libav
       ];
 
+      # Core elements (filesrc, queue, typefind) live in the library output.
+      gstreamerPluginPath = pkgs:
+        lib.makeSearchPath "lib/gstreamer-1.0" (
+          [ pkgs.gst_all_1.gstreamer.out ] ++ gstreamerPlugins pkgs
+        );
+
       buildDeps =
         pkgs:
         [ pkgs.gst_all_1.gstreamer ]
@@ -155,7 +161,7 @@
               runtimeDependencies = lib.optionals pkgs.stdenv.hostPlatform.isLinux (linuxRuntimeDeps pkgs);
 
               postFixup = ''
-                wrapProgram "$out/bin/zerium" --prefix GST_PLUGIN_SYSTEM_PATH_1_0 : "${lib.makeSearchPath "lib/gstreamer-1.0" (gstreamerPlugins pkgs)}"
+                wrapProgram "$out/bin/zerium" --prefix GST_PLUGIN_SYSTEM_PATH_1_0 : "${gstreamerPluginPath pkgs}"
               '';
 
               postInstall = lib.optionalString pkgs.stdenv.hostPlatform.isLinux ''
@@ -207,7 +213,7 @@
             env = lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
               RUSTFLAGS = darwinRustFlags pkgs;
             };
-            GST_PLUGIN_SYSTEM_PATH_1_0 = lib.makeSearchPath "lib/gstreamer-1.0" (gstreamerPlugins pkgs);
+            GST_PLUGIN_SYSTEM_PATH_1_0 = gstreamerPluginPath pkgs;
             LD_LIBRARY_PATH = lib.optionalString pkgs.stdenv.hostPlatform.isLinux (
               lib.makeLibraryPath (linuxRuntimeDeps pkgs)
             );
