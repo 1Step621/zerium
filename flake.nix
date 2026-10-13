@@ -59,6 +59,15 @@
           pkgs.swiftpm
         ];
 
+      # apple-cf builds a Swift static library, but Cargo performs the final
+      # link with clang instead of swiftc. Pass the Swift runtime library path
+      # explicitly so Swift's autolinked libraries can be resolved.
+      darwinRustFlags = pkgs:
+        let
+          swiftLibDir = "${pkgs.swift.lib}/${pkgs.swift.swiftModuleSubdir}";
+        in
+        "-L native=${swiftLibDir} -C link-arg=-Wl,-rpath,${swiftLibDir}";
+
       gstreamerPlugins = pkgs: [
         pkgs.gst_all_1.gst-plugins-base
         pkgs.gst_all_1.gst-plugins-good
@@ -72,7 +81,10 @@
         [ pkgs.gst_all_1.gstreamer ]
         ++ gstreamerPlugins pkgs
         ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux (linuxRuntimeDeps pkgs)
-        ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [ pkgs.libiconv ];
+        ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
+          pkgs.libiconv
+          pkgs.swift.lib
+        ];
 
       workspaceToml = fromTOML (builtins.readFile ./Cargo.toml);
       cargoToml = fromTOML (builtins.readFile ./crates/zerium/Cargo.toml);
@@ -115,7 +127,7 @@
             strictDeps = true;
             doCheck = false;
             env = lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
-              MACOSX_DEPLOYMENT_TARGET = "13.0";
+              RUSTFLAGS = darwinRustFlags pkgs;
             };
             cargoExtraArgs = "--no-default-features";
 
@@ -189,7 +201,7 @@
             nativeBuildInputs = nativeBuildDeps pkgs;
             buildInputs = buildDeps pkgs;
             env = lib.optionalAttrs pkgs.stdenv.hostPlatform.isDarwin {
-              MACOSX_DEPLOYMENT_TARGET = "13.0";
+              RUSTFLAGS = darwinRustFlags pkgs;
             };
             GST_PLUGIN_SYSTEM_PATH_1_0 = lib.makeSearchPath "lib/gstreamer-1.0" (gstreamerPlugins pkgs);
             LD_LIBRARY_PATH = lib.optionalString pkgs.stdenv.hostPlatform.isLinux (
