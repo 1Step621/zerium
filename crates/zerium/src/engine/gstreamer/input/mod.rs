@@ -1,5 +1,6 @@
 //! GStreamer discovery and persistent audio/video decoder sessions.
 mod audio;
+mod device;
 mod discover;
 mod video;
 

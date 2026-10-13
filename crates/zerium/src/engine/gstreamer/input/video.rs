@@ -17,6 +17,7 @@ use super::super::{
     initialize,
     pipeline::{self, SinkPipeline},
 };
+use super::device::{self, DecoderDevice};
 use crate::engine::frame::{
     ChromaLocation, FrameData, PixelFrame, PixelPlane, VideoPixels, YuvFormat, YuvMatrix,
 };
@@ -113,6 +114,7 @@ pub(crate) struct VideoDecoder {
     last: Option<DecodedVideoFrame>,
     lookahead: Option<DecodedVideoFrame>,
     device: Option<wgpu::Device>,
+    decoder_device: Option<DecoderDevice>,
     transfer: Arc<OnceLock<VideoTransfer>>,
 }
 
@@ -122,12 +124,17 @@ impl VideoDecoder {
         device: Option<&wgpu::Device>,
     ) -> Result<Self, MediaError> {
         initialize().map_err(MediaError::external)?;
+        let decoder_device = device.and_then(DecoderDevice::for_device);
+        if device.is_some() && decoder_device.is_none() {
+            eprintln!("Video input uses software decoding: renderer GPU affinity is unavailable");
+        }
         Ok(Self {
             asset,
             pipeline: None,
             last: None,
             lookahead: None,
             device: device.cloned(),
+            decoder_device,
             transfer: Arc::new(OnceLock::new()),
         })
     }
@@ -142,8 +149,8 @@ impl VideoDecoder {
         if self.pipeline.is_some() {
             return Ok(());
         }
-        let native =
-            self.device.is_some() && !matches!(self.transfer.get(), Some(VideoTransfer::Cpu));
+        let native = self.decoder_device.is_some()
+            && !matches!(self.transfer.get(), Some(VideoTransfer::Cpu));
         if !native {
             self.transfer.get_or_init(|| VideoTransfer::Cpu);
         }
@@ -165,6 +172,10 @@ impl VideoDecoder {
 
     fn build(&mut self, native: bool, cancelled: &AtomicBool) -> Result<(), MediaError> {
         let pipeline = SinkPipeline::new();
+        let decoder_device = self.decoder_device.as_ref().filter(|_| native);
+        if let Some(device) = decoder_device {
+            device.configure_pipeline(&pipeline.pipeline);
+        }
         let uri = pipeline::file_uri(&self.asset.path)?;
         let source = gst::ElementFactory::make("uridecodebin")
             .property("uri", uri.as_str())
@@ -175,34 +186,7 @@ impl VideoDecoder {
             )
             .build()
             .map_err(MediaError::external)?;
-        if !native || cfg!(target_os = "linux") {
-            // Prefer VA surfaces for Linux GPU transfer, and software decoding
-            // for CPU transfer. Ranks stay local to this pipeline.
-            let va_caps = gst::Caps::builder("video/x-raw")
-                .features(["memory:VAMemory"])
-                .build();
-            source.connect("autoplug-sort", false, move |values| {
-                let mut factories = values[3]
-                    .get::<gst::glib::ValueArray>()
-                    .expect("uridecodebin supplies its decoder factory array");
-                factories.as_mut_slice().sort_by_key(|value| {
-                    let factory = value
-                        .get::<gst::ElementFactory>()
-                        .expect("autoplug-sort contains element factories");
-                    let klass = factory.metadata("klass").unwrap_or("");
-                    klass.contains("Decoder/Video")
-                        && if native {
-                            !factory.static_pad_templates().iter().any(|pad| {
-                                pad.direction() == gst::PadDirection::Src
-                                    && pad.caps().can_intersect(&va_caps)
-                            })
-                        } else {
-                            klass.contains("Hardware")
-                        }
-                });
-                Some(factories.to_value())
-            });
-        }
+        device::configure_source(&source, decoder_device);
         #[cfg(target_os = "linux")]
         if native {
             pipeline.sink.set_callbacks(
@@ -223,9 +207,9 @@ impl VideoDecoder {
         if native {
             #[cfg(target_os = "linux")]
             {
-                let postproc = gst::ElementFactory::make("vapostproc")
-                    .build()
-                    .map_err(MediaError::external)?;
+                let postproc = decoder_device
+                    .expect("native decoding has a renderer device")
+                    .postprocessor()?;
                 let supported = postproc
                     .static_pad("src")
                     .expect("vapostproc has a source pad")
