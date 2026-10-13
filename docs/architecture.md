@@ -105,11 +105,12 @@ scene-instance effects run after their children are composited.
 [`engine/video_playback.rs`](../crates/zerium/src/engine/video_playback.rs)
 schedules only the frames needed by the current scene during playback,
 scrubbing, and stopping. Each input has at most one outstanding decode. When
-demand changes, that decode finishes and its result is cached before the next
+demand changes, that decode finishes and its result is published before the next
 request is selected from the latest demand.
 
-A cache managed by a byte budget retains decoded frames. Preview displays the
-frame covering the requested time, or the closest cached frame while waiting.
+Preview retains candidate frames for the times requested by the current scene,
+including temporal effect samples. It displays the frame covering the requested
+time, or the closest retained frame while waiting.
 Workers prepare video textures before publishing results to the UI. The UI
 updates demand and redraws when the displayed candidate changes; unchanged
 frames skip scene construction and GPU rendering.

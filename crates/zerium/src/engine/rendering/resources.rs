@@ -32,8 +32,8 @@ pub(super) struct UploadedVideoFrame {
 
 #[derive(Default)]
 pub(super) struct VideoTextureCache {
-    // Adjacent project ticks share uploaded views. The decoded frame cache owns
-    // each video's final texture and accounts for its GPU memory.
+    // Adjacent project ticks share uploaded views. Retained decoded frames own
+    // each video's final texture.
     previous_scene: Vec<Arc<UploadedVideoFrame>>,
     // Upload planes are scratch resources; converted frames keep only their
     // final texture. Queue ordering lets consecutive frames reuse this slot.

@@ -24,7 +24,7 @@ use crate::engine::frame::{
 use crate::engine::media::{DecodedVideoFrame, MediaError, VideoDecoderSession};
 
 /// A decoder surface until first upload, then a renderer-owned texture. Keeping
-/// decoder pool slots in the frame cache would eventually stall hardware decode.
+/// decoder pool slots across preview frames would eventually stall hardware decode.
 pub(crate) struct VideoFrame {
     pub(crate) info: video::VideoInfo,
     #[cfg(target_os = "linux")]
@@ -101,7 +101,7 @@ impl VideoFrame {
     }
 
     pub(crate) fn byte_len(&self) -> usize {
-        // The cache accounts for the owned RGBA texture as well as source padding.
+        // Include the owned RGBA texture as well as source padding.
         self.info
             .size()
             .max(self.info.width() as usize * self.info.height() as usize * 4)

@@ -10,7 +10,6 @@ use std::{
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 
 use crate::engine::{
-    cache::BudgetedTimestampCache,
     frame::{FrameData, PixelFrame},
     media::{
         DecodedVideoFrame, MediaError, MediaFrameRequest, MediaInputId, MediaReaderRegistry,
@@ -37,6 +36,21 @@ impl VideoFrameSequence {
             source: request.asset.clone(),
             size: request.size,
         }
+    }
+}
+
+struct ReadyVideoFrame {
+    presentation_time: Duration,
+    duration: Duration,
+    frame: Arc<PixelFrame>,
+}
+
+impl ReadyVideoFrame {
+    fn covers(&self, time: Duration) -> bool {
+        let rounded = time.saturating_add(Duration::from_nanos(1));
+        (self.presentation_time <= rounded
+            && rounded < self.presentation_time.saturating_add(self.duration))
+            || (self.duration.is_zero() && time == self.presentation_time)
     }
 }
 
@@ -185,7 +199,7 @@ pub(crate) struct VideoPlaybackSnapshot {
 pub(crate) struct VideoPlaybackEngine {
     media_readers: Arc<MediaReaderRegistry>,
     upload_renderer: Option<Arc<FrameRenderer>>,
-    frame_cache: BudgetedTimestampCache<VideoFrameSequence, Arc<PixelFrame>>,
+    ready_frames: HashMap<VideoFrameSequence, Vec<ReadyVideoFrame>>,
     requested_frames: HashMap<MediaInputId, Vec<MediaFrameRequest>>,
     last_presented_frames: HashMap<(MediaInputId, Duration), PresentedVideoFrame>,
     workers: HashMap<MediaInputId, VideoWorker>,
@@ -199,10 +213,6 @@ pub(crate) struct VideoPlaybackEngine {
 }
 
 impl VideoPlaybackEngine {
-    // Decoder output is bounded by appsinks. The application cache
-    // accounts for each frame's retained buffer or final GPU texture.
-    const FRAME_CACHE_BUDGET_BYTES: usize = 128 * 1024 * 1024;
-
     pub(crate) fn new(
         media_readers: Arc<MediaReaderRegistry>,
         renderer: Option<Arc<FrameRenderer>>,
@@ -213,7 +223,7 @@ impl VideoPlaybackEngine {
                 media_readers,
                 // Upload scratch resources and locks are separate from UI rendering.
                 upload_renderer: renderer.map(|renderer| Arc::new(renderer.fork())),
-                frame_cache: BudgetedTimestampCache::new(Self::FRAME_CACHE_BUDGET_BYTES),
+                ready_frames: HashMap::new(),
                 requested_frames: HashMap::new(),
                 last_presented_frames: HashMap::new(),
                 workers: HashMap::new(),
@@ -240,23 +250,20 @@ impl VideoPlaybackEngine {
             requests.push(request.clone());
         }
         let sequence = VideoFrameSequence::from_request(request);
-        let cached = self
-            .frame_cache
-            .get_nearest(&sequence, request.presentation_time)?;
+        let ready = self.frame_for(&sequence, request.presentation_time)?;
+        let presentation_time = ready.presentation_time;
+        let frame = ready.frame.clone();
         let key = (input.clone(), request.presentation_time);
         let changed = self
             .last_presented_frames
             .get(&key)
-            .is_none_or(|presented| {
-                !presented.matches(&sequence, cached.presentation_time, &cached.value)
-            });
-        let frame = cached.value.clone();
+            .is_none_or(|presented| !presented.matches(&sequence, presentation_time, &frame));
         self.last_presented_frames.insert(
             key,
             PresentedVideoFrame {
                 sequence,
-                presentation_time: cached.presentation_time,
-                frame: cached.value,
+                presentation_time,
+                frame: frame.clone(),
             },
         );
         if changed {
@@ -265,19 +272,16 @@ impl VideoPlaybackEngine {
         Some(frame)
     }
 
-    pub(crate) fn needs_redraw(&mut self) -> bool {
+    pub(crate) fn needs_redraw(&self) -> bool {
         self.requested_frames.iter().any(|(input, requests)| {
             requests.iter().any(|request| {
                 let sequence = VideoFrameSequence::from_request(request);
                 let presented = self
                     .last_presented_frames
                     .get(&(input.clone(), request.presentation_time));
-                match self
-                    .frame_cache
-                    .get_nearest(&sequence, request.presentation_time)
-                {
-                    Some(cached) => presented.is_none_or(|presented| {
-                        !presented.matches(&sequence, cached.presentation_time, &cached.value)
+                match self.frame_for(&sequence, request.presentation_time) {
+                    Some(ready) => presented.is_none_or(|presented| {
+                        !presented.matches(&sequence, ready.presentation_time, &ready.frame)
                     }),
                     None => presented.is_some(),
                 }
@@ -285,22 +289,36 @@ impl VideoPlaybackEngine {
         })
     }
 
-    fn protected_positions(&self) -> Vec<(VideoFrameSequence, Duration)> {
-        self.requested_frames
-            .values()
-            .flatten()
-            .map(|request| {
-                (
-                    VideoFrameSequence::from_request(request),
-                    request.presentation_time,
-                )
-            })
-            .chain(
-                self.last_presented_frames
-                    .values()
-                    .map(|presented| (presented.sequence.clone(), presented.presentation_time)),
+    fn frame_for(&self, sequence: &VideoFrameSequence, time: Duration) -> Option<&ReadyVideoFrame> {
+        self.ready_frames.get(sequence)?.iter().min_by_key(|ready| {
+            (
+                !ready.covers(time),
+                ready.presentation_time.abs_diff(time),
+                ready.presentation_time,
             )
-            .collect()
+        })
+    }
+
+    fn retain_demanded_frames(&mut self) {
+        // Keep only the candidate for each visible request, including a fallback
+        // while decoding. Temporal effects can demand several times per input.
+        let mut retained = HashMap::<VideoFrameSequence, HashSet<Duration>>::new();
+        for request in self.requested_frames.values().flatten() {
+            let sequence = VideoFrameSequence::from_request(request);
+            if let Some(ready) = self.frame_for(&sequence, request.presentation_time) {
+                retained
+                    .entry(sequence)
+                    .or_default()
+                    .insert(ready.presentation_time);
+            }
+        }
+        self.ready_frames.retain(|sequence, frames| {
+            let Some(times) = retained.get(sequence) else {
+                return false;
+            };
+            frames.retain(|ready| times.contains(&ready.presentation_time));
+            !frames.is_empty()
+        });
     }
 
     pub(crate) fn finish_frame_demand(&mut self) -> VideoPlaybackSnapshot {
@@ -338,7 +356,7 @@ impl VideoPlaybackEngine {
             requests.sort_by_key(|request| request.presentation_time);
         }
 
-        self.frame_cache.evict_to_budget(self.protected_positions());
+        self.retain_demanded_frames();
         for input in active_inputs {
             self.decode_input_if_needed(&input);
         }
@@ -384,7 +402,7 @@ impl VideoPlaybackEngine {
     }
 
     fn decode_input_if_needed(&mut self, input: &MediaInputId) {
-        // Keep one outstanding decode. Cache its result before scheduling from
+        // Keep one outstanding decode. Publish its result before scheduling from
         // the latest visible demand, without cancelling work on every movement.
         if self
             .workers
@@ -400,8 +418,8 @@ impl VideoPlaybackEngine {
                 requests.iter().find(|request| {
                     let sequence = VideoFrameSequence::from_request(request);
                     !self
-                        .frame_cache
-                        .contains_time(&sequence, request.presentation_time)
+                        .frame_for(&sequence, request.presentation_time)
+                        .is_some_and(|ready| ready.covers(request.presentation_time))
                         && !self
                             .failed_frames
                             .contains(&(sequence, request.presentation_time))
@@ -451,15 +469,14 @@ impl VideoPlaybackEngine {
             Err(MediaError::Cancelled) => {}
             Ok(decoded) => {
                 let covers = decoded.covers(presentation_time);
-                let cost = decoded.frame.byte_len();
-                self.frame_cache.insert(
-                    sequence.clone(),
-                    decoded.presentation_time,
-                    decoded.duration,
-                    Arc::new(decoded.frame),
-                    cost,
-                );
-                self.frame_cache.evict_to_budget(self.protected_positions());
+                let frames = self.ready_frames.entry(sequence.clone()).or_default();
+                frames.retain(|ready| ready.presentation_time != decoded.presentation_time);
+                frames.push(ReadyVideoFrame {
+                    presentation_time: decoded.presentation_time,
+                    duration: decoded.duration,
+                    frame: Arc::new(decoded.frame),
+                });
+                self.retain_demanded_frames();
                 if covers {
                     self.failed_frames
                         .remove(&(sequence.clone(), presentation_time));
@@ -486,7 +503,7 @@ impl VideoPlaybackEngine {
 
     pub(crate) fn reset(&mut self) {
         self.workers.clear();
-        self.frame_cache = BudgetedTimestampCache::new(Self::FRAME_CACHE_BUDGET_BYTES);
+        self.ready_frames.clear();
         self.requested_frames.clear();
         self.last_presented_frames.clear();
         self.failed_frames.clear();
