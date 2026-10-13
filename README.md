@@ -74,3 +74,9 @@ Use `direnv` to enter the shared Rust environment:
 ```sh
 direnv allow
 ```
+
+## Works on my machine
+
+<div align="center">
+  <img alt="Works on my machine" src="https://storage.ghost.io/c/eb/aa/ebaa2665-01a8-4415-8825-69d1f0e8fd19/content/images/2025/05/works-on-my-machine-v2-2025-jon-galloway-1.png" width="180" />
+</div>
