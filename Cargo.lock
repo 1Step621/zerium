@@ -9610,7 +9610,7 @@ checksum = "6df3dc4292935e51816d896edcd52aa30bc297907c26167fec31e2b0c6a32524"
 
 [[package]]
 name = "zerium"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "apple-cf",
  "ash",
@@ -9663,7 +9663,7 @@ dependencies = [
 
 [[package]]
 name = "zerium-core"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "evalexpr",
  "naga",
@@ -9675,7 +9675,7 @@ dependencies = [
 
 [[package]]
 name = "zerium-shader"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "naga",
  "thiserror 2.0.20",
