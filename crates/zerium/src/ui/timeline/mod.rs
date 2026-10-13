@@ -13,10 +13,10 @@ use ::ui::{
 };
 use gpui::{
     App, Bounds, ClickEvent, Context, Corner, CursorStyle, DismissEvent, Div, DragMoveEvent, Empty,
-    Entity, EntityId, FocusHandle, Focusable as _, Hsla, MouseButton, MouseDownEvent,
-    MouseMoveEvent, MouseUpEvent, PathBuilder, Pixels, Render, ScrollWheelEvent, SharedString,
-    SmoothScrollMode, Stateful, Subscription, UniformListScrollHandle, Window, anchored, canvas,
-    deferred, div, point, prelude::*, px, size, uniform_list,
+    Entity, EntityId, ExternalPaths, FocusHandle, Focusable as _, Hsla, MouseButton,
+    MouseDownEvent, MouseMoveEvent, MouseUpEvent, PathBuilder, Pixels, Render, ScrollWheelEvent,
+    SharedString, SmoothScrollMode, Stateful, Subscription, UniformListScrollHandle, Window,
+    anchored, canvas, deferred, div, point, prelude::*, px, size, uniform_list,
 };
 
 use crate::{
@@ -33,6 +33,7 @@ use super::{
     TimelineEditorEntityExt as _,
     animation_curve::AnimationSelection,
     explorer::ExplorerFileDrag,
+    file_import::{FileImport, FileImportTarget},
     pane::PANE_HEADER_HEIGHT,
     search_picker::{SearchPicker, SearchPickerEntry},
     session::UiNotifications,
@@ -125,7 +126,7 @@ struct ContextTarget {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-struct ExplorerDropTarget {
+struct FileDropTarget {
     layer: LayerId,
     start: Frame,
 }
@@ -223,7 +224,7 @@ struct LayerRenderState {
     hidden_layers: Rc<HashSet<LayerId>>,
     hidden_items: Rc<HashSet<ItemId>>,
     render_result_highlights: Rc<Vec<RenderResultHighlight>>,
-    explorer_drop_target: Option<ExplorerDropTarget>,
+    file_drop_target: Option<FileDropTarget>,
     grid: TimelineGrid,
 }
 
@@ -245,7 +246,7 @@ pub(crate) struct Timeline {
     viewport: TimelineViewport,
     context_target: Option<ContextTarget>,
     cursor_layer: Option<LayerId>,
-    explorer_drop_target: Option<ExplorerDropTarget>,
+    file_drop_target: Option<FileDropTarget>,
     file_drop_error: Option<SharedString>,
     item_move_origin: Option<ItemMoveOrigin>,
     marquee_selection: Option<MarqueeSelection>,
@@ -286,7 +287,7 @@ impl Timeline {
                 this.reset_viewport();
                 this.context_target = None;
                 this.cursor_layer = None;
-                this.explorer_drop_target = None;
+                this.file_drop_target = None;
                 this.item_move_origin = None;
                 this.marquee_selection = None;
                 this.context_menu = None;
@@ -305,7 +306,7 @@ impl Timeline {
             viewport: TimelineViewport::default(),
             context_target: None,
             cursor_layer: None,
-            explorer_drop_target: None,
+            file_drop_target: None,
             file_drop_error: None,
             item_move_origin: None,
             marquee_selection: None,

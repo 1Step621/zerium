@@ -27,56 +27,23 @@ use crate::{
 };
 use zerium_core::plugin::PluginRegistry;
 
-#[derive(Clone)]
-struct FileImportTarget {
-    plugin_id: String,
-    item_id: String,
-    property_id: String,
-}
-
-#[derive(Clone)]
-pub(crate) struct ExplorerDraggedFile {
-    path: PathBuf,
-    target: FileImportTarget,
-}
-
-impl ExplorerDraggedFile {
-    fn new(path: PathBuf, target: FileImportTarget) -> Self {
-        Self { path, target }
-    }
-
-    pub(crate) fn path(&self) -> &Path {
-        &self.path
-    }
-
-    pub(crate) fn plugin_id(&self) -> &str {
-        &self.target.plugin_id
-    }
-
-    pub(crate) fn item_id(&self) -> &str {
-        &self.target.item_id
-    }
-
-    pub(crate) fn property_id(&self) -> &str {
-        &self.target.property_id
-    }
-}
+use super::file_import::{FileImport, FileImportTarget};
 
 #[derive(Clone)]
 pub(crate) struct ExplorerFileDrag {
-    files: Rc<Vec<ExplorerDraggedFile>>,
+    files: Rc<Vec<FileImport>>,
     label: SharedString,
 }
 
 impl ExplorerFileDrag {
-    fn new(files: Vec<ExplorerDraggedFile>, label: SharedString) -> Self {
+    fn new(files: Vec<FileImport>, label: SharedString) -> Self {
         Self {
             files: Rc::new(files),
             label,
         }
     }
 
-    pub(crate) fn files(&self) -> &[ExplorerDraggedFile] {
+    pub(crate) fn files(&self) -> &[FileImport] {
         &self.files
     }
 }
@@ -221,29 +188,18 @@ impl Explorer {
     }
 
     fn import_target(&self, path: &Path) -> Option<FileImportTarget> {
-        self.plugins.items().find_map(|(plugin_id, item)| {
-            item.file_properties().find_map(|input| {
-                input
-                    .configuration_ui(None)
-                    .matches_file(path)
-                    .then(|| FileImportTarget {
-                        plugin_id: plugin_id.to_owned(),
-                        item_id: item.id().to_owned(),
-                        property_id: input.id().to_owned(),
-                    })
-            })
-        })
+        FileImportTarget::for_path(path, &self.plugins)
     }
 
     fn selected_drag_files(
         entries: &[ExplorerEntry],
         selected_paths: &HashSet<PathBuf>,
-    ) -> Vec<ExplorerDraggedFile> {
+    ) -> Vec<FileImport> {
         entries
             .iter()
             .filter(|entry| selected_paths.contains(&entry.path))
             .filter_map(|entry| {
-                Some(ExplorerDraggedFile::new(
+                Some(FileImport::new(
                     entry.path.clone(),
                     entry.import_target.clone()?,
                 ))
@@ -543,7 +499,7 @@ impl Explorer {
     fn entry_row(
         entry: ExplorerEntry,
         selected: bool,
-        selected_files: Rc<Vec<ExplorerDraggedFile>>,
+        selected_files: Rc<Vec<FileImport>>,
         colors: ThemeColor,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
@@ -610,7 +566,7 @@ impl Explorer {
                     .child(entry.name),
             )
             .when_some(import_target, move |row, target| {
-                let file = ExplorerDraggedFile::new(entry.path, target);
+                let file = FileImport::new(entry.path, target);
                 let files = if selected {
                     selected_files.as_ref().clone()
                 } else {

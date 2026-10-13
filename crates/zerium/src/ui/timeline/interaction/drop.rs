@@ -3,10 +3,11 @@ use crate::engine::media::prepare_import;
 use rust_i18n::t;
 
 impl Timeline {
-    pub(in crate::ui::timeline) fn update_explorer_drop_target(
+    pub(in crate::ui::timeline) fn update_file_drop_target<T>(
         &mut self,
         layer_index: usize,
-        event: &DragMoveEvent<ExplorerFileDrag>,
+        event: &DragMoveEvent<T>,
+        window: &Window,
         cx: &mut Context<Self>,
     ) {
         if !event.bounds.contains(&event.event.position) {
@@ -21,20 +22,20 @@ impl Timeline {
             viewport_width,
             self.editor.read(cx).frame_rate(),
         );
-        if !event.event.modifiers.alt {
+        if !window.modifiers().alt {
             start = self.snap_frame(start, &[], cx);
         }
-        let target = ExplorerDropTarget {
+        let target = FileDropTarget {
             layer: LayerId::new(layer_index as u64),
             start,
         };
-        if self.explorer_drop_target != Some(target) {
-            self.explorer_drop_target = Some(target);
+        if self.file_drop_target != Some(target) {
+            self.file_drop_target = Some(target);
             cx.notify();
         }
     }
 
-    pub(in crate::ui::timeline) fn clear_explorer_drop_target(
+    pub(in crate::ui::timeline) fn clear_file_drop_target(
         &mut self,
         layer_index: usize,
         hovered: bool,
@@ -42,44 +43,67 @@ impl Timeline {
     ) {
         if !hovered
             && self
-                .explorer_drop_target
+                .file_drop_target
                 .is_some_and(|target| target.layer == LayerId::new(layer_index as u64))
         {
-            self.explorer_drop_target = None;
+            self.file_drop_target = None;
             cx.notify();
         }
     }
 
-    pub(in crate::ui::timeline) fn drop_explorer_items(
+    pub(in crate::ui::timeline) fn drop_external_files(
         &mut self,
         layer_index: usize,
-        drag: &ExplorerFileDrag,
+        paths: &ExternalPaths,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        let plugins = self.editor.read(cx).plugin_registry_arc();
+        let files = paths
+            .paths()
+            .iter()
+            .filter_map(|path| {
+                FileImportTarget::for_path(path, &plugins)
+                    .map(|target| FileImport::new(path.clone(), target))
+            })
+            .collect();
+        self.drop_files(layer_index, files, window, cx);
+    }
+
+    pub(in crate::ui::timeline) fn drop_files(
+        &mut self,
+        layer_index: usize,
+        files: Vec<FileImport>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if files.is_empty() {
+            self.file_drop_target = None;
+            cx.notify();
+            return;
+        }
         let layer = LayerId::new(layer_index as u64);
         let raw_pointer = self.pointer_frame(f32::from(window.mouse_position().x), window, cx);
         let start = if window.modifiers().alt {
             raw_pointer
         } else {
-            self.explorer_drop_target
+            self.file_drop_target
                 .filter(|target| target.layer == layer)
                 .map(|target| target.start)
                 .unwrap_or_else(|| self.snap_frame(raw_pointer, &[], cx))
         };
-        self.explorer_drop_target = None;
+        self.file_drop_target = None;
         window.focus(&self.focus_handle, cx);
         self.file_drop_error = None;
 
-        let imports = drag
-            .files()
-            .iter()
+        let imports = files
+            .into_iter()
             .map(|file| {
                 (
-                    file.path().to_path_buf(),
-                    file.plugin_id().to_owned(),
-                    file.item_id().to_owned(),
-                    file.property_id().to_owned(),
+                    file.path,
+                    file.target.plugin_id,
+                    file.target.item_id,
+                    file.target.property_id,
                 )
             })
             .collect::<Vec<_>>();

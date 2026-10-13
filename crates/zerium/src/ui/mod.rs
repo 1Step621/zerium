@@ -6,6 +6,7 @@ pub(crate) mod animation_curve;
 mod copy_buffer;
 pub(crate) mod explorer;
 pub(crate) mod export;
+mod file_import;
 pub(crate) mod file_input;
 mod input;
 mod number_input;
