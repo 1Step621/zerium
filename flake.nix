@@ -85,7 +85,6 @@
         ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux (linuxRuntimeDeps pkgs)
         ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
           pkgs.libiconv
-          pkgs.swift.lib
         ];
 
       workspaceToml = fromTOML (builtins.readFile ./Cargo.toml);
