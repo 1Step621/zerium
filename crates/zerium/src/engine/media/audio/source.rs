@@ -3,10 +3,10 @@ use std::time::Duration;
 
 use zerium_core::media::MediaPlayback;
 
-use super::super::reader::{AudioDecoderSession, AudioFormat, MediaError};
+use super::super::reader::{AudioDecoder, AudioFormat, MediaError};
 
 pub(super) struct AudioSource {
-    decoder: Box<dyn AudioDecoderSession>,
+    decoder: Box<dyn AudioDecoder>,
     playback: MediaPlayback,
     preserve_pitch: bool,
     duration: Duration,
@@ -15,7 +15,7 @@ pub(super) struct AudioSource {
 
 impl AudioSource {
     pub(super) fn new(
-        decoder: Box<dyn AudioDecoderSession>,
+        decoder: Box<dyn AudioDecoder>,
         playback: MediaPlayback,
         preserve_pitch: bool,
         duration: Duration,

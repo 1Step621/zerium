@@ -1,9 +1,10 @@
 //! Shared decoder contracts, media input IDs, and errors.
+use crate::engine::gpu::GpuContext;
 use std::{fmt, path::Path, sync::atomic::AtomicBool, time::Duration};
 
 use thiserror::Error;
 
-use crate::engine::frame::PixelFrame;
+use crate::engine::frame::VisualFrame;
 use zerium_core::{
     media::{MediaAsset, MediaMetadata, MediaTarget},
     timeline::{EffectInstanceId, ItemId},
@@ -34,7 +35,7 @@ pub(crate) struct DecodedAudioBlock {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct VideoDecodeSize {
+pub(crate) struct RasterSize {
     pub max_width: u32,
     pub max_height: u32,
 }
@@ -58,13 +59,13 @@ pub(super) fn fit_dimensions(
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct DecodedVideoFrame {
+pub(crate) struct DecodedFrame {
     pub presentation_time: Duration,
     pub duration: Duration,
-    pub frame: PixelFrame,
+    pub frame: VisualFrame,
 }
 
-impl DecodedVideoFrame {
+impl DecodedFrame {
     pub(crate) fn covers(&self, presentation_time: Duration) -> bool {
         let rounded = presentation_time.saturating_add(Duration::from_nanos(1));
         self.presentation_time <= rounded
@@ -72,25 +73,25 @@ impl DecodedVideoFrame {
     }
 }
 
-pub(crate) trait VideoDecoderSession: Send {
+pub(crate) trait VideoDecoder: Send {
     /// Returns the frame whose presentation interval contains `presentation_time`,
     /// or the closest following frame when the stream has a timestamp gap.
     fn decode_at(
         &mut self,
         presentation_time: Duration,
         cancelled: &AtomicBool,
-    ) -> Result<DecodedVideoFrame, MediaError>;
+    ) -> Result<DecodedFrame, MediaError>;
 }
 
-pub(crate) trait ImageDecoderSession: Send {
+pub(crate) trait ImageDecoder: Send {
     fn render(
         &mut self,
-        size: VideoDecodeSize,
+        size: RasterSize,
         cancelled: &AtomicBool,
-    ) -> Result<PixelFrame, MediaError>;
+    ) -> Result<VisualFrame, MediaError>;
 }
 
-pub(crate) trait AudioDecoderSession: Send {
+pub(crate) trait AudioDecoder: Send {
     fn stream_duration(&self) -> Duration;
 
     /// Configure output speed before reading; seeking uses source time.
@@ -110,33 +111,27 @@ pub(crate) trait AudioDecoderSession: Send {
 pub(crate) trait MediaReader: Send + Sync {
     fn probe(&self, path: &Path, target: MediaTarget) -> Result<Option<MediaMetadata>, MediaError>;
 
-    /// Native output is validated against this device before returning frames.
-    /// Without a device, the decoder produces CPU pixels.
+    /// GPU decoding uses the consumer's device and queue. Without them, or when
+    /// the GPU cannot decode the stream, the decoder produces CPU pixels.
     fn open_video_decoder(
         &self,
         asset: &MediaAsset,
-        device: Option<&wgpu::Device>,
-    ) -> Result<Box<dyn VideoDecoderSession>, MediaError> {
-        let _ = (asset, device);
+        gpu: Option<&GpuContext>,
+    ) -> Result<Box<dyn VideoDecoder>, MediaError> {
+        let _ = (asset, gpu);
         Err(MediaError::unsupported(
             "This media reader does not support video decoding",
         ))
     }
 
-    fn open_image_decoder(
-        &self,
-        asset: &MediaAsset,
-    ) -> Result<Box<dyn ImageDecoderSession>, MediaError> {
+    fn open_image_decoder(&self, asset: &MediaAsset) -> Result<Box<dyn ImageDecoder>, MediaError> {
         let _ = asset;
         Err(MediaError::unsupported(
             "This media reader does not support still image decoding",
         ))
     }
 
-    fn open_audio_decoder(
-        &self,
-        asset: &MediaAsset,
-    ) -> Result<Box<dyn AudioDecoderSession>, MediaError> {
+    fn open_audio_decoder(&self, asset: &MediaAsset) -> Result<Box<dyn AudioDecoder>, MediaError> {
         let _ = asset;
         Err(MediaError::unsupported(
             "This media reader does not support audio decoding",

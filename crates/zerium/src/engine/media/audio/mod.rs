@@ -10,7 +10,7 @@ use std::path::Path;
 
 use zerium_core::media::{MediaAsset, MediaKind, MediaMetadata, MediaTarget};
 
-use super::reader::{AudioDecoderSession, MediaError, MediaReader};
+use super::reader::{AudioDecoder, MediaError, MediaReader};
 use crate::engine::gstreamer::input;
 
 pub(super) const READER_ID: &str = "zerium.audio";
@@ -25,15 +25,12 @@ impl MediaReader for AudioReader {
         input::probe(path, target)
     }
 
-    fn open_audio_decoder(
-        &self,
-        asset: &MediaAsset,
-    ) -> Result<Box<dyn AudioDecoderSession>, MediaError> {
+    fn open_audio_decoder(&self, asset: &MediaAsset) -> Result<Box<dyn AudioDecoder>, MediaError> {
         if !matches!(asset.kind, MediaKind::Audio { .. }) {
             return Err(MediaError::invalid_input(
                 "Audio reader requires audio media",
             ));
         }
-        Ok(Box::new(input::AudioDecoder::open(asset.clone())?))
+        Ok(Box::new(input::AudioDecodeSession::open(asset.clone())?))
     }
 }

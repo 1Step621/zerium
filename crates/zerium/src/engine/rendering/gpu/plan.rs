@@ -1,11 +1,10 @@
 use super::PROPERTY_WORD_SIZE;
+use super::scene::SurfaceRect;
 use super::scene::{
     RenderEffect, RenderEffectPassKind, RenderError, RenderItem, RenderItemSource,
     RenderNodeContent, RenderScene, RenderSize, RenderTemporalSample, RenderView, SceneNodeId,
 };
-use super::surface::SurfaceRect;
-use crate::engine::frame::PixelFrame;
-use bytemuck::{Pod, Zeroable};
+use crate::engine::frame::VisualFrame;
 use std::collections::HashMap;
 use std::ops::Range;
 use std::sync::Arc;
@@ -19,116 +18,8 @@ const SHARED_NODE_CACHE_BUDGET: usize = 128 * 1024 * 1024;
 const MAX_SHARED_NODE_CACHE_ENTRIES: usize = 8;
 const SCENE_BYTES_PER_PIXEL: usize = 8;
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
-pub(super) struct GpuItem {
-    pub(super) property_offset: u32,
-    pub(super) property_size: u32,
-    pub(super) output_size: [f32; 2],
-    pub(super) composition_size: [f32; 2],
-    pub(super) surface_min: [f32; 2],
-    pub(super) surface_size: [f32; 2],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
-pub(super) struct GpuEffect {
-    pub(super) property_offset: u32,
-    pub(super) property_size: u32,
-    pub(super) sample_index: u32,
-    pub(super) sample_count: u32,
-    pub(super) frame_offset: f32,
-    pub(super) sample_progress: f32,
-    pub(super) composition_size: [f32; 2],
-    pub(super) surface_min: [f32; 2],
-    pub(super) surface_size: [f32; 2],
-    pub(super) input_min: [f32; 2],
-    pub(super) input_size: [f32; 2],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
-pub(super) struct GpuTextureInput {
-    pub(super) size: [f32; 4],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
-pub(super) struct GpuCompute {
-    pub(super) property_offset: u32,
-    pub(super) property_size: u32,
-    pub(super) width: u32,
-    pub(super) height: u32,
-    pub(super) composition_size: [f32; 2],
-    pub(super) surface_min: [f32; 2],
-    pub(super) surface_size: [f32; 2],
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
-pub(super) struct GpuComposite {
-    pub(super) input_size: [u32; 2],
-    pub(super) output_size: [u32; 2],
-    pub(super) source_x: [f32; 4],
-    pub(super) source_y: [f32; 4],
-    // Axis-aligned source-texel footprint of one output pixel.
-    pub(super) footprint: [f32; 2],
-    pub(super) copy_pixels: u32,
-    pub(super) _padding: u32,
-    pub(super) blend_mode: [u32; 4],
-}
-
-impl GpuComposite {
-    pub(super) fn new(
-        input_size: RenderSize,
-        input: SurfaceRect,
-        output_size: RenderSize,
-        output: SurfaceRect,
-        view: RenderView,
-        blend_mode: BlendMode,
-    ) -> Self {
-        let (sin, cos) = view.angle.to_radians().sin_cos();
-        let inverse = [
-            [cos / view.zoom, -sin / view.zoom],
-            [sin / view.zoom, cos / view.zoom],
-        ];
-        let row = |axis: usize| {
-            let density = f64::from([input_size.width, input_size.height][axis])
-                / (input.max[axis] - input.min[axis]);
-            [
-                (f64::from(inverse[axis][0]) * (output.max[0] - output.min[0]) * density
-                    / f64::from(output_size.width)) as f32,
-                (f64::from(inverse[axis][1]) * (output.max[1] - output.min[1]) * density
-                    / f64::from(output_size.height)) as f32,
-                ((f64::from(view.position[axis])
-                    + f64::from(inverse[axis][0]) * output.min[0]
-                    + f64::from(inverse[axis][1]) * output.min[1]
-                    - input.min[axis])
-                    * density) as f32,
-                0.,
-            ]
-        };
-        let source_x = row(0);
-        let source_y = row(1);
-        let footprint = [
-            (source_x[0].abs() + source_x[1].abs()).max(1.),
-            (source_y[0].abs() + source_y[1].abs()).max(1.),
-        ];
-        let copy_pixels = input_size == output_size
-            && source_x[..3] == [1., 0., 0.]
-            && source_y[..3] == [0., 1., 0.];
-        Self {
-            input_size: [input_size.width, input_size.height],
-            output_size: [output_size.width, output_size.height],
-            source_x,
-            source_y,
-            footprint,
-            copy_pixels: u32::from(copy_pixels),
-            _padding: 0,
-            blend_mode: [blend_mode as u32, 0, 0, 0],
-        }
-    }
-}
+use super::bindings::{GpuEffect, GpuItem};
+use bytemuck::Zeroable;
 
 #[derive(Debug, PartialEq, Eq)]
 pub(super) struct ItemBatch {
@@ -220,22 +111,22 @@ pub(super) struct TemporalReduceCommand {
 }
 
 #[derive(Default)]
-pub(super) struct EncodedScene {
+pub(super) struct RenderPlan {
     pub(super) background: [f64; 4],
     pub(super) items: Vec<GpuItem>,
     pub(super) properties: Vec<u8>,
     pub(super) effects: Vec<GpuEffect>,
     pub(super) effect_properties: Vec<u8>,
-    pub(super) textures: Vec<EncodedTexture>,
+    pub(super) textures: Vec<PlannedTexture>,
     pub(super) nodes: Vec<RenderNodeCommand>,
     pub(super) node_keys: Vec<Arc<RenderNodeKey>>,
     pub(super) shared_node_slots: Vec<Option<usize>>,
     pub(super) commands: Vec<RenderCommand>,
 }
 
-pub(super) struct EncodedTexture {
+pub(super) struct PlannedTexture {
     pub(super) shader: ItemShaderId,
-    pub(super) frames: Vec<Arc<PixelFrame>>,
+    pub(super) frames: Vec<Arc<VisualFrame>>,
     pub(super) properties: Vec<u8>,
     pub(super) target_size: RenderSize,
     pub(super) composition_size: RenderSize,
@@ -302,15 +193,15 @@ pub(super) enum RenderNodeKey {
     },
 }
 
-struct SceneEncoder<'a> {
+struct RenderPlanner<'a> {
     scene: &'a RenderScene,
-    output: EncodedScene,
+    output: RenderPlan,
     encoded_nodes: HashMap<SceneNodeId, RenderNodeId>,
     node_cache: HashMap<Arc<RenderNodeKey>, RenderNodeId>,
     source_cache: HashMap<SourceKey, RenderSourceCommand>,
 }
 
-impl SceneEncoder<'_> {
+impl RenderPlanner<'_> {
     fn push_effect(&mut self, properties: &[u8]) -> Result<u32, RenderError> {
         let instance = u32::try_from(self.output.effects.len())
             .map_err(|_| RenderError::backend("too many effect passes in one frame"))?;
@@ -440,7 +331,7 @@ impl SceneEncoder<'_> {
                     return Ok((source.clone(), key));
                 }
                 let index = self.output.textures.len();
-                self.output.textures.push(EncodedTexture {
+                self.output.textures.push(PlannedTexture {
                     shader: item.shader.clone(),
                     frames: frames.clone(),
                     properties: item.properties.clone(),
@@ -635,12 +526,12 @@ impl SceneEncoder<'_> {
     }
 
     fn encode_node(&mut self, id: SceneNodeId) -> Result<RenderNodeId, RenderError> {
-        if let Some(encoded) = self.encoded_nodes.get(&id) {
-            return Ok(*encoded);
+        if let Some(plan) = self.encoded_nodes.get(&id) {
+            return Ok(*plan);
         }
         let nodes = &self.scene.nodes;
         let node = &nodes[id];
-        let encoded = match &node.content {
+        let plan = match &node.content {
             RenderNodeContent::Item(item) => {
                 let (source, key) = self.encode_source(item)?;
                 let source = self.intern_node(
@@ -693,17 +584,17 @@ impl SceneEncoder<'_> {
                 )
             }
         }?;
-        self.encoded_nodes.insert(id, encoded);
-        Ok(encoded)
+        self.encoded_nodes.insert(id, plan);
+        Ok(plan)
     }
 }
 
-pub(super) fn encode_scene(scene: &RenderScene) -> Result<EncodedScene, RenderError> {
-    let mut encoder = SceneEncoder {
+pub(super) fn plan_scene(scene: &RenderScene) -> Result<RenderPlan, RenderError> {
+    let mut encoder = RenderPlanner {
         scene,
-        output: EncodedScene {
+        output: RenderPlan {
             background: scene.background,
-            ..EncodedScene::default()
+            ..RenderPlan::default()
         },
         encoded_nodes: HashMap::new(),
         node_cache: HashMap::new(),

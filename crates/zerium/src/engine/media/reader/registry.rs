@@ -8,7 +8,7 @@ use super::super::{
     image::{IMAGE_READER_ID, ImageReader, SVG_READER_ID, SvgMediaReader},
     video::{READER_ID as VIDEO_READER_ID, VideoReader},
 };
-use super::{AudioDecoderSession, MediaError, MediaReader};
+use super::{AudioDecoder, MediaError, MediaReader};
 
 #[derive(Default)]
 pub(crate) struct MediaReaderRegistry {
@@ -69,7 +69,7 @@ impl MediaReaderRegistry {
     pub(crate) fn open_audio_decoder(
         &self,
         asset: &MediaAsset,
-    ) -> Result<Box<dyn AudioDecoderSession>, MediaError> {
+    ) -> Result<Box<dyn AudioDecoder>, MediaError> {
         self.reader_for(&asset.reader_id)?.open_audio_decoder(asset)
     }
 }

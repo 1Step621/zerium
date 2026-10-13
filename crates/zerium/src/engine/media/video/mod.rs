@@ -1,10 +1,13 @@
-//! GStreamer video reader integration.
+//! Persistent video decoding shared by preview and export.
+use crate::engine::gpu::GpuContext;
+mod decoder;
+mod gpu_decoder;
 
 use std::path::Path;
 
 use zerium_core::media::{MediaAsset, MediaKind, MediaMetadata, MediaTarget};
 
-use super::reader::{MediaError, MediaReader, VideoDecoderSession};
+use super::reader::{MediaError, MediaReader, VideoDecoder};
 use crate::engine::gstreamer::input;
 
 pub(super) const READER_ID: &str = "zerium.video";
@@ -22,13 +25,16 @@ impl MediaReader for VideoReader {
     fn open_video_decoder(
         &self,
         asset: &MediaAsset,
-        device: Option<&wgpu::Device>,
-    ) -> Result<Box<dyn VideoDecoderSession>, MediaError> {
+        gpu: Option<&GpuContext>,
+    ) -> Result<Box<dyn VideoDecoder>, MediaError> {
         if !matches!(asset.kind, MediaKind::Video { .. }) {
             return Err(MediaError::invalid_input(
                 "Video reader requires video media",
             ));
         }
-        Ok(Box::new(input::VideoDecoder::open(asset.clone(), device)?))
+        Ok(Box::new(decoder::VideoDecodeSession::open(
+            asset.clone(),
+            gpu,
+        )?))
     }
 }

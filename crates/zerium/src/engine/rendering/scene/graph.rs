@@ -1,12 +1,12 @@
-use super::scene::{
-    RenderEffect, RenderItem, RenderItemSource, RenderNodeContent, RenderTemporalSample, RenderView,
-};
-use super::scene::{RenderError, RenderNode, RenderScene, RenderSize, SceneNodeId};
-use super::surface::{SurfaceRect, item_bounds};
+use super::geometry::{SurfaceRect, item_bounds};
 use super::text::TextFrameRequest;
 use super::text::TextSourceId;
-use crate::engine::frame::PixelFrame;
-use crate::engine::media::{MediaFrameRequest, MediaInputId, VideoDecodeSize};
+use super::{
+    RenderEffect, RenderItem, RenderItemSource, RenderNodeContent, RenderTemporalSample, RenderView,
+};
+use super::{RenderError, RenderNode, RenderScene, RenderSize, SceneNodeId};
+use crate::engine::frame::VisualFrame;
+use crate::engine::media::{MediaFrameRequest, MediaInputId, RasterSize};
 use std::{collections::HashMap, sync::Arc};
 use zerium_core::plugin::{EffectPassSchema, TextureInput};
 use zerium_core::timeline::{
@@ -20,7 +20,7 @@ const MAX_TEMPORAL_DEPTH: usize = 4;
 const MAX_TEMPORAL_RENDER_NODES: usize = 4_096;
 
 type MediaFrameCache =
-    HashMap<(ItemId, Option<EffectInstanceId>, usize, u64, RenderSize), Option<Arc<PixelFrame>>>;
+    HashMap<(ItemId, Option<EffectInstanceId>, usize, u64, RenderSize), Option<Arc<VisualFrame>>>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct RenderCacheKey {
@@ -146,7 +146,7 @@ impl<'a> InputSource<'a> {
 
 /// One frame's CPU render graph. All dependencies refer to shared node IDs;
 /// item and scene effects use the same temporal sampling and texture input resolver.
-pub(super) struct SceneBuilder<'a, M, T> {
+pub(super) struct SceneGraphBuilder<'a, M, T> {
     timeline: &'a dyn TimelineView,
     size: RenderSize,
     nodes: Vec<RenderNode>,
@@ -159,11 +159,11 @@ pub(super) struct SceneBuilder<'a, M, T> {
     text_frame: T,
 }
 
-impl<E, M, T> SceneBuilder<'_, M, T>
+impl<E, M, T> SceneGraphBuilder<'_, M, T>
 where
     E: From<RenderError>,
-    M: FnMut(MediaFrameRequest) -> Result<Option<Arc<PixelFrame>>, E>,
-    T: FnMut(TextFrameRequest<'_>) -> Result<Arc<PixelFrame>, RenderError>,
+    M: FnMut(MediaFrameRequest) -> Result<Option<Arc<VisualFrame>>, E>,
+    T: FnMut(TextFrameRequest<'_>) -> Result<Arc<VisualFrame>, RenderError>,
 {
     pub(super) fn build(
         timeline: &dyn TimelineView,
@@ -172,7 +172,7 @@ where
         media_frame: M,
         text_frame: T,
     ) -> Result<RenderScene, E> {
-        let mut builder = SceneBuilder {
+        let mut builder = SceneGraphBuilder {
             timeline,
             size,
             nodes: Vec::new(),
@@ -474,7 +474,7 @@ where
                                 input,
                                 node.item.local_seconds(time, self.timeline.frame_rate()),
                                 self.timeline.media_cache(),
-                                VideoDecodeSize {
+                                RasterSize {
                                     max_width: size.width,
                                     max_height: size.height,
                                 },
@@ -487,7 +487,7 @@ where
                             frame
                         }
                     }
-                    .unwrap_or_else(|| Arc::new(PixelFrame::rgba(1, 1, [0u8; 4])));
+                    .unwrap_or_else(|| Arc::new(VisualFrame::rgba(1, 1, [0u8; 4])));
                     self.frame_node(frame, target_size)
                 }
                 TextureInput::Text { .. } | TextureInput::Number { .. } => {
@@ -558,7 +558,7 @@ where
         Ok(inputs)
     }
 
-    fn frame_node(&mut self, frame: Arc<PixelFrame>, target_size: RenderSize) -> SceneNodeId {
+    fn frame_node(&mut self, frame: Arc<VisualFrame>, target_size: RenderSize) -> SceneNodeId {
         self.push_node(
             RenderNodeContent::Item(RenderItem {
                 shader: ItemShaderId::host_capability_frame(),

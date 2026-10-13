@@ -1,40 +1,19 @@
-use super::encoded_scene::{GpuComposite, GpuCompute, GpuEffect, GpuItem};
-use super::scene::RenderError;
+//! Build shared bind layouts and built-in rendering pipelines.
+use super::bindings::{GpuComposite, GpuCompute, GpuEffect, GpuItem};
+use super::pipelines::raster_pipeline;
 use super::{
-    COMPOSITE, OUTPUT_FORMAT, PROPERTY_WORD_SIZE, RendererBuilder, RendererDevice, SCENE_FORMAT,
+    COMPOSITE, OUTPUT_FORMAT, PROPERTY_WORD_SIZE, RenderDevice, RenderDeviceBuilder, RenderError,
+    SCENE_FORMAT,
 };
-use std::collections::HashMap;
-use std::num::NonZeroU64;
-use std::sync::Arc;
+use crate::engine::gpu::GpuContext;
+use std::{collections::HashMap, num::NonZeroU64, sync::Arc};
 use zerium_shader::{
-    CompiledEffectShader, CompiledPluginShaders, ComputeShaderDescriptor, EffectShaderDescriptor,
-    ItemShaderDescriptor, TextureShaderDescriptor, capability_input,
+    CompiledEffectShader, CompiledPluginShaders, capability_input, validate_render_shader,
 };
 
-pub(super) struct RasterPipeline {
-    pub(super) pipeline: wgpu::RenderPipeline,
-    pub(super) vertex_count: u32,
-}
-
-pub(super) struct ComputePipeline {
-    pub(super) pipeline: wgpu::ComputePipeline,
-    pub(super) workgroup_size: [u32; 3],
-}
-
-pub(super) struct TexturePipeline {
-    pub(super) pipeline: wgpu::RenderPipeline,
-    pub(super) vertex_count: u32,
-    pub(super) bind_group_layout: wgpu::BindGroupLayout,
-    pub(super) input_count: usize,
-}
-
-use zerium_shader::validate_render_shader;
-
-impl RendererBuilder {
-    pub(crate) fn new(
-        device: Arc<wgpu::Device>,
-        queue: Arc<wgpu::Queue>,
-    ) -> Result<Self, RenderError> {
+impl RenderDeviceBuilder {
+    pub(crate) fn new(gpu: GpuContext) -> Result<Self, RenderError> {
+        let device = &gpu.device;
         let item_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("zerium-item-bind-group-layout"),
@@ -360,7 +339,7 @@ impl RendererBuilder {
             source: wgpu::ShaderSource::Wgsl(COMPOSITE.into()),
         });
         let composite_pipeline = raster_pipeline(
-            &device,
+            device,
             &composite_pipeline_layout,
             &composite_module,
             ["vertex_main", "fragment_main"],
@@ -372,7 +351,7 @@ impl RendererBuilder {
             "zerium-composite_pipeline",
         );
         let output_pipeline = raster_pipeline(
-            &device,
+            device,
             &composite_pipeline_layout,
             &composite_module,
             ["vertex_main", "output_fragment_main"],
@@ -384,7 +363,7 @@ impl RendererBuilder {
             "zerium-output_pipeline",
         );
         let blend_pipeline = raster_pipeline(
-            &device,
+            device,
             &blend_pipeline_layout,
             &composite_module,
             ["vertex_main", "blend_fragment_main"],
@@ -403,14 +382,13 @@ impl RendererBuilder {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
-        let yuv_upload = super::video_upload::YuvUploadPipeline::new(&device)?;
-        let native_video = crate::engine::gstreamer::gpu::NativeVideoPipeline::new(&device)?;
+        let yuv_upload = super::video_upload::YuvUploadPipeline::new(device)?;
+        let video_planes = super::VideoPlanePipeline::new(device)?;
         Ok(Self {
-            device: RendererDevice {
-                device,
-                queue,
+            render_device: RenderDevice {
+                gpu,
                 pipeline_layout,
-                pipelines: HashMap::new(),
+                item_pipelines: HashMap::new(),
                 item_bind_group_layout,
                 capability_bind_group_layout,
                 effect_bind_group_layout,
@@ -429,7 +407,7 @@ impl RendererBuilder {
                 texture_pipelines: HashMap::new(),
                 sampler,
                 yuv_upload,
-                native_video,
+                video_planes,
             },
         })
     }
@@ -439,33 +417,38 @@ impl RendererBuilder {
         shaders: &CompiledPluginShaders,
     ) -> Result<Self, RenderError> {
         for descriptor in &shaders.items {
-            self.device.register_item_shader(descriptor.clone())?;
+            self.render_device
+                .register_item_shader(descriptor.clone())?;
         }
         for effect in &shaders.effects {
             match effect {
                 CompiledEffectShader::Render(descriptor) => {
-                    self.device.register_effect_shader(descriptor.clone())?;
+                    self.render_device
+                        .register_effect_shader(descriptor.clone())?;
                 }
                 CompiledEffectShader::Compute(descriptor) => {
-                    self.device.register_compute_shader(descriptor.clone())?;
+                    self.render_device
+                        .register_compute_shader(descriptor.clone())?;
                 }
                 CompiledEffectShader::Temporal(descriptor) => {
-                    self.device.register_temporal_shader(descriptor.clone())?;
+                    self.render_device
+                        .register_temporal_shader(descriptor.clone())?;
                 }
             }
         }
         for descriptor in &shaders.textures {
-            self.device.register_texture_shader(descriptor.clone())?;
+            self.render_device
+                .register_texture_shader(descriptor.clone())?;
         }
         Ok(self)
     }
 
-    pub(crate) fn build(self) -> Arc<RendererDevice> {
-        Arc::new(self.device)
+    pub(crate) fn build(self) -> Arc<RenderDevice> {
+        Arc::new(self.render_device)
     }
 }
 
-impl RendererDevice {
+impl RenderDevice {
     /// Creates an independent device for export work.
     ///
     /// The preview surface shares its device with the UI thread, whose frame
@@ -490,7 +473,7 @@ impl RendererDevice {
         .map_err(|error| {
             RenderError::backend(format!("export GPU adapter is unavailable: {error}"))
         })?;
-        let (device, queue) = crate::engine::gstreamer::encoding::request_device(
+        let gpu = GpuContext::request(
             &adapter,
             &wgpu::DeviceDescriptor {
                 label: Some("zerium-export-device"),
@@ -501,460 +484,8 @@ impl RendererDevice {
         .map_err(|error| {
             RenderError::backend(format!("export GPU device is unavailable: {error}"))
         })?;
-        RendererBuilder::new(Arc::new(device), Arc::new(queue))?
+        RenderDeviceBuilder::new(gpu)?
             .register_plugins(shaders)
             .map(|builder| builder.build())
-    }
-
-    pub(super) fn register_compute_shader(
-        &mut self,
-        descriptor: ComputeShaderDescriptor,
-    ) -> Result<(), RenderError> {
-        let ComputeShaderDescriptor {
-            id,
-            wgsl,
-            entry,
-            workgroup_size,
-        } = descriptor;
-        if self.compute_pipelines.contains_key(&id) {
-            return Err(RenderError::backend(format!(
-                "compute effect shader '{}' is already registered",
-                id
-            )));
-        }
-        let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let module = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some(id.as_str()),
-                source: wgpu::ShaderSource::Wgsl(wgsl.as_ref().into()),
-            });
-        let layout = self
-            .device
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("zerium-compute-pipeline-layout"),
-                bind_group_layouts: &[
-                    Some(&self.compute_bind_group_layout),
-                    Some(&self.capability_bind_group_layout),
-                ],
-                immediate_size: 0,
-            });
-        let pipeline = self
-            .device
-            .create_compute_pipeline(&wgpu::ComputePipelineDescriptor {
-                label: Some(id.as_str()),
-                layout: Some(&layout),
-                module: &module,
-                entry_point: Some(&entry),
-                compilation_options: Default::default(),
-                cache: None,
-            });
-        if let Some(error) = pollster::block_on(error_scope.pop()) {
-            return Err(RenderError::backend(format!(
-                "compute effect shader '{}' is incompatible with the render pipeline: {error}",
-                id
-            )));
-        }
-        self.compute_pipelines.insert(
-            id,
-            ComputePipeline {
-                pipeline,
-                workgroup_size,
-            },
-        );
-        Ok(())
-    }
-
-    pub(super) fn register_temporal_shader(
-        &mut self,
-        descriptor: EffectShaderDescriptor,
-    ) -> Result<(), RenderError> {
-        let EffectShaderDescriptor {
-            id,
-            label,
-            wgsl,
-            vertex_entry,
-            fragment_entry,
-            ..
-        } = descriptor;
-        if self.temporal_pipelines.contains_key(&id) {
-            return Err(RenderError::backend(format!(
-                "temporal effect reducer '{}' is already registered",
-                id
-            )));
-        }
-        let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let module = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some(&label),
-                source: wgpu::ShaderSource::Wgsl(wgsl.as_ref().into()),
-            });
-        let pipeline = raster_pipeline(
-            &self.device,
-            &self.temporal_pipeline_layout,
-            &module,
-            [&vertex_entry, &fragment_entry],
-            wgpu::ColorTargetState {
-                format: SCENE_FORMAT,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            },
-            &label,
-        );
-        if let Some(error) = pollster::block_on(error_scope.pop()) {
-            return Err(RenderError::backend(format!(
-                "temporal effect reducer '{}' is incompatible with the render pipeline: {error}",
-                id
-            )));
-        }
-        self.temporal_pipelines.insert(
-            id,
-            RasterPipeline {
-                pipeline,
-                vertex_count: 3,
-            },
-        );
-        Ok(())
-    }
-
-    pub(super) fn register_texture_shader(
-        &mut self,
-        descriptor: TextureShaderDescriptor,
-    ) -> Result<(), RenderError> {
-        let TextureShaderDescriptor {
-            id,
-            label,
-            wgsl,
-            vertex_entry,
-            fragment_entry,
-            vertex_count,
-            input_ids,
-        } = descriptor;
-        if self.texture_pipelines.contains_key(&id) {
-            return Err(RenderError::backend(format!(
-                "texture item shader '{}' is already registered",
-                id
-            )));
-        }
-        let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let input_count = input_ids.len();
-        let sampler_binding = u32::try_from(2 + input_count)
-            .map_err(|_| RenderError::backend("too many texture inputs"))?;
-        let metadata_binding = sampler_binding + 1;
-        let mut layout_entries = vec![
-            wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: NonZeroU64::new(size_of::<GpuItem>() as u64),
-                },
-                count: None,
-            },
-            wgpu::BindGroupLayoutEntry {
-                binding: 1,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                ty: wgpu::BindingType::Buffer {
-                    ty: wgpu::BufferBindingType::Storage { read_only: true },
-                    has_dynamic_offset: false,
-                    min_binding_size: NonZeroU64::new(PROPERTY_WORD_SIZE as u64),
-                },
-                count: None,
-            },
-        ];
-        layout_entries.extend((0..input_count).map(|index| wgpu::BindGroupLayoutEntry {
-            binding: u32::try_from(index + 2).expect("texture binding index exceeds u32"),
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Texture {
-                sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                view_dimension: wgpu::TextureViewDimension::D2,
-                multisampled: false,
-            },
-            count: None,
-        }));
-        layout_entries.push(wgpu::BindGroupLayoutEntry {
-            binding: sampler_binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-            count: None,
-        });
-        layout_entries.push(wgpu::BindGroupLayoutEntry {
-            binding: metadata_binding,
-            visibility: wgpu::ShaderStages::FRAGMENT,
-            ty: wgpu::BindingType::Buffer {
-                ty: wgpu::BufferBindingType::Uniform,
-                has_dynamic_offset: false,
-                min_binding_size: NonZeroU64::new(((input_count + 1) * 16) as u64),
-            },
-            count: None,
-        });
-        let bind_group_layout =
-            self.device
-                .create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                    label: Some("zerium-texture-item-bind-group-layout"),
-                    entries: &layout_entries,
-                });
-        let pipeline_layout = self
-            .device
-            .create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("zerium-texture-item-pipeline-layout"),
-                bind_group_layouts: &[Some(&bind_group_layout)],
-                immediate_size: 0,
-            });
-        let module = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some(&label),
-                source: wgpu::ShaderSource::Wgsl(wgsl.as_ref().into()),
-            });
-        let pipeline = raster_pipeline(
-            &self.device,
-            &pipeline_layout,
-            &module,
-            [&vertex_entry, &fragment_entry],
-            wgpu::ColorTargetState {
-                format: SCENE_FORMAT,
-                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                write_mask: wgpu::ColorWrites::ALL,
-            },
-            &label,
-        );
-        if let Some(error) = pollster::block_on(error_scope.pop()) {
-            return Err(RenderError::backend(format!(
-                "texture item shader '{}' is incompatible with the render pipeline: {error}",
-                id
-            )));
-        }
-        self.texture_pipelines.insert(
-            id,
-            TexturePipeline {
-                pipeline,
-                vertex_count,
-                bind_group_layout,
-                input_count,
-            },
-        );
-        Ok(())
-    }
-
-    /// Registers a kind-specific WGSL fragment. This is the extension point for
-    /// future plugins; IDs must be unique for the lifetime of the renderer.
-    pub(super) fn register_item_shader(
-        &mut self,
-        descriptor: ItemShaderDescriptor,
-    ) -> Result<(), RenderError> {
-        if descriptor.id.as_str().is_empty() {
-            return Err(RenderError::backend("item shader ID must not be empty"));
-        }
-        if self.pipelines.contains_key(&descriptor.id) {
-            return Err(RenderError::backend(format!(
-                "item shader '{}' is already registered",
-                descriptor.id
-            )));
-        }
-
-        let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let module = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some(&descriptor.label),
-                source: wgpu::ShaderSource::Wgsl(descriptor.wgsl.as_ref().into()),
-            });
-        let pipeline = raster_pipeline(
-            &self.device,
-            &self.pipeline_layout,
-            &module,
-            [&descriptor.vertex_entry, &descriptor.fragment_entry],
-            wgpu::ColorTargetState {
-                format: SCENE_FORMAT,
-                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
-                write_mask: wgpu::ColorWrites::ALL,
-            },
-            &descriptor.label,
-        );
-        if let Some(error) = pollster::block_on(error_scope.pop()) {
-            return Err(RenderError::backend(format!(
-                "item shader '{}' is incompatible with the render pipeline: {error}",
-                descriptor.id
-            )));
-        }
-        self.pipelines.insert(
-            descriptor.id,
-            RasterPipeline {
-                pipeline,
-                vertex_count: descriptor.vertex_count,
-            },
-        );
-        Ok(())
-    }
-
-    pub(super) fn register_effect_shader(
-        &mut self,
-        descriptor: EffectShaderDescriptor,
-    ) -> Result<(), RenderError> {
-        if descriptor.id.as_str().is_empty() {
-            return Err(RenderError::backend("effect shader ID must not be empty"));
-        }
-        if self.effect_pipelines.contains_key(&descriptor.id) {
-            return Err(RenderError::backend(format!(
-                "effect shader '{}' is already registered",
-                descriptor.id
-            )));
-        }
-
-        let error_scope = self.device.push_error_scope(wgpu::ErrorFilter::Validation);
-        let module = self
-            .device
-            .create_shader_module(wgpu::ShaderModuleDescriptor {
-                label: Some(&descriptor.label),
-                source: wgpu::ShaderSource::Wgsl(descriptor.wgsl.as_ref().into()),
-            });
-        let pipeline = raster_pipeline(
-            &self.device,
-            &self.effect_pipeline_layout,
-            &module,
-            [&descriptor.vertex_entry, &descriptor.fragment_entry],
-            wgpu::ColorTargetState {
-                format: SCENE_FORMAT,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            },
-            &descriptor.label,
-        );
-        if let Some(error) = pollster::block_on(error_scope.pop()) {
-            return Err(RenderError::backend(format!(
-                "effect shader '{}' is incompatible with the render pipeline: {error}",
-                descriptor.id
-            )));
-        }
-        self.effect_pipelines.insert(
-            descriptor.id,
-            RasterPipeline {
-                pipeline,
-                vertex_count: 3,
-            },
-        );
-        Ok(())
-    }
-}
-
-pub(super) fn raster_pipeline<'a>(
-    device: &wgpu::Device,
-    layout: impl Into<Option<&'a wgpu::PipelineLayout>>,
-    module: &wgpu::ShaderModule,
-    entries: [&str; 2],
-    target: wgpu::ColorTargetState,
-    label: &str,
-) -> wgpu::RenderPipeline {
-    device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-        label: Some(label),
-        layout: layout.into(),
-        vertex: wgpu::VertexState {
-            module,
-            entry_point: Some(entries[0]),
-            compilation_options: Default::default(),
-            buffers: &[],
-        },
-        primitive: Default::default(),
-        depth_stencil: None,
-        multisample: Default::default(),
-        fragment: Some(wgpu::FragmentState {
-            module,
-            entry_point: Some(entries[1]),
-            compilation_options: Default::default(),
-            targets: &[Some(target)],
-        }),
-        multiview_mask: None,
-        cache: None,
-    })
-}
-
-/// Both CPU planes and imported GPU surfaces use the same fullscreen conversion.
-/// wgpu derives the binding layout and uniform sizes directly from each shader.
-pub(in crate::engine) struct VideoInputPipeline {
-    layout: wgpu::BindGroupLayout,
-    pipeline: wgpu::RenderPipeline,
-}
-
-impl VideoInputPipeline {
-    pub(in crate::engine) fn new(
-        device: &wgpu::Device,
-        label: &str,
-        shader: &str,
-    ) -> Result<Self, RenderError> {
-        validate_render_shader(label, shader, "vertex_main", "fragment_main")?;
-        let module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some(label),
-            source: wgpu::ShaderSource::Wgsl(shader.into()),
-        });
-        let pipeline = raster_pipeline(
-            device,
-            None,
-            &module,
-            ["vertex_main", "fragment_main"],
-            wgpu::ColorTargetState {
-                format: wgpu::TextureFormat::Rgba8Unorm,
-                blend: None,
-                write_mask: wgpu::ColorWrites::ALL,
-            },
-            label,
-        );
-        let layout = pipeline.get_bind_group_layout(0);
-        Ok(Self { layout, pipeline })
-    }
-
-    pub(in crate::engine) fn binding<'a>(
-        &self,
-        device: &wgpu::Device,
-        views: impl IntoIterator<Item = &'a wgpu::TextureView>,
-        uniform: &wgpu::Buffer,
-    ) -> wgpu::BindGroup {
-        let mut entries: Vec<_> = views
-            .into_iter()
-            .enumerate()
-            .map(|(binding, view)| wgpu::BindGroupEntry {
-                binding: binding as u32,
-                resource: wgpu::BindingResource::TextureView(view),
-            })
-            .collect();
-        entries.push(wgpu::BindGroupEntry {
-            binding: entries.len() as u32,
-            resource: uniform.as_entire_binding(),
-        });
-        device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("zerium-video-input-binding"),
-            layout: &self.layout,
-            entries: &entries,
-        })
-    }
-
-    pub(in crate::engine) fn draw(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        binding: &wgpu::BindGroup,
-        output: &wgpu::Texture,
-    ) {
-        let view = output.create_view(&wgpu::TextureViewDescriptor {
-            format: Some(wgpu::TextureFormat::Rgba8Unorm),
-            ..Default::default()
-        });
-        let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-            label: Some("zerium-video-input-pass"),
-            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                view: &view,
-                depth_slice: None,
-                resolve_target: None,
-                ops: wgpu::Operations {
-                    load: wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-                    store: wgpu::StoreOp::Store,
-                },
-            })],
-            ..Default::default()
-        });
-        pass.set_pipeline(&self.pipeline);
-        pass.set_bind_group(0, binding, &[]);
-        pass.draw(0..3, 0..1);
     }
 }

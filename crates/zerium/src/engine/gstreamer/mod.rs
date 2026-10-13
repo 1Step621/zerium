@@ -1,6 +1,5 @@
-//! GStreamer runtime, media input, encoding, and native GPU transfer.
+//! GStreamer runtime, media input, encoding, and GPU video decoding.
 pub(crate) mod encoding;
-pub(crate) mod gpu;
 pub(crate) mod input;
 mod pipeline;
 mod runtime;

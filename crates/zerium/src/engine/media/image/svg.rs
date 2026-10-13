@@ -10,10 +10,10 @@ use std::{
 
 use resvg::{tiny_skia, usvg};
 
-use crate::engine::frame::PixelFrame;
+use crate::engine::frame::VisualFrame;
 use zerium_core::media::{MediaAsset, MediaKind, MediaMetadata, MediaTarget};
 
-use super::super::reader::{ImageDecoderSession, MediaError, MediaReader, VideoDecodeSize};
+use super::super::reader::{ImageDecoder, MediaError, MediaReader, RasterSize};
 
 pub(in crate::engine::media) const READER_ID: &str = "zerium.svg";
 const IMAGE_DURATION: Duration = Duration::from_secs(5);
@@ -34,14 +34,11 @@ impl MediaReader for SvgMediaReader {
         }))
     }
 
-    fn open_image_decoder(
-        &self,
-        asset: &MediaAsset,
-    ) -> Result<Box<dyn ImageDecoderSession>, MediaError> {
+    fn open_image_decoder(&self, asset: &MediaAsset) -> Result<Box<dyn ImageDecoder>, MediaError> {
         if !matches!(asset.kind, MediaKind::Image { .. }) {
             return Err(MediaError::external("SVG reader requires image media"));
         }
-        Ok(Box::new(SvgDecoder {
+        Ok(Box::new(SvgDecodeSession {
             tree: read_tree(&asset.path)?,
             cached: None,
         }))
@@ -78,17 +75,17 @@ fn system_fonts() -> &'static Arc<usvg::fontdb::Database> {
     })
 }
 
-struct SvgDecoder {
+struct SvgDecodeSession {
     tree: usvg::Tree,
-    cached: Option<PixelFrame>,
+    cached: Option<VisualFrame>,
 }
 
-impl ImageDecoderSession for SvgDecoder {
+impl ImageDecoder for SvgDecodeSession {
     fn render(
         &mut self,
-        size: VideoDecodeSize,
+        size: RasterSize,
         cancelled: &AtomicBool,
-    ) -> Result<PixelFrame, MediaError> {
+    ) -> Result<VisualFrame, MediaError> {
         if cancelled.load(Ordering::Relaxed) {
             return Err(MediaError::Cancelled);
         }
@@ -128,7 +125,7 @@ impl ImageDecoderSession for SvgDecoder {
                 }
             }
         }
-        let frame = PixelFrame::rgba(size.max_width, size.max_height, rgba);
+        let frame = VisualFrame::rgba(size.max_width, size.max_height, rgba);
         self.cached = Some(frame.clone());
         Ok(frame)
     }

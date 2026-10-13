@@ -1,53 +1,43 @@
-use gstreamer_video as video;
 use std::sync::mpsc;
 
-use super::{EncoderError, VideoEncoderSettings};
+use super::{EncodingError, EncodingSettings};
 
-pub(super) struct Readback {
-    info: video::VideoInfo,
+pub(super) struct Nv12Readback {
+    dimensions: super::super::encoding::VideoDimensions,
+    frame_stride: usize,
     stride: u32,
     free: Vec<wgpu::Buffer>,
 }
 
-pub(super) struct Frame {
+pub(super) struct PendingReadback {
     buffer: wgpu::Buffer,
     mapped: mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
 }
 
-impl Readback {
+impl Nv12Readback {
     pub(super) fn new(
         device: &wgpu::Device,
-        settings: VideoEncoderSettings,
-    ) -> Result<Self, EncoderError> {
-        let colorimetry = "bt709"
-            .parse::<video::VideoColorimetry>()
-            .map_err(EncoderError::pipeline)?;
-        let info = video::VideoInfo::builder(
-            video::VideoFormat::Nv12,
-            settings.output.width,
-            settings.output.height,
-        )
-        .colorimetry(&colorimetry)
-        .build()
-        .map_err(EncoderError::pipeline)?;
+        settings: EncodingSettings,
+    ) -> Result<Self, EncodingError> {
+        let dimensions = settings.output;
+        let frame_stride = dimensions.width.next_multiple_of(4) as usize;
         let stride = settings
             .output
             .width
             .next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
-        if u64::from(stride) * u64::from(info.height()) * 3 / 2 > device.limits().max_buffer_size {
-            return Err(EncoderError::Invalid(
+        if u64::from(stride) * u64::from(dimensions.height) * 3 / 2
+            > device.limits().max_buffer_size
+        {
+            return Err(EncodingError::Invalid(
                 "Export readback exceeds the GPU buffer size limit",
             ));
         }
         Ok(Self {
             stride,
-            info,
+            dimensions,
+            frame_stride,
             free: Vec::new(),
         })
-    }
-
-    pub(super) fn info(&self) -> video::VideoInfo {
-        self.info.clone()
     }
 
     pub(super) fn copy(
@@ -55,11 +45,11 @@ impl Readback {
         device: &wgpu::Device,
         encoder: &mut wgpu::CommandEncoder,
         planes: &[wgpu::Texture],
-    ) -> Frame {
+    ) -> PendingReadback {
         let buffer = self.free.pop().unwrap_or_else(|| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("zerium-export-readback"),
-                size: u64::from(self.stride) * u64::from(self.info.height()) * 3 / 2,
+                size: u64::from(self.stride) * u64::from(self.dimensions.height) * 3 / 2,
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                 mapped_at_creation: false,
             })
@@ -73,7 +63,7 @@ impl Readback {
                         offset: if plane == 0 {
                             0
                         } else {
-                            u64::from(self.stride) * u64::from(self.info.height())
+                            u64::from(self.stride) * u64::from(self.dimensions.height)
                         },
                         bytes_per_row: Some(self.stride),
                         rows_per_image: None,
@@ -87,33 +77,36 @@ impl Readback {
             // The export can be cancelled before its GPU submission completes.
             let _ = sender.send(result);
         });
-        Frame { buffer, mapped }
+        PendingReadback { buffer, mapped }
     }
 
-    pub(super) fn finish(&mut self, frame: Frame) -> Result<Vec<u8>, EncoderError> {
+    pub(super) fn finish(&mut self, frame: PendingReadback) -> Result<Vec<u8>, EncodingError> {
         frame
             .mapped
             .recv()
-            .map_err(EncoderError::pipeline)?
-            .map_err(EncoderError::pipeline)?;
+            .map_err(EncodingError::backend)?
+            .map_err(EncodingError::backend)?;
         let mapped = frame
             .buffer
             .slice(..)
             .get_mapped_range()
-            .map_err(EncoderError::pipeline)?;
-        let mut data = vec![0; self.info.size()];
+            .map_err(EncodingError::backend)?;
+        let mut data = vec![0; self.frame_stride * self.dimensions.height as usize * 3 / 2];
         for plane in 0..2 {
-            let rows = self.info.height() as usize / if plane == 0 { 1 } else { 2 };
+            let rows = self.dimensions.height as usize / if plane == 0 { 1 } else { 2 };
             let source_offset = if plane == 0 {
                 0
             } else {
-                self.stride as usize * self.info.height() as usize
+                self.stride as usize * self.dimensions.height as usize
             };
             for row in 0..rows {
                 let source = source_offset + row * self.stride as usize;
-                let destination =
-                    self.info.offset()[plane] + row * self.info.stride()[plane] as usize;
-                let width = self.info.width() as usize;
+                let destination = if plane == 0 {
+                    0
+                } else {
+                    self.frame_stride * self.dimensions.height as usize
+                } + row * self.frame_stride;
+                let width = self.dimensions.width as usize;
                 data[destination..destination + width]
                     .copy_from_slice(&mapped[source..source + width]);
             }

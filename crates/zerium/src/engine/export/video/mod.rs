@@ -7,52 +7,41 @@ use std::{
     time::{Duration, Instant},
 };
 
-use super::{EncoderError, VideoEncoderSettings};
-use crate::engine::rendering::{FrameRenderer, OUTPUT_FORMAT, RenderScene, RenderSize};
+use super::encoding::{EncodingError, EncodingSettings, VideoEncoderFrame, VideoEncoderInput};
+use crate::engine::rendering::{OUTPUT_FORMAT, RenderScene, RenderSession, RenderSize};
 
-mod cpu;
-#[cfg(target_os = "macos")]
-mod macos;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
-mod vulkan;
+mod gpu_video;
+mod readback;
+#[cfg(target_os = "macos")]
+mod video_toolbox;
 
 const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 const PLANE_FORMATS: [wgpu::TextureFormat; 2] =
     [wgpu::TextureFormat::R8Unorm, wgpu::TextureFormat::Rg8Unorm];
 
-pub(crate) enum VideoEncoding {
-    Cpu(gstreamer_video::VideoInfo),
-    H264,
-}
-
-pub(crate) struct ExportFrame {
-    pub(crate) index: u64,
-    pub(super) data: Vec<u8>,
-    pub(super) keyframe: bool,
-}
-
 enum Backend {
-    Cpu(cpu::Readback),
+    Readback(readback::Nv12Readback),
     #[cfg(any(target_os = "linux", target_os = "windows"))]
-    Vulkan(vulkan::Encoder),
+    GpuVideo(gpu_video::Encoder),
     #[cfg(target_os = "macos")]
-    Mac(macos::Encoder),
+    VideoToolbox(video_toolbox::Encoder),
 }
 
 enum Target {
-    Cpu,
+    Readback,
     #[cfg(any(target_os = "linux", target_os = "windows"))]
-    Vulkan(gpu_video::EncodeTexture),
+    GpuVideo(::gpu_video::EncodeTexture),
     #[cfg(target_os = "macos")]
-    Mac(macos::Surface),
+    VideoToolbox(video_toolbox::Surface),
 }
 
 enum PendingData {
-    Cpu(cpu::Frame),
+    Readback(readback::PendingReadback),
     #[cfg(any(target_os = "linux", target_os = "windows"))]
-    Vulkan,
+    GpuVideo,
     #[cfg(target_os = "macos")]
-    Mac(macos::Surface),
+    VideoToolbox(video_toolbox::Surface),
 }
 
 struct PendingFrame {
@@ -61,9 +50,9 @@ struct PendingFrame {
     submission: wgpu::SubmissionIndex,
 }
 
-pub(crate) struct ExportFramePipeline {
+pub(crate) struct ExportVideoPipeline {
     failed: Arc<AtomicBool>,
-    renderer: FrameRenderer,
+    renderer: RenderSession,
     size: RenderSize,
     backend: Backend,
     _source: wgpu::Texture,
@@ -75,30 +64,30 @@ pub(crate) struct ExportFramePipeline {
     depth: usize,
 }
 
-impl ExportFramePipeline {
+impl ExportVideoPipeline {
     pub(crate) fn new(
-        renderer: FrameRenderer,
+        renderer: RenderSession,
         size: RenderSize,
         depth: usize,
-        settings: VideoEncoderSettings,
-    ) -> Result<(Self, VideoEncoding), EncoderError> {
-        crate::engine::gstreamer::initialize().map_err(EncoderError::pipeline)?;
+        settings: EncodingSettings,
+    ) -> Result<(Self, VideoEncoderInput), EncodingError> {
+        crate::engine::gstreamer::initialize().map_err(EncodingError::backend)?;
         settings.output.validate()?;
-        let device = renderer.gpu().0;
+        let device = &renderer.gpu().device;
         if size.width > device.limits().max_texture_dimension_2d
             || size.height > device.limits().max_texture_dimension_2d
         {
-            return Err(EncoderError::Invalid(
+            return Err(EncodingError::Invalid(
                 "Export dimensions exceed the renderer's GPU limits",
             ));
         }
         let depth = depth.max(1);
         #[cfg(any(target_os = "linux", target_os = "windows"))]
-        let native = vulkan::Encoder::new(device, renderer.gpu().1, settings, depth)
-            .map(|encoder| encoder.map(Backend::Vulkan));
+        let native = gpu_video::Encoder::new(device, &renderer.gpu().queue, settings, depth)
+            .map(|encoder| encoder.map(Backend::GpuVideo));
         #[cfg(target_os = "macos")]
-        let native =
-            macos::Encoder::new(device, settings, depth).map(|encoder| encoder.map(Backend::Mac));
+        let native = video_toolbox::Encoder::new(device, settings, depth)
+            .map(|encoder| encoder.map(Backend::VideoToolbox));
         let native = match native {
             Ok(native) => native,
             Err(error) => {
@@ -109,21 +98,21 @@ impl ExportFramePipeline {
             }
         };
         let (backend, encoding) = match native {
-            Some(backend) => (backend, VideoEncoding::H264),
+            Some(backend) => (backend, VideoEncoderInput::H264),
             None => {
-                let readback = cpu::Readback::new(device, settings)?;
-                let encoding = VideoEncoding::Cpu(readback.info());
-                (Backend::Cpu(readback), encoding)
+                let readback = readback::Nv12Readback::new(device, settings)?;
+                let encoding = VideoEncoderInput::Nv12;
+                (Backend::Readback(readback), encoding)
             }
         };
         eprintln!(
             "Video export backend: {}",
             match &backend {
-                Backend::Cpu(_) => "CPU readback / x264",
+                Backend::Readback(_) => "CPU readback / x264",
                 #[cfg(any(target_os = "linux", target_os = "windows"))]
-                Backend::Vulkan(_) => "Vulkan Video",
+                Backend::GpuVideo(_) => "Vulkan Video",
                 #[cfg(target_os = "macos")]
-                Backend::Mac(_) => "VideoToolbox",
+                Backend::VideoToolbox(_) => "VideoToolbox",
             }
         );
         let source = texture(
@@ -194,7 +183,7 @@ impl ExportFramePipeline {
                 })
             })
             .collect();
-        let cpu_planes = if matches!(backend, Backend::Cpu(_)) {
+        let cpu_planes = if matches!(backend, Backend::Readback(_)) {
             PLANE_FORMATS
                 .iter()
                 .enumerate()
@@ -241,36 +230,38 @@ impl ExportFramePipeline {
         index: u64,
         scene: &RenderScene,
         cancelled: &AtomicBool,
-    ) -> Result<(), EncoderError> {
+    ) -> Result<(), EncodingError> {
         self.cancellation(cancelled).check()?;
         if self.is_full() {
-            return Err(EncoderError::Invalid("Export frame pipeline is full"));
+            return Err(EncodingError::Invalid("Export frame pipeline is full"));
         }
         if scene.size != self.size {
-            return Err(EncoderError::Invalid("Export dimensions changed"));
+            return Err(EncodingError::Invalid("Export dimensions changed"));
         }
         let target = match &mut self.backend {
-            Backend::Cpu(_) => Target::Cpu,
+            Backend::Readback(_) => Target::Readback,
             #[cfg(any(target_os = "linux", target_os = "windows"))]
-            Backend::Vulkan(encoder) => Target::Vulkan(encoder.acquire()?),
+            Backend::GpuVideo(encoder) => Target::GpuVideo(encoder.acquire()?),
             #[cfg(target_os = "macos")]
-            Backend::Mac(encoder) => Target::Mac(encoder.acquire()?),
+            Backend::VideoToolbox(encoder) => Target::VideoToolbox(encoder.acquire()?),
         };
         self.renderer
-            .render_to_view(scene, &self.view)
-            .map_err(EncoderError::pipeline)?;
-        let (device, queue) = self.renderer.gpu();
+            .submit_scene(scene, &self.view)
+            .map_err(EncodingError::backend)?;
+        let gpu = self.renderer.gpu();
+        let device = &gpu.device;
+        let queue = &gpu.queue;
         let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
             label: Some("zerium-export-color"),
         });
         let views: Vec<_> = match &target {
-            Target::Cpu => self
+            Target::Readback => self
                 .cpu_planes
                 .iter()
                 .map(|texture| texture.create_view(&Default::default()))
                 .collect(),
             #[cfg(any(target_os = "linux", target_os = "windows"))]
-            Target::Vulkan(target) => target
+            Target::GpuVideo(target) => target
                 .texture()
                 .planes()
                 .iter()
@@ -279,7 +270,7 @@ impl ExportFramePipeline {
                 })
                 .collect(),
             #[cfg(target_os = "macos")]
-            Target::Mac(target) => target.views(),
+            Target::VideoToolbox(target) => target.views(),
         };
         for (pipeline, view) in self.pipelines.iter().zip(&views) {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
@@ -303,33 +294,33 @@ impl ExportFramePipeline {
             pass.draw(0..3, 0..1);
         }
         let data = match (&mut self.backend, target) {
-            (Backend::Cpu(readback), Target::Cpu) => {
-                PendingData::Cpu(readback.copy(device, &mut encoder, &self.cpu_planes))
+            (Backend::Readback(readback), Target::Readback) => {
+                PendingData::Readback(readback.copy(device, &mut encoder, &self.cpu_planes))
             }
             #[cfg(any(target_os = "linux", target_os = "windows"))]
-            (Backend::Vulkan(native), Target::Vulkan(target)) => {
+            (Backend::GpuVideo(native), Target::GpuVideo(target)) => {
                 let submission = queue.submit([encoder.finish()]);
                 native.submit(index, target)?;
                 self.pending.push_back(PendingFrame {
                     index,
-                    data: PendingData::Vulkan,
+                    data: PendingData::GpuVideo,
                     submission,
                 });
                 return Ok(());
             }
             #[cfg(target_os = "macos")]
-            (Backend::Mac(_), Target::Mac(surface)) => {
+            (Backend::VideoToolbox(_), Target::VideoToolbox(surface)) => {
                 let retained = surface.pixel.clone();
                 let submission = queue.submit([encoder.finish()]);
                 queue.on_submitted_work_done(move || drop(retained));
                 self.pending.push_back(PendingFrame {
                     index,
-                    data: PendingData::Mac(surface),
+                    data: PendingData::VideoToolbox(surface),
                     submission,
                 });
                 return Ok(());
             }
-            _ => return Err(EncoderError::Invalid("Export backend changed")),
+            _ => return Err(EncodingError::Invalid("Export backend changed")),
         };
         let submission = queue.submit([encoder.finish()]);
         self.pending.push_back(PendingFrame {
@@ -357,12 +348,12 @@ impl ExportFramePipeline {
     pub(crate) fn finish_next(
         &mut self,
         cancelled: &AtomicBool,
-    ) -> Result<Option<ExportFrame>, EncoderError> {
+    ) -> Result<Option<VideoEncoderFrame>, EncodingError> {
         let Some(pending) = self.pending.pop_front() else {
             return Ok(None);
         };
         #[cfg(any(target_os = "linux", target_os = "windows"))]
-        if let Backend::Vulkan(encoder) = &mut self.backend {
+        if let Backend::GpuVideo(encoder) = &mut self.backend {
             return encoder
                 .receive(
                     pending.index,
@@ -376,33 +367,33 @@ impl ExportFramePipeline {
         let deadline = Instant::now() + WAIT_TIMEOUT;
         loop {
             self.cancellation(cancelled).check()?;
-            match self.renderer.gpu().0.poll(wgpu::PollType::Wait {
+            match self.renderer.gpu().device.poll(wgpu::PollType::Wait {
                 submission_index: Some(pending.submission.clone()),
                 timeout: Some(Duration::from_millis(10)),
             }) {
                 Ok(_) => break,
                 Err(wgpu::PollError::Timeout) if Instant::now() < deadline => {}
-                Err(error) => return Err(EncoderError::pipeline(error)),
+                Err(error) => return Err(EncodingError::backend(error)),
             }
         }
         let frame = match (&mut self.backend, pending.data) {
-            (Backend::Cpu(readback), PendingData::Cpu(frame)) => ExportFrame {
+            (Backend::Readback(readback), PendingData::Readback(frame)) => VideoEncoderFrame {
                 index: pending.index,
                 data: readback.finish(frame)?,
                 keyframe: false,
             },
             #[cfg(target_os = "macos")]
-            (Backend::Mac(encoder), PendingData::Mac(surface)) => {
+            (Backend::VideoToolbox(encoder), PendingData::VideoToolbox(surface)) => {
                 encoder.encode(surface, pending.index)?
             }
-            _ => return Err(EncoderError::Invalid("Export backend changed")),
+            _ => return Err(EncodingError::Invalid("Export backend changed")),
         };
         Ok(Some(frame))
     }
 
-    pub(crate) fn finish(&mut self) -> Result<(), EncoderError> {
+    pub(crate) fn finish(&mut self) -> Result<(), EncodingError> {
         #[cfg(any(target_os = "linux", target_os = "windows"))]
-        if let Backend::Vulkan(encoder) = &mut self.backend {
+        if let Backend::GpuVideo(encoder) = &mut self.backend {
             encoder.flush()?;
         }
         Ok(())
@@ -416,12 +407,12 @@ pub(super) struct Cancellation<'a> {
 }
 
 impl Cancellation<'_> {
-    fn check(self) -> Result<(), EncoderError> {
+    fn check(self) -> Result<(), EncodingError> {
         if self.requested.load(Ordering::Relaxed) {
-            return Err(EncoderError::Cancelled);
+            return Err(EncodingError::Cancelled);
         }
         if self.failed.load(Ordering::Acquire) {
-            return Err(EncoderError::Invalid(
+            return Err(EncodingError::Invalid(
                 "Video encoder terminated before export finished",
             ));
         }

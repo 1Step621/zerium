@@ -1,8 +1,8 @@
-use super::{RenderError, pipelines::VideoInputPipeline};
+use super::{RenderError, conversion::YuvConversionPipeline};
 use crate::engine::frame::{PixelPlane, YuvFormat};
 use wgpu::util::DeviceExt;
 
-pub(super) struct YuvUploadPipeline(VideoInputPipeline);
+pub(super) struct YuvUploadPipeline(YuvConversionPipeline);
 
 pub(super) struct YuvUpload {
     planes: [wgpu::Texture; 3],
@@ -13,7 +13,7 @@ pub(super) struct YuvUpload {
 
 impl YuvUploadPipeline {
     pub(super) fn new(device: &wgpu::Device) -> Result<Self, RenderError> {
-        Ok(Self(VideoInputPipeline::new(
+        Ok(Self(YuvConversionPipeline::new(
             device,
             "zerium.yuv.input",
             include_str!("yuv_input.wgsl"),

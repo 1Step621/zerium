@@ -1,7 +1,6 @@
 struct Conversion {
     offset: vec4<f32>, scale: vec4<f32>,
     red: vec4<f32>, green: vec4<f32>, blue: vec4<f32>, chroma: vec4<f32>,
-    mode: vec4<u32>,
 };
 @group(0) @binding(0) var luma: texture_2d<f32>;
 @group(0) @binding(1) var chroma: texture_2d<f32>;
@@ -19,7 +18,6 @@ fn uv_sample(point: vec2<i32>) -> vec2<f32> {
 
 @fragment fn fragment_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f32> {
     let pixel = vec2<i32>(position.xy);
-    if conversion.mode.x == 0u { return textureLoad(luma, pixel, 0); }
     let xy = (position.xy - conversion.chroma.zw) / conversion.chroma.xy;
     let base = vec2<i32>(floor(xy));
     let weight = fract(xy);

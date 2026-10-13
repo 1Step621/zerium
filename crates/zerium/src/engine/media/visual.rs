@@ -1,4 +1,5 @@
 //! Shared frame requests and persistent decoder state for preview and export.
+use crate::engine::gpu::GpuContext;
 use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
@@ -10,8 +11,8 @@ use zerium_core::{
 };
 
 use super::reader::{
-    DecodedVideoFrame, ImageDecoderSession, MediaError, MediaInputId, MediaReaderRegistry,
-    VideoDecodeSize, VideoDecoderSession,
+    DecodedFrame, ImageDecoder, MediaError, MediaInputId, MediaReaderRegistry, RasterSize,
+    VideoDecoder,
 };
 
 #[derive(Clone, PartialEq, Eq)]
@@ -19,7 +20,7 @@ pub(crate) struct MediaFrameRequest {
     pub(crate) input: MediaInputId,
     pub(crate) asset: MediaAsset,
     pub(crate) presentation_time: Duration,
-    pub(crate) size: VideoDecodeSize,
+    pub(crate) size: RasterSize,
 }
 
 impl MediaFrameRequest {
@@ -28,7 +29,7 @@ impl MediaFrameRequest {
         input: MediaInputId,
         local_seconds: f64,
         cache: &MediaMetadataCache,
-        size: VideoDecodeSize,
+        size: RasterSize,
     ) -> Option<Self> {
         let (asset, playback) = item.media_input(input.effect_id, &input.input_id, cache)?;
         let presentation_time = if asset.kind.is_temporal() {
@@ -37,7 +38,7 @@ impl MediaFrameRequest {
             Duration::ZERO
         };
         let size = match asset.kind {
-            MediaKind::Video { width, height, .. } => VideoDecodeSize {
+            MediaKind::Video { width, height, .. } => RasterSize {
                 max_width: width,
                 max_height: height,
             },
@@ -53,23 +54,23 @@ impl MediaFrameRequest {
 }
 
 enum Decoder {
-    Video(Box<dyn VideoDecoderSession>),
-    Image(Box<dyn ImageDecoderSession>),
+    Video(Box<dyn VideoDecoder>),
+    Image(Box<dyn ImageDecoder>),
 }
 
 #[derive(Default)]
-pub(crate) struct VisualDecoder {
+pub(crate) struct VisualDecodeSession {
     session: Option<(MediaAsset, Decoder)>,
 }
 
-impl VisualDecoder {
+impl VisualDecodeSession {
     pub(crate) fn decode(
         &mut self,
         readers: &MediaReaderRegistry,
         request: &MediaFrameRequest,
-        device: Option<&wgpu::Device>,
+        gpu: Option<&GpuContext>,
         cancelled: &AtomicBool,
-    ) -> Result<DecodedVideoFrame, MediaError> {
+    ) -> Result<DecodedFrame, MediaError> {
         if cancelled.load(Ordering::Acquire) {
             return Err(MediaError::Cancelled);
         }
@@ -82,9 +83,7 @@ impl VisualDecoder {
             let asset = &request.asset;
             let reader = readers.reader_for(&asset.reader_id)?;
             let decoder = match asset.kind {
-                MediaKind::Video { .. } => {
-                    Decoder::Video(reader.open_video_decoder(asset, device)?)
-                }
+                MediaKind::Video { .. } => Decoder::Video(reader.open_video_decoder(asset, gpu)?),
                 MediaKind::Image { .. } => Decoder::Image(reader.open_image_decoder(asset)?),
                 MediaKind::Audio { .. } => {
                     return Err(MediaError::unsupported(
@@ -97,7 +96,7 @@ impl VisualDecoder {
         let (asset, decoder) = self.session.as_mut().expect("decoder was opened above");
         match decoder {
             Decoder::Video(decoder) => decoder.decode_at(request.presentation_time, cancelled),
-            Decoder::Image(decoder) => Ok(DecodedVideoFrame {
+            Decoder::Image(decoder) => Ok(DecodedFrame {
                 presentation_time: Duration::ZERO,
                 duration: asset.duration,
                 frame: decoder.render(request.size, cancelled)?,

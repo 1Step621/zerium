@@ -65,35 +65,73 @@ for the authoring contract.
 | Module | Responsibility |
 | --- | --- |
 | [`engine/media`](../crates/zerium/src/engine/media/) | Reader contracts, image/video/audio readers, metadata, and audio timelines |
-| [`engine/gstreamer/input`](../crates/zerium/src/engine/gstreamer/input/) | Audio/video discovery and persistent decoder pipelines |
-| [`engine/gstreamer/gpu`](../crates/zerium/src/engine/gstreamer/gpu/) | Native GPU surface import and conversion into wgpu textures |
-| [`engine/gstreamer/encoding`](../crates/zerium/src/engine/gstreamer/encoding/) | GPU/CPU encoding, audio encoding, and MP4 muxing |
+| [`engine/frame`](../crates/zerium/src/engine/frame/) | Shared visual-frame storage, pixel planes, and color conversion metadata |
+| [`engine/media/video`](../crates/zerium/src/engine/media/video/) | Presentation-time selection, GPU decoding, and CPU fallback |
+| [`engine/gstreamer/input`](../crates/zerium/src/engine/gstreamer/input/) | Discovery, demuxing, H.264 parsing, and software decoder pipelines |
+| [`engine/gstreamer/encoding`](../crates/zerium/src/engine/gstreamer/encoding/) | MP4 output, AAC encoding, and x264 encoding of raw NV12 input |
 
 Scene construction resolves media inputs into `MediaFrameRequest`s containing
 an asset, source time, and raster size. Preview and export use the same
-`VisualDecoder` implementation with independent sessions. Each session reuses
+`VisualDecodeSession` implementation with independent sessions. Each session reuses
 its decoder while the asset remains unchanged.
 
 Video decodes at source resolution and selects frames by actual presentation
 timestamps. Nearby forward requests continue decoding; backward and distant
 requests seek to a preceding keyframe. Image readers honor requested raster sizes.
 
-Decoder sessions receive the consumer's GPU device and validate native import
-before publishing frames; unsupported surfaces select CPU output for the session.
-Linux negotiates the VA driver's actual DMA-BUF modifier and checks the consumer's
-support before import. Each uploaded video frame retains an owned GPU texture
-so decoder surfaces can be released. Input transfer and export encoding select
-their paths independently.
+Decoder sessions receive the consumer's GPU device and queue. GStreamer reads
+and parses H.264 access units; `gpu-video` decodes them into wgpu NV12 textures
+using Vulkan Video on Linux and Windows, or VideoToolbox on macOS. Unsupported
+streams, unavailable GPU decoders, and decode failures select GStreamer software
+decoding for the session. Seeking discards pending pictures and resumes at a
+preceding keyframe while reusing the GPU decoder's session and surfaces.
+Rendering converts decoded planes into an owned RGB texture.
+Input decoding and export encoding select their backends independently.
 
 Audio readers feed a shared timeline mixer. Preview sends mixed audio to CPAL;
 export sends it to the audio encoder.
 
 ## Rendering
 
-[`engine/rendering`](../crates/zerium/src/engine/rendering/) builds scenes and
-composites them with wgpu. Preview and export share compiled plugin shaders and
-the rendering implementation. `RendererDevice` owns immutable GPU state;
-`FrameRenderer` owns each consumer's independent resource pools.
+[`engine/rendering`](../crates/zerium/src/engine/rendering/) shares scene
+construction and GPU rendering between preview and export. `SceneEvaluator`
+evaluates a `TimelineView`, resolves visual inputs through the consumer's media
+callback, and rasterizes text. Each consumer owns its evaluator and decode sessions.
+
+| Module | Responsibility |
+| --- | --- |
+| [`rendering/scene`](../crates/zerium/src/engine/rendering/scene/) | Timeline evaluation, scene graphs, logical bounds, and text rasterization |
+| [`rendering/gpu`](../crates/zerium/src/engine/rendering/gpu/) | Render plans, shader pipelines, command encoding, and texture/resource pools |
+| [`engine/gpu.rs`](../crates/zerium/src/engine/gpu.rs) | Device/queue ownership and video-capable GPU creation |
+| [`export/video`](../crates/zerium/src/engine/export/video/) | Rendered-output conversion, GPU video encoding, and NV12 readback |
+
+`GpuContext` pairs one device with its queue. `RenderDevice` owns shared shader
+pipelines and immutable rendering state; `RenderSession` owns a consumer's
+resource pools. GPU rendering lowers a `RenderScene` into a `RenderPlan`, encodes
+its passes, and submits them through `RenderSession::submit_scene`. Submission is
+asynchronous. Intermediate surfaces use RGBA16Float; presentation uses RGBA8 sRGB.
+[`app/gpu.rs`](../crates/zerium/src/app/gpu.rs) adapts GPUI's surface-device factory
+to the engine's GPU setup.
+
+```mermaid
+flowchart LR
+    Timeline[TimelineView] --> Evaluate[SceneEvaluator]
+    Frames[VisualFrame] --> Evaluate
+    Evaluate --> Scene[RenderScene]
+    Scene --> Plan[RenderPlan]
+    Plan --> Render[RenderSession]
+    Render --> Output[RGBA output]
+    Output --> Preview[GPUI preview surface]
+    Output --> Encode[ExportVideoPipeline]
+    Encode --> Writer[Mp4Writer]
+```
+
+Rendering names describe ownership and work: `Device` owns shared GPU state,
+`Session` owns consumer-local state, `Evaluator` builds a scene, and `Pipeline`
+encodes a defined GPU or export stage. Decoder traits describe media interfaces;
+`DecodeSession` implementations own persistent decoder state. Backend modules
+use API names such as `gpu_video` and `video_toolbox`. `VisualFrame` describes
+frame content and `DecodedFrame` adds presentation timing.
 
 Timeline evaluation preserves scene boundaries and temporal effect samples.
 Effects and blending operate in scene-linear light with premultiplied alpha.
@@ -102,25 +140,30 @@ scene-instance effects run after their children are composited.
 
 ## Preview
 
-[`engine/video_playback.rs`](../crates/zerium/src/engine/video_playback.rs)
-schedules only the frames needed by the current scene during playback,
-scrubbing, and stopping. Each input has at most one outstanding decode. When
+[`engine/preview`](../crates/zerium/src/engine/preview/)
+owns `PreviewFrameScheduler`, which schedules frames needed by the current scene
+during playback, scrubbing, and stopping. Each input has at most one outstanding decode. When
 demand changes, that decode finishes and its result is published before the next
 request is selected from the latest demand.
 
 Preview retains candidate frames for the times requested by the current scene,
 including temporal effect samples. It displays the frame covering the requested
 time, or the closest retained frame while waiting.
-Workers prepare video textures before publishing results to the UI. The UI
+Workers submit video texture preparation before publishing results to the UI.
+Conversion and drawing use the same GPU queue, so queue ordering preserves
+dependencies without making workers wait for GPU completion. The UI
 updates demand and redraws when the displayed candidate changes; unchanged
 frames skip scene construction and GPU rendering.
 
 ## Export
 
-[`engine/export.rs`](../crates/zerium/src/engine/export.rs) freezes the timeline
+[`engine/export`](../crates/zerium/src/engine/export/) freezes the timeline
 at export start and processes every output frame in order. Scene evaluation
 and decoding, GPU rendering, and encoding overlap through bounded queues.
-Export owns its decoder and rendering sessions independently of preview.
+Export owns its evaluator, decoder sessions, and `RenderSession` independently
+of preview. `ExportVideoPipeline` renders scenes and converts output to encoder
+input. `VideoEncoderFrame` carries a frame index and either raw NV12 bytes or an
+H.264 access unit; `VideoEncoderInput` selects the MP4 writer's input contract.
 
 The GPU converts rendered output to limited-range BT.709 NV12. Linux and Windows
 use `gpu-video` for Vulkan Video encoding; macOS uses VideoToolbox. Unsupported
@@ -128,7 +171,7 @@ GPUs or encoder initialization failures select CPU readback and GStreamer's
 x264 encoder. The backend stays fixed for the export; subsequent failures
 are reported.
 
-GStreamer combines compressed H.264 video and AAC audio into MP4. Audio timing
+`Mp4Writer` uses GStreamer to combine H.264 video and AAC audio into MP4. Audio timing
 is adjusted to account for encoder priming. Output is written to a temporary
 file and published atomically only after successful completion.
 

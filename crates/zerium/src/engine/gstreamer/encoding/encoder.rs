@@ -9,7 +9,6 @@ use std::{
 use gst::prelude::*;
 use gstreamer as gst;
 use gstreamer_app::{AppSrc, AppSrcCallbacks};
-use thiserror::Error;
 use zerium_core::media::VideoFrameRate;
 
 use crate::engine::{
@@ -17,60 +16,12 @@ use crate::engine::{
     media::AudioFormat,
 };
 
+use crate::engine::export::encoding::{
+    EncodingError, EncodingSettings, VideoEncoderFrame, VideoEncoderInput,
+};
+
 const INPUT_QUEUE_BUFFERS: u64 = 3;
 const WAIT_TIMEOUT: Duration = Duration::from_secs(60);
-
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct VideoOutputSpec {
-    pub(crate) width: u32,
-    pub(crate) height: u32,
-}
-
-impl VideoOutputSpec {
-    pub(crate) fn validate(self) -> Result<Self, EncoderError> {
-        if self.width == 0 || self.height == 0 {
-            return Err(EncoderError::Invalid("Video dimensions must be positive"));
-        }
-        if !self.width.is_multiple_of(2) || !self.height.is_multiple_of(2) {
-            return Err(EncoderError::Invalid(
-                "YUV420 output requires even dimensions",
-            ));
-        }
-        // Raw-video caps and aligned plane strides use signed 32-bit dimensions.
-        if self.width > i32::MAX as u32 / 4 || self.height > i32::MAX as u32 {
-            return Err(EncoderError::Invalid("Video dimensions are too large"));
-        }
-        Ok(self)
-    }
-}
-
-#[derive(Clone, Copy)]
-pub(crate) struct VideoEncoderSettings {
-    pub(crate) output: VideoOutputSpec,
-    pub(crate) frame_rate: VideoFrameRate,
-    pub(crate) gop: u32,
-    pub(crate) audio: Option<AudioFormat>,
-}
-
-#[derive(Debug, Error)]
-pub(crate) enum EncoderError {
-    #[error("Encoding cancelled")]
-    Cancelled,
-    #[error("{0}")]
-    Invalid(&'static str),
-    #[error("Encoding failed: {0}")]
-    Pipeline(String),
-    #[error("Timed out waiting for the encoder")]
-    Timeout,
-    #[error("MP4 audio timing could not be finalized: {0}")]
-    Finalize(#[from] mp4::Error),
-}
-
-impl EncoderError {
-    pub(super) fn pipeline(error: impl std::fmt::Display) -> Self {
-        Self::Pipeline(error.to_string())
-    }
-}
 
 struct AudioInput {
     source: AppSrc,
@@ -78,7 +29,7 @@ struct AudioInput {
     next_sample: u64,
 }
 
-pub(crate) struct FileEncoder<'a> {
+pub(crate) struct Mp4Writer<'a> {
     pipeline: Pipeline,
     bus: gst::Bus,
     video: AppSrc,
@@ -89,24 +40,24 @@ pub(crate) struct FileEncoder<'a> {
     path: PathBuf,
 }
 
-impl<'a> FileEncoder<'a> {
+impl<'a> Mp4Writer<'a> {
     pub(crate) fn create(
         path: &Path,
-        settings: VideoEncoderSettings,
-        encoding: super::VideoEncoding,
+        settings: EncodingSettings,
+        encoding: VideoEncoderInput,
         cancelled: &'a AtomicBool,
-    ) -> Result<Self, EncoderError> {
-        initialize().map_err(EncoderError::pipeline)?;
+    ) -> Result<Self, EncodingError> {
+        initialize().map_err(EncodingError::backend)?;
         settings.output.validate()?;
         let fps = gst::Fraction::new(
             i32::try_from(settings.frame_rate.numerator())
-                .map_err(|_| EncoderError::Invalid("Frame rate is too large"))?,
+                .map_err(|_| EncodingError::Invalid("Frame rate is too large"))?,
             i32::try_from(settings.frame_rate.denominator())
-                .map_err(|_| EncoderError::Invalid("Frame rate is too large"))?,
+                .map_err(|_| EncodingError::Invalid("Frame rate is too large"))?,
         );
-        let encoded_video = matches!(encoding, super::VideoEncoding::H264);
+        let encoded_video = matches!(encoding, VideoEncoderInput::H264);
         let (mut caps, video_encoder) = match encoding {
-            super::VideoEncoding::H264 => (
+            VideoEncoderInput::H264 => (
                 gst::Caps::builder("video/x-h264")
                     .field("stream-format", "byte-stream")
                     .field("alignment", "au")
@@ -115,7 +66,18 @@ impl<'a> FileEncoder<'a> {
                     .build(),
                 None,
             ),
-            super::VideoEncoding::Cpu(info) => {
+            VideoEncoderInput::Nv12 => {
+                let colorimetry = "bt709"
+                    .parse::<gstreamer_video::VideoColorimetry>()
+                    .map_err(EncodingError::backend)?;
+                let info = gstreamer_video::VideoInfo::builder(
+                    gstreamer_video::VideoFormat::Nv12,
+                    settings.output.width,
+                    settings.output.height,
+                )
+                .colorimetry(&colorimetry)
+                .build()
+                .map_err(EncodingError::backend)?;
                 let encoder = gst::ElementFactory::make("x264enc")
                     .property_from_str("speed-preset", "medium")
                     .property_from_str("tune", "zerolatency")
@@ -123,22 +85,22 @@ impl<'a> FileEncoder<'a> {
                     .property("quantizer", 18u32)
                     .property("key-int-max", settings.gop)
                     .build()
-                    .map_err(EncoderError::pipeline)?;
+                    .map_err(EncodingError::backend)?;
                 (
-                    info.to_caps().map_err(EncoderError::pipeline)?,
+                    info.to_caps().map_err(EncodingError::backend)?,
                     Some(encoder),
                 )
             }
         };
         caps.make_mut()
             .structure_mut(0)
-            .ok_or(EncoderError::Invalid("Missing video caps"))?
+            .ok_or(EncodingError::Invalid("Missing video caps"))?
             .set("framerate", fps);
         let pipeline = Pipeline::new(gst::Pipeline::new());
         let mux = gst::ElementFactory::make("mp4mux")
             .property("faststart", true)
             .build()
-            .map_err(EncoderError::pipeline)?;
+            .map_err(EncodingError::backend)?;
         if let Some(audio) = settings.audio {
             // Edit-list durations must represent each PCM sample exactly.
             mux.set_property("movie-timescale", audio.sample_rate);
@@ -147,35 +109,35 @@ impl<'a> FileEncoder<'a> {
             .property(
                 "location",
                 path.to_str()
-                    .ok_or(EncoderError::Invalid("Invalid output path"))?,
+                    .ok_or(EncodingError::Invalid("Invalid output path"))?,
             )
             .property("sync", false)
             .build()
-            .map_err(EncoderError::pipeline)?;
+            .map_err(EncodingError::backend)?;
         pipeline
             .add_many([&mux, &sink])
-            .map_err(EncoderError::pipeline)?;
-        mux.link(&sink).map_err(EncoderError::pipeline)?;
+            .map_err(EncodingError::backend)?;
+        mux.link(&sink).map_err(EncodingError::backend)?;
 
         let video = app_source(&caps);
         let parse = gst::ElementFactory::make("h264parse")
             .build()
-            .map_err(EncoderError::pipeline)?;
+            .map_err(EncodingError::backend)?;
         let queue = encoded_queue()?;
         let mut elements = vec![video.clone().upcast::<gst::Element>()];
         elements.extend(video_encoder);
         elements.extend([parse, queue.clone()]);
         pipeline
             .add_many(&elements)
-            .map_err(EncoderError::pipeline)?;
-        gst::Element::link_many(&elements).map_err(EncoderError::pipeline)?;
-        queue.link(&mux).map_err(EncoderError::pipeline)?;
+            .map_err(EncodingError::backend)?;
+        gst::Element::link_many(&elements).map_err(EncodingError::backend)?;
+        queue.link(&mux).map_err(EncodingError::backend)?;
 
         let audio = settings
             .audio
             .map(|format| {
                 if format.sample_rate == 0 || format.channels == 0 || format.channels > 16 {
-                    return Err(EncoderError::Invalid("Invalid audio format"));
+                    return Err(EncodingError::Invalid("Invalid audio format"));
                 }
                 let caps = gstreamer_audio::AudioInfo::builder(
                     gstreamer_audio::AudioFormat::F32le,
@@ -184,25 +146,25 @@ impl<'a> FileEncoder<'a> {
                 )
                 .build()
                 .and_then(|info| info.to_caps())
-                .map_err(EncoderError::pipeline)?;
+                .map_err(EncodingError::backend)?;
                 let source = app_source(&caps);
                 let convert = gst::ElementFactory::make("audioconvert")
                     .build()
-                    .map_err(EncoderError::pipeline)?;
+                    .map_err(EncodingError::backend)?;
                 let encoder = gst::ElementFactory::make("avenc_aac")
                     .property("bitrate", 192_000i32)
                     .build()
-                    .map_err(EncoderError::pipeline)?;
+                    .map_err(EncodingError::backend)?;
                 let parse = gst::ElementFactory::make("aacparse")
                     .build()
-                    .map_err(EncoderError::pipeline)?;
+                    .map_err(EncodingError::backend)?;
                 let queue = encoded_queue()?;
                 let elements = [source.upcast_ref(), &convert, &encoder, &parse, &queue];
                 pipeline
                     .add_many(elements)
-                    .map_err(EncoderError::pipeline)?;
-                gst::Element::link_many(elements).map_err(EncoderError::pipeline)?;
-                queue.link(&mux).map_err(EncoderError::pipeline)?;
+                    .map_err(EncodingError::backend)?;
+                gst::Element::link_many(elements).map_err(EncodingError::backend)?;
+                queue.link(&mux).map_err(EncodingError::backend)?;
                 Ok(AudioInput {
                     source,
                     format,
@@ -225,11 +187,11 @@ impl<'a> FileEncoder<'a> {
         result
             .pipeline
             .set_state(gst::State::Playing)
-            .map_err(EncoderError::pipeline)?;
+            .map_err(EncodingError::backend)?;
         Ok(result)
     }
 
-    pub(crate) fn encode_frame(&mut self, frame: super::ExportFrame) -> Result<(), EncoderError> {
+    pub(crate) fn write_video(&mut self, frame: VideoEncoderFrame) -> Result<(), EncodingError> {
         let mut buffer = gst::Buffer::from_mut_slice(frame.data);
         let start = timestamp(
             frame.index,
@@ -240,13 +202,13 @@ impl<'a> FileEncoder<'a> {
             frame
                 .index
                 .checked_add(1)
-                .ok_or(EncoderError::Invalid("Video PTS is too large"))?,
+                .ok_or(EncodingError::Invalid("Video PTS is too large"))?,
             self.frame_rate.denominator(),
             self.frame_rate.numerator(),
         )?;
         let buffer_ref = buffer
             .get_mut()
-            .ok_or(EncoderError::Invalid("New video buffer is not writable"))?;
+            .ok_or(EncodingError::Invalid("New video buffer is not writable"))?;
         buffer_ref.set_pts(start);
         if self.encoded_video {
             buffer_ref.set_dts(start);
@@ -258,19 +220,19 @@ impl<'a> FileEncoder<'a> {
         self.push(&self.video, buffer)
     }
 
-    pub(crate) fn encode_audio(&mut self, samples: &[f32]) -> Result<(), EncoderError> {
+    pub(crate) fn write_audio(&mut self, samples: &[f32]) -> Result<(), EncodingError> {
         if samples.is_empty() {
             return Ok(());
         }
         let audio = self
             .audio
             .as_ref()
-            .ok_or(EncoderError::Invalid("Output has no audio stream"))?;
+            .ok_or(EncodingError::Invalid("Output has no audio stream"))?;
         if !samples
             .len()
             .is_multiple_of(usize::from(audio.format.channels))
         {
-            return Err(EncoderError::Invalid(
+            return Err(EncodingError::Invalid(
                 "Audio samples must contain complete sample frames",
             ));
         }
@@ -278,7 +240,7 @@ impl<'a> FileEncoder<'a> {
         let current_sample = audio.next_sample;
         let next_sample = current_sample
             .checked_add(frames as u64)
-            .ok_or(EncoderError::Invalid("Audio PTS is too large"))?;
+            .ok_or(EncodingError::Invalid("Audio PTS is too large"))?;
         let start = timestamp(current_sample, 1, audio.format.sample_rate)?;
         let end = timestamp(next_sample, 1, audio.format.sample_rate)?;
         let mut buffer =
@@ -291,7 +253,7 @@ impl<'a> FileEncoder<'a> {
         Ok(())
     }
 
-    fn push(&self, source: &AppSrc, buffer: gst::Buffer) -> Result<(), EncoderError> {
+    fn push(&self, source: &AppSrc, buffer: gst::Buffer) -> Result<(), EncodingError> {
         let deadline = Instant::now() + WAIT_TIMEOUT;
         loop {
             self.check_status()?;
@@ -299,61 +261,61 @@ impl<'a> FileEncoder<'a> {
                 break;
             }
             if Instant::now() >= deadline {
-                return Err(EncoderError::Timeout);
+                return Err(EncodingError::Timeout);
             }
             // Wake on need-data; keep a timeout for cancellation and pipeline errors.
             thread::park_timeout(Duration::from_millis(10));
         }
-        source.push_buffer(buffer).map_err(EncoderError::pipeline)?;
+        source.push_buffer(buffer).map_err(EncodingError::backend)?;
         self.check_status()
     }
 
-    fn check_status(&self) -> Result<(), EncoderError> {
+    fn check_status(&self) -> Result<(), EncodingError> {
         if self.cancelled.load(Ordering::Relaxed) {
-            return Err(EncoderError::Cancelled);
+            return Err(EncodingError::Cancelled);
         }
         while let Some(message) = self.bus.pop() {
             if let gst::MessageView::Error(error) = message.view() {
-                return Err(EncoderError::pipeline(error.error()));
+                return Err(EncodingError::backend(error.error()));
             }
         }
         Ok(())
     }
 
-    pub(crate) fn finish(self) -> Result<(), EncoderError> {
+    pub(crate) fn finish(self) -> Result<(), EncodingError> {
         self.check_status()?;
-        self.video.end_of_stream().map_err(EncoderError::pipeline)?;
+        self.video.end_of_stream().map_err(EncodingError::backend)?;
         if let Some(audio) = &self.audio {
             audio
                 .source
                 .end_of_stream()
-                .map_err(EncoderError::pipeline)?;
+                .map_err(EncodingError::backend)?;
         }
         let deadline = Instant::now() + WAIT_TIMEOUT;
         loop {
             if self.cancelled.load(Ordering::Relaxed) {
-                return Err(EncoderError::Cancelled);
+                return Err(EncodingError::Cancelled);
             }
             if let Some(message) = self.bus.timed_pop(gst::ClockTime::from_mseconds(10)) {
                 match message.view() {
                     gst::MessageView::Eos(..) => break,
                     gst::MessageView::Error(error) => {
-                        return Err(EncoderError::pipeline(error.error()));
+                        return Err(EncodingError::backend(error.error()));
                     }
                     _ => {}
                 }
             }
             if Instant::now() >= deadline {
-                return Err(EncoderError::Timeout);
+                return Err(EncodingError::Timeout);
             }
         }
         // Close filesink before editing the completed, unpublished file.
         self.pipeline
             .set_state(gst::State::Null)
-            .map_err(EncoderError::pipeline)?;
+            .map_err(EncodingError::backend)?;
         if let Some(audio) = &self.audio {
             if self.cancelled.load(Ordering::Relaxed) {
-                return Err(EncoderError::Cancelled);
+                return Err(EncodingError::Cancelled);
             }
             super::mp4::finalize_audio(&self.path, audio.format.sample_rate, audio.next_sample)?;
         }
@@ -377,7 +339,7 @@ fn app_source(caps: &gst::Caps) -> AppSrc {
         .build()
 }
 
-fn encoded_queue() -> Result<gst::Element, EncoderError> {
+fn encoded_queue() -> Result<gst::Element, EncodingError> {
     // Buffer compressed packets so AAC's frame delay cannot stall alternating
     // raw-video/audio submission. Limits apply to packets, not raw images.
     gst::ElementFactory::make("queue")
@@ -385,14 +347,18 @@ fn encoded_queue() -> Result<gst::Element, EncoderError> {
         .property("max-size-bytes", 8 * 1024 * 1024u32)
         .property("max-size-buffers", 0u32)
         .build()
-        .map_err(EncoderError::pipeline)
+        .map_err(EncodingError::backend)
 }
 
-fn timestamp(index: u64, denominator: u32, numerator: u32) -> Result<gst::ClockTime, EncoderError> {
+fn timestamp(
+    index: u64,
+    denominator: u32,
+    numerator: u32,
+) -> Result<gst::ClockTime, EncodingError> {
     let nanos = u128::from(index) * u128::from(denominator) * 1_000_000_000 / u128::from(numerator);
     let nanos = u64::try_from(nanos)
         .ok()
         .filter(|nanos| *nanos < u64::MAX)
-        .ok_or(EncoderError::Invalid("Presentation time is too large"))?;
+        .ok_or(EncodingError::Invalid("Presentation time is too large"))?;
     Ok(gst::ClockTime::from_nseconds(nanos))
 }

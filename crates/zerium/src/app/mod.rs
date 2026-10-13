@@ -1,5 +1,6 @@
 pub(crate) mod actions;
 mod bootstrap;
+mod gpu;
 pub(crate) mod media_metadata;
 pub(crate) mod project_controller;
 #[cfg(feature = "self-update")]

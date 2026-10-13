@@ -5,7 +5,7 @@ use gpu_video::{
     parameters::{ColorRange, ColorSpace, EncoderParametersH264, RateControl, VideoParameters},
 };
 
-use super::{EncoderError, ExportFrame, VideoEncoderSettings};
+use super::{EncodingError, EncodingSettings, VideoEncoderFrame};
 
 pub(super) struct Encoder {
     // Callback delivery must never block the library's shared GPU waiter thread.
@@ -19,9 +19,9 @@ impl Encoder {
     pub(super) fn new(
         device: &wgpu::Device,
         queue: &wgpu::Queue,
-        settings: VideoEncoderSettings,
+        settings: EncodingSettings,
         depth: usize,
-    ) -> Result<Option<Self>, EncoderError> {
+    ) -> Result<Option<Self>, EncodingError> {
         let Ok(video) = device.video() else {
             return Ok(None);
         };
@@ -62,7 +62,7 @@ impl Encoder {
         };
         let mut parameters = video
             .encoder_output_parameters_h264_high_quality(control)
-            .map_err(EncoderError::pipeline)?;
+            .map_err(EncodingError::backend)?;
         parameters.idr_period = NonZeroU32::new(settings.gop);
         parameters.color_space = Some(ColorSpace::BT709);
         parameters.color_range = Some(ColorRange::Limited);
@@ -73,13 +73,13 @@ impl Encoder {
                 EncoderParametersH264 {
                     input_parameters: VideoParameters {
                         width: NonZeroU32::new(output.width)
-                            .ok_or(EncoderError::Invalid("Invalid video width"))?,
+                            .ok_or(EncodingError::Invalid("Invalid video width"))?,
                         height: NonZeroU32::new(output.height)
-                            .ok_or(EncoderError::Invalid("Invalid video height"))?,
+                            .ok_or(EncodingError::Invalid("Invalid video height"))?,
                         target_framerate: gpu_video::parameters::Rational {
                             numerator: rate.numerator(),
                             denominator: NonZeroU32::new(rate.denominator())
-                                .ok_or(EncoderError::Invalid("Invalid frame rate"))?,
+                                .ok_or(EncodingError::Invalid("Invalid frame rate"))?,
                         },
                     },
                     output_parameters: parameters,
@@ -90,9 +90,9 @@ impl Encoder {
                     let _ = sender.send(chunk);
                 },
             )
-            .map_err(EncoderError::pipeline)?;
-        let mut headers = encoder.sps().map_err(EncoderError::pipeline)?;
-        headers.extend(encoder.pps().map_err(EncoderError::pipeline)?);
+            .map_err(EncodingError::backend)?;
+        let mut headers = encoder.sps().map_err(EncodingError::backend)?;
+        headers.extend(encoder.pps().map_err(EncodingError::backend)?);
         Ok(Some(Self {
             receiver,
             encoder,
@@ -100,15 +100,15 @@ impl Encoder {
         }))
     }
 
-    pub(super) fn acquire(&mut self) -> Result<gpu_video::EncodeTexture, EncoderError> {
-        self.encoder.input_texture().map_err(EncoderError::pipeline)
+    pub(super) fn acquire(&mut self) -> Result<gpu_video::EncodeTexture, EncodingError> {
+        self.encoder.input_texture().map_err(EncodingError::backend)
     }
 
     pub(super) fn submit(
         &mut self,
         index: u64,
         texture: gpu_video::EncodeTexture,
-    ) -> Result<(), EncoderError> {
+    ) -> Result<(), EncodingError> {
         self.encoder
             .encode(
                 gpu_video::InputFrame {
@@ -117,14 +117,14 @@ impl Encoder {
                 },
                 false,
             )
-            .map_err(EncoderError::pipeline)
+            .map_err(EncodingError::backend)
     }
 
     pub(super) fn receive(
         &mut self,
         index: u64,
         cancelled: super::Cancellation<'_>,
-    ) -> Result<ExportFrame, EncoderError> {
+    ) -> Result<VideoEncoderFrame, EncodingError> {
         let deadline = std::time::Instant::now() + super::WAIT_TIMEOUT;
         loop {
             cancelled.check()?;
@@ -134,7 +134,7 @@ impl Encoder {
             {
                 Ok(chunk) => {
                     if chunk.pts != Some(index) {
-                        return Err(EncoderError::Invalid(
+                        return Err(EncodingError::Invalid(
                             "GPU encoder returned an unexpected frame timestamp",
                         ));
                     }
@@ -145,20 +145,20 @@ impl Encoder {
                         data.extend(chunk.data);
                         data
                     };
-                    return Ok(ExportFrame {
+                    return Ok(VideoEncoderFrame {
                         index,
                         data,
                         keyframe: chunk.is_keyframe,
                     });
                 }
                 Err(mpsc::RecvTimeoutError::Timeout) if std::time::Instant::now() < deadline => {}
-                Err(mpsc::RecvTimeoutError::Timeout) => return Err(EncoderError::Timeout),
-                Err(error) => return Err(EncoderError::pipeline(error)),
+                Err(mpsc::RecvTimeoutError::Timeout) => return Err(EncodingError::Timeout),
+                Err(error) => return Err(EncodingError::backend(error)),
             }
         }
     }
 
-    pub(super) fn flush(&mut self) -> Result<(), EncoderError> {
-        self.encoder.flush().map_err(EncoderError::pipeline)
+    pub(super) fn flush(&mut self) -> Result<(), EncodingError> {
+        self.encoder.flush().map_err(EncodingError::backend)
     }
 }

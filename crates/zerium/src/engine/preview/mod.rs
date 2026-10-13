@@ -1,36 +1,30 @@
+mod worker;
+use worker::{DecodeRequest, DecodeWorker, run_decode_worker};
+
 use std::{
     collections::{HashMap, HashSet},
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
-    time::{Duration, Instant},
+    sync::{Arc, atomic::AtomicBool},
+    time::Duration,
 };
 
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 
 use crate::engine::{
-    frame::{FrameData, PixelFrame},
+    frame::VisualFrame,
     media::{
-        DecodedVideoFrame, MediaError, MediaFrameRequest, MediaInputId, MediaReaderRegistry,
-        VideoDecodeSize, VisualDecoder,
+        DecodedFrame, MediaError, MediaFrameRequest, MediaInputId, MediaReaderRegistry, RasterSize,
     },
-    rendering::FrameRenderer,
+    rendering::RenderSession,
 };
 use zerium_core::media::MediaAsset;
 
-struct InFlightVideoDecode {
-    generation: u64,
-    cancel: Arc<AtomicBool>,
-}
-
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
-struct VideoFrameSequence {
+struct FrameSequence {
     source: MediaAsset,
-    size: VideoDecodeSize,
+    size: RasterSize,
 }
 
-impl VideoFrameSequence {
+impl FrameSequence {
     fn from_request(request: &MediaFrameRequest) -> Self {
         Self {
             source: request.asset.clone(),
@@ -39,13 +33,13 @@ impl VideoFrameSequence {
     }
 }
 
-struct ReadyVideoFrame {
+struct ReadyFrame {
     presentation_time: Duration,
     duration: Duration,
-    frame: Arc<PixelFrame>,
+    frame: Arc<VisualFrame>,
 }
 
-impl ReadyVideoFrame {
+impl ReadyFrame {
     fn covers(&self, time: Duration) -> bool {
         let rounded = time.saturating_add(Duration::from_nanos(1));
         (self.presentation_time <= rounded
@@ -54,18 +48,18 @@ impl ReadyVideoFrame {
     }
 }
 
-struct PresentedVideoFrame {
-    sequence: VideoFrameSequence,
+struct PresentedFrame {
+    sequence: FrameSequence,
     presentation_time: Duration,
-    frame: Arc<PixelFrame>,
+    frame: Arc<VisualFrame>,
 }
 
-impl PresentedVideoFrame {
+impl PresentedFrame {
     fn matches(
         &self,
-        sequence: &VideoFrameSequence,
+        sequence: &FrameSequence,
         presentation_time: Duration,
-        frame: &Arc<PixelFrame>,
+        frame: &Arc<VisualFrame>,
     ) -> bool {
         self.sequence == *sequence
             && self.presentation_time == presentation_time
@@ -73,150 +67,39 @@ impl PresentedVideoFrame {
     }
 }
 
-struct VideoWorkerRequest {
-    generation: u64,
-    frame: MediaFrameRequest,
-    cancel: Arc<AtomicBool>,
-}
-
-struct VideoWorker {
-    requests: std::sync::mpsc::SyncSender<VideoWorkerRequest>,
-    active: Option<InFlightVideoDecode>,
-}
-
-impl VideoWorker {
-    fn decode(&mut self, request: VideoWorkerRequest) -> bool {
-        debug_assert!(self.active.is_none());
-        self.active = Some(InFlightVideoDecode {
-            generation: request.generation,
-            cancel: request.cancel.clone(),
-        });
-        self.requests.try_send(request).is_ok()
-    }
-
-    fn complete(&mut self, generation: u64) -> bool {
-        if self
-            .active
-            .as_ref()
-            .is_some_and(|active| active.generation == generation)
-        {
-            self.active = None;
-            true
-        } else {
-            false
-        }
-    }
-}
-
-impl Drop for VideoWorker {
-    fn drop(&mut self) {
-        if let Some(active) = &self.active {
-            active.cancel.store(true, Ordering::Release);
-        }
-    }
-}
-
-pub(crate) struct VideoPlaybackEvent {
+pub(crate) struct PreviewFrameEvent {
     generation: u64,
     request: MediaFrameRequest,
-    result: Result<DecodedVideoFrame, MediaError>,
+    result: Result<DecodedFrame, MediaError>,
 }
 
-fn video_worker_main(
-    media_readers: Arc<MediaReaderRegistry>,
-    renderer: Option<Arc<FrameRenderer>>,
-    requests: std::sync::mpsc::Receiver<VideoWorkerRequest>,
-    events: UnboundedSender<VideoPlaybackEvent>,
-) {
-    let mut decoder = VisualDecoder::default();
-    while let Ok(request) = requests.recv() {
-        let result = decoder
-            .decode(
-                &media_readers,
-                &request.frame,
-                renderer.as_ref().map(|renderer| renderer.gpu().0),
-                &request.cancel,
-            )
-            .and_then(|decoded| {
-                if let Some(renderer) = &renderer {
-                    prepare_video_frame(renderer, &decoded.frame, &request.cancel)?;
-                }
-                Ok(decoded)
-            });
-        if events
-            .unbounded_send(VideoPlaybackEvent {
-                generation: request.generation,
-                request: request.frame,
-                result,
-            })
-            .is_err()
-        {
-            break;
-        }
-    }
-}
-
-fn prepare_video_frame(
-    renderer: &FrameRenderer,
-    frame: &PixelFrame,
-    cancelled: &AtomicBool,
-) -> Result<(), MediaError> {
-    if !matches!(frame.data, FrameData::Video(_)) {
-        return Ok(());
-    }
-    if cancelled.load(Ordering::Acquire) {
-        return Err(MediaError::Cancelled);
-    }
-    renderer
-        .retain_video_frame(frame)
-        .map_err(MediaError::external)?;
-    let (device, queue) = renderer.gpu();
-    // Flush uploads and release decoder surfaces on this worker, even when the
-    // window is not rendering or polling its device.
-    let submission = queue.submit([]);
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        if cancelled.load(Ordering::Acquire) {
-            return Err(MediaError::Cancelled);
-        }
-        match device.poll(wgpu::PollType::Wait {
-            submission_index: Some(submission.clone()),
-            timeout: Some(Duration::from_millis(10)),
-        }) {
-            Ok(_) => return Ok(()),
-            Err(wgpu::PollError::Timeout) if Instant::now() < deadline => {}
-            Err(error) => return Err(MediaError::external(error)),
-        }
-    }
-}
-
-pub(crate) struct VideoPlaybackSnapshot {
+pub(crate) struct PreviewFrameStatus {
     pub(crate) revision: u64,
     pub(crate) error: Option<String>,
     pub(crate) notifications: Vec<String>,
 }
 
-pub(crate) struct VideoPlaybackEngine {
+pub(crate) struct PreviewFrameScheduler {
     media_readers: Arc<MediaReaderRegistry>,
-    upload_renderer: Option<Arc<FrameRenderer>>,
-    ready_frames: HashMap<VideoFrameSequence, Vec<ReadyVideoFrame>>,
+    upload_renderer: Option<Arc<RenderSession>>,
+    ready_frames: HashMap<FrameSequence, Vec<ReadyFrame>>,
     requested_frames: HashMap<MediaInputId, Vec<MediaFrameRequest>>,
-    last_presented_frames: HashMap<(MediaInputId, Duration), PresentedVideoFrame>,
-    workers: HashMap<MediaInputId, VideoWorker>,
+    last_presented_frames: HashMap<(MediaInputId, Duration), PresentedFrame>,
+    workers: HashMap<MediaInputId, DecodeWorker>,
     worker_threads: Vec<std::thread::JoinHandle<()>>,
     next_generation: u64,
-    events: UnboundedSender<VideoPlaybackEvent>,
-    failed_frames: HashSet<(VideoFrameSequence, Duration)>,
+    events: UnboundedSender<PreviewFrameEvent>,
+    failed_frames: HashSet<(FrameSequence, Duration)>,
     notifications: Vec<String>,
     revision: u64,
     error: Option<String>,
 }
 
-impl VideoPlaybackEngine {
+impl PreviewFrameScheduler {
     pub(crate) fn new(
         media_readers: Arc<MediaReaderRegistry>,
-        renderer: Option<Arc<FrameRenderer>>,
-    ) -> (Self, UnboundedReceiver<VideoPlaybackEvent>) {
+        renderer: Option<Arc<RenderSession>>,
+    ) -> (Self, UnboundedReceiver<PreviewFrameEvent>) {
         let (events, event_receiver) = unbounded();
         (
             Self {
@@ -243,13 +126,16 @@ impl VideoPlaybackEngine {
         self.requested_frames.clear();
     }
 
-    pub(crate) fn request_frame(&mut self, request: &MediaFrameRequest) -> Option<Arc<PixelFrame>> {
+    pub(crate) fn request_frame(
+        &mut self,
+        request: &MediaFrameRequest,
+    ) -> Option<Arc<VisualFrame>> {
         let input = &request.input;
         let requests = self.requested_frames.entry(input.clone()).or_default();
         if !requests.contains(request) {
             requests.push(request.clone());
         }
-        let sequence = VideoFrameSequence::from_request(request);
+        let sequence = FrameSequence::from_request(request);
         let ready = self.frame_for(&sequence, request.presentation_time)?;
         let presentation_time = ready.presentation_time;
         let frame = ready.frame.clone();
@@ -260,7 +146,7 @@ impl VideoPlaybackEngine {
             .is_none_or(|presented| !presented.matches(&sequence, presentation_time, &frame));
         self.last_presented_frames.insert(
             key,
-            PresentedVideoFrame {
+            PresentedFrame {
                 sequence,
                 presentation_time,
                 frame: frame.clone(),
@@ -275,7 +161,7 @@ impl VideoPlaybackEngine {
     pub(crate) fn needs_redraw(&self) -> bool {
         self.requested_frames.iter().any(|(input, requests)| {
             requests.iter().any(|request| {
-                let sequence = VideoFrameSequence::from_request(request);
+                let sequence = FrameSequence::from_request(request);
                 let presented = self
                     .last_presented_frames
                     .get(&(input.clone(), request.presentation_time));
@@ -289,7 +175,7 @@ impl VideoPlaybackEngine {
         })
     }
 
-    fn frame_for(&self, sequence: &VideoFrameSequence, time: Duration) -> Option<&ReadyVideoFrame> {
+    fn frame_for(&self, sequence: &FrameSequence, time: Duration) -> Option<&ReadyFrame> {
         self.ready_frames.get(sequence)?.iter().min_by_key(|ready| {
             (
                 !ready.covers(time),
@@ -302,9 +188,9 @@ impl VideoPlaybackEngine {
     fn retain_demanded_frames(&mut self) {
         // Keep only the candidate for each visible request, including a fallback
         // while decoding. Temporal effects can demand several times per input.
-        let mut retained = HashMap::<VideoFrameSequence, HashSet<Duration>>::new();
+        let mut retained = HashMap::<FrameSequence, HashSet<Duration>>::new();
         for request in self.requested_frames.values().flatten() {
-            let sequence = VideoFrameSequence::from_request(request);
+            let sequence = FrameSequence::from_request(request);
             if let Some(ready) = self.frame_for(&sequence, request.presentation_time) {
                 retained
                     .entry(sequence)
@@ -321,7 +207,7 @@ impl VideoPlaybackEngine {
         });
     }
 
-    pub(crate) fn finish_frame_demand(&mut self) -> VideoPlaybackSnapshot {
+    pub(crate) fn finish_frame_demand(&mut self) -> PreviewFrameStatus {
         let active_inputs = self
             .requested_frames
             .keys()
@@ -346,7 +232,7 @@ impl VideoPlaybackEngine {
             .flatten()
             .map(|request| {
                 (
-                    VideoFrameSequence::from_request(request),
+                    FrameSequence::from_request(request),
                     request.presentation_time,
                 )
             })
@@ -363,7 +249,7 @@ impl VideoPlaybackEngine {
         self.snapshot()
     }
 
-    pub(crate) fn handle_event(&mut self, event: VideoPlaybackEvent) -> VideoPlaybackSnapshot {
+    pub(crate) fn handle_event(&mut self, event: PreviewFrameEvent) -> PreviewFrameStatus {
         let input = event.request.input.clone();
         if self.finish_decode(event) {
             self.decode_input_if_needed(&input);
@@ -371,15 +257,15 @@ impl VideoPlaybackEngine {
         self.snapshot()
     }
 
-    fn snapshot(&mut self) -> VideoPlaybackSnapshot {
-        VideoPlaybackSnapshot {
+    fn snapshot(&mut self) -> PreviewFrameStatus {
+        PreviewFrameStatus {
             revision: self.revision,
             error: self.error.clone(),
             notifications: std::mem::take(&mut self.notifications),
         }
     }
 
-    fn worker_for(&mut self, input: &MediaInputId) -> Option<&mut VideoWorker> {
+    fn worker_for(&mut self, input: &MediaInputId) -> Option<&mut DecodeWorker> {
         use std::collections::hash_map::Entry;
         match self.workers.entry(input.clone()) {
             Entry::Occupied(entry) => Some(entry.into_mut()),
@@ -390,13 +276,10 @@ impl VideoPlaybackEngine {
                 let events = self.events.clone();
                 let thread = std::thread::Builder::new()
                     .name("zerium-video-worker".to_owned())
-                    .spawn(move || video_worker_main(media_readers, renderer, request_rx, events))
+                    .spawn(move || run_decode_worker(media_readers, renderer, request_rx, events))
                     .ok()?;
                 self.worker_threads.push(thread);
-                Some(entry.insert(VideoWorker {
-                    requests: request_tx,
-                    active: None,
-                }))
+                Some(entry.insert(DecodeWorker::new(request_tx)))
             }
         }
     }
@@ -407,7 +290,7 @@ impl VideoPlaybackEngine {
         if self
             .workers
             .get(input)
-            .is_some_and(|worker| worker.active.is_some())
+            .is_some_and(|worker| worker.is_pending())
         {
             return;
         }
@@ -416,7 +299,7 @@ impl VideoPlaybackEngine {
             .get(input)
             .and_then(|requests| {
                 requests.iter().find(|request| {
-                    let sequence = VideoFrameSequence::from_request(request);
+                    let sequence = FrameSequence::from_request(request);
                     !self
                         .frame_for(&sequence, request.presentation_time)
                         .is_some_and(|ready| ready.covers(request.presentation_time))
@@ -429,7 +312,7 @@ impl VideoPlaybackEngine {
         else {
             return;
         };
-        let sequence = VideoFrameSequence::from_request(&requested);
+        let sequence = FrameSequence::from_request(&requested);
         let presentation_time = requested.presentation_time;
         self.next_generation = self.next_generation.wrapping_add(1);
         let generation = self.next_generation;
@@ -437,7 +320,7 @@ impl VideoPlaybackEngine {
             self.failed_frames.insert((sequence, presentation_time));
             return;
         };
-        if !worker.decode(VideoWorkerRequest {
+        if !worker.decode(DecodeRequest {
             generation,
             frame: requested,
             cancel: Arc::new(AtomicBool::new(false)),
@@ -446,8 +329,8 @@ impl VideoPlaybackEngine {
         }
     }
 
-    fn finish_decode(&mut self, event: VideoPlaybackEvent) -> bool {
-        let VideoPlaybackEvent {
+    fn finish_decode(&mut self, event: PreviewFrameEvent) -> bool {
+        let PreviewFrameEvent {
             generation,
             request,
             result,
@@ -459,7 +342,7 @@ impl VideoPlaybackEngine {
         if !worker.complete(generation) {
             return false;
         }
-        let sequence = VideoFrameSequence::from_request(&request);
+        let sequence = FrameSequence::from_request(&request);
         let presentation_time = request.presentation_time;
         let current = self
             .requested_frames
@@ -471,7 +354,7 @@ impl VideoPlaybackEngine {
                 let covers = decoded.covers(presentation_time);
                 let frames = self.ready_frames.entry(sequence.clone()).or_default();
                 frames.retain(|ready| ready.presentation_time != decoded.presentation_time);
-                frames.push(ReadyVideoFrame {
+                frames.push(ReadyFrame {
                     presentation_time: decoded.presentation_time,
                     duration: decoded.duration,
                     frame: Arc::new(decoded.frame),
@@ -513,7 +396,7 @@ impl VideoPlaybackEngine {
     }
 }
 
-impl Drop for VideoPlaybackEngine {
+impl Drop for PreviewFrameScheduler {
     fn drop(&mut self) {
         // Close demand channels and cancel lifecycle work before the preview
         // GPU is destroyed. Input changes/reset still retire workers asynchronously.

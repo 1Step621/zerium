@@ -1,3 +1,4 @@
+use crate::engine::gpu::GpuContext;
 use rust_i18n::t;
 use std::sync::Arc;
 
@@ -17,8 +18,8 @@ use crate::{
     engine::{
         audio_meter::AudioLevelSampler,
         media::MediaReaderRegistry,
-        rendering::{RenderError, RenderRuntime, RenderSize, TextFrameCache},
-        video_playback::VideoPlaybackEngine,
+        preview::PreviewFrameScheduler,
+        rendering::{RenderError, RenderRuntime, RenderSize, SceneEvaluator},
     },
     project_session::{ProjectSession, ProjectSessionId},
     ui::{session::UiNotifications, transport::TransportController},
@@ -57,7 +58,7 @@ impl PreviewDependencies {
 #[derive(Clone, Copy, PartialEq, Eq)]
 struct RenderedFrame {
     editor_revision: u64,
-    video_revision: u64,
+    frame_revision: u64,
     size: RenderSize,
 }
 
@@ -67,18 +68,18 @@ pub(crate) struct Preview {
     session: Entity<ProjectSession>,
     session_id: ProjectSessionId,
     notifications: Entity<UiNotifications>,
-    video_playback: VideoPlaybackEngine,
+    frame_scheduler: PreviewFrameScheduler,
     audio_level_sampler: AudioLevelSampler,
     seekbar: Entity<SliderState>,
     surface: Option<WgpuSurfaceHandle>,
     render_runtime: Entity<RenderRuntime>,
-    text_frames: TextFrameCache,
+    scene_evaluator: SceneEvaluator,
     error: Option<SharedString>,
-    playback_error: Option<SharedString>,
+    frame_error: Option<SharedString>,
     rendered_frame: Option<RenderedFrame>,
     editor_drag: Option<PreviewEditorDrag>,
     _subscriptions: Vec<Subscription>,
-    _video_playback_task: Task<()>,
+    _frame_task: Task<()>,
 }
 
 impl Preview {
@@ -119,13 +120,13 @@ impl Preview {
                 return;
             }
             this.session_id = session_id;
-            this.text_frames = TextFrameCache::new();
+            this.scene_evaluator = SceneEvaluator::new();
             this.error = None;
-            this.playback_error = None;
+            this.frame_error = None;
             this.rendered_frame = None;
             this.editor_drag = None;
             this.audio_level_sampler.clear();
-            this.video_playback.reset();
+            this.frame_scheduler.reset();
             cx.notify();
         });
         let surface = window.create_wgpu_surface(
@@ -139,10 +140,12 @@ impl Preview {
                 RenderError::backend("Cannot create a WGPUI GPU surface on this platform")
             })
             .and_then(|surface| {
-                render_runtime.read(cx).create_preview_renderer(
-                    Arc::new(surface.device().clone()),
-                    Arc::new(surface.queue().clone()),
-                )
+                render_runtime
+                    .read(cx)
+                    .create_preview_session(GpuContext::new(
+                        surface.device().clone(),
+                        surface.queue().clone(),
+                    ))
             });
         let error: Option<SharedString> = renderer
             .as_ref()
@@ -157,22 +160,22 @@ impl Preview {
             });
         }
         render_runtime.update(cx, |runtime, _| {
-            runtime.set_preview_renderer(renderer);
+            runtime.set_preview_session(renderer);
         });
         let audio_level_sampler = AudioLevelSampler::new(media_readers.clone());
-        let (video_playback, mut video_playback_events) =
-            VideoPlaybackEngine::new(media_readers, render_runtime.read(cx).renderer());
-        let video_playback_task = cx.spawn(async move |preview, cx| {
-            while let Some(event) = video_playback_events.next().await {
+        let (frame_scheduler, mut frame_events) =
+            PreviewFrameScheduler::new(media_readers, render_runtime.read(cx).preview_session());
+        let frame_task = cx.spawn(async move |preview, cx| {
+            while let Some(event) = frame_events.next().await {
                 let Some(preview) = preview.upgrade() else {
                     return;
                 };
                 preview.update(cx, |preview, cx| {
-                    let snapshot = preview.video_playback.handle_event(event);
-                    let redraw = preview.video_playback.needs_redraw()
-                        || preview.playback_error.as_deref() != snapshot.error.as_deref()
+                    let snapshot = preview.frame_scheduler.handle_event(event);
+                    let redraw = preview.frame_scheduler.needs_redraw()
+                        || preview.frame_error.as_deref() != snapshot.error.as_deref()
                         || !snapshot.notifications.is_empty();
-                    preview.handle_playback_snapshot(&snapshot, cx);
+                    preview.handle_frame_status(&snapshot, cx);
                     if redraw {
                         cx.notify();
                     }
@@ -186,14 +189,14 @@ impl Preview {
             session,
             session_id,
             notifications,
-            video_playback,
+            frame_scheduler,
             audio_level_sampler,
             seekbar,
             surface,
             render_runtime,
-            text_frames: TextFrameCache::new(),
+            scene_evaluator: SceneEvaluator::new(),
             error: None,
-            playback_error: None,
+            frame_error: None,
             rendered_frame: None,
             editor_drag: None,
             _subscriptions: vec![
@@ -202,7 +205,7 @@ impl Preview {
                 session_subscription,
                 seekbar_subscription,
             ],
-            _video_playback_task: video_playback_task,
+            _frame_task: frame_task,
         }
     }
 

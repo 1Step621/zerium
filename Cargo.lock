@@ -2831,31 +2831,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "gstreamer-allocators"
-version = "0.25.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "58945dc4d271f16e99fdea35cdbb1161c6cbfa0db9b8511d4e4ccf34bd4e8ef9"
-dependencies = [
- "glib",
- "gstreamer",
- "gstreamer-allocators-sys",
- "libc",
-]
-
-[[package]]
-name = "gstreamer-allocators-sys"
-version = "0.25.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1c56f6a624f91b9cffbfcab33ce87743836ab36a1d14c1bb743c4fc3849bbe7c"
-dependencies = [
- "glib-sys",
- "gobject-sys",
- "gstreamer-sys",
- "libc",
- "system-deps",
-]
-
-[[package]]
 name = "gstreamer-app"
 version = "0.25.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2935,32 +2910,6 @@ dependencies = [
  "glib-sys",
  "gobject-sys",
  "gstreamer-sys",
- "libc",
- "system-deps",
-]
-
-[[package]]
-name = "gstreamer-d3d12"
-version = "0.25.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "6a4d2c2a04e24b1c1dcb7a7a4778bae859228b85fbbde354fa4aec6277baa889"
-dependencies = [
- "glib",
- "gstreamer",
- "gstreamer-d3d12-sys",
- "gstreamer-video",
- "windows 0.62.0",
-]
-
-[[package]]
-name = "gstreamer-d3d12-sys"
-version = "0.25.4"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7304d82c283e9cea7da6386cf5d426a3ca90ff6c31f63b2761aa1be5732d6dc1"
-dependencies = [
- "glib-sys",
- "gstreamer-sys",
- "gstreamer-video-sys",
  "libc",
  "system-deps",
 ]
@@ -9613,7 +9562,6 @@ name = "zerium"
 version = "0.1.7"
 dependencies = [
  "apple-cf",
- "ash",
  "bytemuck",
  "cosmic-text",
  "cpal",
@@ -9623,15 +9571,11 @@ dependencies = [
  "gpu-video",
  "gpui-ce",
  "gstreamer",
- "gstreamer-allocators",
  "gstreamer-app",
  "gstreamer-audio",
- "gstreamer-d3d12",
  "gstreamer-pbutils",
  "gstreamer-video",
  "image",
- "libc",
- "libloading",
  "mp4",
  "objc2-core-foundation",
  "objc2-core-video",

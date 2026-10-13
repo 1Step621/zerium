@@ -1,9 +1,15 @@
-use super::scene_builder::SceneBuilder;
-use super::surface::{BoundsOperation, SurfaceRect};
-use super::text::TextFrameRequest;
-use crate::engine::frame::PixelFrame;
+mod evaluation;
+mod geometry;
+mod graph;
+mod text;
+
+use crate::engine::frame::VisualFrame;
 use crate::engine::media::MediaFrameRequest;
+pub(crate) use evaluation::SceneEvaluator;
+pub(super) use geometry::{BoundsOperation, SurfaceRect};
+use graph::SceneGraphBuilder;
 use std::sync::Arc;
+use text::TextFrameRequest;
 use thiserror::Error;
 use zerium_core::plugin::{
     ComputeDispatchDimension, EffectInputSpace, EffectPassSchema, ItemSchema, TextureInput,
@@ -43,7 +49,7 @@ impl From<ProjectResolution> for RenderSize {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum RenderItemSource {
     Shader,
-    Texture(Vec<Arc<PixelFrame>>),
+    Texture(Vec<Arc<VisualFrame>>),
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -241,14 +247,14 @@ impl RenderScene {
         })
     }
 
-    pub(crate) fn from_timeline<E: From<RenderError>>(
+    fn from_timeline<E: From<RenderError>>(
         timeline: &dyn TimelineView,
         time: TimelineTime,
         size: RenderSize,
-        media_frame: impl FnMut(MediaFrameRequest) -> Result<Option<Arc<PixelFrame>>, E>,
-        text_frame: impl FnMut(TextFrameRequest<'_>) -> Result<Arc<PixelFrame>, RenderError>,
+        media_frame: impl FnMut(MediaFrameRequest) -> Result<Option<Arc<VisualFrame>>, E>,
+        text_frame: impl FnMut(TextFrameRequest<'_>) -> Result<Arc<VisualFrame>, RenderError>,
     ) -> Result<Self, E> {
-        SceneBuilder::build(timeline, time, size, media_frame, text_frame)
+        SceneGraphBuilder::build(timeline, time, size, media_frame, text_frame)
     }
 
     pub(crate) fn render_effect(

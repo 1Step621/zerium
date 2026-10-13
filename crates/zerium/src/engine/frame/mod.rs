@@ -1,9 +1,13 @@
+mod video;
+
+pub(crate) use video::{VideoFrame, yuv_format};
+
 use std::sync::Arc;
 
-/// CPU pixels or a retained decoder surface. Video stays in YUV or on the GPU
+/// CPU pixels or GPU-decoded textures. Video stays in YUV or on the GPU
 /// until upload; images and text use display-encoded, straight-alpha RGBA8.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub(crate) struct PixelFrame {
+pub(crate) struct VisualFrame {
     pub width: u32,
     pub height: u32,
     pub data: FrameData,
@@ -12,7 +16,7 @@ pub(crate) struct PixelFrame {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) enum FrameData {
     Rgba(Arc<[u8]>),
-    Video(Arc<super::gstreamer::input::VideoFrame>),
+    Video(Arc<VideoFrame>),
 }
 
 /// Planar YUV layout and color metadata, independent of pixel storage.
@@ -65,7 +69,7 @@ impl ChromaLocation {
     }
 }
 
-impl PixelFrame {
+impl VisualFrame {
     pub(crate) fn rgba(width: u32, height: u32, rgba: impl Into<Arc<[u8]>>) -> Self {
         Self {
             width,

@@ -6,15 +6,13 @@ use std::{
 };
 
 use image::{
-    DynamicImage, ImageDecoder, ImageReader as RasterReader, imageops::FilterType,
-    metadata::Orientation,
+    DynamicImage, ImageDecoder as RasterImageDecoder, ImageReader as RasterReader,
+    imageops::FilterType, metadata::Orientation,
 };
 use zerium_core::media::{MediaAsset, MediaKind, MediaMetadata, MediaTarget};
 
-use super::super::reader::{
-    ImageDecoderSession, MediaError, MediaReader, VideoDecodeSize, fit_dimensions,
-};
-use crate::engine::frame::PixelFrame;
+use super::super::reader::{ImageDecoder, MediaError, MediaReader, RasterSize, fit_dimensions};
+use crate::engine::frame::VisualFrame;
 
 pub(in crate::engine::media) const READER_ID: &str = "zerium.image";
 
@@ -42,16 +40,13 @@ impl MediaReader for ImageReader {
         }))
     }
 
-    fn open_image_decoder(
-        &self,
-        asset: &MediaAsset,
-    ) -> Result<Box<dyn ImageDecoderSession>, MediaError> {
+    fn open_image_decoder(&self, asset: &MediaAsset) -> Result<Box<dyn ImageDecoder>, MediaError> {
         let MediaKind::Image { width, height } = asset.kind else {
             return Err(MediaError::invalid_input(
                 "Image reader requires image media",
             ));
         };
-        Ok(Box::new(RasterDecoder {
+        Ok(Box::new(RasterDecodeSession {
             path: asset.path.clone(),
             source_size: (width, height),
             cached: None,
@@ -59,7 +54,7 @@ impl MediaReader for ImageReader {
     }
 }
 
-fn open_decoder(path: &Path) -> Result<impl ImageDecoder, MediaError> {
+fn open_decoder(path: &Path) -> Result<impl RasterImageDecoder, MediaError> {
     RasterReader::open(path)
         .and_then(RasterReader::with_guessed_format)
         .map_err(MediaError::external)?
@@ -67,18 +62,18 @@ fn open_decoder(path: &Path) -> Result<impl ImageDecoder, MediaError> {
         .map_err(MediaError::external)
 }
 
-struct RasterDecoder {
+struct RasterDecodeSession {
     path: PathBuf,
     source_size: (u32, u32),
-    cached: Option<PixelFrame>,
+    cached: Option<VisualFrame>,
 }
 
-impl ImageDecoderSession for RasterDecoder {
+impl ImageDecoder for RasterDecodeSession {
     fn render(
         &mut self,
-        size: VideoDecodeSize,
+        size: RasterSize,
         cancelled: &AtomicBool,
-    ) -> Result<PixelFrame, MediaError> {
+    ) -> Result<VisualFrame, MediaError> {
         if cancelled.load(Ordering::Relaxed) {
             return Err(MediaError::Cancelled);
         }
@@ -109,7 +104,7 @@ impl ImageDecoderSession for RasterDecoder {
         if cancelled.load(Ordering::Relaxed) {
             return Err(MediaError::Cancelled);
         }
-        let frame = PixelFrame::rgba(width, height, image.into_rgba8().into_raw());
+        let frame = VisualFrame::rgba(width, height, image.into_rgba8().into_raw());
         self.cached = Some(frame.clone());
         Ok(frame)
     }

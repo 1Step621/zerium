@@ -21,6 +21,7 @@ cpal = "0.15"
 directories = "5"
 evalexpr.workspace = true
 futures = "0.3"
+gpu-video = { git = "https://github.com/software-mansion/smelter", rev = "6637f3df71282c816140cd3bb9821d69b30be2ba" }
 gstreamer = { version = "0.25", features = ["v1_24"] }
 gstreamer-app = { version = "0.25", features = ["v1_24"] }
 gstreamer-audio = { version = "0.25", features = ["v1_24"] }
@@ -48,22 +49,12 @@ wgpu = { version = "30", default-features = false }
 zerium-core.workspace = true
 zerium-shader.workspace = true
 
-[target.'cfg(any(target_os = "linux", target_os = "windows"))'.dependencies]
-ash = "0.38"
-gpu-video = { git = "https://github.com/software-mansion/smelter", rev = "6637f3df71282c816140cd3bb9821d69b30be2ba" }
-
 [target.'cfg(windows)'.dependencies]
-# gpu-allocator 0.28 accepts windows <=0.62.0; share its DX12 types with wgpu-hal.
+# Keep the Windows bindings compatible with wgpu-hal and gpu-allocator.
 windows = { version = "=0.62.0", default-features = false }
-gstreamer-d3d12 = "0.25"
 winreg = { version = "0.56", optional = true }
 
-[target.'cfg(target_os = "linux")'.dependencies]
-libc = "0.2"
-gstreamer-allocators = { version = "0.25", features = ["v1_24"] }
-
 [target.'cfg(target_os = "macos")'.dependencies]
-libloading = "0.8"
 objc2-core-foundation = "0.3"
 objc2-core-video = { version = "0.3", features = ["objc2-io-surface"] }
 videotoolbox = "0.21"

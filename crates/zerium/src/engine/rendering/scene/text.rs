@@ -9,7 +9,7 @@ use cosmic_text::{
 };
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::engine::frame::PixelFrame;
+use crate::engine::frame::VisualFrame;
 use zerium_core::plugin::{MAX_DECIMAL_PLACES, TextStyle, TextureInput};
 use zerium_core::property::{PropertyValue, PropertyValues};
 use zerium_core::timeline::{EffectInstanceId, ItemId, TimelineItem};
@@ -50,11 +50,11 @@ struct TextSignature {
 
 struct CachedTextFrame {
     signature: TextSignature,
-    frame: Arc<PixelFrame>,
+    frame: Arc<VisualFrame>,
     last_used: u64,
 }
 
-pub(crate) struct TextFrameCache {
+pub(super) struct TextFrameCache {
     font_system: FontSystem,
     swash_cache: SwashCache,
     frames: HashMap<TextSourceId, CachedTextFrame>,
@@ -140,7 +140,7 @@ impl TextFrameCache {
         &mut self,
         request: TextFrameRequest<'_>,
         composition_size: RenderSize,
-    ) -> Result<Arc<PixelFrame>, RenderError> {
+    ) -> Result<Arc<VisualFrame>, RenderError> {
         let signature = Self::signature(&request, composition_size)?;
         let tick = self.next_tick();
         if let Some(cached) = self.frames.get_mut(&request.id)
@@ -270,7 +270,7 @@ impl TextFrameCache {
         })
     }
 
-    fn rasterize(&mut self, signature: &TextSignature) -> Result<PixelFrame, RenderError> {
+    fn rasterize(&mut self, signature: &TextSignature) -> Result<VisualFrame, RenderError> {
         let scale_x = signature.target_size.width as f32 / signature.composition_size.width as f32;
         let scale_y =
             signature.target_size.height as f32 / signature.composition_size.height as f32;
@@ -397,7 +397,7 @@ impl TextFrameCache {
             signature.color,
             signature.outline_color,
         );
-        Ok(PixelFrame::rgba(width, height, rgba))
+        Ok(VisualFrame::rgba(width, height, rgba))
     }
 
     fn family(name: &str) -> Family<'_> {

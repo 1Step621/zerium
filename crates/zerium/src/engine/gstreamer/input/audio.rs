@@ -9,9 +9,9 @@ use super::super::{
     initialize,
     pipeline::{self, SinkPipeline},
 };
-use crate::engine::media::{AudioDecoderSession, AudioFormat, DecodedAudioBlock, MediaError};
+use crate::engine::media::{AudioDecoder, AudioFormat, DecodedAudioBlock, MediaError};
 
-pub(crate) struct AudioDecoder {
+pub(crate) struct AudioDecodeSession {
     asset: MediaAsset,
     pipeline: Option<SinkPipeline>,
     format: Option<AudioFormat>,
@@ -23,7 +23,7 @@ pub(crate) struct AudioDecoder {
     finished: bool,
 }
 
-impl AudioDecoder {
+impl AudioDecodeSession {
     pub(crate) fn open(asset: MediaAsset) -> Result<Self, MediaError> {
         initialize().map_err(MediaError::external)?;
         Ok(Self {
@@ -222,7 +222,7 @@ impl AudioDecoder {
     }
 }
 
-impl AudioDecoderSession for AudioDecoder {
+impl AudioDecoder for AudioDecodeSession {
     fn stream_duration(&self) -> Duration {
         self.asset.duration
     }

@@ -181,7 +181,7 @@ impl Render for Preview {
             .error()
             .map(SharedString::from)
             .or_else(|| self.error.clone())
-            .or_else(|| self.playback_error.clone());
+            .or_else(|| self.frame_error.clone());
         let overlay = self.selected_editor_overlay(frame, cx);
         if overlay.is_none()
             || self

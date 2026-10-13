@@ -5,8 +5,8 @@ use zerium_core::timeline::TimelineTime;
 
 use super::{Preview, RenderedFrame};
 use crate::engine::{
+    preview::PreviewFrameStatus,
     rendering::{RenderError, RenderScene, RenderSize},
-    video_playback::VideoPlaybackSnapshot,
 };
 
 impl Preview {
@@ -15,30 +15,26 @@ impl Preview {
         render_time: TimelineTime,
         size: RenderSize,
         cx: &mut Context<Self>,
-    ) -> Result<(RenderScene, VideoPlaybackSnapshot), RenderError> {
-        let composition_size = RenderSize::from(self.editor.read(cx).resolution());
-        self.video_playback.begin_frame_demand();
+    ) -> Result<(RenderScene, PreviewFrameStatus), RenderError> {
+        self.frame_scheduler.begin_frame_demand();
         let editor = self.editor.clone();
         let editor = editor.read(cx);
-        let playback = &mut self.video_playback;
-        let text_frames = &mut self.text_frames;
-        let scene = RenderScene::from_timeline(
-            editor,
-            render_time,
-            size,
-            |request| Ok::<_, RenderError>(playback.request_frame(&request)),
-            |request| text_frames.frame_for(request, composition_size),
-        )?;
+        let playback = &mut self.frame_scheduler;
+        let scene = self
+            .scene_evaluator
+            .evaluate(editor, render_time, size, |request| {
+                Ok::<_, RenderError>(playback.request_frame(&request))
+            })?;
         let snapshot = playback.finish_frame_demand();
         Ok((scene, snapshot))
     }
 
-    pub(super) fn handle_playback_snapshot(
+    pub(super) fn handle_frame_status(
         &mut self,
-        playback: &VideoPlaybackSnapshot,
+        playback: &PreviewFrameStatus,
         cx: &mut Context<Self>,
     ) {
-        self.playback_error = playback.error.clone().map(Into::into);
+        self.frame_error = playback.error.clone().map(Into::into);
         for message in &playback.notifications {
             self.notifications.update(cx, |notifications, cx| {
                 notifications.push(message.clone(), cx);
@@ -66,13 +62,10 @@ impl Preview {
             && self.rendered_frame.is_some_and(|rendered| {
                 rendered.editor_revision == revision && rendered.size == size
             })
-            && !self.video_playback.needs_redraw()
+            && !self.frame_scheduler.needs_redraw()
         {
             return;
         }
-        let active_items = self.editor.read(cx).active_items_at_time(render_time);
-        self.text_frames
-            .retain_active(active_items.iter().map(|(_, item)| item));
         let (scene, playback) = match self.prepare_scene(render_time, size, cx) {
             Ok(prepared) => prepared,
             Err(error) => {
@@ -83,15 +76,15 @@ impl Preview {
                 return;
             }
         };
-        self.handle_playback_snapshot(&playback, cx);
+        self.handle_frame_status(&playback, cx);
 
-        let Some(renderer) = self.render_runtime.read(cx).renderer() else {
+        let Some(renderer) = self.render_runtime.read(cx).preview_session() else {
             return;
         };
         if self.rendered_frame
             == Some(RenderedFrame {
                 editor_revision: revision,
-                video_revision: playback.revision,
+                frame_revision: playback.revision,
                 size,
             })
         {
@@ -109,7 +102,7 @@ impl Preview {
         } else {
             match self.prepare_scene(render_time, size, cx) {
                 Ok(prepared) => {
-                    self.handle_playback_snapshot(&prepared.1, cx);
+                    self.handle_frame_status(&prepared.1, cx);
                     prepared
                 }
                 Err(error) => {
@@ -121,13 +114,13 @@ impl Preview {
                 }
             }
         };
-        match renderer.render_to_view(&scene, &target_view) {
+        match renderer.submit_scene(&scene, &target_view) {
             Ok(submission) => {
                 drop(target_view);
                 surface.present_synced_silent(submission);
                 self.rendered_frame = Some(RenderedFrame {
                     editor_revision: revision,
-                    video_revision: playback.revision,
+                    frame_revision: playback.revision,
                     size,
                 });
                 self.error = None;
