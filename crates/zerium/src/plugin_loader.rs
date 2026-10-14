@@ -1,31 +1,34 @@
 //! The application's embedded plugin provider.
 
 use std::{
-    collections::{BTreeMap, BTreeSet},
+    collections::BTreeSet,
     sync::{Arc, LazyLock},
 };
 
 use rust_embed::RustEmbed;
 
-use zerium_core::plugin::{Plugin, PluginError, PluginManifest, PluginRegistry};
+use zerium_core::plugin::{PluginError, PluginManifest, PluginRegistry};
+use zerium_shader::{PluginBundle, PluginLibrary};
 
 #[derive(RustEmbed)]
 #[folder = "../../plugins/"]
 struct BundledPluginAssets;
 
-static BUNDLED_PLUGINS: LazyLock<Arc<PluginRegistry>> = LazyLock::new(|| {
-    Arc::new(
-        load_bundled_plugins()
-            .expect("bundled plugin manifests and referenced assets must be resolvable"),
-    )
+static BUNDLED_PLUGINS: LazyLock<PluginLibrary> = LazyLock::new(|| {
+    load_bundled_plugins()
+        .expect("bundled plugin manifests and referenced assets must be resolvable")
 });
 
 /// Returns the immutable plugin catalog shipped with this application.
 pub(crate) fn plugins() -> Arc<PluginRegistry> {
-    BUNDLED_PLUGINS.clone()
+    BUNDLED_PLUGINS.registry()
 }
 
-fn load_bundled_plugins() -> Result<PluginRegistry, PluginError> {
+pub(crate) fn library() -> &'static PluginLibrary {
+    &BUNDLED_PLUGINS
+}
+
+fn load_bundled_plugins() -> Result<PluginLibrary, PluginError> {
     let directories = BundledPluginAssets::iter()
         .filter_map(|path| path.strip_suffix("/plugin.json").map(str::to_owned))
         .collect::<BTreeSet<_>>();
@@ -39,31 +42,18 @@ fn load_bundled_plugins() -> Result<PluginRegistry, PluginError> {
         .into_iter()
         .map(|directory| load_bundled_plugin(&directory))
         .collect::<Result<Vec<_>, _>>()?;
-    PluginRegistry::new(bundles)
+    PluginLibrary::new(bundles)
 }
 
-fn load_bundled_plugin(directory: &str) -> Result<Plugin, PluginError> {
+fn load_bundled_plugin(directory: &str) -> Result<PluginBundle, PluginError> {
     let manifest_source = bundled_text(&format!("{directory}/plugin.json"))?;
     let fingerprint = bundled_text(&format!("{directory}/generated/manifest.fingerprint"))?;
     let manifest = PluginManifest::from_json(&manifest_source)?;
-    let plugin_prefix = format!("{directory}/");
-    let modules = BundledPluginAssets::iter()
-        .filter_map(|path| {
-            let path = path.into_owned();
-            let relative = path.strip_prefix(&plugin_prefix)?.strip_suffix(".wesl")?;
-            let module = if let Some(generated) = relative.strip_prefix("generated/") {
-                format!("package::generated::{}", generated.replace('/', "::"))
-            } else {
-                (!relative.contains('/')).then(|| format!("package::{relative}"))?
-            };
-            Some((module, path))
-        })
-        .map(|(module, path)| bundled_text(&path).map(|contents| (module, contents)))
-        .collect::<Result<BTreeMap<_, _>, _>>()?;
-    zerium_shader::plugin_from_parts(
+    let root = directory.to_owned();
+    zerium_shader::load_embedded_plugin(
         manifest,
         &fingerprint,
-        modules,
+        move |asset| bundled_text(&format!("{root}/{asset}")),
         format!(
             "bundled plugin '{directory}' has stale generated WESL; run `zerium plugin generate`"
         ),

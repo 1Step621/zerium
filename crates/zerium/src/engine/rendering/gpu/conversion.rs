@@ -31,6 +31,7 @@ impl YuvConversionPipeline {
                 write_mask: wgpu::ColorWrites::ALL,
             },
             label,
+            &[],
         );
         let layout = pipeline.get_bind_group_layout(0);
         Ok(Self { layout, pipeline })

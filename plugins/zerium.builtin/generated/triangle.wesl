@@ -1,4 +1,4 @@
-import package::generated::host::_props::{ZeriumRawProps, item_props, read_u32, read_i32, read_f32, read_bool};
+import package::generated::host::_item::{ZeriumRawProps, item_props, read_u32, read_i32, read_f32, read_bool};
 
 struct ZeriumPropsTuple0 {
     v0: f32,

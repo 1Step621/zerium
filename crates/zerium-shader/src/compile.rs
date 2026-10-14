@@ -1,86 +1,135 @@
-use std::sync::Arc;
+//! Assemble renderer descriptions from linked, validated plugin modules.
 
-use super::{
-    ShaderError,
-    types::{
+use std::{
+    collections::{BTreeMap, BTreeSet},
+    sync::Arc,
+};
+
+use zerium_core::plugin::{EffectPassSchema, ShaderSchema};
+
+use crate::{
+    PluginLibrary, ShaderError,
+    compiled::{
         CompiledEffectShader, CompiledPluginShaders, ComputeShaderDescriptor,
         EffectShaderDescriptor, EffectShaderId, ItemShaderDescriptor, ItemShaderId,
         TextureShaderDescriptor,
     },
-    wesl,
-};
-use zerium_core::plugin::{
-    EffectPassSchema, PassConstantSchema, PluginRegistry, ShaderKind, ShaderSchema,
+    validation::ValidatedShader,
 };
 
-pub fn compile_plugins(
-    plugins: &PluginRegistry,
-) -> Result<Arc<CompiledPluginShaders>, ShaderError> {
-    let mut compiled = CompiledPluginShaders::default();
-    for (plugin_id, schema) in plugins.items() {
-        if let Some(render) = schema.render() {
-            let id = ItemShaderId::plugin_item(plugin_id, schema.id());
-            compiled.items.push(compile_item_shader(
-                plugins,
-                plugin_id,
-                schema.id(),
-                &render.shader,
-                id,
-                render.vertex_count,
-            )?);
+struct LinkedShader {
+    source: Arc<str>,
+    validation: ValidatedShader,
+}
+
+type LinkedModules<'a> = BTreeMap<(&'a str, &'a str), LinkedShader>;
+
+/// Link and validate each declared module once, then specialize each pipeline.
+/// The resulting descriptions contain no device-specific GPU objects.
+pub fn compile_plugins(plugins: &PluginLibrary) -> Result<Arc<CompiledPluginShaders>, ShaderError> {
+    let registry = plugins.registry();
+    let mut modules = BTreeMap::new();
+    for manifest in registry.manifests() {
+        let sources = plugins
+            .sources(manifest.id())
+            .expect("registered plugins have resolvers");
+        for module in manifest.shader_modules().collect::<BTreeSet<_>>() {
+            let source = Arc::<str>::from(sources.link(module)?);
+            let validation =
+                ValidatedShader::parse(format_args!("{}::{module}", manifest.id()), &source)?;
+            modules.insert((manifest.id(), module), LinkedShader { source, validation });
         }
     }
-    for (plugin_id, schema) in plugins.effects() {
+
+    let mut compiled = CompiledPluginShaders::default();
+    for (plugin_id, schema) in registry.items() {
+        if let Some(render) = schema.render() {
+            let module = linked_module(&modules, plugin_id, render.shader.module());
+            let id = ItemShaderId::plugin_item(plugin_id, schema.id());
+            module.validation.render(
+                &id,
+                render.shader.vertex_entry(),
+                render.shader.fragment_entry(),
+                &BTreeMap::new(),
+            )?;
+            compiled.items.push(ItemShaderDescriptor {
+                id,
+                label: render.shader.module().to_owned(),
+                wgsl: Arc::clone(&module.source),
+                vertex_entry: render.shader.vertex_entry().to_owned(),
+                fragment_entry: render.shader.fragment_entry().to_owned(),
+                vertex_count: render.vertex_count,
+            });
+        }
+    }
+    for (plugin_id, schema) in registry.effects() {
         for (pass_index, pass) in schema.render().passes.iter().enumerate() {
             let id = EffectShaderId::plugin_pass(plugin_id, schema.id(), pass_index);
-            let source: Arc<str> = compile_plugin_shader(
-                plugins,
-                plugin_id,
-                schema.id(),
-                pass.shader_module(),
-                pass.shader_kind(),
-                pass.constants(),
-            )?
-            .into();
+            let module = linked_module(&modules, plugin_id, pass.shader_module());
             let label = format!("{} pass {pass_index}", schema.id());
             let effect = match pass {
-                EffectPassSchema::Render { shader, .. }
-                | EffectPassSchema::Temporal {
-                    reducer: shader, ..
-                } => {
-                    validate_render_shader(
-                        &id,
-                        &source,
-                        shader.vertex_entry(),
-                        shader.fragment_entry(),
-                    )?;
-                    let descriptor = EffectShaderDescriptor {
-                        id,
-                        label,
-                        wgsl: source,
-                        vertex_entry: shader.vertex_entry().to_owned(),
-                        fragment_entry: shader.fragment_entry().to_owned(),
-                    };
-                    if matches!(pass, EffectPassSchema::Temporal { .. }) {
-                        CompiledEffectShader::Temporal(descriptor)
-                    } else {
-                        CompiledEffectShader::Render(descriptor)
-                    }
-                }
+                EffectPassSchema::Render { shader, .. } => CompiledEffectShader::Render(
+                    render_pass(module, id, label, shader, pass.overrides())?,
+                ),
+                EffectPassSchema::Temporal { reducer, .. } => CompiledEffectShader::Temporal(
+                    render_pass(module, id, label, reducer, pass.overrides())?,
+                ),
                 EffectPassSchema::Compute { shader, .. } => {
-                    let workgroup_size = validate_compute_shader(&id, &source, shader.entry())?;
+                    let workgroup_size =
+                        module
+                            .validation
+                            .compute(&id, shader.entry(), pass.overrides())?;
                     CompiledEffectShader::Compute(ComputeShaderDescriptor {
                         id,
-                        wgsl: source,
+                        wgsl: Arc::clone(&module.source),
                         entry: shader.entry().to_owned(),
                         workgroup_size,
+                        overrides: pass.overrides().clone(),
                     })
                 }
             };
             compiled.effects.push(effect);
         }
     }
-    compiled.textures.push(TextureShaderDescriptor {
+    compiled.textures.push(capability_frame());
+    Ok(Arc::new(compiled))
+}
+
+fn linked_module<'a>(
+    modules: &'a LinkedModules<'_>,
+    plugin: &'a str,
+    module: &'a str,
+) -> &'a LinkedShader {
+    modules
+        .get(&(plugin, module))
+        .expect("declared shader modules were linked and validated")
+}
+
+fn render_pass(
+    module: &LinkedShader,
+    id: EffectShaderId,
+    label: String,
+    shader: &ShaderSchema,
+    overrides: &BTreeMap<String, f64>,
+) -> Result<EffectShaderDescriptor, ShaderError> {
+    module.validation.render(
+        &id,
+        shader.vertex_entry(),
+        shader.fragment_entry(),
+        overrides,
+    )?;
+    Ok(EffectShaderDescriptor {
+        id,
+        label,
+        wgsl: Arc::clone(&module.source),
+        vertex_entry: shader.vertex_entry().to_owned(),
+        fragment_entry: shader.fragment_entry().to_owned(),
+        overrides: overrides.clone(),
+    })
+}
+
+fn capability_frame() -> TextureShaderDescriptor {
+    TextureShaderDescriptor {
         id: ItemShaderId::host_capability_frame(),
         label: "zerium capability frame".to_owned(),
         wgsl: include_str!("capability_frame.wgsl").into(),
@@ -88,115 +137,5 @@ pub fn compile_plugins(
         fragment_entry: "fragment_main".to_owned(),
         vertex_count: 3,
         input_ids: vec!["source".to_owned()],
-    });
-    Ok(Arc::new(compiled))
-}
-
-fn compile_item_shader(
-    plugins: &PluginRegistry,
-    plugin_id: &str,
-    entity: &str,
-    shader: &ShaderSchema,
-    id: ItemShaderId,
-    vertex_count: u32,
-) -> Result<ItemShaderDescriptor, ShaderError> {
-    let source: Arc<str> = compile_plugin_shader(
-        plugins,
-        plugin_id,
-        entity,
-        shader.module(),
-        ShaderKind::Item,
-        &[],
-    )?
-    .into();
-    validate_render_shader(&id, &source, shader.vertex_entry(), shader.fragment_entry())?;
-    Ok(ItemShaderDescriptor {
-        id,
-        label: shader.module().to_owned(),
-        wgsl: source,
-        vertex_entry: shader.vertex_entry().to_owned(),
-        fragment_entry: shader.fragment_entry().to_owned(),
-        vertex_count,
-    })
-}
-
-fn compile_plugin_shader(
-    plugins: &PluginRegistry,
-    plugin_id: &str,
-    entity: &str,
-    module: &str,
-    kind: ShaderKind,
-    constants: &[PassConstantSchema],
-) -> Result<String, ShaderError> {
-    let plugin = plugins
-        .plugin(plugin_id)
-        .ok_or_else(|| ShaderError::backend(format!("plugin '{plugin_id}' was not loaded")))?;
-    wesl::compile(plugin.modules(), module, entity, kind, constants)
-}
-
-fn parse_and_validate_shader(
-    id: impl std::fmt::Display,
-    source: &str,
-) -> Result<naga::Module, ShaderError> {
-    let module = naga::front::wgsl::parse_str(source)
-        .map_err(|error| ShaderError::backend(format!("shader '{id}' failed to parse: {error}")))?;
-    naga::valid::Validator::new(
-        naga::valid::ValidationFlags::all(),
-        naga::valid::Capabilities::empty(),
-    )
-    .validate(&module)
-    .map_err(|error| ShaderError::backend(format!("shader '{id}' failed validation: {error}")))?;
-    Ok(module)
-}
-
-pub fn validate_render_shader(
-    id: impl std::fmt::Display,
-    source: &str,
-    vertex_entry: &str,
-    fragment_entry: &str,
-) -> Result<(), ShaderError> {
-    let id = id.to_string();
-    let module = parse_and_validate_shader(&id, source)?;
-    for (entry, stage) in [
-        (vertex_entry, naga::ShaderStage::Vertex),
-        (fragment_entry, naga::ShaderStage::Fragment),
-    ] {
-        if !module
-            .entry_points
-            .iter()
-            .any(|candidate| candidate.stage == stage && candidate.name == entry)
-        {
-            return Err(ShaderError::backend(format!(
-                "shader '{id}' does not define {stage:?} entry point '{entry}'"
-            )));
-        }
     }
-    Ok(())
-}
-
-pub fn validate_compute_shader(
-    id: impl std::fmt::Display,
-    source: &str,
-    entry: &str,
-) -> Result<[u32; 3], ShaderError> {
-    let id = id.to_string();
-    let module = parse_and_validate_shader(&id, source)?;
-    let Some(entry_point) = module.entry_points.iter().find(|entry_point| {
-        entry_point.stage == naga::ShaderStage::Compute && entry_point.name == entry
-    }) else {
-        return Err(ShaderError::backend(format!(
-            "compute shader '{id}' does not define entry point '{entry}'"
-        )));
-    };
-    let workgroup_size = entry_point.workgroup_size;
-    let workgroup_threads = workgroup_size
-        .into_iter()
-        .try_fold(1_u32, u32::checked_mul)
-        .unwrap_or(u32::MAX);
-    if workgroup_size.contains(&0) || workgroup_threads > 1_024 {
-        return Err(ShaderError::backend(format!(
-            "compute shader '{id}' declares invalid workgroup {workgroup_size:?}"
-        )));
-    }
-    Ok(workgroup_size)
 }

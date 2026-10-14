@@ -13,7 +13,7 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use zerium_core::plugin::EffectInputSpace;
 use zerium_core::timeline::BlendMode;
-use zerium_shader::capability_input;
+use zerium_shader::{CAPABILITY_SAMPLER_BINDING, MAX_TEXTURE_INPUTS};
 
 #[derive(Clone)]
 struct RenderedSurface {
@@ -482,7 +482,7 @@ impl RenderSession {
         inputs: &[&wgpu::TextureView],
         fallback: &wgpu::TextureView,
     ) -> wgpu::BindGroup {
-        let mut entries = (0..capability_input::MAX_INPUTS)
+        let mut entries = (0..MAX_TEXTURE_INPUTS)
             .map(|index| wgpu::BindGroupEntry {
                 binding: index as u32,
                 resource: wgpu::BindingResource::TextureView(
@@ -491,7 +491,7 @@ impl RenderSession {
             })
             .collect::<Vec<_>>();
         entries.push(wgpu::BindGroupEntry {
-            binding: capability_input::SAMPLER_BINDING as u32,
+            binding: CAPABILITY_SAMPLER_BINDING as u32,
             resource: wgpu::BindingResource::Sampler(&self.shared.sampler),
         });
         self.shared

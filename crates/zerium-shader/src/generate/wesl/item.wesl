@@ -1,4 +1,4 @@
-import package::generated::host::_props::_items;
+import package::generated::host::_item::_items;
 import package::generated::host::_context::make_surface_context;
 import package::generated::host::util::ZeriumContext;
 

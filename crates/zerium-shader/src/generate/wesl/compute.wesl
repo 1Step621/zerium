@@ -1,4 +1,4 @@
-import package::generated::host::_props::_compute_info;
+import package::generated::host::_compute::_compute_info;
 import package::generated::host::_context::make_surface_context;
 import package::generated::host::util::ZeriumContext;
 

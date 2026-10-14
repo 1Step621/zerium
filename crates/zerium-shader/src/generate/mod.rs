@@ -1,64 +1,24 @@
-use std::{
-    collections::BTreeMap,
-    fs,
-    path::{Path, PathBuf},
-};
+//! Build deterministic host and property interfaces from validated core schemas.
 
-use crate::{ShaderContract, ShaderError, capability_input, plugin_directory, shader_contracts};
-use zerium_core::plugin::{PluginManifest, ShaderKind};
+use std::collections::BTreeMap;
 
+use zerium_core::plugin::ShaderKind;
+
+use crate::CAPABILITY_SAMPLER_BINDING;
+use contract::{ShaderContract, property_module};
+
+pub(crate) mod contract;
+pub(crate) mod output;
 mod property;
 
-const GENERATED_DIR: &str = "generated";
-const MANIFEST_FINGERPRINT: &str = "manifest.fingerprint";
+pub(crate) const GENERATED_DIR: &str = "generated";
+pub(crate) const MANIFEST_FINGERPRINT: &str = "manifest.fingerprint";
 const UTIL_INTERFACE: &str = include_str!("wesl/util.wesl");
 
-pub fn generate(path: Option<&Path>) -> Result<PathBuf, ShaderError> {
-    let root = plugin_directory(path)?;
-    let manifest_path = root.join("plugin.json");
-    let manifest_source = fs::read_to_string(&manifest_path)
-        .map_err(|error| ShaderError::io("read", &manifest_path, error))?;
-    let manifest = PluginManifest::from_json(&manifest_source)?;
-    for module in manifest.shader_modules() {
-        fs::read_to_string(root.join(format!("{module}.wesl"))).map_err(|error| {
-            ShaderError::backend(format!(
-                "shader module '{module}' could not be read: {error}"
-            ))
-        })?;
-    }
-
-    let contracts = shader_contracts(&manifest)?;
-
-    let staging = root.join(format!(".{GENERATED_DIR}.tmp-{}", std::process::id()));
-    if staging.exists() {
-        fs::remove_dir_all(&staging).map_err(|error| ShaderError::io("clear", &staging, error))?;
-    }
-    fs::create_dir(&staging).map_err(|error| ShaderError::io("create", &staging, error))?;
-    let result =
-        write_generated(&staging, &contracts).and_then(|()| install_generated(&root, &staging));
-    if let Err(error) = result {
-        let _ = fs::remove_dir_all(&staging);
-        return Err(error);
-    }
-    Ok(root.join(GENERATED_DIR))
-}
-
-fn write_generated(
-    generated: &Path,
-    contracts: &BTreeMap<String, ShaderContract>,
-) -> Result<(), ShaderError> {
-    let modules = generated_modules(contracts);
-    write(generated, MANIFEST_FINGERPRINT, &fingerprint(&modules))?;
-    let host = generated.join("host");
-    fs::create_dir(&host).map_err(|error| ShaderError::io("create", &host, error))?;
-    for (name, source) in modules {
-        write(generated, &name, &source)?;
-    }
-    Ok(())
-}
-
-fn generated_modules(contracts: &BTreeMap<String, ShaderContract>) -> BTreeMap<String, String> {
-    let mut modules = BTreeMap::from([
+pub(crate) fn generated_files(
+    contracts: &BTreeMap<String, ShaderContract<'_>>,
+) -> BTreeMap<String, String> {
+    let mut files = BTreeMap::from([
         ("host/util.wesl".to_owned(), UTIL_INTERFACE.to_owned()),
         (
             "host/_context.wesl".to_owned(),
@@ -66,34 +26,36 @@ fn generated_modules(contracts: &BTreeMap<String, ShaderContract>) -> BTreeMap<S
         ),
     ]);
     for kind in ShaderKind::ALL {
-        modules.insert(
+        files.insert(
             format!("host/{}.wesl", kind.module_name()),
             host_interface(kind).to_owned(),
         );
-        modules.insert(
+        files.insert(
             format!("host/{}.wesl", kind.internal_module_name()),
             internal_interface(kind),
         );
     }
-    for (module, contract) in contracts {
-        let source = property::interface(&contract.properties, contract.kind)
-            + "\n"
-            + &capability_interface(&contract.input_ids);
-        modules.insert(format!("{module}.wesl"), source);
+    for (entity, contract) in contracts {
+        for &kind in &contract.kinds {
+            let source = property::interface(contract.layout, kind)
+                + "\n"
+                + &capability_interface(&contract.input_ids);
+            let module = property_module(entity, kind);
+            // Omit the generated root when writing the interface. Asset names
+            // remain platform-independent so fingerprints match across OSes.
+            let file = format!("{}.wesl", module.components[1..].join("/"));
+            files.insert(file, source);
+        }
     }
-    for source in modules.values_mut() {
+    for source in files.values_mut() {
         *source = source.replace("\r\n", "\n");
     }
-    modules
+    files
 }
 
-pub fn shader_contract_fingerprint(contracts: &BTreeMap<String, ShaderContract>) -> String {
-    fingerprint(&generated_modules(contracts))
-}
-
-fn fingerprint(modules: &BTreeMap<String, String>) -> String {
+pub(crate) fn fingerprint(files: &BTreeMap<String, String>) -> String {
     let mut hash = 0xcbf2_9ce4_8422_2325_u64;
-    for (name, source) in modules {
+    for (name, source) in files {
         // File boundaries are explicit; normalize content exactly as write() does.
         for byte in name
             .bytes()
@@ -105,32 +67,6 @@ fn fingerprint(modules: &BTreeMap<String, String>) -> String {
         }
     }
     format!("{hash:016x}")
-}
-
-fn install_generated(root: &Path, staging: &Path) -> Result<(), ShaderError> {
-    let generated = root.join(GENERATED_DIR);
-    let backup = root.join(format!(".{GENERATED_DIR}.old-{}", std::process::id()));
-    if backup.exists() {
-        fs::remove_dir_all(&backup).map_err(|error| ShaderError::io("clear", &backup, error))?;
-    }
-    if generated.exists() {
-        fs::rename(&generated, &backup)
-            .map_err(|error| ShaderError::io("prepare generated directory", &generated, error))?;
-    }
-    if let Err(error) = fs::rename(staging, &generated) {
-        if backup.exists() {
-            let _ = fs::rename(&backup, &generated);
-        }
-        return Err(ShaderError::io(
-            "install generated directory",
-            &generated,
-            error,
-        ));
-    }
-    if backup.exists() {
-        fs::remove_dir_all(&backup).map_err(|error| ShaderError::io("remove", &backup, error))?;
-    }
-    Ok(())
 }
 
 fn capability_interface(input_ids: &[String]) -> String {
@@ -145,15 +81,9 @@ fn capability_interface(input_ids: &[String]) -> String {
     }
     source.push_str(&format!(
         "@group(1) @binding({})\nvar capability_sampler: sampler;\n",
-        capability_input::SAMPLER_BINDING,
+        CAPABILITY_SAMPLER_BINDING,
     ));
     source
-}
-
-fn write(generated: &Path, name: &str, source: &str) -> Result<(), ShaderError> {
-    let path = generated.join(name);
-    fs::write(&path, format!("{}\n", source.trim_end()))
-        .map_err(|error| ShaderError::io("write", &path, error))
 }
 
 fn host_interface(kind: ShaderKind) -> &'static str {

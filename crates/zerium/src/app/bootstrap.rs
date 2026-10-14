@@ -112,8 +112,9 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                 move |window, cx| {
                     window.set_window_title("Zerium");
                     let plugins = crate::plugin_loader::plugins();
-                    let plugin_shaders = zerium_shader::compile_plugins(&plugins)
-                        .expect("bundled plugin shaders must compile");
+                    let plugin_shaders =
+                        zerium_shader::compile_plugins(crate::plugin_loader::library())
+                            .expect("bundled plugin shaders must compile");
                     let render_runtime =
                         cx.new(|_| crate::engine::rendering::RenderRuntime::new(plugin_shaders));
                     let media_readers = crate::engine::media::bundled_media_readers()

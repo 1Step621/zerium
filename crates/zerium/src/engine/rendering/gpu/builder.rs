@@ -8,7 +8,8 @@ use super::{
 use crate::engine::gpu::GpuContext;
 use std::{collections::HashMap, num::NonZeroU64, sync::Arc};
 use zerium_shader::{
-    CompiledEffectShader, CompiledPluginShaders, capability_input, validate_render_shader,
+    CAPABILITY_SAMPLER_BINDING, CompiledEffectShader, CompiledPluginShaders, MAX_TEXTURE_INPUTS,
+    validate_render_shader,
 };
 
 impl RenderDeviceBuilder {
@@ -40,7 +41,7 @@ impl RenderDeviceBuilder {
                     },
                 ],
             });
-        let mut capability_entries = (0..capability_input::MAX_INPUTS)
+        let mut capability_entries = (0..MAX_TEXTURE_INPUTS)
             .map(|binding| wgpu::BindGroupLayoutEntry {
                 binding: binding as u32,
                 visibility: wgpu::ShaderStages::VERTEX_FRAGMENT | wgpu::ShaderStages::COMPUTE,
@@ -53,7 +54,7 @@ impl RenderDeviceBuilder {
             })
             .collect::<Vec<_>>();
         capability_entries.push(wgpu::BindGroupLayoutEntry {
-            binding: capability_input::SAMPLER_BINDING as u32,
+            binding: CAPABILITY_SAMPLER_BINDING as u32,
             visibility: wgpu::ShaderStages::VERTEX_FRAGMENT | wgpu::ShaderStages::COMPUTE,
             ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
             count: None,
@@ -349,6 +350,7 @@ impl RenderDeviceBuilder {
                 write_mask: wgpu::ColorWrites::ALL,
             },
             "zerium-composite_pipeline",
+            &[],
         );
         let output_pipeline = raster_pipeline(
             device,
@@ -361,6 +363,7 @@ impl RenderDeviceBuilder {
                 write_mask: wgpu::ColorWrites::ALL,
             },
             "zerium-output_pipeline",
+            &[],
         );
         let blend_pipeline = raster_pipeline(
             device,
@@ -373,6 +376,7 @@ impl RenderDeviceBuilder {
                 write_mask: wgpu::ColorWrites::ALL,
             },
             "zerium-blend-pipeline",
+            &[],
         );
         let sampler = device.create_sampler(&wgpu::SamplerDescriptor {
             label: Some("zerium-effect-sampler"),

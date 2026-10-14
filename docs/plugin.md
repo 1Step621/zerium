@@ -1,7 +1,7 @@
 # Plugin API v1
 
 A plugin is a directory containing `plugin.json`, WESL modules, and generated
-interfaces:
+interfaces. For example:
 
 ```text
 com.example.plugin/
@@ -9,6 +9,10 @@ com.example.plugin/
 ├── plugin.json
 └── shape.wesl
 ```
+
+Apart from the generated interfaces under `generated/`, shader directories and
+filenames are chosen by the plugin author. The layout above is one example;
+shaders may also live in any nested module hierarchy.
 
 Generate the interfaces after changing the shader contract, then validate the
 complete bundle:
@@ -315,7 +319,7 @@ with `value` and `decimal_places` references instead of `text`.
 Formatting happens after animation evaluation and includes trailing zeros:
 `12.3` with two places displays as `12.30`. It does not change the stored value
 or its animation. See the bundled [Number declaration](../plugins/zerium.builtin/plugin.json)
-and [shader](../plugins/zerium.builtin/number.wesl).
+and [shader](../plugins/zerium.builtin/items/number/render.wesl).
 
 ### Render result
 
@@ -428,18 +432,41 @@ import package::generated::shape::{ZeriumProps, props};
 Host modules are `item`, `effect`, `compute`, `temporal`, and `util` under
 `package::generated::host`.
 
-A shader `module` is a WGSL identifier resolved to `<module>.wesl` in the plugin
-root. Other root-level WESL files can be imported as helpers; `generated` is
-reserved for the host interface.
+A shader `module` is a relative WESL module path, with WGSL identifiers separated
+by `::`. For example, `filters::blur` resolves to `filters/blur.wesl` in the
+plugin directory. A single identifier such as `shape` resolves to `shape.wesl`.
+Helpers use the same hierarchy:
+`math/color.wesl` is imported as `package::math::color`. WESL resolves the modules
+declared in the manifest and imports within the plugin root. Filesystem bundles
+use WESL's `FileResolver`; embedded bundles retrieve each requested module from
+their asset resolver.
+The directory names and grouping are up to the plugin author. The top-level
+`generated` namespace is reserved for the host interface.
 
-`generated/<entity_id>.wesl` contains an entity's typed properties and texture
-inputs and is shared by all its effect passes. Shared shaders can import
-`package::generated::host::entity` to use the current owner's interface.
+Generated interfaces are ordinary WESL files with explicit imports:
+
+| Consumer | Generated file | Import module |
+| --- | --- | --- |
+| Item or render pass | `generated/<entity_id>.wesl` | `package::generated::<entity_id>` |
+| Compute pass | `generated/<entity_id>/compute.wesl` | `package::generated::<entity_id>::compute` |
+| Temporal reducer | `generated/<entity_id>/temporal.wesl` | `package::generated::<entity_id>::temporal` |
+
+Only the interfaces needed by the declared pass kinds are generated. Each file
+contains the owner's typed properties and texture inputs and imports its fixed
+GPU buffer interface. For example, a compute pass uses:
+
+```wesl
+import package::generated::gaussian_blur::compute::props;
+```
+
+Entry modules name their owning interface explicitly. Shared helpers can receive
+values or texture handles as arguments. Shader compilation resolves the packaged
+modules through normal WESL imports, with no module substitution based on the owner.
 Visual item and effect IDs must be WGSL identifiers and distinct across both
 kinds. Names beginning with `_` are private.
 
 Regenerate when entity IDs, property IDs/types/order, input
-IDs/order, or the host API change. Labels, defaults, enum choices, and array
+IDs/order, pass kinds, or the host API change. Labels, defaults, enum choices, and array
 length limits do not require regeneration. Distribute WESL and generated
 interfaces; the host links them to WGSL when loading.
 
@@ -452,13 +479,13 @@ let properties = props();               // effect pass
 ```
 
 Tuple fields are structs with `v0`, `v1`, and subsequent scalar fields. Arrays
-use `properties.<id>_len` and `get_<id>(properties, index)`. Strings use `ZeriumStr`:
-`byte_len` gives UTF-8 length and `str_byte(value, index)` gives a byte or zero
-outside the string. Import these accessors from the entity interface.
+use `properties.<id>_len` and `get_<id>(properties, index)`. Import these accessors
+from the entity interface.
 
-Files have no shader fields. Mixed tuples retain their other scalars' original
-`vN` indices; properties containing only files are omitted. Capabilities expose
-the decoded file content as textures instead.
+Strings and files are CPU-only values and have no shader fields. Mixed tuples
+retain their other scalars' original `vN` indices; properties and arrays containing
+only CPU values are omitted. Text and media capabilities expose rendered text
+and decoded file content as textures instead.
 
 `context` provides `ZeriumContext`: physical `output_size`, fixed
 `composition_size`, logical `surface_size`, and pixel density `composition_scale`.
@@ -563,10 +590,7 @@ Effects declare an ordered, non-empty `render.passes` array:
       "type": "compute",
       "shader": { "module": "blur" },
       "dispatch": ["width", "height", "one"],
-      "constants": [
-        { "id": "direction_x", "value": { "f32": 1 } },
-        { "id": "direction_y", "value": { "f32": 0 } }
-      ]
+      "overrides": { "direction_x": 1, "direction_y": 0 }
     }]
   }
 }
@@ -574,9 +598,19 @@ Effects declare an ordered, non-empty `render.passes` array:
 
 Render entry points default to `vertex_main` and `fragment_main`; compute defaults
 to `compute_main`. Compute workgroup size comes from `@workgroup_size`; the
-manifest controls dispatch dimensions. Pass constants accept `f32`, `i32`, `u32`,
-or `bool` and are imported from WESL's virtual `constants` module, for example
-`import constants::{direction_x, direction_y};`.
+manifest controls dispatch dimensions. Declare pipeline-overridable values with
+standard WGSL `override` declarations in the entry module:
+
+```wesl
+override direction_x: f32 = 1.0;
+override direction_y: f32 = 0.0;
+```
+
+Each pass's optional `overrides` object supplies numeric values by declaration
+name, or by the decimal string of an explicit `@id`. Values are passed to wgpu's
+pipeline compilation options and converted to the declaration's scalar type;
+boolean overrides use `0` or `1`. Omitted values use shader defaults. Validation
+checks specialization through Naga, including override-dependent workgroup sizes.
 
 Render and compute passes receive `effect_input` (current input), `effect_source`
 (the image at the start of the regular pass chain), and `effect_sampler`. Compute

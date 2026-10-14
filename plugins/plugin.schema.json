@@ -52,8 +52,14 @@
     "wgslSuffix": { "type": "string", "pattern": "^[A-Za-z0-9_]+$" },
     "shaderModule": {
       "type": "string",
-      "pattern": "^[A-Za-z_][A-Za-z0-9_]*$",
-      "not": { "pattern": "^(?:_|__.*|generated)$" }
+      "description": "Relative WESL module path. Directory names and grouping are chosen by the plugin author; the top-level generated namespace is reserved for host interfaces.",
+      "pattern": "^[A-Za-z_][A-Za-z0-9_]*(::[A-Za-z_][A-Za-z0-9_]*)*$",
+      "not": {
+        "anyOf": [
+          { "pattern": "^generated(?:$|::)" },
+          { "pattern": "(?:^|::)(?:_(?:$|::)|__)" }
+        ]
+      }
     },
     "shader": {
       "type": "object",
@@ -330,53 +336,16 @@
         "render": { "$ref": "#/$defs/itemRender" }
       }
     },
-    "passConstant": {
+    "pipelineOverrides": {
       "type": "object",
-      "additionalProperties": false,
-      "required": ["id", "value"],
-      "properties": {
-        "id": { "$ref": "#/$defs/wgslId" },
-        "value": {
-          "oneOf": [
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["f32"],
-              "properties": { "f32": { "type": "number" } }
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["i32"],
-              "properties": {
-                "i32": {
-                  "type": "integer",
-                  "minimum": -2147483648,
-                  "maximum": 2147483647
-                }
-              }
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["u32"],
-              "properties": {
-                "u32": {
-                  "type": "integer",
-                  "minimum": 0,
-                  "maximum": 4294967295
-                }
-              }
-            },
-            {
-              "type": "object",
-              "additionalProperties": false,
-              "required": ["bool"],
-              "properties": { "bool": { "type": "boolean" } }
-            }
-          ]
-        }
-      }
+      "description": "WGSL pipeline override values, keyed by the declaration name or numeric @id. Values use wgpu's numeric representation; bool overrides use 0 or 1.",
+      "propertyNames": {
+        "anyOf": [
+          { "$ref": "#/$defs/wgslId" },
+          { "pattern": "^[0-9]+$" }
+        ]
+      },
+      "additionalProperties": { "type": "number" }
     },
     "renderPass": {
       "type": "object",
@@ -385,10 +354,7 @@
       "properties": {
         "type": { "const": "render" },
         "shader": { "$ref": "#/$defs/shader" },
-        "constants": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/passConstant" }
-        }
+        "overrides": { "$ref": "#/$defs/pipelineOverrides" }
       }
     },
     "computePass": {
@@ -408,10 +374,7 @@
             { "$ref": "#/$defs/dispatchDimension" }
           ]
         },
-        "constants": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/passConstant" }
-        }
+        "overrides": { "$ref": "#/$defs/pipelineOverrides" }
       }
     },
     "dispatchDimension": {
@@ -453,10 +416,7 @@
           ]
         },
         "reducer": { "$ref": "#/$defs/shader" },
-        "constants": {
-          "type": "array",
-          "items": { "$ref": "#/$defs/passConstant" }
-        }
+        "overrides": { "$ref": "#/$defs/pipelineOverrides" }
       }
     },
     "effect": {

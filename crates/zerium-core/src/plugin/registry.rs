@@ -1,4 +1,4 @@
-//! Deterministic lookup across structurally valid plugins with resolved assets.
+//! Deterministic lookup across structurally valid plugin manifests.
 //!
 //! Shader linking and validation live in the separate `zerium-shader` crate.
 
@@ -7,17 +7,17 @@ use std::{
     sync::Arc,
 };
 
-use super::{EffectSchema, ItemSchema, Plugin, PluginError, PluginManifest};
+use super::{EffectSchema, ItemSchema, PluginError, PluginManifest};
 
 #[derive(Clone, Debug, Default)]
 pub struct PluginRegistry {
-    plugins: BTreeMap<String, Arc<Plugin>>,
+    plugins: BTreeMap<String, Arc<PluginManifest>>,
     items: BTreeMap<(String, String), Arc<ItemSchema>>,
     effects: BTreeMap<(String, String), Arc<EffectSchema>>,
 }
 
 impl PluginRegistry {
-    pub fn new(plugins: impl IntoIterator<Item = Plugin>) -> Result<Self, PluginError> {
+    pub fn new(plugins: impl IntoIterator<Item = PluginManifest>) -> Result<Self, PluginError> {
         let mut registry = Self::default();
         for plugin in plugins {
             registry.register(plugin)?;
@@ -25,9 +25,9 @@ impl PluginRegistry {
         Ok(registry)
     }
 
-    pub fn register(&mut self, plugin: Plugin) -> Result<(), PluginError> {
+    pub fn register(&mut self, plugin: PluginManifest) -> Result<(), PluginError> {
         let plugin = Arc::new(plugin);
-        let plugin_id = plugin.manifest().id().to_owned();
+        let plugin_id = plugin.id().to_owned();
         let entry = match self.plugins.entry(plugin_id.clone()) {
             Entry::Vacant(entry) => entry,
             Entry::Occupied(_) => {
@@ -36,13 +36,13 @@ impl PluginRegistry {
                 )));
             }
         };
-        for schema in plugin.manifest().item_schemas() {
+        for schema in plugin.item_schemas() {
             self.items.insert(
                 (plugin_id.clone(), schema.id().to_owned()),
                 Arc::clone(schema),
             );
         }
-        for schema in plugin.manifest().effect_schemas() {
+        for schema in plugin.effect_schemas() {
             self.effects.insert(
                 (plugin_id.clone(), schema.id().to_owned()),
                 Arc::clone(schema),
@@ -53,7 +53,7 @@ impl PluginRegistry {
     }
 
     pub fn manifests(&self) -> impl Iterator<Item = &PluginManifest> {
-        self.plugins.values().map(|plugin| plugin.manifest())
+        self.plugins.values().map(Arc::as_ref)
     }
 
     pub fn items(&self) -> impl Iterator<Item = (&str, &ItemSchema)> {
@@ -80,7 +80,7 @@ impl PluginRegistry {
             .cloned()
     }
 
-    pub fn plugin(&self, plugin_id: &str) -> Option<&Plugin> {
+    pub fn manifest(&self, plugin_id: &str) -> Option<&PluginManifest> {
         self.plugins.get(plugin_id).map(Arc::as_ref)
     }
 }

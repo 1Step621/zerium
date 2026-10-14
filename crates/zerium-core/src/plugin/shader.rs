@@ -69,12 +69,15 @@ pub(super) fn validate_shader_module(
     owner_id: &str,
     module: &str,
 ) -> Result<(), PluginError> {
-    if module == "generated" {
+    if module.split("::").next() == Some("generated") {
         return Err(PluginError::invalid_definition(format!(
-            "{owner_kind} '{owner_id}' uses reserved shader module 'generated'"
+            "{owner_kind} '{owner_id}' uses reserved shader module '{module}'"
         )));
     }
-    validate_wgsl_identifier("shader module", module)
+    for segment in module.split("::") {
+        validate_wgsl_identifier("shader module path segment", segment)?;
+    }
+    Ok(())
 }
 
 fn default_vertex_entry() -> String {

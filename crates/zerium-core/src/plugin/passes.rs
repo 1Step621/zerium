@@ -7,6 +7,7 @@ use crate::property::{
     ScalarSchema, ValueSchema,
 };
 use serde::Deserialize;
+use std::collections::BTreeMap;
 
 const MAX_TEMPORAL_SAMPLES: u32 = 32;
 
@@ -16,20 +17,20 @@ pub enum EffectPassSchema {
     Render {
         shader: ShaderSchema,
         #[serde(default)]
-        constants: Vec<PassConstantSchema>,
+        overrides: BTreeMap<String, f64>,
     },
     Compute {
         shader: ComputeShaderSchema,
         #[serde(default = "default_compute_dispatch")]
         dispatch: [ComputeDispatchDimension; 3],
         #[serde(default)]
-        constants: Vec<PassConstantSchema>,
+        overrides: BTreeMap<String, f64>,
     },
     Temporal {
         sampling: TemporalSamplingSchema,
         reducer: ShaderSchema,
         #[serde(default)]
-        constants: Vec<PassConstantSchema>,
+        overrides: BTreeMap<String, f64>,
     },
 }
 
@@ -42,11 +43,11 @@ impl EffectPassSchema {
         }
     }
 
-    pub fn constants(&self) -> &[PassConstantSchema] {
+    pub fn overrides(&self) -> &BTreeMap<String, f64> {
         match self {
-            Self::Render { constants, .. }
-            | Self::Compute { constants, .. }
-            | Self::Temporal { constants, .. } => constants,
+            Self::Render { overrides, .. }
+            | Self::Compute { overrides, .. }
+            | Self::Temporal { overrides, .. } => overrides,
         }
     }
 
@@ -64,19 +65,13 @@ impl EffectPassSchema {
         properties: &[PropertySchema],
         pass_index: usize,
     ) -> Result<(), PluginError> {
-        let mut constant_ids = std::collections::HashSet::new();
-        for constant in self.constants() {
-            validate_wgsl_identifier("pass constant", &constant.id)?;
-            if matches!(constant.value, PassConstantValue::F32(value) if !value.is_finite()) {
-                return Err(PluginError::invalid_definition(format!(
-                    "effect '{}' pass {pass_index} constant '{}' must be finite",
-                    effect_id, constant.id
-                )));
+        for (key, value) in self.overrides() {
+            if key.parse::<u16>().is_err() {
+                validate_wgsl_identifier("pipeline override", key)?;
             }
-            if !constant_ids.insert(&constant.id) {
+            if !value.is_finite() {
                 return Err(PluginError::invalid_definition(format!(
-                    "effect '{}' pass {pass_index} has duplicate constant ID '{}'",
-                    effect_id, constant.id
+                    "effect '{effect_id}' pass {pass_index} override '{key}' must be finite"
                 )));
             }
         }
@@ -103,22 +98,6 @@ impl EffectPassSchema {
         }
         Ok(())
     }
-}
-
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
-pub struct PassConstantSchema {
-    pub id: String,
-    pub value: PassConstantValue,
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case")]
-pub enum PassConstantValue {
-    F32(f32),
-    I32(i32),
-    U32(u32),
-    Bool(bool),
 }
 
 /// Selects source times independently of the shader that combines them.

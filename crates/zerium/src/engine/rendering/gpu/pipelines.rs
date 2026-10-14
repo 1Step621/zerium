@@ -23,6 +23,7 @@ pub(super) fn raster_pipeline<'a>(
     entries: [&str; 2],
     target: wgpu::ColorTargetState,
     label: &str,
+    constants: &[(&str, f64)],
 ) -> wgpu::RenderPipeline {
     device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
         label: Some(label),
@@ -30,7 +31,10 @@ pub(super) fn raster_pipeline<'a>(
         vertex: wgpu::VertexState {
             module,
             entry_point: Some(entries[0]),
-            compilation_options: Default::default(),
+            compilation_options: wgpu::PipelineCompilationOptions {
+                constants,
+                ..Default::default()
+            },
             buffers: &[],
         },
         primitive: Default::default(),
@@ -39,7 +43,10 @@ pub(super) fn raster_pipeline<'a>(
         fragment: Some(wgpu::FragmentState {
             module,
             entry_point: Some(entries[1]),
-            compilation_options: Default::default(),
+            compilation_options: wgpu::PipelineCompilationOptions {
+                constants,
+                ..Default::default()
+            },
             targets: &[Some(target)],
         }),
         multiview_mask: None,

@@ -1,4 +1,4 @@
-import package::generated::host::_props::{ZeriumRawProps, effect_props, read_u32, read_i32, read_f32, read_bool};
+import package::generated::host::_effect::{ZeriumRawProps, effect_props, read_u32, read_i32, read_f32, read_bool};
 
 struct ZeriumProps {
     brightness: f32,

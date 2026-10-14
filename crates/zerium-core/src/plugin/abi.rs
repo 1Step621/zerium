@@ -3,8 +3,8 @@ use std::mem::size_of;
 use super::PluginError;
 use super::identifier::validate_wgsl_identifier;
 use crate::property::{
-    MAX_STRING_BYTES, PropertyDefinition, PropertySchema, PropertyValue, PropertyValues,
-    ScalarPropertyType, ValueSchema,
+    PropertyDefinition, PropertySchema, PropertyValue, PropertyValues, ScalarPropertyType,
+    ValueSchema,
 };
 
 /// Property blocks are copied for every rendered instance/pass. Large data belongs in a separate
@@ -152,11 +152,11 @@ impl PropertyLayout {
                             data_offset as usize + index * element_size,
                             element_schema,
                             element.value(),
-                        )?;
+                        );
                     }
                 }
                 (PropertyDefinition::Value(schema), value) => {
-                    pack_value(&mut bytes, offset, schema, value)?;
+                    pack_value(&mut bytes, offset, schema, value);
                 }
                 _ => unreachable!("property values were validated before packing"),
             }
@@ -194,22 +194,12 @@ fn property_budget_error(owner_kind: &str, owner_id: &str) -> PluginError {
     ))
 }
 
-pub fn value_string_count(schema: &ValueSchema) -> usize {
-    schema
-        .scalars()
-        .iter()
-        .filter(|scalar| scalar.ty == ScalarPropertyType::String)
-        .count()
-}
-
 fn max_dynamic_size(property: &PropertySchema) -> Result<usize, PluginError> {
-    let schema = property.value_schema();
-    let payload = value_string_count(schema) * aligned_size(MAX_STRING_BYTES);
     match property.definition() {
-        PropertyDefinition::Value(_) => Ok(payload),
+        PropertyDefinition::Value(_) => Ok(0),
         PropertyDefinition::Array {
             element, max_items, ..
-        } => (abi_size(element) + payload)
+        } => abi_size(element)
             .checked_mul(*max_items as usize)
             .ok_or_else(|| PluginError::invalid_definition("property ABI maximum size overflows")),
     }
@@ -217,14 +207,13 @@ fn max_dynamic_size(property: &PropertySchema) -> Result<usize, PluginError> {
 
 pub const fn scalar_abi_size(ty: &ScalarPropertyType) -> usize {
     let word_count = match ty {
-        ScalarPropertyType::File => 0,
+        ScalarPropertyType::File | ScalarPropertyType::String => 0,
         ScalarPropertyType::F32
         | ScalarPropertyType::I32
         | ScalarPropertyType::U32
         | ScalarPropertyType::Bool
         | ScalarPropertyType::Enum(_) => 1,
         ScalarPropertyType::Color => 4,
-        ScalarPropertyType::String => 2,
     };
     word_count * size_of::<u32>()
 }
@@ -237,46 +226,23 @@ pub fn abi_size(schema: &ValueSchema) -> usize {
         .sum()
 }
 
-fn value_payload_size(value: &PropertyValue) -> usize {
-    match value {
-        PropertyValue::String(value) => aligned_size(value.len()),
-        PropertyValue::Tuple(values) => values.iter().map(value_payload_size).sum(),
-        _ => 0,
-    }
-}
-
 fn dynamic_value_size(
     property: &PropertySchema,
     value: &PropertyValue,
 ) -> Result<usize, PluginError> {
     match (property.definition(), value) {
-        (
-            PropertyDefinition::Array {
-                element: element_schema,
-                ..
-            },
-            PropertyValue::Array(values),
-        ) => values.iter().try_fold(0usize, |total, element| {
-            total
-                .checked_add(abi_size(element_schema) + value_payload_size(element.value()))
-                .ok_or_else(|| PluginError::invalid_definition("property ABI size overflows"))
-        }),
-        _ => Ok(value_payload_size(value)),
+        (PropertyDefinition::Array { element, .. }, PropertyValue::Array(values)) => values
+            .len()
+            .checked_mul(abi_size(element))
+            .ok_or_else(|| PluginError::invalid_definition("property ABI size overflows")),
+        _ => Ok(0),
     }
 }
 
-const fn aligned_size(size: usize) -> usize {
-    size.saturating_add(size_of::<u32>() - 1) / size_of::<u32>() * size_of::<u32>()
-}
-
-fn pack_scalar(
-    bytes: &mut Vec<u8>,
-    offset: usize,
-    ty: &ScalarPropertyType,
-    value: &PropertyValue,
-) -> Result<(), PluginError> {
+fn pack_scalar(bytes: &mut [u8], offset: usize, ty: &ScalarPropertyType, value: &PropertyValue) {
     match (ty, value) {
-        (ScalarPropertyType::File, PropertyValue::File(_)) => {}
+        (ScalarPropertyType::File, PropertyValue::File(_))
+        | (ScalarPropertyType::String, PropertyValue::String(_)) => {}
         (ScalarPropertyType::F32, PropertyValue::F32(value)) => {
             write_u32(bytes, offset, value.to_bits());
         }
@@ -295,54 +261,22 @@ fn pack_scalar(
                 write_u32(bytes, offset + index * 4, value.to_bits());
             }
         }
-        (ScalarPropertyType::String, PropertyValue::String(value)) => {
-            let (data_offset, byte_len) = append_bytes(bytes, value.as_bytes())?;
-            write_u32(bytes, offset, data_offset);
-            write_u32(bytes, offset + 4, byte_len);
-        }
         _ => unreachable!("property value type was validated before packing"),
     }
-    Ok(())
 }
 
-fn pack_value(
-    bytes: &mut Vec<u8>,
-    offset: usize,
-    schema: &ValueSchema,
-    value: &PropertyValue,
-) -> Result<(), PluginError> {
+fn pack_value(bytes: &mut [u8], offset: usize, schema: &ValueSchema, value: &PropertyValue) {
     match (schema, value) {
-        (ValueSchema::Scalar(scalar), value) => pack_scalar(bytes, offset, &scalar.ty, value)?,
+        (ValueSchema::Scalar(scalar), value) => pack_scalar(bytes, offset, &scalar.ty, value),
         (ValueSchema::Tuple(tuple), PropertyValue::Tuple(values)) => {
             let mut byte_offset = offset;
             for (scalar, value) in tuple.iter().zip(values) {
-                pack_scalar(bytes, byte_offset, &scalar.ty, value)?;
+                pack_scalar(bytes, byte_offset, &scalar.ty, value);
                 byte_offset += scalar_abi_size(&scalar.ty);
             }
         }
         _ => unreachable!("property value type was validated before packing"),
     }
-    Ok(())
-}
-
-fn append_bytes(bytes: &mut Vec<u8>, value: &[u8]) -> Result<(u32, u32), PluginError> {
-    let offset = u32::try_from(bytes.len())
-        .map_err(|_| PluginError::invalid_definition("property data exceeds u32"))?;
-    let byte_len = u32::try_from(value.len())
-        .map_err(|_| PluginError::invalid_definition("string value exceeds u32"))?;
-    let aligned_end = bytes
-        .len()
-        .checked_add(value.len())
-        .map(aligned_size)
-        .ok_or_else(|| PluginError::invalid_definition("property data size overflows"))?;
-    if aligned_end > MAX_PROPERTY_BLOCK_BYTES {
-        return Err(PluginError::invalid_definition(
-            "property data exceeds the ABI byte budget",
-        ));
-    }
-    bytes.extend_from_slice(value);
-    bytes.resize(aligned_end, 0);
-    Ok((offset, byte_len))
 }
 
 fn write_u32(bytes: &mut [u8], offset: usize, value: u32) {

@@ -7,7 +7,8 @@ publish = false
 description = "Zerium shader interface generation, compilation, and validation"
 
 [dependencies]
-naga.workspace = true
+# Naga exposes pipeline override specialization only with an output backend enabled.
+naga = { workspace = true, features = ["spv-out"] }
 thiserror.workspace = true
 wesl = "0.5"
 zerium-core.workspace = true

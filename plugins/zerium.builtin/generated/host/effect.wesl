@@ -1,4 +1,4 @@
-import package::generated::host::_props::_effect_instance;
+import package::generated::host::_effect::_effect_instance;
 import package::generated::host::_context::make_surface_context;
 import package::generated::host::util::{ZeriumContext, srgb};
 

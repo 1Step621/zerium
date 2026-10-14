@@ -60,6 +60,22 @@ and validates shader compatibility. The application embeds bundled plugins;
 plugin CLI commands use the same implementation. See [Plugin API v1](plugin.md)
 for the authoring contract.
 
+Core's plugin registry contains manifests and editing schemas. Shader owns each
+bundle's WESL resolver: filesystem bundles use WESL's `FileResolver`, and embedded
+bundles retrieve source assets when a module is requested. Compilation works with
+module names and resolves imports through the same path. Plugin authors choose
+their shader directory layout; `generated/` contains the host-defined interfaces.
+
+GPU property blocks contain numeric values, colors, and their arrays; strings and
+files remain CPU values. Pass overrides use WGSL declarations and wgpu pipeline
+compilation options. Shader tooling separates source resolution, interface
+generation, WGSL validation, and renderer descriptions. During compilation, each
+declared module is linked, parsed, and structurally validated once; each pass
+checks its entry points and specialization values against that module. Compute
+dispatch dimensions reflect the specialized workgroup size. Generation and bundle
+loading derive the same interfaces from core property layouts. See
+[`zerium-shader`](../crates/zerium-shader/README.md) for module responsibilities.
+
 ## Media
 
 | Module | Responsibility |

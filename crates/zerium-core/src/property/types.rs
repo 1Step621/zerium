@@ -131,7 +131,7 @@ impl ScalarPropertyType {
     }
 
     pub const fn is_shader_value(&self) -> bool {
-        !matches!(self, Self::File)
+        !matches!(self, Self::File | Self::String)
     }
 
     pub fn allows(&self, value: &PropertyValue) -> bool {

@@ -6,7 +6,14 @@ use zerium_shader::{
 };
 
 use super::pipelines::{ComputePipeline, RasterPipeline, TexturePipeline, raster_pipeline};
-use std::num::NonZeroU64;
+use std::{collections::BTreeMap, num::NonZeroU64};
+
+fn pipeline_constants(overrides: &BTreeMap<String, f64>) -> Vec<(&str, f64)> {
+    overrides
+        .iter()
+        .map(|(key, value)| (key.as_str(), *value))
+        .collect()
+}
 
 impl RenderDevice {
     pub(super) fn register_compute_shader(
@@ -18,6 +25,7 @@ impl RenderDevice {
             wgsl,
             entry,
             workgroup_size,
+            overrides,
         } = descriptor;
         if self.compute_pipelines.contains_key(&id) {
             return Err(RenderError::backend(format!(
@@ -55,7 +63,10 @@ impl RenderDevice {
                 layout: Some(&layout),
                 module: &module,
                 entry_point: Some(&entry),
-                compilation_options: Default::default(),
+                compilation_options: wgpu::PipelineCompilationOptions {
+                    constants: &pipeline_constants(&overrides),
+                    ..Default::default()
+                },
                 cache: None,
             });
         if let Some(error) = pollster::block_on(error_scope.pop()) {
@@ -84,7 +95,7 @@ impl RenderDevice {
             wgsl,
             vertex_entry,
             fragment_entry,
-            ..
+            overrides,
         } = descriptor;
         if self.temporal_pipelines.contains_key(&id) {
             return Err(RenderError::backend(format!(
@@ -114,6 +125,7 @@ impl RenderDevice {
                 write_mask: wgpu::ColorWrites::ALL,
             },
             &label,
+            &pipeline_constants(&overrides),
         );
         if let Some(error) = pollster::block_on(error_scope.pop()) {
             return Err(RenderError::backend(format!(
@@ -239,6 +251,7 @@ impl RenderDevice {
                 write_mask: wgpu::ColorWrites::ALL,
             },
             &label,
+            &[],
         );
         if let Some(error) = pollster::block_on(error_scope.pop()) {
             return Err(RenderError::backend(format!(
@@ -296,6 +309,7 @@ impl RenderDevice {
                 write_mask: wgpu::ColorWrites::ALL,
             },
             &descriptor.label,
+            &[],
         );
         if let Some(error) = pollster::block_on(error_scope.pop()) {
             return Err(RenderError::backend(format!(
@@ -349,6 +363,7 @@ impl RenderDevice {
                 write_mask: wgpu::ColorWrites::ALL,
             },
             &descriptor.label,
+            &pipeline_constants(&descriptor.overrides),
         );
         if let Some(error) = pollster::block_on(error_scope.pop()) {
             return Err(RenderError::backend(format!(
