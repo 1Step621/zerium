@@ -19,6 +19,8 @@ _version: 1
 "timeline.delete_scene": "シーンを削除"
 "timeline.delete_scene_tooltip": "このシーンと、配置済みの全インスタンスを削除"
 "timeline.unknown_item": "不明なアイテム"
+"timeline.stretch_point_tooltip": "シーンを伸ばしたときにこの近傍が引き伸ばされます"
+"hints.move_stretch_point": "伸縮点を移動"
 "explorer.parent_folder": "親フォルダー"
 "explorer.home": "ホーム"
 "explorer.refresh": "更新"

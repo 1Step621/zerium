@@ -143,12 +143,7 @@ impl TimelineView for TimelineSnapshot {
     }
 
     fn end_frame_exclusive(&self) -> Frame {
-        self.project
-            .document
-            .items()
-            .map(TimelineItem::end_exclusive)
-            .max()
-            .unwrap_or(Frame::new(0))
+        self.project.document.end_frame_exclusive()
     }
 }
 

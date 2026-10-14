@@ -95,6 +95,14 @@ impl TimeMapping {
         }
     }
 
+    pub(super) fn with_timeline_duration(
+        self,
+        duration: FrameDuration,
+        frame_rate: FrameRate,
+    ) -> Self {
+        self.with_span(duration.get() as f64 / frame_rate.frames_per_second() * self.speed())
+    }
+
     pub(super) fn with_speed(self, speed: f64) -> Option<Self> {
         Self::new(self.source_offset, self.source_span, speed as f32).ok()
     }

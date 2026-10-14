@@ -24,9 +24,9 @@ use crate::{
     project_session::{ProjectActivity, ProjectSession, ProjectSessionId},
 };
 use zerium_core::timeline::{
-    AnimationEdit, AnimationEditTarget, BeatGuide, Frame, FrameDuration, FrameRate, ItemId,
-    LayerId, PropertyAddress, ResizeEdge, ResizeMode, SceneId, TimelineEditError, TimelineEditor,
-    TimelineItem, TimelineTime,
+    AnimationEdit, AnimationEditTarget, BeatGuide, EditGesture, Frame, FrameDuration, FrameRate,
+    ItemId, LayerId, PropertyAddress, ResizeEdge, ResizeMode, SceneId, TimelineEditError,
+    TimelineEditor, TimelineItem, TimelineTime,
 };
 
 use super::{
@@ -46,8 +46,10 @@ mod interaction;
 mod model;
 mod playback;
 mod render;
+mod stretch;
 mod viewport;
 
+use stretch::{STRETCH_COLOR, StretchPointDrag};
 use viewport::TimelineViewport;
 
 const LAYER_HEADER_WIDTH: f32 = 200.;
@@ -220,6 +222,7 @@ struct LayerRenderState {
     viewport_width: f32,
     frame_rate: FrameRate,
     playhead_seconds: f64,
+    stretch_point: Option<Frame>,
     selected_item_ids: Rc<HashSet<ItemId>>,
     hidden_layers: Rc<HashSet<LayerId>>,
     hidden_items: Rc<HashSet<ItemId>>,

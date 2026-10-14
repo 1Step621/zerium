@@ -136,6 +136,33 @@ impl ScalarTrack {
         )
     }
 
+    /// The interval starting at an exact key, or the final interval at the end.
+    fn stretch_segment_at(&self, progress: f32) -> Option<usize> {
+        if !progress.is_finite() || self.stops.len() < 2 {
+            return None;
+        }
+        Some(
+            self.stops
+                .partition_point(|stop| stop.position <= progress.clamp(0., 1.))
+                .clamp(1, self.stops.len() - 1)
+                - 1,
+        )
+    }
+
+    pub(super) fn extend_at(&mut self, progress: f32, old_span: f64, new_span: f64) {
+        let Some(segment) = self.stretch_segment_at(progress) else {
+            return;
+        };
+        let extra = new_span - old_span;
+        for (index, stop) in self.stops.iter_mut().enumerate() {
+            let time = f64::from(stop.position) * old_span;
+            let shift = if index > segment { extra } else { 0. };
+            stop.position = ((time + shift) / new_span) as f32;
+        }
+        self.stops[0].position = 0.;
+        self.stops.last_mut().expect("track has endpoints").position = 1.;
+    }
+
     pub fn numeric_stops(&self) -> Option<Vec<(f32, f64)>> {
         self.stops
             .iter()

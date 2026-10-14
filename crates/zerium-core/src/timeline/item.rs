@@ -466,9 +466,7 @@ impl TimelineItem {
                     let delta = start.get() as f64 - self.start.get() as f64;
                     mapping.trim_start(delta / frame_rate.frames_per_second())
                 }
-                ResizeMode::Trim => mapping.with_span(
-                    duration.get() as f64 / frame_rate.frames_per_second() * mapping.speed(),
-                ),
+                ResizeMode::Trim => mapping.with_timeline_duration(duration, frame_rate),
                 ResizeMode::Stretch => {
                     let (min_speed, max_speed) = self.timeline_speed_bounds();
                     mapping.with_speed(
@@ -500,6 +498,33 @@ impl TimelineItem {
             }
         }
         self.start = start;
+        self.duration = duration;
+    }
+
+    /// Extend a detached scene item without changing media speed or loop clocks.
+    pub(super) fn extend_at(&mut self, point: Frame, extra: u64, frame_rate: FrameRate) {
+        let old_span = self.animation_span_frames();
+        let duration = FrameDuration::new_saturating(self.duration.get().saturating_add(extra));
+        let new_span = duration.get().saturating_sub(1).max(1) as f64;
+        let local_frame = point.get().saturating_sub(self.start.get()) as f64;
+        for animations in std::iter::once(&mut self.animations)
+            .chain(self.effects.iter_mut().map(|effect| &mut effect.animations))
+        {
+            animations.extend_at(local_frame, old_span, new_span);
+        }
+        if let Some(mapping) = self.timeline_mapping() {
+            let mapping = mapping.with_timeline_duration(duration, frame_rate);
+            let property = self
+                .schema()
+                .and_then(|schema| schema.property(schema.timeline()?.source_duration))
+                .expect("source duration is declared");
+            let value = property
+                .constrained_value(&PropertyValue::F32(mapping.source_span() as f32))
+                .expect("finite source duration preserves its property type");
+            let span = value.as_f32().expect("source duration is f32");
+            self.store_timeline_mapping(mapping.with_span(f64::from(span)))
+                .expect("constrained source duration preserves the source clock");
+        }
         self.duration = duration;
     }
 

@@ -47,18 +47,13 @@ pub(crate) fn visit_source_items(
     for (_, item) in items {
         visit(&item);
         if let Some(scene) = item.scene_id().and_then(|id| scenes.get(&id)) {
-            let mut children = scene.document().source_items();
             let instance = resolve_item(
                 scenes,
                 None,
                 &item,
                 Some(TimelineTime::from_frame(item.start)),
             );
-            scene.apply_arguments(
-                scenes,
-                Some(&instance),
-                children.iter_mut().map(|(_, item)| item),
-            );
+            let children = scene.instance_items(scenes, &instance, None);
             visit_source_items(children, scenes, visit);
         }
     }
@@ -170,17 +165,10 @@ pub(crate) fn evaluated_scene_graph_at_time(
                 continue;
             };
             let local = TimelineTime::from_frames(time.frames() - item.start.get() as f64);
-            // The instance keeps its own span when its source scene shrinks.
-            // Outside the source, even effects on the instance are transparent.
-            if local.frames() >= scene.duration().get() as f64 {
+            if local.frames() < 0. || local.frames() >= item.duration.get() as f64 {
                 continue;
             }
-            let mut child_items = scene.document().active_source_items_at_time(local);
-            scene.apply_arguments(
-                context.scenes,
-                Some(&item),
-                child_items.iter_mut().map(|(_, item)| item),
-            );
+            let child_items = scene.instance_items(context.scenes, &item, Some(local));
             let children = expand(
                 context,
                 child_items,
@@ -283,18 +271,13 @@ pub(crate) fn visible_items(
             let Some(scene) = context.scenes.get(&scene_id) else {
                 continue;
             };
-            let mut children = scene.document().source_items();
             let instance = resolve_item(
                 context.scenes,
                 None,
                 &source,
                 Some(TimelineTime::from_frame(source.start)),
             );
-            scene.apply_arguments(
-                context.scenes,
-                Some(&instance),
-                children.iter_mut().map(|(_, item)| item),
-            );
+            let children = scene.instance_items(context.scenes, &instance, None);
             let child_seed = scene_runtime_seed(runtime_seed, source.id, scene_id);
             expand(
                 context,

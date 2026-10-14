@@ -78,6 +78,18 @@ impl ScalarAnimations {
         }
     }
 
+    pub(crate) fn extend_at(&mut self, local_frame: f64, old_span: f64, new_span: f64) {
+        if new_span <= old_span {
+            return;
+        }
+        let progress = (local_frame / old_span).clamp(0., 1.) as f32;
+        for track in self.tracks.values_mut() {
+            if track.repeat().mode() == RepeatMode::None {
+                track.extend_at(progress, old_span, new_span);
+            }
+        }
+    }
+
     pub(crate) fn evaluate_property(
         &self,
         mut value: PropertyValue,

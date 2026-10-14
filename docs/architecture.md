@@ -46,6 +46,16 @@ from a replaced project can be ignored. `ProjectController` owns file-operation
 lifetimes and resets transient state when replacing a project. Reopening a
 project invalidates old edit targets.
 
+Each scene owns a draggable stretch point, initialized at its midpoint. Instances
+shorter than their definitions clip the tail. Longer instances derive detached
+items from the definition: items covering the point extend, later items
+move, and earlier items retain their intervals. Nonrepeating animation tracks
+extend the key interval containing the point while keeping its values and easing;
+loop and ping-pong tracks retain their periods and phases. Media source spans grow
+using their normal timeline mapping while playback speed remains unchanged.
+Nested scene instances expand recursively at their own scene's stretch point.
+Rendering and flattened audio evaluation use the same expansion operation.
+
 Project files store property overrides relative to plugin defaults. Loading
 validates input and applies overrides to current defaults. Filesystem access
 and atomic replacement belong to `engine::project_io`.

@@ -20,6 +20,7 @@ pub(super) enum HistoryKey {
     ItemsResize(Vec<ItemId>, ResizeEdge, ResizeMode),
     ItemsMove(Vec<ItemId>),
     SceneName(SceneId),
+    SceneStretchPoint(SceneId),
     SceneArgumentLabel(SceneId, String),
     SceneArgumentSettings(SceneId, String),
 }

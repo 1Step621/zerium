@@ -19,6 +19,8 @@ _version: 1
 "timeline.delete_scene": "Delete scene"
 "timeline.delete_scene_tooltip": "Delete this scene and all of its instances"
 "timeline.unknown_item": "Unknown item"
+"timeline.stretch_point_tooltip": "This point stretches when you extend the scene"
+"hints.move_stretch_point": "Move stretch point"
 "explorer.parent_folder": "Parent folder"
 "explorer.home": "Home"
 "explorer.refresh": "Refresh"

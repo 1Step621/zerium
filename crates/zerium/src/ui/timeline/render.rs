@@ -247,6 +247,10 @@ impl Timeline {
                                 },
                             ),
                     )
+                    .when_some(
+                        self.stretch_marker(colors, viewport_width, cx),
+                        |this, marker| this.child(marker),
+                    )
                     .operation_hints([
                         Hint::gesture(
                             "hints.scroll",
@@ -672,7 +676,7 @@ impl Timeline {
                             .rounded_full()
                             .border_2()
                             .border_color(colors.background)
-                            .bg(colors.warning)
+                            .bg(STRETCH_COLOR)
                             .on_mouse_down(MouseButton::Left, |_, _, cx| {
                                 cx.stop_propagation();
                             })
@@ -685,8 +689,8 @@ impl Timeline {
                             .when(movable, |marker| {
                                 marker
                                     .cursor_col_resize()
-                                    .hover(move |style| style.bg(colors.warning.lighten(0.14)))
-                                    .active(move |style| style.bg(colors.warning.darken(0.14)))
+                                    .hover(move |style| style.bg(STRETCH_COLOR.lighten(0.14)))
+                                    .active(move |style| style.bg(STRETCH_COLOR.darken(0.14)))
                                     .on_drag(drag, move |drag, _, window, cx| {
                                         cx.stop_propagation();
                                         // A press redraws the marker; initialize the retained
@@ -734,6 +738,11 @@ impl Timeline {
         let clip_top = (state.layer_height * 0.1).max(3.);
         let clip_height = (state.layer_height - clip_top * 2.).max(16.);
         let playhead_x = state.viewport.x_at_seconds(state.playhead_seconds);
+        let stretch_x = state.stretch_point.map(|point| {
+            state
+                .viewport
+                .x_at_seconds(state.frame_rate.frame_to_seconds(point))
+        });
         let visible_range = state.viewport.visible_time_range(state.viewport_width);
         let file_drop_x = state
             .file_drop_target
@@ -909,6 +918,20 @@ impl Timeline {
                                 )
                             }),
                     )
+                    .when_some(
+                        stretch_x.filter(|x| *x >= -7. && *x <= state.viewport_width + 7.),
+                        |this, x| {
+                            this.child(
+                                div()
+                                    .absolute()
+                                    .top_0()
+                                    .bottom_0()
+                                    .left(px(x - 7.))
+                                    .w(px(14.))
+                                    .child(Self::stretch_indicator(state.colors.background)),
+                            )
+                        },
+                    )
                     .operation_hints(navigation_hints()),
             )
             .child(
@@ -940,6 +963,7 @@ impl Render for Timeline {
             hidden_layers,
             hidden_items,
             active_scene,
+            stretch_point,
         ) = {
             let editor = self.editor.read(cx);
             let selected_items = editor.selected_items();
@@ -974,6 +998,10 @@ impl Render for Timeline {
                     .active_scene_id()
                     .and_then(|id| editor.scene(id))
                     .map(|scene| (scene.name.clone(), scene.is_empty())),
+                editor
+                    .active_scene_id()
+                    .and_then(|id| editor.scene(id))
+                    .map(|scene| scene.stretch_point()),
             )
         };
         self.viewport
@@ -998,6 +1026,7 @@ impl Render for Timeline {
             viewport_width,
             frame_rate,
             playhead_seconds,
+            stretch_point,
             selected_item_ids,
             render_result_highlights,
             hidden_layers,
@@ -1079,6 +1108,13 @@ impl Render for Timeline {
                         window,
                         cx,
                     );
+                },
+            ))
+            .on_drag_move(cx.listener(
+                |this, event: &DragMoveEvent<StretchPointDrag>, window, cx| {
+                    let drag = event.drag(cx).clone();
+                    cx.set_active_drag_cursor_style(CursorStyle::ResizeLeftRight, window);
+                    this.move_stretch_point(&drag, &event.event, window, cx);
                 },
             ))
             .bg(colors.background)

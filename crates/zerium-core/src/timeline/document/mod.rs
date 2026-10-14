@@ -145,6 +145,13 @@ impl TimelineDocument {
         self.items.values().map(Arc::as_ref)
     }
 
+    pub(super) fn end_frame_exclusive(&self) -> Frame {
+        self.items()
+            .map(TimelineItem::end_exclusive)
+            .max()
+            .unwrap_or(Frame::new(0))
+    }
+
     pub(super) fn items_mut(&mut self) -> impl Iterator<Item = &mut TimelineItem> {
         self.items.values_mut().map(Arc::make_mut)
     }

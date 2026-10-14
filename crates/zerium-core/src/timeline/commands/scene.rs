@@ -57,6 +57,19 @@ fn remove_scene_instances(document: &mut TimelineDocument, scene_id: SceneId) ->
 
 // Scene definition and scene-argument commands.
 impl TimelineEditor {
+    pub fn set_scene_stretch_point(&mut self, scene_id: SceneId, point: Frame) -> bool {
+        if self.active_scene_id() != Some(scene_id) {
+            return false;
+        }
+        self.edit_project_if_changed(Some(HistoryKey::SceneStretchPoint(scene_id)), |editor| {
+            editor
+                .project_mut()
+                .scenes
+                .get_mut(&scene_id)
+                .is_some_and(|scene| scene.set_stretch_point(point))
+        })
+    }
+
     pub(super) fn active_scene_has_binding(
         &self,
         item_id: ItemId,

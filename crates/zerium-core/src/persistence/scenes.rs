@@ -22,6 +22,7 @@ use std::{
 pub(super) struct ProjectScene {
     pub(super) id: u64,
     pub(super) name: String,
+    pub(super) stretch_point: u64,
     pub(super) arguments: Vec<ProjectSceneArgument>,
     pub(super) items: Vec<ProjectItem>,
 }
@@ -34,6 +35,7 @@ impl ProjectScene {
         Ok(Self {
             id: scene.id.get(),
             name: scene.name.clone(),
+            stretch_point: scene.stretch_point().get(),
             arguments: scene
                 .arguments
                 .iter()

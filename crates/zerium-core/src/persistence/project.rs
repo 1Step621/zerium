@@ -188,15 +188,19 @@ impl ProjectFile {
                 .into_iter()
                 .map(ProjectSceneArgument::into_domain)
                 .collect();
-            scenes.insert(
+            let mut definition = SceneDefinition::from_project(
                 scene_id,
-                SceneDefinition::from_project(
-                    scene_id,
-                    scene.name,
-                    arguments,
-                    TimelineDocument::from_items(frame_rate, scene_items),
-                ),
+                scene.name,
+                arguments,
+                TimelineDocument::from_items(frame_rate, scene_items),
             );
+            if scene.stretch_point >= definition.duration().get() {
+                return Err(ProjectError::invalid_data(
+                    "Scene stretch point is outside its duration",
+                ));
+            }
+            definition.set_stretch_point(Frame::new(scene.stretch_point));
+            scenes.insert(scene_id, definition);
         }
         validate_scenes(&items, &scenes)?;
         Ok(LoadedProject {

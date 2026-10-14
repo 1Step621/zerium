@@ -12,7 +12,7 @@ use super::{
     item::TimelineItem,
     properties::{SceneArguments, resolve_item},
     property_address::resolve_property_schema,
-    time::{Frame, FrameDuration},
+    time::{Frame, FrameDuration, TimelineTime},
 };
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Hash, Serialize)]
@@ -279,6 +279,7 @@ pub struct SceneDefinition {
     pub name: String,
     pub arguments: Vec<SceneArgument>,
     document: TimelineDocument,
+    stretch_point: Frame,
     next_argument_id: Option<u64>,
 }
 
@@ -321,15 +322,62 @@ impl SceneDefinition {
     }
 
     pub fn duration(&self) -> FrameDuration {
-        FrameDuration::new_saturating(
-            self.document
-                .items()
-                .map(TimelineItem::end_exclusive)
-                .max()
-                .unwrap_or(Frame::new(1))
-                .get()
-                .max(1),
-        )
+        FrameDuration::new_saturating(self.document.end_frame_exclusive().get())
+    }
+
+    pub fn stretch_point(&self) -> Frame {
+        Frame::new(self.stretch_point.get().min(self.duration().get() - 1))
+    }
+
+    pub(crate) fn set_stretch_point(&mut self, point: Frame) -> bool {
+        let point = Frame::new(point.get().min(self.duration().get() - 1));
+        if self.stretch_point == point {
+            return false;
+        }
+        self.stretch_point = point;
+        true
+    }
+
+    /// Expand a resolved instance and apply its arguments to detached children.
+    pub(super) fn instance_items(
+        &self,
+        scenes: &HashMap<SceneId, SceneDefinition>,
+        instance: &TimelineItem,
+        time: Option<TimelineTime>,
+    ) -> Vec<(LayerId, TimelineItem)> {
+        let source_duration = self.duration().get();
+        let extra = instance.duration.get().saturating_sub(source_duration);
+        let point = Frame::new(self.stretch_point.get().min(source_duration - 1));
+        let mut items = match time {
+            Some(time) => {
+                // This inverse lookup selects occupied intervals only. Values
+                // and media still use each expanded item's own clock.
+                let frame = time.frames();
+                let source = if frame > point.get() as f64 {
+                    (frame - extra as f64).max(point.get() as f64)
+                } else {
+                    frame
+                };
+                self.document
+                    .active_source_items_at_time(TimelineTime::from_frames(source))
+            }
+            None => self.document.source_items(),
+        };
+        if extra > 0 {
+            for (_, item) in &mut items {
+                if item.contains(point) {
+                    item.extend_at(point, extra, self.document.frame_rate());
+                } else if item.start > point {
+                    item.start = Frame::new(item.start.get().saturating_add(extra));
+                }
+            }
+        }
+        self.apply_arguments(
+            scenes,
+            Some(instance),
+            items.iter_mut().map(|(_, item)| item),
+        );
+        items
     }
 
     pub fn items(&self) -> impl Iterator<Item = &TimelineItem> {
@@ -388,11 +436,14 @@ impl SceneDefinition {
             .unwrap_or(0)
             .checked_add(1)
             .filter(|id| *id != u64::MAX);
+        let duration = document.end_frame_exclusive();
+        let stretch_point = Frame::new(duration.get() / 2);
         Self {
             id,
             name,
             arguments,
             document,
+            stretch_point,
             next_argument_id,
         }
     }
