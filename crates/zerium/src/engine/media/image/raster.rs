@@ -49,6 +49,7 @@ impl MediaReader for ImageReader {
         Ok(Box::new(RasterDecodeSession {
             path: asset.path.clone(),
             source_size: (width, height),
+            source: None,
             cached: None,
         }))
     }
@@ -65,6 +66,7 @@ fn open_decoder(path: &Path) -> Result<impl RasterImageDecoder, MediaError> {
 struct RasterDecodeSession {
     path: PathBuf,
     source_size: (u32, u32),
+    source: Option<DynamicImage>,
     cached: Option<VisualFrame>,
 }
 
@@ -89,22 +91,31 @@ impl ImageDecoder for RasterDecodeSession {
         {
             return Ok(frame.clone());
         }
-        // Keep only the displayed resolution; decode the source again on resize.
-        self.cached = None;
-        let mut decoder = open_decoder(&self.path)?;
-        let orientation = decoder.orientation().map_err(MediaError::external)?;
-        let mut image = DynamicImage::from_decoder(decoder).map_err(MediaError::external)?;
+        if self.source.is_none() {
+            let mut decoder = open_decoder(&self.path)?;
+            let orientation = decoder.orientation().map_err(MediaError::external)?;
+            let mut image = DynamicImage::from_decoder(decoder).map_err(MediaError::external)?;
+            if cancelled.load(Ordering::Relaxed) {
+                return Err(MediaError::Cancelled);
+            }
+            image.apply_orientation(orientation);
+            self.source = Some(image);
+        }
+        let source = self
+            .source
+            .as_ref()
+            .expect("image source was decoded above");
+        let rgba = if (source.width(), source.height()) == (width, height) {
+            source.to_rgba8()
+        } else {
+            source
+                .resize_exact(width, height, FilterType::Triangle)
+                .into_rgba8()
+        };
         if cancelled.load(Ordering::Relaxed) {
             return Err(MediaError::Cancelled);
         }
-        image.apply_orientation(orientation);
-        if (image.width(), image.height()) != (width, height) {
-            image = image.resize_exact(width, height, FilterType::Triangle);
-        }
-        if cancelled.load(Ordering::Relaxed) {
-            return Err(MediaError::Cancelled);
-        }
-        let frame = VisualFrame::rgba(width, height, image.into_rgba8().into_raw());
+        let frame = VisualFrame::rgba(width, height, rgba.into_raw());
         self.cached = Some(frame.clone());
         Ok(frame)
     }

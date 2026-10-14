@@ -94,6 +94,9 @@ its decoder while the asset remains unchanged.
 Video decodes at source resolution and selects frames by actual presentation
 timestamps. Nearby forward requests continue decoding; backward and distant
 requests seek to a preceding keyframe. Image readers honor requested raster sizes.
+Raster image sessions decode the oriented source once and resize it as needed,
+retaining the source and one rendered size. SVG sessions retain their parsed tree
+and rasterize it at the requested size.
 
 Decoder sessions receive the consumer's GPU device and queue. GStreamer reads
 and parses H.264 access units; `gpu-video` decodes them into wgpu NV12 textures
@@ -164,7 +167,10 @@ request is selected from the latest demand.
 
 Preview retains candidate frames for the times requested by the current scene,
 including temporal effect samples. It displays the frame covering the requested
-time, or the closest retained frame while waiting.
+time, or the closest retained frame while waiting. Still images can use a retained
+frame of the same asset at another raster size while the requested size is being
+prepared. Decode scheduling requires the requested size; displayed candidates are
+retained only while they serve the current scene.
 Workers submit video texture preparation before publishing results to the UI.
 Conversion and drawing use the same GPU queue, so queue ordering preserves
 dependencies without making workers wait for GPU completion. The UI

@@ -16,7 +16,7 @@ use crate::engine::{
     },
     rendering::RenderSession,
 };
-use zerium_core::media::MediaAsset;
+use zerium_core::media::{MediaAsset, MediaKind};
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct FrameSequence {
@@ -136,7 +136,8 @@ impl PreviewFrameScheduler {
             requests.push(request.clone());
         }
         let sequence = FrameSequence::from_request(request);
-        let ready = self.frame_for(&sequence, request.presentation_time)?;
+        let (sequence, ready) = self.frame_candidate(&sequence, request.presentation_time)?;
+        let sequence = sequence.clone();
         let presentation_time = ready.presentation_time;
         let frame = ready.frame.clone();
         let key = (input.clone(), request.presentation_time);
@@ -165,9 +166,9 @@ impl PreviewFrameScheduler {
                 let presented = self
                     .last_presented_frames
                     .get(&(input.clone(), request.presentation_time));
-                match self.frame_for(&sequence, request.presentation_time) {
-                    Some(ready) => presented.is_none_or(|presented| {
-                        !presented.matches(&sequence, ready.presentation_time, &ready.frame)
+                match self.frame_candidate(&sequence, request.presentation_time) {
+                    Some((candidate, ready)) => presented.is_none_or(|presented| {
+                        !presented.matches(candidate, ready.presentation_time, &ready.frame)
                     }),
                     None => presented.is_some(),
                 }
@@ -185,15 +186,48 @@ impl PreviewFrameScheduler {
         })
     }
 
+    fn frame_candidate(
+        &self,
+        sequence: &FrameSequence,
+        time: Duration,
+    ) -> Option<(&FrameSequence, &ReadyFrame)> {
+        if let Some((candidate, _)) = self.ready_frames.get_key_value(sequence)
+            && let Some(ready) = self.frame_for(candidate, time)
+        {
+            return Some((candidate, ready));
+        }
+        if !matches!(sequence.source.kind, MediaKind::Image { .. }) {
+            return None;
+        }
+        // A still image remains usable while its new raster size is prepared.
+        // Decode scheduling still requires an exact size through frame_for().
+        self.ready_frames
+            .iter()
+            .filter(|(candidate, _)| candidate.source == sequence.source)
+            .flat_map(|(candidate, frames)| frames.iter().map(move |ready| (candidate, ready)))
+            .min_by_key(|(candidate, ready)| {
+                (
+                    !ready.covers(time),
+                    ready.presentation_time.abs_diff(time),
+                    u64::from(candidate.size.max_width.abs_diff(sequence.size.max_width))
+                        + u64::from(candidate.size.max_height.abs_diff(sequence.size.max_height)),
+                    candidate.size.max_width,
+                    candidate.size.max_height,
+                )
+            })
+    }
+
     fn retain_demanded_frames(&mut self) {
         // Keep only the candidate for each visible request, including a fallback
         // while decoding. Temporal effects can demand several times per input.
         let mut retained = HashMap::<FrameSequence, HashSet<Duration>>::new();
         for request in self.requested_frames.values().flatten() {
             let sequence = FrameSequence::from_request(request);
-            if let Some(ready) = self.frame_for(&sequence, request.presentation_time) {
+            if let Some((candidate, ready)) =
+                self.frame_candidate(&sequence, request.presentation_time)
+            {
                 retained
-                    .entry(sequence)
+                    .entry(candidate.clone())
                     .or_default()
                     .insert(ready.presentation_time);
             }
@@ -218,7 +252,8 @@ impl PreviewFrameScheduler {
                 self.requested_frames.get(input).is_some_and(|requests| {
                     requests.iter().any(|request| {
                         presented.sequence.source == request.asset
-                            && presented.sequence.size == request.size
+                            && (presented.sequence.size == request.size
+                                || matches!(request.asset.kind, MediaKind::Image { .. }))
                             && *time == request.presentation_time
                     })
                 })
