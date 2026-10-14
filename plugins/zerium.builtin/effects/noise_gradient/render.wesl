@@ -6,7 +6,8 @@ import package::generated::host::effect::{
     vertex,
 };
 import package::generated::host::util::{DEG2RAD, scene_color};
-import package::generated::noise_gradient::props;
+import package::generated::noise_gradient::{get_stops, props};
+import package::shared::gradient::{gradient_factor, gradient_include, gradient_start};
 import package::shared::noise::cell_hash;
 
 @vertex
@@ -31,9 +32,16 @@ fn fragment_main(input: ZeriumVertex) -> @location(0) vec4<f32> {
     );
     let phase_seed = bitcast<u32>(i32(floor(properties.phase * 60.0)));
     let noise = cell_hash(cell, properties.seed + phase_seed * 1013u);
-    // Density varies across the gradient; individual grains keep either endpoint
-    // color instead of interpolating colors in the transition.
-    let color = select(properties.start_color, properties.end_color, noise < coverage);
+    let position = coverage * 100.0;
+    let first = get_stops(properties, 0u);
+    var segment = gradient_start(first.v0, first.v1);
+    for (var index = 1u; index < properties.stops_len; index += 1u) {
+        let stop = get_stops(properties, index);
+        segment = gradient_include(segment, stop.v0, stop.v1, position);
+    }
+    // Each grain picks one of the neighboring stop colors; only its probability
+    // changes through the transition, keeping the stippled appearance.
+    let color = select(segment.start_color, segment.end_color, noise < gradient_factor(segment, position));
     let gradient = scene_color(color) * source.a;
     return mix(source, gradient, properties.amount / 100.0);
 }

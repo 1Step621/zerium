@@ -1308,6 +1308,7 @@
           "label": {"ja-JP": "乱数シード", "en-US": "Seed"},
           "type": "u32",
           "default": 0,
+          "animatable": true,
           "constraints": {"min": 0, "max": 65535},
           "ui": {"step": 1}
         },
@@ -2899,6 +2900,7 @@
           "label": {"ja-JP": "乱数シード", "en-US": "Seed"},
           "type": "u32",
           "default": 0,
+          "animatable": true,
           "constraints": {"min": 0, "max": 65535},
           "ui": {"step": 1}
         }
@@ -3106,6 +3108,191 @@
       ]
     },
     {
+      "id": "hue_saturation",
+      "label": {"ja-JP": "色相・彩度", "en-US": "Hue/Saturation"},
+      "category": "color",
+      "tags": ["HSL", "色相シフト", "hue shift", "lightness"],
+      "render": {
+        "passes": [{"type": "render", "shader": {"module": "effects::hue_saturation::render"}}],
+        "bounds": {"min": ["input::min::x", "input::min::y"], "max": ["input::max::x", "input::max::y"]}
+      },
+      "properties": [
+        {
+          "id": "hue",
+          "label": {"ja-JP": "色相", "en-US": "Hue"},
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": {"min": -3600, "max": 3600},
+          "ui": {"unit": "°"}
+        },
+        {
+          "id": "saturation",
+          "label": {"ja-JP": "彩度", "en-US": "Saturation"},
+          "type": "f32",
+          "default": 100,
+          "animatable": true,
+          "constraints": {"min": 0, "max": 300},
+          "ui": {"unit": "%"}
+        },
+        {
+          "id": "lightness",
+          "label": {"ja-JP": "明度", "en-US": "Lightness"},
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": {"min": -100, "max": 100},
+          "ui": {"unit": "%"}
+        }
+      ]
+    },
+    {
+      "id": "exposure",
+      "label": {"ja-JP": "露光量", "en-US": "Exposure"},
+      "category": "color",
+      "tags": ["露出", "EV", "明るさ", "brightness"],
+      "render": {
+        "passes": [{"type": "render", "shader": {"module": "effects::exposure::render"}}],
+        "bounds": {"min": ["input::min::x", "input::min::y"], "max": ["input::max::x", "input::max::y"]}
+      },
+      "properties": [
+        {
+          "id": "exposure",
+          "label": {"ja-JP": "露光量", "en-US": "Exposure"},
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": {"min": -10, "max": 10},
+          "ui": {"unit": "EV", "step": 0.1}
+        }
+      ]
+    },
+    {
+      "id": "levels",
+      "label": {"ja-JP": "レベル補正", "en-US": "Levels"},
+      "category": "color",
+      "tags": ["黒レベル", "白レベル", "ガンマ", "階調", "gamma", "black point", "white point"],
+      "render": {
+        "passes": [{"type": "render", "shader": {"module": "effects::levels::render"}}],
+        "bounds": {"min": ["input::min::x", "input::min::y"], "max": ["input::max::x", "input::max::y"]}
+      },
+      "properties": [
+        {
+          "id": "input_black",
+          "label": {"ja-JP": "入力黒レベル", "en-US": "Input Black"},
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": {"min": 0, "max": 100},
+          "ui": {"unit": "%"}
+        },
+        {
+          "id": "input_white",
+          "label": {"ja-JP": "入力白レベル", "en-US": "Input White"},
+          "type": "f32",
+          "default": 100,
+          "animatable": true,
+          "constraints": {"min": 0, "max": 100},
+          "ui": {"unit": "%"}
+        },
+        {
+          "id": "gamma",
+          "label": {"ja-JP": "ガンマ", "en-US": "Gamma"},
+          "type": "f32",
+          "default": 1,
+          "animatable": true,
+          "constraints": {"min": 0.1, "max": 10},
+          "ui": {"step": 0.01}
+        },
+        {
+          "id": "output_black",
+          "label": {"ja-JP": "出力黒レベル", "en-US": "Output Black"},
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": {"min": 0, "max": 100},
+          "ui": {"unit": "%"}
+        },
+        {
+          "id": "output_white",
+          "label": {"ja-JP": "出力白レベル", "en-US": "Output White"},
+          "type": "f32",
+          "default": 100,
+          "animatable": true,
+          "constraints": {"min": 0, "max": 100},
+          "ui": {"unit": "%"}
+        }
+      ]
+    },
+    {
+      "id": "gradient_map",
+      "label": {"ja-JP": "グラデーションマップ", "en-US": "Gradient Map"},
+      "category": "color",
+      "tags": ["デュオトーン", "duotone", "階調", "色付け"],
+      "render": {
+        "passes": [{"type": "render", "shader": {"module": "effects::gradient_map::render"}}],
+        "bounds": {"min": ["input::min::x", "input::min::y"], "max": ["input::max::x", "input::max::y"]}
+      },
+      "properties": [
+        {
+          "id": "stops",
+          "label": {"ja-JP": "カラーストップ", "en-US": "Color Stops"},
+          "type": "array",
+          "element": {
+            "type": "tuple",
+            "elements": [
+              {
+                "type": "f32",
+                "default": 50,
+                "animatable": true,
+                "constraints": {"min": 0, "max": 100},
+                "ui": {"label": {"ja-JP": "位置", "en-US": "Position"}, "unit": "%", "step": 1}
+              },
+              {
+                "type": "color",
+                "default": [1, 1, 1, 1],
+                "animatable": true,
+                "ui": {"label": {"ja-JP": "色", "en-US": "Color"}}
+              }
+            ]
+          },
+          "min_items": 2,
+          "max_items": 64,
+          "default": [[0, [0, 0, 0, 1]], [100, [1, 1, 1, 1]]]
+        },
+        {
+          "id": "amount",
+          "label": {"ja-JP": "適用量", "en-US": "Amount"},
+          "type": "f32",
+          "default": 100,
+          "animatable": true,
+          "constraints": {"min": 0, "max": 100},
+          "ui": {"unit": "%"}
+        }
+      ]
+    },
+    {
+      "id": "invert_colors",
+      "label": {"ja-JP": "色反転", "en-US": "Invert Colors"},
+      "category": "color",
+      "tags": ["ネガポジ反転", "negative", "invert"],
+      "render": {
+        "passes": [{"type": "render", "shader": {"module": "effects::invert_colors::render"}}],
+        "bounds": {"min": ["input::min::x", "input::min::y"], "max": ["input::max::x", "input::max::y"]}
+      },
+      "properties": [
+        {
+          "id": "amount",
+          "label": {"ja-JP": "適用量", "en-US": "Amount"},
+          "type": "f32",
+          "default": 100,
+          "animatable": true,
+          "constraints": {"min": 0, "max": 100},
+          "ui": {"unit": "%"}
+        }
+      ]
+    },
+    {
       "id": "color_temperature",
       "label": {"ja-JP": "色温度", "en-US": "Color Temperature"},
       "category": "color",
@@ -3274,18 +3461,30 @@
       },
       "properties": [
         {
-          "id": "start_color",
-          "label": {"ja-JP": "開始色", "en-US": "Start Color"},
-          "type": "color",
-          "default": [0.08, 0.12, 0.28, 1],
-          "animatable": true
-        },
-        {
-          "id": "end_color",
-          "label": {"ja-JP": "終了色", "en-US": "End Color"},
-          "type": "color",
-          "default": [0.92, 0.18, 0.32, 1],
-          "animatable": true
+          "id": "stops",
+          "label": {"ja-JP": "カラーストップ", "en-US": "Color Stops"},
+          "type": "array",
+          "element": {
+            "type": "tuple",
+            "elements": [
+              {
+                "type": "f32",
+                "default": 50,
+                "animatable": true,
+                "constraints": {"min": 0, "max": 100},
+                "ui": {"label": {"ja-JP": "位置", "en-US": "Position"}, "unit": "%", "step": 1}
+              },
+              {
+                "type": "color",
+                "default": [1, 1, 1, 1],
+                "animatable": true,
+                "ui": {"label": {"ja-JP": "色", "en-US": "Color"}}
+              }
+            ]
+          },
+          "min_items": 2,
+          "max_items": 64,
+          "default": [[0, [0.08, 0.12, 0.28, 1]], [100, [0.92, 0.18, 0.32, 1]]]
         },
         {
           "id": "angle",
@@ -3309,18 +3508,30 @@
       },
       "properties": [
         {
-          "id": "start_color",
-          "label": {"ja-JP": "開始色", "en-US": "Start Color"},
-          "type": "color",
-          "default": [0.02, 0.05, 0.2, 1],
-          "animatable": true
-        },
-        {
-          "id": "end_color",
-          "label": {"ja-JP": "終了色", "en-US": "End Color"},
-          "type": "color",
-          "default": [0.1, 0.75, 1, 1],
-          "animatable": true
+          "id": "stops",
+          "label": {"ja-JP": "カラーストップ", "en-US": "Color Stops"},
+          "type": "array",
+          "element": {
+            "type": "tuple",
+            "elements": [
+              {
+                "type": "f32",
+                "default": 50,
+                "animatable": true,
+                "constraints": {"min": 0, "max": 100},
+                "ui": {"label": {"ja-JP": "位置", "en-US": "Position"}, "unit": "%", "step": 1}
+              },
+              {
+                "type": "color",
+                "default": [1, 1, 1, 1],
+                "animatable": true,
+                "ui": {"label": {"ja-JP": "色", "en-US": "Color"}}
+              }
+            ]
+          },
+          "min_items": 2,
+          "max_items": 64,
+          "default": [[0, [0.02, 0.05, 0.2, 1]], [100, [0.1, 0.75, 1, 1]]]
         },
         {
           "id": "angle",
@@ -3371,6 +3582,7 @@
           "label": {"ja-JP": "乱数シード", "en-US": "Seed"},
           "type": "u32",
           "default": 0,
+          "animatable": true,
           "constraints": {"min": 0, "max": 65535},
           "ui": {"step": 1}
         },
@@ -3958,6 +4170,7 @@
           "label": {"ja-JP": "乱数シード", "en-US": "Seed"},
           "type": "u32",
           "default": 0,
+          "animatable": true,
           "constraints": {"min": 0, "max": 65535},
           "ui": {"step": 1}
         }
@@ -4065,6 +4278,7 @@
           "label": {"ja-JP": "乱数シード", "en-US": "Seed"},
           "type": "u32",
           "default": 0,
+          "animatable": true,
           "constraints": {"min": 0, "max": 65535},
           "ui": {"step": 1}
         }
