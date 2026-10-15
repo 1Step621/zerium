@@ -1,7 +1,7 @@
 import package::generated::host::compute::{context, effect_input, store};
 import package::generated::host::util::srgb;
 import package::generated::bloom::compute::props;
-import package::shared::color::luminance;
+import package::helpers::color::luminance;
 
 @compute @workgroup_size(8, 8, 1)
 fn compute_main(@builtin(global_invocation_id) id: vec3<u32>) {

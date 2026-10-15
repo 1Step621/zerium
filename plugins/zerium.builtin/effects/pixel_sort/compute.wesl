@@ -1,6 +1,6 @@
 import package::generated::host::compute::{context, effect_input, store};
 import package::generated::pixel_sort::compute::props;
-import package::shared::color::luminance;
+import package::helpers::color::luminance;
 
 fn axis_position(axis: u32, line: u32, vertical: bool) -> vec2<u32> {
     return select(vec2(axis, line), vec2(line, axis), vertical);

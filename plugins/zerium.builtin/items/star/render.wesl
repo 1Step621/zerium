@@ -1,17 +1,13 @@
-import package::generated::host::util::scene_color;
 import package::generated::star::props;
-import package::shared::geometry::{PI, crosses_ray};
-import package::shared::quad::placed_quad;
+import package::helpers::geometry::{PI, crosses_ray, segment_distance};
+import package::helpers::shape::{outlined_quad, shape_color};
 
 const MAX_STAR_VERTICES: u32 = 32u;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) local: vec2<f32>,
-    @location(1) color: vec4<f32>,
-    @location(2) @interpolate(flat) points: u32,
-    @location(3) @interpolate(flat) inner_radius: f32,
-    @location(4) @interpolate(flat) rotation: f32,
+    @location(1) @interpolate(flat) instance_index: u32,
 };
 
 @vertex
@@ -21,20 +17,19 @@ fn vertex_main(
 ) -> VertexOutput {
     let properties = props(instance_index);
     let size = vec2(properties.size.v0, properties.size.v1);
-    let quad = placed_quad(
+    let quad = outlined_quad(
         vertex_index,
         instance_index,
         vec2(properties.position.v0, properties.position.v1),
         size,
         vec2(properties.origin.v0, properties.origin.v1),
+        properties.outline_width,
+        properties.outline_position,
     );
     var output: VertexOutput;
     output.position = quad.position;
     output.local = quad.corner;
-    output.color = scene_color(properties.color);
-    output.points = clamp(properties.points, 3u, 16u);
-    output.inner_radius = clamp(properties.inner_radius / 100.0, 0.05, 0.95);
-    output.rotation = properties.rotation * PI / 180.0;
+    output.instance_index = instance_index;
     return output;
 }
 
@@ -46,25 +41,27 @@ fn star_vertex(index: u32, points: u32, inner_radius: f32, rotation: f32) -> vec
 
 @fragment
 fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
-    let vertex_count = input.points * 2u;
-    var previous = star_vertex(
-        vertex_count - 1u,
-        input.points,
-        input.inner_radius,
-        input.rotation,
-    );
+    let properties = props(input.instance_index);
+    let half_size = vec2(properties.size.v0, properties.size.v1) * 0.5;
+    let points = clamp(properties.points, 3u, 16u);
+    let inner_radius = clamp(properties.inner_radius / 100.0, 0.05, 0.95);
+    let rotation = properties.rotation * PI / 180.0;
+    let point = input.local * half_size;
+    let vertex_count = points * 2u;
+    var previous = star_vertex(vertex_count - 1u, points, inner_radius, rotation) * half_size;
     var inside = false;
+    var closest = 1e20;
     for (var index = 0u; index < MAX_STAR_VERTICES; index += 1u) {
         if index < vertex_count {
-            let current = star_vertex(index, input.points, input.inner_radius, input.rotation);
-            if crosses_ray(input.local, previous, current) {
+            let current = star_vertex(index, points, inner_radius, rotation) * half_size;
+            if crosses_ray(point, previous, current) {
                 inside = !inside;
             }
+            closest = min(closest, segment_distance(point, previous, current));
             previous = current;
         }
     }
-    if !inside {
-        discard;
-    }
-    return input.color;
+    let distance = select(closest, -closest, inside);
+    return shape_color(distance, properties.fill_enabled, properties.color,
+        properties.outline_width, properties.outline_position, properties.outline_color);
 }

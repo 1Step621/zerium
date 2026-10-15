@@ -1,5 +1,5 @@
 import package::generated::host::compute::{context, store};
-import package::shared::blur::gaussian_rgba;
+import package::helpers::blur::gaussian_rgba;
 
 // Staggered separable passes blur bloom colors and shadow coverage.
 fn blur_rgba(

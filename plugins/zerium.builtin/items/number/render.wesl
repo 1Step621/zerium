@@ -1,5 +1,5 @@
 import package::generated::number::{capability_sampler, props, text};
-import package::shared::quad::{TextureVertex, texture_vertex};
+import package::helpers::quad::{TextureVertex, texture_vertex};
 
 @vertex
 fn vertex_main(

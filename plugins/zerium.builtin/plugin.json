@@ -13,12 +13,12 @@
         "shader": {"module": "items::rectangle::render"},
         "bounds": {
           "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2) - (p::outline_width * (2 - p::outline_position) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2) - (p::outline_width * (2 - p::outline_position) / 2)"
           ],
           "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2) + (p::outline_width * (2 - p::outline_position) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2) + (p::outline_width * (2 - p::outline_position) / 2)"
           ]
         }
       },
@@ -98,10 +98,43 @@
           ]
         },
         {
+          "id": "fill_enabled",
+          "label": {"ja-JP": "塗り", "en-US": "Fill"},
+          "type": "bool",
+          "default": true
+        },
+        {
           "id": "color",
-          "label": {"ja-JP": "色", "en-US": "Color"},
+          "label": {"ja-JP": "塗り色", "en-US": "Fill Color"},
           "type": "color",
           "default": [1, 0.28, 0.035, 1],
+          "animatable": true
+        },
+        {
+          "id": "outline_width",
+          "label": {"ja-JP": "枠線の太さ", "en-US": "Stroke Width"},
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": {"min": 0, "max": 5000},
+          "ui": {"unit": "px"}
+        },
+        {
+          "id": "outline_position",
+          "label": {"ja-JP": "枠線の位置", "en-US": "Stroke Position"},
+          "type": "enum",
+          "variants": [
+            {"value": 2, "label": {"ja-JP": "内側", "en-US": "Inside"}},
+            {"value": 1, "label": {"ja-JP": "中央", "en-US": "Center"}},
+            {"value": 0, "label": {"ja-JP": "外側", "en-US": "Outside"}}
+          ],
+          "default": 2
+        },
+        {
+          "id": "outline_color",
+          "label": {"ja-JP": "枠線色", "en-US": "Stroke Color"},
+          "type": "color",
+          "default": [1, 1, 1, 1],
           "animatable": true
         },
         {
@@ -125,12 +158,12 @@
         "shader": {"module": "items::triangle::render"},
         "bounds": {
           "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2) - (p::outline_width * (2 - p::outline_position) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2) - (p::outline_width * (2 - p::outline_position) / 2)"
           ],
           "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2) + (p::outline_width * (2 - p::outline_position) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2) + (p::outline_width * (2 - p::outline_position) / 2)"
           ]
         }
       },
@@ -210,10 +243,43 @@
           ]
         },
         {
+          "id": "fill_enabled",
+          "label": {"ja-JP": "塗り", "en-US": "Fill"},
+          "type": "bool",
+          "default": true
+        },
+        {
           "id": "color",
-          "label": {"ja-JP": "色", "en-US": "Color"},
+          "label": {"ja-JP": "塗り色", "en-US": "Fill Color"},
           "type": "color",
           "default": [1, 0.52, 0.06, 1],
+          "animatable": true
+        },
+        {
+          "id": "outline_width",
+          "label": {"ja-JP": "枠線の太さ", "en-US": "Stroke Width"},
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": {"min": 0, "max": 5000},
+          "ui": {"unit": "px"}
+        },
+        {
+          "id": "outline_position",
+          "label": {"ja-JP": "枠線の位置", "en-US": "Stroke Position"},
+          "type": "enum",
+          "variants": [
+            {"value": 2, "label": {"ja-JP": "内側", "en-US": "Inside"}},
+            {"value": 1, "label": {"ja-JP": "中央", "en-US": "Center"}},
+            {"value": 0, "label": {"ja-JP": "外側", "en-US": "Outside"}}
+          ],
+          "default": 2
+        },
+        {
+          "id": "outline_color",
+          "label": {"ja-JP": "枠線色", "en-US": "Stroke Color"},
+          "type": "color",
+          "default": [1, 1, 1, 1],
           "animatable": true
         },
         {
@@ -237,12 +303,12 @@
         "shader": {"module": "items::ellipse::render"},
         "bounds": {
           "min": [
-            "placement_center(p::position::v0, p::diameter::v0, p::origin::v0) - (math::abs(p::diameter::v0) / 2)",
-            "placement_center(p::position::v1, p::diameter::v1, p::origin::v1) - (math::abs(p::diameter::v1) / 2)"
+            "placement_center(p::position::v0, p::diameter::v0, p::origin::v0) - (math::abs(p::diameter::v0) / 2) - (p::outline_width * (2 - p::outline_position) / 2)",
+            "placement_center(p::position::v1, p::diameter::v1, p::origin::v1) - (math::abs(p::diameter::v1) / 2) - (p::outline_width * (2 - p::outline_position) / 2)"
           ],
           "max": [
-            "placement_center(p::position::v0, p::diameter::v0, p::origin::v0) + (math::abs(p::diameter::v0) / 2)",
-            "placement_center(p::position::v1, p::diameter::v1, p::origin::v1) + (math::abs(p::diameter::v1) / 2)"
+            "placement_center(p::position::v0, p::diameter::v0, p::origin::v0) + (math::abs(p::diameter::v0) / 2) + (p::outline_width * (2 - p::outline_position) / 2)",
+            "placement_center(p::position::v1, p::diameter::v1, p::origin::v1) + (math::abs(p::diameter::v1) / 2) + (p::outline_width * (2 - p::outline_position) / 2)"
           ]
         }
       },
@@ -322,10 +388,43 @@
           ]
         },
         {
+          "id": "fill_enabled",
+          "label": {"ja-JP": "塗り", "en-US": "Fill"},
+          "type": "bool",
+          "default": true
+        },
+        {
           "id": "color",
-          "label": {"ja-JP": "色", "en-US": "Color"},
+          "label": {"ja-JP": "塗り色", "en-US": "Fill Color"},
           "type": "color",
           "default": [0.92, 0.18, 0.025, 1],
+          "animatable": true
+        },
+        {
+          "id": "outline_width",
+          "label": {"ja-JP": "枠線の太さ", "en-US": "Stroke Width"},
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": {"min": 0, "max": 5000},
+          "ui": {"unit": "px"}
+        },
+        {
+          "id": "outline_position",
+          "label": {"ja-JP": "枠線の位置", "en-US": "Stroke Position"},
+          "type": "enum",
+          "variants": [
+            {"value": 2, "label": {"ja-JP": "内側", "en-US": "Inside"}},
+            {"value": 1, "label": {"ja-JP": "中央", "en-US": "Center"}},
+            {"value": 0, "label": {"ja-JP": "外側", "en-US": "Outside"}}
+          ],
+          "default": 2
+        },
+        {
+          "id": "outline_color",
+          "label": {"ja-JP": "枠線色", "en-US": "Stroke Color"},
+          "type": "color",
+          "default": [1, 1, 1, 1],
           "animatable": true
         }
       ]
@@ -340,12 +439,12 @@
         "shader": {"module": "items::sector::render"},
         "bounds": {
           "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - p::size::v0 / 2",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - p::size::v1 / 2"
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - p::size::v0 / 2 - (p::outline_width * (2 - p::outline_position) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - p::size::v1 / 2 - (p::outline_width * (2 - p::outline_position) / 2)"
           ],
           "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + p::size::v0 / 2",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + p::size::v1 / 2"
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + p::size::v0 / 2 + (p::outline_width * (2 - p::outline_position) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + p::size::v1 / 2 + (p::outline_width * (2 - p::outline_position) / 2)"
           ]
         }
       },
@@ -452,10 +551,43 @@
           "ui": {"unit": "%"}
         },
         {
+          "id": "fill_enabled",
+          "label": {"ja-JP": "塗り", "en-US": "Fill"},
+          "type": "bool",
+          "default": true
+        },
+        {
           "id": "color",
-          "label": {"ja-JP": "色", "en-US": "Color"},
+          "label": {"ja-JP": "塗り色", "en-US": "Fill Color"},
           "type": "color",
           "default": [0.92, 0.18, 0.025, 1],
+          "animatable": true
+        },
+        {
+          "id": "outline_width",
+          "label": {"ja-JP": "枠線の太さ", "en-US": "Stroke Width"},
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": {"min": 0, "max": 5000},
+          "ui": {"unit": "px"}
+        },
+        {
+          "id": "outline_position",
+          "label": {"ja-JP": "枠線の位置", "en-US": "Stroke Position"},
+          "type": "enum",
+          "variants": [
+            {"value": 2, "label": {"ja-JP": "内側", "en-US": "Inside"}},
+            {"value": 1, "label": {"ja-JP": "中央", "en-US": "Center"}},
+            {"value": 0, "label": {"ja-JP": "外側", "en-US": "Outside"}}
+          ],
+          "default": 2
+        },
+        {
+          "id": "outline_color",
+          "label": {"ja-JP": "枠線色", "en-US": "Stroke Color"},
+          "type": "color",
+          "default": [1, 1, 1, 1],
           "animatable": true
         }
       ]
@@ -470,12 +602,12 @@
         "shader": {"module": "items::polygon::render"},
         "bounds": {
           "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2) - (p::outline_width * (2 - p::outline_position) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2) - (p::outline_width * (2 - p::outline_position) / 2)"
           ],
           "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2) + (p::outline_width * (2 - p::outline_position) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2) + (p::outline_width * (2 - p::outline_position) / 2)"
           ]
         }
       },
@@ -589,10 +721,43 @@
           "default": [[50, 0], [100, 100], [0, 100]]
         },
         {
+          "id": "fill_enabled",
+          "label": {"ja-JP": "塗り", "en-US": "Fill"},
+          "type": "bool",
+          "default": true
+        },
+        {
           "id": "color",
-          "label": {"ja-JP": "色", "en-US": "Color"},
+          "label": {"ja-JP": "塗り色", "en-US": "Fill Color"},
           "type": "color",
           "default": [1, 0.52, 0.06, 1],
+          "animatable": true
+        },
+        {
+          "id": "outline_width",
+          "label": {"ja-JP": "枠線の太さ", "en-US": "Stroke Width"},
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": {"min": 0, "max": 5000},
+          "ui": {"unit": "px"}
+        },
+        {
+          "id": "outline_position",
+          "label": {"ja-JP": "枠線の位置", "en-US": "Stroke Position"},
+          "type": "enum",
+          "variants": [
+            {"value": 2, "label": {"ja-JP": "内側", "en-US": "Inside"}},
+            {"value": 1, "label": {"ja-JP": "中央", "en-US": "Center"}},
+            {"value": 0, "label": {"ja-JP": "外側", "en-US": "Outside"}}
+          ],
+          "default": 2
+        },
+        {
+          "id": "outline_color",
+          "label": {"ja-JP": "枠線色", "en-US": "Stroke Color"},
+          "type": "color",
+          "default": [1, 1, 1, 1],
           "animatable": true
         }
       ]
@@ -607,12 +772,12 @@
         "shader": {"module": "items::regular_polygon::render"},
         "bounds": {
           "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - p::size::v0 / 2",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - p::size::v1 / 2"
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - p::size::v0 / 2 - (p::outline_width * (2 - p::outline_position) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - p::size::v1 / 2 - (p::outline_width * (2 - p::outline_position) / 2)"
           ],
           "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + p::size::v0 / 2",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + p::size::v1 / 2"
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + p::size::v0 / 2 + (p::outline_width * (2 - p::outline_position) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + p::size::v1 / 2 + (p::outline_width * (2 - p::outline_position) / 2)"
           ]
         }
       },
@@ -718,10 +883,43 @@
           "ui": {"unit": "°"}
         },
         {
+          "id": "fill_enabled",
+          "label": {"ja-JP": "塗り", "en-US": "Fill"},
+          "type": "bool",
+          "default": true
+        },
+        {
           "id": "color",
-          "label": {"ja-JP": "色", "en-US": "Color"},
+          "label": {"ja-JP": "塗り色", "en-US": "Fill Color"},
           "type": "color",
           "default": [0.92, 0.18, 0.025, 1],
+          "animatable": true
+        },
+        {
+          "id": "outline_width",
+          "label": {"ja-JP": "枠線の太さ", "en-US": "Stroke Width"},
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": {"min": 0, "max": 5000},
+          "ui": {"unit": "px"}
+        },
+        {
+          "id": "outline_position",
+          "label": {"ja-JP": "枠線の位置", "en-US": "Stroke Position"},
+          "type": "enum",
+          "variants": [
+            {"value": 2, "label": {"ja-JP": "内側", "en-US": "Inside"}},
+            {"value": 1, "label": {"ja-JP": "中央", "en-US": "Center"}},
+            {"value": 0, "label": {"ja-JP": "外側", "en-US": "Outside"}}
+          ],
+          "default": 2
+        },
+        {
+          "id": "outline_color",
+          "label": {"ja-JP": "枠線色", "en-US": "Stroke Color"},
+          "type": "color",
+          "default": [1, 1, 1, 1],
           "animatable": true
         }
       ]
@@ -736,12 +934,12 @@
         "shader": {"module": "items::line::render"},
         "bounds": {
           "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - ((math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - ((math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2)"
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - ((math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2) - (p::outline_width * (2 - p::outline_position) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - ((math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2) - (p::outline_width * (2 - p::outline_position) / 2)"
           ],
           "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + ((math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + ((math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2)"
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + ((math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2) + (p::outline_width * (2 - p::outline_position) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + ((math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2) + (p::outline_width * (2 - p::outline_position) / 2)"
           ]
         }
       },
@@ -830,8 +1028,41 @@
           "ui": {"unit": "°", "step": 1}
         },
         {
+          "id": "fill_enabled",
+          "label": {"ja-JP": "塗り", "en-US": "Fill"},
+          "type": "bool",
+          "default": true
+        },
+        {
           "id": "color",
-          "label": {"ja-JP": "色", "en-US": "Color"},
+          "label": {"ja-JP": "塗り色", "en-US": "Fill Color"},
+          "type": "color",
+          "default": [1, 1, 1, 1],
+          "animatable": true
+        },
+        {
+          "id": "outline_width",
+          "label": {"ja-JP": "枠線の太さ", "en-US": "Stroke Width"},
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": {"min": 0, "max": 5000},
+          "ui": {"unit": "px"}
+        },
+        {
+          "id": "outline_position",
+          "label": {"ja-JP": "枠線の位置", "en-US": "Stroke Position"},
+          "type": "enum",
+          "variants": [
+            {"value": 2, "label": {"ja-JP": "内側", "en-US": "Inside"}},
+            {"value": 1, "label": {"ja-JP": "中央", "en-US": "Center"}},
+            {"value": 0, "label": {"ja-JP": "外側", "en-US": "Outside"}}
+          ],
+          "default": 2
+        },
+        {
+          "id": "outline_color",
+          "label": {"ja-JP": "枠線色", "en-US": "Stroke Color"},
           "type": "color",
           "default": [1, 1, 1, 1],
           "animatable": true
@@ -854,12 +1085,12 @@
         "shader": {"module": "items::star::render"},
         "bounds": {
           "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2) - (p::outline_width * (2 - p::outline_position) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2) - (p::outline_width * (2 - p::outline_position) / 2)"
           ],
           "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
+            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2) + (p::outline_width * (2 - p::outline_position) / 2)",
+            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2) + (p::outline_width * (2 - p::outline_position) / 2)"
           ]
         }
       },
@@ -965,10 +1196,43 @@
           "ui": {"unit": "°", "step": 1}
         },
         {
+          "id": "fill_enabled",
+          "label": {"ja-JP": "塗り", "en-US": "Fill"},
+          "type": "bool",
+          "default": true
+        },
+        {
           "id": "color",
-          "label": {"ja-JP": "色", "en-US": "Color"},
+          "label": {"ja-JP": "塗り色", "en-US": "Fill Color"},
           "type": "color",
           "default": [1, 0.74, 0.04, 1],
+          "animatable": true
+        },
+        {
+          "id": "outline_width",
+          "label": {"ja-JP": "枠線の太さ", "en-US": "Stroke Width"},
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": {"min": 0, "max": 5000},
+          "ui": {"unit": "px"}
+        },
+        {
+          "id": "outline_position",
+          "label": {"ja-JP": "枠線の位置", "en-US": "Stroke Position"},
+          "type": "enum",
+          "variants": [
+            {"value": 2, "label": {"ja-JP": "内側", "en-US": "Inside"}},
+            {"value": 1, "label": {"ja-JP": "中央", "en-US": "Center"}},
+            {"value": 0, "label": {"ja-JP": "外側", "en-US": "Outside"}}
+          ],
+          "default": 2
+        },
+        {
+          "id": "outline_color",
+          "label": {"ja-JP": "枠線色", "en-US": "Stroke Color"},
+          "type": "color",
+          "default": [1, 1, 1, 1],
           "animatable": true
         }
       ]

@@ -3,7 +3,7 @@ import package::generated::host::effect::{
 };
 import package::generated::host::util::srgb;
 import package::generated::levels::props;
-import package::shared::color::encode_srgb;
+import package::helpers::color::encode_srgb;
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

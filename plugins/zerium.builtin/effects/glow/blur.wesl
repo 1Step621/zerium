@@ -1,6 +1,6 @@
 import package::generated::host::compute::{context, store};
 import package::generated::glow::compute::props;
-import package::shared::blur::gaussian_alpha;
+import package::helpers::blur::gaussian_alpha;
 override direction_x: f32 = 1.0;
 override direction_y: f32 = 0.0;
 override radius_scale: f32 = 1.0;

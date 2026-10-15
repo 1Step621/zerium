@@ -3,8 +3,8 @@ import package::generated::host::effect::{
 };
 import package::generated::host::util::scene_color;
 import package::generated::gradient_map::{get_stops, props};
-import package::shared::color::luminance;
-import package::shared::gradient::{gradient_factor, gradient_include, gradient_start};
+import package::helpers::color::luminance;
+import package::helpers::gradient::{gradient_factor, gradient_include, gradient_start};
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

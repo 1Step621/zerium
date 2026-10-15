@@ -19,10 +19,14 @@ struct ZeriumProps {
     position: ZeriumPropsTuple0,
     origin: ZeriumPropsTuple1,
     diameter: ZeriumPropsTuple2,
+    fill_enabled: bool,
     color: vec4<f32>,
+    outline_width: f32,
+    outline_position: u32,
+    outline_color: vec4<f32>,
 };
 
 fn props(instance_index: u32) -> ZeriumProps {
     let raw = item_props(instance_index);
-    return ZeriumProps(ZeriumPropsTuple0(read_f32(raw, 0u), read_f32(raw, 0u + 4u)), ZeriumPropsTuple1(read_u32(raw, 8u), read_u32(raw, 8u + 4u)), ZeriumPropsTuple2(read_f32(raw, 16u), read_f32(raw, 16u + 4u)), vec4(read_f32(raw, 24u), read_f32(raw, 24u + 4u), read_f32(raw, 24u + 8u), read_f32(raw, 24u + 12u)));
+    return ZeriumProps(ZeriumPropsTuple0(read_f32(raw, 0u), read_f32(raw, 0u + 4u)), ZeriumPropsTuple1(read_u32(raw, 8u), read_u32(raw, 8u + 4u)), ZeriumPropsTuple2(read_f32(raw, 16u), read_f32(raw, 16u + 4u)), read_bool(raw, 24u), vec4(read_f32(raw, 28u), read_f32(raw, 28u + 4u), read_f32(raw, 28u + 8u), read_f32(raw, 28u + 12u)), read_f32(raw, 44u), read_u32(raw, 48u), vec4(read_f32(raw, 52u), read_f32(raw, 52u + 4u), read_f32(raw, 52u + 8u), read_f32(raw, 52u + 12u)));
 }

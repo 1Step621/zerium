@@ -7,7 +7,7 @@ import package::generated::host::effect::{
 };
 import package::generated::host::util::{DEG2RAD, srgb};
 import package::generated::linear_gradient::{get_stops, props};
-import package::shared::gradient::{gradient_factor, gradient_include, gradient_start};
+import package::helpers::gradient::{gradient_factor, gradient_include, gradient_start};
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

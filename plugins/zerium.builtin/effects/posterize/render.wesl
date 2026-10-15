@@ -7,7 +7,7 @@ import package::generated::host::effect::{
 };
 import package::generated::host::util::srgb;
 import package::generated::posterize::props;
-import package::shared::color::{display_rgb, quantize_alpha, quantize_rgb};
+import package::helpers::color::{display_rgb, quantize_alpha, quantize_rgb};
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

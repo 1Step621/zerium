@@ -1,5 +1,5 @@
 import package::generated::camera::render_result;
-import package::shared::surface::{SurfaceVertex, surface_pixel, surface_vertex};
+import package::helpers::surface::{SurfaceVertex, surface_pixel, surface_vertex};
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> SurfaceVertex {

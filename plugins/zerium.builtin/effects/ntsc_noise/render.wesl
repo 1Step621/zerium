@@ -9,8 +9,8 @@ import package::generated::host::effect::{
 };
 import package::generated::host::util::srgb;
 import package::generated::ntsc_noise::props;
-import package::shared::color::encode_srgb;
-import package::shared::noise::cell_hash;
+import package::helpers::color::encode_srgb;
+import package::helpers::noise::cell_hash;
 
 fn yiq(rgb: vec3<f32>) -> vec3<f32> {
     return vec3(dot(rgb, vec3(0.299, 0.587, 0.114)), dot(rgb, vec3(0.596, -0.274, -0.322)), dot(rgb, vec3(0.211, -0.523, 0.312)));

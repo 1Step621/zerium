@@ -6,7 +6,7 @@ import package::generated::host::effect::{
     vertex,
 };
 import package::generated::follow_spline::{ZeriumProps, get_points, props};
-import package::shared::spline::{
+import package::helpers::spline::{
     SplineCurve,
     spline_curve,
     spline_indices,

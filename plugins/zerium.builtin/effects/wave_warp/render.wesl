@@ -6,7 +6,7 @@ import package::generated::host::effect::{
     vertex,
 };
 import package::generated::wave_warp::props;
-import package::shared::geometry::TAU;
+import package::helpers::geometry::TAU;
 
 fn waveform(phase: vec2<f32>, kind: u32) -> vec2<f32> {
     if kind == 1u {

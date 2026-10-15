@@ -4,12 +4,11 @@ import package::generated::host::effect::{
     effect_input,
     effect_sampler,
     effect_source,
-    over,
     premul,
     vertex,
 };
 import package::generated::outline::props;
-import package::shared::outline_sites::decode_site;
+import package::helpers::outline_sites::decode_site;
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {
@@ -25,10 +24,22 @@ fn source_sample(sample_position: vec2<f32>, dimensions: vec2<i32>) -> vec4<f32>
     return textureSampleLevel(effect_source, effect_sampler, uv, 0.0);
 }
 
+fn local_opacity(position: vec2<i32>, dimensions: vec2<i32>) -> f32 {
+    var opacity = 0.0;
+    for (var y = -1; y <= 1; y += 1) {
+        for (var x = -1; x <= 1; x += 1) {
+            let neighbor = clamp(position + vec2(x, y), vec2(0), dimensions - vec2(1));
+            opacity = max(opacity, textureLoad(effect_source, neighbor, 0).a);
+        }
+    }
+    return opacity;
+}
+
 fn distance_at(
     sample_position: vec2<f32>,
     position: vec2<i32>,
     dimensions: vec2<i32>,
+    opacity: f32,
 ) -> f32 {
     var best_distance_squared = 1.0e30;
     for (var offset_y = -1; offset_y <= 1; offset_y += 1) {
@@ -44,7 +55,7 @@ fn distance_at(
             }
             let site_alpha = textureLoad(effect_source, site, 0).a;
             let delta = sample_position - vec2<f32>(site);
-            let edge_offset = 1.0 - site_alpha;
+            let edge_offset = 1.0 - clamp(site_alpha / opacity, 0.0, 1.0);
             best_distance_squared = min(
                 best_distance_squared,
                 dot(delta, delta) + edge_offset * edge_offset,
@@ -64,15 +75,23 @@ fn fragment_main(input: ZeriumVertex) -> @location(0) vec4<f32> {
         dimensions - vec2(1),
     );
     let source_pixel = textureLoad(effect_source, position, 0);
-    if properties.width <= 0.0 {
+    if properties.width <= 0.0 || properties.color.a <= 0.0 {
         return source_pixel;
     }
     // The bounded distance transform stores no site away from the stroke.
     // Most of the full-frame pixels can reuse the source without subpixel work.
-    if decode_site(textureLoad(effect_input, position, 0)).x < 0 {
+    let nearest_site = decode_site(textureLoad(effect_input, position, 0));
+    if nearest_site.x < 0 {
         return source_pixel;
     }
 
+    // Estimate material opacity separately from subpixel edge coverage. This
+    // keeps the silhouette and stroke invariant when source opacity changes.
+    let opacity = max(local_opacity(position, dimensions), local_opacity(nearest_site, dimensions));
+    if opacity <= 0.0 {
+        return source_pixel;
+    }
+    let stroke = premul(properties.color, 1.0);
     let composition_scale = context().composition_scale;
     let logical_radius = select(properties.width, properties.width * 0.5, properties.position == 1u);
     let radius = logical_radius * composition_scale;
@@ -86,30 +105,21 @@ fn fragment_main(input: ZeriumVertex) -> @location(0) vec4<f32> {
                 - vec2(0.5);
             let sample_position = vec2<f32>(position) + offset;
             let source = source_sample(sample_position, dimensions);
-            let distance_pixels = distance_at(sample_position, position, dimensions);
+            let distance_pixels = distance_at(sample_position, position, dimensions, opacity);
             let coverage = clamp(radius + 1.0 - distance_pixels, 0.0, 1.0);
-            let outside = coverage * (1.0 - source.a);
-            let inside = coverage * source.a;
+            let silhouette = clamp(source.a / opacity, 0.0, 1.0);
+            let outside = coverage * (1.0 - silhouette);
+            let inside = coverage * silhouette;
 
+            // Inside and outside cover disjoint parts of the pixel. Applying
+            // source-over to these coverage-weighted colors again would count
+            // edge coverage twice, creating seams and dimming translucent fills.
             if properties.position == 0u {
-                result += over(
-                    source,
-                    premul(properties.color, outside),
-                );
+                result += source + stroke * outside;
             } else if properties.position == 2u {
-                result += over(
-                    premul(properties.color, inside),
-                    source,
-                );
+                result += source * (1.0 - stroke.a * coverage) + stroke * inside;
             } else {
-                let outside_result = over(
-                    source,
-                    premul(properties.color, outside),
-                );
-                result += over(
-                    premul(properties.color, inside),
-                    outside_result,
-                );
+                result += source * (1.0 - stroke.a * coverage) + stroke * (inside + outside);
             }
         }
     }

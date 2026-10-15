@@ -8,8 +8,8 @@ import package::generated::host::effect::{
 };
 import package::generated::host::util::srgb;
 import package::generated::dither::props;
-import package::shared::color::{display_rgb, quantize_rgb};
-import package::shared::noise::cell_hash;
+import package::helpers::color::{display_rgb, quantize_rgb};
+import package::helpers::noise::cell_hash;
 
 const BAYER: array<f32, 16> = array(
     0.0, 8.0, 2.0, 10.0,

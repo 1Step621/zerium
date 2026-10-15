@@ -6,7 +6,7 @@ import package::generated::host::effect::{
     vertex,
 };
 import package::generated::color_adjustment::props;
-import package::shared::color::luminance;
+import package::helpers::color::luminance;
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

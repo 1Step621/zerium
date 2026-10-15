@@ -9,7 +9,7 @@ import package::generated::host::effect::{
 };
 import package::generated::host::util::{DEG2RAD, srgb};
 import package::generated::emboss::props;
-import package::shared::color::luminance;
+import package::helpers::color::luminance;
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

@@ -7,8 +7,8 @@ import package::generated::host::effect::{
 };
 import package::generated::host::util::{DEG2RAD, scene_color};
 import package::generated::noise_gradient::{get_stops, props};
-import package::shared::gradient::{gradient_factor, gradient_include, gradient_start};
-import package::shared::noise::cell_hash;
+import package::helpers::gradient::{gradient_factor, gradient_include, gradient_start};
+import package::helpers::noise::cell_hash;
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

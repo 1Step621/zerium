@@ -1,8 +1,8 @@
 import package::generated::host::util::{rotate, scene_color};
 import package::generated::concentration_lines::props;
-import package::shared::geometry::{TAU, distance_coverage};
-import package::shared::noise::hash;
-import package::shared::quad::placed_quad;
+import package::helpers::geometry::{TAU, distance_coverage};
+import package::helpers::noise::hash;
+import package::helpers::quad::placed_quad;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,

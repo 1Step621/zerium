@@ -6,7 +6,7 @@ import package::generated::host::effect::{
     vertex,
 };
 import package::generated::turbulent::props;
-import package::shared::noise::fractal_noise;
+import package::helpers::noise::fractal_noise;
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

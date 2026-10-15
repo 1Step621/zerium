@@ -3,7 +3,7 @@ import package::generated::host::effect::{
 };
 import package::generated::host::util::srgb;
 import package::generated::hue_saturation::props;
-import package::shared::color::{encode_srgb, hsl_to_rgb, rgb_to_hsl};
+import package::helpers::color::{encode_srgb, hsl_to_rgb, rgb_to_hsl};
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

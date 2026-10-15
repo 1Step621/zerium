@@ -1,6 +1,6 @@
 import package::generated::host::compute::{context, effect_input, effect_source, store};
 import package::generated::outline::compute::{ZeriumProps, props};
-import package::shared::outline_sites::{decode_site, encode_site};
+import package::helpers::outline_sites::{decode_site, encode_site};
 override phase: u32 = 0u;
 
 fn source_alpha(position: vec2<i32>, size: vec2<i32>) -> f32 {
@@ -15,9 +15,6 @@ fn is_boundary(position: vec2<i32>, size: vec2<i32>) -> bool {
     if alpha <= 0.0 {
         return false;
     }
-    if alpha < 1.0 {
-        return true;
-    }
     let offsets = array<vec2<i32>, 4>(
         vec2(-1, 0),
         vec2(1, 0),
@@ -25,17 +22,18 @@ fn is_boundary(position: vec2<i32>, size: vec2<i32>) -> bool {
         vec2(0, 1),
     );
     for (var index = 0u; index < 4u; index += 1u) {
-        if source_alpha(position + offsets[index], size) < 0.5 {
+        // Opacity is not coverage: a uniformly translucent interior is not an
+        // edge. Seed the boundary of the nonzero silhouette instead.
+        if source_alpha(position + offsets[index], size) <= 0.0 {
             return true;
         }
     }
     return false;
 }
 
-fn distance_squared(position: vec2<i32>, site: vec2<i32>, size: vec2<i32>) -> f32 {
+fn distance_squared(position: vec2<i32>, site: vec2<i32>) -> f32 {
     let delta = vec2<f32>(position - site);
-    let edge_offset = 1.0 - source_alpha(site, size);
-    return dot(delta, delta) + edge_offset * edge_offset;
+    return dot(delta, delta);
 }
 
 fn search_radius(properties: ZeriumProps) -> i32 {
@@ -84,7 +82,7 @@ fn compute_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             if candidate.x < 0 {
                 continue;
             }
-            let distance = distance_squared(position, candidate, size);
+            let distance = distance_squared(position, candidate);
             if distance < best_distance {
                 best_distance = distance;
                 best_site = candidate;
@@ -102,7 +100,7 @@ fn compute_main(@builtin(global_invocation_id) global_id: vec3<u32>) {
             if candidate.x < 0 {
                 continue;
             }
-            let distance = distance_squared(position, candidate, size);
+            let distance = distance_squared(position, candidate);
             if distance < best_distance {
                 best_distance = distance;
                 best_site = candidate;

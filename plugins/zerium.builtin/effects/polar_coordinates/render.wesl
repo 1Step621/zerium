@@ -9,7 +9,7 @@ import package::generated::host::effect::{
 };
 import package::generated::host::util::DEG2RAD;
 import package::generated::polar_coordinates::props;
-import package::shared::geometry::TAU;
+import package::helpers::geometry::TAU;
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {

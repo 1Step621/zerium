@@ -1,9 +1,9 @@
 import package::generated::host::item::quad_position;
 import package::generated::host::util::scene_color;
 import package::generated::spline_path::{ZeriumProps, get_points, props};
-import package::shared::geometry::{crosses_ray, segment_distance};
-import package::shared::quad::placed_quad;
-import package::shared::spline::{
+import package::helpers::geometry::{crosses_ray, segment_distance};
+import package::helpers::quad::placed_quad;
+import package::helpers::spline::{
     SplineCurve,
     spline_curve,
     spline_indices,

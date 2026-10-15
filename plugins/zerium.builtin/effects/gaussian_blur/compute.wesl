@@ -1,6 +1,6 @@
 import package::generated::host::compute::{context, effect_input, effect_sampler, store};
 import package::generated::gaussian_blur::compute::props;
-import package::shared::blur::gaussian_rgba;
+import package::helpers::blur::gaussian_rgba;
 override direction_x: f32 = 1.0;
 override direction_y: f32 = 0.0;
 override radius_scale: f32 = 1.0;

@@ -26,12 +26,16 @@ struct ZeriumProps {
     origin: ZeriumPropsTuple1,
     size: ZeriumPropsTuple2,
     points_len: u32,
+    fill_enabled: bool,
     color: vec4<f32>,
+    outline_width: f32,
+    outline_position: u32,
+    outline_color: vec4<f32>,
 };
 
 fn props(instance_index: u32) -> ZeriumProps {
     let raw = item_props(instance_index);
-    return ZeriumProps(raw, ZeriumPropsTuple0(read_f32(raw, 0u), read_f32(raw, 0u + 4u)), ZeriumPropsTuple1(read_u32(raw, 8u), read_u32(raw, 8u + 4u)), ZeriumPropsTuple2(read_f32(raw, 16u), read_f32(raw, 16u + 4u)), read_u32(raw, 28u), vec4(read_f32(raw, 32u), read_f32(raw, 32u + 4u), read_f32(raw, 32u + 8u), read_f32(raw, 32u + 12u)));
+    return ZeriumProps(raw, ZeriumPropsTuple0(read_f32(raw, 0u), read_f32(raw, 0u + 4u)), ZeriumPropsTuple1(read_u32(raw, 8u), read_u32(raw, 8u + 4u)), ZeriumPropsTuple2(read_f32(raw, 16u), read_f32(raw, 16u + 4u)), read_u32(raw, 28u), read_bool(raw, 32u), vec4(read_f32(raw, 36u), read_f32(raw, 36u + 4u), read_f32(raw, 36u + 8u), read_f32(raw, 36u + 12u)), read_f32(raw, 52u), read_u32(raw, 56u), vec4(read_f32(raw, 60u), read_f32(raw, 60u + 4u), read_f32(raw, 60u + 8u), read_f32(raw, 60u + 12u)));
 }
 
 fn get_points(properties: ZeriumProps, index: u32) -> ZeriumPropsTuple3 {
