@@ -43,7 +43,7 @@ serde.workspace = true
 serde_json.workspace = true
 sys-locale = "0.3.2"
 thiserror.workspace = true
-ui = { git = "https://github.com/1Step621/WGPUI-Component", branch = "fix/input-selection-replacement" }
+ui = { git = "https://github.com/1Step621/WGPUI-Component", rev = "068e42ac552206db7a6afbeb1771fb2bead1b90c" }
 unicode-segmentation = "1.12"
 url = "2"
 velopack = { version = "=1.2.161", optional = true }
