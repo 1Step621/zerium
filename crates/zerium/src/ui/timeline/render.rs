@@ -676,7 +676,7 @@ impl Timeline {
                             .rounded_full()
                             .border_2()
                             .border_color(colors.background)
-                            .bg(STRETCH_COLOR)
+                            .bg(colors.primary)
                             .on_mouse_down(MouseButton::Left, |_, _, cx| {
                                 cx.stop_propagation();
                             })
@@ -689,8 +689,8 @@ impl Timeline {
                             .when(movable, |marker| {
                                 marker
                                     .cursor_col_resize()
-                                    .hover(move |style| style.bg(STRETCH_COLOR.lighten(0.14)))
-                                    .active(move |style| style.bg(STRETCH_COLOR.darken(0.14)))
+                                    .hover(move |style| style.bg(colors.primary_hover))
+                                    .active(move |style| style.bg(colors.primary_active))
                                     .on_drag(drag, move |drag, _, window, cx| {
                                         cx.stop_propagation();
                                         // A press redraws the marker; initialize the retained

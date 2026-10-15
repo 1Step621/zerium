@@ -7,7 +7,7 @@ use std::{
 };
 
 use ::ui::{
-    ActiveTheme as _, Colorize as _, Icon, IconName, Sizable as _, ThemeColor,
+    ActiveTheme as _, Icon, IconName, Sizable as _, ThemeColor,
     button::{Button, ButtonVariants as _},
     menu::{PopupMenu, PopupMenuItem, popup_menu::PopupMenuExt as _},
 };
@@ -49,7 +49,7 @@ mod render;
 mod stretch;
 mod viewport;
 
-use stretch::{STRETCH_COLOR, StretchPointDrag};
+use stretch::StretchPointDrag;
 use viewport::TimelineViewport;
 
 const LAYER_HEADER_WIDTH: f32 = 200.;
