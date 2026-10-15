@@ -5,7 +5,6 @@ use zerium_core::timeline::TimelineEditor;
 mod about;
 pub(crate) mod animation_curve;
 mod config;
-mod copy_buffer;
 pub(crate) mod explorer;
 pub(crate) mod export;
 mod file_import;

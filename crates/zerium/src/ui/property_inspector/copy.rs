@@ -1,7 +1,7 @@
 use rust_i18n::t;
 
 use super::*;
-use crate::ui::copy_buffer::{CopyBuffer, EffectCopy};
+use crate::app::copy_buffer::{CopyBuffer, EffectCopy};
 use ::ui::menu::PopupMenu;
 
 impl PropertyInspector {

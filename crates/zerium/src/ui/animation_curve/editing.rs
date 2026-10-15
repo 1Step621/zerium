@@ -1,5 +1,5 @@
 use super::*;
-use crate::ui::{TimelineEditorEntityExt as _, copy_buffer::CopyBuffer};
+use crate::{app::copy_buffer::CopyBuffer, ui::TimelineEditorEntityExt as _};
 use ::ui::menu::PopupMenu;
 use rust_i18n::t;
 use std::cell::RefCell;

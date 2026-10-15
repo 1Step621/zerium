@@ -1,6 +1,7 @@
 pub(crate) mod actions;
 mod bootstrap;
 pub(crate) mod config;
+pub(crate) mod copy_buffer;
 mod gpu;
 pub(crate) mod media_metadata;
 mod persistence;

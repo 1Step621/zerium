@@ -8,21 +8,21 @@ use zerium_core::{
 
 /// Copies shared within this application, independently of the system clipboard.
 #[derive(Default)]
-pub(super) struct CopyBuffer {
-    pub effects: Option<Rc<EffectCopy>>,
-    pub curve: Option<SegmentInterpolation>,
+pub(crate) struct CopyBuffer {
+    pub(crate) effects: Option<Rc<EffectCopy>>,
+    pub(crate) curve: Option<SegmentInterpolation>,
 }
 
 impl gpui::Global for CopyBuffer {}
 
-pub(super) struct EffectCopy {
-    pub effects: Vec<EffectInstance>,
-    pub hidden: Vec<EffectInstanceId>,
-    pub media_cache: MediaMetadataCache,
+pub(crate) struct EffectCopy {
+    pub(crate) effects: Vec<EffectInstance>,
+    pub(crate) hidden: Vec<EffectInstanceId>,
+    pub(crate) media_cache: MediaMetadataCache,
 }
 
 impl EffectCopy {
-    pub(super) fn capture(editor: &TimelineEditor, effects: &[EffectInstance]) -> Self {
+    pub(crate) fn capture(editor: &TimelineEditor, effects: &[EffectInstance]) -> Self {
         Self {
             hidden: effects
                 .iter()
