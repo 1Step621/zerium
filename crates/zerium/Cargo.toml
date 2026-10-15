@@ -52,7 +52,8 @@ zerium-core.workspace = true
 zerium-shader.workspace = true
 
 [target.'cfg(windows)'.dependencies]
-# Keep the Windows bindings compatible with wgpu-hal and gpu-allocator.
+# gpu-allocator must resolve to this version in Cargo.lock to share D3D12 types
+# with wgpu-hal. cpal separately requires windows 0.54.
 windows = { version = "=0.62.0", default-features = false }
 winreg = { version = "0.56", optional = true }
 
