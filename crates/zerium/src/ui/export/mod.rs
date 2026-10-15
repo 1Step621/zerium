@@ -330,7 +330,7 @@ impl ExportController {
         {
             Ok(renderer) => renderer,
             Err(error) => {
-                eprintln!("dedicated export device unavailable, sharing preview device: {error}");
+                log::warn!("dedicated export device unavailable, sharing preview device: {error}");
                 let Some(renderer) = self.render_runtime.read(cx).preview_session() else {
                     let message = t!("export.gpu_renderer_unavailable").to_string();
                     self.notifications

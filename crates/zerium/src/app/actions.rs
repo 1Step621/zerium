@@ -17,6 +17,8 @@ gpui::actions!(
         SaveProjectAs,
         OpenProjectSettings,
         OpenExportDialog,
+        OpenLogFolder,
+        OpenAboutDialog,
         OpenItemPicker,
         OpenEffectPicker
     ]

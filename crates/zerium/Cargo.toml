@@ -19,6 +19,7 @@ bytemuck = { version = "1.25", features = ["derive"] }
 cosmic-text = "0.18.2"
 cpal = "0.15"
 directories = "5"
+env_logger = { version = "0.11", default-features = false, features = ["humantime"] }
 evalexpr.workspace = true
 futures = "0.3"
 gpu-video = { git = "https://github.com/software-mansion/smelter", rev = "6637f3df71282c816140cd3bb9821d69b30be2ba" }
@@ -29,6 +30,7 @@ gstreamer-pbutils = { version = "0.25", features = ["v1_24"] }
 gstreamer-video = { version = "0.25", features = ["v1_24"] }
 gpui = { package = "gpui-ce", git = "https://github.com/1Step621/WGPUI", branch = "fix/input-selection-replacement" }
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "bmp", "tiff", "gif"] }
+log = "0.4"
 mp4 = "0.14"
 pollster = "0.4"
 resvg = "0.47"

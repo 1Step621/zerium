@@ -157,6 +157,21 @@ impl Workspace {
         });
     }
 
+    fn open_log_folder(&mut self, _: &OpenLogFolder, _: &mut Window, cx: &mut Context<Self>) {
+        if let Some(path) = crate::logging::log_file() {
+            cx.reveal_path(path);
+        }
+    }
+
+    fn open_about_dialog(
+        &mut self,
+        _: &OpenAboutDialog,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        super::about::open(window, cx);
+    }
+
     fn open_item_picker(
         &mut self,
         _: &OpenItemPicker,
@@ -262,6 +277,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::save_project_as))
             .on_action(cx.listener(Self::open_project_settings))
             .on_action(cx.listener(Self::open_export_dialog))
+            .on_action(cx.listener(Self::open_log_folder))
+            .on_action(cx.listener(Self::open_about_dialog))
             .on_action(cx.listener(Self::open_item_picker))
             .on_action(cx.listener(Self::open_effect_picker))
             .size_full()
@@ -349,6 +366,25 @@ impl Render for Workspace {
                                             t!("menu.paste").to_string(),
                                             Box::new(PasteItems),
                                             !can_paste,
+                                        )
+                                    }),
+                            )
+                            .child(
+                                Button::new("help-menu")
+                                    .small()
+                                    .compact()
+                                    .ghost()
+                                    .label(t!("menu.help").to_string())
+                                    .popup_menu(|menu, _, _| {
+                                        menu.menu_with_disabled(
+                                            t!("menu.open_log_folder").to_string(),
+                                            Box::new(OpenLogFolder),
+                                            crate::logging::log_file().is_none(),
+                                        )
+                                        .separator()
+                                        .menu(
+                                            t!("menu.about").to_string(),
+                                            Box::new(OpenAboutDialog),
                                         )
                                     }),
                             ),

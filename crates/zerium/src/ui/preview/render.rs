@@ -11,27 +11,17 @@ impl Preview {
     const METER_MIN_DB: f32 = -60.;
     const BAR_THICKNESS: f32 = 6.;
 
-    fn render_controls(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+    fn render_controls(&self, cx: &mut Context<Self>) -> impl IntoElement {
         let colors = cx.theme().colors;
         let (current, end, frame_rate) = {
             let editor = self.editor.read(cx);
-            let frame_rate = editor.frame_rate();
-            let end = editor.end_frame_exclusive();
-            let current = editor
-                .playback_time_seconds()
-                .map(|seconds| frame_rate.seconds_to_frame(seconds))
-                .unwrap_or_else(|| editor.playhead());
-            (current, end, frame_rate)
+            (
+                editor.playhead(),
+                editor.end_frame_exclusive(),
+                editor.frame_rate(),
+            )
         };
-        let ratio = if end.get() == 0 {
-            0.
-        } else {
-            (current.get() as f32 / end.get() as f32).clamp(0., 1.)
-        };
-        if (self.seekbar.read(cx).value().start() - ratio).abs() > f32::EPSILON {
-            self.seekbar
-                .update(cx, |seekbar, cx| seekbar.set_value(ratio, window, cx));
-        }
+        let ratio = self.seekbar_progress(cx);
         let current_label = format!(
             "{}  {}f",
             time_grid::format_timestamp(frame_rate.frame_to_seconds(current)),
@@ -151,8 +141,10 @@ impl Preview {
 impl Render for Preview {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.transport.read(cx).is_playing() {
-            self.transport
-                .update(cx, |transport, cx| transport.advance(cx));
+            let transport = self.transport.clone();
+            window.on_next_frame(move |_, cx| {
+                transport.update(cx, |transport, cx| transport.advance(cx));
+            });
             window.request_animation_frame();
         }
         self.render_latest_frame(cx);
@@ -264,6 +256,6 @@ impl Render for Preview {
                         colors.primary,
                     )),
             )
-            .child(self.render_controls(window, cx))
+            .child(self.render_controls(cx))
     }
 }

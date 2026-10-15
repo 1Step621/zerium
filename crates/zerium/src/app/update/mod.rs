@@ -26,7 +26,7 @@ pub(crate) fn start(cx: &mut App) {
     cx.background_spawn(async {
         match download_update() {
             Ok(()) | Err(velopack::Error::NotInstalled(_)) => {}
-            Err(error) => eprintln!("automatic update failed: {error}"),
+            Err(error) => log::warn!("automatic update failed: {error}"),
         }
     })
     .detach();

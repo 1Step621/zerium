@@ -213,6 +213,20 @@ Startup selects a shared `rust-i18n` locale for core labels and the UI.
 User-authored names are plain text; translated defaults come from the UI.
 Plugin label lookup is described in [Plugin API v1](plugin.md#manifest).
 
+## Diagnostics
+
+Startup initializes file logging before platform and update initialization.
+Each process appends timestamped Rust log records to its own file in the user's
+application state directory, falling back to the local data directory on platforms
+without a state directory. Startup retains the latest ten log files. The Help menu
+reveals the current log in the system file manager. Logs also go to stderr;
+`RUST_LOG` controls verbosity, defaulting to application info and dependency warnings.
+User notifications and GPU fallback decisions use the same logging path.
+
+The process-wide Rust panic hook writes the panic location, thread, and a forced
+backtrace directly to the current file and syncs it before invoking the previous
+hook. Panic reporting bypasses normal log filtering and logger locks.
+
 ## Application updates
 
 The app checks GitHub Releases in the background. Velopack applies pending

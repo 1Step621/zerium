@@ -256,7 +256,7 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                                 });
                                 window.activate_window();
                             }) {
-                                eprintln!(
+                                log::error!(
                                     "failed to open project from system notification: {error}"
                                 );
                             }

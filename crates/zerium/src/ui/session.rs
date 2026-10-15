@@ -33,6 +33,11 @@ impl UiNotifications {
     }
 
     fn push_inner(&mut self, message: SharedString, success: bool) {
+        if success {
+            log::info!("{message}");
+        } else {
+            log::warn!("{message}");
+        }
         if self.messages.len() == Self::MAX_MESSAGES {
             self.messages.pop_front();
         }

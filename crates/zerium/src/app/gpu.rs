@@ -10,6 +10,7 @@ pub(super) fn wgpu_options() -> gpui::WgpuOptions {
             wgpu::Backends::VULKAN
         },
         device_factory: Some(Arc::new(|adapter, descriptor| {
+            log::info!("GPU adapter: {:?}", adapter.get_info());
             GpuContext::request(adapter, descriptor)
                 .map(|gpu| (gpu.device, gpu.queue))
                 .map_err(Into::into)

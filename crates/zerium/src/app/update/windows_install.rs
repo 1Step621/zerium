@@ -13,7 +13,7 @@ pub(crate) fn configure(install: bool) {
         configure_registry(directory, install)
     });
     if let Err(error) = result {
-        eprintln!("failed to configure Windows integration: {error}");
+        log::warn!("failed to configure Windows integration: {error}");
     }
 }
 

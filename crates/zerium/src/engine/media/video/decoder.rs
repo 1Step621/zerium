@@ -133,7 +133,7 @@ impl VideoDecoder for VideoDecodeSession {
         match self.decode_frame(time, cancelled) {
             Err(MediaError::Cancelled) => Err(MediaError::Cancelled),
             Err(error) if self.gpu.is_some() => {
-                eprintln!("GPU video decoding unavailable; using CPU decoding: {error}");
+                log::warn!("GPU video decoding unavailable; using CPU decoding: {error}");
                 self.close();
                 self.gpu = None;
                 self.decode_frame(time, cancelled)

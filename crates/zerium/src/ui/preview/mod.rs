@@ -5,7 +5,7 @@ use std::sync::Arc;
 use ::ui::slider::{SliderEvent, SliderState};
 use futures::StreamExt as _;
 use gpui::{
-    Context, Entity, SharedString, Subscription, Task, WgpuSurfaceHandle, Window, prelude::*,
+    App, Context, Entity, SharedString, Subscription, Task, WgpuSurfaceHandle, Window, prelude::*,
 };
 
 mod editor_overlay;
@@ -112,7 +112,10 @@ impl Preview {
                 .transport
                 .update(cx, |transport, cx| transport.set_playhead(frame, cx));
         });
-        let editor_subscription = cx.observe(&editor, |_, _, cx| cx.notify());
+        let editor_subscription = cx.observe_in(&editor, window, |preview, _, window, cx| {
+            preview.sync_seekbar(window, cx);
+            cx.notify();
+        });
         let transport_subscription = cx.observe(&transport, |_, _, cx| cx.notify());
         let session_subscription = cx.observe(&session, |this, _, cx| {
             let session_id = this.session.read(cx).id();
@@ -206,6 +209,24 @@ impl Preview {
                 seekbar_subscription,
             ],
             _frame_task: frame_task,
+        }
+    }
+
+    fn seekbar_progress(&self, cx: &App) -> f32 {
+        let editor = self.editor.read(cx);
+        let end = editor.end_frame_exclusive().get();
+        if end == 0 {
+            0.
+        } else {
+            (editor.playhead().get() as f32 / end as f32).clamp(0., 1.)
+        }
+    }
+
+    fn sync_seekbar(&self, window: &mut Window, cx: &mut Context<Self>) {
+        let ratio = self.seekbar_progress(cx);
+        if (self.seekbar.read(cx).value().start() - ratio).abs() > f32::EPSILON {
+            self.seekbar
+                .update(cx, |seekbar, cx| seekbar.set_value(ratio, window, cx));
         }
     }
 

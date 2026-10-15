@@ -8,16 +8,18 @@ rust_i18n::i18n!("../../locales", fallback = "en-us");
 mod app;
 mod engine;
 mod i18n;
+mod logging;
 mod plugin_loader;
 mod project_session;
 mod ui;
 
 fn main() {
+    logging::initialize();
     engine::gstreamer::configure_bundle();
     app::initialize_updates();
 
     if let Err(error) = run() {
-        eprintln!("{error}");
+        log::error!("{error}");
         std::process::exit(1);
     }
 }

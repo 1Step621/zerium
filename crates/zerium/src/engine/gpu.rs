@@ -28,7 +28,7 @@ impl GpuContext {
                 },
             ) {
                 Ok((device, queue)) => return Ok(Self::new(device, queue)),
-                Err(error) => eprintln!(
+                Err(error) => log::warn!(
                     "Video GPU device initialization failed; using a regular GPU device: {error}"
                 ),
             }

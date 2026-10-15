@@ -91,7 +91,7 @@ impl ExportVideoPipeline {
         let native = match native {
             Ok(native) => native,
             Err(error) => {
-                eprintln!(
+                log::warn!(
                     "GPU video encoder could not be initialized; using CPU readback: {error}"
                 );
                 None
@@ -105,7 +105,7 @@ impl ExportVideoPipeline {
                 (Backend::Readback(readback), encoding)
             }
         };
-        eprintln!(
+        log::info!(
             "Video export backend: {}",
             match &backend {
                 Backend::Readback(_) => "CPU readback / x264",

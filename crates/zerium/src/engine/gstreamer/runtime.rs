@@ -3,8 +3,12 @@ use std::sync::OnceLock;
 
 pub(crate) fn initialize() -> Result<(), String> {
     static INIT: OnceLock<Result<(), String>> = OnceLock::new();
-    INIT.get_or_init(|| gstreamer::init().map_err(|error| error.to_string()))
-        .clone()
+    INIT.get_or_init(|| {
+        gstreamer::init().map_err(|error| error.to_string())?;
+        log::info!("GStreamer {} initialized", gstreamer::version_string());
+        Ok(())
+    })
+    .clone()
 }
 
 /// Configure relocated release bundles before any application threads start.
