@@ -247,10 +247,7 @@ impl Render for Workspace {
         }
         let export_progress = self.export_controller.read(cx).export_progress();
         let cancelling = self.export_controller.read(cx).is_cancelling();
-        let can_undo = self.timeline.read(cx).can_undo(cx);
-        let can_redo = self.timeline.read(cx).can_redo(cx);
-        let can_copy = self.timeline.read(cx).can_copy_items(cx);
-        let can_paste = self.timeline.read(cx).can_paste_items(cx);
+        let edit_timeline = self.timeline.clone();
         window.set_window_title(&self.project_controller.read(cx).window_title(cx));
         let drawer_layer = Root::render_drawer_layer(window, cx);
         let modal_layer = Root::render_modal_layer(window, cx);
@@ -340,7 +337,12 @@ impl Render for Workspace {
                                     .compact()
                                     .ghost()
                                     .label(t!("menu.edit").to_string())
-                                    .popup_menu(move |menu, _, _| {
+                                    .popup_menu(move |menu, _, cx| {
+                                        let timeline = edit_timeline.read(cx);
+                                        let can_undo = timeline.can_undo(cx);
+                                        let can_redo = timeline.can_redo(cx);
+                                        let can_copy = timeline.can_copy_items(cx);
+                                        let can_paste = timeline.can_paste_items(cx);
                                         menu.menu_with_disabled(
                                             t!("menu.undo").to_string(),
                                             Box::new(Undo),
