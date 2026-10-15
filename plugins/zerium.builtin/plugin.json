@@ -4384,73 +4384,48 @@
     },
     {
       "id": "tile_layers",
-      "label": {"ja-JP": "モーションタイル", "en-US": "Motion Tile"},
-      "category": "composite",
-      "tags": ["繰り返し", "タイル", "repeat", "tile", "背面レイヤーのループ配置", "Tile Back Layers"],
+      "label": {"ja-JP": "タイル配置", "en-US": "Tile Repeat"},
+      "category": "transform",
+      "tags": ["繰り返し", "タイル", "複製", "整列", "repeat", "tile", "grid", "モーションタイル", "Motion Tile"],
       "render": {
         "passes": [{"type": "render", "shader": {"module": "effects::tile_layers::render"}}],
         "bounds": {
-          "min": ["viewport::min::x", "viewport::min::y"],
-          "max": ["viewport::max::x", "viewport::max::y"]
+          "min": [
+            "placement_center(input::center::x + p::offset::v0, math::abs(input::size::x * p::scale::v0 / 100 + p::padding::v0) * (p::count::v0 - 1), p::origin::v0) - (input::size::x * p::scale::v0 / 100 + math::abs(input::size::x * p::scale::v0 / 100 + p::padding::v0) * (p::count::v0 - 1)) / 2",
+            "placement_center(input::center::y + p::offset::v1, math::abs(input::size::y * p::scale::v1 / 100 + p::padding::v1) * (p::count::v1 - 1), p::origin::v1) - (input::size::y * p::scale::v1 / 100 + math::abs(input::size::y * p::scale::v1 / 100 + p::padding::v1) * (p::count::v1 - 1)) / 2"
+          ],
+          "max": [
+            "placement_center(input::center::x + p::offset::v0, math::abs(input::size::x * p::scale::v0 / 100 + p::padding::v0) * (p::count::v0 - 1), p::origin::v0) + (input::size::x * p::scale::v0 / 100 + math::abs(input::size::x * p::scale::v0 / 100 + p::padding::v0) * (p::count::v0 - 1)) / 2",
+            "placement_center(input::center::y + p::offset::v1, math::abs(input::size::y * p::scale::v1 / 100 + p::padding::v1) * (p::count::v1 - 1), p::origin::v1) + (input::size::y * p::scale::v1 / 100 + math::abs(input::size::y * p::scale::v1 / 100 + p::padding::v1) * (p::count::v1 - 1)) / 2"
+          ]
         },
-        "inputs": [
-          {
-            "type": "render_result",
-            "id": "behind",
-            "start_offset": "start_offset",
-            "end_offset": "end_offset",
-            "hide_original": "hide_original"
-          }
-        ]
+        "input_space": "source"
       },
-      "editor": [{"type": "position", "property": "offset"}],
       "properties": [
         {
-          "id": "start_offset",
-          "label": {"ja-JP": "開始オフセット", "en-US": "Start Offset"},
-          "type": "u32",
-          "default": 1,
-          "constraints": {"min": 1, "max": 30},
-          "ui": {"step": 1}
-        },
-        {
-          "id": "end_offset",
-          "label": {"ja-JP": "終了オフセット", "en-US": "End Offset"},
-          "type": "u32",
-          "default": 30,
-          "constraints": {"min": 1, "max": 30},
-          "ui": {"step": 1}
-        },
-        {
-          "id": "hide_original",
-          "label": {"ja-JP": "原本を隠す", "en-US": "Hide Original"},
-          "type": "bool",
-          "default": false
-        },
-        {
-          "id": "tile_size",
-          "label": {"ja-JP": "タイルサイズ", "en-US": "Tile Size"},
+          "id": "count",
+          "label": {"ja-JP": "個数", "en-US": "Count"},
           "type": "tuple",
           "elements": [
             {
-              "type": "f32",
-              "default": 320,
+              "type": "u32",
+              "default": 3,
               "animatable": true,
-              "constraints": {"min": 1, "max": 10000},
-              "ui": {"label": {"ja-JP": "X", "en-US": "X"}, "unit": "px"}
+              "constraints": {"min": 1, "max": 100},
+              "ui": {"label": {"ja-JP": "X", "en-US": "X"}, "step": 1}
             },
             {
-              "type": "f32",
-              "default": 180,
+              "type": "u32",
+              "default": 3,
               "animatable": true,
-              "constraints": {"min": 1, "max": 10000},
-              "ui": {"label": {"ja-JP": "Y", "en-US": "Y"}, "unit": "px"}
+              "constraints": {"min": 1, "max": 100},
+              "ui": {"label": {"ja-JP": "Y", "en-US": "Y"}, "step": 1}
             }
           ]
         },
         {
           "id": "offset",
-          "label": {"ja-JP": "位置", "en-US": "Offset"},
+          "label": {"ja-JP": "移動量", "en-US": "Offset"},
           "type": "tuple",
           "elements": [
             {
@@ -4470,25 +4445,73 @@
           ]
         },
         {
-          "id": "angle",
-          "label": {"ja-JP": "角度", "en-US": "Angle"},
-          "type": "f32",
-          "default": 0,
-          "animatable": true,
-          "constraints": {"min": -3600, "max": 3600},
-          "ui": {"unit": "°"}
+          "id": "origin",
+          "label": {"ja-JP": "原点", "en-US": "Origin"},
+          "type": "tuple",
+          "elements": [
+            {
+              "type": "enum",
+              "variants": [
+                {"value": 0, "label": {"ja-JP": "左", "en-US": "Left"}},
+                {"value": 1, "label": {"ja-JP": "中央", "en-US": "Center"}},
+                {"value": 2, "label": {"ja-JP": "右", "en-US": "Right"}}
+              ],
+              "default": 1,
+              "ui": {"label": {"ja-JP": "X", "en-US": "X"}}
+            },
+            {
+              "type": "enum",
+              "variants": [
+                {"value": 0, "label": {"ja-JP": "上", "en-US": "Top"}},
+                {"value": 1, "label": {"ja-JP": "中央", "en-US": "Center"}},
+                {"value": 2, "label": {"ja-JP": "下", "en-US": "Bottom"}}
+              ],
+              "default": 1,
+              "ui": {"label": {"ja-JP": "Y", "en-US": "Y"}}
+            }
+          ]
         },
         {
-          "id": "mirror",
-          "label": {"ja-JP": "交互に反転", "en-US": "Alternate Mirror"},
-          "type": "bool",
-          "default": false
+          "id": "scale",
+          "label": {"ja-JP": "拡大率", "en-US": "Scale"},
+          "type": "tuple",
+          "elements": [
+            {
+              "type": "f32",
+              "default": 100,
+              "animatable": true,
+              "constraints": {"min": 0, "max": 1000},
+              "ui": {"label": {"ja-JP": "X", "en-US": "X"}, "unit": "%", "step": 1}
+            },
+            {
+              "type": "f32",
+              "default": 100,
+              "animatable": true,
+              "constraints": {"min": 0, "max": 1000},
+              "ui": {"label": {"ja-JP": "Y", "en-US": "Y"}, "unit": "%", "step": 1}
+            }
+          ]
         },
         {
-          "id": "clip_to_input",
-          "label": {"ja-JP": "アイテムの形で切り抜く", "en-US": "Clip to Item"},
-          "type": "bool",
-          "default": true
+          "id": "padding",
+          "label": {"ja-JP": "余白", "en-US": "Padding"},
+          "type": "tuple",
+          "elements": [
+            {
+              "type": "f32",
+              "default": 0,
+              "animatable": true,
+              "constraints": {"min": -10000, "max": 10000},
+              "ui": {"label": {"ja-JP": "X", "en-US": "X"}, "unit": "px", "step": 1}
+            },
+            {
+              "type": "f32",
+              "default": 0,
+              "animatable": true,
+              "constraints": {"min": -10000, "max": 10000},
+              "ui": {"label": {"ja-JP": "Y", "en-US": "Y"}, "unit": "px", "step": 1}
+            }
+          ]
         }
       ]
     }
