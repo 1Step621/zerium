@@ -2,7 +2,7 @@ use std::sync::Arc;
 
 use ::ui::{
     ActiveTheme as _, ContextModal as _, IconName, StyledExt as _,
-    button::{Button, ButtonVariant},
+    button::{Button, ButtonVariant, ButtonVariants as _},
     modal::{Modal, ModalButtonProps},
 };
 use gpui::{
@@ -108,23 +108,40 @@ pub(super) fn open(window: &mut Window, cx: &mut App) {
                                 div()
                                     .w_full()
                                     .flex()
-                                    .gap_3()
+                                    .flex_col()
+                                    .gap_2()
                                     .child(
-                                        Button::new("about-website")
-                                            .flex_1()
-                                            .icon(IconName::Globe)
-                                            .label(t!("about.website").to_string())
-                                            .on_click(|_, _, cx| {
-                                                cx.open_url("https://zerium.pages.dev");
-                                            }),
+                                        div()
+                                            .flex()
+                                            .gap_3()
+                                            .child(
+                                                Button::new("about-website")
+                                                    .flex_1()
+                                                    .icon(IconName::Globe)
+                                                    .label(t!("about.website").to_string())
+                                                    .on_click(|_, _, cx| {
+                                                        cx.open_url("https://zerium.pages.dev");
+                                                    }),
+                                            )
+                                            .child(
+                                                Button::new("about-github")
+                                                    .flex_1()
+                                                    .icon(IconName::Github)
+                                                    .label("GitHub")
+                                                    .on_click(|_, _, cx| {
+                                                        cx.open_url(
+                                                            "https://github.com/1Step621/zerium",
+                                                        );
+                                                    }),
+                                            ),
                                     )
                                     .child(
-                                        Button::new("about-github")
-                                            .flex_1()
-                                            .icon(IconName::Github)
-                                            .label("GitHub")
+                                        Button::new("about-ko-fi")
+                                            .primary()
+                                            .w_full()
+                                            .label(t!("support.open_ko_fi").to_string())
                                             .on_click(|_, _, cx| {
-                                                cx.open_url("https://github.com/1Step621/zerium");
+                                                cx.open_url(super::support::KO_FI_URL);
                                             }),
                                     ),
                             ),

@@ -51,9 +51,10 @@ Validation rejects unknown fields, invalid defaults, unresolved references, and
 shader mismatches. Later examples are declaration fragments.
 
 Display labels are locale maps keyed by BCP 47 tags. Zerium selects
-`ZERIUM_LANGUAGE`, the system locale, or `en-US`, in that order. Lookup tries a
-case-insensitive exact match, `en-US`, then the first translation ordered by
-locale key; region tags do not fall back to language-only tags.
+the `language` override in `config.json`, the system locale, or `en-US`, in that
+order. Lookup tries a case-insensitive exact match, `en-US`, then the first
+translation ordered by locale key; region tags do not fall back to language-only
+tags.
 
 Items select `shape`, `text`, `media`, `composite`, or `other`. Effects select
 `transform`, `color`, `style`, `filter`, `composite`, or `other`.

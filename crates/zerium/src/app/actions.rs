@@ -16,6 +16,7 @@ gpui::actions!(
         SaveProject,
         SaveProjectAs,
         OpenProjectSettings,
+        OpenSettings,
         OpenExportDialog,
         OpenLogFolder,
         OpenAboutDialog,

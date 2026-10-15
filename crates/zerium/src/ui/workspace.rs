@@ -172,6 +172,10 @@ impl Workspace {
         super::about::open(window, cx);
     }
 
+    fn open_settings(&mut self, _: &OpenSettings, window: &mut Window, cx: &mut Context<Self>) {
+        super::config::open(window, cx);
+    }
+
     fn open_item_picker(
         &mut self,
         _: &OpenItemPicker,
@@ -273,6 +277,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::save_project))
             .on_action(cx.listener(Self::save_project_as))
             .on_action(cx.listener(Self::open_project_settings))
+            .on_action(cx.listener(Self::open_settings))
             .on_action(cx.listener(Self::open_export_dialog))
             .on_action(cx.listener(Self::open_log_folder))
             .on_action(cx.listener(Self::open_about_dialog))
@@ -368,6 +373,11 @@ impl Render for Workspace {
                                             t!("menu.paste").to_string(),
                                             Box::new(PasteItems),
                                             !can_paste,
+                                        )
+                                        .separator()
+                                        .menu(
+                                            t!("menu.settings").to_string(),
+                                            Box::new(OpenSettings),
                                         )
                                     }),
                             )

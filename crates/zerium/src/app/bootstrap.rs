@@ -7,12 +7,19 @@ use gpui::{
 };
 
 use super::actions::*;
+use super::{config::ConfigStore, state::StateStore};
 use crate::ui::workspace::{WORKSPACE_KEY_CONTEXT, WORKSPACE_SHORTCUT_KEY_CONTEXT, Workspace};
 
 const WINDOW_ICON_PNG: &[u8] = include_bytes!("../../../../assets/zerium.png");
 
 pub(crate) fn run(initial_project: Option<PathBuf>) {
-    crate::i18n::initialize();
+    let config = ConfigStore::load("config.json");
+    let state = StateStore::load("state.json");
+    let language = config
+        .as_ref()
+        .ok()
+        .and_then(|store| store.value().language.as_deref());
+    crate::i18n::initialize(language);
     let wgpu_options = super::gpu::wgpu_options();
     let application =
         Application::with_wgpu_options_and_locale(wgpu_options, Some(crate::i18n::locale()));
@@ -39,6 +46,14 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
     application
         .with_assets(::ui::assets::Assets)
         .run(move |cx: &mut App| {
+            match config {
+                Ok(store) => cx.set_global(store),
+                Err(error) => log::warn!("Could not load config.json: {error}"),
+            }
+            match state {
+                Ok(store) => cx.set_global(store),
+                Err(error) => log::warn!("Could not load state.json: {error}"),
+            }
             super::start_updates(cx);
             ::ui::init(cx);
             crate::ui::theme::install(cx);
@@ -92,6 +107,7 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                 KeyBinding::new("secondary-n", NewProject, Some(WORKSPACE_KEY_CONTEXT)),
                 KeyBinding::new("secondary-o", OpenProject, Some(WORKSPACE_KEY_CONTEXT)),
                 KeyBinding::new("secondary-s", SaveProject, Some(WORKSPACE_KEY_CONTEXT)),
+                KeyBinding::new("secondary-,", OpenSettings, Some(WORKSPACE_KEY_CONTEXT)),
                 KeyBinding::new(
                     "secondary-shift-s",
                     SaveProjectAs,
@@ -347,6 +363,7 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                     });
                     let workspace_focus = workspace.read(cx).focus_handle.clone();
                     window.focus(&workspace_focus, cx);
+                    window.defer(cx, crate::ui::support::show_startup_reminder);
                     cx.new(|cx| Root::new(workspace.into(), window, cx))
                 },
             )

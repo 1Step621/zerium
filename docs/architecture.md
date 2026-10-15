@@ -39,6 +39,29 @@ loaded values and clipboard input; pastes assign fresh IDs. Filesystem access an
 atomic replacement belong to
 [`engine::project_io`](../crates/zerium/src/engine/project_io.rs).
 
+## Application state and configuration
+
+[`app::state`](../crates/zerium/src/app/state.rs) defines automatically recorded
+`AppState` in `state.json`, such as support reminder history.
+[`app::config`](../crates/zerium/src/app/config.rs) defines user-selected settings
+as `AppConfig` in `config.json`, including language and support reminder preferences.
+Both files live in the user config directory and are created with defaults when
+missing. Unspecified configuration options follow application defaults.
+
+[`app::persistence`](../crates/zerium/src/app/persistence.rs) provides the shared
+`JsonStore<T>` implementation. `StateStore` and `ConfigStore` are GPUI globals
+accessed through `read(cx)` and `update(cx, |value| { ... })`. Updates atomically
+save the file before replacing the in-memory value. Load errors are logged;
+invalid files are left intact and the corresponding store remains unavailable.
+
+Both stores load together before GPUI startup and are registered when the
+application context becomes available. Language selection happens before UI and
+font initialization, using the configured override, system locale, or `en-US`.
+Language changes take effect on the next launch.
+
+The [settings dialog](../crates/zerium/src/ui/config.rs) edits a draft of
+`AppConfig`. Save commits it through `ConfigStore`; Cancel discards the draft.
+
 ## Rendering
 
 [`engine/rendering`](../crates/zerium/src/engine/rendering/) shares scene evaluation

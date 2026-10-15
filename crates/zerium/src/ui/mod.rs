@@ -4,6 +4,7 @@ use zerium_core::timeline::TimelineEditor;
 
 mod about;
 pub(crate) mod animation_curve;
+mod config;
 mod copy_buffer;
 pub(crate) mod explorer;
 pub(crate) mod export;
@@ -20,6 +21,7 @@ pub(crate) mod property_inspector;
 pub(crate) mod scene_settings;
 pub(crate) mod search_picker;
 pub(crate) mod session;
+pub(crate) mod support;
 pub(crate) mod theme;
 pub(crate) mod time_grid;
 pub(crate) mod timeline;

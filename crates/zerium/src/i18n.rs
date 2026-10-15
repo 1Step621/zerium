@@ -1,11 +1,13 @@
 //! Application translations and locale selection.
 
-pub(crate) fn initialize() {
-    let locale = std::env::var("ZERIUM_LANGUAGE")
-        .ok()
+pub(crate) fn initialize(language: Option<&str>) {
+    let locale = language
+        .map(str::trim)
+        .filter(|language| !language.is_empty())
+        .map(str::to_owned)
         .or_else(sys_locale::get_locale)
         .unwrap_or_else(|| "en-us".to_owned());
-    rust_i18n::set_locale(&locale.to_ascii_lowercase());
+    rust_i18n::set_locale(&locale.replace('_', "-").to_ascii_lowercase());
 }
 
 pub(crate) fn locale() -> String {
