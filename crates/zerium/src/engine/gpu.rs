@@ -9,6 +9,9 @@ pub(crate) struct GpuContext {
 
 impl GpuContext {
     pub(crate) fn new(device: wgpu::Device, queue: wgpu::Queue) -> Self {
+        device.set_device_lost_callback(|reason, message| {
+            log::error!("GPU device lost ({reason:?}): {message}");
+        });
         Self { device, queue }
     }
 

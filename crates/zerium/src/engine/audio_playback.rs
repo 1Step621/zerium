@@ -241,7 +241,7 @@ impl AudioPlaybackEngine {
             ))
         })?;
         let format = AudioFormat {
-            sample_rate: supported.sample_rate().0,
+            sample_rate: supported.sample_rate(),
             channels: supported.channels(),
         };
         let seed_time = TimelineTime::from_frames(start_seconds * frame_rate.frames_per_second());
@@ -500,10 +500,12 @@ fn build_output_stream(
     match supported.sample_format() {
         cpal::SampleFormat::I8 => build_stream!(i8),
         cpal::SampleFormat::I16 => build_stream!(i16),
+        cpal::SampleFormat::I24 => build_stream!(cpal::I24),
         cpal::SampleFormat::I32 => build_stream!(i32),
         cpal::SampleFormat::I64 => build_stream!(i64),
         cpal::SampleFormat::U8 => build_stream!(u8),
         cpal::SampleFormat::U16 => build_stream!(u16),
+        cpal::SampleFormat::U24 => build_stream!(cpal::U24),
         cpal::SampleFormat::U32 => build_stream!(u32),
         cpal::SampleFormat::U64 => build_stream!(u64),
         cpal::SampleFormat::F32 => build_stream!(f32),
@@ -527,7 +529,7 @@ fn build_output_stream_for_format<T: cpal::SizedSample + cpal::FromSample<f32>>(
     let channels = usize::from(config.channels).max(1);
     device
         .build_output_stream(
-            &config,
+            config,
             move |output: &mut [T], _| {
                 fill_output(
                     output,
