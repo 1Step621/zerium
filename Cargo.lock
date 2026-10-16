@@ -9488,6 +9488,7 @@ dependencies = [
  "velopack",
  "videotoolbox",
  "wgpu",
+ "windows 0.62.0",
  "winreg",
  "winresource",
  "zerium-core",
