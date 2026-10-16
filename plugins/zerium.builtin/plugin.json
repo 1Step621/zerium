@@ -3177,7 +3177,16 @@
       "tags": ["レンズ", "歪み", "lens", "distortion"],
       "render": {
         "passes": [{"type": "render", "shader": {"module": "effects::fisheye::render"}}],
-        "bounds": {"min": ["input::min::x", "input::min::y"], "max": ["input::max::x", "input::max::y"]},
+        "bounds": {
+          "min": [
+            "radius = min((input::size::x, input::size::y)) * p::radius / 200; exponent = math::exp2(math::abs(p::strength) / 100 * 1.5); distance_x = max((input::min::x - p::center::v0, p::center::v0 - input::max::x, 0.0)); distance_y = max((input::min::y - p::center::v1, p::center::v1 - input::max::y, 0.0)); padding = if(distance_x ^ 2 + distance_y ^ 2 < radius ^ 2, radius * math::pow(exponent, -1 / max((exponent - 1, 0.000001))) * (1 - 1 / exponent), 0.0); min((input::min::x, max((input::min::x - padding, p::center::v0 - radius))))",
+            "radius = min((input::size::x, input::size::y)) * p::radius / 200; exponent = math::exp2(math::abs(p::strength) / 100 * 1.5); distance_x = max((input::min::x - p::center::v0, p::center::v0 - input::max::x, 0.0)); distance_y = max((input::min::y - p::center::v1, p::center::v1 - input::max::y, 0.0)); padding = if(distance_x ^ 2 + distance_y ^ 2 < radius ^ 2, radius * math::pow(exponent, -1 / max((exponent - 1, 0.000001))) * (1 - 1 / exponent), 0.0); min((input::min::y, max((input::min::y - padding, p::center::v1 - radius))))"
+          ],
+          "max": [
+            "radius = min((input::size::x, input::size::y)) * p::radius / 200; exponent = math::exp2(math::abs(p::strength) / 100 * 1.5); distance_x = max((input::min::x - p::center::v0, p::center::v0 - input::max::x, 0.0)); distance_y = max((input::min::y - p::center::v1, p::center::v1 - input::max::y, 0.0)); padding = if(distance_x ^ 2 + distance_y ^ 2 < radius ^ 2, radius * math::pow(exponent, -1 / max((exponent - 1, 0.000001))) * (1 - 1 / exponent), 0.0); max((input::max::x, min((input::max::x + padding, p::center::v0 + radius))))",
+            "radius = min((input::size::x, input::size::y)) * p::radius / 200; exponent = math::exp2(math::abs(p::strength) / 100 * 1.5); distance_x = max((input::min::x - p::center::v0, p::center::v0 - input::max::x, 0.0)); distance_y = max((input::min::y - p::center::v1, p::center::v1 - input::max::y, 0.0)); padding = if(distance_x ^ 2 + distance_y ^ 2 < radius ^ 2, radius * math::pow(exponent, -1 / max((exponent - 1, 0.000001))) * (1 - 1 / exponent), 0.0); max((input::max::y, min((input::max::y + padding, p::center::v1 + radius))))"
+          ]
+        },
         "input_space": "source"
       },
       "editor": [{"type": "position", "property": "center"}],
@@ -3891,8 +3900,8 @@
           {"type": "render", "shader": {"module": "effects::glow::render"}}
         ],
         "bounds": {
-          "min": ["input::min::x - math::abs(p::width) * 4", "input::min::y - math::abs(p::width) * 4"],
-          "max": ["input::max::x + math::abs(p::width) * 4", "input::max::y + math::abs(p::width) * 4"]
+          "min": ["input::min::x - math::abs(p::width) * 2", "input::min::y - math::abs(p::width) * 2"],
+          "max": ["input::max::x + math::abs(p::width) * 2", "input::max::y + math::abs(p::width) * 2"]
         },
         "scale": 2
       },
@@ -3964,8 +3973,8 @@
           {"type": "render", "shader": {"module": "effects::bloom::render"}}
         ],
         "bounds": {
-          "min": ["input::min::x - p::radius * 4", "input::min::y - p::radius * 4"],
-          "max": ["input::max::x + p::radius * 4", "input::max::y + p::radius * 4"]
+          "min": ["input::min::x - p::radius * 2", "input::min::y - p::radius * 2"],
+          "max": ["input::max::x + p::radius * 2", "input::max::y + p::radius * 2"]
         }
       },
       "properties": [
@@ -4128,12 +4137,12 @@
         ],
         "bounds": {
           "min": [
-            "input::min::x + min((0.0, p::offset::v0)) - p::radius * 4",
-            "input::min::y + min((0.0, p::offset::v1)) - p::radius * 4"
+            "input::min::x + min((0.0, p::offset::v0)) - p::radius * 2",
+            "input::min::y + min((0.0, p::offset::v1)) - p::radius * 2"
           ],
           "max": [
-            "input::max::x + max((0.0, p::offset::v0)) + p::radius * 4",
-            "input::max::y + max((0.0, p::offset::v1)) + p::radius * 4"
+            "input::max::x + max((0.0, p::offset::v0)) + p::radius * 2",
+            "input::max::y + max((0.0, p::offset::v1)) + p::radius * 2"
           ]
         }
       },
@@ -4267,8 +4276,8 @@
           }
         ],
         "bounds": {
-          "min": ["input::min::x - math::abs(p::radius) * 4", "input::min::y - math::abs(p::radius) * 4"],
-          "max": ["input::max::x + math::abs(p::radius) * 4", "input::max::y + math::abs(p::radius) * 4"]
+          "min": ["input::min::x - math::abs(p::radius) * 2", "input::min::y - math::abs(p::radius) * 2"],
+          "max": ["input::max::x + math::abs(p::radius) * 2", "input::max::y + math::abs(p::radius) * 2"]
         }
       },
       "properties": [
