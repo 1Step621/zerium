@@ -2932,12 +2932,6 @@
           "label": {"ja-JP": "上下反転", "en-US": "Vertical"},
           "type": "bool",
           "default": false
-        },
-        {
-          "id": "invert_color",
-          "label": {"ja-JP": "色を反転", "en-US": "Invert Colors"},
-          "type": "bool",
-          "default": false
         }
       ]
     },
@@ -3300,7 +3294,8 @@
           "type": "f32",
           "default": 0,
           "animatable": true,
-          "constraints": {"min": -100000, "max": 100000}
+          "constraints": {"min": -100000, "max": 100000},
+          "ui": {"step": 0.01, "drag_step": 0.01}
         },
         {
           "id": "waveform",
