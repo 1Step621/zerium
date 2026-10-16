@@ -1,0 +1,51 @@
+name: Bug report
+description: Report a problem with Zerium.
+body:
+  - type: textarea
+    id: description
+    attributes:
+      label: What happened?
+      description: Describe the problem and what you expected to happen.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Include a minimal project or sample media if it helps reproduce the problem.
+      placeholder: |
+        1. Open ...
+        2. Add ...
+        3. ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Zerium version
+      description: Enter the version number, or the commit hash if built from source.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Include your OS version, installation method, and GPU and driver version if known.
+      placeholder: |
+        OS:
+        Installation method (MSI, PKG, AppImage, Nix, source, etc.):
+        GPU:
+        GPU driver:
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: Paste relevant logs or crash output. You can find the current log through the Help menu.
+      render: text
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Add screenshots, recordings, or other details that help explain the problem.
