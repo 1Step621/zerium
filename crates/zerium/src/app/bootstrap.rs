@@ -318,25 +318,13 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                         }
                     });
                     let workspace = cx.new(|cx: &mut Context<Workspace>| {
-                        let mut subscriptions = vec![
+                        let subscriptions = vec![
                             cx.observe(&animation_selection, |_, _, cx| cx.notify()),
                             cx.observe(&editor, |_, _, cx| cx.notify()),
                             cx.observe(&project_controller, |_, _, cx| cx.notify()),
                             cx.observe(&export_controller, |_, _, cx| cx.notify()),
                             cx.observe(&notifications, |_, _, cx| cx.notify()),
                         ];
-                        let inspector_subscription = cx.subscribe_in(
-                            &property_inspector,
-                            window,
-                            |this,
-                             _,
-                             event: &crate::ui::property_inspector::SceneArgumentRequested,
-                             window,
-                             cx| {
-                                this.reveal_scene_argument(event, window, cx);
-                            },
-                        );
-                        subscriptions.push(inspector_subscription);
                         Workspace {
                             timeline,
                             explorer,

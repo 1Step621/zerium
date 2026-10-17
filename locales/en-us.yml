@@ -140,7 +140,6 @@ _version: 1
 "curve.add_stop": "Add stop here"
 "args.scene_settings": "Scene settings"
 "args.no_active_scene": "Open a scene to edit its settings"
-"rows.open_argument_settings": "Open argument settings"
 "args.scene_name": "Scene name"
 "args.scene_arguments": "Scene arguments"
 "args.create": "Create argument"

@@ -43,17 +43,10 @@ use zerium_core::property::{
 };
 use zerium_core::timeline::{
     AnimationStopEdit, EffectInstanceId, ItemId, PropertyAddress, SceneBindingOwner,
-    SceneBindingTarget, SceneId, TimelineEditor, TimelineItem, TimelineTime,
+    SceneBindingTarget, TimelineEditor, TimelineItem, TimelineTime,
 };
 
 pub(super) type EffectPickerTarget = (String, String);
-
-pub(crate) struct SceneArgumentRequested {
-    pub scene_id: SceneId,
-    pub argument_id: String,
-}
-
-impl gpui::EventEmitter<SceneArgumentRequested> for PropertyInspector {}
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum ControlId {

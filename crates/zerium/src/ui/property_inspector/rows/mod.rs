@@ -203,40 +203,29 @@ impl PropertyInspector {
             .tooltip(t!("rows.bind_tooltip").to_string())
             .popup_menu(move |menu, _, _| {
                 if let Some((argument_id, _)) = &binding.connected {
-                    let settings_inspector = menu_inspector.clone();
-                    let settings_id = argument_id.clone();
                     let inspector = menu_inspector.clone();
                     let argument_id = argument_id.clone();
                     let target = binding.target.clone();
-                    return menu
-                        .item(
-                            PopupMenuItem::new(t!("rows.open_argument_settings").to_string())
-                                .on_click(move |_, _, cx| {
-                                    settings_inspector.update(cx, |inspector, cx| {
-                                        inspector.request_scene_argument_settings(&settings_id, cx)
-                                    });
-                                }),
-                        )
-                        .item(PopupMenuItem::new(t!("rows.unbind").to_string()).on_click(
-                            move |_, _, cx| {
-                                inspector.update(cx, |inspector, cx| {
-                                    let result = inspector.editor.update(cx, |editor, cx| {
-                                        let result =
-                                            editor.disconnect_scene_argument(&argument_id, &target);
-                                        if result.is_ok() {
-                                            cx.notify();
-                                        }
-                                        result
-                                    });
-                                    if result.is_err() {
-                                        inspector.notifications.update(cx, |notifications, cx| {
-                                            notifications
-                                                .push(t!("rows.unbind_failed").to_string(), cx);
-                                        });
+                    return menu.item(PopupMenuItem::new(t!("rows.unbind").to_string()).on_click(
+                        move |_, _, cx| {
+                            inspector.update(cx, |inspector, cx| {
+                                let result = inspector.editor.update(cx, |editor, cx| {
+                                    let result =
+                                        editor.disconnect_scene_argument(&argument_id, &target);
+                                    if result.is_ok() {
+                                        cx.notify();
                                     }
+                                    result
                                 });
-                            },
-                        ));
+                                if result.is_err() {
+                                    inspector.notifications.update(cx, |notifications, cx| {
+                                        notifications
+                                            .push(t!("rows.unbind_failed").to_string(), cx);
+                                    });
+                                }
+                            });
+                        },
+                    ));
                 }
 
                 binding

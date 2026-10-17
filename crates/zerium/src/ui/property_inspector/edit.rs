@@ -54,21 +54,6 @@ impl PropertyInspector {
             self.notifications.update(cx, |notifications, cx| {
                 notifications.push(t!("rows.bind_failed").to_string(), cx)
             });
-        } else {
-            self.request_scene_argument_settings(argument_id, cx);
-        }
-    }
-
-    pub(super) fn request_scene_argument_settings(
-        &self,
-        argument_id: &str,
-        cx: &mut Context<Self>,
-    ) {
-        if let Some(scene_id) = self.editor.read(cx).active_scene_id() {
-            cx.emit(SceneArgumentRequested {
-                scene_id,
-                argument_id: argument_id.to_owned(),
-            });
         }
     }
 

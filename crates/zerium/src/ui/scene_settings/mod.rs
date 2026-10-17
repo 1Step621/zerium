@@ -149,26 +149,4 @@ impl SceneSettings {
         self.sync_inputs(window, cx);
         cx.notify();
     }
-
-    pub(crate) fn reveal_argument(
-        &mut self,
-        scene_id: SceneId,
-        argument_id: &str,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        if self.scene_id != Some(scene_id) {
-            return false;
-        }
-        let Some(index) = self.editor.read(cx).scene(scene_id).and_then(|scene| {
-            scene
-                .arguments
-                .iter()
-                .position(|argument| argument.schema.id() == argument_id)
-        }) else {
-            return false;
-        };
-        self.scroll_handle.scroll_to_top_of_item(index + 2);
-        cx.notify();
-        true
-    }
 }

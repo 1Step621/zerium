@@ -46,21 +46,6 @@ pub(crate) struct Workspace {
 }
 
 impl Workspace {
-    pub(crate) fn reveal_scene_argument(
-        &mut self,
-        event: &super::property_inspector::SceneArgumentRequested,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.scene_settings.update(cx, |settings, cx| {
-            settings.reveal_argument(event.scene_id, &event.argument_id, cx)
-        }) {
-            self.inspector_tab = InspectorTab::SceneSettings;
-            self.focus_handle.focus(window, cx);
-            cx.notify();
-        }
-    }
-
     fn copy_selected_items(
         &mut self,
         _: &CopySelectedItems,

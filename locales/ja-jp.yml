@@ -140,7 +140,6 @@ _version: 1
 "curve.add_stop": "この位置にstopを追加"
 "args.scene_settings": "シーン設定"
 "args.no_active_scene": "シーンを開くと設定を編集できます"
-"rows.open_argument_settings": "引数の設定を開く"
 "args.scene_name": "シーン名"
 "args.scene_arguments": "シーン引数"
 "args.create": "引数を作成"
