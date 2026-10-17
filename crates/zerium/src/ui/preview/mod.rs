@@ -78,6 +78,7 @@ pub(crate) struct Preview {
     frame_error: Option<SharedString>,
     rendered_frame: Option<RenderedFrame>,
     editor_drag: Option<PreviewEditorDrag>,
+    editor_overlay_hidden: bool,
     _subscriptions: Vec<Subscription>,
     _frame_task: Task<()>,
 }
@@ -117,6 +118,11 @@ impl Preview {
             cx.notify();
         });
         let transport_subscription = cx.observe(&transport, |_, _, cx| cx.notify());
+        let activation_subscription = cx.observe_window_activation(window, |this, window, cx| {
+            if !window.is_window_active() {
+                this.set_editor_overlay_hidden(false, cx);
+            }
+        });
         let session_subscription = cx.observe(&session, |this, _, cx| {
             let session_id = this.session.read(cx).id();
             if session_id == this.session_id {
@@ -202,13 +208,22 @@ impl Preview {
             frame_error: None,
             rendered_frame: None,
             editor_drag: None,
+            editor_overlay_hidden: false,
             _subscriptions: vec![
                 editor_subscription,
                 transport_subscription,
                 session_subscription,
                 seekbar_subscription,
+                activation_subscription,
             ],
             _frame_task: frame_task,
+        }
+    }
+
+    pub(crate) fn set_editor_overlay_hidden(&mut self, hidden: bool, cx: &mut Context<Self>) {
+        if self.editor_overlay_hidden != hidden {
+            self.editor_overlay_hidden = hidden;
+            cx.notify();
         }
     }
 

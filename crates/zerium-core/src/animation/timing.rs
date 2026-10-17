@@ -1,4 +1,4 @@
-//! Pattern time and playback time share one clock, independent of rendering.
+//! Integer authored clocks and continuous playback sampling.
 use crate::timeline::{Frame, FrameDuration, TimelineTime};
 use serde::{Deserialize, Serialize};
 
@@ -11,150 +11,176 @@ pub enum RepeatMode {
     PingPong,
 }
 
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Copy, Debug, Serialize, PartialEq, Eq)]
 pub struct AnimationRepeat {
     mode: RepeatMode,
-    period: f32,
-    phase: f32,
+    period: FrameDuration,
+    phase_frames: Frame,
 }
 
-impl Default for AnimationRepeat {
-    fn default() -> Self {
-        Self {
-            mode: RepeatMode::None,
-            period: 30.,
-            phase: 0.,
+impl<'de> Deserialize<'de> for AnimationRepeat {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        #[derive(Deserialize)]
+        #[serde(deny_unknown_fields)]
+        struct Settings {
+            mode: RepeatMode,
+            period: FrameDuration,
+            phase_frames: Frame,
         }
+        let settings = Settings::deserialize(deserializer)?;
+        let repeat = Self::new(settings.mode, settings.period, settings.phase_frames);
+        if repeat.period != settings.period || repeat.phase_frames != settings.phase_frames {
+            return Err(serde::de::Error::custom(
+                "invalid animation repeat frame settings",
+            ));
+        }
+        Ok(repeat)
     }
 }
 
 impl AnimationRepeat {
-    /// Period is one complete cycle in frames; phase is measured in cycles.
-    pub fn new(mode: RepeatMode, period: f32, phase: f32) -> Option<Self> {
-        if !period.is_finite() || period < 1. || !phase.is_finite() {
-            return None;
+    /// Phase is an integer frame offset. Ping-pong periods round up to an
+    /// even frame count so both turnaround keys occupy whole frames.
+    pub fn new(mode: RepeatMode, period: FrameDuration, phase: Frame) -> Self {
+        let mut period = period.get();
+        if mode == RepeatMode::PingPong && period % 2 != 0 {
+            period = period.checked_add(1).unwrap_or(period - 1);
         }
-        Some(Self {
+        Self {
             mode,
-            period,
-            phase: phase.rem_euclid(1.),
-        })
+            period: FrameDuration::new(period).expect("positive period"),
+            phase_frames: Frame::new(phase.get() % period),
+        }
     }
 
     pub fn with_mode(self, mode: RepeatMode) -> Self {
-        Self { mode, ..self }
+        Self::new(mode, self.period, self.phase_frames)
     }
 
     pub fn mode(self) -> RepeatMode {
         self.mode
     }
-
-    pub fn period(self) -> f32 {
+    pub fn period(self) -> FrameDuration {
         self.period
     }
-
-    pub fn phase(self) -> f32 {
-        self.phase
+    pub fn phase(self) -> Frame {
+        self.phase_frames
     }
 
-    pub(super) fn shifted(self, frames: f64) -> Self {
-        Self::new(
-            self.mode,
-            self.period,
-            ((f64::from(self.phase) + frames / f64::from(self.period)).rem_euclid(1.)) as f32,
-        )
-        .expect("a finite time offset preserves valid repeat settings")
+    pub(crate) fn pattern_span(self, duration: FrameDuration) -> FrameDuration {
+        match self.mode {
+            RepeatMode::None => duration.animation_span(),
+            RepeatMode::Loop => self.period,
+            RepeatMode::PingPong => FrameDuration::new(self.period.get() / 2).expect("even period"),
+        }
     }
 
-    pub(super) fn scaled(self, factor: f32) -> Self {
-        Self::new(
-            self.mode,
-            (f64::from(self.period) * f64::from(factor)).clamp(1., f64::from(f32::MAX)) as f32,
-            self.phase,
-        )
-        .expect("a positive finite scale preserves valid repeat settings")
+    pub(super) fn shifted(self, frames: i128) -> Self {
+        let phase = (i128::from(self.phase_frames.get()) + frames)
+            .rem_euclid(i128::from(self.period.get())) as u64;
+        Self::new(self.mode, self.period, Frame::new(phase))
     }
 
-    pub(super) fn is_valid(self) -> bool {
-        Self::new(self.mode, self.period, self.phase) == Some(self)
+    pub(super) fn scaled(self, numerator: u64, denominator: u64) -> Self {
+        let period =
+            FrameDuration::new_saturating(scale_frames(self.period.get(), numerator, denominator));
+        let repeat = Self::new(self.mode, period, Frame::new(0));
+        let phase = scale_frames(
+            self.phase_frames.get(),
+            repeat.period.get(),
+            self.period.get(),
+        );
+        Self::new(self.mode, repeat.period, Frame::new(phase))
     }
 }
 
-/// The editable forward pattern has an affine time axis. Playback folds that
-/// axis for looping or ping-pong, without duplicating any stops.
+/// Round a rational frame conversion without passing authored times through floats.
+pub(super) fn scale_frames(value: u64, numerator: u64, denominator: u64) -> u64 {
+    ((u128::from(value) * u128::from(numerator) + u128::from(denominator) / 2)
+        / u128::from(denominator))
+    .min(u128::from(u64::MAX)) as u64
+}
+
+/// The authored forward pattern uses integer frames. Playback can sample any
+/// continuous local frame, including the return leg of a ping-pong cycle.
 #[derive(Clone, Copy, Debug)]
 pub struct AnimationClock {
-    start: f64,
-    span_frames: f64,
-    repeat: RepeatMode,
+    start: i128,
+    span: FrameDuration,
+    repeat: AnimationRepeat,
 }
 
 impl AnimationClock {
-    pub fn new(start: Frame, duration: FrameDuration, repeat: AnimationRepeat) -> Self {
-        let period = f64::from(repeat.period);
-        let phase_offset = f64::from(repeat.phase) * period;
-        let (span_frames, offset) = match repeat.mode {
-            RepeatMode::None => (duration.get().saturating_sub(1).max(1) as f64, 0.),
-            RepeatMode::Loop => (period, phase_offset),
-            RepeatMode::PingPong => (period / 2., phase_offset),
+    pub(crate) fn new(start: Frame, track: &super::ScalarTrack) -> Self {
+        let span = track.span();
+        let repeat = track.repeat();
+        let offset = if repeat.mode == RepeatMode::None {
+            0
+        } else {
+            repeat.phase_frames.get()
         };
         Self {
-            start: start.get() as f64 - offset,
-            span_frames,
-            repeat: repeat.mode,
+            start: i128::from(start.get()) - i128::from(offset),
+            span,
+            repeat,
         }
     }
 
     pub fn start_time(self) -> TimelineTime {
-        TimelineTime::from_frames(self.start)
+        TimelineTime::from_frames(self.start as f64)
     }
-
     pub fn span_frames(self) -> f64 {
-        self.span_frames
+        self.span.get() as f64
     }
 
-    pub fn pattern_progress_at(self, time: TimelineTime) -> f32 {
-        ((time.frames() - self.start) / self.span_frames).clamp(0., 1.) as f32
+    /// Quantize a pointer/input position once at the editing boundary.
+    pub fn pattern_frame_at(self, time: TimelineTime) -> Frame {
+        Frame::new(
+            (time.frames() - self.start as f64)
+                .round()
+                .clamp(0., self.span_frames()) as u64,
+        )
     }
 
-    pub fn progress_at(self, time: TimelineTime) -> f32 {
-        let progress = (time.frames() - self.start) / self.span_frames;
-        (match self.repeat {
-            RepeatMode::None => progress.clamp(0., 1.),
-            RepeatMode::Loop => progress.rem_euclid(1.),
+    pub fn frame_at_progress(self, progress: f64) -> Frame {
+        Frame::new((progress.clamp(0., 1.) * self.span_frames()).round() as u64)
+    }
+
+    pub fn local_frame_at(self, time: TimelineTime) -> f64 {
+        let local = time.frames() - self.start as f64;
+        let span = self.span_frames();
+        match self.repeat.mode {
+            RepeatMode::None => local.clamp(0., span),
+            RepeatMode::Loop => local.rem_euclid(span),
             RepeatMode::PingPong => {
-                let progress = progress.rem_euclid(2.);
-                progress.min(2. - progress)
+                let local = local.rem_euclid(self.repeat.period.get() as f64);
+                local.min(span * 2. - local)
             }
-        }) as f32
-    }
-
-    fn occurrence_origins(self, progress: f32) -> impl Iterator<Item = f64> {
-        let reverse = (self.repeat == RepeatMode::PingPong && progress > 0. && progress < 1.)
-            .then(|| self.start + (2. - f64::from(progress)) * self.span_frames);
-        std::iter::once(self.time_at(progress).frames()).chain(reverse)
-    }
-
-    fn cycle_length(self) -> Option<f64> {
-        match self.repeat {
-            RepeatMode::None => None,
-            RepeatMode::Loop => Some(self.span_frames),
-            RepeatMode::PingPong => Some(self.span_frames * 2.),
         }
+    }
+
+    fn occurrence_origins(self, frame: Frame) -> impl Iterator<Item = i128> {
+        let forward = self.start + i128::from(frame.get());
+        let reverse = (self.repeat.mode == RepeatMode::PingPong
+            && frame.get() > 0
+            && frame.get() < self.span.get())
+        .then(|| self.start + i128::from(self.repeat.period.get()) - i128::from(frame.get()));
+        std::iter::once(forward).chain(reverse)
     }
 
     fn occurrence_series(
         self,
-        progress: f32,
+        frame: Frame,
         start: TimelineTime,
         end: TimelineTime,
     ) -> impl Iterator<Item = (TimelineTime, f64, usize)> {
-        let period = self.cycle_length();
-        self.occurrence_origins(progress).filter_map(move |origin| {
+        let period =
+            (self.repeat.mode != RepeatMode::None).then_some(self.repeat.period.get() as f64);
+        self.occurrence_origins(frame).filter_map(move |origin| {
             if start > end {
                 return None;
             }
+            let origin = origin as f64;
             match period {
                 Some(period) => {
                     let first = ((start.frames() - origin) / period).ceil();
@@ -176,33 +202,30 @@ impl AnimationClock {
         })
     }
 
-    /// All occurrences of a pattern point in a visible timeline interval.
     pub fn occurrences(
         self,
-        progress: f32,
+        frame: Frame,
         start: TimelineTime,
         end: TimelineTime,
     ) -> impl Iterator<Item = TimelineTime> {
-        self.occurrence_series(progress, start, end)
+        self.occurrence_series(frame, start, end)
             .flat_map(|(first, period, count)| {
                 (0..count).map(move |cycle| first.offset(cycle as f64 * period))
             })
     }
 
-    /// The first visible occurrence of a pattern position, including the
-    /// return leg of a ping-pong cycle.
     pub fn first_occurrence(
         self,
-        progress: f32,
+        frame: Frame,
         start: TimelineTime,
         end: TimelineTime,
     ) -> Option<TimelineTime> {
-        self.occurrence_series(progress, start, end)
+        self.occurrence_series(frame, start, end)
             .map(|(first, _, _)| first)
             .min_by(|left, right| left.frames().total_cmp(&right.frames()))
     }
 
-    pub fn time_at(self, progress: f32) -> TimelineTime {
-        TimelineTime::from_frames(self.start + f64::from(progress.clamp(0., 1.)) * self.span_frames)
+    pub fn key_time_at(self, frame: Frame) -> TimelineTime {
+        TimelineTime::from_frames((self.start + i128::from(frame.get())) as f64)
     }
 }

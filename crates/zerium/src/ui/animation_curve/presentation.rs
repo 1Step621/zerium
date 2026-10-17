@@ -17,6 +17,7 @@ impl AnimationPresentation {
         item: &TimelineItem,
         address: &PropertyAddress,
     ) -> Option<Self> {
+        editor.animation_track(address)?;
         let property = address.schema(editor)?;
         let scalar_index = address.scalar_index;
         let scalar_type = property.scalar_type(address.element_id, scalar_index)?;
@@ -27,12 +28,6 @@ impl AnimationPresentation {
         });
         let label = animation_label(property, address, element_index);
         if matches!(scalar_type, ScalarPropertyType::Color) {
-            item.animation_track(
-                address.effect_id,
-                &address.property_id,
-                address.element_id,
-                address.scalar_index,
-            )?;
             return Some(Self {
                 label,
                 suffix: String::new(),
@@ -40,12 +35,6 @@ impl AnimationPresentation {
             });
         }
         let spec = numeric_input_spec(property, scalar_index)?;
-        item.animation_track(
-            address.effect_id,
-            &address.property_id,
-            address.element_id,
-            address.scalar_index,
-        )?;
         Some(Self {
             label,
             suffix: spec.suffix,

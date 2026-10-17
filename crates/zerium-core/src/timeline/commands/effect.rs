@@ -35,6 +35,7 @@ impl TimelineEditor {
                 });
             }
         }
+        let duration = item.duration;
         let mut next_id = self.next_effect_id;
         let mut hidden_copies = Vec::new();
         let effects = sources
@@ -44,6 +45,7 @@ impl TimelineEditor {
                 next_id = raw_id.checked_add(1).filter(|id| *id != u64::MAX);
                 let mut effect = source.clone();
                 effect.id = EffectInstanceId::new(raw_id);
+                effect.animations.fit_duration(duration);
                 if hidden.contains(&source.id) {
                     hidden_copies.push(effect.id);
                 }

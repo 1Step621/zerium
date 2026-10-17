@@ -403,13 +403,13 @@ impl Timeline {
                 .ceil()
                 .max(1.) as usize;
             for stop in track.stops() {
-                let canonical = clock.time_at(stop.position());
+                let canonical = clock.key_time_at(stop.frame());
                 if canonical >= visible_start && canonical <= visible_end {
                     animation_stops.push((canonical, false));
                 }
                 animation_stops.extend(
                     clock
-                        .occurrences(stop.position(), visible_start, visible_end)
+                        .occurrences(stop.frame(), visible_start, visible_end)
                         .step_by(stride)
                         .map(|time| (time, true)),
                 );
@@ -431,7 +431,7 @@ impl Timeline {
         let focused_target = state
             .animation_address
             .as_ref()
-            .filter(|target| target.item_id == item_id && item.contains(snap_frame))
+            .filter(|target| target.item_id == item_id)
             .cloned();
         let has_focused_target = focused_target.is_some();
         let focused_animation_stops = focused_target
@@ -452,8 +452,8 @@ impl Timeline {
                     .iter()
                     .enumerate()
                     .map(|(stop, animation_stop)| {
-                        let progress = animation_stop.position();
-                        let time = item.animation_clock(track).time_at(progress);
+                        let progress = animation_stop.frame();
+                        let time = item.animation_clock(track).key_time_at(progress);
                         let frame = time.nearest_frame();
                         let follow_focus = (snap_frame == frame)
                             .then_some(state.focused_animation_segment)
@@ -517,8 +517,13 @@ impl Timeline {
                         this.begin_item_interaction(item_id, event, cx);
                     }),
                 )
-                .on_click(cx.listener(move |this, event, _, cx| {
+                .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                    if !event.modifiers().shift {
+                        this.editor
+                            .update_if_changed(cx, |editor| editor.select(item_id));
+                    }
                     this.open_scene_item(item_id, event, cx);
+                    cx.stop_propagation();
                 }))
                 .on_drag(move_drag, |drag, _, _, cx| {
                     cx.stop_propagation();

@@ -20,6 +20,12 @@ impl Render for PropertyInspector {
             .flex()
             .flex_col()
             .overflow_hidden()
+            .capture_any_mouse_down(cx.listener(|this, _, _, _| {
+                this.finish_animation_value_edit();
+            }))
+            .on_mouse_down_out(cx.listener(|this, _, _, _| {
+                this.finish_animation_value_edit();
+            }))
             .on_drag_move(cx.listener(Self::handle_number_drag))
             .on_mouse_up(
                 MouseButton::Left,

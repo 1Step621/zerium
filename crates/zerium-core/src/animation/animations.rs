@@ -1,6 +1,7 @@
 //! Tracks indexed by property coordinates, with collection edits and evaluation.
 use super::{RepeatMode, ScalarTrack};
 use crate::property::{PropertyPath, PropertySchema, PropertyValue};
+use crate::timeline::{Frame, FrameDuration};
 use std::collections::{BTreeMap, btree_map::Entry};
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -50,42 +51,37 @@ impl ScalarAnimations {
         previous != self.tracks.len()
     }
 
-    pub fn trim(&mut self, offset: f64, old_span: f64, new_span: f64) {
-        if !offset.is_finite()
-            || !old_span.is_finite()
-            || old_span <= 0.
-            || !new_span.is_finite()
-            || new_span <= 0.
-        {
-            return;
-        }
+    pub(crate) fn trim(&mut self, offset: i128, duration: FrameDuration) {
         for track in self.tracks.values_mut() {
             let repeat = track.repeat();
             if repeat.mode() != RepeatMode::None {
-                track.set_repeat(repeat.shifted(offset));
+                track.set_repeat(repeat.shifted(offset), duration);
             } else {
-                track.remap_time_range(offset / old_span, (offset + new_span) / old_span);
+                track.trim(offset, duration.animation_span());
             }
         }
     }
 
-    pub fn stretch(&mut self, factor: f32) {
-        if !factor.is_finite() || factor <= 0. {
-            return;
-        }
+    pub(crate) fn stretch(&mut self, old_duration: FrameDuration, duration: FrameDuration) {
         for track in self.tracks.values_mut() {
-            track.set_repeat(track.repeat().scaled(factor));
+            track.set_repeat(
+                track.repeat().scaled(duration.get(), old_duration.get()),
+                duration,
+            );
         }
     }
 
-    pub(crate) fn extend_at(&mut self, local_frame: f64, old_span: f64, new_span: f64) {
-        if new_span <= old_span {
-            return;
+    /// Rehome copied effects onto an item with a different duration.
+    pub(crate) fn fit_duration(&mut self, duration: FrameDuration) {
+        for track in self.tracks.values_mut() {
+            track.set_repeat(track.repeat(), duration);
         }
-        let progress = (local_frame / old_span).clamp(0., 1.) as f32;
+    }
+
+    pub(crate) fn extend_at(&mut self, local_frame: Frame, duration: FrameDuration) {
         for track in self.tracks.values_mut() {
             if track.repeat().mode() == RepeatMode::None {
-                track.extend_at(progress, old_span, new_span);
+                track.extend_at(local_frame, duration.animation_span());
             }
         }
     }
@@ -94,7 +90,7 @@ impl ScalarAnimations {
         &self,
         mut value: PropertyValue,
         property: &PropertySchema,
-        progress: impl Fn(&ScalarTrack) -> f32,
+        frame: impl Fn(&ScalarTrack) -> f64,
     ) -> PropertyValue {
         let mut changed = false;
         let first = PropertyPath::new(property.id(), None, None);
@@ -107,7 +103,7 @@ impl ScalarAnimations {
             else {
                 continue;
             };
-            let Some(animated) = track.evaluate(progress(track)) else {
+            let Some(animated) = track.evaluate(frame(track)) else {
                 continue;
             };
             *scalar = animated;

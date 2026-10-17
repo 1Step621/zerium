@@ -572,7 +572,7 @@ impl Timeline {
     fn seek_to_x(&mut self, position_x: f32, window: &mut Window, cx: &mut Context<Self>) {
         let frame = self.pointer_frame(position_x, window, cx);
         self.transport
-            .update(cx, |transport, cx| transport.seek(frame, cx));
+            .update(cx, |transport, cx| transport.set_playhead(frame, cx));
     }
 
     fn begin_playhead_scrub(

@@ -1,5 +1,7 @@
 //! Preview layout, playback controls and editor interaction surfaces.
 use super::Preview;
+use crate::app::actions::HidePreviewOverlay;
+use crate::ui::operation_hints::{Hint, OperationHintExt as _};
 use crate::ui::{time_grid, transport::ScrubSource};
 use ::ui::{ActiveTheme as _, slider::Slider};
 use gpui::{
@@ -174,7 +176,11 @@ impl Render for Preview {
             .map(SharedString::from)
             .or_else(|| self.error.clone())
             .or_else(|| self.frame_error.clone());
-        let overlay = self.selected_editor_overlay(frame, cx);
+        let overlay = if self.editor_overlay_hidden {
+            None
+        } else {
+            self.selected_editor_overlay(frame, cx)
+        };
         if overlay.is_none()
             || self
                 .editor_drag
@@ -257,5 +263,9 @@ impl Render for Preview {
                     )),
             )
             .child(self.render_controls(cx))
+            .operation_hints([Hint::action(
+                HidePreviewOverlay,
+                "hints.hide_preview_overlay",
+            )])
     }
 }

@@ -21,6 +21,7 @@ gpui::actions!(
         OpenLogFolder,
         OpenAboutDialog,
         OpenItemPicker,
-        OpenEffectPicker
+        OpenEffectPicker,
+        HidePreviewOverlay
     ]
 );

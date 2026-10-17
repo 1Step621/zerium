@@ -71,12 +71,10 @@ struct ProjectFile {
     project_low: u64,
     resolution: [u32; 2],
     frame_rate: [u32; 2],
-    #[serde(default)]
     beat_guide: BeatGuide,
     playhead: u64,
     items: Vec<ProjectItem>,
     scenes: Vec<ProjectScene>,
-    #[serde(default)]
     media_cache: crate::media::MediaMetadataCache,
 }
 

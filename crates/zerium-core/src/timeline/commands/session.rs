@@ -92,17 +92,6 @@ impl TimelineEditor {
         true
     }
 
-    pub fn toggle_selected_items_visibility(&mut self) -> bool {
-        if !self
-            .visibility
-            .toggle_items(self.selection.sorted_current())
-        {
-            return false;
-        }
-        self.advance_render_revision();
-        true
-    }
-
     pub fn toggle_item_visibility(&mut self, id: ItemId) -> bool {
         if !self.is_item_selected(id) {
             return false;
@@ -149,25 +138,6 @@ impl TimelineEditor {
             .filter(|id| self.active_document().item(*id).is_some())
             .collect::<HashSet<_>>();
         self.selection.set(selected_items)
-    }
-
-    pub fn seek(&mut self, frame: Frame) -> bool {
-        let old_playhead = self.playhead;
-        self.playhead = frame;
-        let playback_changed = self.playback_time.take().is_some();
-        let selectable = self
-            .active_document()
-            .items()
-            .filter(|item| item.contains(frame))
-            .map(|item| item.id)
-            .collect::<HashSet<_>>();
-        let selection_changed = self.selection.restore_where(|id| selectable.contains(&id));
-
-        if old_playhead != self.playhead || playback_changed {
-            self.advance_render_revision();
-        }
-
-        old_playhead != self.playhead || playback_changed || selection_changed
     }
 
     pub fn set_playhead(&mut self, frame: Frame) -> bool {

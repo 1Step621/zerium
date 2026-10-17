@@ -23,6 +23,7 @@ pub(super) struct ControlStore {
     pub tree: ControlTree,
     pub source: Option<InspectorSource>,
     pub number_drag_origin: Option<Rc<PropertyValueDragOrigin>>,
+    pub animation_value_edit: Option<AnimationStopEdit>,
 }
 
 impl ControlStore {
@@ -179,7 +180,7 @@ impl PropertyInspector {
                         NumberEdit::Step(event) => {
                             this.apply_animation_stop_step(&id, &spec, input, event, window, cx)
                         }
-                        NumberEdit::Commit => {}
+                        NumberEdit::Commit => this.finish_animation_value_edit(),
                     },
                 )
             },
@@ -342,11 +343,7 @@ impl PropertyInspector {
     pub(super) fn sync_from_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         {
             let editor = self.editor.read(cx);
-            if self.item_id.is_none_or(|id| {
-                !editor.is_item_selected(id)
-                    && !(editor.selected_item_ids().next().is_none()
-                        && editor.selection_remembers_item(id))
-            }) {
+            if self.item_id.is_none_or(|id| !editor.is_item_selected(id)) {
                 self.item_id = editor.selected_item_ids().next();
                 self.effect_picker = None;
                 self.reset_input_state();
@@ -354,8 +351,7 @@ impl PropertyInspector {
         }
         let selected_item = {
             let editor = self.editor.read(cx);
-            self.item_id
-                .filter(|id| editor.is_item_selected(*id))
+            self.inspector_item_id(cx)
                 .and_then(|id| editor.item(id))
                 .map(|item| {
                     editor.evaluated_item_at(item, TimelineTime::from_frame(editor.playhead()))
@@ -371,6 +367,7 @@ impl PropertyInspector {
                 .collect(),
         });
         if self.store.source != source {
+            self.effect_picker = None;
             self.reset_input_state();
             self.store.source = source;
         }

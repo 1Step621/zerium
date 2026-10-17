@@ -153,9 +153,7 @@ pub fn decode_timeline_clipboard(
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct TimelineClipboardFile {
-    #[serde(default)]
     hidden_effects: Vec<EffectInstanceId>,
-    #[serde(default)]
     media_cache: crate::media::MediaMetadataCache,
     format: String,
     format_version: u32,

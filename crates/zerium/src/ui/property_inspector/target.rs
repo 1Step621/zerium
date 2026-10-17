@@ -6,7 +6,7 @@ impl PropertyInspector {
     pub(super) fn target_selector(&self, cx: &mut Context<Self>) -> gpui::AnyElement {
         let editor = self.editor.read(cx);
         let options = editor
-            .selected_item_ids()
+            .active_selected_item_ids()
             .filter_map(|id| {
                 let item = editor.item(id)?;
                 let label = t!(
@@ -19,7 +19,7 @@ impl PropertyInspector {
                 Some((id, label))
             })
             .collect::<Vec<_>>();
-        let current = self.item_id;
+        let current = self.inspector_item_id(cx);
         let label = options
             .iter()
             .find(|(id, _)| Some(*id) == current)
@@ -50,7 +50,7 @@ impl PropertyInspector {
     }
 
     fn set_item(&mut self, item_id: ItemId, window: &mut Window, cx: &mut Context<Self>) {
-        if self.item_id == Some(item_id) || !self.editor.read(cx).is_item_selected(item_id) {
+        if self.item_id == Some(item_id) || !self.editor.read(cx).is_item_active_selected(item_id) {
             return;
         }
         self.finish_number_drag(cx);

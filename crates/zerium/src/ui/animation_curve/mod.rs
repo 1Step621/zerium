@@ -130,8 +130,7 @@ struct SelectedCurve {
     curve: GraphCurve,
     axis_suffix: String,
     source_segment: usize,
-    source_stop_count: usize,
-    source_stop_positions: Vec<f32>,
+    source_stop_frames: Vec<Frame>,
     source_playhead_progress: f32,
     playhead_progress: f32,
     clip_start: Frame,
@@ -154,7 +153,7 @@ struct GraphCurve {
 struct HandleFitTarget {
     address: PropertyAddress,
     source_segment: usize,
-    source_positions: [f32; 2],
+    source_frames: [Frame; 2],
 }
 
 pub(crate) struct AnimationCurveEditor {

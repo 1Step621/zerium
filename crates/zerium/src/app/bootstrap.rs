@@ -104,6 +104,11 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                 ),
                 KeyBinding::new("i", OpenItemPicker, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
                 KeyBinding::new("e", OpenEffectPicker, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
+                KeyBinding::new(
+                    "h",
+                    HidePreviewOverlay,
+                    Some(WORKSPACE_SHORTCUT_KEY_CONTEXT),
+                ),
                 KeyBinding::new("secondary-n", NewProject, Some(WORKSPACE_KEY_CONTEXT)),
                 KeyBinding::new("secondary-o", OpenProject, Some(WORKSPACE_KEY_CONTEXT)),
                 KeyBinding::new("secondary-s", SaveProject, Some(WORKSPACE_KEY_CONTEXT)),

@@ -1,6 +1,9 @@
-use std::{num::NonZeroU64, time::Duration};
+use std::num::NonZeroU64;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord)]
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[serde(transparent)]
 pub struct Frame(pub(super) u64);
 
 impl Frame {
@@ -57,7 +60,8 @@ impl TimelineTime {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
+#[serde(transparent)]
 pub struct FrameDuration(NonZeroU64);
 
 impl FrameDuration {
@@ -68,7 +72,7 @@ impl FrameDuration {
         }
     }
 
-    pub(super) const fn new_saturating(value: u64) -> Self {
+    pub(crate) const fn new_saturating(value: u64) -> Self {
         match Self::new(value) {
             Some(value) => value,
             None => Self(NonZeroU64::MIN),
@@ -77,6 +81,11 @@ impl FrameDuration {
 
     pub const fn get(self) -> u64 {
         self.0.get()
+    }
+
+    /// The first and last occupied frames form the editable animation span.
+    pub const fn animation_span(self) -> Self {
+        Self::new_saturating(self.get().saturating_sub(1))
     }
 }
 
@@ -121,12 +130,6 @@ impl FrameRate {
     pub fn seconds_delta_to_frames(self, seconds: f64) -> i64 {
         let frames = seconds * f64::from(self.numerator) / f64::from(self.denominator);
         frames.round().clamp(i64::MIN as f64, i64::MAX as f64) as i64
-    }
-
-    pub fn frame_duration(self) -> Duration {
-        let scaled_nanos = u64::from(self.denominator) * 1_000_000_000;
-        let nanos = scaled_nanos.div_ceil(u64::from(self.numerator)).max(1);
-        Duration::from_nanos(nanos)
     }
 
     pub fn frames_per_second(self) -> f64 {

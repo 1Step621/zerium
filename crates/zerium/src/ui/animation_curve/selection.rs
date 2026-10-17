@@ -21,12 +21,9 @@ impl AnimationSelection {
                 document = next;
                 this.clear(cx);
             } else if let Some(address) = this.address.clone() {
-                // Keep the explicit target, including while seeking outside
-                // the whole remembered selection.
-                let retain = editor.is_item_selected(address.item_id)
-                    || (editor.selected_item_ids().next().is_none()
-                        && editor.selection_remembers_item(address.item_id));
-                if retain && Self::has_track(&address, editor) {
+                if editor.is_item_selected(address.item_id)
+                    && editor.animation_track(&address).is_some()
+                {
                     return;
                 }
                 let target = editor
@@ -45,18 +42,6 @@ impl AnimationSelection {
         }
     }
 
-    fn has_track(address: &PropertyAddress, editor: &TimelineEditor) -> bool {
-        editor.item(address.item_id).is_some_and(|item| {
-            item.animation_track(
-                address.effect_id,
-                &address.property_id,
-                address.element_id,
-                address.scalar_index,
-            )
-            .is_some()
-        })
-    }
-
     fn matching_track(
         address: &PropertyAddress,
         item_id: zerium_core::timeline::ItemId,
@@ -64,7 +49,7 @@ impl AnimationSelection {
     ) -> Option<PropertyAddress> {
         let schema = address.schema(editor)?;
         let target = editor.corresponding_property_address(address, item_id)?;
-        (target.schema(editor)?.same_type(schema) && Self::has_track(&target, editor))
+        (target.schema(editor)?.same_type(schema) && editor.animation_track(&target).is_some())
             .then_some(target)
     }
 

@@ -58,8 +58,10 @@ impl PropertyInspector {
     }
 
     pub(super) fn inspector_item_id(&self, cx: &App) -> Option<ItemId> {
+        let editor = self.editor.read(cx);
         self.item_id
-            .filter(|id| self.editor.read(cx).is_item_selected(*id))
+            .filter(|id| editor.is_item_active_selected(*id))
+            .or_else(|| editor.active_selected_item_ids().next())
     }
 
     fn inspector_value_at_playhead(
@@ -88,18 +90,7 @@ impl PropertyInspector {
             return false;
         }
         let editor = self.editor.read(cx);
-        let Some(item) = editor.item(item_id) else {
-            return false;
-        };
-        if item
-            .animation_track(
-                target.effect_id,
-                &target.property_id,
-                target.element_id,
-                target.scalar_index,
-            )
-            .is_some()
-        {
+        if editor.animation_track(target).is_some() {
             return false;
         }
         let result = self.editor.update(cx, |editor, cx| {
@@ -161,18 +152,13 @@ impl PropertyInspector {
         let stop = self.store.tree.animation_stop(id)?;
         let address = stop.edit.address();
         let editor = self.editor.read(cx);
-        let item = editor.item(address.item_id)?;
         Some(
-            item.animation_track(
-                address.effect_id,
-                &address.property_id,
-                address.element_id,
-                address.scalar_index,
-            )?
-            .stops()
-            .get(stop.edit.index())?
-            .value()
-            .clone(),
+            editor
+                .animation_track(address)?
+                .stops()
+                .get(stop.edit.index())?
+                .value()
+                .clone(),
         )
     }
 
@@ -182,12 +168,33 @@ impl PropertyInspector {
         value: PropertyValue,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(stop) = self.store.tree.animation_stop(id) else {
+        let Some(stop) = self
+            .store
+            .tree
+            .animation_stop(id)
+            .map(|stop| stop.edit.clone())
+        else {
+            self.finish_animation_value_edit();
             return false;
         };
+        let needs_begin = self.store.animation_value_edit.as_ref().is_none_or(|edit| {
+            !edit.same_value_scope(&stop) || !edit.is_current(self.editor.read(cx))
+        });
+        if needs_begin {
+            self.store.animation_value_edit = Some(stop);
+        }
+        let edit = self
+            .store
+            .animation_value_edit
+            .as_mut()
+            .expect("value gesture began");
         self.editor.update_if_changed(cx, |editor| {
-            editor.set_property_animation_stop(&stop.edit, value)
+            editor.continue_property_animation_stop(edit, value)
         })
+    }
+
+    pub(super) fn finish_animation_value_edit(&mut self) {
+        self.store.animation_value_edit = None;
     }
 
     pub(super) fn update_animation_stop_numeric(
@@ -347,19 +354,7 @@ impl PropertyInspector {
 
     pub(super) fn select_animation(&mut self, address: &PropertyAddress, cx: &mut Context<Self>) {
         if self.inspector_item_id(cx) != Some(address.item_id)
-            || self
-                .editor
-                .read(cx)
-                .item(address.item_id)
-                .is_none_or(|item| {
-                    item.animation_track(
-                        address.effect_id,
-                        &address.property_id,
-                        address.element_id,
-                        address.scalar_index,
-                    )
-                    .is_none()
-                })
+            || self.editor.read(cx).animation_track(address).is_none()
         {
             return;
         }

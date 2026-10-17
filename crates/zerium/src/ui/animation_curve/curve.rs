@@ -128,6 +128,12 @@ impl GraphCurve {
 }
 
 impl SelectedCurve {
+    pub(super) fn stop_positions(&self) -> impl Iterator<Item = f32> + '_ {
+        self.source_stop_frames
+            .iter()
+            .map(|frame| (frame.get() as f64 / self.clock.span_frames()) as f32)
+    }
+
     fn fitted_value_range(&self, include_handles: bool) -> [f64; 2] {
         self.curve
             .value_range(include_handles)
@@ -149,52 +155,49 @@ impl HandleFitTarget {
         selected.curve.has_handles()
             && self.address == selected.address
             && self.source_segment == selected.source_segment
-            && self.source_positions
-                == selected.source_stop_positions
+            && self.source_frames
+                == selected.source_stop_frames
                     [selected.source_segment..=selected.source_segment + 1]
     }
 }
 
 impl AnimationCurveEditor {
-    fn source_segment_for_progress(
-        stop_positions: &[f32],
-        progress: f32,
+    fn source_segment_for_frame(
+        stop_frames: &[Frame],
+        frame: f64,
         focused_segment: Option<usize>,
     ) -> Option<usize> {
-        const BOUNDARY_EPSILON: f32 = 0.000_001;
-
-        if !progress.is_finite() {
+        if !frame.is_finite() {
             return None;
         }
-        let last_segment = stop_positions.len().checked_sub(2)?;
+        let last_segment = stop_frames.len().checked_sub(2)?;
         if let Some(segment) = focused_segment.filter(|segment| *segment <= last_segment) {
-            let start = *stop_positions.get(segment)?;
-            let end = *stop_positions.get(segment + 1)?;
-            if progress >= start - BOUNDARY_EPSILON && progress <= end + BOUNDARY_EPSILON {
+            let start = stop_frames.get(segment)?.get() as f64;
+            let end = stop_frames.get(segment + 1)?.get() as f64;
+            if frame >= start && frame <= end {
                 return Some(segment);
             }
         }
         Some(
-            stop_positions
-                .partition_point(|position| *position < progress)
+            stop_frames
+                .partition_point(|stop| (stop.get() as f64) < frame)
                 .saturating_sub(1)
                 .min(last_segment),
         )
     }
 
-    pub(crate) fn has_selected_curve(&self, cx: &App) -> bool {
-        self.selected_curve(cx).is_some()
+    pub(crate) fn has_visible_curve(&self, cx: &App) -> bool {
+        self.selection.read(cx).address().is_some_and(|address| {
+            self.editor
+                .read(cx)
+                .is_item_active_selected(address.item_id)
+        }) && self.selected_curve(cx).is_some()
     }
 
     pub(super) fn selected_curve(&self, cx: &App) -> Option<SelectedCurve> {
         if let Some(view) = &self.handle_drag_view {
             let editor = self.editor.read(cx);
-            let track = editor.item(view.address.item_id)?.animation_track(
-                view.address.effect_id,
-                &view.address.property_id,
-                view.address.element_id,
-                view.address.scalar_index,
-            )?;
+            let track = editor.animation_track(&view.address)?;
             let mut selected = view.clone();
             selected.curve.interpolations[0] = *track.interpolations().get(view.source_segment)?;
             return Some(selected);
@@ -218,36 +221,26 @@ impl AnimationCurveEditor {
             return None;
         }
         let presentation = AnimationPresentation::for_address(editor, item, &address)?;
-        let track = item.animation_track(
-            address.effect_id,
-            &address.property_id,
-            address.element_id,
-            address.scalar_index,
-        )?;
+        let track = editor.animation_track(&address)?;
         let clock = item.animation_clock(track);
-        let source_progress = clock.progress_at(TimelineTime::from_frame(editor.playhead()));
-        let source_stop_positions = track
+        let source_frame = clock.local_frame_at(TimelineTime::from_frame(editor.playhead()));
+        let source_stop_frames = track
             .stops()
             .iter()
-            .map(|stop| stop.position())
+            .map(|stop| stop.frame())
             .collect::<Vec<_>>();
-        let source_segment = Self::source_segment_for_progress(
-            &source_stop_positions,
-            source_progress,
-            focused_segment,
-        )?;
+        let source_segment =
+            Self::source_segment_for_frame(&source_stop_frames, source_frame, focused_segment)?;
         self.selection.read(cx).focus_segment(source_segment);
-        let source_progress_start = track.stops().get(source_segment)?.position();
-        let source_progress_end = track.stops().get(source_segment + 1)?.position();
-        let source_progress_span = source_progress_end - source_progress_start;
+        let source_frame_start = track.stops().get(source_segment)?.frame();
+        let source_frame_end = track.stops().get(source_segment + 1)?.frame();
+        let segment_span = (source_frame_end.get() - source_frame_start.get()) as f64;
         let playhead_progress =
-            ((source_progress - source_progress_start) / source_progress_span).clamp(0., 1.);
-        let numeric_stops = track.numeric_stops().map(|stops| {
-            stops[source_segment..=source_segment + 1]
-                .iter()
-                .map(|(_, value)| *value)
-                .collect::<Vec<_>>()
-        });
+            ((source_frame - source_frame_start.get() as f64) / segment_span).clamp(0., 1.) as f32;
+        let numeric_stops = track.stops()[source_segment..=source_segment + 1]
+            .iter()
+            .map(|stop| stop.value().numeric_scalar())
+            .collect::<Option<Vec<_>>>();
         let (value_min, value_max, stops, axis_suffix) = if let Some(values) = numeric_stops {
             let minimum = values.iter().copied().min_by(f64::total_cmp)?;
             let maximum = values.iter().copied().max_by(f64::total_cmp)?;
@@ -273,9 +266,8 @@ impl AnimationCurveEditor {
         };
         let frame_rate = editor.frame_rate();
         let frames_per_second = frame_rate.frames_per_second();
-        let animation_start_frame = clock.time_at(source_progress_start).frames();
-        let animation_span_frames =
-            clock.span_frames() * f64::from(source_progress_end - source_progress_start);
+        let animation_start_frame = clock.key_time_at(source_frame_start).frames();
+        let animation_span_frames = segment_span;
         let axis_start = if track.repeat().mode() != RepeatMode::None {
             animation_start_frame - clock.start_time().frames()
         } else {
@@ -291,9 +283,8 @@ impl AnimationCurveEditor {
             curve,
             axis_suffix,
             source_segment,
-            source_stop_count: track.stops().len(),
-            source_stop_positions,
-            source_playhead_progress: source_progress.clamp(0., 1.),
+            source_stop_frames,
+            source_playhead_progress: (source_frame / clock.span_frames()).clamp(0., 1.) as f32,
             playhead_progress,
             clock,
             repeat: track.repeat(),
@@ -310,9 +301,9 @@ impl AnimationCurveEditor {
             self.source_curve(cx)
                 .filter(|selected| selected.curve.has_handles())
                 .map(|selected| HandleFitTarget {
-                    source_positions: [
-                        selected.source_stop_positions[selected.source_segment],
-                        selected.source_stop_positions[selected.source_segment + 1],
+                    source_frames: [
+                        selected.source_stop_frames[selected.source_segment],
+                        selected.source_stop_frames[selected.source_segment + 1],
                     ],
                     address: selected.address,
                     source_segment: selected.source_segment,

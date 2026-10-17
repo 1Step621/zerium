@@ -24,10 +24,10 @@ impl RepeatParameter {
         self as usize
     }
 
-    fn value(self, repeat: AnimationRepeat) -> f32 {
+    fn value(self, repeat: AnimationRepeat) -> f64 {
         match self {
-            Self::Period => repeat.period(),
-            Self::Phase => repeat.phase() * 100.,
+            Self::Period => repeat.period().get() as f64,
+            Self::Phase => repeat.phase().get() as f64 / repeat.period().get() as f64 * 100.,
         }
     }
 
@@ -60,17 +60,7 @@ impl AnimationCurveEditor {
         if self.selection.read(cx).address() != Some(address) {
             return None;
         }
-        let repeat = self
-            .editor
-            .read(cx)
-            .item(address.item_id)?
-            .animation_track(
-                address.effect_id,
-                &address.property_id,
-                address.element_id,
-                address.scalar_index,
-            )?
-            .repeat();
+        let repeat = self.editor.read(cx).animation_track(address)?.repeat();
         (repeat.mode() != RepeatMode::None).then_some(repeat)
     }
 
@@ -92,7 +82,7 @@ impl AnimationCurveEditor {
         &mut self,
         address: &PropertyAddress,
         parameter: RepeatParameter,
-        value: f32,
+        value: f64,
         cx: &mut Context<Self>,
     ) {
         if !value.is_finite() {
@@ -101,13 +91,17 @@ impl AnimationCurveEditor {
         let Some(repeat) = self.repeat_for(address, cx) else {
             return;
         };
-        let (period, phase) = match parameter {
-            RepeatParameter::Period => (value.max(1.), repeat.phase()),
+        let phase_ratio = repeat.phase().get() as f64 / repeat.period().get() as f64;
+        let (period, phase_ratio) = match parameter {
+            RepeatParameter::Period => (
+                FrameDuration::new(value.round().max(1.) as u64).unwrap(),
+                phase_ratio,
+            ),
             RepeatParameter::Phase => (repeat.period(), value.clamp(0., 100.) / 100.),
         };
-        let Some(repeat) = AnimationRepeat::new(repeat.mode(), period, phase) else {
-            return;
-        };
+        let normalized = AnimationRepeat::new(repeat.mode(), period, Frame::new(0));
+        let phase = Frame::new((phase_ratio * normalized.period().get() as f64).round() as u64);
+        let repeat = AnimationRepeat::new(repeat.mode(), normalized.period(), phase);
         self.editor
             .update_if_changed(cx, |editor| editor.set_animation_repeat(address, repeat));
     }
@@ -148,7 +142,7 @@ impl AnimationCurveEditor {
                 cx,
                 move |this, input, edit, window, cx| match edit {
                     NumberEdit::Value(value) => {
-                        this.set_repeat_number(&address, parameter, value as f32, cx)
+                        this.set_repeat_number(&address, parameter, value, cx)
                     }
                     NumberEdit::Step(NumberInputEvent::Step { action, fine }) => {
                         let Some(repeat) = this.repeat_for(&address, cx) else {
@@ -230,7 +224,7 @@ impl AnimationCurveEditor {
         let value = adjustment.value_at(
             f32::from(event.event.position.x),
             event.event.modifiers.shift,
-        ) as f32;
+        );
         self.focus_handle.focus(window, cx);
         cx.set_active_drag_cursor_style(gpui::CursorStyle::ResizeLeftRight, window);
         self.set_repeat_number(&address, parameter, value, cx);

@@ -335,12 +335,8 @@ impl TimelineItem {
         }
     }
 
-    pub fn animation_span_frames(&self) -> f64 {
-        self.duration.get().saturating_sub(1).max(1) as f64
-    }
-
     pub fn animation_clock(&self, track: &ScalarTrack) -> AnimationClock {
-        AnimationClock::new(self.start, self.duration, track.repeat())
+        AnimationClock::new(self.start, track)
     }
 
     /// Resolve a loaded visual input using only its owner's media declaration.
@@ -482,19 +478,17 @@ impl TimelineItem {
         Some(())
     }
 
-    /// Commit the interval. Trimming keeps animation keys at their existing
-    /// time positions; stretching keeps their normalized positions.
+    /// Commit the interval. Trimming preserves retained key positions, adopts
+    /// crossed keys at the bounds, and adds constant endpoints when extending.
+    /// Stretching rescales integer keys within the new span.
     pub(super) fn set_interval(&mut self, start: Frame, duration: FrameDuration, mode: ResizeMode) {
-        let old_span = self.animation_span_frames();
-        let new_span = duration.get().saturating_sub(1).max(1) as f64;
-        let offset = start.get() as f64 - self.start.get() as f64;
-        let factor = duration.get() as f32 / self.duration.get() as f32;
+        let offset = i128::from(start.get()) - i128::from(self.start.get());
         for animations in std::iter::once(&mut self.animations)
             .chain(self.effects.iter_mut().map(|effect| &mut effect.animations))
         {
             match mode {
-                ResizeMode::Trim => animations.trim(offset, old_span, new_span),
-                ResizeMode::Stretch => animations.stretch(factor),
+                ResizeMode::Trim => animations.trim(offset, duration),
+                ResizeMode::Stretch => animations.stretch(self.duration, duration),
             }
         }
         self.start = start;
@@ -503,14 +497,12 @@ impl TimelineItem {
 
     /// Extend a detached scene item without changing media speed or loop clocks.
     pub(super) fn extend_at(&mut self, point: Frame, extra: u64, frame_rate: FrameRate) {
-        let old_span = self.animation_span_frames();
         let duration = FrameDuration::new_saturating(self.duration.get().saturating_add(extra));
-        let new_span = duration.get().saturating_sub(1).max(1) as f64;
-        let local_frame = point.get().saturating_sub(self.start.get()) as f64;
+        let local_frame = Frame::new(point.get().saturating_sub(self.start.get()));
         for animations in std::iter::once(&mut self.animations)
             .chain(self.effects.iter_mut().map(|effect| &mut effect.animations))
         {
-            animations.extend_at(local_frame, old_span, new_span);
+            animations.extend_at(local_frame, duration);
         }
         if let Some(mapping) = self.timeline_mapping() {
             let mapping = mapping.with_timeline_duration(duration, frame_rate);

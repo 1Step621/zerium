@@ -164,7 +164,7 @@ impl TimelineEditor {
     }
 
     pub fn group_selected_as_scene(&mut self, base_name: &str) -> Option<SceneId> {
-        let selected = self.selection.current.clone();
+        let selected = self.selected_item_ids().collect::<HashSet<_>>();
         if selected.is_empty() {
             return None;
         }

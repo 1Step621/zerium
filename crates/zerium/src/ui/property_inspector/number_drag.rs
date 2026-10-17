@@ -16,8 +16,11 @@ impl PropertyInspector {
         origin: Rc<PropertyValueDragOrigin>,
         cx: &mut Context<Self>,
     ) {
-        self.editor
-            .update(cx, |editor, _| editor.finish_history_group());
+        self.finish_animation_value_edit();
+        if !matches!(origin.input_id, ControlId::AnimationStop { .. }) {
+            self.editor
+                .update(cx, |editor, _| editor.finish_history_group());
+        }
         self.store.number_drag_origin = Some(origin);
     }
 
@@ -55,8 +58,12 @@ impl PropertyInspector {
     }
 
     pub(super) fn finish_number_drag(&mut self, cx: &mut Context<Self>) {
-        self.store.number_drag_origin = None;
-        self.editor
-            .update(cx, |editor, _| editor.finish_history_group());
+        let origin = self.store.number_drag_origin.take();
+        self.finish_animation_value_edit();
+        if origin.is_some_and(|origin| !matches!(origin.input_id, ControlId::AnimationStop { .. }))
+        {
+            self.editor
+                .update(cx, |editor, _| editor.finish_history_group());
+        }
     }
 }

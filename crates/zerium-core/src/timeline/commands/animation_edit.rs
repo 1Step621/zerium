@@ -61,14 +61,14 @@ impl TimelineEditor {
         synchronize: bool,
     ) -> Option<AnimationEdit> {
         let source = self.item(address.item_id)?;
-        let track = self.animation_track(address.item_id, address.effect_id, &address.path())?;
+        let track = self.animation_track(address)?;
         let times = Self::animation_target_times(source, track, part)?;
         let interpolation = match part {
             AnimationEditTarget::Stop(_) => None,
             AnimationEditTarget::Segment(index) => Some(*track.interpolations().get(index)?),
         };
         let mut targets = Vec::new();
-        for item_id in self.selection.sorted_current() {
+        for item_id in self.selected_item_ids() {
             let item = self.item(item_id)?;
             for (effect_id, animations) in std::iter::once((None, &item.animations)).chain(
                 item.effects
@@ -128,18 +128,10 @@ impl TimelineEditor {
                 let mut maximum = f64::INFINITY;
                 for target in &targets {
                     let item = self.item(target.address.item_id)?;
-                    let track = self.animation_track(
-                        item.id,
-                        target.address.effect_id,
-                        &target.address.path(),
-                    )?;
+                    let track = self.animation_track(&target.address)?;
                     let clock = item.animation_clock(track);
-                    let frame = |index: usize| {
-                        clock
-                            .time_at(track.stops()[index].position())
-                            .frames()
-                            .round()
-                    };
+                    let frame =
+                        |index: usize| clock.key_time_at(track.stops()[index].frame()).frames();
                     minimum = minimum.max(frame(target.index - 1) + 1.);
                     maximum = maximum.min(frame(target.index + 1) - 1.);
                 }
@@ -169,7 +161,7 @@ impl TimelineEditor {
             track
                 .stops()
                 .get(index)
-                .map(|stop| clock.time_at(stop.position()).rounded())
+                .map(|stop| clock.key_time_at(stop.frame()))
         };
         match part {
             AnimationEditTarget::Stop(index) => Some((frame(index)?, frame(index)?)),
@@ -189,8 +181,8 @@ impl TimelineEditor {
                 .clamp(range.start().frames(), range.end().frames()),
         );
         self.apply_animation_edit(edit, |item, index, track| {
-            let progress = item.animation_clock(track).pattern_progress_at(time);
-            let changed = track.move_stop(index, progress);
+            let frame = item.animation_clock(track).pattern_frame_at(time);
+            let changed = track.move_stop(index, frame);
             (changed
                 || Self::animation_target_times(item, track, AnimationEditTarget::Stop(index))?.0
                     == time)
@@ -226,9 +218,7 @@ impl TimelineEditor {
             let Some(item) = self.item(target.address.item_id) else {
                 return false;
             };
-            let Some(current) =
-                self.animation_track(item.id, target.address.effect_id, &target.address.path())
-            else {
+            let Some(current) = self.animation_track(&target.address) else {
                 return false;
             };
             let track = updates
@@ -246,7 +236,7 @@ impl TimelineEditor {
             editor.edit_project_if_changed(None, |editor| {
                 for (address, track) in updates {
                     *editor
-                        .animation_track_mut(address.item_id, address.effect_id, &address.path())
+                        .animation_track_mut(&address)
                         .expect("all gesture targets were validated before mutation") = track;
                 }
                 true

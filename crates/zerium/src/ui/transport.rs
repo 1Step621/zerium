@@ -183,13 +183,6 @@ impl TransportController {
         cx.notify();
     }
 
-    pub(crate) fn seek(&mut self, frame: Frame, cx: &mut Context<Self>) -> bool {
-        let stopped = self.is_playing() && self.stop_in_place(cx);
-        self.editor
-            .update_if_changed(cx, |editor| editor.seek(frame))
-            || stopped
-    }
-
     pub(crate) fn set_playhead(&mut self, frame: Frame, cx: &mut Context<Self>) -> bool {
         let stopped = self.is_playing() && self.stop_in_place(cx);
         self.editor

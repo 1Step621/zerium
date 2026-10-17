@@ -111,8 +111,7 @@ impl TimelineDocument {
                         ))
                     })?;
                 let mut item = item.as_ref().clone();
-                item.start = start;
-                item.duration = duration;
+                item.set_interval(start, duration, ResizeMode::Stretch);
                 Ok((layer, item))
             })
             .collect::<Result<Vec<_>, ProjectSettingsError>>()?;

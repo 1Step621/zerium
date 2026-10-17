@@ -91,7 +91,6 @@ pub(super) struct ProjectItem {
     layer: u64,
     start: u64,
     duration: u64,
-    #[serde(default)]
     blend_mode: BlendMode,
     kind: ProjectItemKind,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -220,7 +219,8 @@ impl ProjectItem {
             project_path,
         )?;
         let animation_base = materialized_property_values(&properties, property_schema);
-        let animations = load_animations(property_schema, &animation_base, self.animations)?;
+        let animations =
+            load_animations(property_schema, &animation_base, self.animations, duration)?;
 
         if self.aspect_ratio.is_some()
             && !matches!(&kind, TimelineItemKind::Plugin { schema, .. } if schema.aspect_lock_property().is_some())
@@ -238,7 +238,7 @@ impl ProjectItem {
                     effect.id
                 )));
             }
-            effects.push(effect.into_effect(project_path, plugins)?);
+            effects.push(effect.into_effect(project_path, plugins, duration)?);
         }
         if !effects.is_empty()
             && matches!(&kind, TimelineItemKind::Plugin { schema, .. } if schema.render().is_none())
@@ -297,6 +297,7 @@ impl ProjectEffect {
         self,
         project_path: &Path,
         plugins: &PluginRegistry,
+        duration: FrameDuration,
     ) -> Result<EffectInstance, ProjectError> {
         let schema = plugins
             .effect(&self.plugin_id, &self.effect_id)
@@ -318,7 +319,8 @@ impl ProjectEffect {
             PropertyValues::from_properties(schema.properties()),
             project_path,
         )?;
-        let animations = load_animations(schema.properties(), &properties, self.animations)?;
+        let animations =
+            load_animations(schema.properties(), &properties, self.animations, duration)?;
         Ok(EffectInstance {
             id: EffectInstanceId::new(self.id),
             plugin_id: self.plugin_id,
@@ -352,6 +354,7 @@ fn load_animations(
     schema: &[PropertySchema],
     properties: &PropertyValues,
     animations: Vec<ProjectScalarAnimation>,
+    duration: FrameDuration,
 ) -> Result<ScalarAnimations, ProjectError> {
     let mut loaded = ScalarAnimations::default();
     for animation in animations {
@@ -374,6 +377,7 @@ fn load_animations(
             })
             .is_some_and(|resolved| {
                 property.is_animatable(path.scalar_index())
+                    && track.span() == track.repeat().pattern_span(duration)
                     && track.is_valid_for(resolved.ty)
                     && track
                         .stops()

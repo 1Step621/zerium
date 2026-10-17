@@ -1,23 +1,25 @@
-//! Typed scalar animation tracks made of value stops and interval interpolations.
+//! Typed scalar tracks with integer authored frames and continuous evaluation.
+use super::timing::scale_frames;
 use super::{AnimationRepeat, SegmentInterpolation, interpolate_scalar};
-use crate::property::{PropertyValue, ScalarPropertyType};
+use crate::{
+    property::{PropertyValue, ScalarPropertyType},
+    timeline::{Frame, FrameDuration},
+};
 use serde::{Deserialize, Serialize};
 
-const STOP_POSITION_EPSILON: f32 = 0.000_001;
-const COLOR_LINK_EPSILON: f32 = 0.000_01;
+const COLOR_VALUE_EPSILON: f32 = 0.000_01;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct AnimationStop {
-    position: f32,
+    frame: Frame,
     value: PropertyValue,
 }
 
 impl AnimationStop {
-    pub const fn position(&self) -> f32 {
-        self.position
+    pub const fn frame(&self) -> Frame {
+        self.frame
     }
-
     pub const fn value(&self) -> &PropertyValue {
         &self.value
     }
@@ -26,7 +28,7 @@ impl AnimationStop {
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ScalarTrack {
-    #[serde(default)]
+    span_frames: FrameDuration,
     repeat: AnimationRepeat,
     stops: Vec<AnimationStop>,
     interpolations: Vec<SegmentInterpolation>,
@@ -36,18 +38,18 @@ impl ScalarTrack {
     pub(crate) fn from_value(
         value: PropertyValue,
         ty: &ScalarPropertyType,
-        period: f32,
+        duration: FrameDuration,
     ) -> Option<Self> {
-        let repeat = AnimationRepeat::new(super::RepeatMode::None, period, 0.)?;
         (ty.is_interpolatable() && ty.allows(&value)).then(|| Self {
-            repeat,
+            span_frames: duration.animation_span(),
+            repeat: AnimationRepeat::new(super::RepeatMode::None, duration, Frame::new(0)),
             stops: vec![
                 AnimationStop {
-                    position: 0.,
+                    frame: Frame::new(0),
                     value: value.clone(),
                 },
                 AnimationStop {
-                    position: 1.,
+                    frame: Frame::new(duration.animation_span().get()),
                     value,
                 },
             ],
@@ -55,24 +57,63 @@ impl ScalarTrack {
         })
     }
 
+    pub fn span(&self) -> FrameDuration {
+        self.span_frames
+    }
     pub fn repeat(&self) -> AnimationRepeat {
         self.repeat
     }
-
-    pub fn set_repeat(&mut self, repeat: AnimationRepeat) -> bool {
-        if !repeat.is_valid() || self.repeat == repeat {
+    pub(crate) fn set_repeat(&mut self, repeat: AnimationRepeat, duration: FrameDuration) -> bool {
+        let span = repeat.pattern_span(duration);
+        if self.repeat == repeat && self.span_frames == span {
             return false;
         }
+        self.resize_span(span);
         self.repeat = repeat;
         true
     }
 
-    fn values_are_linked(left: &PropertyValue, right: &PropertyValue) -> bool {
+    /// Rescale keys with their outgoing curves. Interior keys take priority
+    /// over endpoints; collisions between interior keys keep the later key.
+    fn resize_span(&mut self, span: FrameDuration) {
+        if self.span_frames == span {
+            return;
+        }
+        for stop in &mut self.stops {
+            stop.frame = Frame::new(scale_frames(
+                stop.frame.get(),
+                span.get(),
+                self.span_frames.get(),
+            ));
+        }
+        let last = self.stops.len() - 1;
+        let mut retained: Vec<_> = (0..self.stops.len()).collect();
+        retained.dedup_by(|later, earlier| {
+            if self.stops[*later].frame != self.stops[*earlier].frame {
+                return false;
+            }
+            if *later != last {
+                *earlier = *later;
+            }
+            true
+        });
+        self.interpolations = retained
+            .windows(2)
+            .map(|pair| self.interpolations[pair[0]])
+            .collect();
+        self.stops = retained
+            .into_iter()
+            .map(|index| self.stops[index].clone())
+            .collect();
+        self.span_frames = span;
+    }
+
+    fn values_are_equal(left: &PropertyValue, right: &PropertyValue) -> bool {
         match (left, right) {
             (PropertyValue::Color(left), PropertyValue::Color(right)) => left
                 .iter()
                 .zip(right)
-                .all(|(left, right)| (left - right).abs() <= COLOR_LINK_EPSILON),
+                .all(|(left, right)| (left - right).abs() <= COLOR_VALUE_EPSILON),
             _ => left == right,
         }
     }
@@ -80,28 +121,30 @@ impl ScalarTrack {
     pub fn stops(&self) -> &[AnimationStop] {
         &self.stops
     }
-
     pub fn interpolations(&self) -> &[SegmentInterpolation] {
         &self.interpolations
     }
-
-    pub fn stop_index_at(&self, position: f32) -> Option<usize> {
-        if !position.is_finite() {
-            return None;
-        }
+    pub fn stop_index_at(&self, frame: Frame) -> Option<usize> {
         self.stops
-            .iter()
-            .position(|stop| (stop.position - position).abs() <= STOP_POSITION_EPSILON)
+            .binary_search_by_key(&frame, AnimationStop::frame)
+            .ok()
     }
 
-    pub fn stop_indices_for_segment(&self, position: f32) -> Vec<usize> {
-        if let Some(index) = self.stop_index_at(position) {
-            return vec![index];
-        }
-        if !position.is_finite() || self.stops.len() < 2 {
+    /// Exact authored keys are compared in frames, without a normalized epsilon.
+    pub fn stop_indices_for_segment(&self, frame: f64) -> Vec<usize> {
+        if !frame.is_finite() || self.stops.len() < 2 {
             return Vec::new();
         }
-        let right = self.stops.partition_point(|stop| stop.position < position);
+        let right = self
+            .stops
+            .partition_point(|stop| (stop.frame.get() as f64) < frame);
+        if self
+            .stops
+            .get(right)
+            .is_some_and(|stop| stop.frame.get() as f64 == frame)
+        {
+            return vec![right];
+        }
         match right {
             0 => vec![0],
             right if right >= self.stops.len() => vec![self.stops.len() - 1],
@@ -109,26 +152,27 @@ impl ScalarTrack {
         }
     }
 
-    pub fn evaluate(&self, progress: f32) -> Option<PropertyValue> {
-        if !progress.is_finite() {
+    /// Playback and temporal effects can sample between the integer keys.
+    pub fn evaluate(&self, frame: f64) -> Option<PropertyValue> {
+        if !frame.is_finite() {
             return None;
         }
-        let progress = progress.clamp(0., 1.);
+        let frame = frame.clamp(0., self.span_frames.get() as f64);
         let right = self
             .stops
-            .partition_point(|stop| stop.position < progress)
+            .partition_point(|stop| (stop.frame.get() as f64) < frame)
             .min(self.stops.len().saturating_sub(1));
         let to = self.stops.get(right)?;
-        if to.position == progress || right == 0 {
+        if to.frame.get() as f64 == frame || right == 0 {
             return Some(to.value.clone());
         }
         let left = right - 1;
         let from = self.stops.get(left)?;
-        let span = to.position - from.position;
-        if span <= 0. {
+        let span = to.frame.get().checked_sub(from.frame.get())?;
+        if span == 0 {
             return None;
         }
-        let local = (progress - from.position) / span;
+        let local = ((frame - from.frame.get() as f64) / span as f64) as f32;
         interpolate_scalar(
             &from.value,
             &to.value,
@@ -136,94 +180,73 @@ impl ScalarTrack {
         )
     }
 
-    /// The interval starting at an exact key, or the final interval at the end.
-    fn stretch_segment_at(&self, progress: f32) -> Option<usize> {
-        if !progress.is_finite() || self.stops.len() < 2 {
-            return None;
-        }
-        Some(
-            self.stops
-                .partition_point(|stop| stop.position <= progress.clamp(0., 1.))
-                .clamp(1, self.stops.len() - 1)
-                - 1,
-        )
-    }
-
-    pub(super) fn extend_at(&mut self, progress: f32, old_span: f64, new_span: f64) {
-        let Some(segment) = self.stretch_segment_at(progress) else {
+    pub(super) fn extend_at(&mut self, frame: Frame, new_span: FrameDuration) {
+        if new_span.get() <= self.span_frames.get() {
             return;
-        };
-        let extra = new_span - old_span;
-        for (index, stop) in self.stops.iter_mut().enumerate() {
-            let time = f64::from(stop.position) * old_span;
-            let shift = if index > segment { extra } else { 0. };
-            stop.position = ((time + shift) / new_span) as f32;
         }
-        self.stops[0].position = 0.;
-        self.stops.last_mut().expect("track has endpoints").position = 1.;
+        let extra = new_span.get() - self.span_frames.get();
+        let segment = self
+            .stops
+            .partition_point(|stop| stop.frame <= frame)
+            .clamp(1, self.stops.len() - 1)
+            - 1;
+        for stop in &mut self.stops[segment + 1..] {
+            stop.frame = Frame::new(stop.frame.get() + extra);
+        }
+        self.span_frames = new_span;
     }
 
-    pub fn numeric_stops(&self) -> Option<Vec<(f32, f64)>> {
-        self.stops
-            .iter()
-            .map(|stop| {
-                stop.value
-                    .numeric_scalar()
-                    .map(|value| (stop.position, value))
-            })
-            .collect()
+    /// Resolve the fixed targets of a value edit before any values change.
+    pub(crate) fn value_edit_targets(
+        &self,
+        index: usize,
+        segment: Option<usize>,
+    ) -> Option<std::ops::RangeInclusive<usize>> {
+        let current = self.stops.get(index)?.value();
+        let (first, last) = match segment {
+            Some(segment) if index == segment && segment < self.interpolations.len() => {
+                let first = self.stops[..index]
+                    .iter()
+                    .rposition(|stop| !Self::values_are_equal(&stop.value, current))
+                    .map_or(0, |previous| previous + 1);
+                (first, index)
+            }
+            Some(segment) if segment.checked_add(1) == Some(index) => {
+                let last = self.stops[index + 1..]
+                    .iter()
+                    .position(|stop| !Self::values_are_equal(&stop.value, current))
+                    .map_or(self.stops.len() - 1, |next| index + next);
+                (index, last)
+            }
+            Some(_) => return None,
+            None => (index, index),
+        };
+        Some(first..=last)
     }
 
-    /// Link neighboring equal values, keeping the endpoints of an edited
-    /// interval independent. A point edit without an interval links both sides.
-    pub fn set_stop(&mut self, index: usize, value: PropertyValue, segment: Option<usize>) -> bool {
+    /// Set one authored key. Linked edits apply this to their resolved targets.
+    pub fn set_stop(&mut self, index: usize, value: PropertyValue) -> bool {
         let Some(current) = self.stops.get(index).map(AnimationStop::value) else {
             return false;
         };
-        if !self.accepts_value(&value) || Self::values_are_linked(current, &value) {
+        if !self.accepts_value(&value) || Self::values_are_equal(current, &value) {
             return false;
         }
-        let mut first_linked = self.stops[..index]
-            .iter()
-            .rposition(|stop| !Self::values_are_linked(&stop.value, current))
-            .map_or(0, |previous| previous + 1);
-        let mut last_linked = self.stops[index + 1..]
-            .iter()
-            .position(|stop| !Self::values_are_linked(&stop.value, current))
-            .map_or(self.stops.len() - 1, |next| index + next);
-        if segment == Some(index) {
-            last_linked = index;
-        }
-        if segment.and_then(|segment| segment.checked_add(1)) == Some(index) {
-            first_linked = index;
-        }
-        for stop in &mut self.stops[first_linked..=last_linked] {
-            stop.value = value.clone();
-        }
+        self.stops[index].value = value;
         true
     }
 
-    pub fn insert_stop(&mut self, position: f32, value: PropertyValue) -> Option<usize> {
-        if !position.is_finite() || !(0. ..=1.).contains(&position) || !self.accepts_value(&value) {
-            return None;
-        }
-        let insertion = self.stops.partition_point(|stop| stop.position < position);
-        if let Some(stop) = self.stops.get(insertion)
-            && (stop.position - position).abs() <= STOP_POSITION_EPSILON
+    pub fn insert_stop(&mut self, frame: Frame, value: PropertyValue) -> Option<usize> {
+        if !self.accepts_value(&value) || frame.get() == 0 || frame.get() >= self.span_frames.get()
         {
             return None;
         }
-        if let Some(index) = insertion.checked_sub(1)
-            && (self.stops[index].position - position).abs() <= STOP_POSITION_EPSILON
-        {
-            return None;
-        }
-        if insertion == 0 || insertion == self.stops.len() {
-            return None;
-        }
-        let inherited = *self.interpolations.get(insertion - 1)?;
-        self.stops
-            .insert(insertion, AnimationStop { position, value });
+        let insertion = self
+            .stops
+            .binary_search_by_key(&frame, AnimationStop::frame)
+            .err()?;
+        let inherited = *self.interpolations.get(insertion.checked_sub(1)?)?;
+        self.stops.insert(insertion, AnimationStop { frame, value });
         self.interpolations.insert(insertion, inherited);
         Some(insertion)
     }
@@ -237,19 +260,16 @@ impl ScalarTrack {
         true
     }
 
-    pub fn move_stop(&mut self, index: usize, position: f32) -> bool {
-        if !position.is_finite() || index == 0 || index >= self.stops.len().saturating_sub(1) {
+    pub fn move_stop(&mut self, index: usize, frame: Frame) -> bool {
+        if index == 0
+            || index >= self.stops.len().saturating_sub(1)
+            || frame <= self.stops[index - 1].frame
+            || frame >= self.stops[index + 1].frame
+            || self.stops[index].frame == frame
+        {
             return false;
         }
-        let minimum = self.stops[index - 1].position + STOP_POSITION_EPSILON;
-        let maximum = self.stops[index + 1].position - STOP_POSITION_EPSILON;
-        if position < minimum || position > maximum {
-            return false;
-        }
-        if (self.stops[index].position - position).abs() <= STOP_POSITION_EPSILON {
-            return false;
-        }
-        self.stops[index].position = position;
+        self.stops[index].frame = frame;
         true
     }
 
@@ -266,15 +286,14 @@ impl ScalarTrack {
 
     pub(crate) fn is_valid_for(&self, ty: &ScalarPropertyType) -> bool {
         ty.is_interpolatable()
-            && self.repeat.is_valid()
             && self.stops.len() >= 2
             && self.interpolations.len() + 1 == self.stops.len()
-            && self.stops.first().map(AnimationStop::position) == Some(0.)
-            && self.stops.last().map(AnimationStop::position) == Some(1.)
+            && self.stops.first().map(AnimationStop::frame) == Some(Frame::new(0))
+            && self.stops.last().map(AnimationStop::frame)
+                == Some(Frame::new(self.span_frames.get()))
             && self.stops.iter().enumerate().all(|(index, stop)| {
-                stop.position.is_finite()
-                    && (0. ..=1.).contains(&stop.position)
-                    && (index == 0 || self.stops[index - 1].position < stop.position)
+                stop.frame.get() <= self.span_frames.get()
+                    && (index == 0 || self.stops[index - 1].frame < stop.frame)
                     && ty.allows(&stop.value)
             })
             && self
@@ -299,76 +318,50 @@ impl ScalarTrack {
         true
     }
 
-    pub(super) fn remap_time_range(&mut self, start: f64, end: f64) {
-        if !start.is_finite()
-            || !end.is_finite()
-            || start >= end
-            || (start == 0. && end == 1.)
-            || self.stops.len() < 2
-            || self.interpolations.len() + 1 != self.stops.len()
-        {
-            return;
-        }
-        let start = start as f32;
-        let end = end as f32;
-        if !start.is_finite() || !end.is_finite() || start >= end {
-            return;
-        }
-        let first = &self.stops[0];
-        let last = &self.stops[self.stops.len() - 1];
-        let start_value = self.evaluate(start).unwrap_or_else(|| first.value.clone());
-        let end_value = self.evaluate(end).unwrap_or_else(|| last.value.clone());
-        let old_stops = &self.stops;
-        let old_interpolations = &self.interpolations;
-        let stretch_left = start < 0. && Self::values_are_linked(&first.value, &old_stops[1].value);
-        let stretch_right =
-            end > 1. && Self::values_are_linked(&old_stops[old_stops.len() - 2].value, &last.value);
-        let mut stops = vec![AnimationStop {
-            position: start,
-            value: start_value,
-        }];
-        stops.extend(
-            old_stops
-                .iter()
-                .filter(|stop| {
-                    stop.position > start
-                        && stop.position < end
-                        && !(stretch_left && stop.position <= STOP_POSITION_EPSILON)
-                        && !(stretch_right && stop.position >= 1. - STOP_POSITION_EPSILON)
-                })
-                .cloned(),
-        );
-        stops.push(if stretch_right {
-            AnimationStop {
-                position: 1.,
-                value: last.value.clone(),
-            }
-        } else {
-            AnimationStop {
-                position: end,
-                value: end_value,
-            }
-        });
-        let interpolations = stops
-            .windows(2)
-            .map(|pair| {
-                let midpoint = (pair[0].position + pair[1].position) * 0.5;
-                let segment = old_stops
-                    .partition_point(|stop| stop.position <= midpoint)
-                    .saturating_sub(1)
-                    .min(old_interpolations.len() - 1);
-                old_interpolations[segment]
+    pub(super) fn trim(&mut self, start: i128, new_span: FrameDuration) {
+        let end = start + i128::from(new_span.get());
+        let first = self
+            .stops
+            .partition_point(|stop| i128::from(stop.frame.get()) <= start)
+            .saturating_sub(1);
+        let last = self
+            .stops
+            .partition_point(|stop| i128::from(stop.frame.get()) < end)
+            .min(self.stops.len() - 1);
+        let mut keys: Vec<_> = self
+            .stops
+            .iter()
+            .filter_map(|stop| {
+                let frame = i128::from(stop.frame.get());
+                (frame >= start && frame <= end).then(|| (frame, stop.value.clone()))
             })
             .collect();
-        let span = end - start;
-        for stop in &mut stops {
-            stop.position = (stop.position - start) / span;
+        if keys.first().is_none_or(|(frame, _)| *frame != start) {
+            keys.insert(0, (start, self.stops[first].value.clone()));
         }
-        stops[0].position = 0.;
-        if let Some(last) = stops.last_mut() {
-            last.position = 1.;
+        if keys.last().is_none_or(|(frame, _)| *frame != end) {
+            keys.push((end, self.stops[last].value.clone()));
         }
-        self.stops = stops;
+        let interpolations = keys
+            .windows(2)
+            .map(|pair| {
+                let midpoint_twice = pair[0].0 + pair[1].0;
+                let segment = self
+                    .stops
+                    .partition_point(|stop| i128::from(stop.frame.get()) * 2 <= midpoint_twice)
+                    .saturating_sub(1)
+                    .min(self.interpolations.len() - 1);
+                self.interpolations[segment]
+            })
+            .collect();
+        self.stops = keys
+            .into_iter()
+            .map(|(frame, value)| AnimationStop {
+                frame: Frame::new((frame - start) as u64),
+                value,
+            })
+            .collect();
         self.interpolations = interpolations;
+        self.span_frames = new_span;
     }
 }

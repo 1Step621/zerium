@@ -1,8 +1,8 @@
 use zerium_core::{
     property::{PropertyElementId, PropertySchema, PropertyValue},
     timeline::{
-        EditGesture, EffectInstanceId, Frame, PropertyAddress, TimelineEditor, TimelineItem,
-        TimelineTime,
+        AnimationStopEdit, EditGesture, EffectInstanceId, Frame, PropertyAddress, TimelineEditor,
+        TimelineItem, TimelineTime,
     },
 };
 
@@ -17,6 +17,7 @@ struct PreviewScalarValue {
     address: PropertyAddress,
     value: f32,
     stop: Option<usize>,
+    time_distance: f64,
 }
 
 impl PreviewScalarValue {
@@ -35,6 +36,10 @@ struct PreviewScalarControl {
 }
 
 impl PreviewScalarControl {
+    fn value_at(&self, delta: [f32; 2]) -> f32 {
+        self.scalar.value + delta[self.scalar.axis()] / self.units_per_value
+    }
+
     fn same_target(&self, other: &Self) -> bool {
         self.scalar.address == other.scalar.address && self.scalar.stop == other.scalar.stop
     }
@@ -98,11 +103,21 @@ impl PreviewScalarControl {
                 })
             })
             .collect::<Vec<_>>();
-        candidates.sort_by(|(_, a), (_, b)| a.total_cmp(b));
+        candidates.sort_by(|(left, a), (right, b)| {
+            a.total_cmp(b).then(
+                left.scalar
+                    .time_distance
+                    .total_cmp(&right.scalar.time_distance),
+            )
+        });
         let mut targets = Vec::new();
         for (control, _) in candidates {
-            // Opposite size handles can overlap but still edit the same value.
-            if !targets.iter().any(|target| control.same_target(target)) {
+            // Each scalar picks one key, including coincident authored keys.
+            // Different axes remain independent so an XY handle can move both.
+            if !targets
+                .iter()
+                .any(|target: &Self| control.scalar.address == target.scalar.address)
+            {
                 targets.push(control);
             }
         }
@@ -125,23 +140,10 @@ pub(super) struct PreviewEditorOverlay {
 }
 
 pub(super) struct PreviewEditorDrag {
-    controls: Vec<PreviewScalarControl>,
+    controls: Vec<(PreviewScalarControl, Option<AnimationStopEdit>)>,
     pointer: Point<Pixels>,
     composition_units_per_pixel: f32,
     pub(super) gesture: EditGesture,
-}
-
-impl PreviewEditorDrag {
-    fn value_at(&self, control: &PreviewScalarControl, pointer: Point<Pixels>) -> f32 {
-        let delta = pointer - self.pointer;
-        let delta = if control.scalar.axis() == 0 {
-            delta.x
-        } else {
-            delta.y
-        };
-        control.scalar.value
-            + f32::from(delta) * self.composition_units_per_pixel / control.units_per_value
-    }
 }
 
 impl Preview {

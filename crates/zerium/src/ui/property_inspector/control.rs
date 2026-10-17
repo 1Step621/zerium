@@ -194,15 +194,7 @@ impl PropertyInspector {
         resolution: &ControlResolution<'_>,
     ) -> LeafControl {
         let scalar_index = address.scalar_index;
-        let animation_enabled = resolution
-            .item
-            .animation_track(
-                address.effect_id,
-                &address.property_id,
-                address.element_id,
-                scalar_index,
-            )
-            .is_some();
+        let animation_enabled = resolution.editor.animation_track(&address).is_some();
         let stops = if animation_enabled {
             Self::animation_stop_controls(resolution, &address)
         } else {

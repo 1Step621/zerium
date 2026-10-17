@@ -105,15 +105,15 @@ impl TimelineEditor {
     }
 
     pub fn remove_selected_item(&mut self) -> bool {
-        if self.selection.current.is_empty() {
+        let selected = self.selected_item_ids().collect::<HashSet<_>>();
+        if selected.is_empty() {
             return false;
         }
         self.edit_project_if_changed(None, |editor| {
-            let selected = std::mem::take(&mut editor.selection.current);
             let mut changed = false;
             for id in &selected {
                 changed |= editor.active_document_mut().remove_item(*id);
-                editor.selection.remembered.remove(id);
+                editor.selection.remove(*id);
             }
             editor.remove_active_scene_bindings_for(&selected);
             changed

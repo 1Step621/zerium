@@ -8,7 +8,7 @@ use ::ui::{
     resizable::{h_resizable, resizable_panel, v_resizable},
     tab::Tab,
 };
-use gpui::{Context, FocusHandle, Render, Subscription, Window, div, prelude::*, px};
+use gpui::{Context, FocusHandle, KeyUpEvent, Render, Subscription, Window, div, prelude::*, px};
 
 use super::operation_hints::OperationHintExt as _;
 use crate::app::actions::*;
@@ -219,7 +219,7 @@ impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let background = cx.theme().background;
         let colors = cx.theme().colors;
-        let show_animation = self.animation_curve.read(cx).has_selected_curve(cx);
+        let show_animation = self.animation_curve.read(cx).has_visible_curve(cx);
         // Forward new messages to the toast layer. Only unseen messages are
         // pushed, so re-renders never duplicate toasts and the push itself
         // (which notifies the toast list, not this workspace) cannot loop.
@@ -268,6 +268,18 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::open_about_dialog))
             .on_action(cx.listener(Self::open_item_picker))
             .on_action(cx.listener(Self::open_effect_picker))
+            .on_action(cx.listener(|this, _: &HidePreviewOverlay, _, cx| {
+                this.preview.update(cx, |preview, cx| {
+                    preview.set_editor_overlay_hidden(true, cx);
+                });
+            }))
+            .capture_key_up(cx.listener(|this, event: &KeyUpEvent, _, cx| {
+                if event.keystroke.key.eq_ignore_ascii_case("h") {
+                    this.preview.update(cx, |preview, cx| {
+                        preview.set_editor_overlay_hidden(false, cx);
+                    });
+                }
+            }))
             .size_full()
             .flex()
             .flex_col()

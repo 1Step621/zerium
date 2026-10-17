@@ -19,7 +19,7 @@ impl Preview {
         let window_span = tracks
             .iter()
             .map(|(clock, _)| clock.span_frames())
-            .fold(item.animation_span_frames(), f64::min);
+            .fold(item.duration.animation_span().get() as f64, f64::min);
         let windows = (span / window_span).ceil() as usize;
         let stride = windows.div_ceil(MAX_PATH_WINDOWS).max(1);
         let mut indices = (0..windows).step_by(stride).collect::<Vec<_>>();
@@ -38,7 +38,7 @@ impl Preview {
             let mut boundaries = vec![start, end];
             for (clock, track) in &tracks {
                 for stop in track.stops() {
-                    boundaries.extend(clock.occurrences(stop.position(), start, end));
+                    boundaries.extend(clock.occurrences(stop.frame(), start, end));
                 }
             }
             boundaries.sort_by(|left, right| left.frames().total_cmp(&right.frames()));

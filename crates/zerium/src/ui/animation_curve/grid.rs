@@ -53,7 +53,7 @@ impl AnimationCurveEditor {
         // Repeat labels use pattern time; guides retain their timeline origin.
         let timeline_start = selected
             .clock
-            .time_at(selected.source_stop_positions[selected.source_segment])
+            .key_time_at(selected.source_stop_frames[selected.source_segment])
             .seconds(frame_rate);
         let timeline_ticks = |grid: time_grid::Grid| {
             grid.visible_times(timeline_start, timeline_start + duration)

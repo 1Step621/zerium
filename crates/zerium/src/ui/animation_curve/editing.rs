@@ -5,19 +5,20 @@ use rust_i18n::t;
 use std::cell::RefCell;
 
 impl AnimationCurveEditor {
-    fn stop_location_at_time(&self, time: TimelineTime, cx: &App) -> Option<(SelectedCurve, f32)> {
+    fn stop_location_at_time(
+        &self,
+        time: TimelineTime,
+        cx: &App,
+    ) -> Option<(SelectedCurve, Frame)> {
         let selected = self.selected_curve(cx)?;
         let editor = self.editor.read(cx);
         let item = editor.item(selected.address.item_id)?;
-        let track = item.animation_track(
-            selected.address.effect_id,
-            &selected.address.property_id,
-            selected.address.element_id,
-            selected.address.scalar_index,
-        )?;
-        let progress = item.animation_clock(track).pattern_progress_at(time);
-        (progress > 0. && progress < 1. && track.stop_index_at(progress).is_none())
-            .then_some((selected, progress))
+        let track = editor.animation_track(&selected.address)?;
+        let frame = item.animation_clock(track).pattern_frame_at(time);
+        (frame.get() > 0
+            && frame.get() < track.span().get()
+            && track.stop_index_at(frame).is_none())
+        .then_some((selected, frame))
     }
 
     pub(super) fn can_add_stop_at_time(&self, time: TimelineTime, cx: &App) -> bool {
@@ -25,35 +26,25 @@ impl AnimationCurveEditor {
     }
 
     pub(super) fn add_stop_at_time(&mut self, time: TimelineTime, cx: &mut Context<Self>) {
-        let Some((selected, progress)) = self.stop_location_at_time(time, cx) else {
+        let Some((selected, pattern_frame)) = self.stop_location_at_time(time, cx) else {
             return;
         };
         let Some(value) = (|| {
             let editor = self.editor.read(cx);
-            let item = editor.item(selected.address.item_id)?;
-            let track = item.animation_track(
-                selected.address.effect_id,
-                &selected.address.property_id,
-                selected.address.element_id,
-                selected.address.scalar_index,
-            )?;
+            let track = editor.animation_track(&selected.address)?;
             track
                 .stops()
                 .iter()
-                .min_by(|left, right| {
-                    (left.position() - progress)
-                        .abs()
-                        .total_cmp(&(right.position() - progress).abs())
-                })
+                .min_by_key(|stop| stop.frame().get().abs_diff(pattern_frame.get()))
                 .map(|stop| stop.value().clone())
         })() else {
             return;
         };
-        let frame = Self::frame_at_pattern_progress(&selected, progress);
+        let frame = Self::frame_at_pattern_frame(&selected, pattern_frame);
         let target = selected.address;
         let changed = self.editor.update_if_changed(cx, |editor| {
             editor
-                .insert_animation_stop(&target, progress, value)
+                .insert_animation_stop(&target, pattern_frame, value)
                 .is_some()
         });
         if !changed {
@@ -95,7 +86,7 @@ impl AnimationCurveEditor {
         let Some(selected) = self.selected_curve(cx) else {
             return;
         };
-        let Some(progress) = selected.source_stop_positions.get(stop).copied() else {
+        let Some(frame) = selected.source_stop_frames.get(stop).copied() else {
             return;
         };
         let Some(edit) = self.editor.read(cx).begin_animation_edit(
@@ -106,7 +97,7 @@ impl AnimationCurveEditor {
             return;
         };
         self.animation_edit = Some(edit);
-        let time = Self::time_at_source_progress(&selected, progress);
+        let time = selected.clock.key_time_at(frame);
         let snap_playhead = self.editor.read(cx).playhead();
         let follow_focus = (TimelineTime::from_frame(snap_playhead) == time)
             .then(|| self.selection.read(cx).focused_segment())
@@ -163,9 +154,8 @@ impl AnimationCurveEditor {
         let requested = ((pointer_x - plot_left) / plot_width).clamp(0., 1.);
         let requested_time = selected
             .clock
-            .time_at(requested)
+            .key_time_at(selected.clock.frame_at_progress(f64::from(requested)))
             .frames()
-            .round()
             .clamp(minimum, maximum);
         let mut time = TimelineTime::from_frames(requested_time);
         if !snap_disabled {

@@ -456,21 +456,38 @@ impl TimelineEditor {
         self.frame_rate().frame_to_seconds(self.playhead)
     }
 
-    /// Iterate the selection in stable item-ID order.
+    /// The user's explicit selection in stable item-ID order, independent of time.
     pub fn selected_item_ids(&self) -> impl Iterator<Item = ItemId> {
-        self.selection.sorted_current().into_iter()
+        self.selection.sorted().into_iter()
     }
 
     pub fn is_item_selected(&self, id: ItemId) -> bool {
-        self.selection.current.contains(&id)
+        self.selection.contains(id)
     }
 
-    pub fn selection_remembers_item(&self, id: ItemId) -> bool {
-        self.selection.remembered.contains(&id)
+    /// Selected items present at the playhead, for operations on the current frame.
+    pub fn active_selected_item_ids(&self) -> impl Iterator<Item = ItemId> + '_ {
+        self.selected_item_ids().filter(|id| {
+            self.item(*id)
+                .is_some_and(|item| item.contains(self.playhead))
+        })
+    }
+
+    pub fn is_item_active_selected(&self, id: ItemId) -> bool {
+        self.is_item_selected(id)
+            && self
+                .item(id)
+                .is_some_and(|item| item.contains(self.playhead))
     }
 
     pub fn selected_items(&self) -> Vec<TimelineItem> {
         self.selected_item_ids()
+            .filter_map(|id| self.resolved_item(id))
+            .collect()
+    }
+
+    pub fn active_selected_items(&self) -> Vec<TimelineItem> {
+        self.active_selected_item_ids()
             .filter_map(|id| self.resolved_item(id))
             .collect()
     }
@@ -505,7 +522,7 @@ impl TimelineEditor {
 
     pub fn active_edit_effect(&self) -> Option<EffectInstanceId> {
         let (item_id, effect_id) = self.active_edit_target?;
-        if self.selection.current.len() != 1 || !self.selection.current.contains(&item_id) {
+        if self.selected_item_ids().count() != 1 || !self.is_item_selected(item_id) {
             return None;
         }
         self.item(item_id)?.effect(effect_id)?;
@@ -514,10 +531,11 @@ impl TimelineEditor {
 
     pub fn set_active_edit_effect(&mut self, effect_id: Option<EffectInstanceId>) -> bool {
         let next = effect_id.and_then(|effect_id| {
-            if self.selection.current.len() != 1 {
+            let mut selected = self.selected_item_ids();
+            let item_id = selected.next()?;
+            if selected.next().is_some() {
                 return None;
             }
-            let item_id = *self.selection.current.iter().next()?;
             self.item(item_id)?.effect(effect_id)?;
             Some((item_id, effect_id))
         });
@@ -597,11 +615,6 @@ impl TimelineEditor {
 
     pub fn hidden_item_ids(&self) -> impl Iterator<Item = ItemId> + '_ {
         self.visibility.hidden_items()
-    }
-
-    pub fn selected_items_hidden_state(&self) -> Option<bool> {
-        self.visibility
-            .items_hidden_state(self.selection.sorted_current())
     }
 
     pub fn is_item_hidden(&self, id: ItemId) -> bool {

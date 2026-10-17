@@ -84,7 +84,7 @@ impl Render for AnimationCurveEditor {
             t!(
                 "curve.segment",
                 current = selected.source_segment + 1,
-                total = selected.source_stop_count.saturating_sub(1)
+                total = selected.source_stop_frames.len().saturating_sub(1)
             )
         );
         if let GraphInteraction::StopDrag { time, .. } = self.graph_interaction {
@@ -105,14 +105,13 @@ impl Render for AnimationCurveEditor {
         let graph_editor = curve_editor.clone();
         let stops = curve.stops.clone();
         let source_segment = selected.source_segment;
-        let source_stop_count = selected.source_stop_count;
+        let source_stop_count = selected.source_stop_frames.len();
         let overview_playhead_progress = selected.source_playhead_progress;
-        let overview_segments = selected
-            .source_stop_positions
+        let overview_stops = selected.stop_positions().collect::<Vec<_>>();
+        let overview_segments = overview_stops
             .windows(2)
             .map(|stops| (stops[0], stops[1]))
             .collect::<Vec<_>>();
-        let overview_stops = selected.source_stop_positions.clone();
         let active_handle = match self.graph_interaction {
             GraphInteraction::HandleDrag { point } => Some(point),
             _ => None,

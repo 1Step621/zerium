@@ -8,6 +8,7 @@ impl Preview {
         effect_id: Option<EffectInstanceId>,
         property: &PropertySchema,
         element_id: Option<PropertyElementId>,
+        time: TimelineTime,
     ) -> Vec<PreviewScalarValue> {
         let mut values = Vec::new();
         for axis in 0..2 {
@@ -24,6 +25,7 @@ impl Preview {
             if let Some(track) =
                 item.animation_track(effect_id, property.id(), element_id, Some(axis))
             {
+                let frame = item.animation_clock(track).local_frame_at(time);
                 values.extend(
                     track
                         .stops()
@@ -35,6 +37,7 @@ impl Preview {
                                 address: address.clone(),
                                 value,
                                 stop: Some(index),
+                                time_distance: (stop.frame().get() as f64 - frame).abs(),
                             })
                         }),
                 );
@@ -49,6 +52,7 @@ impl Preview {
                     address,
                     value,
                     stop: None,
+                    time_distance: 0.,
                 });
             }
         }
@@ -101,7 +105,7 @@ impl Preview {
             return None;
         }
         let editor = self.editor.read(cx);
-        let selected = editor.selected_items();
+        let selected = editor.active_selected_items();
         let [selected] = selected.as_slice() else {
             return None;
         };
@@ -193,17 +197,24 @@ impl Preview {
         if let Some(property) = position_property {
             let position = Self::item_position(&current, effect_id, property.id());
             controls.extend(
-                Self::scalar_values(selected, &current, effect_id, property, None)
-                    .into_iter()
-                    .map(|scalar| {
-                        let mut anchor = position;
-                        anchor[scalar.axis()] = scalar.value;
-                        PreviewScalarControl {
-                            scalar,
-                            position: anchor,
-                            units_per_value: 1.,
-                        }
-                    }),
+                Self::scalar_values(
+                    selected,
+                    &current,
+                    effect_id,
+                    property,
+                    None,
+                    TimelineTime::from_frame(frame),
+                )
+                .into_iter()
+                .map(|scalar| {
+                    let mut anchor = position;
+                    anchor[scalar.axis()] = scalar.value;
+                    PreviewScalarControl {
+                        scalar,
+                        position: anchor,
+                        units_per_value: 1.,
+                    }
+                }),
             );
             if (0..2).any(|axis| {
                 selected
@@ -222,7 +233,14 @@ impl Preview {
             let origin = Self::item_origin(&current, effect_id, origin);
             let center = [0, 1].map(|axis| position[axis] + (0.5 - origin[axis]) * size[axis]);
             bounds = Some(PreviewBounds { center, size });
-            for scalar in Self::scalar_values(selected, &current, effect_id, property, None) {
+            for scalar in Self::scalar_values(
+                selected,
+                &current,
+                effect_id,
+                property,
+                None,
+                TimelineTime::from_frame(frame),
+            ) {
                 for side in [0., 1.] {
                     if let Some(control) =
                         Self::size_control(scalar.clone(), position, center, origin, side)
@@ -255,6 +273,7 @@ impl Preview {
                         effect_id,
                         property,
                         Some(element.element_id()),
+                        TimelineTime::from_frame(frame),
                     )
                     .into_iter()
                     .map(|scalar| Self::point_control(scalar, anchor, center, size)),

@@ -17,27 +17,69 @@ handles media and I/O. Engine code must not depend on UI entities.
 Persistent changes go through `TimelineEditor`, which validates edits, records
 history, and advances the project revision. A gesture or paste is one undoable
 edit. Selection, preview visibility, playhead, and history are session state.
+Rendering reads a `TimelineView`; background work receives immutable
+`TimelineSnapshot`s.
 
 Editing, animation, scene bindings, and persistence share `PropertyPath`. Array
 elements have stable IDs so reordering preserves their animations and bindings.
-The inspector's editing target is independent of timeline selection.
-
 Property evaluation applies plugin defaults, scene arguments, animation, and
 constraints through a pipeline shared by the inspector, rendering, and audio.
-`AnimationClock` maps scalar tracks to timeline time, including repeats. Scene
-instances expand at their definition's stretch point through the same operation
-for visual and audio evaluation.
 
-Rendering reads a `TimelineView`; background work receives immutable
-`TimelineSnapshot`s. [`ProjectSession`](../crates/zerium/src/project_session.rs)
-identifies project generations so results from a replaced project can be ignored.
+### Selection and editor targets
+
+Selection stores the user's explicit item IDs; seeking, stepping, and playback
+never change that set. Clipboard, deletion, grouping, visibility, movement,
+animation synchronization, and timeline keyframe editing use this selection.
+
+`active_selected_item_ids` derives the subset at the current frame for preview and
+inspector display. The curve pane requires its focused item to be active. Inspector
+targets and animation focus persist outside the selected items' time ranges; the
+inspector's editing target is independent of timeline selection.
+
+### Animation
+
+Authored key times, repeat periods, and phase offsets use integer frames.
+Keyframes lie within a track's span; insertion, movement, exact-key lookup, and
+synchronization operate on `Frame` values. Ping-pong periods are even.
+`AnimationClock` maps authored frames to timeline time and continuous sample frames,
+including repeats. Normalized positions are derived only for UI layout.
+
+Editing exactly on a keyframe changes only that key, regardless of its spacing.
+Between keyframes, editing an interval endpoint also updates equal neighboring
+values outward from that endpoint; the opposite endpoint remains independent.
+Inspector and preview value gestures freeze their target keys when an operation
+begins, so crossing another key's value never expands the target set. Coincident
+preview handles choose the key nearest the playhead for each property axis.
+
+Inspector value operations coalesce by property and authored key using the normal
+history timeout. Switching between exact-key and interval editing resolves new
+targets without forcing an Undo boundary. Pauses within an operation do not split
+its Undo entry.
+
+Item resizing follows two rules:
+
+- Trimming preserves keys within the new interval. A shrinking boundary adopts
+  each key it crosses without sampling interpolated values. Extending retains
+  the original endpoint and adds a new endpoint with the same value.
+- Stretching uses integer rational arithmetic. Interior keys win collisions with
+  endpoints; collisions between interior keys retain the later key and its
+  outgoing interpolation.
+
+Scene instances expand at their definition's stretch point by shifting keys.
+Visual and audio evaluation use the same expansion operation.
+
+### Persistence and project lifecycle
+
+Project files store property overrides relative to plugin defaults and persist
+integer animation data directly. During development, the format version stays
+fixed without migrating old representations. Core validates loaded values and
+clipboard input; pastes assign fresh IDs. Filesystem access and atomic replacement
+belong to [`engine::project_io`](../crates/zerium/src/engine/project_io.rs).
+
+[`ProjectSession`](../crates/zerium/src/project_session.rs) identifies project
+generations so results from a replaced project can be ignored.
 [`ProjectController`](../crates/zerium/src/app/project_controller.rs) owns file
 operations and resets transient state when replacing a project.
-
-Project files store property overrides relative to plugin defaults. Core validates
-loaded values and clipboard input; pastes assign fresh IDs. Filesystem access and
-atomic replacement belong to
-[`engine::project_io`](../crates/zerium/src/engine/project_io.rs).
 
 ## Application state and configuration
 
@@ -85,6 +127,11 @@ scene into a render plan and submits its passes asynchronously.
 [`RenderRuntime`](../crates/zerium/src/engine/rendering/runtime.rs) manages the
 preview session and creates independent export sessions.
 
+The planner interns nodes using descriptions that contain child identities rather
+than nested keys. Unchanged nodes retain their identity from the previous frame;
+older descriptions are discarded. Duplicate passes reuse their node before pass
+data is allocated. Hashing and equality do not traverse the dependency graph.
+
 ### Images and bounds
 
 Effects and blending use scene-linear, premultiplied color. Intermediate surfaces
@@ -106,6 +153,10 @@ Images carry logical bounds, raster coverage, and sampling density through paire
 texture and metadata bindings. Generated sampling functions use the pair for each
 image, including media, text, and render results extending beyond the viewport.
 Original sources and temporal accumulations are graph dependencies.
+
+Native media and text frames use a separate image node and a renderer-owned
+texture/sampler pipeline. They do not use plugin item properties or shader
+registration. Uploaded textures and conversion targets are reused by the session.
 
 ### GPU resources
 
@@ -130,15 +181,6 @@ Each node owns one output target. A non-normal composition acquires its backdrop
 only when it is encoded. Queue ordering lets compositions of the same size share
 one scratch backdrop, including nested compositions and root layers. Scratch
 retention is bounded and drops sizes unused by the next frame.
-
-The planner interns nodes using descriptions that contain child identities rather
-than nested keys. Unchanged nodes retain their identity from the previous frame;
-older descriptions are discarded. Duplicate passes reuse their node before pass
-data is allocated. Hashing and equality do not traverse the dependency graph.
-
-Native media and text frames use a separate image node and a renderer-owned
-texture/sampler pipeline. They do not use plugin item properties or shader
-registration. Uploaded textures and conversion targets are reused by the session.
 
 ## Media, preview, and export
 

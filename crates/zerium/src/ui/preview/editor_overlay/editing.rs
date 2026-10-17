@@ -12,9 +12,31 @@ impl Preview {
         if controls.is_empty() || composition_units_per_pixel <= 0. {
             return;
         }
-        let gesture = self
-            .editor
-            .update(cx, |editor, _| editor.begin_edit_gesture());
+        let editor = self.editor.read(cx);
+        let time = TimelineTime::from_frame(editor.playhead());
+        let controls = controls
+            .into_iter()
+            .map(|control| {
+                let edit = match control.scalar.stop {
+                    Some(index) => {
+                        let address = &control.scalar.address;
+                        Some(
+                            editor
+                                .property_animation_stops(address, time)?
+                                .into_iter()
+                                .find(|stop| stop.index() == index)
+                                .or_else(|| editor.property_animation_stop(address, index))?,
+                        )
+                    }
+                    None => None,
+                };
+                Some((control, edit))
+            })
+            .collect::<Option<Vec<_>>>();
+        let Some(controls) = controls else {
+            return;
+        };
+        let gesture = editor.begin_edit_gesture();
         self.editor_drag = Some(PreviewEditorDrag {
             controls,
             pointer,
@@ -32,15 +54,18 @@ impl Preview {
         let Some(origin) = &mut self.editor_drag else {
             return;
         };
-        let updates = origin
-            .controls
-            .iter()
-            .map(|control| (control.scalar.clone(), origin.value_at(control, pointer)))
-            .collect::<Vec<_>>();
+        let delta = pointer - origin.pointer;
+        let delta = [f32::from(delta.x), f32::from(delta.y)]
+            .map(|value| value * origin.composition_units_per_pixel);
         self.editor.update_if_changed(cx, |editor| {
             editor.edit_gesture(&mut origin.gesture, |editor| {
-                for (scalar, value) in updates {
-                    Self::update_scalar(editor, &scalar, value);
+                for (control, edit) in &origin.controls {
+                    Self::update_scalar(
+                        editor,
+                        &control.scalar,
+                        edit.as_ref(),
+                        control.value_at(delta),
+                    );
                 }
             })
         });
@@ -54,9 +79,16 @@ impl Preview {
         }
     }
 
-    fn update_scalar(editor: &mut TimelineEditor, scalar: &PreviewScalarValue, value: f32) -> bool {
+    fn update_scalar(
+        editor: &mut TimelineEditor,
+        scalar: &PreviewScalarValue,
+        edit: Option<&AnimationStopEdit>,
+        value: f32,
+    ) -> bool {
         let address = &scalar.address;
-        if editor.selected_item_ids().count() != 1 || !editor.is_item_selected(address.item_id) {
+        if editor.active_selected_item_ids().count() != 1
+            || !editor.is_item_active_selected(address.item_id)
+        {
             return false;
         }
         let Some(value) = address.schema(editor).and_then(|schema| {
@@ -66,10 +98,8 @@ impl Preview {
         }) else {
             return false;
         };
-        match scalar.stop {
-            Some(index) => editor
-                .property_animation_stop(address, index)
-                .is_some_and(|stop| editor.set_property_animation_stop(&stop, value)),
+        match edit {
+            Some(stop) => editor.set_property_animation_stop(stop, value),
             None => editor.update_property(address, value),
         }
     }

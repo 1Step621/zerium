@@ -80,7 +80,7 @@ pub(super) fn resolve_property(
         value = item
             .animations(effect)?
             .evaluate_property(value, property, |track| {
-                item.animation_clock(track).progress_at(time)
+                item.animation_clock(track).local_frame_at(time)
             });
     }
     Some(value)

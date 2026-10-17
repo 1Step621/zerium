@@ -1,20 +1,23 @@
 use crate::animation::{AnimationRepeat, ScalarAnimations, ScalarTrack};
-use crate::property::{PropertyPath, PropertyValue};
+use crate::property::PropertyValue;
 use crate::timeline::history::HistoryKey;
-use crate::timeline::{EffectInstanceId, ItemId, PropertyAddress, TimelineEditor, TimelineTime};
+use crate::timeline::{
+    EffectInstanceId, Frame, ItemId, PropertyAddress, TimelineEditor, TimelineTime,
+};
 
 use super::EditContext;
 
-/// A displayed stop and its value-edit context. The interval
-/// shown by the inspector determines how equal neighboring values are linked.
+/// A displayed stop and its value-edit context. Only edits between keys link
+/// equal neighboring values outside the displayed interval.
 #[derive(Clone)]
 pub struct AnimationStopEdit {
     pub value: PropertyValue,
     address: PropertyAddress,
     index: usize,
     segment: Option<usize>,
-    time: TimelineTime,
+    targets: std::ops::RangeInclusive<usize>,
     context: EditContext,
+    has_changes: bool,
 }
 
 impl AnimationStopEdit {
@@ -25,9 +28,32 @@ impl AnimationStopEdit {
     pub fn index(&self) -> usize {
         self.index
     }
+
+    pub fn is_current(&self, editor: &TimelineEditor) -> bool {
+        self.context == editor.edit_context()
+    }
+
+    fn history_key(&self) -> HistoryKey {
+        HistoryKey::AnimationStopValue(self.address.clone(), self.index)
+    }
+
+    /// Compare the displayed key/interval without re-resolving frozen targets.
+    pub fn same_value_scope(&self, other: &Self) -> bool {
+        self.address == other.address && self.index == other.index && self.segment == other.segment
+    }
 }
 
 impl TimelineEditor {
+    // A frozen value plan can be reused only inside the validated gesture that
+    // began at its revision. Other project edits invalidate the outer gesture.
+    fn accepts_animation_value_context(&self, context: EditContext) -> bool {
+        let current = self.edit_context();
+        context == current
+            || (context.project_id == current.project_id
+                && context.scene_id == current.scene_id
+                && self.history_group == Some(HistoryKey::Gesture(context.revision)))
+    }
+
     pub fn set_property_animation_enabled(
         &mut self,
         target: &PropertyAddress,
@@ -72,8 +98,7 @@ impl TimelineEditor {
                 else {
                     return false;
                 };
-                let Some(track) = ScalarTrack::from_value(value, ty, item.duration.get() as f32)
-                else {
+                let Some(track) = ScalarTrack::from_value(value, ty, item.duration) else {
                     return false;
                 };
                 editor
@@ -83,33 +108,26 @@ impl TimelineEditor {
         })
     }
 
-    /// Resolve the current stop or interval, linking equal neighboring values.
+    /// Resolve an independent exact key or interval endpoints with outward linking.
     pub fn property_animation_stops(
         &self,
         address: &PropertyAddress,
         time: TimelineTime,
     ) -> Option<Vec<AnimationStopEdit>> {
         let item = self.item(address.item_id)?;
-        let track = self.animation_track(item.id, address.effect_id, &address.path())?;
+        let track = self.animation_track(address)?;
         let clock = item.animation_clock(track);
-        let indices = track.stop_indices_for_segment(clock.progress_at(time));
+        let indices = track.stop_indices_for_segment(clock.local_frame_at(time));
         let segment = (indices.len() == 2).then(|| indices[0]);
-        Some(
-            indices
-                .into_iter()
-                .map(|index| {
-                    let stop = &track.stops()[index];
-                    AnimationStopEdit {
-                        value: stop.value().clone(),
-                        address: address.clone(),
-                        index,
-                        segment,
-                        time: clock.time_at(stop.position()).rounded(),
-                        context: self.edit_context(),
-                    }
-                })
-                .collect(),
-        )
+        indices
+            .into_iter()
+            .map(|index| {
+                let mut stop = self.property_animation_stop(address, index)?;
+                stop.segment = segment;
+                stop.targets = track.value_edit_targets(index, segment)?;
+                Some(stop)
+            })
+            .collect()
     }
 
     /// Resolve one authored stop independently of its playback occurrence.
@@ -118,19 +136,16 @@ impl TimelineEditor {
         address: &PropertyAddress,
         index: usize,
     ) -> Option<AnimationStopEdit> {
-        let item = self.item(address.item_id)?;
-        let track = self.animation_track(item.id, address.effect_id, &address.path())?;
+        let track = self.animation_track(address)?;
         let stop = track.stops().get(index)?;
         Some(AnimationStopEdit {
             value: stop.value().clone(),
             address: address.clone(),
             index,
             segment: None,
-            time: item
-                .animation_clock(track)
-                .time_at(stop.position())
-                .rounded(),
+            targets: index..=index,
             context: self.edit_context(),
+            has_changes: false,
         })
     }
 
@@ -141,7 +156,7 @@ impl TimelineEditor {
         value: PropertyValue,
     ) -> bool {
         let address = &stop.address;
-        if stop.context != self.edit_context()
+        if !self.accepts_animation_value_context(stop.context)
             || !self.is_item_selected(address.item_id)
             || !address.schema(self).is_some_and(|schema| {
                 schema.is_editable(address.scalar_index)
@@ -153,24 +168,58 @@ impl TimelineEditor {
                         .allows(&value)
             })
             || self
-                .animation_track(address.item_id, address.effect_id, &address.path())
-                .is_none_or(|track| track.stops().get(stop.index).is_none())
+                .animation_track(address)
+                .is_none_or(|track| track.stops().get(*stop.targets.end()).is_none())
         {
             return false;
         }
-        let key = HistoryKey::AnimationStopValue(address.clone(), stop.time);
+        let key = stop.history_key();
         self.edit_project_if_changed(Some(key), |editor| {
-            editor
-                .animation_track_mut(address.item_id, address.effect_id, &address.path())
-                .expect("resolved animation track must exist")
-                .set_stop(stop.index, value, stop.segment)
+            let track = editor
+                .animation_track_mut(address)
+                .expect("resolved animation track must exist");
+            let mut changed = false;
+            for index in stop.targets.clone() {
+                changed |= track.set_stop(index, value.clone());
+            }
+            changed
         })
     }
 
+    /// Continue a value operation using its frozen targets. The operation's
+    /// own updates advance its context; unrelated edits invalidate it. New
+    /// operations use normal timed coalescing, including exact/interval changes.
+    pub fn continue_property_animation_stop(
+        &mut self,
+        stop: &mut AnimationStopEdit,
+        value: PropertyValue,
+    ) -> bool {
+        if !stop.is_current(self) || self.history_group.is_some() {
+            return false;
+        }
+        let key = stop.history_key();
+        if stop.has_changes
+            && self
+                .history
+                .is_current_group(&(self.active_scene_id(), key.clone()))
+        {
+            // A pause within the same operation does not split its Undo entry.
+            self.history_group = Some(key);
+        }
+        let changed = self.set_property_animation_stop(stop, value);
+        self.history_group = None;
+        if changed {
+            stop.context = self.edit_context();
+            stop.has_changes = true;
+        }
+        changed
+    }
+
+    /// Insert at an integer frame within the track's editable forward pattern.
     pub fn insert_animation_stop(
         &mut self,
         address: &PropertyAddress,
-        position: f32,
+        frame: Frame,
         value: PropertyValue,
     ) -> Option<usize> {
         if !self.is_item_selected(address.item_id) {
@@ -185,18 +234,13 @@ impl TimelineEditor {
             return None;
         }
         let item = self.item(address.item_id)?;
-        let track = item.animation_track(
-            address.effect_id,
-            &address.property_id,
-            address.element_id,
-            address.scalar_index,
-        )?;
-        let stop_time = item.animation_clock(track).time_at(position).rounded();
-        let key = HistoryKey::AnimationStopValue(address.clone(), stop_time);
+        let track = self.animation_track(address)?;
+        let stop_time = item.animation_clock(track).key_time_at(frame);
+        let key = HistoryKey::AnimationStopInsertion(address.clone(), stop_time);
         self.edit_project_option(Some(key), |editor| {
             editor
-                .animation_track_mut(address.item_id, address.effect_id, &address.path())?
-                .insert_stop(position, value)
+                .animation_track_mut(address)?
+                .insert_stop(frame, value)
         })
     }
 
@@ -214,9 +258,12 @@ impl TimelineEditor {
         }
         let key = HistoryKey::AnimationRepeat(address.clone());
         self.edit_project_if_changed(Some(key), |editor| {
+            let Some(duration) = editor.item(address.item_id).map(|item| item.duration) else {
+                return false;
+            };
             editor
-                .animation_track_mut(address.item_id, address.effect_id, &address.path())
-                .is_some_and(|track| track.set_repeat(repeat))
+                .animation_track_mut(address)
+                .is_some_and(|track| track.set_repeat(repeat, duration))
         })
     }
 
@@ -230,7 +277,7 @@ impl TimelineEditor {
         }
         self.edit_project_if_changed(None, |editor| {
             editor
-                .animation_track_mut(address.item_id, address.effect_id, &address.path())
+                .animation_track_mut(address)
                 .is_some_and(|track| track.remove_stop(stop))
         })
     }
@@ -245,27 +292,21 @@ impl TimelineEditor {
             .animations_mut(effect_id)
     }
 
-    pub(super) fn animation_track(
-        &self,
-        item_id: ItemId,
-        effect_id: Option<EffectInstanceId>,
-        address: &PropertyPath,
-    ) -> Option<&ScalarTrack> {
-        self.active_document().item(item_id)?.animation_track(
-            effect_id,
-            address.property_id(),
-            address.element_id(),
-            address.scalar_index(),
+    /// Resolve an authored track in the active document.
+    pub fn animation_track(&self, address: &PropertyAddress) -> Option<&ScalarTrack> {
+        self.item(address.item_id)?.animation_track(
+            address.effect_id,
+            &address.property_id,
+            address.element_id,
+            address.scalar_index,
         )
     }
 
     pub(super) fn animation_track_mut(
         &mut self,
-        item_id: ItemId,
-        effect_id: Option<EffectInstanceId>,
-        address: &PropertyPath,
+        address: &PropertyAddress,
     ) -> Option<&mut ScalarTrack> {
-        self.animation_store_mut(item_id, effect_id)?
-            .track_mut(address)
+        self.animation_store_mut(address.item_id, address.effect_id)?
+            .track_mut(&address.path())
     }
 }

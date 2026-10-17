@@ -40,18 +40,6 @@ impl PreviewVisibility {
         self.items.iter().copied()
     }
 
-    pub(super) fn items_hidden_state(
-        &self,
-        items: impl IntoIterator<Item = ItemId>,
-    ) -> Option<bool> {
-        let mut selected = items.into_iter();
-        let first = selected.next()?;
-        let hidden = self.items.contains(&first);
-        selected
-            .all(|item_id| self.items.contains(&item_id) == hidden)
-            .then_some(hidden)
-    }
-
     pub(super) fn is_item_hidden(&self, item: ItemId) -> bool {
         self.items.contains(&item)
     }

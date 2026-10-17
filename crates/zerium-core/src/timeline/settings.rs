@@ -52,7 +52,6 @@ impl<'de> Deserialize<'de> for BeatGuide {
         #[serde(deny_unknown_fields)]
         struct Fields {
             bpm: f32,
-            #[serde(default)]
             offset_seconds: f32,
         }
 
