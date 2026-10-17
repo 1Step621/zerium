@@ -63,6 +63,10 @@ impl TimelineEditor {
         let source = self.item(address.item_id)?;
         let track = self.animation_track(address.item_id, address.effect_id, &address.path())?;
         let times = Self::animation_target_times(source, track, part)?;
+        let interpolation = match part {
+            AnimationEditTarget::Stop(_) => None,
+            AnimationEditTarget::Segment(index) => Some(*track.interpolations().get(index)?),
+        };
         let mut targets = Vec::new();
         for item_id in self.selection.sorted_current() {
             let item = self.item(item_id)?;
@@ -97,6 +101,9 @@ impl TimelineEditor {
                         }
                         if Self::animation_target_times(item, track, part.with_index(index))?
                             == times
+                            && interpolation.is_none_or(|interpolation| {
+                                track.interpolations().get(index) == Some(&interpolation)
+                            })
                         {
                             targets.push(Target {
                                 address: candidate.clone(),
