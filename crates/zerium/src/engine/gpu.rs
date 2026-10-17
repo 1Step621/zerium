@@ -19,6 +19,11 @@ impl GpuContext {
         adapter: &wgpu::Adapter,
         descriptor: &wgpu::DeviceDescriptor<'_>,
     ) -> Result<Self, wgpu::RequestDeviceError> {
+        let mut descriptor = descriptor.clone();
+        // Device limits stay at the requested values even if the adapter supports more.
+        descriptor.required_limits.max_texture_dimension_2d =
+            adapter.limits().max_texture_dimension_2d;
+
         if adapter
             .video_adapter_info()
             .is_some_and(|info| info.supports_decoding || info.supports_encoding)
@@ -36,7 +41,7 @@ impl GpuContext {
                 ),
             }
         }
-        pollster::block_on(adapter.request_device(descriptor))
+        pollster::block_on(adapter.request_device(&descriptor))
             .map(|(device, queue)| Self::new(device, queue))
     }
 }

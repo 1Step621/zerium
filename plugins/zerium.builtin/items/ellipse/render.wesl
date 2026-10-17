@@ -4,8 +4,9 @@ import package::helpers::shape::{ellipse_distance, outlined_quad, shape_color};
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) local: vec2<f32>,
-    @location(1) @interpolate(flat) instance_index: u32,
-};
+    @interpolate(flat)
+    @location(1) instance_index: u32,
+}
 
 @vertex
 fn vertex_main(
@@ -35,9 +36,17 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let properties = props(input.instance_index);
     let half_size = vec2(properties.diameter.v0, properties.diameter.v1) * 0.5;
     var distance = (length(input.local) - 1.0) * min(half_size.x, half_size.y);
+
     if properties.outline_width > 0.0 {
         distance = ellipse_distance(input.local * half_size, half_size);
     }
-    return shape_color(distance, properties.fill_enabled, properties.color,
-        properties.outline_width, properties.outline_position, properties.outline_color);
+
+    return shape_color(
+        distance,
+        properties.fill_enabled,
+        properties.color,
+        properties.outline_width,
+        properties.outline_position,
+        properties.outline_color,
+    );
 }

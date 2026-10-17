@@ -1,4 +1,5 @@
-import package::generated::text::{capability_sampler, props, text};
+import package::generated::text::props;
+import package::generated::text::inputs::text::sample_uv;
 import package::helpers::quad::{TextureVertex, texture_vertex};
 
 @vertex
@@ -9,7 +10,6 @@ fn vertex_main(
     let properties = props(instance_index);
     return texture_vertex(
         vertex_index,
-        instance_index,
         vec2(properties.position.v0, properties.position.v1),
         vec2(properties.size.v0, properties.size.v1),
         vec2(properties.origin.v0, properties.origin.v1),
@@ -18,5 +18,5 @@ fn vertex_main(
 
 @fragment
 fn fragment_main(input: TextureVertex) -> @location(0) vec4<f32> {
-    return textureSample(text, capability_sampler, input.uv);
+    return sample_uv(input.uv);
 }

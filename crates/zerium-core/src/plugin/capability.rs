@@ -12,6 +12,7 @@ use crate::property::{
 };
 
 pub(super) const MAX_RENDER_RESULT_OFFSET: u32 = 30;
+
 /// Maximum fixed decimal precision of a number input.
 pub const MAX_DECIMAL_PLACES: u32 = 10;
 
@@ -42,6 +43,7 @@ pub(super) fn validate_render_result_properties(
             },
         )?;
     }
+
     references
         .check(hide_original, "a bool value", |property| {
             property.scalar_type(None, None) == Some(&ScalarPropertyType::Bool)
@@ -164,11 +166,6 @@ impl TextureInput {
         properties: &[PropertySchema],
     ) -> Result<(), PluginError> {
         validate_wgsl_identifier("texture input", self.id())?;
-        if self.id() == "capability_sampler" {
-            return Err(PluginError::invalid_definition(format!(
-                "{owner_kind} '{owner_id}' input ID 'capability_sampler' is reserved"
-            )));
-        }
         let context = format!("{owner_kind} '{owner_id}' input '{}'", self.id());
         let references = PropertyReferences::new(&context, properties);
         match self {
@@ -202,6 +199,7 @@ impl TextureInput {
                     },
                 )?;
             }
+
             Self::RenderResult {
                 start_offset,
                 end_offset,
@@ -217,6 +215,7 @@ impl TextureInput {
                     end_offset,
                     hide_original,
                 )?;
+
                 if let Some(view) = view {
                     references.pair(&view.position)?;
                     references.scalar(&view.angle, ScalarPropertyType::F32)?;
@@ -229,6 +228,7 @@ impl TextureInput {
                     })?;
                 }
             }
+
             Self::Media {
                 file,
                 reader,
@@ -238,11 +238,13 @@ impl TextureInput {
             } => {
                 validate_logical_id("media reader", reader)?;
                 references.check(file, "a file property", |property| property.is_file())?;
+
                 if let Some(playback) = playback {
                     playback
                         .playback_properties()
                         .validate(owner_kind, owner_id, properties)?;
                 }
+
                 if let Some(MediaPlacement {
                     position,
                     size,
@@ -251,12 +253,14 @@ impl TextureInput {
                 {
                     references.pair(position)?;
                     references.pair(size)?;
+
                     if let Some(origin) = origin {
                         references.origin(origin)?;
                     }
                 }
             }
         }
+
         if let Some(style) = self.text_style() {
             style.validate(&references)?;
         }
@@ -285,6 +289,7 @@ impl TextStyle {
         references.scalar(&self.outline_color, ScalarPropertyType::Color)?;
         references.scalar(&self.bold, ScalarPropertyType::Bool)?;
         references.scalar(&self.italic, ScalarPropertyType::Bool)?;
+
         for property_id in [&self.horizontal_alignment, &self.vertical_alignment] {
             references.check(
                 property_id,
@@ -413,6 +418,7 @@ impl TimeMappingProperties<'_> {
                 "{owner} '{id}' has invalid default time mapping values"
             ))
         };
+
         for ((role, property_id), default) in [
             ("source_start", self.source_start),
             ("source_duration", self.source_duration),
@@ -437,6 +443,7 @@ impl TimeMappingProperties<'_> {
             };
             *default = value;
         }
+
         crate::timeline::TimeMapping::new(defaults[0], defaults[1], defaults[2])
             .map_err(|_| invalid_defaults())?;
         Ok(())
@@ -484,9 +491,11 @@ pub(super) fn validate_texture_inputs(
             "{owner_kind} '{owner_id}' exceeds {MAX_TEXTURE_INPUTS} texture inputs"
         )));
     }
+
     let mut ids = HashSet::new();
     for input in inputs {
         input.validate(owner_kind, owner_id, properties)?;
+
         if !ids.insert(input.id()) {
             return Err(PluginError::invalid_definition(format!(
                 "{owner_kind} '{owner_id}' has duplicate input ID '{}'",
@@ -494,5 +503,6 @@ pub(super) fn validate_texture_inputs(
             )));
         }
     }
+
     Ok(())
 }

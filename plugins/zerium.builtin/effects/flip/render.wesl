@@ -1,9 +1,5 @@
-import package::generated::host::effect::{
-    ZeriumVertex,
-    effect_input,
-    effect_sampler,
-    vertex,
-};
+import package::generated::host::render::{ZeriumVertex, vertex};
+import package::generated::host::effect::{uv_to_position, input_position, sample_input};
 import package::generated::flip::props;
 
 @vertex
@@ -14,6 +10,7 @@ fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {
 @fragment
 fn fragment_main(input: ZeriumVertex) -> @location(0) vec4<f32> {
     let properties = props();
-    let uv = select(input.uv, vec2(1.0) - input.uv, vec2(properties.horizontal, properties.vertical));
-    return textureSample(effect_input, effect_sampler, uv);
+    let center = input_position(vec2(0.5));
+    let sign = select(vec2(1.0), vec2(-1.0), vec2(properties.horizontal, properties.vertical));
+    return sample_input(center + (uv_to_position(input.uv) - center) * sign);
 }

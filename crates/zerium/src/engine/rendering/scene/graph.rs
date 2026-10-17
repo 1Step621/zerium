@@ -1,9 +1,7 @@
-use super::geometry::{SurfaceRect, item_bounds};
+use super::geometry::BoundsOperation;
 use super::text::TextFrameRequest;
 use super::text::TextSourceId;
-use super::{
-    RenderEffect, RenderItem, RenderItemSource, RenderNodeContent, RenderTemporalSample, RenderView,
-};
+use super::{RenderEffect, RenderItem, RenderNodeContent, RenderTemporalSample, RenderView};
 use super::{RenderError, RenderNode, RenderScene, RenderSize, SceneNodeId};
 use crate::engine::frame::VisualFrame;
 use crate::engine::media::{MediaFrameRequest, MediaInputId, RasterSize};
@@ -87,6 +85,7 @@ impl SceneCompositionPlan {
                 }
             })
             .collect();
+
         Self {
             nodes,
             normal_nodes,
@@ -205,6 +204,7 @@ where
         if let Some(plan) = self.compositions.get(&key) {
             return Some(plan.clone());
         }
+
         let graph = self
             .graph_cache
             .entry(key.0)
@@ -215,6 +215,7 @@ where
             node.item.scene_id()?;
             scope = &node.children;
         }
+
         let plan = Arc::new(SceneCompositionPlan::new(scope.to_vec()));
         self.compositions.insert(key, plan.clone());
         Some(plan)
@@ -256,9 +257,11 @@ where
             time_bits: time.frames().to_bits(),
             temporal_depth: depth,
         };
+
         if let Some(id) = self.node_cache.get(&key) {
             return Ok(*id);
         }
+
         let render_scale = owner
             .effects
             .iter()
@@ -288,19 +291,23 @@ where
                 )?;
                 RenderNodeContent::Item(RenderItem {
                     shader: ItemShaderId::plugin_item(plugin_id, item_id),
-                    source: RenderItemSource::Shader,
                     inputs,
                     properties: RenderScene::pack_item_properties(item, schema),
                     effects: Vec::new(),
-                    target_size,
                     render_scale,
-                    output_bounds: item_bounds(
+                    output_bounds: BoundsOperation::from_schema(
                         &render.bounds,
                         &item.properties,
-                        RenderSize::from(self.timeline.resolution()),
+                        &Default::default(),
                     ),
+                    input_ids: schema
+                        .inputs()
+                        .iter()
+                        .map(|input| input.id().to_owned())
+                        .collect(),
                 })
             }
+
             TimelineItemKind::Scene { .. } => {
                 let child_scope = self
                     .composition(time, path)
@@ -308,7 +315,6 @@ where
                 let children = self.render_scope(&child_scope, time, depth)?;
                 RenderNodeContent::Scene {
                     children,
-                    view: RenderView::default(),
                     effects: Vec::new(),
                     render_scale,
                 }
@@ -317,12 +323,17 @@ where
         let source_scale = self.content_scale(&content);
         let effects =
             self.render_effects(node, &composition, effect_count, time, source_scale, depth)?;
+
         match &mut content {
             RenderNodeContent::Item(item) => item.effects = effects,
             RenderNodeContent::Scene {
                 effects: target, ..
             } => *target = effects,
+            RenderNodeContent::View { .. } | RenderNodeContent::Frame(_) => {
+                unreachable!("timeline items are not input nodes")
+            }
         }
+
         let id = self.push_node(content, owner.blend_mode);
         self.node_cache.insert(key, Some(id));
         Ok(Some(id))
@@ -335,15 +346,20 @@ where
     }
 
     fn content_scale(&self, content: &RenderNodeContent) -> u32 {
-        let (scale, inputs, effects) = match content {
-            RenderNodeContent::Item(item) => (item.render_scale, &item.inputs, &item.effects),
+        let (scale, inputs, effects): (u32, &[SceneNodeId], &[RenderEffect]) = match content {
+            RenderNodeContent::Item(item) => {
+                (item.render_scale, &item.inputs, item.effects.as_slice())
+            }
             RenderNodeContent::Scene {
                 children,
                 effects,
                 render_scale,
                 ..
-            } => (*render_scale, children, effects),
+            } => (*render_scale, children, effects.as_slice()),
+            RenderNodeContent::Frame(_) => return 1,
+            RenderNodeContent::View { input, .. } => (1, std::slice::from_ref(input), &[]),
         };
+
         inputs
             .iter()
             .chain(effects.iter().flat_map(|effect| &effect.inputs))
@@ -385,6 +401,7 @@ where
                     _ => None,
                 });
             }
+
             let mut effect = RenderScene::render_effect(instance, samples);
             effect.inputs = self.render_inputs(
                 InputSource::effect(node.item.id, instance),
@@ -396,6 +413,7 @@ where
             )?;
             effects.push(effect);
         }
+
         Ok(effects)
     }
 
@@ -488,8 +506,9 @@ where
                         }
                     }
                     .unwrap_or_else(|| Arc::new(VisualFrame::rgba(1, 1, [0u8; 4])));
-                    self.frame_node(frame, target_size)
+                    self.frame_node(frame)
                 }
+
                 TextureInput::Text { .. } | TextureInput::Number { .. } => {
                     let frame = (self.text_frame)(TextFrameRequest {
                         id: TextSourceId {
@@ -502,8 +521,9 @@ where
                         label: source.label,
                         target_size,
                     })?;
-                    self.frame_node(frame, target_size)
+                    self.frame_node(frame)
                 }
+
                 TextureInput::RenderResult {
                     start_offset,
                     end_offset,
@@ -524,7 +544,8 @@ where
                             children.push(child);
                         }
                     }
-                    let view = view.as_ref().map_or_else(RenderView::default, |view| {
+
+                    let view = view.as_ref().map(|view| {
                         let value = |id: &str, index| {
                             source
                                 .properties
@@ -542,35 +563,26 @@ where
                             angle: value(&view.angle, None),
                         }
                     });
-                    self.push_node(
+                    let input = self.push_node(
                         RenderNodeContent::Scene {
                             children,
-                            view,
                             effects: Vec::new(),
                             render_scale: 1,
                         },
                         BlendMode::Normal,
-                    )
+                    );
+                    view.map_or(input, |view| {
+                        self.push_node(RenderNodeContent::View { input, view }, BlendMode::Normal)
+                    })
                 }
             };
             inputs.push(input);
         }
+
         Ok(inputs)
     }
 
-    fn frame_node(&mut self, frame: Arc<VisualFrame>, target_size: RenderSize) -> SceneNodeId {
-        self.push_node(
-            RenderNodeContent::Item(RenderItem {
-                shader: ItemShaderId::host_capability_frame(),
-                source: RenderItemSource::Texture(vec![frame]),
-                inputs: Vec::new(),
-                properties: Vec::new(),
-                effects: Vec::new(),
-                target_size,
-                render_scale: 1,
-                output_bounds: SurfaceRect::viewport(RenderSize::from(self.timeline.resolution())),
-            }),
-            BlendMode::Normal,
-        )
+    fn frame_node(&mut self, frame: Arc<VisualFrame>) -> SceneNodeId {
+        self.push_node(RenderNodeContent::Frame(frame), BlendMode::Normal)
     }
 }

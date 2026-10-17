@@ -1,9 +1,16 @@
-import package::generated::host::_item::{ZeriumRawProps, item_props, read_u32, read_i32, read_f32, read_bool};
+import package::generated::_internal::properties::{
+    ZeriumRawProps,
+    read_bool,
+    read_f32,
+    read_i32,
+    read_u32
+};
+import package::generated::_internal::item::item_props;
 
 struct ZeriumPropsTuple3 {
     v0: f32,
     v1: f32,
-};
+}
 
 struct ZeriumProps {
     start_offset: u32,
@@ -12,15 +19,16 @@ struct ZeriumProps {
     position: ZeriumPropsTuple3,
     zoom: f32,
     angle: f32,
-};
+}
 
 fn props(instance_index: u32) -> ZeriumProps {
     let raw = item_props(instance_index);
-    return ZeriumProps(read_u32(raw, 0u), read_u32(raw, 4u), read_bool(raw, 8u), ZeriumPropsTuple3(read_f32(raw, 12u), read_f32(raw, 12u + 4u)), read_f32(raw, 20u), read_f32(raw, 24u));
+    return ZeriumProps(
+        read_u32(raw, 0u),
+        read_u32(raw, 4u),
+        read_bool(raw, 8u),
+        ZeriumPropsTuple3(read_f32(raw, 12u), read_f32(raw, 12u + 4u)),
+        read_f32(raw, 20u),
+        read_f32(raw, 24u),
+    );
 }
-
-@group(1) @binding(0)
-var render_result: texture_2d<f32>;
-
-@group(1) @binding(8)
-var capability_sampler: sampler;

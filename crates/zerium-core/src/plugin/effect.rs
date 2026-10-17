@@ -4,7 +4,6 @@ use crate::localized_text::LocalizedText;
 use serde::{Deserialize, Deserializer, de::Error as _};
 
 use super::EffectCategory;
-use super::OutputBoundsSchema;
 use super::PluginError;
 use super::abi::PropertyLayout;
 use super::capability::{TextureInput, validate_texture_inputs};
@@ -12,17 +11,6 @@ use super::editor::{EditorCapability, validate_editors};
 use super::passes::EffectPassSchema;
 use super::validation::{validate_catalog_entry, validate_property_schemas};
 use crate::property::PropertySchema;
-
-/// Which rectangle the first render pass sees in `effect_input`.
-#[derive(Clone, Copy, Debug, Default, Deserialize, PartialEq, Eq, Hash)]
-#[serde(rename_all = "snake_case")]
-pub enum EffectInputSpace {
-    /// The input is composited into the effect's output rectangle first.
-    #[default]
-    Output,
-    /// The input keeps its own rectangle for coordinate-based transforms.
-    Source,
-}
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct EffectSchema {
@@ -40,9 +28,6 @@ pub struct EffectSchema {
 pub struct EffectRenderSchema {
     #[serde(default = "default_effect_render_scale")]
     pub scale: u32,
-    pub bounds: OutputBoundsSchema,
-    #[serde(default)]
-    pub input_space: EffectInputSpace,
     #[serde(default)]
     pub inputs: Vec<TextureInput>,
     pub passes: Vec<EffectPassSchema>,
@@ -158,34 +143,26 @@ impl EffectSchema {
     pub(super) fn validate(&self) -> Result<(), PluginError> {
         validate_catalog_entry("effect", &self.id, &self.label, &self.tags)?;
         validate_property_schemas("effect", &self.id, self.properties())?;
-        self.render
-            .bounds
-            .validate("effect", &self.id, self.properties())?;
         validate_texture_inputs("effect", &self.id, self.properties(), &self.render.inputs)?;
+
         validate_editors("effect", &self.id, self.properties(), &self.editor)?;
-        if self.render.input_space == EffectInputSpace::Source
-            && (self.render.passes.len() != 1
-                || !matches!(self.render.passes[0], EffectPassSchema::Render { .. }))
-        {
-            return Err(PluginError::invalid_definition(format!(
-                "effect '{}' source input space requires one render pass",
-                self.id
-            )));
-        }
+
         if !(1..=4).contains(&self.render.scale) {
             return Err(PluginError::invalid_definition(format!(
                 "effect '{}' render.scale must be between 1 and 4",
                 self.id
             )));
         }
+
         if self.render.passes.is_empty() {
             return Err(PluginError::invalid_definition(format!(
                 "effect '{}' must define at least one pass",
                 self.id
             )));
         }
+
         for (pass_index, pass) in self.render.passes.iter().enumerate() {
-            pass.validate(&self.id, self.properties(), pass_index)?;
+            pass.validate(&self.id, self.properties(), &self.render.inputs, pass_index)?;
         }
         Ok(())
     }

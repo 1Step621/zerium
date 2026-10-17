@@ -1,4 +1,5 @@
 //! CPU data layouts consumed by shader storage and uniform buffers.
+
 use super::scene::SurfaceRect;
 use super::scene::{RenderSize, RenderView};
 use bytemuck::{Pod, Zeroable};
@@ -9,6 +10,11 @@ use zerium_core::timeline::BlendMode;
 pub(super) struct GpuItem {
     pub(super) property_offset: u32,
     pub(super) property_size: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Pod, Zeroable)]
+pub(super) struct GpuSurface {
     pub(super) output_size: [f32; 2],
     pub(super) composition_size: [f32; 2],
     pub(super) surface_min: [f32; 2],
@@ -17,36 +23,53 @@ pub(super) struct GpuItem {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
-pub(super) struct GpuEffect {
-    pub(super) property_offset: u32,
-    pub(super) property_size: u32,
-    pub(super) sample_index: u32,
-    pub(super) sample_count: u32,
-    pub(super) frame_offset: f32,
-    pub(super) sample_progress: f32,
-    pub(super) composition_size: [f32; 2],
-    pub(super) surface_min: [f32; 2],
-    pub(super) surface_size: [f32; 2],
-    pub(super) input_min: [f32; 2],
-    pub(super) input_size: [f32; 2],
+pub(super) struct GpuPass {
+    pub property_offset: u32,
+    pub property_size: u32,
+    pub sample_index: u32,
+    pub sample_count: u32,
+    pub frame_offset: f32,
+    pub sample_progress: f32,
+    pub composition_size: [f32; 2],
+    pub surface_min: [f32; 2],
+    pub surface_size: [f32; 2],
+    pub output_size: [u32; 2],
+    pub bounds_min: [f32; 2],
+    pub bounds_size: [f32; 2],
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
-pub(super) struct GpuTextureInput {
-    pub(super) size: [f32; 4],
+pub(super) struct GpuImage {
+    pub bounds_min: [f32; 2],
+    pub bounds_size: [f32; 2],
+    pub raster_min: [f32; 2],
+    pub raster_size: [f32; 2],
+    pub density: [f32; 2],
+    pub padding: [f32; 2],
 }
 
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Pod, Zeroable)]
-pub(super) struct GpuCompute {
-    pub(super) property_offset: u32,
-    pub(super) property_size: u32,
-    pub(super) width: u32,
-    pub(super) height: u32,
-    pub(super) composition_size: [f32; 2],
-    pub(super) surface_min: [f32; 2],
-    pub(super) surface_size: [f32; 2],
+impl GpuImage {
+    pub(super) fn new(bounds: SurfaceRect, raster: SurfaceRect, size: RenderSize) -> Self {
+        let extent = |rect: SurfaceRect| {
+            [
+                (rect.max[0] - rect.min[0]) as f32,
+                (rect.max[1] - rect.min[1]) as f32,
+            ]
+        };
+        let raster_size = extent(raster);
+        Self {
+            bounds_min: bounds.min.map(|value| value as f32),
+            bounds_size: extent(bounds),
+            raster_min: raster.min.map(|value| value as f32),
+            raster_size,
+            density: [
+                size.width as f32 / raster_size[0],
+                size.height as f32 / raster_size[1],
+            ],
+            padding: [0.; 2],
+        }
+    }
 }
 
 #[repr(C)]
@@ -72,22 +95,18 @@ impl GpuComposite {
         view: RenderView,
         blend_mode: BlendMode,
     ) -> Self {
-        let (sin, cos) = view.angle.to_radians().sin_cos();
-        let inverse = [
-            [cos / view.zoom, -sin / view.zoom],
-            [sin / view.zoom, cos / view.zoom],
-        ];
+        let inverse = view.inverse_transform();
         let row = |axis: usize| {
             let density = f64::from([input_size.width, input_size.height][axis])
                 / (input.max[axis] - input.min[axis]);
             [
-                (f64::from(inverse[axis][0]) * (output.max[0] - output.min[0]) * density
+                (inverse[axis][0] * (output.max[0] - output.min[0]) * density
                     / f64::from(output_size.width)) as f32,
-                (f64::from(inverse[axis][1]) * (output.max[1] - output.min[1]) * density
+                (inverse[axis][1] * (output.max[1] - output.min[1]) * density
                     / f64::from(output_size.height)) as f32,
-                ((f64::from(view.position[axis])
-                    + f64::from(inverse[axis][0]) * output.min[0]
-                    + f64::from(inverse[axis][1]) * output.min[1]
+                ((inverse[axis][2]
+                    + inverse[axis][0] * output.min[0]
+                    + inverse[axis][1] * output.min[1]
                     - input.min[axis])
                     * density) as f32,
                 0.,

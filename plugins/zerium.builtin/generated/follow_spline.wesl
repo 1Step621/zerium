@@ -1,19 +1,26 @@
-import package::generated::host::_effect::{ZeriumRawProps, effect_props, read_u32, read_i32, read_f32, read_bool};
+import package::generated::_internal::properties::{
+    ZeriumRawProps,
+    read_bool,
+    read_f32,
+    read_i32,
+    read_u32
+};
+import package::generated::_internal::effect_state::pass_props;
 
 struct ZeriumPropsTuple0 {
     v0: f32,
     v1: f32,
-};
+}
 
 struct ZeriumPropsTuple1 {
     v0: f32,
     v1: f32,
-};
+}
 
 struct ZeriumPropsTuple2 {
     v0: f32,
     v1: f32,
-};
+}
 
 struct ZeriumProps {
     _raw: ZeriumRawProps,
@@ -23,15 +30,25 @@ struct ZeriumProps {
     tension: f32,
     closed: bool,
     progress: f32,
-};
+}
 
 fn props() -> ZeriumProps {
-    let raw = effect_props();
-    return ZeriumProps(raw, ZeriumPropsTuple0(read_f32(raw, 0u), read_f32(raw, 0u + 4u)), ZeriumPropsTuple1(read_f32(raw, 8u), read_f32(raw, 8u + 4u)), read_u32(raw, 20u), read_f32(raw, 24u), read_bool(raw, 28u), read_f32(raw, 32u));
+    let raw = pass_props();
+    return ZeriumProps(
+        raw,
+        ZeriumPropsTuple0(read_f32(raw, 0u), read_f32(raw, 0u + 4u)),
+        ZeriumPropsTuple1(read_f32(raw, 8u), read_f32(raw, 8u + 4u)),
+        read_u32(raw, 20u),
+        read_f32(raw, 24u),
+        read_bool(raw, 28u),
+        read_f32(raw, 32u),
+    );
 }
 
 fn get_points(properties: ZeriumProps, index: u32) -> ZeriumPropsTuple2 {
-    if index >= properties.points_len { return ZeriumPropsTuple2(0.0, 0.0); }
+    if index >= properties.points_len {
+        return ZeriumPropsTuple2(0.0, 0.0);
+    }
     let byte_offset = read_u32(properties._raw, 16u) + index * 8u;
     return ZeriumPropsTuple2(read_f32(properties._raw, byte_offset), read_f32(properties._raw, byte_offset + 4u));
 }

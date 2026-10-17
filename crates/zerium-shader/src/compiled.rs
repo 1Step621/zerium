@@ -10,10 +10,6 @@ impl ItemShaderId {
         Self(format!("{plugin_id}::item::{item_id}"))
     }
 
-    pub fn host_capability_frame() -> Self {
-        Self("zerium::host::capability_frame".to_owned())
-    }
-
     pub fn as_str(&self) -> &str {
         &self.0
     }
@@ -57,17 +53,6 @@ pub struct ItemShaderDescriptor {
 }
 
 #[derive(Clone, Debug)]
-pub struct TextureShaderDescriptor {
-    pub id: ItemShaderId,
-    pub label: String,
-    pub wgsl: Arc<str>,
-    pub vertex_entry: String,
-    pub fragment_entry: String,
-    pub vertex_count: u32,
-    pub input_ids: Vec<String>,
-}
-
-#[derive(Clone, Debug)]
 pub struct EffectShaderDescriptor {
     pub id: EffectShaderId,
     pub label: String,
@@ -96,6 +81,5 @@ pub enum CompiledEffectShader {
 #[derive(Clone, Debug, Default)]
 pub struct CompiledPluginShaders {
     pub items: Vec<ItemShaderDescriptor>,
-    pub textures: Vec<TextureShaderDescriptor>,
     pub effects: Vec<CompiledEffectShader>,
 }

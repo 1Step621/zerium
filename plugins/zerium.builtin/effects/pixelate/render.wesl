@@ -1,10 +1,5 @@
-import package::generated::host::effect::{
-    ZeriumVertex,
-    context,
-    effect_input,
-    effect_sampler,
-    vertex,
-};
+import package::generated::host::render::{ZeriumVertex, vertex};
+import package::generated::host::effect::{uv_to_position, input_info, input_position, sample_input};
 import package::generated::pixelate::props;
 
 @vertex
@@ -14,11 +9,17 @@ fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {
 
 @fragment
 fn fragment_main(input: ZeriumVertex) -> @location(0) vec4<f32> {
-    let properties = props();
-    let dimensions = context().output_size;
-    let block_size = max(round(properties.block_size * context().composition_scale), 1.0);
-    let block_center = (floor(input.uv * dimensions / block_size) + vec2(0.5)) * block_size;
-    let half_texel = vec2(0.5) / dimensions;
-    let sample_uv = clamp(block_center / dimensions, half_texel, vec2(1.0) - half_texel);
-    return textureSample(effect_input, effect_sampler, sample_uv);
+    let block = max(props().block_size, 0.000001);
+    let origin = input_position(vec2(0.0));
+    let position = uv_to_position(input.uv);
+    let center = origin + (floor((position - origin) / block) + vec2(0.5)) * block;
+    let image = input_info();
+    let half_pixel = vec2(0.5) / image.density;
+    return sample_input(
+        clamp(
+            center,
+            image.bounds_min + half_pixel,
+            image.bounds_min + image.bounds_size - half_pixel,
+        ),
+    );
 }

@@ -6,14 +6,12 @@ mod text;
 use crate::engine::frame::VisualFrame;
 use crate::engine::media::MediaFrameRequest;
 pub(crate) use evaluation::SceneEvaluator;
-pub(super) use geometry::{BoundsOperation, SurfaceRect};
+pub(super) use geometry::{BoundsContext, BoundsOperation, RasterGrid, SurfaceRect};
 use graph::SceneGraphBuilder;
 use std::sync::Arc;
 use text::TextFrameRequest;
 use thiserror::Error;
-use zerium_core::plugin::{
-    ComputeDispatchDimension, EffectInputSpace, EffectPassSchema, ItemSchema, TextureInput,
-};
+use zerium_core::plugin::{ComputeDispatchDimension, EffectPassSchema, ItemSchema, TextureInput};
 use zerium_core::timeline::{
     BlendMode, EffectInstance, EffectInstanceId, ProjectResolution, TimelineItem, TimelineTime,
     TimelineView,
@@ -47,29 +45,21 @@ impl From<ProjectResolution> for RenderSize {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum RenderItemSource {
-    Shader,
-    Texture(Vec<Arc<VisualFrame>>),
-}
-
-#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RenderItem {
     pub shader: ItemShaderId,
-    pub source: RenderItemSource,
     pub inputs: Vec<SceneNodeId>,
     pub properties: Vec<u8>,
     pub effects: Vec<RenderEffect>,
-    pub target_size: RenderSize,
     pub render_scale: u32,
-    pub output_bounds: SurfaceRect,
+    pub output_bounds: BoundsOperation,
+    pub input_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RenderEffect {
     pub passes: Vec<RenderEffectPass>,
     pub inputs: Vec<SceneNodeId>,
-    pub output_bounds: BoundsOperation,
-    pub input_space: EffectInputSpace,
+    pub input_ids: Vec<String>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -84,6 +74,7 @@ pub(crate) struct RenderEffectPass {
     pub shader: EffectShaderId,
     pub properties: Vec<u8>,
     pub kind: RenderEffectPassKind,
+    pub output_bounds: BoundsOperation,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -115,11 +106,16 @@ impl Default for RenderView {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) enum RenderNodeContent {
     Item(RenderItem),
+    Frame(Arc<VisualFrame>),
     Scene {
         children: Vec<SceneNodeId>,
-        view: RenderView,
         effects: Vec<RenderEffect>,
         render_scale: u32,
+    },
+    /// A finite image of a composition, sampled through a view.
+    View {
+        input: SceneNodeId,
+        view: RenderView,
     },
 }
 
@@ -208,7 +204,9 @@ impl RenderScene {
             .iter()
             .filter_map(|node| match &node.content {
                 RenderNodeContent::Item(item) => Some(item),
-                RenderNodeContent::Scene { .. } => None,
+                RenderNodeContent::Scene { .. }
+                | RenderNodeContent::View { .. }
+                | RenderNodeContent::Frame(_) => None,
             })
             .collect()
     }
@@ -217,8 +215,9 @@ impl RenderScene {
         self.nodes
             .iter()
             .flat_map(|node| match &node.content {
-                RenderNodeContent::Item(item) => &item.effects,
-                RenderNodeContent::Scene { effects, .. } => effects,
+                RenderNodeContent::Item(item) => item.effects.as_slice(),
+                RenderNodeContent::Scene { effects, .. } => effects.as_slice(),
+                RenderNodeContent::View { .. } | RenderNodeContent::Frame(_) => &[],
             })
             .collect()
     }
@@ -288,17 +287,22 @@ impl RenderScene {
                     shader: pass_shader,
                     properties: properties.clone(),
                     kind,
+                    output_bounds: BoundsOperation::from_schema(
+                        pass.bounds(),
+                        &effect.properties,
+                        pass.overrides(),
+                    ),
                 }
             })
             .collect();
         RenderEffect {
             passes,
             inputs: Vec::new(),
-            output_bounds: BoundsOperation::from_schema(
-                &schema.render().bounds,
-                &effect.properties,
-            ),
-            input_space: schema.render().input_space,
+            input_ids: schema
+                .inputs()
+                .iter()
+                .map(|input| input.id().to_owned())
+                .collect(),
         }
     }
 

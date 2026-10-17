@@ -1,23 +1,24 @@
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::BTreeMap;
 use wesl::syntax::ModulePath;
 
-use zerium_core::plugin::{
-    PluginError, PluginManifest, PropertyLayout, ShaderKind, validate_wgsl_identifier,
-};
+use zerium_core::plugin::{PluginError, PluginManifest, PropertyLayout, validate_wgsl_identifier};
+
+#[derive(Clone, Copy)]
+pub(crate) enum PropertyScope {
+    Item,
+    Pass,
+}
+
 pub(crate) struct ShaderContract<'a> {
-    pub kinds: BTreeSet<ShaderKind>,
+    pub scope: PropertyScope,
     pub layout: &'a PropertyLayout,
     pub input_ids: Vec<String>,
 }
 
 impl<'a> ShaderContract<'a> {
-    fn new(
-        kinds: impl IntoIterator<Item = ShaderKind>,
-        layout: &'a PropertyLayout,
-        input_ids: Vec<String>,
-    ) -> Self {
+    fn new(scope: PropertyScope, layout: &'a PropertyLayout, input_ids: Vec<String>) -> Self {
         Self {
-            kinds: kinds.into_iter().collect(),
+            scope,
             layout,
             input_ids,
         }
@@ -34,7 +35,7 @@ pub(crate) fn shader_contracts(
                 &mut contracts,
                 schema.id(),
                 ShaderContract::new(
-                    [ShaderKind::Item],
+                    PropertyScope::Item,
                     schema.property_layout(),
                     schema
                         .inputs()
@@ -45,12 +46,13 @@ pub(crate) fn shader_contracts(
             )?;
         }
     }
+
     for schema in manifest.effects() {
         insert_contract(
             &mut contracts,
             schema.id(),
             ShaderContract::new(
-                schema.render().passes.iter().map(|pass| pass.shader_kind()),
+                PropertyScope::Pass,
                 schema.property_layout(),
                 schema
                     .inputs()
@@ -60,16 +62,21 @@ pub(crate) fn shader_contracts(
             ),
         )?;
     }
+
     Ok(contracts)
 }
 
-pub(crate) fn property_module(entity: &str, kind: ShaderKind) -> ModulePath {
+pub(crate) fn property_module(entity: &str) -> ModulePath {
     let mut module = ModulePath::new_root();
     module.push("generated");
     module.push(entity);
-    if matches!(kind, ShaderKind::Compute | ShaderKind::Temporal) {
-        module.push(kind.module_name());
-    }
+    module
+}
+
+pub(crate) fn image_module(entity: &str, input: &str) -> ModulePath {
+    let mut module = property_module(entity);
+    module.push("inputs");
+    module.push(input);
     module
 }
 
@@ -79,11 +86,13 @@ fn insert_contract<'a>(
     contract: ShaderContract<'a>,
 ) -> Result<(), PluginError> {
     validate_wgsl_identifier("generated entity module", module)?;
+
     if contracts.contains_key(module) {
         return Err(PluginError::invalid_definition(format!(
             "item and effect share generated entity ID '{module}'; use distinct IDs"
         )));
     }
+
     contracts.insert(module.to_owned(), contract);
     Ok(())
 }

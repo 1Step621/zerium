@@ -28,11 +28,14 @@ fn fractal_noise(position: vec2<f32>, phase: f32, octaves: u32, seed: u32) -> f3
     var amplitude = 0.5;
     var sum = 0.0;
     var weight = 0.0;
-    for (var octave = 0u; octave < octaves; octave += 1u) {
+
+    for(var octave = 0u; octave < octaves; octave += 1u) {
         sum += value_noise(point, seed + octave * 1013u) * amplitude;
         weight += amplitude;
-        point = vec2(point.x * 1.6 - point.y * 1.2, point.x * 1.2 + point.y * 1.6) + vec2(17.0, 31.0);
+        point = vec2(point.x * 1.6 - point.y * 1.2, point.x * 1.2 + point.y * 1.6)
+            + vec2(17.0, 31.0);
         amplitude *= 0.5;
     }
+
     return sum / max(weight, 0.00001);
 }

@@ -1,13 +1,13 @@
+import package::generated::host::render::{ZeriumVertex, vertex};
 import package::generated::host::effect::{
-    ZeriumVertex,
-    input_uv_to_position,
-    position_to_uv,
-    sample_or_transparent,
-    uv_inside,
     uv_to_position,
-    vertex,
+    uv_inside,
+    input_info,
+    input_position,
+    input_reference_uv,
+    sample_input
 };
-import package::generated::host::util::DEG2RAD;
+import package::generated::support::util::DEG2RAD;
 import package::generated::polar_coordinates::props;
 import package::helpers::geometry::TAU;
 
@@ -20,26 +20,38 @@ fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {
 fn fragment_main(input: ZeriumVertex) -> @location(0) vec4<f32> {
     let properties = props();
     let position = uv_to_position(input.uv);
-    let original = position_to_uv(position);
-    // The output canvas is the input rectangle, including at partial amounts.
+    let size = input_info().bounds_size;
+
+    if any(size <= vec2(0.0)) {
+        return vec4(0.0);
+    }
+
+    let original = input_reference_uv(position);
+
     if !uv_inside(original) {
         return vec4(0.0);
     }
+
     if properties.amount <= 0.0 {
-        return sample_or_transparent(original);
+        return sample_input(position);
     }
-    let size = input_uv_to_position(vec2(1.0)) - input_uv_to_position(vec2(0.0));
-    let center = input_uv_to_position(vec2(0.5));
+
+    let center = input_position(vec2(0.5));
     let radius = min(size.x, size.y) * 0.5;
-    var mapped = original;
+    var mapped = position;
+
     if properties.direction == 0u {
         let local = (position - center) / radius;
-        mapped = vec2(fract(atan2(local.y, local.x) / TAU - properties.angle / 360.0 + 1.0), length(local));
+        mapped = input_position(
+            vec2(
+                fract(atan2(local.y, local.x) / TAU - properties.angle / 360.0 + 1.0),
+                length(local),
+            ),
+        );
     } else {
         let angle = original.x * TAU + properties.angle * DEG2RAD;
-        let point = center + vec2(cos(angle), sin(angle)) * original.y * radius;
-        mapped = position_to_uv(point);
+        mapped = center + vec2(cos(angle), sin(angle)) * original.y * radius;
     }
-    let amount = properties.amount / 100.0;
-    return sample_or_transparent(mix(original, mapped, amount));
+
+    return sample_input(mix(position, mapped, properties.amount / 100.0));
 }

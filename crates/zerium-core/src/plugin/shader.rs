@@ -1,37 +1,6 @@
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 
 use super::{PluginError, identifier::validate_wgsl_identifier};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ShaderKind {
-    Item,
-    Effect,
-    Compute,
-    Temporal,
-}
-
-impl ShaderKind {
-    pub const ALL: [Self; 4] = [Self::Item, Self::Effect, Self::Compute, Self::Temporal];
-
-    pub const fn internal_module_name(self) -> &'static str {
-        match self {
-            Self::Item => "_item",
-            Self::Effect => "_effect",
-            Self::Compute => "_compute",
-            Self::Temporal => "_temporal",
-        }
-    }
-
-    pub const fn module_name(self) -> &'static str {
-        match self {
-            Self::Item => "item",
-            Self::Effect => "effect",
-            Self::Compute => "compute",
-            Self::Temporal => "temporal",
-        }
-    }
-}
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
@@ -74,6 +43,7 @@ pub(super) fn validate_shader_module(
             "{owner_kind} '{owner_id}' uses reserved shader module '{module}'"
         )));
     }
+
     for segment in module.split("::") {
         validate_wgsl_identifier("shader module path segment", segment)?;
     }

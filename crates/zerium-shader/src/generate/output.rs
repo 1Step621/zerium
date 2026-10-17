@@ -1,24 +1,21 @@
 //! Publish a complete generated interface directory, with rollback on rename failure.
 
 use std::{
-    collections::BTreeMap,
     fs,
     path::{Path, PathBuf},
 };
 
-use super::{GENERATED_DIR, MANIFEST_FINGERPRINT, fingerprint};
+use super::{GENERATED_DIR, GeneratedModule, MANIFEST_FINGERPRINT, fingerprint};
 use crate::ShaderError;
 
-pub(crate) fn install(
-    root: &Path,
-    files: &BTreeMap<String, String>,
-) -> Result<PathBuf, ShaderError> {
+pub(crate) fn install(root: &Path, modules: &[GeneratedModule]) -> Result<PathBuf, ShaderError> {
     let staging = root.join(format!(".{GENERATED_DIR}.tmp-{}", std::process::id()));
     if staging.exists() {
         fs::remove_dir_all(&staging).map_err(|error| ShaderError::io("clear", &staging, error))?;
     }
     fs::create_dir(&staging).map_err(|error| ShaderError::io("create", &staging, error))?;
-    let result = write_generated(&staging, files).and_then(|()| install_generated(root, &staging));
+    let result =
+        write_generated(&staging, modules).and_then(|()| install_generated(root, &staging));
     if let Err(error) = result {
         let _ = fs::remove_dir_all(&staging);
         return Err(error);
@@ -26,11 +23,22 @@ pub(crate) fn install(
     Ok(root.join(GENERATED_DIR))
 }
 
-fn write_generated(generated: &Path, files: &BTreeMap<String, String>) -> Result<(), ShaderError> {
-    write(generated, MANIFEST_FINGERPRINT, &fingerprint(files))?;
-    for (name, source) in files {
-        write(generated, name, source)?;
+fn write_generated(generated: &Path, modules: &[GeneratedModule]) -> Result<(), ShaderError> {
+    write(
+        generated,
+        Path::new(MANIFEST_FINGERPRINT),
+        &fingerprint(modules),
+    )?;
+
+    for module in modules {
+        // The staging directory is already the generated namespace root.
+        let relative = module.path.components[1..]
+            .iter()
+            .collect::<PathBuf>()
+            .with_extension("wesl");
+        write(generated, &relative, &module.source)?;
     }
+
     Ok(())
 }
 
@@ -60,7 +68,7 @@ fn install_generated(root: &Path, staging: &Path) -> Result<(), ShaderError> {
     Ok(())
 }
 
-fn write(generated: &Path, name: &str, source: &str) -> Result<(), ShaderError> {
+fn write(generated: &Path, name: &Path, source: &str) -> Result<(), ShaderError> {
     let path = generated.join(name);
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| ShaderError::io("create", parent, error))?;

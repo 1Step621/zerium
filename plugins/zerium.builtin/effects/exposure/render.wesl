@@ -1,4 +1,5 @@
-import package::generated::host::effect::{ZeriumVertex, effect_input, effect_sampler, vertex};
+import package::generated::host::render::{ZeriumVertex, vertex};
+import package::generated::host::effect::{uv_to_position, sample_input};
 import package::generated::exposure::props;
 
 @vertex
@@ -8,6 +9,6 @@ fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {
 
 @fragment
 fn fragment_main(input: ZeriumVertex) -> @location(0) vec4<f32> {
-    let source = textureSample(effect_input, effect_sampler, input.uv);
+    let source = sample_input(uv_to_position(input.uv));
     return vec4(source.rgb * exp2(props().exposure), source.a);
 }

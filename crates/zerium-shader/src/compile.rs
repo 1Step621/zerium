@@ -12,7 +12,6 @@ use crate::{
     compiled::{
         CompiledEffectShader, CompiledPluginShaders, ComputeShaderDescriptor,
         EffectShaderDescriptor, EffectShaderId, ItemShaderDescriptor, ItemShaderId,
-        TextureShaderDescriptor,
     },
     validation::ValidatedShader,
 };
@@ -91,7 +90,6 @@ pub fn compile_plugins(plugins: &PluginLibrary) -> Result<Arc<CompiledPluginShad
             compiled.effects.push(effect);
         }
     }
-    compiled.textures.push(capability_frame());
     Ok(Arc::new(compiled))
 }
 
@@ -126,16 +124,4 @@ fn render_pass(
         fragment_entry: shader.fragment_entry().to_owned(),
         overrides: overrides.clone(),
     })
-}
-
-fn capability_frame() -> TextureShaderDescriptor {
-    TextureShaderDescriptor {
-        id: ItemShaderId::host_capability_frame(),
-        label: "zerium capability frame".to_owned(),
-        wgsl: include_str!("capability_frame.wgsl").into(),
-        vertex_entry: "vertex_main".to_owned(),
-        fragment_entry: "fragment_main".to_owned(),
-        vertex_count: 3,
-        input_ids: vec!["source".to_owned()],
-    }
 }

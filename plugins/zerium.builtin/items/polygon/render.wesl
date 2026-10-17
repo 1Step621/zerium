@@ -6,8 +6,9 @@ import package::helpers::shape::{outlined_quad, shape_color};
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) local: vec2<f32>,
-    @location(1) @interpolate(flat) instance_index: u32,
-};
+    @interpolate(flat)
+    @location(1) instance_index: u32,
+}
 
 @vertex
 fn vertex_main(
@@ -35,25 +36,37 @@ fn vertex_main(
 @fragment
 fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let properties = props(input.instance_index);
+
     if properties.points_len < 3u {
         return vec4(0.0);
     }
+
     let size = vec2(properties.size.v0, properties.size.v1);
     let point = input.local * size;
     let previous_tuple = get_points(properties, properties.points_len - 1u);
     var previous = vec2(previous_tuple.v0, previous_tuple.v1) / 100.0 * size;
     var inside = false;
     var closest = 1e20;
-    for (var index = 0u; index < properties.points_len; index += 1u) {
+
+    for(var index = 0u; index < properties.points_len; index += 1u) {
         let current_tuple = get_points(properties, index);
         let current = vec2(current_tuple.v0, current_tuple.v1) / 100.0 * size;
+
         if crosses_ray(point, previous, current) {
             inside = !inside;
         }
+
         closest = min(closest, segment_distance(point, previous, current));
         previous = current;
     }
+
     let distance = select(closest, -closest, inside);
-    return shape_color(distance, properties.fill_enabled, properties.color,
-        properties.outline_width, properties.outline_position, properties.outline_color);
+    return shape_color(
+        distance,
+        properties.fill_enabled,
+        properties.color,
+        properties.outline_width,
+        properties.outline_position,
+        properties.outline_color,
+    );
 }

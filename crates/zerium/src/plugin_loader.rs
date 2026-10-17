@@ -8,7 +8,7 @@ use std::{
 use rust_embed::RustEmbed;
 
 use zerium_core::plugin::{PluginError, PluginManifest, PluginRegistry};
-use zerium_shader::{PluginBundle, PluginLibrary};
+use zerium_shader::{ModulePath, PluginBundle, PluginLibrary};
 
 #[derive(RustEmbed)]
 #[folder = "../../plugins/"]
@@ -49,11 +49,21 @@ fn load_bundled_plugin(directory: &str) -> Result<PluginBundle, PluginError> {
     let manifest_source = bundled_text(&format!("{directory}/plugin.json"))?;
     let fingerprint = bundled_text(&format!("{directory}/generated/manifest.fingerprint"))?;
     let manifest = PluginManifest::from_json(&manifest_source)?;
-    let root = directory.to_owned();
+    let prefix = format!("{directory}/");
+    let modules = BundledPluginAssets::iter()
+        .filter_map(|asset| {
+            let name = asset.strip_prefix(&prefix)?.strip_suffix(".wesl")?;
+            let mut path = ModulePath::new_root();
+            path.components.extend(name.split('/').map(str::to_owned));
+
+            Some(bundled_text(&asset).map(|source| (path, source.into())))
+        })
+        .collect::<Result<Vec<_>, _>>()?;
+
     zerium_shader::load_embedded_plugin(
         manifest,
         &fingerprint,
-        move |asset| bundled_text(&format!("{root}/{asset}")),
+        modules,
         format!(
             "bundled plugin '{directory}' has stale generated WESL; run `zerium plugin generate`"
         ),

@@ -23,14 +23,14 @@ pub use capability::{
 };
 pub use category::{EffectCategory, ItemCategory};
 pub use editor::EditorCapability;
-pub use effect::{EffectInputSpace, EffectRenderSchema, EffectSchema};
+pub use effect::{EffectRenderSchema, EffectSchema};
 pub use error::PluginError;
 pub use identifier::validate_wgsl_identifier;
 pub use item::{ItemRenderSchema, ItemSchema};
 pub use manifest::PluginManifest;
 pub use passes::{ComputeDispatchDimension, EffectPassSchema};
 pub use registry::PluginRegistry;
-pub use shader::{ShaderKind, ShaderSchema};
+pub use shader::ShaderSchema;
 
 pub trait PluginCatalogEntry {
     type Category;

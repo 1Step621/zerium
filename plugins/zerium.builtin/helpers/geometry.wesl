@@ -8,12 +8,11 @@ fn cross_2d(a: vec2<f32>, b: vec2<f32>) -> f32 {
 // Even-odd polygon fill: count intersections with the horizontal ray from point.
 fn crosses_ray(point: vec2<f32>, previous: vec2<f32>, current: vec2<f32>) -> bool {
     if (current.y > point.y) != (previous.y > point.y) {
-        let edge_x = (previous.x - current.x)
-            * (point.y - current.y)
-            / (previous.y - current.y)
+        let edge_x = (previous.x - current.x) * (point.y - current.y) / (previous.y - current.y)
             + current.x;
         return point.x < edge_x;
     }
+
     return false;
 }
 

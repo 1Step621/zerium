@@ -1,4 +1,5 @@
 //! Shared GPU pipelines and independent resource ownership for each consumer.
+
 mod bindings;
 mod builder;
 mod commands;
@@ -8,6 +9,7 @@ mod pipelines;
 mod plan;
 mod resources;
 mod shaders;
+mod surfaces;
 mod textures;
 mod video_planes;
 mod video_upload;
@@ -21,7 +23,8 @@ use std::{
 };
 
 use conversion::YuvConversionPipeline;
-use pipelines::{ComputePipeline, RasterPipeline, TexturePipeline};
+use pipelines::{ComputePipeline, RasterPipeline};
+use plan::NodeIdentityCache;
 use resources::{FrameResources, NodeResources};
 use textures::TextureResources;
 use video_planes::VideoPlanePipeline;
@@ -32,6 +35,7 @@ use zerium_shader::{EffectShaderId, ItemShaderId};
 const SCENE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 pub(in crate::engine) const OUTPUT_FORMAT: wgpu::TextureFormat =
     wgpu::TextureFormat::Rgba8UnormSrgb;
+
 /// Decoder and text bytes are display-plan sRGB. Sampling this format performs
 /// the input transfer-function decode into scene-linear shader values.
 const INPUT_FRAME_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba8UnormSrgb;
@@ -46,11 +50,9 @@ pub(crate) struct RenderDevice {
     item_pipelines: HashMap<ItemShaderId, RasterPipeline>,
     item_bind_group_layout: wgpu::BindGroupLayout,
     capability_bind_group_layout: wgpu::BindGroupLayout,
-    effect_bind_group_layout: wgpu::BindGroupLayout,
-    temporal_bind_group_layout: wgpu::BindGroupLayout,
+    pass_bind_group_layout: wgpu::BindGroupLayout,
     compute_bind_group_layout: wgpu::BindGroupLayout,
-    effect_pipeline_layout: wgpu::PipelineLayout,
-    temporal_pipeline_layout: wgpu::PipelineLayout,
+    pass_pipeline_layout: wgpu::PipelineLayout,
     composite_bind_group_layout: wgpu::BindGroupLayout,
     backdrop_bind_group_layout: wgpu::BindGroupLayout,
     effect_pipelines: HashMap<EffectShaderId, RasterPipeline>,
@@ -59,7 +61,8 @@ pub(crate) struct RenderDevice {
     composite_pipeline: wgpu::RenderPipeline,
     blend_pipeline: wgpu::RenderPipeline,
     output_pipeline: wgpu::RenderPipeline,
-    texture_pipelines: HashMap<ItemShaderId, TexturePipeline>,
+    frame_pipeline: wgpu::RenderPipeline,
+    frame_bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
     yuv_upload: video_upload::YuvUploadPipeline,
     video_planes: VideoPlanePipeline,
@@ -70,6 +73,7 @@ pub(crate) struct RenderDevice {
 pub(crate) struct RenderSession {
     shared: Arc<RenderDevice>,
     frame_resources: Mutex<Option<FrameResources>>,
+    node_identities: Mutex<NodeIdentityCache>,
     local_resources: Mutex<Vec<NodeResources>>,
     texture_resources: Mutex<TextureResources>,
 }
@@ -83,6 +87,7 @@ impl RenderDevice {
         RenderSession {
             shared: self.clone(),
             frame_resources: Mutex::new(None),
+            node_identities: Mutex::new(NodeIdentityCache::default()),
             local_resources: Mutex::new(Vec::new()),
             texture_resources: Mutex::new(TextureResources::default()),
         }

@@ -1,11 +1,6 @@
-import package::generated::host::effect::{
-    ZeriumVertex,
-    position_to_uv,
-    sample_or_transparent,
-    uv_to_position,
-    vertex,
-};
-import package::generated::host::util::DEG2RAD;
+import package::generated::host::render::{ZeriumVertex, vertex};
+import package::generated::host::effect::{uv_to_position, sample_input};
+import package::generated::support::util::DEG2RAD;
 import package::generated::rotate_3d::props;
 override near_clip_ratio: f32 = 0.1;
 
@@ -39,6 +34,7 @@ fn fragment_main(input: ZeriumVertex) -> @location(0) vec4<f32> {
     let c = output_position.y * r20 - focal_length * r10;
     let d = output_position.y * r21 - focal_length * r11;
     let determinant = a * d - b * c;
+
     if abs(determinant) < 0.00001 {
         return vec4(0.0);
     }
@@ -49,13 +45,15 @@ fn fragment_main(input: ZeriumVertex) -> @location(0) vec4<f32> {
         (a * right_hand_side.y - right_hand_side.x * c) / determinant,
     );
     let depth = focal_length + r20 * source_relative.x + r21 * source_relative.y;
+
     // Keep the same near plane as the clipped polygon in output_bounds.
     // A relative distance bounds the maximum perspective magnification.
+
     if depth < focal_length * near_clip_ratio {
         return vec4(0.0);
     }
 
     let source_position = source_relative + center;
-    let source_uv = position_to_uv(source_position);
-    return sample_or_transparent(source_uv);
+    let source_uv = source_position;
+    return sample_input(source_uv);
 }

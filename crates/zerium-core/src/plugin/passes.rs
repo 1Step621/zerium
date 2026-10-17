@@ -1,7 +1,8 @@
-//! Render, compute, and temporal passes and their sampling contracts.
+//! Render, compute, and temporal pass declarations.
+
 use super::identifier::validate_wgsl_identifier;
 use super::shader::validate_shader_module;
-use super::{PluginError, ShaderKind, ShaderSchema};
+use super::{PluginError, ShaderSchema};
 use crate::property::{
     PropertyDefinition, PropertySchema, PropertyValue, PropertyValues, ScalarPropertyType,
     ScalarSchema, ValueSchema,
@@ -16,11 +17,13 @@ const MAX_TEMPORAL_SAMPLES: u32 = 32;
 pub enum EffectPassSchema {
     Render {
         shader: ShaderSchema,
+        bounds: super::OutputBoundsSchema,
         #[serde(default)]
         overrides: BTreeMap<String, f64>,
     },
     Compute {
         shader: ComputeShaderSchema,
+        bounds: super::OutputBoundsSchema,
         #[serde(default = "default_compute_dispatch")]
         dispatch: [ComputeDispatchDimension; 3],
         #[serde(default)]
@@ -29,17 +32,18 @@ pub enum EffectPassSchema {
     Temporal {
         sampling: TemporalSamplingSchema,
         reducer: ShaderSchema,
+        bounds: super::OutputBoundsSchema,
         #[serde(default)]
         overrides: BTreeMap<String, f64>,
     },
 }
 
 impl EffectPassSchema {
-    pub const fn shader_kind(&self) -> ShaderKind {
+    pub fn bounds(&self) -> &super::OutputBoundsSchema {
         match self {
-            Self::Render { .. } => ShaderKind::Effect,
-            Self::Compute { .. } => ShaderKind::Compute,
-            Self::Temporal { .. } => ShaderKind::Temporal,
+            Self::Render { bounds, .. }
+            | Self::Compute { bounds, .. }
+            | Self::Temporal { bounds, .. } => bounds,
         }
     }
 
@@ -63,18 +67,29 @@ impl EffectPassSchema {
         &self,
         effect_id: &str,
         properties: &[PropertySchema],
+        inputs: &[super::TextureInput],
         pass_index: usize,
     ) -> Result<(), PluginError> {
+        self.bounds().validate(
+            "effect pass",
+            effect_id,
+            properties,
+            inputs,
+            self.overrides(),
+        )?;
+
         for (key, value) in self.overrides() {
             if key.parse::<u16>().is_err() {
                 validate_wgsl_identifier("pipeline override", key)?;
             }
+
             if !value.is_finite() {
                 return Err(PluginError::invalid_definition(format!(
                     "effect '{effect_id}' pass {pass_index} override '{key}' must be finite"
                 )));
             }
         }
+
         match self {
             Self::Render { shader, .. } => {
                 shader.validate("render effect pass", effect_id)?;
@@ -92,10 +107,12 @@ impl EffectPassSchema {
                         effect_id
                     )));
                 }
+
                 sampling.validate(effect_id, properties)?;
                 reducer.validate("temporal effect pass", effect_id)?;
             }
         }
+
         Ok(())
     }
 }
@@ -162,6 +179,7 @@ impl TemporalSamplingSchema {
                     ))
                 })
         };
+
         match self {
             Self::Range {
                 sample_count,
@@ -183,6 +201,7 @@ impl TemporalSamplingSchema {
                     )));
                 }
             }
+
             Self::Offsets { offsets } => {
                 let valid = matches!(
                     properties.iter().find(|property| property.id() == offsets).map(|property| property.definition()),
@@ -193,6 +212,7 @@ impl TemporalSamplingSchema {
                         ..
                     }) if *min_items >= 1 && *max_items <= MAX_TEMPORAL_SAMPLES
                 );
+
                 if !valid {
                     return Err(PluginError::invalid_definition(format!(
                         "effect '{}' temporal offsets '{offsets}' must be a nonempty f32 array with at most {MAX_TEMPORAL_SAMPLES} entries",
@@ -201,6 +221,7 @@ impl TemporalSamplingSchema {
                 }
             }
         }
+
         Ok(())
     }
 
@@ -217,6 +238,7 @@ impl TemporalSamplingSchema {
                 if !start.is_finite() || !end.is_finite() {
                     return None;
                 }
+
                 let count = count.clamp(1, MAX_TEMPORAL_SAMPLES);
                 let start = f64::from(start);
                 let span = f64::from(end) - start;
@@ -229,6 +251,7 @@ impl TemporalSamplingSchema {
                         .collect(),
                 )
             }
+
             Self::Offsets { offsets } => {
                 let elements = values.property(offsets)?.as_array()?;
                 elements

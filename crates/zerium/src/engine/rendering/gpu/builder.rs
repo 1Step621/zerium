@@ -1,5 +1,6 @@
 //! Build shared bind layouts and built-in rendering pipelines.
-use super::bindings::{GpuComposite, GpuCompute, GpuEffect, GpuItem};
+
+use super::bindings::{GpuComposite, GpuImage, GpuItem, GpuPass, GpuSurface};
 use super::pipelines::raster_pipeline;
 use super::{
     COMPOSITE, OUTPUT_FORMAT, PROPERTY_WORD_SIZE, RenderDevice, RenderDeviceBuilder, RenderError,
@@ -8,7 +9,7 @@ use super::{
 use crate::engine::gpu::GpuContext;
 use std::{collections::HashMap, num::NonZeroU64, sync::Arc};
 use zerium_shader::{
-    CAPABILITY_SAMPLER_BINDING, CompiledEffectShader, CompiledPluginShaders, MAX_TEXTURE_INPUTS,
+    CompiledEffectShader, CompiledPluginShaders, IMAGE_SAMPLER_BINDING, ImageBinding,
     validate_render_shader,
 };
 
@@ -39,26 +40,54 @@ impl RenderDeviceBuilder {
                         },
                         count: None,
                     },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 2,
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: NonZeroU64::new(size_of::<GpuSurface>() as u64),
+                        },
+                        count: None,
+                    },
                 ],
             });
-        let mut capability_entries = (0..MAX_TEXTURE_INPUTS)
-            .map(|binding| wgpu::BindGroupLayoutEntry {
-                binding: binding as u32,
-                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT | wgpu::ShaderStages::COMPUTE,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
+        let mut capability_entries = ImageBinding::all()
+            .flat_map(|binding| {
+                [
+                    wgpu::BindGroupLayoutEntry {
+                        binding: binding.texture(),
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT
+                            | wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: binding.metadata(),
+                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT
+                            | wgpu::ShaderStages::COMPUTE,
+                        ty: wgpu::BindingType::Buffer {
+                            ty: wgpu::BufferBindingType::Uniform,
+                            has_dynamic_offset: false,
+                            min_binding_size: NonZeroU64::new(size_of::<GpuImage>() as u64),
+                        },
+                        count: None,
+                    },
+                ]
             })
             .collect::<Vec<_>>();
+
         capability_entries.push(wgpu::BindGroupLayoutEntry {
-            binding: CAPABILITY_SAMPLER_BINDING as u32,
+            binding: IMAGE_SAMPLER_BINDING,
             visibility: wgpu::ShaderStages::VERTEX_FRAGMENT | wgpu::ShaderStages::COMPUTE,
             ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
             count: None,
         });
+
         let capability_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
                 label: Some("zerium-capability-input-layout"),
@@ -72,171 +101,48 @@ impl RenderDeviceBuilder {
             ],
             immediate_size: 0,
         });
-        let effect_bind_group_layout =
+        let pass_entries = [
+            wgpu::BindGroupLayoutEntry {
+                binding: 0,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT | wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Uniform,
+                    has_dynamic_offset: false,
+                    min_binding_size: NonZeroU64::new(size_of::<GpuPass>() as u64),
+                },
+                count: None,
+            },
+            wgpu::BindGroupLayoutEntry {
+                binding: 1,
+                visibility: wgpu::ShaderStages::VERTEX_FRAGMENT | wgpu::ShaderStages::COMPUTE,
+                ty: wgpu::BindingType::Buffer {
+                    ty: wgpu::BufferBindingType::Storage { read_only: true },
+                    has_dynamic_offset: false,
+                    min_binding_size: NonZeroU64::new(PROPERTY_WORD_SIZE as u64),
+                },
+                count: None,
+            },
+        ];
+        let pass_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("zerium-effect-bind-group-layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: true,
-                            min_binding_size: NonZeroU64::new(size_of::<GpuEffect>() as u64),
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: NonZeroU64::new(PROPERTY_WORD_SIZE as u64),
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                ],
+                label: Some("zerium-pass-layout"),
+                entries: &pass_entries,
             });
-        let temporal_bind_group_layout =
-            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("zerium-temporal-bind-group-layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::FRAGMENT,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: true,
-                            min_binding_size: NonZeroU64::new(size_of::<GpuEffect>() as u64),
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: wgpu::ShaderStages::VERTEX_FRAGMENT,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: NonZeroU64::new(PROPERTY_WORD_SIZE as u64),
-                        },
-                        count: None,
-                    },
-                ],
-            });
+        let mut compute_entries = pass_entries.to_vec();
+        compute_entries.push(wgpu::BindGroupLayoutEntry {
+            binding: 2,
+            visibility: wgpu::ShaderStages::COMPUTE,
+            ty: wgpu::BindingType::StorageTexture {
+                access: wgpu::StorageTextureAccess::WriteOnly,
+                format: SCENE_FORMAT,
+                view_dimension: wgpu::TextureViewDimension::D2,
+            },
+            count: None,
+        });
         let compute_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-                label: Some("zerium-compute-bind-group-layout"),
-                entries: &[
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 0,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 1,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 2,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Uniform,
-                            has_dynamic_offset: true,
-                            min_binding_size: NonZeroU64::new(size_of::<GpuCompute>() as u64),
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 3,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Buffer {
-                            ty: wgpu::BufferBindingType::Storage { read_only: true },
-                            has_dynamic_offset: false,
-                            min_binding_size: NonZeroU64::new(PROPERTY_WORD_SIZE as u64),
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 4,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::StorageTexture {
-                            access: wgpu::StorageTextureAccess::WriteOnly,
-                            format: SCENE_FORMAT,
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                        },
-                        count: None,
-                    },
-                    wgpu::BindGroupLayoutEntry {
-                        binding: 5,
-                        visibility: wgpu::ShaderStages::COMPUTE,
-                        ty: wgpu::BindingType::Texture {
-                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
-                            view_dimension: wgpu::TextureViewDimension::D2,
-                            multisampled: false,
-                        },
-                        count: None,
-                    },
-                ],
+                label: Some("zerium-compute-pass-layout"),
+                entries: &compute_entries,
             });
         let composite_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -270,24 +176,14 @@ impl RenderDeviceBuilder {
                     },
                 ],
             });
-        let effect_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("zerium-effect-pipeline-layout"),
-                bind_group_layouts: &[
-                    Some(&effect_bind_group_layout),
-                    Some(&capability_bind_group_layout),
-                ],
-                immediate_size: 0,
-            });
-        let temporal_pipeline_layout =
-            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-                label: Some("zerium-temporal-pipeline-layout"),
-                bind_group_layouts: &[
-                    Some(&temporal_bind_group_layout),
-                    Some(&capability_bind_group_layout),
-                ],
-                immediate_size: 0,
-            });
+        let pass_pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("zerium-effect-pipeline-layout"),
+            bind_group_layouts: &[
+                Some(&pass_bind_group_layout),
+                Some(&capability_bind_group_layout),
+            ],
+            immediate_size: 0,
+        });
         let composite_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("zerium-composite-pipeline-layout"),
@@ -386,6 +282,57 @@ impl RenderDeviceBuilder {
             min_filter: wgpu::FilterMode::Linear,
             ..Default::default()
         });
+        let frame_bind_group_layout =
+            device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
+                label: Some("zerium-frame-image-layout"),
+                entries: &[
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 0,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Texture {
+                            sample_type: wgpu::TextureSampleType::Float { filterable: true },
+                            view_dimension: wgpu::TextureViewDimension::D2,
+                            multisampled: false,
+                        },
+                        count: None,
+                    },
+                    wgpu::BindGroupLayoutEntry {
+                        binding: 1,
+                        visibility: wgpu::ShaderStages::FRAGMENT,
+                        ty: wgpu::BindingType::Sampler(wgpu::SamplerBindingType::Filtering),
+                        count: None,
+                    },
+                ],
+            });
+        let frame_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+            label: Some("zerium-frame-image-pipeline-layout"),
+            bind_group_layouts: &[Some(&frame_bind_group_layout)],
+            immediate_size: 0,
+        });
+        let frame_source = include_str!("frame.wgsl");
+        validate_render_shader(
+            "zerium.frame_image",
+            frame_source,
+            "vertex_main",
+            "fragment_main",
+        )?;
+        let frame_module = device.create_shader_module(wgpu::ShaderModuleDescriptor {
+            label: Some("zerium-frame-image-shader"),
+            source: wgpu::ShaderSource::Wgsl(frame_source.into()),
+        });
+        let frame_pipeline = raster_pipeline(
+            device,
+            &frame_layout,
+            &frame_module,
+            ["vertex_main", "fragment_main"],
+            wgpu::ColorTargetState {
+                format: SCENE_FORMAT,
+                blend: Some(wgpu::BlendState::PREMULTIPLIED_ALPHA_BLENDING),
+                write_mask: wgpu::ColorWrites::ALL,
+            },
+            "zerium-frame-image-pipeline",
+            &[],
+        );
         let yuv_upload = super::video_upload::YuvUploadPipeline::new(device)?;
         let video_planes = super::VideoPlanePipeline::new(device)?;
         Ok(Self {
@@ -395,11 +342,9 @@ impl RenderDeviceBuilder {
                 item_pipelines: HashMap::new(),
                 item_bind_group_layout,
                 capability_bind_group_layout,
-                effect_bind_group_layout,
-                temporal_bind_group_layout,
+                pass_bind_group_layout,
                 compute_bind_group_layout,
-                effect_pipeline_layout,
-                temporal_pipeline_layout,
+                pass_pipeline_layout,
                 composite_bind_group_layout,
                 backdrop_bind_group_layout,
                 effect_pipelines: HashMap::new(),
@@ -408,7 +353,8 @@ impl RenderDeviceBuilder {
                 composite_pipeline,
                 blend_pipeline,
                 output_pipeline,
-                texture_pipelines: HashMap::new(),
+                frame_pipeline,
+                frame_bind_group_layout,
                 sampler,
                 yuv_upload,
                 video_planes,
@@ -439,10 +385,6 @@ impl RenderDeviceBuilder {
                         .register_temporal_shader(descriptor.clone())?;
                 }
             }
-        }
-        for descriptor in &shaders.textures {
-            self.render_device
-                .register_texture_shader(descriptor.clone())?;
         }
         Ok(self)
     }

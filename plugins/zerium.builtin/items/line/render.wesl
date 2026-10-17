@@ -1,13 +1,14 @@
 import package::generated::host::item::to_ndc;
-import package::generated::host::util::{DEG2RAD, rotate};
+import package::generated::support::util::{DEG2RAD, rotate};
 import package::generated::line::props;
 import package::helpers::shape::{outlined_quad, shape_color};
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) local: vec2<f32>,
-    @location(1) @interpolate(flat) instance_index: u32,
-};
+    @interpolate(flat)
+    @location(1) instance_index: u32,
+}
 
 @vertex
 fn vertex_main(
@@ -28,7 +29,7 @@ fn vertex_main(
     let half_size = size * 0.5;
     let rotated = rotate(quad.corner * half_size, properties.angle * DEG2RAD);
     var output: VertexOutput;
-    output.position = vec4(to_ndc(instance_index, quad.center + rotated), 0.0, 1.0);
+    output.position = vec4(to_ndc(quad.center + rotated), 0.0, 1.0);
     output.local = quad.corner;
     output.instance_index = instance_index;
     return output;
@@ -41,11 +42,19 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let point = input.local * half_size;
     let corner = abs(point) - half_size;
     var distance = length(max(corner, vec2(0.0))) + min(max(corner.x, corner.y), 0.0);
+
     if properties.round_ends {
         let radius = min(half_size.x, half_size.y);
         let segment_half_length = max(half_size.x - radius, 0.0);
         distance = length(vec2(max(abs(point.x) - segment_half_length, 0.0), point.y)) - radius;
     }
-    return shape_color(distance, properties.fill_enabled, properties.color,
-        properties.outline_width, properties.outline_position, properties.outline_color);
+
+    return shape_color(
+        distance,
+        properties.fill_enabled,
+        properties.color,
+        properties.outline_width,
+        properties.outline_position,
+        properties.outline_color,
+    );
 }

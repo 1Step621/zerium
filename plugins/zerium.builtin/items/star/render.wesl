@@ -7,8 +7,9 @@ const MAX_STAR_VERTICES: u32 = 32u;
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
     @location(0) local: vec2<f32>,
-    @location(1) @interpolate(flat) instance_index: u32,
-};
+    @interpolate(flat)
+    @location(1) instance_index: u32,
+}
 
 @vertex
 fn vertex_main(
@@ -51,17 +52,27 @@ fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
     var previous = star_vertex(vertex_count - 1u, points, inner_radius, rotation) * half_size;
     var inside = false;
     var closest = 1e20;
-    for (var index = 0u; index < MAX_STAR_VERTICES; index += 1u) {
+
+    for(var index = 0u; index < MAX_STAR_VERTICES; index += 1u) {
         if index < vertex_count {
             let current = star_vertex(index, points, inner_radius, rotation) * half_size;
+
             if crosses_ray(point, previous, current) {
                 inside = !inside;
             }
+
             closest = min(closest, segment_distance(point, previous, current));
             previous = current;
         }
     }
+
     let distance = select(closest, -closest, inside);
-    return shape_color(distance, properties.fill_enabled, properties.color,
-        properties.outline_width, properties.outline_position, properties.outline_color);
+    return shape_color(
+        distance,
+        properties.fill_enabled,
+        properties.color,
+        properties.outline_width,
+        properties.outline_position,
+        properties.outline_color,
+    );
 }

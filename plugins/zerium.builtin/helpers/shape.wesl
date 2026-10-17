@@ -1,4 +1,4 @@
-import package::generated::host::util::scene_color;
+import package::generated::support::util::scene_color;
 import package::generated::host::item::quad_position;
 import package::helpers::geometry::distance_coverage;
 import package::helpers::quad::{PlacedQuad, placed_quad};
@@ -19,10 +19,10 @@ fn outlined_quad(
     width: f32,
     outline_position: u32,
 ) -> PlacedQuad {
-    let quad = placed_quad(vertex_index, instance_index, position, size, origin);
+    let quad = placed_quad(vertex_index, position, size, origin);
     let padded_size = size + vec2(2.0 * outline_outset(width, outline_position));
     return PlacedQuad(
-        quad_position(instance_index, quad.center, quad.corner, padded_size),
+        quad_position(quad.center, quad.corner, padded_size),
         quad.corner * padded_size / size,
         quad.center,
     );
@@ -56,36 +56,44 @@ fn shape_color(
 fn ellipse_distance(point: vec2<f32>, half_size: vec2<f32>) -> f32 {
     var p = abs(point);
     var axes = half_size;
+
     if axes.x < axes.y {
         axes = axes.yx;
         p = p.yx;
     }
+
     if abs(axes.x - axes.y) < 0.00001 {
         return length(p) - axes.x;
     }
+
     p /= axes.x;
     let ratio = axes.y / axes.x;
     let squared = vec2(1.0, ratio * ratio);
     let inside = dot(p / vec2(1.0, ratio), p / vec2(1.0, ratio)) <= 1.0;
+
     if p.y < 0.0000001 {
         let closest_x = min(p.x / (1.0 - squared.y), 1.0);
         let closest = vec2(closest_x, ratio * sqrt(max(1.0 - closest_x * closest_x, 0.0)));
         return distance(p, closest) * axes.x * select(1.0, -1.0, inside);
     }
+
     let in_quad = all(p <= vec2(1.0, ratio));
     var low = select(0.0, -squared.y, inside);
     var high = select(length(vec2(1.0, ratio) * p), ratio, in_quad);
     high = select(high, 0.0, inside);
     let iterations = select(32u, 20u, in_quad);
-    for (var iteration = 0u; iteration < iterations; iteration += 1u) {
+
+    for(var iteration = 0u; iteration < iterations; iteration += 1u) {
         let multiplier = (low + high) * 0.5;
         let normalized = vec2(1.0, ratio) * p / (squared + vec2(multiplier));
+
         if dot(normalized, normalized) > 1.0 {
             low = multiplier;
         } else {
             high = multiplier;
         }
     }
+
     let closest = squared * p / (squared + vec2((low + high) * 0.5));
     return distance(p, closest) * axes.x * select(1.0, -1.0, inside);
 }

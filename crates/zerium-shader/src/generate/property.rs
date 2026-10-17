@@ -1,5 +1,7 @@
+use super::contract::PropertyScope;
+
 use zerium_core::{
-    plugin::{PropertyLayout, ShaderKind, abi_size, scalar_abi_size},
+    plugin::{PropertyLayout, abi_size, scalar_abi_size},
     property::{PropertyDefinition, PropertySchema, ScalarPropertyType, ValueSchema},
 };
 
@@ -32,7 +34,7 @@ impl Field<'_> {
     }
 }
 
-pub(super) fn interface(layout: &PropertyLayout, kind: ShaderKind) -> String {
+pub(super) fn interface(layout: &PropertyLayout, scope: PropertyScope) -> String {
     let fields = layout
         .fields()
         .enumerate()
@@ -46,14 +48,28 @@ pub(super) fn interface(layout: &PropertyLayout, kind: ShaderKind) -> String {
     if fields.is_empty() {
         return String::new();
     }
+
     let stores_raw = fields.iter().any(Field::is_array);
-    let (raw_load_function, arguments, raw_arguments) = match kind {
-        ShaderKind::Item => ("item_props", "instance_index: u32", "instance_index"),
-        ShaderKind::Effect | ShaderKind::Compute | ShaderKind::Temporal => ("effect_props", "", ""),
+    let (raw_module, raw_load_function, arguments, raw_arguments) = match scope {
+        PropertyScope::Item => (
+            "item",
+            "item_props",
+            "instance_index: u32",
+            "instance_index",
+        ),
+        PropertyScope::Pass => ("effect_state", "pass_props", "", ""),
     };
-    let raw_module = kind.internal_module_name();
     let mut source = format!(
-        "import package::generated::host::{raw_module}::{{ZeriumRawProps, {raw_load_function}, read_u32, read_i32, read_f32, read_bool}};\n\n"
+        r#"import package::generated::_internal::properties::{{
+    ZeriumRawProps,
+    read_bool,
+    read_f32,
+    read_i32,
+    read_u32
+}};
+import package::generated::_internal::{raw_module}::{raw_load_function};
+
+"#
     );
     append_tuple_structs(&mut source, &fields);
     append_props_struct(&mut source, &fields, stores_raw);
@@ -86,7 +102,7 @@ fn append_tuple_structs(source: &mut String, fields: &[Field<'_>]) {
                 scalar_type_name(&scalar_type.ty)
             ));
         }
-        source.push_str("};\n\n");
+        source.push_str("}\n\n");
     }
 }
 
@@ -106,7 +122,7 @@ fn append_props_struct(source: &mut String, fields: &[Field<'_>], stores_raw: bo
             ));
         }
     }
-    source.push_str("};\n\n");
+    source.push_str("}\n\n");
 }
 
 fn append_props_function(
@@ -133,9 +149,10 @@ fn append_props_function(
         };
         loads.push(load);
     }
+
     source.push_str(&format!(
-        "    return ZeriumProps({});\n}}\n",
-        loads.join(", ")
+        "    return ZeriumProps(\n        {},\n    );\n}}\n",
+        loads.join(",\n        ")
     ));
 }
 
@@ -154,7 +171,7 @@ fn append_array_accessors(source: &mut String, fields: &[Field<'_>]) {
             ty = field.type_name(),
         ));
         source.push_str(&format!(
-            "    if index >= properties.{id}_len {{ return {zero}; }}\n",
+            "    if index >= properties.{id}_len {{\n        return {zero};\n    }}\n",
             id = field.schema.id(),
             zero = field.zero(),
         ));

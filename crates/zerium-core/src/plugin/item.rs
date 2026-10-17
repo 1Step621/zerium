@@ -151,12 +151,18 @@ impl ItemSchema {
     pub(super) fn validate(&self) -> Result<(), PluginError> {
         validate_catalog_entry("item", &self.id, &self.label, &self.tags)?;
         validate_property_schemas("item", &self.id, self.properties())?;
+
         if let Some(render) = &self.render {
-            render
-                .bounds
-                .validate("item", &self.id, self.properties())?;
+            render.bounds.validate(
+                "item",
+                &self.id,
+                self.properties(),
+                &render.inputs,
+                &Default::default(),
+            )?;
             validate_texture_inputs("item", &self.id, self.properties(), &render.inputs)?;
             render.shader.validate("item", &self.id)?;
+
             if render.vertex_count == 0 {
                 return Err(PluginError::invalid_definition(format!(
                     "item '{}' vertex count must be non-zero",
@@ -164,22 +170,27 @@ impl ItemSchema {
                 )));
             }
         }
+
         validate_editors("item", &self.id, self.properties(), &self.editor)?;
+
         if self.symbol.trim().is_empty() {
             return Err(PluginError::invalid_definition(format!(
                 "item '{}' symbol must not be empty",
                 self.id
             )));
         }
+
         if self.render.is_none() && self.audio.is_empty() && self.editor.is_empty() {
             return Err(PluginError::invalid_definition(format!(
                 "item '{}' must define render, audio, or editor behavior",
                 self.id
             )));
         }
+
         let mut audio_inputs = HashSet::new();
         for input in &self.audio {
             input.validate(&self.id, self.properties())?;
+
             if !audio_inputs.insert(input.id()) {
                 return Err(PluginError::invalid_definition(format!(
                     "item '{}' has duplicate audio input '{}'",
@@ -188,6 +199,7 @@ impl ItemSchema {
                 )));
             }
         }
+
         Ok(())
     }
 

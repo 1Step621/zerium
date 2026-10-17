@@ -75,6 +75,9 @@ Use `direnv` to enter the shared Rust environment:
 direnv allow
 ```
 
+See the [developer documentation](docs/README.md) for architecture and plugin
+authoring guides.
+
 ## Works on my machine
 
 <div align="center">

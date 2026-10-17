@@ -1,4 +1,4 @@
-//! WESL resolution and linking. Filesystem paths stay inside the resolvers.
+//! WESL resolution and linking by module path.
 
 use std::{borrow::Cow, sync::Arc};
 
@@ -39,50 +39,23 @@ impl Resolver for ShaderSources {
     }
 }
 
-pub(crate) struct EmbeddedResolver<F> {
-    read_source: F,
-}
-
-impl<F> EmbeddedResolver<F> {
-    pub(crate) fn new(read_source: F) -> Self {
-        Self { read_source }
-    }
-}
-
-impl<F> Resolver for EmbeddedResolver<F>
-where
-    F: Fn(&str) -> Result<String, PluginError>,
-{
-    fn resolve_source<'a>(&'a self, path: &ModulePath) -> Result<Cow<'a, str>, ResolveError> {
-        if path.origin.is_package() {
-            return Err(ResolveError::ModuleNotFound(
-                path.clone(),
-                "embedded shaders belong to the current package".to_owned(),
-            ));
-        }
-        // Embedded asset names use '/' on every platform. Path handling stays
-        // inside this resolver, at the point where the source is requested.
-        let asset = format!("{}.wesl", path.components.join("/"));
-        (self.read_source)(&asset)
-            .map(Cow::Owned)
-            .map_err(|error| ResolveError::ModuleNotFound(path.clone(), error.to_string()))
-    }
-}
-
 pub(crate) fn require_shader_modules(
     manifest: &PluginManifest,
     resolver: &dyn Resolver,
 ) -> Result<(), PluginError> {
     for module in manifest.shader_modules() {
-        require_module(resolver, module)?;
+        let path = module_path(module)
+            .map_err(|error| PluginError::invalid_definition(error.to_string()))?;
+        require_module(resolver, &path)?;
     }
     Ok(())
 }
 
-pub(crate) fn require_module(resolver: &dyn Resolver, module: &str) -> Result<(), PluginError> {
-    let path =
-        module_path(module).map_err(|error| PluginError::invalid_definition(error.to_string()))?;
-    resolver.resolve_source(&path).map(|_| ()).map_err(|error| {
+pub(crate) fn require_module(
+    resolver: &dyn Resolver,
+    path: &ModulePath,
+) -> Result<(), PluginError> {
+    resolver.resolve_source(path).map(|_| ()).map_err(|error| {
         PluginError::missing_asset(format!("shader module '{path}' was not found: {error}"))
     })
 }

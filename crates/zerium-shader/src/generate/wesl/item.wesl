@@ -1,27 +1,30 @@
-import package::generated::host::_item::_items;
-import package::generated::host::_context::make_surface_context;
-import package::generated::host::util::ZeriumContext;
+import package::generated::_internal::item::_surface;
+import package::generated::_internal::context::make_surface_context;
+import package::generated::support::util::ZeriumContext;
 
 // Composition coordinates use the frame center as (0, 0), +X to the right,
 // and +Y downward. The viewport remains a pixel size rather than a position.
-fn context(instance_index: u32) -> ZeriumContext {
-    let output_size = _items[instance_index].output_size;
+fn context() -> ZeriumContext {
+    let output_size = _surface.output_size;
     return make_surface_context(
         output_size,
-        _items[instance_index].composition_size,
-        _items[instance_index].surface_size,
+        _surface.composition_size,
+        _surface.surface_size,
     );
 }
 
-fn to_ndc(
-    instance_index: u32,
-    position: vec2<f32>,
-) -> vec2<f32> {
-    let item = _items[instance_index];
+fn to_ndc(position: vec2<f32>) -> vec2<f32> {
+    let surface = _surface;
     return vec2(
-        (position.x - item.surface_min.x) / item.surface_size.x * 2.0 - 1.0,
-        1.0 - (position.y - item.surface_min.y) / item.surface_size.y * 2.0,
+        (position.x - surface.surface_min.x) / surface.surface_size.x * 2.0 - 1.0,
+        1.0 - (position.y - surface.surface_min.y) / surface.surface_size.y * 2.0,
     );
+}
+
+// Fragment pixel centers map through the raster extent, including cropped images.
+fn pixel_position(pixel: vec2<f32>) -> vec2<f32> {
+    let surface = _surface;
+    return surface.surface_min + pixel / surface.output_size * surface.surface_size;
 }
 
 // Two triangles covering a unit quad centered at the origin. Item shaders use
@@ -29,11 +32,11 @@ fn to_ndc(
 fn quad_corner(vertex_index: u32) -> vec2<f32> {
     let corners = array<vec2<f32>, 6>(
         vec2(-1.0, -1.0),
-        vec2( 1.0, -1.0),
-        vec2(-1.0,  1.0),
-        vec2(-1.0,  1.0),
-        vec2( 1.0, -1.0),
-        vec2( 1.0,  1.0),
+        vec2(1.0, -1.0),
+        vec2(-1.0, 1.0),
+        vec2(-1.0, 1.0),
+        vec2(1.0, -1.0),
+        vec2(1.0, 1.0),
     );
     return corners[vertex_index];
 }
@@ -49,16 +52,7 @@ fn placement_center(position: vec2<f32>, size: vec2<f32>, origin: vec2<u32>) -> 
     return position + (vec2(0.5) - anchor) * size;
 }
 
-fn quad_position(
-    instance_index: u32,
-    center: vec2<f32>,
-    corner: vec2<f32>,
-    size: vec2<f32>,
-) -> vec4<f32> {
+fn quad_position(center: vec2<f32>, corner: vec2<f32>, size: vec2<f32>) -> vec4<f32> {
     let position = center + corner * size * 0.5;
-    return vec4(
-        to_ndc(instance_index, position),
-        0.0,
-        1.0,
-    );
+    return vec4(to_ndc(position), 0.0, 1.0);
 }

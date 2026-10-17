@@ -1,16 +1,16 @@
 //! Plugin bundles backed by WESL module resolvers.
 
-use std::{collections::BTreeMap, fs, path::Path, sync::Arc};
+use std::{borrow::Cow, collections::BTreeMap, fs, path::Path, sync::Arc};
 
-use wesl::resolver::{FileResolver, Resolver};
+use wesl::{
+    resolver::{FileResolver, Resolver, VirtualResolver},
+    syntax::ModulePath,
+};
 use zerium_core::plugin::{PluginError, PluginManifest, PluginRegistry};
 
 use crate::{
-    generate::{
-        self, GENERATED_DIR, MANIFEST_FINGERPRINT,
-        contract::{property_module, shader_contracts},
-    },
-    source::{EmbeddedResolver, ShaderSources, require_module, require_shader_modules},
+    generate::{self, GENERATED_DIR, MANIFEST_FINGERPRINT, contract::shader_contracts},
+    source::{ShaderSources, require_module, require_shader_modules},
 };
 
 /// A plugin manifest paired with its WESL source resolver.
@@ -56,19 +56,13 @@ fn plugin_from_resolver(
     stale_message: impl Into<String>,
 ) -> Result<PluginBundle, PluginError> {
     let contracts = shader_contracts(&manifest)?;
-    if fingerprint.trim() != generate::fingerprint(&generate::generated_files(&contracts)) {
+    let modules = generate::generated_modules(&contracts);
+    if fingerprint.trim() != generate::fingerprint(&modules) {
         return Err(PluginError::invalid_definition(stale_message));
     }
-    require_module(&resolver, "generated::host::util")?;
-    for (entity, contract) in &contracts {
-        for &kind in &contract.kinds {
-            let module = property_module(entity, kind);
-            resolver.resolve_source(&module).map_err(|error| {
-                PluginError::missing_asset(format!(
-                    "entity '{entity}' has no generated WESL module '{module}': {error}; run `zerium plugin generate`"
-                ))
-            })?;
-        }
+
+    for module in &modules {
+        require_module(&resolver, &module.path)?;
     }
     require_shader_modules(&manifest, &resolver)?;
     Ok(PluginBundle {
@@ -100,18 +94,17 @@ fn read_asset(path: &Path) -> Result<String, PluginError> {
     })
 }
 
-/// Loads an embedded bundle without enumerating or preloading its shader files.
-/// The callback receives relative asset names such as `math/color.wesl`.
+/// Loads an embedded bundle from module paths and their WESL sources.
+/// Paths are absolute within the plugin, such as `package::math::color`.
 pub fn load_embedded_plugin(
     manifest: PluginManifest,
     fingerprint: &str,
-    read_source: impl Fn(&str) -> Result<String, PluginError> + Send + Sync + 'static,
+    modules: impl IntoIterator<Item = (ModulePath, Cow<'static, str>)>,
     stale_message: impl Into<String>,
 ) -> Result<PluginBundle, PluginError> {
-    plugin_from_resolver(
-        manifest,
-        fingerprint,
-        EmbeddedResolver::new(read_source),
-        stale_message,
-    )
+    let mut resolver = VirtualResolver::new();
+    for (path, source) in modules {
+        resolver.add_module(path, source);
+    }
+    plugin_from_resolver(manifest, fingerprint, resolver, stale_message)
 }

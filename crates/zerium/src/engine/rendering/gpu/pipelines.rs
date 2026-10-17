@@ -9,13 +9,6 @@ pub(super) struct ComputePipeline {
     pub(super) workgroup_size: [u32; 3],
 }
 
-pub(super) struct TexturePipeline {
-    pub(super) pipeline: wgpu::RenderPipeline,
-    pub(super) vertex_count: u32,
-    pub(super) bind_group_layout: wgpu::BindGroupLayout,
-    pub(super) input_count: usize,
-}
-
 pub(super) fn raster_pipeline<'a>(
     device: &wgpu::Device,
     layout: impl Into<Option<&'a wgpu::PipelineLayout>>,

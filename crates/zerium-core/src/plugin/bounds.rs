@@ -5,7 +5,7 @@ use evalexpr::{
     HashMapContext, Node, Value,
 };
 use serde::Deserialize;
-use std::collections::HashSet;
+use std::collections::{BTreeMap, HashSet};
 
 use super::PluginError;
 use crate::property::{PropertySchema, PropertyValue, PropertyValues};
@@ -23,6 +23,8 @@ impl OutputBoundsSchema {
         owner: &str,
         id: &str,
         properties: &[PropertySchema],
+        inputs: &[super::TextureInput],
+        overrides: &BTreeMap<String, f64>,
     ) -> Result<(), PluginError> {
         let defaults = PropertyValues::from_properties(properties);
         let mut names = HashSet::new();
@@ -36,13 +38,27 @@ impl OutputBoundsSchema {
                 }
             }
         }
+
+        let mut rectangles = ["input", "source", "viewport"]
+            .into_iter()
+            .map(|name| (name.to_owned(), [-960., -540.], [960., 540.]))
+            .collect::<Vec<_>>();
+        rectangles.extend(
+            inputs
+                .iter()
+                .map(|input| (format!("images::{}", input.id()), [-1., -1.], [1., 1.])),
+        );
         let mut context = program_context(
-            [-1.0, -1.0],
-            [1.0, 1.0],
-            [-960.0, -540.0],
-            [960.0, 540.0],
+            rectangles
+                .iter()
+                .map(|(name, min, max)| (name.as_str(), *min, *max)),
             &defaults,
         );
+
+        for (name, value) in overrides {
+            set_bound_variable(&mut context, format!("o::{name}"), *value);
+        }
+
         let mut result = [[0.0; 2]; 2];
         for (side, expressions) in [&self.min, &self.max].into_iter().enumerate() {
             for (axis, expression) in expressions.iter().enumerate() {
@@ -53,6 +69,7 @@ impl OutputBoundsSchema {
                             "{owner} '{id}' bounds program expression is invalid: {error}"
                         ))
                     })?;
+
                 if !result[side][axis].is_finite() {
                     return Err(PluginError::invalid_definition(format!(
                         "{owner} '{id}' bounds program expression must be finite at default values"
@@ -60,6 +77,7 @@ impl OutputBoundsSchema {
                 }
             }
         }
+
         if (0..2).any(|axis| result[0][axis] > result[1][axis]) {
             return Err(PluginError::invalid_definition(format!(
                 "{owner} '{id}' bounds program has reversed bounds at default values"
@@ -72,6 +90,7 @@ impl OutputBoundsSchema {
 fn bound_scalar(value: &PropertyValue) -> Option<f64> {
     match value {
         PropertyValue::Enum(value) => Some(f64::from(*value)),
+        PropertyValue::Bool(value) => Some(f64::from(u8::from(*value))),
         _ => value.numeric_scalar(),
     }
 }
@@ -98,11 +117,8 @@ fn property_variables<'a>(
         })
 }
 
-pub fn program_context(
-    input_min: [f64; 2],
-    input_max: [f64; 2],
-    viewport_min: [f64; 2],
-    viewport_max: [f64; 2],
+pub fn program_context<'a>(
+    rectangles: impl IntoIterator<Item = (&'a str, [f64; 2], [f64; 2])>,
     values: &PropertyValues,
 ) -> HashMapContext {
     let mut context = HashMapContext::new();
@@ -121,6 +137,7 @@ pub fn program_context(
             )
             .expect("bounds function names are static identifiers");
     }
+
     context
         .set_function(
             "placement_center".to_owned(),
@@ -138,10 +155,8 @@ pub fn program_context(
             }),
         )
         .expect("bounds function names are static identifiers");
-    for (prefix, min, max) in [
-        ("input", input_min, input_max),
-        ("viewport", viewport_min, viewport_max),
-    ] {
+
+    for (prefix, min, max) in rectangles {
         for (axis, name) in ["x", "y"].into_iter().enumerate() {
             for (kind, value) in [
                 ("min", min[axis]),
@@ -153,6 +168,7 @@ pub fn program_context(
             }
         }
     }
+
     for (id, value) in values.iter() {
         for (name, value) in property_variables(id, value) {
             set_bound_variable(&mut context, name, value);
@@ -200,6 +216,7 @@ fn projected_rect(arguments: &Value) -> Result<[[f64; 2]; 2], EvalexprError> {
     if (0..2).any(|axis| min[axis] > max[axis]) {
         return Err(invalid("minimum must not exceed maximum"));
     }
+
     if focal <= 0.0 || near_ratio <= 0.0 || !near.is_finite() || near <= 0.0 {
         return Err(invalid(
             "focal length and near depth must be finite and positive",
@@ -226,6 +243,7 @@ fn projected_rect(arguments: &Value) -> Result<[[f64; 2]; 2], EvalexprError> {
             focal + columns[0][2] * x + columns[1][2] * y,
         ]
     });
+
     if vertices.iter().flatten().any(|value| !value.is_finite()) {
         return Err(invalid("rotated vertices must be finite"));
     }
@@ -238,9 +256,11 @@ fn projected_rect(arguments: &Value) -> Result<[[f64; 2]; 2], EvalexprError> {
             if !position.is_finite() {
                 return Err(invalid("projected bounds must be finite"));
             }
+
             bounds[0][axis] = bounds[0][axis].min(position);
             bounds[1][axis] = bounds[1][axis].max(position);
         }
+
         visible = true;
         Ok(())
     };
@@ -252,6 +272,7 @@ fn projected_rect(arguments: &Value) -> Result<[[f64; 2]; 2], EvalexprError> {
             if !depth_delta.is_finite() {
                 return Err(invalid("clipped edge depth must be finite"));
             }
+
             let fraction = (near - previous[2]) / depth_delta;
             include([
                 previous[0] + fraction * (current[0] - previous[0]),
@@ -259,10 +280,13 @@ fn projected_rect(arguments: &Value) -> Result<[[f64; 2]; 2], EvalexprError> {
                 near,
             ])?;
         }
+
         if current[2] >= near {
             include(current)?;
         }
+
         previous = current;
     }
+
     Ok(if visible { bounds } else { [center, center] })
 }

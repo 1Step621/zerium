@@ -1,4 +1,4 @@
-import package::generated::drop_shadow::compute::props;
+import package::generated::drop_shadow::props;
 import package::helpers::rgba_blur::blur_rgba;
 override direction_x: f32 = 1.0;
 override direction_y: f32 = 0.0;

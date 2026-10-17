@@ -17,8 +17,8 @@ pub fn generate(path: Option<&Path>) -> Result<PathBuf, ShaderError> {
     let manifest = read_manifest(&root)?;
     require_shader_modules(&manifest, &FileResolver::new(&root))?;
     let contracts = shader_contracts(&manifest)?;
-    let files = generate::generated_files(&contracts);
-    generate::output::install(&root, &files)
+    let modules = generate::generated_modules(&contracts);
+    generate::output::install(&root, &modules)
 }
 
 /// Validate a plugin with the same linking and WGSL checks used by the application.

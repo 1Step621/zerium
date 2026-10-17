@@ -1,19 +1,13 @@
 //! Consumer-local input texture preparation and scratch resource reuse.
-use super::bindings::{GpuItem, GpuTextureInput};
-use super::plan::PlannedTexture;
 use super::resources::RenderTarget;
 use super::video_upload::YuvUpload;
-use super::{INPUT_FRAME_FORMAT, PROPERTY_WORD_SIZE, RenderError, RenderSession};
+use super::{INPUT_FRAME_FORMAT, RenderError, RenderSession};
 use crate::engine::frame::{FrameData, PixelPlane, VideoPixels, VisualFrame};
 use std::sync::Arc;
 
-pub(super) struct TextureResource {
-    pub(super) input_count: usize,
-    pub(super) frame_target: Option<RenderTarget>,
-    pub(super) uploaded_frames: Vec<Arc<FrameTexture>>,
-    _input_properties: wgpu::Buffer,
-    _item: wgpu::Buffer,
-    _item_properties: wgpu::Buffer,
+pub(super) struct FrameImage {
+    pub(super) target: Option<RenderTarget>,
+    pub(super) uploaded: Arc<FrameTexture>,
     pub(super) binding: wgpu::BindGroup,
 }
 
@@ -31,266 +25,99 @@ pub(super) struct TextureResources {
     // Upload planes are scratch resources; converted frames keep only their
     // final texture. Queue ordering lets consecutive frames reuse this slot.
     yuv_upload: Option<YuvUpload>,
-    // Texture-item buffers and optional capability targets from the last scene.
-    // Matching shapes are reused instead of allocated on every frame.
-    scratch: Vec<ScratchTextureResources>,
-}
-
-pub(super) struct ScratchTextureResources {
-    frame_target: Option<RenderTarget>,
-    pub(super) input_count: usize,
-    pub(super) property_size: usize,
-    pub(super) input_properties: wgpu::Buffer,
-    pub(super) item_properties: wgpu::Buffer,
-    pub(super) item: wgpu::Buffer,
+    // Conversion targets from the previous scene; unmatched sizes are dropped.
+    targets: Vec<RenderTarget>,
 }
 
 impl RenderSession {
-    pub(super) fn recycle_texture_resources(
-        &self,
-        resources: Vec<TextureResource>,
-    ) -> Result<(), RenderError> {
-        // The queue retains submitted work, so scratch buffers can be reused next frame.
+    pub(super) fn recycle_frame_images(&self, images: Vec<FrameImage>) -> Result<(), RenderError> {
         let mut cache = self
             .texture_resources
             .lock()
             .map_err(|_| RenderError::backend("video texture cache lock poisoned"))?;
-        // Drop unmatched resources so changing scenes cannot grow the pool.
-        cache.scratch.clear();
-        for resource in resources {
-            cache.scratch.push(ScratchTextureResources {
-                frame_target: resource.frame_target,
-                input_count: resource.input_count,
-                property_size: usize::try_from(resource._item_properties.size()).map_err(|_| {
-                    RenderError::backend("texture item property size exceeds usize")
-                })?,
-                input_properties: resource._input_properties,
-                item_properties: resource._item_properties,
-                item: resource._item,
-            });
-        }
+        cache.targets = images
+            .into_iter()
+            .filter_map(|image| image.target)
+            .collect();
         Ok(())
     }
 
-    pub(super) fn create_texture_resources(
+    pub(super) fn create_frame_images(
         &self,
-        textures: &[PlannedTexture],
-    ) -> Result<Vec<TextureResource>, RenderError> {
+        frames: &[Arc<VisualFrame>],
+    ) -> Result<Vec<FrameImage>, RenderError> {
         let mut cache = self
             .texture_resources
             .lock()
             .map_err(|_| RenderError::backend("video texture cache lock poisoned"))?;
-        let desired_frames = textures
-            .iter()
-            .flat_map(|texture| texture.frames.iter())
-            .collect::<Vec<_>>();
-        let mut current_scene = Vec::with_capacity(textures.len());
-        let mut resources = Vec::with_capacity(textures.len());
-        for plan in textures {
-            let pipeline = self
-                .shared
-                .texture_pipelines
-                .get(&plan.shader)
-                .ok_or_else(|| RenderError::backend("texture shader is not registered"))?;
-            let frames = &plan.frames;
-            let input_count = frames.len();
-            if input_count != pipeline.input_count {
-                return Err(RenderError::backend(format!(
-                    "texture input slot count for shader '{}' does not match its plugin schema",
-                    plan.shader
-                )));
-            }
-            let mut uploaded_frames = Vec::with_capacity(input_count);
-            for frame in frames {
-                let uploaded = cache
-                    .previous_scene
-                    .iter()
-                    .chain(&current_scene)
-                    .find(|uploaded| Arc::ptr_eq(&uploaded.frame, frame))
-                    .cloned()
-                    .map(Ok)
-                    .unwrap_or_else(|| {
-                        let reusable = cache.previous_scene.iter().position(|uploaded| {
-                            uploaded.frame.width == frame.width
-                                && uploaded.frame.height == frame.height
-                                && !matches!(uploaded.frame.data, FrameData::Video(_))
-                                && !matches!(frame.data, FrameData::Video(_))
-                                && Arc::strong_count(uploaded) == 1
-                                && !desired_frames
-                                    .iter()
-                                    .any(|desired| Arc::ptr_eq(&uploaded.frame, desired))
-                        });
-                        let Some(reusable) = reusable else {
-                            return self.upload_frame(frame.clone(), &mut cache.yuv_upload);
-                        };
-                        let mut uploaded = cache.previous_scene.swap_remove(reusable);
-                        let slot = Arc::get_mut(&mut uploaded)
-                            .expect("reusable video texture must have a single owner");
-                        self.update_frame_texture(slot, frame.clone(), &mut cache.yuv_upload)?;
-                        Ok(uploaded)
-                    })?;
-                if !current_scene
-                    .iter()
-                    .any(|current| Arc::ptr_eq(&current.frame, frame))
-                {
-                    current_scene.push(uploaded.clone());
-                }
-                uploaded_frames.push(uploaded);
-            }
-            let mut input_metadata = uploaded_frames
+        let mut current_scene: Vec<Arc<FrameTexture>> = Vec::with_capacity(frames.len());
+        let mut images = Vec::with_capacity(frames.len());
+        for frame in frames {
+            let uploaded = cache
+                .previous_scene
                 .iter()
-                .map(|uploaded| GpuTextureInput {
-                    size: [
-                        uploaded.frame.width as f32,
-                        uploaded.frame.height as f32,
-                        0.,
-                        0.,
-                    ],
-                })
-                .collect::<Vec<_>>();
-            input_metadata.push(GpuTextureInput {
-                size: [
-                    plan.target_size.width as f32,
-                    plan.target_size.height as f32,
-                    0.,
-                    0.,
-                ],
-            });
-            let frame = frames
-                .first()
-                .ok_or_else(|| RenderError::backend("capability texture has no frame"))?;
-            let extent = Self::frame_extent(frame)?;
-            let item_property_size = plan.properties.len().max(PROPERTY_WORD_SIZE);
-            let scratch_index = cache.scratch.iter().position(|scratch| {
-                scratch.input_count == input_count
-                    && scratch.property_size == item_property_size
-                    && scratch
-                        .frame_target
-                        .as_ref()
-                        .is_none_or(|target| target.texture.size() == extent)
-            });
-            let scratch = match scratch_index {
-                Some(index) => cache.scratch.swap_remove(index),
-                None => ScratchTextureResources {
-                    frame_target: None,
-                    input_count,
-                    property_size: item_property_size,
-                    input_properties: self.shared.gpu.device.create_buffer(
-                        &wgpu::BufferDescriptor {
-                            label: Some("zerium-texture-input-properties"),
-                            size: ((input_count + 1) * size_of::<GpuTextureInput>()) as u64,
-                            usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
-                            mapped_at_creation: false,
-                        },
-                    ),
-                    item_properties: self.shared.gpu.device.create_buffer(
-                        &wgpu::BufferDescriptor {
-                            label: Some("zerium-texture-item-properties"),
-                            size: item_property_size as u64,
-                            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                            mapped_at_creation: false,
-                        },
-                    ),
-                    item: self
-                        .shared
-                        .gpu
-                        .device
-                        .create_buffer(&wgpu::BufferDescriptor {
-                            label: Some("zerium-texture-item"),
-                            size: size_of::<GpuItem>() as u64,
-                            usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
-                            mapped_at_creation: false,
-                        }),
-                },
-            };
-            let input_properties = scratch.input_properties;
-            let item_properties = scratch.item_properties;
-            let item = scratch.item;
-            self.shared.gpu.queue.write_buffer(
-                &input_properties,
-                0,
-                bytemuck::cast_slice(&input_metadata),
-            );
-            if !plan.properties.is_empty() {
-                self.shared
-                    .gpu
-                    .queue
-                    .write_buffer(&item_properties, 0, &plan.properties);
+                .chain(&current_scene)
+                .find(|uploaded| Arc::ptr_eq(&uploaded.frame, frame))
+                .cloned()
+                .map(Ok)
+                .unwrap_or_else(|| {
+                    let reusable = cache.previous_scene.iter().position(|uploaded| {
+                        uploaded.frame.width == frame.width
+                            && uploaded.frame.height == frame.height
+                            && !matches!(uploaded.frame.data, FrameData::Video(_))
+                            && !matches!(frame.data, FrameData::Video(_))
+                            && Arc::strong_count(uploaded) == 1
+                            && !frames
+                                .iter()
+                                .any(|desired| Arc::ptr_eq(&uploaded.frame, desired))
+                    });
+                    let Some(reusable) = reusable else {
+                        return self.upload_frame(frame.clone(), &mut cache.yuv_upload);
+                    };
+                    let mut uploaded = cache.previous_scene.swap_remove(reusable);
+                    let slot =
+                        Arc::get_mut(&mut uploaded).expect("reusable texture has a single owner");
+                    self.update_frame_texture(slot, frame.clone(), &mut cache.yuv_upload)?;
+                    Ok(uploaded)
+                })?;
+            if !current_scene
+                .iter()
+                .any(|current| Arc::ptr_eq(&current.frame, frame))
+            {
+                current_scene.push(uploaded.clone());
             }
-            self.shared.gpu.queue.write_buffer(
-                &item,
-                0,
-                bytemuck::bytes_of(&GpuItem {
-                    property_offset: 0,
-                    property_size: u32::try_from(plan.properties.len()).map_err(|_| {
-                        RenderError::backend("texture item property size exceeds u32")
-                    })?,
-                    output_size: [
-                        plan.target_size.width as f32,
-                        plan.target_size.height as f32,
+            let extent = Self::frame_extent(frame)?;
+            let target = cache
+                .targets
+                .iter()
+                .position(|target| target.texture.size() == extent)
+                .map(|index| cache.targets.swap_remove(index));
+            let binding = self
+                .shared
+                .gpu
+                .device
+                .create_bind_group(&wgpu::BindGroupDescriptor {
+                    label: Some("zerium-frame-image"),
+                    layout: &self.shared.frame_bind_group_layout,
+                    entries: &[
+                        wgpu::BindGroupEntry {
+                            binding: 0,
+                            resource: wgpu::BindingResource::TextureView(&uploaded.view),
+                        },
+                        wgpu::BindGroupEntry {
+                            binding: 1,
+                            resource: wgpu::BindingResource::Sampler(&self.shared.sampler),
+                        },
                     ],
-                    composition_size: [
-                        plan.composition_size.width as f32,
-                        plan.composition_size.height as f32,
-                    ],
-                    surface_min: [
-                        -(plan.composition_size.width as f32) * 0.5,
-                        -(plan.composition_size.height as f32) * 0.5,
-                    ],
-                    surface_size: [
-                        plan.composition_size.width as f32,
-                        plan.composition_size.height as f32,
-                    ],
-                }),
-            );
-            let mut bind_entries = vec![
-                wgpu::BindGroupEntry {
-                    binding: 0,
-                    resource: item.as_entire_binding(),
-                },
-                wgpu::BindGroupEntry {
-                    binding: 1,
-                    resource: item_properties.as_entire_binding(),
-                },
-            ];
-            bind_entries.extend(uploaded_frames.iter().enumerate().map(|(index, uploaded)| {
-                wgpu::BindGroupEntry {
-                    binding: u32::try_from(index + 2).expect("texture binding index exceeds u32"),
-                    resource: wgpu::BindingResource::TextureView(&uploaded.view),
-                }
-            }));
-            let sampler_binding = u32::try_from(2 + input_count)
-                .map_err(|_| RenderError::backend("too many texture inputs"))?;
-            let binding = {
-                bind_entries.push(wgpu::BindGroupEntry {
-                    binding: sampler_binding,
-                    resource: wgpu::BindingResource::Sampler(&self.shared.sampler),
                 });
-                bind_entries.push(wgpu::BindGroupEntry {
-                    binding: sampler_binding + 1,
-                    resource: input_properties.as_entire_binding(),
-                });
-                self.shared
-                    .gpu
-                    .device
-                    .create_bind_group(&wgpu::BindGroupDescriptor {
-                        label: Some("zerium-texture-item-bind-group"),
-                        layout: &pipeline.bind_group_layout,
-                        entries: &bind_entries,
-                    })
-            };
-            resources.push(TextureResource {
-                input_count,
-                frame_target: scratch.frame_target,
-                uploaded_frames,
-                _input_properties: input_properties,
-                _item: item,
-                _item_properties: item_properties,
+            images.push(FrameImage {
+                target,
+                uploaded,
                 binding,
             });
         }
         cache.previous_scene = current_scene;
-        Ok(resources)
+        Ok(images)
     }
 
     pub(crate) fn prepare_video_frame(&self, frame: &VisualFrame) -> Result<(), RenderError> {

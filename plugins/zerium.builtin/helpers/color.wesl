@@ -32,15 +32,19 @@ fn rgb_to_hsl(encoded: vec3<f32>) -> vec3<f32> {
     let low = min(encoded.r, min(encoded.g, encoded.b));
     let chroma = high - low;
     let lightness = (high + low) * 0.5;
+
     if chroma <= 0.0 {
         return vec3(0.0, 0.0, lightness);
     }
+
     var hue = (encoded.g - encoded.b) / chroma;
+
     if high == encoded.g {
         hue = (encoded.b - encoded.r) / chroma + 2.0;
     } else if high == encoded.b {
         hue = (encoded.r - encoded.g) / chroma + 4.0;
     }
+
     let saturation = chroma / max(1.0 - abs(2.0 * lightness - 1.0), 0.0000001);
     return vec3(fract(hue / 6.0), saturation, lightness);
 }
@@ -50,6 +54,7 @@ fn hsl_to_rgb(hsl: vec3<f32>) -> vec3<f32> {
     let chroma = (1.0 - abs(2.0 * hsl.z - 1.0)) * hsl.y;
     let secondary = chroma * (1.0 - abs(hue - 2.0 * floor(hue * 0.5) - 1.0));
     var color = vec3(chroma, secondary, 0.0);
+
     if hue >= 5.0 {
         color = vec3(chroma, 0.0, secondary);
     } else if hue >= 4.0 {
@@ -61,5 +66,6 @@ fn hsl_to_rgb(hsl: vec3<f32>) -> vec3<f32> {
     } else if hue >= 1.0 {
         color = vec3(secondary, chroma, 0.0);
     }
+
     return color + vec3(hsl.z - chroma * 0.5);
 }

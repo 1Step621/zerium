@@ -1,11 +1,6 @@
-import package::generated::host::effect::{
-    ZeriumVertex,
-    position_to_uv,
-    sample_or_transparent,
-    uv_to_position,
-    vertex,
-};
-import package::generated::host::util::{DEG2RAD, rotate};
+import package::generated::host::render::{ZeriumVertex, vertex};
+import package::generated::host::effect::{uv_to_position, sample_input};
+import package::generated::support::util::{DEG2RAD, rotate};
 import package::generated::rotate_2d::props;
 
 @vertex
@@ -21,6 +16,6 @@ fn fragment_main(input: ZeriumVertex) -> @location(0) vec4<f32> {
     let relative_position = output_position - center;
     let angle = -properties.angle * DEG2RAD;
     let source_position = rotate(relative_position, angle) + center;
-    let source_uv = position_to_uv(source_position);
-    return sample_or_transparent(source_uv);
+    let source_uv = source_position;
+    return sample_input(source_uv);
 }

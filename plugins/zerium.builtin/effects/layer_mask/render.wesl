@@ -1,11 +1,7 @@
-import package::generated::host::effect::{
-    ZeriumVertex,
-    effect_input,
-    effect_sampler,
-    vertex,
-    viewport_uv,
-};
-import package::generated::layer_mask::{behind, capability_sampler, props};
+import package::generated::host::render::{ZeriumVertex, vertex};
+import package::generated::host::effect::{uv_to_position, sample_input};
+import package::generated::layer_mask::props;
+import package::generated::layer_mask::inputs::behind::sample;
 
 @vertex
 fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {
@@ -14,8 +10,8 @@ fn vertex_main(@builtin(vertex_index) vertex_index: u32) -> ZeriumVertex {
 
 @fragment
 fn fragment_main(input: ZeriumVertex) -> @location(0) vec4<f32> {
-    let layers = textureSample(behind, capability_sampler, viewport_uv(input.uv));
-    let alpha = textureSample(effect_input, effect_sampler, input.uv).a;
+    let layers = sample(uv_to_position(input.uv));
+    let alpha = sample_input(uv_to_position(input.uv)).a;
     let mask = select(alpha, 1.0 - alpha, props().invert_mask);
     return layers * mask;
 }
