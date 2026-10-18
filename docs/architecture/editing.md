@@ -87,8 +87,10 @@ state together.
 Item resizing follows two rules:
 
 - Trimming preserves keys within the new interval. A shrinking boundary adopts
-  each key it crosses without sampling interpolated values. Extending retains
-  the original endpoint and adds a new endpoint with the same value.
+  each key it crosses without sampling interpolated values. Extending moves
+  the endpoint to the new boundary if its value equals the neighboring key.
+  Otherwise, it retains the endpoint and adds a new endpoint with the same value.
+  Interior key positions remain unchanged.
 - Stretching uses integer rational arithmetic. Interior keys win collisions with
   endpoints; collisions between interior keys retain the later key and its
   outgoing interpolation.

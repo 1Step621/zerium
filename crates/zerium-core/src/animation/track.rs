@@ -336,8 +336,24 @@ impl ScalarTrack {
         let mut keys: Vec<_> = self
             .stops
             .iter()
-            .filter_map(|stop| {
-                let frame = i128::from(stop.frame.get());
+            .enumerate()
+            .filter_map(|(index, stop)| {
+                // Move constant endpoints; preserve transitions by adding a key instead.
+                let frame = match index {
+                    0 if Self::values_are_equal(&stop.value, &self.stops[1].value) => {
+                        i128::from(stop.frame.get()).min(start)
+                    }
+                    index
+                        if index == self.stops.len() - 1
+                            && Self::values_are_equal(
+                                &stop.value,
+                                &self.stops[index - 1].value,
+                            ) =>
+                    {
+                        i128::from(stop.frame.get()).max(end)
+                    }
+                    _ => i128::from(stop.frame.get()),
+                };
                 (frame >= start && frame <= end).then(|| (frame, stop.value.clone()))
             })
             .collect();

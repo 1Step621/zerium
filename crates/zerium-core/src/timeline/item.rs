@@ -465,7 +465,8 @@ impl TimelineItem {
     }
 
     /// Commit the interval. Trimming preserves retained key positions, adopts
-    /// crossed keys at the bounds, and adds constant endpoints when extending.
+    /// crossed keys at the bounds, and moves constant endpoints when extending.
+    /// Nonconstant endpoints are retained with a new constant endpoint added.
     /// Stretching rescales integer keys within the new span.
     pub(super) fn set_interval(&mut self, start: Frame, duration: FrameDuration, mode: ResizeMode) {
         let offset = i128::from(start.get()) - i128::from(self.start.get());
