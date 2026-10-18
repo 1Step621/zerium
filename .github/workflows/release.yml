@@ -10,7 +10,7 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  MACOSX_DEPLOYMENT_TARGET: "13.0"
+  MACOSX_DEPLOYMENT_TARGET: "15.0"
 
 concurrency:
   group: release

@@ -21,7 +21,7 @@ pub(crate) fn configure_bundle() {
     };
     #[cfg(target_os = "macos")]
     let (plugins, scanner) = (
-        directory.join("../Frameworks/gstreamer-1.0"),
+        directory.join("../PlugIns/gstreamer"),
         directory.join("gst-plugin-scanner"),
     );
     #[cfg(target_os = "windows")]
