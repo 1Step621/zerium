@@ -2,27 +2,28 @@
 set -euo pipefail
 
 app_dir="target/package/Zerium.app"
-plugin_dir="$app_dir/Contents/PlugIns/gstreamer"
+stage_dir="target/package/macos-staging"
+plugin_dir="$stage_dir/Contents/PlugIns/gstreamer"
 gst_root="${GSTREAMER_ROOT:-/Library/Frameworks/GStreamer.framework/Versions/1.0}"
 
 version="${ZERIUM_RELEASE_VERSION:?release version is required}"
 
-rm -rf "$app_dir"
-mkdir -p "$app_dir/Contents/MacOS" "$app_dir/Contents/Resources" \
-  "$app_dir/Contents/Frameworks" dist
-cp target/release/zerium "$app_dir/Contents/MacOS/zerium"
-cp LICENSE "$app_dir/Contents/Resources/LICENSE"
-cp assets/inter/OFL.txt "$app_dir/Contents/Resources/Inter-OFL.txt"
-cp assets/zerium.icns "$app_dir/Contents/Resources/zerium.icns"
-chmod +x "$app_dir/Contents/MacOS/zerium"
-bundle_version="${version%%[-+]*}"
-sed "s/__VERSION__/${bundle_version}/g" \
-  packaging/macos/Info.plist > "$app_dir/Contents/Info.plist"
+rm -rf "$app_dir" "$stage_dir"
+# Use a staging name different from zerium, without .app or Info.plist.
+# codesign treats a recognized bundle's main executable as the whole app, even
+# when given the executable's path. Relocate nested code before that seal.
+mkdir -p "$stage_dir/Contents/MacOS" "$stage_dir/Contents/Resources" \
+  "$stage_dir/Contents/Frameworks" dist
+cp target/release/zerium "$stage_dir/Contents/MacOS/zerium"
+cp LICENSE "$stage_dir/Contents/Resources/LICENSE"
+cp assets/inter/OFL.txt "$stage_dir/Contents/Resources/Inter-OFL.txt"
+cp assets/zerium.icns "$stage_dir/Contents/Resources/zerium.icns"
+chmod +x "$stage_dir/Contents/MacOS/zerium"
 # Avoid dots in nested code directory names: codesign treats them as bundles.
 mkdir -p "$plugin_dir"
 cp "$gst_root/lib/gstreamer-1.0/"*.dylib "$plugin_dir/"
 cp "$gst_root/libexec/gstreamer-1.0/gst-plugin-scanner" \
-  "$app_dir/Contents/MacOS/gst-plugin-scanner"
+  "$stage_dir/Contents/MacOS/gst-plugin-scanner"
 
 # Relocate all dependencies, including the SDK's framework-contained dylibs.
 # delocate uses @loader_path references instead of collapsing distinct rpaths
@@ -32,11 +33,17 @@ cp "$gst_root/libexec/gstreamer-1.0/gst-plugin-scanner" \
 DYLD_LIBRARY_PATH="$gst_root/lib" \
 target/tools/delocate/bin/delocate-path \
   --lib-path Contents/Frameworks \
-  --executable-path "$PWD/$app_dir/Contents/MacOS" \
-  "$app_dir"
+  --executable-path "$PWD/$stage_dir/Contents/MacOS" \
+  "$stage_dir"
 
-# Velopack signs the final bundle after adding UpdateMac and metadata.
+mv "$stage_dir" "$app_dir"
+bundle_version="${version%%[-+]*}"
+sed "s/__VERSION__/${bundle_version}/g" \
+  packaging/macos/Info.plist > "$app_dir/Contents/Info.plist"
+
+# Velopack recursively signs nested code and the final bundle after adding
+# UpdateMac and metadata.
 vpk pack --packId zerium --packTitle Zerium --packVersion "$version" \
   --packDir "$app_dir" --mainExe zerium --runtime osx-arm64 \
-  --signAppIdentity - --signDisableDeep \
+  --signAppIdentity - \
   --outputDir dist
