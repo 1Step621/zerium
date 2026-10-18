@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-use super::{PluginError, identifier::validate_wgsl_identifier};
+use super::{PluginError, validation::validate_wgsl_identifier};
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]

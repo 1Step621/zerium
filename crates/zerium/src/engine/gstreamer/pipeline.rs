@@ -76,42 +76,33 @@ impl SinkPipeline {
         preroll: bool,
         cancelled: Option<&AtomicBool>,
     ) -> Result<Option<gst::Sample>, MediaError> {
-        pull(&self.pipeline, &self.sink, preroll, cancelled)
-    }
-}
-
-fn pull(
-    pipeline: &gst::Pipeline,
-    sink: &AppSink,
-    preroll: bool,
-    cancelled: Option<&AtomicBool>,
-) -> Result<Option<gst::Sample>, MediaError> {
-    let deadline = Instant::now() + Duration::from_secs(30);
-    loop {
-        if cancelled.is_some_and(|cancelled| cancelled.load(Ordering::Relaxed)) {
-            return Err(MediaError::Cancelled);
-        }
-        let wait = gst::ClockTime::from_mseconds(10);
-        let sample = if preroll {
-            sink.try_pull_preroll(wait)
-        } else {
-            sink.try_pull_sample(wait)
-        };
-        if sample.is_some() {
-            return Ok(sample);
-        }
-        if let Some(bus) = pipeline.bus() {
-            while let Some(message) = bus.pop() {
-                if let gst::MessageView::Error(error) = message.view() {
-                    return Err(MediaError::external(error.error()));
+        let deadline = Instant::now() + Duration::from_secs(30);
+        loop {
+            if cancelled.is_some_and(|cancelled| cancelled.load(Ordering::Relaxed)) {
+                return Err(MediaError::Cancelled);
+            }
+            let wait = gst::ClockTime::from_mseconds(10);
+            let sample = if preroll {
+                self.sink.try_pull_preroll(wait)
+            } else {
+                self.sink.try_pull_sample(wait)
+            };
+            if sample.is_some() {
+                return Ok(sample);
+            }
+            if let Some(bus) = self.pipeline.bus() {
+                while let Some(message) = bus.pop() {
+                    if let gst::MessageView::Error(error) = message.view() {
+                        return Err(MediaError::external(error.error()));
+                    }
                 }
             }
-        }
-        if sink.is_eos() {
-            return Ok(None);
-        }
-        if Instant::now() >= deadline {
-            return Err(MediaError::external("Timed out waiting for a media sample"));
+            if self.sink.is_eos() {
+                return Ok(None);
+            }
+            if Instant::now() >= deadline {
+                return Err(MediaError::external("Timed out waiting for a media sample"));
+            }
         }
     }
 }

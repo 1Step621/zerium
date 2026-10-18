@@ -1,9 +1,25 @@
 use rust_i18n::t;
 
-use super::*;
+use ::ui::{
+    ThemeColor,
+    menu::{PopupMenu, PopupMenuItem},
+};
+use gpui::{
+    Context, Corner, DismissEvent, Entity, Focusable as _, Pixels, Window, anchored, deferred, div,
+    prelude::*, px,
+};
+
+use zerium_core::timeline::{Frame, ItemId, LayerId, SceneId, TimelineEditError};
+
+use crate::ui::{
+    TimelineEditorEntityExt as _,
+    search_picker::{SearchPicker, SearchPickerEntry},
+};
+
+use crate::ui::timeline::{Timeline, layer_scroll_base};
 
 impl Timeline {
-    pub(super) fn prepare_context_target(
+    fn prepare_context_target(
         &mut self,
         layer_index: usize,
         pointer_x: Pixels,
@@ -22,7 +38,7 @@ impl Timeline {
         }
     }
 
-    pub(super) fn context_target_at(
+    fn context_target_at(
         &self,
         layer: LayerId,
         pointer_x: Pixels,
@@ -50,11 +66,7 @@ impl Timeline {
         ContextTarget { layer, start, item }
     }
 
-    pub(super) fn layer_at_cursor(
-        &self,
-        position: gpui::Point<Pixels>,
-        cx: &Context<Self>,
-    ) -> LayerId {
+    fn layer_at_cursor(&self, position: gpui::Point<Pixels>, cx: &Context<Self>) -> LayerId {
         let scroll = layer_scroll_base(&self.layer_scroll);
         if scroll.bounds().contains(&position) {
             let content_y = f32::from(position.y - scroll.bounds().origin.y - scroll.offset().y);
@@ -67,10 +79,7 @@ impl Timeline {
         }
     }
 
-    pub(super) fn item_picker_entries(
-        &self,
-        cx: &Context<Self>,
-    ) -> Vec<SearchPickerEntry<ItemPickerTarget>> {
+    fn item_picker_entries(&self, cx: &Context<Self>) -> Vec<SearchPickerEntry<ItemPickerTarget>> {
         let mut entries = self
             .editor
             .read(cx)
@@ -115,7 +124,7 @@ impl Timeline {
         entries
     }
 
-    pub(super) fn open_item_picker(
+    pub(in crate::ui::timeline) fn open_item_picker(
         &mut self,
         position: gpui::Point<Pixels>,
         window: &mut Window,
@@ -165,7 +174,7 @@ impl Timeline {
         self.open_item_picker(position, window, cx);
     }
 
-    pub(super) fn open_context_menu(
+    pub(in crate::ui::timeline) fn open_context_menu(
         &mut self,
         layer_index: usize,
         pointer_x: Pixels,
@@ -289,7 +298,7 @@ impl Timeline {
         )
     }
 
-    pub(super) fn add_item_at(
+    fn add_item_at(
         &mut self,
         layer: LayerId,
         start: Frame,
@@ -306,7 +315,7 @@ impl Timeline {
         })
     }
 
-    pub(super) fn add_picker_item(&mut self, item: ItemPickerTarget, cx: &mut Context<Self>) {
+    fn add_picker_item(&mut self, item: ItemPickerTarget, cx: &mut Context<Self>) {
         let Some(target) = self.context_target else {
             return;
         };
@@ -343,4 +352,30 @@ impl Timeline {
             }
         }
     }
+}
+
+#[derive(Clone, Copy, Debug)]
+pub(in crate::ui::timeline) struct ContextTarget {
+    pub(in crate::ui::timeline) layer: LayerId,
+    pub(in crate::ui::timeline) start: Frame,
+    pub(in crate::ui::timeline) item: Option<ItemId>,
+}
+
+#[derive(Clone)]
+pub(in crate::ui::timeline) struct TimelineContextMenu {
+    pub(in crate::ui::timeline) content: TimelineContextMenuContent,
+    pub(in crate::ui::timeline) position: gpui::Point<Pixels>,
+}
+
+#[derive(Clone)]
+pub(in crate::ui::timeline) enum TimelineContextMenuContent {
+    Commands(Entity<PopupMenu>),
+    ItemPicker(Entity<SearchPicker<ItemPickerTarget>>),
+}
+
+#[derive(Clone)]
+pub(in crate::ui::timeline) enum ItemPickerTarget {
+    Plugin { plugin_id: String, item_id: String },
+    Scene(SceneId),
+    Paste,
 }

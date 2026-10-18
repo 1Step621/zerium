@@ -7,7 +7,6 @@ use serde::{Deserialize, Deserializer, de::Error as _};
 
 use super::ItemCategory;
 use super::OutputBoundsSchema;
-use super::PluginError;
 use super::abi::PropertyLayout;
 use super::capability::{
     AudioCapability, TextureInput, TimeMappingProperties, validate_texture_inputs,
@@ -15,6 +14,7 @@ use super::capability::{
 use super::editor::{EditorCapability, validate_editors};
 use super::shader::ShaderSchema;
 use super::validation::{validate_catalog_entry, validate_property_schemas};
+use super::{PlaybackBindings, PluginError};
 use crate::property::PropertySchema;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -28,6 +28,7 @@ pub struct ItemSchema {
     audio: Vec<AudioCapability>,
     editor: Vec<EditorCapability>,
     property_layout: PropertyLayout,
+    playback: PlaybackBindings,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -69,7 +70,7 @@ impl<'de> Deserialize<'de> for ItemSchema {
         let property_layout =
             PropertyLayout::compile("item", &definition.id, definition.properties)
                 .map_err(D::Error::custom)?;
-        let schema = Self {
+        let mut schema = Self {
             id: definition.id,
             label: definition.label,
             category: definition.category,
@@ -79,8 +80,11 @@ impl<'de> Deserialize<'de> for ItemSchema {
             audio: definition.audio,
             editor: definition.editor,
             property_layout,
+            playback: PlaybackBindings::default(),
         };
         schema.validate().map_err(D::Error::custom)?;
+        schema.playback =
+            PlaybackBindings::compile(schema.inputs(), schema.audio(), schema.timeline());
         Ok(schema)
     }
 }
@@ -118,6 +122,10 @@ impl ItemSchema {
 
     pub fn properties(&self) -> &[PropertySchema] {
         self.property_layout.properties()
+    }
+
+    pub fn playback(&self) -> &PlaybackBindings {
+        &self.playback
     }
 
     pub fn property_layout(&self) -> &PropertyLayout {

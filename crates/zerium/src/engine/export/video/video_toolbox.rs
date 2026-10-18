@@ -1,3 +1,5 @@
+use std::collections::VecDeque;
+
 use apple_cf::{
     cf::{CFDictionary, CFString},
     cm::CMTime,
@@ -12,15 +14,19 @@ use videotoolbox::{
     session::Codec,
 };
 
-use super::{EncodingError, EncodingSettings, VideoEncoderFrame};
+use super::{
+    Cancellation, ColorConversion, EncodingError, EncodingSettings, PendingFrame,
+    VideoEncoderFrame, wait_for_submission,
+};
+use crate::engine::rendering::{RenderScene, RenderSession};
 
-pub(super) struct Surface {
-    pub(super) pixel: CVPixelBuffer,
+struct Surface {
+    pixel: CVPixelBuffer,
     textures: Vec<wgpu::Texture>,
 }
 
 impl Surface {
-    pub(super) fn views(&self) -> Vec<wgpu::TextureView> {
+    fn views(&self) -> Vec<wgpu::TextureView> {
         self.textures
             .iter()
             .map(|texture| texture.create_view(&Default::default()))
@@ -32,6 +38,7 @@ pub(super) struct Encoder {
     session: CompressionSession,
     free: Vec<Surface>,
     settings: EncodingSettings,
+    pending: VecDeque<PendingFrame<Surface>>,
 }
 
 impl Encoder {
@@ -159,20 +166,51 @@ impl Encoder {
             session,
             free,
             settings,
+            pending: VecDeque::with_capacity(depth),
         }))
     }
 
-    pub(super) fn acquire(&mut self) -> Result<Surface, EncodingError> {
-        self.free
+    pub(super) fn submit(
+        &mut self,
+        index: u64,
+        renderer: &RenderSession,
+        conversion: &ColorConversion,
+        scene: &RenderScene,
+    ) -> Result<(), EncodingError> {
+        let surface = self
+            .free
             .pop()
-            .ok_or(EncodingError::Invalid("No free export surface"))
+            .ok_or(EncodingError::Invalid("No free export surface"))?;
+        let commands = conversion.render(renderer, scene, &surface.views())?;
+        let retained = surface.pixel.clone();
+        let queue = &renderer.gpu().queue;
+        let submission = queue.submit([commands.finish()]);
+        queue.on_submitted_work_done(move || drop(retained));
+        self.pending.push_back(PendingFrame {
+            index,
+            data: surface,
+            submission,
+        });
+        Ok(())
     }
 
-    pub(super) fn encode(
+    pub(super) fn pending_frames(&self) -> usize {
+        self.pending.len()
+    }
+
+    pub(super) fn finish_next(
         &mut self,
-        surface: Surface,
-        index: u64,
-    ) -> Result<VideoEncoderFrame, EncodingError> {
+        device: &wgpu::Device,
+        cancelled: Cancellation<'_>,
+    ) -> Result<Option<VideoEncoderFrame>, EncodingError> {
+        let Some(pending) = self.pending.pop_front() else {
+            return Ok(None);
+        };
+        wait_for_submission(device, pending.submission, cancelled)?;
+        self.encode(pending.data, pending.index).map(Some)
+    }
+
+    fn encode(&mut self, surface: Surface, index: u64) -> Result<VideoEncoderFrame, EncodingError> {
         let rate = self.settings.frame_rate;
         let value = index
             .checked_mul(u64::from(rate.denominator()))

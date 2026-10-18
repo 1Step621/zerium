@@ -25,6 +25,24 @@ impl AnimationEditTarget {
             Self::Segment(_) => Self::Segment(index),
         }
     }
+
+    fn times(
+        self,
+        item: &TimelineItem,
+        track: &ScalarTrack,
+    ) -> Option<(TimelineTime, TimelineTime)> {
+        let clock = item.animation_clock(track);
+        let frame = |index: usize| {
+            track
+                .stops()
+                .get(index)
+                .map(|stop| clock.key_time_at(stop.frame()))
+        };
+        match self {
+            AnimationEditTarget::Stop(index) => Some((frame(index)?, frame(index)?)),
+            AnimationEditTarget::Segment(index) => Some((frame(index)?, frame(index + 1)?)),
+        }
+    }
 }
 
 struct Target {
@@ -62,7 +80,7 @@ impl TimelineEditor {
     ) -> Option<AnimationEdit> {
         let source = self.item(address.item_id)?;
         let track = self.animation_track(address)?;
-        let times = Self::animation_target_times(source, track, part)?;
+        let times = part.times(source, track)?;
         let interpolation = match part {
             AnimationEditTarget::Stop(_) => None,
             AnimationEditTarget::Segment(index) => Some(*track.interpolations().get(index)?),
@@ -84,8 +102,8 @@ impl TimelineEditor {
                         scalar_index: path.scalar_index(),
                     };
                     if (!synchronize && candidate != *address)
-                        || candidate
-                            .schema(self)
+                        || self
+                            .property_schema(&candidate)
                             .is_none_or(|schema| !schema.is_editable(candidate.scalar_index))
                     {
                         continue;
@@ -99,8 +117,7 @@ impl TimelineEditor {
                         if !synchronize && index != part.index() {
                             continue;
                         }
-                        if Self::animation_target_times(item, track, part.with_index(index))?
-                            == times
+                        if part.with_index(index).times(item, track)? == times
                             && interpolation.is_none_or(|interpolation| {
                                 track.interpolations().get(index) == Some(&interpolation)
                             })
@@ -151,24 +168,6 @@ impl TimelineEditor {
         })
     }
 
-    fn animation_target_times(
-        item: &TimelineItem,
-        track: &ScalarTrack,
-        part: AnimationEditTarget,
-    ) -> Option<(TimelineTime, TimelineTime)> {
-        let clock = item.animation_clock(track);
-        let frame = |index: usize| {
-            track
-                .stops()
-                .get(index)
-                .map(|stop| clock.key_time_at(stop.frame()))
-        };
-        match part {
-            AnimationEditTarget::Stop(index) => Some((frame(index)?, frame(index)?)),
-            AnimationEditTarget::Segment(index) => Some((frame(index)?, frame(index + 1)?)),
-        }
-    }
-
     pub fn move_animation_stop(
         &mut self,
         edit: &mut AnimationEdit,
@@ -183,9 +182,7 @@ impl TimelineEditor {
         self.apply_animation_edit(edit, |item, index, track| {
             let frame = item.animation_clock(track).pattern_frame_at(time);
             let changed = track.move_stop(index, frame);
-            (changed
-                || Self::animation_target_times(item, track, AnimationEditTarget::Stop(index))?.0
-                    == time)
+            (changed || AnimationEditTarget::Stop(index).times(item, track)?.0 == time)
                 .then_some(changed)
         })
         .then_some(time)

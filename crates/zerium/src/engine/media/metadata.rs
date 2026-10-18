@@ -17,6 +17,22 @@ use zerium_core::{
 
 use super::{MediaError, MediaReaderRegistry};
 
+/// Filesystem observation belongs to the media runtime; FileRevision itself is
+/// a value shared with the project cache and persistence.
+pub(in crate::engine) fn read_file_revision(path: &Path) -> std::io::Result<FileRevision> {
+    let metadata = std::fs::metadata(path)?;
+    if !metadata.is_file() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Not a regular file",
+        ));
+    }
+    Ok(FileRevision {
+        size: metadata.len(),
+        modified: metadata.modified()?,
+    })
+}
+
 type Reading = (String, MediaTarget);
 type Readings = HashMap<PathBuf, FileReadings>;
 
@@ -132,7 +148,7 @@ pub(super) fn refresh_file(
     readers: &MediaReaderRegistry,
 ) -> (Option<ProbedFile>, Vec<MediaError>) {
     let previous = cache.file(path);
-    let revision = FileRevision::read(path);
+    let revision = read_file_revision(path);
     let observed = revision.as_ref().ok().copied();
     if sources.revision != observed {
         sources.revision = observed;
@@ -186,7 +202,7 @@ pub(super) fn refresh_file(
         }
     }
     let after = if probed {
-        FileRevision::read(path).ok()
+        read_file_revision(path).ok()
     } else {
         Some(revision)
     };

@@ -1,21 +1,16 @@
+mod composition;
 mod evaluation;
 mod geometry;
 mod graph;
 mod text;
 
 use crate::engine::frame::VisualFrame;
-use crate::engine::media::MediaFrameRequest;
 pub(crate) use evaluation::SceneEvaluator;
 pub(super) use geometry::{BoundsContext, BoundsOperation, RasterGrid, SurfaceRect};
-use graph::SceneGraphBuilder;
 use std::sync::Arc;
-use text::TextFrameRequest;
 use thiserror::Error;
-use zerium_core::plugin::{ComputeDispatchDimension, EffectPassSchema, ItemSchema, TextureInput};
-use zerium_core::timeline::{
-    BlendMode, EffectInstance, EffectInstanceId, ProjectResolution, TimelineItem, TimelineTime,
-    TimelineView,
-};
+use zerium_core::plugin::ComputeDispatchDimension;
+use zerium_core::timeline::{BlendMode, ProjectResolution};
 use zerium_shader::{EffectShaderId, ItemShaderId};
 
 pub(super) type SceneNodeId = usize;
@@ -47,19 +42,24 @@ impl From<ProjectResolution> for RenderSize {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RenderItem {
     pub shader: ItemShaderId,
-    pub inputs: Vec<SceneNodeId>,
+    pub inputs: Vec<RenderInput>,
     pub properties: Vec<u8>,
     pub effects: Vec<RenderEffect>,
     pub render_scale: u32,
-    pub output_bounds: BoundsOperation,
-    pub input_ids: Vec<String>,
+    pub output_bounds: Box<BoundsOperation>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RenderEffect {
     pub passes: Vec<RenderEffectPass>,
-    pub inputs: Vec<SceneNodeId>,
-    pub input_ids: Vec<String>,
+    pub inputs: Vec<RenderInput>,
+}
+
+/// A resolved texture input keeps its shader name and scene node together.
+#[derive(Clone, Debug, PartialEq)]
+pub(crate) struct RenderInput {
+    pub id: String,
+    pub node: SceneNodeId,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -74,7 +74,7 @@ pub(crate) struct RenderEffectPass {
     pub shader: EffectShaderId,
     pub properties: Vec<u8>,
     pub kind: RenderEffectPassKind,
-    pub output_bounds: BoundsOperation,
+    pub output_bounds: Box<BoundsOperation>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -140,65 +140,6 @@ pub(crate) struct RenderScene {
 }
 
 impl RenderScene {
-    /// The media capability declares its placement; the source decides how many
-    /// of the requested pixels it can produce.
-    pub(super) fn media_raster_size_for_input(
-        item: &TimelineItem,
-        effect_id: Option<EffectInstanceId>,
-        input_id: &str,
-        target_size: RenderSize,
-        composition_size: RenderSize,
-    ) -> RenderSize {
-        let (capabilities, properties) = match effect_id {
-            Some(effect_id) => {
-                let Some(effect) = item.effects.iter().find(|effect| effect.id == effect_id) else {
-                    return target_size;
-                };
-                (effect.schema().inputs(), &effect.properties)
-            }
-            None => {
-                let Some(schema) = item.schema() else {
-                    return target_size;
-                };
-                (schema.inputs(), &item.properties)
-            }
-        };
-        let Some(size_property) = capabilities
-            .iter()
-            .find(|capability| capability.id() == input_id)
-            .and_then(|capability| match capability {
-                TextureInput::Media {
-                    placement: Some(placement),
-                    ..
-                } => Some(placement.size.as_str()),
-                _ => None,
-            })
-        else {
-            return target_size;
-        };
-        let Some(size_value) = properties.property(size_property) else {
-            return target_size;
-        };
-        let displayed = [0, 1].map(|index| {
-            size_value
-                .scalar_at(Some(index))
-                .and_then(|value| value.numeric_scalar())
-                .unwrap_or(0.)
-        });
-        let dimension = |displayed: f64, target: u32, composition: u32| {
-            let needed = (displayed * f64::from(target) / f64::from(composition.max(1))).ceil();
-            if needed.is_finite() && needed > 0. {
-                target.max(needed.min(f64::from(ProjectResolution::MAX_DIMENSION)) as u32)
-            } else {
-                target
-            }
-        };
-        RenderSize {
-            width: dimension(displayed[0], target_size.width, composition_size.width),
-            height: dimension(displayed[1], target_size.height, composition_size.height),
-        }
-    }
-
     pub(super) fn render_items(&self) -> Vec<&RenderItem> {
         self.nodes
             .iter()
@@ -244,73 +185,6 @@ impl RenderScene {
             nodes,
             roots,
         })
-    }
-
-    fn from_timeline<E: From<RenderError>>(
-        timeline: &dyn TimelineView,
-        time: TimelineTime,
-        size: RenderSize,
-        media_frame: impl FnMut(MediaFrameRequest) -> Result<Option<Arc<VisualFrame>>, E>,
-        text_frame: impl FnMut(TextFrameRequest<'_>) -> Result<Arc<VisualFrame>, RenderError>,
-    ) -> Result<Self, E> {
-        SceneGraphBuilder::build(timeline, time, size, media_frame, text_frame)
-    }
-
-    pub(crate) fn render_effect(
-        effect: &EffectInstance,
-        temporal_samples: Vec<Option<Vec<RenderTemporalSample>>>,
-    ) -> RenderEffect {
-        let schema = effect.schema();
-        let properties = schema
-            .property_layout()
-            .pack("effect", schema.id(), &effect.properties)
-            .expect("timeline effect properties come from the validated schema");
-        let passes = schema
-            .render()
-            .passes
-            .iter()
-            .zip(temporal_samples)
-            .enumerate()
-            .map(|(pass_index, (pass, temporal_samples))| {
-                let pass_shader =
-                    EffectShaderId::plugin_pass(&effect.plugin_id, &effect.effect_id, pass_index);
-                let kind = match pass {
-                    EffectPassSchema::Render { .. } => RenderEffectPassKind::Render,
-                    EffectPassSchema::Compute { dispatch, .. } => {
-                        RenderEffectPassKind::Compute(*dispatch)
-                    }
-                    EffectPassSchema::Temporal { .. } => RenderEffectPassKind::Temporal(
-                        temporal_samples.expect("temporal passes have rendered samples"),
-                    ),
-                };
-                RenderEffectPass {
-                    shader: pass_shader,
-                    properties: properties.clone(),
-                    kind,
-                    output_bounds: BoundsOperation::from_schema(
-                        pass.bounds(),
-                        &effect.properties,
-                        pass.overrides(),
-                    ),
-                }
-            })
-            .collect();
-        RenderEffect {
-            passes,
-            inputs: Vec::new(),
-            input_ids: schema
-                .inputs()
-                .iter()
-                .map(|input| input.id().to_owned())
-                .collect(),
-        }
-    }
-
-    pub(super) fn pack_item_properties(item: &TimelineItem, schema: &ItemSchema) -> Vec<u8> {
-        schema
-            .property_layout()
-            .pack("item", schema.id(), &item.properties)
-            .expect("validated plugin properties must match their schema")
     }
 }
 

@@ -1,5 +1,4 @@
 use std::{
-    collections::VecDeque,
     sync::{
         Arc,
         atomic::{AtomicBool, Ordering},
@@ -28,25 +27,9 @@ enum Backend {
     VideoToolbox(video_toolbox::Encoder),
 }
 
-enum Target {
-    Readback,
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
-    GpuVideo(::gpu_video::EncodeTexture),
-    #[cfg(target_os = "macos")]
-    VideoToolbox(video_toolbox::Surface),
-}
-
-enum PendingData {
-    Readback(readback::PendingReadback),
-    #[cfg(any(target_os = "linux", target_os = "windows"))]
-    GpuVideo,
-    #[cfg(target_os = "macos")]
-    VideoToolbox(video_toolbox::Surface),
-}
-
-struct PendingFrame {
+struct PendingFrame<T> {
     index: u64,
-    data: PendingData,
+    data: T,
     submission: wgpu::SubmissionIndex,
 }
 
@@ -55,13 +38,16 @@ pub(crate) struct ExportVideoPipeline {
     renderer: RenderSession,
     size: RenderSize,
     backend: Backend,
+    conversion: ColorConversion,
+    depth: usize,
+}
+
+/// Shared rendering into the two NV12 planes supplied by a backend.
+struct ColorConversion {
     _source: wgpu::Texture,
     view: wgpu::TextureView,
-    cpu_planes: Vec<wgpu::Texture>,
     binding: wgpu::BindGroup,
-    pipelines: Vec<wgpu::RenderPipeline>,
-    pending: VecDeque<PendingFrame>,
-    depth: usize,
+    pipelines: [wgpu::RenderPipeline; 2],
 }
 
 impl ExportVideoPipeline {
@@ -100,7 +86,7 @@ impl ExportVideoPipeline {
         let (backend, encoding) = match native {
             Some(backend) => (backend, VideoEncoderInput::H264),
             None => {
-                let readback = readback::Nv12Readback::new(device, settings)?;
+                let readback = readback::Nv12Readback::new(device, settings, size)?;
                 let encoding = VideoEncoderInput::Nv12;
                 (Backend::Readback(readback), encoding)
             }
@@ -115,6 +101,102 @@ impl ExportVideoPipeline {
                 Backend::VideoToolbox(_) => "VideoToolbox",
             }
         );
+        let conversion = ColorConversion::new(device, size);
+        Ok((
+            Self {
+                failed: Arc::new(AtomicBool::new(false)),
+                renderer,
+                size,
+                backend,
+                conversion,
+                depth,
+            },
+            encoding,
+        ))
+    }
+
+    pub(crate) fn submit(
+        &mut self,
+        index: u64,
+        scene: &RenderScene,
+        cancelled: &AtomicBool,
+    ) -> Result<(), EncodingError> {
+        self.cancellation(cancelled).check()?;
+        if self.is_full() {
+            return Err(EncodingError::Invalid("Export frame pipeline is full"));
+        }
+        if scene.size != self.size {
+            return Err(EncodingError::Invalid("Export dimensions changed"));
+        }
+        match &mut self.backend {
+            Backend::Readback(readback) => {
+                readback.submit(index, &self.renderer, &self.conversion, scene)
+            }
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            Backend::GpuVideo(encoder) => {
+                encoder.submit(index, &self.renderer, &self.conversion, scene)
+            }
+            #[cfg(target_os = "macos")]
+            Backend::VideoToolbox(encoder) => {
+                encoder.submit(index, &self.renderer, &self.conversion, scene)
+            }
+        }
+    }
+
+    pub(crate) fn is_full(&self) -> bool {
+        let pending = match &self.backend {
+            Backend::Readback(readback) => readback.pending_frames(),
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            Backend::GpuVideo(encoder) => encoder.pending_frames(),
+            #[cfg(target_os = "macos")]
+            Backend::VideoToolbox(encoder) => encoder.pending_frames(),
+        };
+        pending >= self.depth
+    }
+
+    pub(crate) fn failure_signal(&self) -> Arc<AtomicBool> {
+        self.failed.clone()
+    }
+
+    fn cancellation<'a>(&'a self, requested: &'a AtomicBool) -> Cancellation<'a> {
+        Cancellation {
+            requested,
+            failed: &self.failed,
+        }
+    }
+
+    pub(crate) fn finish_next(
+        &mut self,
+        cancelled: &AtomicBool,
+    ) -> Result<Option<VideoEncoderFrame>, EncodingError> {
+        let cancelled = Cancellation {
+            requested: cancelled,
+            failed: &self.failed,
+        };
+        match &mut self.backend {
+            Backend::Readback(readback) => {
+                readback.finish_next(&self.renderer.gpu().device, cancelled)
+            }
+            #[cfg(any(target_os = "linux", target_os = "windows"))]
+            Backend::GpuVideo(encoder) => encoder.finish_next(cancelled),
+            #[cfg(target_os = "macos")]
+            Backend::VideoToolbox(encoder) => {
+                encoder.finish_next(&self.renderer.gpu().device, cancelled)
+            }
+        }
+    }
+
+    pub(crate) fn finish(&mut self) -> Result<(), EncodingError> {
+        #[cfg(any(target_os = "linux", target_os = "windows"))]
+        if let Backend::GpuVideo(encoder) = &mut self.backend {
+            encoder.flush()?;
+        }
+        Ok(())
+    }
+}
+
+impl ColorConversion {
+    fn new(device: &wgpu::Device, size: RenderSize) -> Self {
         let source = texture(
             device,
             size,
@@ -152,127 +234,59 @@ impl ExportVideoPipeline {
             label: Some("zerium-export-color"),
             source: wgpu::ShaderSource::Wgsl(include_str!("color.wgsl").into()),
         });
-        let pipelines = PLANE_FORMATS
-            .iter()
-            .enumerate()
-            .map(|(plane, format)| {
-                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                    label: Some("zerium-export-color"),
-                    layout: Some(&pipeline_layout),
-                    vertex: wgpu::VertexState {
-                        module: &shader,
-                        entry_point: Some("vertex"),
-                        compilation_options: Default::default(),
-                        buffers: &[],
-                    },
-                    fragment: Some(wgpu::FragmentState {
-                        module: &shader,
-                        entry_point: Some(if plane == 0 { "luma" } else { "chroma" }),
-                        compilation_options: Default::default(),
-                        targets: &[Some(wgpu::ColorTargetState {
-                            format: *format,
-                            blend: None,
-                            write_mask: wgpu::ColorWrites::ALL,
-                        })],
-                    }),
-                    primitive: Default::default(),
-                    depth_stencil: None,
-                    multisample: Default::default(),
-                    multiview_mask: None,
-                    cache: None,
-                })
+        let pipelines = std::array::from_fn(|plane| {
+            let format = PLANE_FORMATS[plane];
+            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                label: Some("zerium-export-color"),
+                layout: Some(&pipeline_layout),
+                vertex: wgpu::VertexState {
+                    module: &shader,
+                    entry_point: Some("vertex"),
+                    compilation_options: Default::default(),
+                    buffers: &[],
+                },
+                fragment: Some(wgpu::FragmentState {
+                    module: &shader,
+                    entry_point: Some(if plane == 0 { "luma" } else { "chroma" }),
+                    compilation_options: Default::default(),
+                    targets: &[Some(wgpu::ColorTargetState {
+                        format,
+                        blend: None,
+                        write_mask: wgpu::ColorWrites::ALL,
+                    })],
+                }),
+                primitive: Default::default(),
+                depth_stencil: None,
+                multisample: Default::default(),
+                multiview_mask: None,
+                cache: None,
             })
-            .collect();
-        let cpu_planes = if matches!(backend, Backend::Readback(_)) {
-            PLANE_FORMATS
-                .iter()
-                .enumerate()
-                .map(|(plane, format)| {
-                    let size = if plane == 0 {
-                        size
-                    } else {
-                        RenderSize {
-                            width: size.width / 2,
-                            height: size.height / 2,
-                        }
-                    };
-                    texture(
-                        device,
-                        size,
-                        *format,
-                        wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
-                    )
-                })
-                .collect()
-        } else {
-            Vec::new()
-        };
-        Ok((
-            Self {
-                failed: Arc::new(AtomicBool::new(false)),
-                renderer,
-                size,
-                backend,
-                _source: source,
-                view,
-                cpu_planes,
-                binding,
-                pipelines,
-                pending: VecDeque::with_capacity(depth),
-                depth,
-            },
-            encoding,
-        ))
+        });
+        Self {
+            _source: source,
+            view,
+            binding,
+            pipelines,
+        }
     }
 
-    pub(crate) fn submit(
-        &mut self,
-        index: u64,
+    fn render(
+        &self,
+        renderer: &RenderSession,
         scene: &RenderScene,
-        cancelled: &AtomicBool,
-    ) -> Result<(), EncodingError> {
-        self.cancellation(cancelled).check()?;
-        if self.is_full() {
-            return Err(EncodingError::Invalid("Export frame pipeline is full"));
-        }
-        if scene.size != self.size {
-            return Err(EncodingError::Invalid("Export dimensions changed"));
-        }
-        let target = match &mut self.backend {
-            Backend::Readback(_) => Target::Readback,
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
-            Backend::GpuVideo(encoder) => Target::GpuVideo(encoder.acquire()?),
-            #[cfg(target_os = "macos")]
-            Backend::VideoToolbox(encoder) => Target::VideoToolbox(encoder.acquire()?),
-        };
-        self.renderer
+        views: &[wgpu::TextureView],
+    ) -> Result<wgpu::CommandEncoder, EncodingError> {
+        renderer
             .submit_scene(scene, &self.view)
             .map_err(EncodingError::backend)?;
-        let gpu = self.renderer.gpu();
-        let device = &gpu.device;
-        let queue = &gpu.queue;
-        let mut encoder = device.create_command_encoder(&wgpu::CommandEncoderDescriptor {
-            label: Some("zerium-export-color"),
-        });
-        let views: Vec<_> = match &target {
-            Target::Readback => self
-                .cpu_planes
-                .iter()
-                .map(|texture| texture.create_view(&Default::default()))
-                .collect(),
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
-            Target::GpuVideo(target) => target
-                .texture()
-                .planes()
-                .iter()
-                .map(|plane| {
-                    plane.create_view_with_usage(None, Some(wgpu::TextureUsages::RENDER_ATTACHMENT))
-                })
-                .collect(),
-            #[cfg(target_os = "macos")]
-            Target::VideoToolbox(target) => target.views(),
-        };
-        for (pipeline, view) in self.pipelines.iter().zip(&views) {
+        let mut encoder =
+            renderer
+                .gpu()
+                .device
+                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
+                    label: Some("zerium-export-color"),
+                });
+        for (pipeline, view) in self.pipelines.iter().zip(views) {
             let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
                 label: Some("zerium-export-color"),
                 color_attachments: &[Some(wgpu::RenderPassColorAttachment {
@@ -293,110 +307,26 @@ impl ExportVideoPipeline {
             pass.set_bind_group(0, &self.binding, &[]);
             pass.draw(0..3, 0..1);
         }
-        let data = match (&mut self.backend, target) {
-            (Backend::Readback(readback), Target::Readback) => {
-                PendingData::Readback(readback.copy(device, &mut encoder, &self.cpu_planes))
-            }
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
-            (Backend::GpuVideo(native), Target::GpuVideo(target)) => {
-                let submission = queue.submit([encoder.finish()]);
-                native.submit(index, target)?;
-                self.pending.push_back(PendingFrame {
-                    index,
-                    data: PendingData::GpuVideo,
-                    submission,
-                });
-                return Ok(());
-            }
-            #[cfg(target_os = "macos")]
-            (Backend::VideoToolbox(_), Target::VideoToolbox(surface)) => {
-                let retained = surface.pixel.clone();
-                let submission = queue.submit([encoder.finish()]);
-                queue.on_submitted_work_done(move || drop(retained));
-                self.pending.push_back(PendingFrame {
-                    index,
-                    data: PendingData::VideoToolbox(surface),
-                    submission,
-                });
-                return Ok(());
-            }
-            _ => return Err(EncodingError::Invalid("Export backend changed")),
-        };
-        let submission = queue.submit([encoder.finish()]);
-        self.pending.push_back(PendingFrame {
-            index,
-            data,
-            submission,
-        });
-        Ok(())
+        Ok(encoder)
     }
+}
 
-    pub(crate) fn is_full(&self) -> bool {
-        self.pending.len() == self.depth
-    }
-    pub(crate) fn failure_signal(&self) -> Arc<AtomicBool> {
-        self.failed.clone()
-    }
-
-    fn cancellation<'a>(&'a self, requested: &'a AtomicBool) -> Cancellation<'a> {
-        Cancellation {
-            requested,
-            failed: &self.failed,
+fn wait_for_submission(
+    device: &wgpu::Device,
+    submission: wgpu::SubmissionIndex,
+    cancelled: Cancellation<'_>,
+) -> Result<(), EncodingError> {
+    let deadline = Instant::now() + WAIT_TIMEOUT;
+    loop {
+        cancelled.check()?;
+        match device.poll(wgpu::PollType::Wait {
+            submission_index: Some(submission.clone()),
+            timeout: Some(Duration::from_millis(10)),
+        }) {
+            Ok(_) => return Ok(()),
+            Err(wgpu::PollError::Timeout) if Instant::now() < deadline => {}
+            Err(error) => return Err(EncodingError::backend(error)),
         }
-    }
-
-    pub(crate) fn finish_next(
-        &mut self,
-        cancelled: &AtomicBool,
-    ) -> Result<Option<VideoEncoderFrame>, EncodingError> {
-        let Some(pending) = self.pending.pop_front() else {
-            return Ok(None);
-        };
-        #[cfg(any(target_os = "linux", target_os = "windows"))]
-        if let Backend::GpuVideo(encoder) = &mut self.backend {
-            return encoder
-                .receive(
-                    pending.index,
-                    Cancellation {
-                        requested: cancelled,
-                        failed: &self.failed,
-                    },
-                )
-                .map(Some);
-        }
-        let deadline = Instant::now() + WAIT_TIMEOUT;
-        loop {
-            self.cancellation(cancelled).check()?;
-            match self.renderer.gpu().device.poll(wgpu::PollType::Wait {
-                submission_index: Some(pending.submission.clone()),
-                timeout: Some(Duration::from_millis(10)),
-            }) {
-                Ok(_) => break,
-                Err(wgpu::PollError::Timeout) if Instant::now() < deadline => {}
-                Err(error) => return Err(EncodingError::backend(error)),
-            }
-        }
-        let frame = match (&mut self.backend, pending.data) {
-            (Backend::Readback(readback), PendingData::Readback(frame)) => VideoEncoderFrame {
-                index: pending.index,
-                data: readback.finish(frame)?,
-                keyframe: false,
-            },
-            #[cfg(target_os = "macos")]
-            (Backend::VideoToolbox(encoder), PendingData::VideoToolbox(surface)) => {
-                encoder.encode(surface, pending.index)?
-            }
-            _ => return Err(EncodingError::Invalid("Export backend changed")),
-        };
-        Ok(Some(frame))
-    }
-
-    pub(crate) fn finish(&mut self) -> Result<(), EncodingError> {
-        #[cfg(any(target_os = "linux", target_os = "windows"))]
-        if let Backend::GpuVideo(encoder) = &mut self.backend {
-            encoder.flush()?;
-        }
-        Ok(())
     }
 }
 

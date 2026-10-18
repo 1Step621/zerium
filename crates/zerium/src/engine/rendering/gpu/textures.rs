@@ -1,6 +1,6 @@
 //! Consumer-local input texture preparation and scratch resource reuse.
 use super::resources::RenderTarget;
-use super::video_upload::YuvUpload;
+use super::video_input::YuvUpload;
 use super::{INPUT_FRAME_FORMAT, RenderError, RenderSession};
 use crate::engine::frame::{FrameData, PixelPlane, VideoPixels, VisualFrame};
 use std::sync::Arc;

@@ -2,7 +2,9 @@
 
 use std::collections::HashMap;
 
-use super::plan::RenderNodeIdentity;
+use super::plan::{
+    RenderNodeCommand, RenderNodeCommandKind, RenderNodeIdentity, RenderSourceCommand,
+};
 use super::resources::NodeResources;
 use super::scene::{RasterGrid, RenderError, RenderSize, SurfaceRect};
 
@@ -19,17 +21,25 @@ pub(super) struct RenderedSurface {
 /// The raster is resolved once, before lookup, allocation, or uniform creation.
 #[derive(Clone, Copy)]
 pub(super) struct SurfaceRaster {
-    pub rect: SurfaceRect,
-    pub size: RenderSize,
-    pub grid: RasterGrid,
+    rect: SurfaceRect,
+    size: RenderSize,
+    grid: RasterGrid,
 }
 
 impl SurfaceRaster {
-    pub(super) fn new(
-        bounds: SurfaceRect,
-        grid: RasterGrid,
-        limit: u32,
-    ) -> Result<Self, RenderError> {
+    pub(super) fn rect(self) -> SurfaceRect {
+        self.rect
+    }
+
+    pub(super) fn size(self) -> RenderSize {
+        self.size
+    }
+
+    pub(super) fn grid(self) -> RasterGrid {
+        self.grid
+    }
+
+    fn new(bounds: SurfaceRect, grid: RasterGrid, limit: u32) -> Result<Self, RenderError> {
         let (rect, size) = bounds.pixel_aligned(grid).ok_or_else(|| {
             RenderError::resource_limit("render surface bounds cannot be rasterized")
         })?;
@@ -40,6 +50,68 @@ impl SurfaceRaster {
             )));
         }
         Ok(Self { rect, size, grid })
+    }
+}
+
+/// What a consumer needs, distinct from a node's complete logical image.
+#[derive(Clone, Copy)]
+pub(super) struct RenderRequest {
+    pub bounds: SurfaceRect,
+    pub grid: RasterGrid,
+}
+
+/// The only allocation decision accepted by surface encoding. Native frames
+/// retain their source raster; all other nodes carry a validated raster extent.
+#[derive(Clone, Copy)]
+pub(super) enum SurfaceOutput {
+    NativeFrame { index: usize },
+    Raster(SurfaceRaster),
+}
+
+impl SurfaceOutput {
+    pub(super) fn resolve(
+        node: &RenderNodeCommand,
+        request: RenderRequest,
+        limit: u32,
+    ) -> Result<Option<Self>, RenderError> {
+        if !request.bounds.is_valid() || !request.grid.is_valid() {
+            return Err(RenderError::resource_limit("invalid image request"));
+        }
+        let Some(visible_bounds) = node.bounds.intersection(request.bounds) else {
+            return Ok(None);
+        };
+        let bounds = match &node.kind {
+            RenderNodeCommandKind::Source(RenderSourceCommand::Frame { index }) => {
+                return Ok(Some(Self::NativeFrame { index: *index }));
+            }
+            // Shader nodes finish their complete logical image. Composition
+            // and view nodes select coverage for this consumer.
+            RenderNodeCommandKind::Source(RenderSourceCommand::Item { .. })
+            | RenderNodeCommandKind::Pass { .. } => node.bounds,
+            _ => visible_bounds,
+        };
+        Ok(Some(Self::Raster(SurfaceRaster::new(
+            bounds,
+            request.grid,
+            limit,
+        )?)))
+    }
+
+    pub(super) fn key(self, node: RenderNodeIdentity) -> SurfaceKey {
+        let raster = match self {
+            Self::NativeFrame { .. } => None,
+            Self::Raster(raster) => Some(RasterKey {
+                rect: [
+                    raster.rect.min[0].to_bits(),
+                    raster.rect.min[1].to_bits(),
+                    raster.rect.max[0].to_bits(),
+                    raster.rect.max[1].to_bits(),
+                ],
+                size: [raster.size.width, raster.size.height],
+                grid: raster.grid.key(),
+            }),
+        };
+        SurfaceKey { node, raster }
     }
 }
 
@@ -54,25 +126,6 @@ struct RasterKey {
 pub(super) struct SurfaceKey {
     node: RenderNodeIdentity,
     raster: Option<RasterKey>,
-}
-
-impl SurfaceKey {
-    pub(super) fn new(node: RenderNodeIdentity, raster: Option<SurfaceRaster>) -> Self {
-        Self {
-            node,
-            // Native conversion does not depend on the consumer's raster grid.
-            raster: raster.map(|raster| RasterKey {
-                rect: [
-                    raster.rect.min[0].to_bits(),
-                    raster.rect.min[1].to_bits(),
-                    raster.rect.max[0].to_bits(),
-                    raster.rect.max[1].to_bits(),
-                ],
-                size: [raster.size.width, raster.size.height],
-                grid: raster.grid.key(),
-            }),
-        }
-    }
 }
 
 struct CachedSurface {

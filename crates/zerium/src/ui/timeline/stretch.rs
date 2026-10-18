@@ -1,5 +1,16 @@
-use super::*;
+use rust_i18n::t;
+use std::{cell::RefCell, rc::Rc};
+
+use ::ui::ThemeColor;
+use gpui::{
+    Bounds, Context, CursorStyle, Empty, EntityId, Hsla, MouseButton, MouseMoveEvent, PathBuilder,
+    Render, Window, canvas, div, point, prelude::*, px, size,
+};
+
+use zerium_core::timeline::{EditGesture, SceneId};
+
 use crate::ui::operation_hints::{Hint, OperationHintExt as _};
+use crate::ui::timeline::Timeline;
 use gpui::fill;
 
 pub(super) const STRETCH_COLOR: Hsla = Hsla {

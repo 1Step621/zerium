@@ -22,7 +22,7 @@ use crate::{
         rendering::{RenderError, RenderRuntime, RenderSize, SceneEvaluator},
     },
     project_session::{ProjectSession, ProjectSessionId},
-    ui::{session::UiNotifications, transport::TransportController},
+    ui::{notifications::UiNotifications, transport::TransportController},
 };
 use zerium_core::timeline::{Frame, TimelineEditor};
 

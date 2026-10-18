@@ -14,12 +14,7 @@ impl Preview {
         cx: &Context<Self>,
     ) -> impl IntoElement {
         let preview = cx.entity();
-        let active = self.editor_drag.as_ref().map(|drag| {
-            drag.controls
-                .iter()
-                .map(|(control, _)| control.clone())
-                .collect()
-        });
+        let active = self.editor_drag.as_ref().map(|drag| drag.controls.clone());
         canvas(
             move |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
             move |bounds, hitbox, window, _| {

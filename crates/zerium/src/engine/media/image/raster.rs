@@ -11,7 +11,7 @@ use image::{
 };
 use zerium_core::media::{MediaAsset, MediaKind, MediaMetadata, MediaTarget};
 
-use super::super::reader::{ImageDecoder, MediaError, MediaReader, RasterSize, fit_dimensions};
+use super::super::reader::{ImageDecoder, MediaError, MediaReader, RasterSize};
 use crate::engine::frame::VisualFrame;
 
 pub(in crate::engine::media) const READER_ID: &str = "zerium.image";
@@ -79,13 +79,9 @@ impl ImageDecoder for RasterDecodeSession {
         if cancelled.load(Ordering::Relaxed) {
             return Err(MediaError::Cancelled);
         }
-        let (width, height) = fit_dimensions(
-            self.source_size.0,
-            self.source_size.1,
-            size.max_width,
-            size.max_height,
-        )
-        .ok_or_else(|| MediaError::invalid_input("Invalid image dimensions"))?;
+        let (width, height) = size
+            .fit(self.source_size)
+            .ok_or_else(|| MediaError::invalid_input("Invalid image dimensions"))?;
         if let Some(frame) = &self.cached
             && (frame.width, frame.height) == (width, height)
         {

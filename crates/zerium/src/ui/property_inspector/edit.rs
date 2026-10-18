@@ -150,13 +150,13 @@ impl PropertyInspector {
 
     fn animation_stop_value(&self, id: &ControlId, cx: &App) -> Option<PropertyValue> {
         let stop = self.store.tree.animation_stop(id)?;
-        let address = stop.edit.address();
+        let address = stop.plan.address();
         let editor = self.editor.read(cx);
         Some(
             editor
                 .animation_track(address)?
                 .stops()
-                .get(stop.edit.index())?
+                .get(stop.plan.index())?
                 .value()
                 .clone(),
         )
@@ -172,25 +172,22 @@ impl PropertyInspector {
             .store
             .tree
             .animation_stop(id)
-            .map(|stop| stop.edit.clone())
+            .map(|stop| stop.plan.clone())
         else {
             self.finish_animation_value_edit();
             return false;
         };
         let needs_begin = self.store.animation_value_edit.as_ref().is_none_or(|edit| {
-            !edit.same_value_scope(&stop) || !edit.is_current(self.editor.read(cx))
+            !edit.matches_animation(&stop) || !edit.is_current(self.editor.read(cx))
         });
         if needs_begin {
-            self.store.animation_value_edit = Some(stop);
+            self.store.animation_value_edit = self.editor.read(cx).begin_animation_value_edit(stop);
         }
-        let edit = self
-            .store
-            .animation_value_edit
-            .as_mut()
-            .expect("value gesture began");
-        self.editor.update_if_changed(cx, |editor| {
-            editor.continue_property_animation_stop(edit, value)
-        })
+        let Some(edit) = self.store.animation_value_edit.as_mut() else {
+            return false;
+        };
+        self.editor
+            .update_if_changed(cx, |editor| editor.update_value_edit(edit, &[value]))
     }
 
     pub(super) fn finish_animation_value_edit(&mut self) {

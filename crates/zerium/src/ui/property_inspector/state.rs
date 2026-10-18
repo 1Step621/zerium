@@ -23,7 +23,7 @@ pub(super) struct ControlStore {
     pub tree: ControlTree,
     pub source: Option<InspectorSource>,
     pub number_drag_origin: Option<Rc<PropertyValueDragOrigin>>,
-    pub animation_value_edit: Option<AnimationStopEdit>,
+    pub animation_value_edit: Option<ValueEdit>,
 }
 
 impl ControlStore {
@@ -121,7 +121,7 @@ impl PropertyInspector {
             |input, window, cx| {
                 subscribe_number_input(
                     input,
-                    NumericInput::new(spec.scalar_type.clone()).expect("numeric control type"),
+                    spec.number,
                     window,
                     cx,
                     move |this, input, edit, window, cx| match edit {
@@ -154,19 +154,19 @@ impl PropertyInspector {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if stop.edit.value.numeric_scalar().is_none() {
+        if stop.plan.value.numeric_scalar().is_none() {
             return;
         }
         let spec = control.spec.clone();
         let id = stop.id.clone();
         self.ensure_text(
             stop.id.clone(),
-            Self::numeric_value_text(&stop.edit.value),
+            Self::numeric_value_text(&stop.plan.value),
             false,
             |input, window, cx| {
                 subscribe_number_input(
                     input,
-                    NumericInput::new(spec.scalar_type.clone()).expect("numeric control type"),
+                    spec.number,
                     window,
                     cx,
                     move |this, input, edit, window, cx| match edit {
@@ -215,17 +215,15 @@ impl PropertyInspector {
 
     fn ensure_color_control(
         &mut self,
-        control: &crate::ui::property_inspector::control::LeafControl,
+        control: &crate::ui::property_inspector::control::ValueControl<[f32; 4]>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let color = match control.value {
-            PropertyValue::Color(color) => Self::color_to_hsla(color),
-            _ => gpui::Hsla::default(),
-        };
-        let target = control.target.clone();
+        let common = &control.common;
+        let color = Self::color_to_hsla(control.value);
+        let target = common.target.clone();
         self.ensure_color(
-            control.id.clone(),
+            common.id.clone(),
             color,
             |picker, window, cx| {
                 cx.subscribe_in(picker, window, move |this, _, event, _, cx| {
@@ -235,8 +233,8 @@ impl PropertyInspector {
             window,
             cx,
         );
-        for stop in &control.animation_stops {
-            let PropertyValue::Color(color) = stop.edit.value else {
+        for stop in &common.animation_stops {
+            let PropertyValue::Color(color) = stop.plan.value else {
                 continue;
             };
             let id = stop.id.clone();
@@ -261,33 +259,27 @@ impl PropertyInspector {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let unique = seen.insert(control.id().clone());
+        let unique = seen.insert(control.id());
         debug_assert!(unique, "duplicate control id");
         if let Some(common) = control.common() {
             seen.extend(common.animation_stops.iter().map(|stop| stop.id.clone()));
         }
+        for child in control.children() {
+            self.ensure_control_states(child, seen, window, cx);
+        }
         match control {
-            Control::File(_) => {}
-            Control::Group { children, .. } => {
-                for child in children {
-                    self.ensure_control_states(child, seen, window, cx);
-                }
-            }
             Control::Number(number) => {
-                let text = Self::numeric_value_text(&number.common.value);
+                let text = number.spec.number.format(number.value);
                 self.ensure_number_text(number, text, window, cx);
             }
-            Control::Text(text_control) => {
-                let text = match &text_control.common.value {
-                    PropertyValue::String(value) => value.clone(),
-                    _ => String::new(),
-                };
-                self.ensure_text_control(text_control, text, window, cx);
-            }
-            Control::Color(color) => {
-                self.ensure_color_control(color, window, cx);
-            }
-            Control::Bool(_) | Control::Choice(_) => {}
+            Control::Text(text) => self.ensure_text_control(text, text.value.clone(), window, cx),
+            Control::Color(color) => self.ensure_color_control(color, window, cx),
+            Control::File(_)
+            | Control::Bool(_)
+            | Control::Choice(_)
+            | Control::Tuple(_)
+            | Control::Array(_)
+            | Control::Effect(_) => {}
         }
     }
 
@@ -299,41 +291,6 @@ impl PropertyInspector {
         }
         self.store.text_inputs.retain(|id, _| seen.contains(id));
         self.store.color_pickers.retain(|id, _| seen.contains(id));
-    }
-
-    fn resolved_control_tree(
-        editor: &TimelineEditor,
-        item: &TimelineItem,
-        scene_arguments: &[SceneArgumentOption],
-    ) -> ControlTree {
-        let resolution = control::ControlResolution {
-            editor,
-            item,
-            playhead: zerium_core::timeline::TimelineTime::from_frame(editor.playhead()),
-            editing_scene: editor.active_scene_id().is_some(),
-            arguments: scene_arguments,
-        };
-        let item_controls = Self::property_controls(None, &resolution);
-        let effect_groups: Vec<Control> = item
-            .effects
-            .iter()
-            .map(|effect| {
-                let controls = Self::property_controls(Some(effect.id), &resolution);
-                Control::Group {
-                    id: ControlId::EffectGroup(effect.id),
-                    label: effect.schema().label().to_owned(),
-                    children: controls,
-                    kind: control::GroupKind::Effect(control::EffectGroup {
-                        id: effect.id,
-                        label: effect.schema().label().to_owned(),
-                        hidden: editor.is_effect_hidden(effect.id),
-                    }),
-                }
-            })
-            .collect();
-
-        let roots = item_controls.into_iter().chain(effect_groups).collect();
-        ControlTree { roots }
     }
 
     pub(super) fn reset_input_state(&mut self) {
@@ -371,12 +328,11 @@ impl PropertyInspector {
             self.reset_input_state();
             self.store.source = source;
         }
-        let scene_arguments = self.active_scene_argument_options(&*cx);
         self.store.tree = selected_item
             .as_ref()
             .map(|item| {
                 let editor = self.editor.read(cx);
-                Self::resolved_control_tree(editor, item, &scene_arguments)
+                ControlTree::resolve(editor, item)
             })
             .unwrap_or_default();
         if selected_item.is_some() {

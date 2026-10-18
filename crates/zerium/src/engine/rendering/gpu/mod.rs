@@ -3,7 +3,6 @@
 mod bindings;
 mod builder;
 mod commands;
-mod conversion;
 mod passes;
 mod pipelines;
 mod plan;
@@ -11,8 +10,7 @@ mod resources;
 mod shaders;
 mod surfaces;
 mod textures;
-mod video_planes;
-mod video_upload;
+mod video_input;
 
 use super::RenderError;
 use super::scene;
@@ -22,12 +20,11 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use conversion::YuvConversionPipeline;
 use pipelines::{ComputePipeline, RasterPipeline};
 use plan::NodeIdentityCache;
 use resources::{FrameResources, NodeResources};
 use textures::TextureResources;
-use video_planes::VideoPlanePipeline;
+use video_input::{VideoPlanePipeline, YuvUploadPipeline};
 use zerium_shader::{EffectShaderId, ItemShaderId};
 
 /// All blending and effects operate in scene-linear light with enough headroom
@@ -64,7 +61,7 @@ pub(crate) struct RenderDevice {
     frame_pipeline: wgpu::RenderPipeline,
     frame_bind_group_layout: wgpu::BindGroupLayout,
     sampler: wgpu::Sampler,
-    yuv_upload: video_upload::YuvUploadPipeline,
+    yuv_upload: YuvUploadPipeline,
     video_planes: VideoPlanePipeline,
 }
 

@@ -1,18 +1,23 @@
+use super::composition::SceneCompositionPlan;
 use super::geometry::BoundsOperation;
 use super::text::TextFrameRequest;
 use super::text::TextSourceId;
-use super::{RenderEffect, RenderItem, RenderNodeContent, RenderTemporalSample, RenderView};
+use super::{
+    RenderEffect, RenderEffectPass, RenderEffectPassKind, RenderInput, RenderItem,
+    RenderNodeContent, RenderTemporalSample,
+};
 use super::{RenderError, RenderNode, RenderScene, RenderSize, SceneNodeId};
 use crate::engine::frame::VisualFrame;
 use crate::engine::media::{MediaFrameRequest, MediaInputId, RasterSize};
 use std::{collections::HashMap, sync::Arc};
 use zerium_core::plugin::{EffectPassSchema, TextureInput};
 use zerium_core::timeline::{
-    BlendMode, EffectInstance, EffectInstanceId, LayerId, RenderResultSettings, TimelineItem,
-    TimelineItemKind,
+    BlendMode, EffectInstance, EffectInstanceId, TimelineItem, TimelineItemKind,
 };
-use zerium_core::timeline::{EvaluatedSceneNode, ItemId, TimelineTime, TimelineView};
-use zerium_shader::ItemShaderId;
+use zerium_core::timeline::{
+    EvaluatedSceneNode, ItemId, ProjectResolution, TimelineTime, TimelineView,
+};
+use zerium_shader::{EffectShaderId, ItemShaderId};
 
 const MAX_TEMPORAL_DEPTH: usize = 4;
 const MAX_TEMPORAL_RENDER_NODES: usize = 4_096;
@@ -26,88 +31,6 @@ struct RenderCacheKey {
     effect_count: usize,
     time_bits: u64,
     temporal_depth: usize,
-}
-
-struct SceneCapturePlan {
-    source_layer: LayerId,
-    range: RenderResultSettings,
-    nodes: Vec<usize>,
-}
-
-/// Resolves which nodes appear normally and in each render_result input for one scene scope.
-struct SceneCompositionPlan {
-    nodes: Vec<EvaluatedSceneNode>,
-    normal_nodes: Vec<usize>,
-    captures: Vec<SceneCapturePlan>,
-}
-
-impl SceneCompositionPlan {
-    fn new(nodes: Vec<EvaluatedSceneNode>) -> Self {
-        let ranges = nodes
-            .iter()
-            .flat_map(|node| {
-                node.item
-                    .render_result_ranges()
-                    .map(|range| (node.local_layer, range))
-            })
-            .collect::<Vec<_>>();
-        let normal_nodes = nodes
-            .iter()
-            .enumerate()
-            .filter(|(_, node)| {
-                !ranges.iter().any(|(source, range)| {
-                    range.hide_original && range.includes(*source, node.local_layer)
-                })
-            })
-            .map(|(index, _)| index)
-            .collect();
-        let captures = ranges
-            .iter()
-            .map(|&(source_layer, range)| {
-                let captured = nodes
-                    .iter()
-                    .enumerate()
-                    .filter(|(_, node)| {
-                        range.includes(source_layer, node.local_layer)
-                            && !ranges.iter().any(|(nested_layer, nested_range)| {
-                                *nested_layer != node.local_layer
-                                    && range.includes(source_layer, *nested_layer)
-                                    && nested_range.hide_original
-                                    && nested_range.includes(*nested_layer, node.local_layer)
-                            })
-                    })
-                    .map(|(index, _)| index)
-                    .collect();
-                SceneCapturePlan {
-                    source_layer,
-                    range,
-                    nodes: captured,
-                }
-            })
-            .collect();
-
-        Self {
-            nodes,
-            normal_nodes,
-            captures,
-        }
-    }
-
-    fn normal_nodes(&self) -> impl Iterator<Item = &EvaluatedSceneNode> + '_ {
-        self.normal_nodes.iter().map(|&index| &self.nodes[index])
-    }
-
-    fn captured_nodes(
-        &self,
-        source_layer: LayerId,
-        range: RenderResultSettings,
-    ) -> impl Iterator<Item = &EvaluatedSceneNode> + '_ {
-        self.captures
-            .iter()
-            .find(|capture| capture.source_layer == source_layer && capture.range == range)
-            .into_iter()
-            .flat_map(|capture| capture.nodes.iter().map(|&index| &self.nodes[index]))
-    }
 }
 
 /// An item's or effect's texture inputs and their shared property values.
@@ -139,6 +62,44 @@ impl<'a> InputSource<'a> {
             inputs: schema.inputs(),
             properties: &effect.properties,
             label: schema.label(),
+        }
+    }
+
+    /// The media capability declares its placement; the source decides how many
+    /// of the requested pixels it can produce.
+    fn media_raster_size(
+        &self,
+        input: &TextureInput,
+        target_size: RenderSize,
+        composition_size: RenderSize,
+    ) -> RenderSize {
+        let TextureInput::Media {
+            placement: Some(placement),
+            ..
+        } = input
+        else {
+            return target_size;
+        };
+        let Some(size_value) = self.properties.property(&placement.size) else {
+            return target_size;
+        };
+        let displayed = [0, 1].map(|index| {
+            size_value
+                .scalar_at(Some(index))
+                .and_then(|value| value.numeric_scalar())
+                .unwrap_or(0.)
+        });
+        let dimension = |displayed: f64, target: u32, composition: u32| {
+            let needed = (displayed * f64::from(target) / f64::from(composition.max(1))).ceil();
+            if needed.is_finite() && needed > 0. {
+                target.max(needed.min(f64::from(ProjectResolution::MAX_DIMENSION)) as u32)
+            } else {
+                target
+            }
+        };
+        RenderSize {
+            width: dimension(displayed[0], target_size.width, composition_size.width),
+            height: dimension(displayed[1], target_size.height, composition_size.height),
         }
     }
 }
@@ -292,7 +253,10 @@ where
                 RenderNodeContent::Item(RenderItem {
                     shader: ItemShaderId::plugin_item(plugin_id, item_id),
                     inputs,
-                    properties: RenderScene::pack_item_properties(item, schema),
+                    properties: schema
+                        .property_layout()
+                        .pack("item", schema.id(), &item.properties)
+                        .expect("validated plugin properties must match their schema"),
                     effects: Vec::new(),
                     render_scale,
                     output_bounds: BoundsOperation::from_schema(
@@ -300,11 +264,6 @@ where
                         &item.properties,
                         &Default::default(),
                     ),
-                    input_ids: schema
-                        .inputs()
-                        .iter()
-                        .map(|input| input.id().to_owned())
-                        .collect(),
                 })
             }
 
@@ -346,24 +305,34 @@ where
     }
 
     fn content_scale(&self, content: &RenderNodeContent) -> u32 {
-        let (scale, inputs, effects): (u32, &[SceneNodeId], &[RenderEffect]) = match content {
-            RenderNodeContent::Item(item) => {
-                (item.render_scale, &item.inputs, item.effects.as_slice())
-            }
+        let scale_for = |id: SceneNodeId| self.nodes[id].render_scale;
+        let (scale, effects): (u32, &[RenderEffect]) = match content {
+            RenderNodeContent::Item(item) => (
+                item.inputs
+                    .iter()
+                    .map(|input| scale_for(input.node))
+                    .fold(item.render_scale, u32::max),
+                &item.effects,
+            ),
             RenderNodeContent::Scene {
                 children,
                 effects,
                 render_scale,
-                ..
-            } => (*render_scale, children, effects.as_slice()),
+            } => (
+                children
+                    .iter()
+                    .copied()
+                    .map(scale_for)
+                    .fold(*render_scale, u32::max),
+                effects,
+            ),
             RenderNodeContent::Frame(_) => return 1,
-            RenderNodeContent::View { input, .. } => (1, std::slice::from_ref(input), &[]),
+            RenderNodeContent::View { input, .. } => return scale_for(*input).max(1),
         };
-
-        inputs
+        effects
             .iter()
-            .chain(effects.iter().flat_map(|effect| &effect.inputs))
-            .map(|id| self.nodes[*id].render_scale)
+            .flat_map(|effect| &effect.inputs)
+            .map(|input| scale_for(input.node))
             .fold(scale, u32::max)
     }
 
@@ -389,21 +358,47 @@ where
     ) -> Result<Vec<RenderEffect>, E> {
         let mut effects = Vec::with_capacity(count);
         for (effect_index, instance) in node.item.effects.iter().take(count).enumerate() {
-            let mut samples = Vec::new();
-            for pass in &instance.schema().render().passes {
-                samples.push(match pass {
-                    EffectPassSchema::Temporal { sampling, .. } => sampling
-                        .sample_offsets(&instance.properties)
-                        .map(|offsets| {
-                            self.temporal_samples(&node.path, effect_index, time, offsets, depth)
-                        })
-                        .transpose()?,
-                    _ => None,
+            let schema = instance.schema();
+            let properties = schema
+                .property_layout()
+                .pack("effect", schema.id(), &instance.properties)
+                .expect("validated effect properties must match their schema");
+            let mut passes = Vec::with_capacity(schema.render().passes.len());
+            for (pass_index, pass) in schema.render().passes.iter().enumerate() {
+                let kind = match pass {
+                    EffectPassSchema::Render { .. } => RenderEffectPassKind::Render,
+                    EffectPassSchema::Compute { dispatch, .. } => {
+                        RenderEffectPassKind::Compute(*dispatch)
+                    }
+                    EffectPassSchema::Temporal { sampling, .. } => {
+                        let offsets = sampling
+                            .sample_offsets(&instance.properties)
+                            .expect("validated temporal sampling properties");
+                        RenderEffectPassKind::Temporal(self.temporal_samples(
+                            &node.path,
+                            effect_index,
+                            time,
+                            offsets,
+                            depth,
+                        )?)
+                    }
+                };
+                passes.push(RenderEffectPass {
+                    shader: EffectShaderId::plugin_pass(
+                        &instance.plugin_id,
+                        &instance.effect_id,
+                        pass_index,
+                    ),
+                    properties: properties.clone(),
+                    kind,
+                    output_bounds: BoundsOperation::from_schema(
+                        pass.bounds(),
+                        &instance.properties,
+                        pass.overrides(),
+                    ),
                 });
             }
-
-            let mut effect = RenderScene::render_effect(instance, samples);
-            effect.inputs = self.render_inputs(
+            let inputs = self.render_inputs(
                 InputSource::effect(node.item.id, instance),
                 node,
                 composition,
@@ -411,7 +406,7 @@ where
                 self.scaled_size(scale)?,
                 depth,
             )?;
-            effects.push(effect);
+            effects.push(RenderEffect { passes, inputs });
         }
 
         Ok(effects)
@@ -460,7 +455,7 @@ where
         time: TimelineTime,
         target_size: RenderSize,
         depth: usize,
-    ) -> Result<Vec<SceneNodeId>, E> {
+    ) -> Result<Vec<RenderInput>, E> {
         let mut inputs = Vec::with_capacity(source.inputs.len());
         for (index, capability) in source.inputs.iter().enumerate() {
             let input = match capability {
@@ -480,10 +475,8 @@ where
                                 effect_id: source.effect_id,
                                 input_id: capability.id().to_owned(),
                             };
-                            let size = RenderScene::media_raster_size_for_input(
-                                &node.item,
-                                source.effect_id,
-                                capability.id(),
+                            let size = source.media_raster_size(
+                                capability,
                                 target_size,
                                 RenderSize::from(self.timeline.resolution()),
                             );
@@ -524,45 +517,16 @@ where
                     self.frame_node(frame)
                 }
 
-                TextureInput::RenderResult {
-                    start_offset,
-                    end_offset,
-                    hide_original,
-                    view,
-                    ..
-                } => {
-                    let settings = RenderResultSettings::from_properties(
-                        source.properties,
-                        start_offset,
-                        end_offset,
-                        hide_original,
-                    )
-                    .expect("render_result properties come from validated schemas");
+                TextureInput::RenderResult { .. } => {
+                    let capture =
+                        composition.capture(source.item_id, source.effect_id, capability.id());
                     let mut children = Vec::new();
-                    for candidate in composition.captured_nodes(node.local_layer, settings) {
+                    for candidate in composition.captured_nodes(capture) {
                         if let Some(child) = self.render_node(&candidate.path, None, time, depth)? {
                             children.push(child);
                         }
                     }
-
-                    let view = view.as_ref().map(|view| {
-                        let value = |id: &str, index| {
-                            source
-                                .properties
-                                .property(id)
-                                .and_then(|value| value.scalar_at(index))
-                                .and_then(|value| value.as_f32())
-                                .expect("validated capture view property")
-                        };
-                        RenderView {
-                            position: [
-                                value(&view.position, Some(0)),
-                                value(&view.position, Some(1)),
-                            ],
-                            zoom: value(&view.zoom, None) / 100.,
-                            angle: value(&view.angle, None),
-                        }
-                    });
+                    let view = capture.view;
                     let input = self.push_node(
                         RenderNodeContent::Scene {
                             children,
@@ -576,7 +540,10 @@ where
                     })
                 }
             };
-            inputs.push(input);
+            inputs.push(RenderInput {
+                id: capability.id().to_owned(),
+                node: input,
+            });
         }
 
         Ok(inputs)

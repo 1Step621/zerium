@@ -1,13 +1,13 @@
 //! Property transactions, media initialization, and effect edits.
 
-use std::{collections::HashSet, sync::Arc};
+use std::sync::Arc;
 
 use crate::animation::ScalarAnimations;
 use crate::media::ImportedFile;
 use crate::plugin::EffectSchema;
-use crate::property::{PropertySchema, PropertyValue, PropertyValues};
+use crate::property::{PropertyValue, PropertyValues};
 use crate::timeline::item::{EffectInstance, set_size_values, size_values};
-use crate::timeline::{AspectRatio, EffectInstanceId, ItemId, TimeMapping, TimelineEditError};
+use crate::timeline::{AspectRatio, EffectInstanceId, ItemId, TimeMapping};
 
 use super::{ResizeMode, TimelineDocument};
 
@@ -90,59 +90,6 @@ impl TimelineDocument {
         #[cfg(debug_assertions)]
         self.assert_consistent();
         true
-    }
-
-    /// Validate the edited item's playback and placement before committing it.
-    pub(in crate::timeline) fn set_property(
-        &mut self,
-        id: ItemId,
-        effect_id: Option<EffectInstanceId>,
-        property: &PropertySchema,
-        value: Option<PropertyValue>,
-    ) -> Result<bool, TimelineEditError> {
-        let original = self
-            .items
-            .get(&id)
-            .ok_or(TimelineEditError::ItemNotFound(id))?;
-        let mut item = original.as_ref().clone();
-        if let Some(value) = value {
-            let (properties, animations) = match effect_id {
-                Some(id) => {
-                    let effect = item.effect_mut(id).expect("prepared effect must exist");
-                    (&mut effect.properties, &mut effect.animations)
-                }
-                None => (&mut item.properties, &mut item.animations),
-            };
-            if properties
-                .set(property, value)
-                .expect("prepared value must satisfy its schema")
-            {
-                animations
-                    .retain_valid_for_property(property.id(), properties.property(property.id()));
-            }
-        } else {
-            item.properties.remove(property.id());
-        }
-        item.synchronize_timeline(original.timeline_mapping(), self.frame_rate)?;
-        item.validate_playback()?;
-        item.start
-            .get()
-            .checked_add(item.duration.get())
-            .ok_or(TimelineEditError::PlacementUnavailable)?;
-        let layer = self.item_layers[&id];
-        if self.overlaps_on_layer_excluding(
-            layer,
-            item.start,
-            item.end_exclusive(),
-            &HashSet::from([id]),
-        ) {
-            return Err(TimelineEditError::PlacementUnavailable);
-        }
-        if original.as_ref() == &item {
-            return Ok(false);
-        }
-        self.items.insert(id, Arc::new(item));
-        Ok(true)
     }
 
     pub(in crate::timeline) fn set_item_aspect_ratio(

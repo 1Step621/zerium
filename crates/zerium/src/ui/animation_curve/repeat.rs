@@ -9,7 +9,6 @@ use crate::ui::{
 use ::ui::input::{InputState, NumberInput, NumberInputEvent, StepAction};
 use gpui::{Div, DragMoveEvent, MouseDownEvent, Stateful};
 use rust_i18n::t;
-use zerium_core::property::ScalarPropertyType;
 
 #[derive(Clone, Copy)]
 pub(super) enum RepeatParameter {
@@ -135,9 +134,7 @@ impl AnimationCurveEditor {
             let address = selected.address.clone();
             let subscriptions = subscribe_number_input(
                 &input,
-                NumericInput {
-                    scalar: ScalarPropertyType::F32,
-                },
+                NumericInput::F32,
                 window,
                 cx,
                 move |this, input, edit, window, cx| match edit {

@@ -38,7 +38,7 @@ pub(crate) struct Workspace {
     pub(crate) animation_curve: gpui::Entity<crate::ui::animation_curve::AnimationCurveEditor>,
     pub(crate) project_controller: gpui::Entity<crate::app::project_controller::ProjectController>,
     pub(crate) export_controller: gpui::Entity<crate::ui::export::ExportController>,
-    pub(crate) notifications: gpui::Entity<crate::ui::session::UiNotifications>,
+    pub(crate) notifications: gpui::Entity<crate::ui::notifications::UiNotifications>,
     pub(crate) forwarded_notifications: u64,
     pub(crate) focus_handle: FocusHandle,
     pub(crate) operation_hints: gpui::Entity<super::operation_hints::OperationHintBar>,

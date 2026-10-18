@@ -1,7 +1,7 @@
 use rust_i18n::t;
 use zerium_core::timeline::BlendMode;
 
-use super::control::{Control, EffectGroup, GroupKind};
+use super::control::{Control, EffectControl};
 use super::rows::RenderCtx;
 use super::*;
 
@@ -88,37 +88,6 @@ impl PropertyInspector {
         }
     }
 
-    pub(super) fn active_scene_argument_options(
-        &self,
-        cx: &Context<Self>,
-    ) -> Vec<SceneArgumentOption> {
-        let editor = self.editor.read(cx);
-        let Some(scene_id) = editor.active_scene_id() else {
-            return Vec::new();
-        };
-        let Some(scene) = editor.scene(scene_id) else {
-            return Vec::new();
-        };
-
-        scene
-            .arguments
-            .iter()
-            .map(|argument| {
-                let label = if argument.schema.label().is_empty() {
-                    argument.schema.id().to_owned()
-                } else {
-                    argument.schema.label().to_owned()
-                };
-                SceneArgumentOption {
-                    id: argument.schema.id().to_owned(),
-                    label,
-                    schema: argument.schema.clone(),
-                    bindings: argument.bindings.clone(),
-                }
-            })
-            .collect()
-    }
-
     fn item_element(&self, item: &TimelineItem, cx: &mut Context<Self>) -> gpui::AnyElement {
         let selector = self.target_selector(cx);
         let render = self.render_context(item, cx);
@@ -128,11 +97,9 @@ impl PropertyInspector {
         let mut effect_controls = Vec::new();
         for control in self.store.tree.roots.iter().cloned() {
             match control {
-                Control::Group {
-                    children,
-                    kind: GroupKind::Effect(effect),
-                    ..
-                } => effect_controls.push(self.effect_element(effect, children, &render, cx)),
+                Control::Effect(effect) => {
+                    effect_controls.push(self.effect_element(effect, &render, cx))
+                }
                 control => {
                     if let Some(control) = Self::control_element(control, &render) {
                         controls.push(control);
@@ -290,24 +257,20 @@ impl PropertyInspector {
 
     fn control_element(control: Control, render: &RenderCtx) -> Option<super::rows::PropertyRow> {
         match control {
-            Control::Group {
-                id,
-                label,
-                children,
-                kind,
-            } => match kind {
-                GroupKind::Plain(extensions) => {
-                    Some(Self::group_box(id, label, &children, &extensions, render))
-                }
-                GroupKind::Elements(group) => Some(Self::elements_section(
-                    &group,
-                    &children,
-                    render,
-                    render.colors.border,
-                    group.property.is_editable(None),
-                )),
-                GroupKind::Effect(_) => None,
-            },
+            Control::Tuple(tuple) => Some(Self::group_box(
+                ControlId::Group(tuple.target),
+                tuple.label,
+                &tuple.children,
+                &tuple.extensions,
+                render,
+            )),
+            Control::Array(array) => Some(Self::elements_section(
+                &array,
+                render,
+                render.colors.border,
+                array.property.is_editable(None),
+            )),
+            Control::Effect(_) => None,
             leaf => Self::scalar_full_row(&leaf, render),
         }
     }
@@ -391,8 +354,7 @@ impl PropertyInspector {
 
     fn effect_element(
         &self,
-        effect: EffectGroup,
-        controls: Vec<Control>,
+        effect: EffectControl,
         render: &RenderCtx<'_>,
         cx: &Context<Self>,
     ) -> gpui::AnyElement {
@@ -406,7 +368,9 @@ impl PropertyInspector {
                 editor.can_move_effect(render.item_id, effect_id, 1),
             )
         };
-        let controls = controls
+        let header = Self::effect_header(&effect, can_move_up, can_move_down, focused, render);
+        let controls = effect
+            .children
             .into_iter()
             .filter_map(|control| Self::control_element(control, render))
             .collect::<Vec<_>>();
@@ -431,13 +395,7 @@ impl PropertyInspector {
             .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                 Self::activate_edit_target(&effect_editor, Some(effect_id), cx);
             })
-            .child(Self::effect_header(
-                &effect,
-                can_move_up,
-                can_move_down,
-                focused,
-                render,
-            ))
+            .child(header)
             .child(
                 Self::property_grid().gap_y_2().children(
                     controls
@@ -449,7 +407,7 @@ impl PropertyInspector {
     }
 
     fn effect_header(
-        effect: &EffectGroup,
+        effect: &EffectControl,
         can_move_up: bool,
         can_move_down: bool,
         focused: bool,

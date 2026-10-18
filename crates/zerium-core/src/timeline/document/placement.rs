@@ -308,29 +308,18 @@ impl TimelineDocument {
             return false;
         }
         let delta = requested_delta.clamp(minimum_delta, maximum_delta);
-        let mut changed = false;
-
         let updates = origins
             .iter()
             .map(|origin| {
-                let mut item = origin.clone();
-                edge.resize_by(&mut item, delta, self.frame_rate, mode)?;
-                item.validate_playback().ok()?;
-                Some(item)
+                let mut edit = super::ItemEdit::new(origin.clone());
+                edge.resize_by(&mut edit.item, delta, self.frame_rate, mode)?;
+                Some(edit)
             })
             .collect::<Option<Vec<_>>>();
         let Some(updates) = updates else {
             return false;
         };
-        for item in updates {
-            if self.items[&item.id].as_ref() != &item {
-                self.items.insert(item.id, Arc::new(item));
-                changed = true;
-            }
-        }
-        #[cfg(debug_assertions)]
-        self.assert_consistent();
-        changed
+        self.commit_item_edits(updates).unwrap_or(false)
     }
 
     pub fn move_items_from(

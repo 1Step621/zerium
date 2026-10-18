@@ -1,6 +1,6 @@
 # Visual and audio inputs
 
-[Plugin API v1](../plugin.md) · [Properties](properties.md) · [Rendering](rendering.md) · **Inputs**
+[Plugin API v1](README.md) · [Properties](properties.md) · [Rendering](rendering.md) · **Inputs**
 
 Items and effects declare visual inputs in `render.inputs`. Array order fixes GPU
 binding order; IDs must be unique WGSL identifiers. At most eight inputs are

@@ -57,26 +57,6 @@ impl AnimationCurveEditor {
         cx.notify();
     }
 
-    pub(super) fn move_point(
-        &mut self,
-        point: CurvePoint,
-        position: gpui::Point<Pixels>,
-        cx: &mut Context<Self>,
-    ) {
-        if !matches!(self.graph_interaction, GraphInteraction::HandleDrag { point: active } if active == point)
-        {
-            return;
-        }
-        match point {
-            CurvePoint::HandleIn(index) => {
-                self.move_handle(index, BezierHandle::In, position, cx);
-            }
-            CurvePoint::HandleOut(index) => {
-                self.move_handle(index, BezierHandle::Out, position, cx);
-            }
-        }
-    }
-
     pub(super) fn begin_stop_drag(
         &mut self,
         stop: usize,
@@ -96,7 +76,6 @@ impl AnimationCurveEditor {
         ) else {
             return;
         };
-        self.animation_edit = Some(edit);
         let time = selected.clock.key_time_at(frame);
         let snap_playhead = self.editor.read(cx).playhead();
         let follow_focus = (TimelineTime::from_frame(snap_playhead) == time)
@@ -110,6 +89,7 @@ impl AnimationCurveEditor {
             time,
             snap_playhead,
             follow_focus,
+            edit,
         };
         cx.notify();
     }
@@ -121,30 +101,27 @@ impl AnimationCurveEditor {
         snap_disabled: bool,
         cx: &mut Context<Self>,
     ) {
-        let (snap_playhead, follow_focus) = match self.graph_interaction {
+        let (snap_playhead, follow_focus, range) = match &self.graph_interaction {
             GraphInteraction::StopDrag {
                 stop,
                 snap_playhead,
                 follow_focus,
+                edit,
                 ..
-            } if stop == drag.stop => (snap_playhead, follow_focus),
+            } if *stop == drag.stop => (*snap_playhead, *follow_focus, edit.time_range()),
             _ => return,
         };
+        let Some(range) = range else {
+            return;
+        };
+        let minimum = range.start().frames();
+        let maximum = range.end().frames();
         let Some(selected) = self.selected_curve(cx) else {
             return;
         };
         let Some(bounds) = self.graph_bounds else {
             return;
         };
-        let Some(range) = self
-            .animation_edit
-            .as_ref()
-            .and_then(|edit| edit.time_range())
-        else {
-            return;
-        };
-        let minimum = range.start().frames();
-        let maximum = range.end().frames();
         let plot_left = f32::from(bounds.origin.x) + Self::GRAPH_INSET_LEFT;
         let plot_width =
             f32::from(bounds.size.width) - Self::GRAPH_INSET_LEFT - Self::GRAPH_INSET_RIGHT;
@@ -177,18 +154,18 @@ impl AnimationCurveEditor {
                     .clamp(minimum, maximum),
             );
         }
-        let Some(edit) = &mut self.animation_edit else {
+        let GraphInteraction::StopDrag {
+            edit,
+            time: drag_time,
+            ..
+        } = &mut self.graph_interaction
+        else {
             return;
         };
         let changed = self.editor.update_if_changed(cx, |editor| {
             editor.move_animation_stop(edit, time).is_some()
         });
-        self.graph_interaction = GraphInteraction::StopDrag {
-            stop: drag.stop,
-            time,
-            snap_playhead,
-            follow_focus,
-        };
+        *drag_time = time;
         if changed {
             if let Some(segment) = follow_focus {
                 self.selection.read(cx).focus_segment(segment);
@@ -209,8 +186,6 @@ impl AnimationCurveEditor {
             GraphInteraction::HandleDrag { .. } | GraphInteraction::StopDrag { .. }
         ) {
             self.graph_interaction = GraphInteraction::Idle;
-            self.animation_edit = None;
-            self.handle_drag_view = None;
             cx.notify();
         }
     }
@@ -225,32 +200,30 @@ impl AnimationCurveEditor {
 
     pub(super) fn move_handle(
         &mut self,
-        index: usize,
         handle: BezierHandle,
         position: gpui::Point<Pixels>,
         cx: &mut Context<Self>,
     ) {
+        if !matches!(&self.graph_interaction, GraphInteraction::HandleDrag { handle: active, .. } if *active == handle)
+        {
+            return;
+        }
         let Some(selected) = self.selected_curve(cx) else {
             return;
         };
         let Some(position) = self.graph_screen_position(position) else {
             return;
         };
-        let Some((_, position)) = selected
-            .curve
-            .local_handle_position(index, handle, position)
-        else {
+        let Some(position) = selected.curve.local_handle_position(position) else {
             return;
         };
-        let Some(SegmentInterpolation::Custom(mut curve)) =
-            selected.curve.interpolations.first().copied()
-        else {
+        let SegmentInterpolation::Custom(mut curve) = selected.curve.interpolation else {
             return;
         };
         if !curve.set_handle(handle, position) {
             return;
         }
-        let Some(edit) = &mut self.animation_edit else {
+        let GraphInteraction::HandleDrag { edit, .. } = &mut self.graph_interaction else {
             return;
         };
         self.editor.update_if_changed(cx, |editor| {
@@ -294,7 +267,7 @@ impl AnimationCurveEditor {
         let selected = self.selected_curve(cx);
         let interpolation = selected
             .as_ref()
-            .and_then(|selected| selected.curve.interpolations.first().copied());
+            .map(|selected| selected.curve.interpolation);
         let copied = cx
             .try_global::<CopyBuffer>()
             .and_then(|buffer| buffer.curve);

@@ -47,10 +47,11 @@ impl AnimationSelection {
         item_id: zerium_core::timeline::ItemId,
         editor: &TimelineEditor,
     ) -> Option<PropertyAddress> {
-        let schema = address.schema(editor)?;
+        let schema = editor.property_schema(address)?;
         let target = editor.corresponding_property_address(address, item_id)?;
-        (target.schema(editor)?.same_type(schema) && editor.animation_track(&target).is_some())
-            .then_some(target)
+        (editor.property_schema(&target)?.same_type(schema)
+            && editor.animation_track(&target).is_some())
+        .then_some(target)
     }
 
     pub(crate) fn select_item(

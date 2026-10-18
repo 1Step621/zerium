@@ -43,18 +43,11 @@ use super::{
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum CurvePoint {
-    HandleIn(usize),
-    HandleOut(usize),
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum GraphPressMode {
     EmptySpace,
     Curve,
 }
 
-#[derive(Clone, Copy, Debug)]
 enum GraphInteraction {
     Idle,
     Background {
@@ -63,23 +56,27 @@ enum GraphInteraction {
         dragged: bool,
     },
     HandleDrag {
-        point: CurvePoint,
+        handle: BezierHandle,
+        edit: AnimationEdit,
+        // Freeze the interval and value range throughout this drag.
+        view: Box<SelectedCurve>,
     },
     StopDrag {
         stop: usize,
         time: TimelineTime,
         snap_playhead: Frame,
         follow_focus: Option<usize>,
+        edit: AnimationEdit,
     },
     SuppressClick,
 }
 
 #[derive(Clone)]
-struct CurvePointDrag {
-    point: CurvePoint,
+struct CurveHandleDrag {
+    handle: BezierHandle,
 }
 
-impl Render for CurvePointDrag {
+impl Render for CurveHandleDrag {
     fn render(&mut self, _: &mut Window, _: &mut Context<Self>) -> impl IntoElement {
         Empty
     }
@@ -98,7 +95,7 @@ impl Render for StopPositionDrag {
 
 #[derive(Clone)]
 struct CurvePaintState {
-    curve: GraphCurve,
+    curve: GraphSegment,
     playhead_progress: f32,
     grid: CurveGrid,
     colors: CurvePaintColors,
@@ -127,7 +124,7 @@ struct SelectedCurve {
     presentation: AnimationPresentation,
     value_min: f64,
     value_max: f64,
-    curve: GraphCurve,
+    curve: GraphSegment,
     axis_suffix: String,
     source_segment: usize,
     source_stop_frames: Vec<Frame>,
@@ -144,9 +141,9 @@ struct SelectedCurve {
 }
 
 #[derive(Clone)]
-struct GraphCurve {
-    stops: Vec<[f32; 2]>,
-    interpolations: Vec<SegmentInterpolation>,
+struct GraphSegment {
+    endpoints: [[f32; 2]; 2],
+    interpolation: SegmentInterpolation,
 }
 
 /// Include handles when fitting this interval.
@@ -164,9 +161,6 @@ pub(crate) struct AnimationCurveEditor {
     graph_bounds: Option<Bounds<Pixels>>,
     scrubbing_playhead: bool,
     graph_interaction: GraphInteraction,
-    animation_edit: Option<AnimationEdit>,
-    // Freeze the interval and value range for the duration of a handle drag.
-    handle_drag_view: Option<SelectedCurve>,
     handle_fit_target: Option<HandleFitTarget>,
     repeat_inputs: Option<RepeatInputs>,
     _subscriptions: Vec<Subscription>,
@@ -207,8 +201,6 @@ impl AnimationCurveEditor {
             graph_bounds: None,
             scrubbing_playhead: false,
             graph_interaction: GraphInteraction::Idle,
-            animation_edit: None,
-            handle_drag_view: None,
             handle_fit_target: None,
             repeat_inputs: None,
             _subscriptions: subscriptions,

@@ -1,4 +1,8 @@
+use gpui::{Context, Window, point, px};
+
 use zerium_core::timeline::{Frame, FrameRate};
+
+use crate::ui::timeline::{LAYER_HEADER_WIDTH, Timeline, layer_scroll_base};
 
 pub(super) const INITIAL_LAYER_HEIGHT: f32 = 30.;
 const MIN_LAYER_HEIGHT: f32 = 28.;
@@ -117,4 +121,44 @@ impl TimelineViewport {
         let visible_seconds = viewport_width.max(1.) as f64 / self.pixels_per_second();
         self.horizontal_offset_seconds = (playhead_seconds - visible_seconds / 2.).max(0.);
     }
+}
+
+impl Timeline {
+    pub(super) fn dynamic_layer_count(&self, window: &Window, cx: &Context<Self>) -> usize {
+        let highest_occupied_layer = self
+            .editor
+            .read(cx)
+            .item_layouts()
+            .map(|(_, layer, _, _)| layer.get())
+            .max()
+            .and_then(|layer| usize::try_from(layer).ok());
+        let scroll = layer_scroll_base(&self.layer_scroll);
+        let measured_height = f32::from(scroll.bounds().size.height);
+        let viewport_height = if measured_height > 0. {
+            measured_height
+        } else {
+            f32::from(window.viewport_size().height)
+        };
+        let scroll_top = (-f32::from(scroll.offset().y)).max(0.);
+        let viewport_end = ((scroll_top + viewport_height) / self.viewport.layer_height)
+            .ceil()
+            .max(1.) as usize;
+        virtual_layer_count(highest_occupied_layer, viewport_end)
+    }
+
+    pub(super) fn reset_viewport(&mut self) {
+        self.viewport = TimelineViewport::default();
+        layer_scroll_base(&self.layer_scroll).set_offset(point(px(0.), px(0.)));
+    }
+
+    pub(super) fn track_viewport_width(window: &Window) -> f32 {
+        (f32::from(window.viewport_size().width) - LAYER_HEADER_WIDTH).max(1.)
+    }
+}
+
+fn virtual_layer_count(highest_occupied_layer: Option<usize>, viewport_end: usize) -> usize {
+    highest_occupied_layer
+        .map_or(0, |layer| layer.saturating_add(1))
+        .max(viewport_end)
+        .saturating_add(1)
 }

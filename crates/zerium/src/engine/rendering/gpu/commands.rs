@@ -8,17 +8,12 @@ use super::plan::{
 use super::resources::{BackdropPool, FrameResources, NodeResources, RenderTarget};
 use super::scene::{RasterGrid, SurfaceRect};
 use super::scene::{RenderError, RenderScene, RenderSize, RenderView};
-use super::surfaces::{FrameSurfaces, RenderedSurface, SurfaceKey, SurfaceRaster};
+use super::surfaces::{
+    FrameSurfaces, RenderRequest, RenderedSurface, SurfaceOutput, SurfaceRaster,
+};
 use super::textures::FrameImage;
 use zerium_core::timeline::BlendMode;
 use zerium_shader::{IMAGE_SAMPLER_BINDING, ImageBinding};
-
-/// What a consumer needs, distinct from a node's complete logical bounds.
-#[derive(Clone, Copy)]
-struct RenderRequest {
-    bounds: SurfaceRect,
-    grid: RasterGrid,
-}
 
 struct FrameEncoding {
     surfaces: FrameSurfaces,
@@ -42,7 +37,7 @@ impl RenderSession {
         node_id: RenderNodeId,
         raster: SurfaceRaster,
     ) -> NodeResources {
-        let SurfaceRaster { rect, size, .. } = raster;
+        let (rect, size) = (raster.rect(), raster.size());
         let plan = context.plan;
         let uniform_size = match &plan.nodes[node_id].kind {
             RenderNodeCommandKind::Source(RenderSourceCommand::Item { .. }) => {
@@ -175,12 +170,13 @@ impl RenderSession {
         node_id: RenderNodeId,
         request: RenderRequest,
     ) -> Result<RenderedSurface, RenderError> {
-        if !request.bounds.is_valid() || !request.grid.is_valid() {
-            return Err(RenderError::resource_limit("invalid image request"));
-        }
-
         let node = &context.plan.nodes[node_id];
-        let Some(visible_bounds) = node.bounds.intersection(request.bounds) else {
+        let Some(output) = SurfaceOutput::resolve(
+            node,
+            request,
+            self.shared.gpu.device.limits().max_texture_dimension_2d,
+        )?
+        else {
             return Ok(RenderedSurface {
                 bounds: context.plan.nodes[node_id].bounds,
                 view: context.frame.transparent.view.clone(),
@@ -195,32 +191,52 @@ impl RenderSession {
             });
         };
 
-        let raster = if matches!(
-            node.kind,
-            RenderNodeCommandKind::Source(RenderSourceCommand::Frame { .. })
-        ) {
-            None
-        } else {
-            // Shader nodes finish their complete image; composition and view nodes crop.
-            let bounds = match &node.kind {
-                RenderNodeCommandKind::Pass { .. }
-                | RenderNodeCommandKind::Source(RenderSourceCommand::Item { .. }) => node.bounds,
-                _ => visible_bounds,
-            };
-            Some(SurfaceRaster::new(
-                bounds,
-                request.grid,
-                self.shared.gpu.device.limits().max_texture_dimension_2d,
-            )?)
-        };
-        let key = SurfaceKey::new(context.plan.node_keys[node_id], raster);
+        let key = output.key(context.plan.node_keys[node_id]);
         if let Some(surface) = context.surfaces.get(key) {
             return Ok(surface);
         }
         let (surface, resources) =
-            self.render_surface_uncached(encoder, context, node_id, raster)?;
+            self.render_surface_uncached(encoder, context, node_id, output)?;
         context.surfaces.insert(key, surface.clone(), resources);
         Ok(surface)
+    }
+
+    fn render_native_frame(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        context: &mut RenderNodeContext<'_>,
+        index: usize,
+        bounds: SurfaceRect,
+    ) -> Result<RenderedSurface, RenderError> {
+        let texture = context
+            .frame_images
+            .get_mut(index)
+            .ok_or_else(|| RenderError::backend("image frame is missing"))?;
+        let frame = &texture.uploaded.frame;
+        let size = RenderSize {
+            width: frame.width,
+            height: frame.height,
+        };
+        let target = texture.target.get_or_insert_with(|| {
+            RenderTarget::new(
+                &self.shared.gpu.device,
+                size,
+                wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+                "zerium-image-frame",
+            )
+        });
+        self.encode_frame_pass(
+            encoder,
+            &target.view,
+            &texture.binding,
+            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+        );
+        Ok(RenderedSurface {
+            bounds,
+            rect: bounds,
+            size,
+            view: target.view.clone(),
+        })
     }
 
     fn render_surface_uncached(
@@ -228,46 +244,19 @@ impl RenderSession {
         encoder: &mut wgpu::CommandEncoder,
         context: &mut RenderNodeContext<'_>,
         node_id: RenderNodeId,
-        raster: Option<SurfaceRaster>,
+        output: SurfaceOutput,
     ) -> Result<(RenderedSurface, Option<NodeResources>), RenderError> {
         let node = &context.plan.nodes[node_id];
-        if let RenderNodeCommandKind::Source(RenderSourceCommand::Frame { index }) = &node.kind {
-            let texture = context
-                .frame_images
-                .get_mut(*index)
-                .ok_or_else(|| RenderError::backend("image frame is missing"))?;
-            let frame = &texture.uploaded.frame;
-            let size = RenderSize {
-                width: frame.width,
-                height: frame.height,
-            };
-            let target = texture.target.get_or_insert_with(|| {
-                RenderTarget::new(
-                    &self.shared.gpu.device,
-                    size,
-                    wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-                    "zerium-image-frame",
-                )
-            });
-            self.encode_frame_pass(
-                encoder,
-                &target.view,
-                &texture.binding,
-                wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-            );
-            return Ok((
-                RenderedSurface {
-                    bounds: node.bounds,
-                    rect: node.bounds,
-                    size,
-                    view: target.view.clone(),
-                },
-                None,
-            ));
-        }
-
-        let raster = raster.expect("shader and composition nodes have a resolved raster");
-        let SurfaceRaster { rect, grid, .. } = raster;
+        let raster = match output {
+            SurfaceOutput::NativeFrame { index } => {
+                return Ok((
+                    self.render_native_frame(encoder, context, index, node.bounds)?,
+                    None,
+                ));
+            }
+            SurfaceOutput::Raster(raster) => raster,
+        };
+        let (rect, grid) = (raster.rect(), raster.grid());
         let resources = self.local_resources(context, node_id, raster);
 
         match &node.kind {

@@ -31,17 +31,52 @@ impl TimelineEditor {
         address: &PropertyAddress,
         edit: PropertyEdit,
     ) -> Result<bool, TimelineEditError> {
+        if !self.is_item_selected(address.item_id) {
+            return Ok(false);
+        }
+        let mut candidate = self.active_document().prepare_item_edit(address.item_id)?;
+        if !self.prepare_property_edit(address, edit, &mut candidate) {
+            return Ok(false);
+        }
+        let key = HistoryKey::Property(
+            address.item_id,
+            address.effect_id,
+            address.property_id.clone(),
+        );
+        self.try_edit_project(Some(key), |editor| {
+            let changed = editor
+                .active_document_mut()
+                .commit_item_edits([candidate])?;
+            Ok((changed, changed))
+        })
+    }
+
+    pub(super) fn prepare_property_value(
+        &self,
+        address: &PropertyAddress,
+        value: PropertyValue,
+        candidate: &mut super::super::document::ItemEdit,
+    ) -> bool {
+        self.prepare_property_edit(address, PropertyEdit::Set(value), candidate)
+    }
+
+    fn prepare_property_edit(
+        &self,
+        address: &PropertyAddress,
+        edit: PropertyEdit,
+        candidate: &mut super::super::document::ItemEdit,
+    ) -> bool {
         let id = address.item_id;
         let effect = address.effect_id;
         if !self.is_item_selected(id) {
-            return Ok(false);
+            return false;
         }
-        let item = self.item(id).expect("selected item must exist");
-        let Some(schema) = address.schema(self) else {
-            return Ok(false);
+        let item = &candidate.item;
+        let Some(schema) = self.property_schema(address) else {
+            return false;
         };
         let Some(properties) = item.property_values(effect) else {
-            return Ok(false);
+            return false;
         };
         let current = properties
             .property(&address.property_id)
@@ -64,39 +99,30 @@ impl TimelineEditor {
         let Some(mut next) = value
             .and_then(|value| current.replaced_at(address.element_id, address.scalar_index, value))
         else {
-            return Ok(false);
+            return false;
         };
         if !schema.is_editable(address.scalar_index) {
-            return Ok(false);
+            return false;
         }
         if let Some(ratio) = item.aspect_ratio(effect).filter(|_| {
             item.aspect_lock_property(effect)
                 .is_some_and(|property| property.id() == address.property_id)
         }) {
             if !schema.is_editable(None) {
-                return Ok(false);
+                return false;
             }
             let Some(constrained) = ratio.constrain(schema, &next, address.scalar_index) else {
-                return Ok(false);
+                return false;
             };
             next = constrained;
         }
         if !schema.accepts_value(&next)
             || !self.value_preserves_active_bindings(id, effect, &address.property_id, &next)
         {
-            return Ok(false);
+            return false;
         }
-        let schema = schema.clone();
-        let key = HistoryKey::Property(id, effect, address.property_id.clone());
-        self.try_edit_project(Some(key), |editor| {
-            let changed = editor.active_document_mut().set_property(
-                id,
-                effect,
-                &schema,
-                (!inherit).then_some(next),
-            )?;
-            Ok((changed, changed))
-        })
+        candidate.set_property(effect, schema, (!inherit).then_some(next));
+        true
     }
 
     pub fn update_aspect_ratio_locked(

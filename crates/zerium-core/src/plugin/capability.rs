@@ -5,10 +5,10 @@ use std::collections::HashSet;
 use serde::Deserialize;
 
 use super::PluginError;
-use super::identifier::{validate_logical_id, validate_wgsl_identifier};
-use super::validation::PropertyReferences;
+use super::validation::{PropertyReferences, validate_logical_id, validate_wgsl_identifier};
 use crate::property::{
-    PropertyDefinition, PropertySchema, ScalarPropertyType, ScalarSchema, ValueSchema,
+    PropertyDefinition, PropertySchema, PropertyValue, PropertyValues, ScalarPropertyType,
+    ScalarSchema, ValueSchema,
 };
 
 pub(super) const MAX_RENDER_RESULT_OFFSET: u32 = 30;
@@ -404,7 +404,40 @@ pub struct TimeMappingProperties<'a> {
     pub playback_speed: &'a str,
 }
 
-impl TimeMappingProperties<'_> {
+impl<'a> TimeMappingProperties<'a> {
+    pub fn resolve(
+        self,
+        values: &PropertyValues,
+    ) -> Result<crate::timeline::TimeMapping, crate::timeline::TimelineEditError> {
+        use crate::timeline::{TimeMapping, TimelineEditError};
+        let number = |id| values.property(id).and_then(PropertyValue::as_f32);
+        TimeMapping::new(
+            number(self.source_start).ok_or(TimelineEditError::InvalidSourceRange)?,
+            number(self.source_duration).ok_or(TimelineEditError::InvalidSourceRange)?,
+            number(self.playback_speed).ok_or(TimelineEditError::InvalidPlaybackSpeed)?,
+        )
+    }
+
+    pub(crate) fn values_for(
+        self,
+        mapping: crate::timeline::TimeMapping,
+    ) -> [(&'a str, PropertyValue); 3] {
+        [
+            (
+                self.source_start,
+                PropertyValue::F32(mapping.source_offset() as f32),
+            ),
+            (
+                self.source_duration,
+                PropertyValue::F32(mapping.source_span() as f32),
+            ),
+            (
+                self.playback_speed,
+                PropertyValue::F32(mapping.speed() as f32),
+            ),
+        ]
+    }
+
     pub(super) fn validate(
         self,
         owner: &str,

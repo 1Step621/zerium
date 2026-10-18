@@ -346,24 +346,27 @@ impl TimelineItem {
         input_id: &str,
         cache: &MediaMetadataCache,
     ) -> Option<(MediaAsset, MediaPlayback)> {
-        let (capabilities, properties) = match effect_id {
+        let (capabilities, playback, properties) = match effect_id {
             Some(id) => {
                 let effect = self.effect(id)?;
-                (effect.schema().inputs(), &effect.properties)
+                (
+                    effect.schema().inputs(),
+                    effect.schema().playback(),
+                    &effect.properties,
+                )
             }
-            None => (self.schema()?.inputs(), &self.properties),
+            None => {
+                let schema = self.schema()?;
+                (schema.inputs(), schema.playback(), &self.properties)
+            }
         };
         let capability = capabilities
             .iter()
             .find(|capability| capability.id() == input_id)?;
         let asset = capability.media_source()?.asset(properties, cache)?;
-        let clock =
-            capability
-                .playback_properties()
-                .map_or_else(MediaPlayback::default, |playback| {
-                    MediaPlayback::from_properties(playback, properties)
-                        .expect("validated media playback properties")
-                });
+        let clock = playback
+            .media(input_id, properties)
+            .expect("validated media playback properties");
         Some((asset, clock))
     }
 
@@ -375,9 +378,11 @@ impl TimelineItem {
     ) -> Option<(MediaAsset, MediaPlayback, bool)> {
         let input = self.schema()?.audio_input(input_id)?;
         let asset = input.media_source().asset(&self.properties, cache)?;
-        let playback =
-            MediaPlayback::from_properties(input.playback_properties(), &self.properties)
-                .expect("validated audio playback properties");
+        let playback = self
+            .schema()?
+            .playback()
+            .audio(input_id, &self.properties)?
+            .expect("validated audio playback properties");
         let preserve_pitch = self
             .properties
             .property(input.preserve_pitch_property())?
@@ -387,37 +392,18 @@ impl TimelineItem {
     }
 
     pub(super) fn timeline_mapping(&self) -> Option<TimeMapping> {
-        Some(
-            TimeMapping::from_properties(self.schema()?.timeline()?, &self.properties)
-                .expect("validated timeline time mapping"),
-        )
+        self.schema()?
+            .playback()
+            .timeline(&self.properties)
+            .expect("validated timeline time mapping")
     }
 
     pub(crate) fn validate_playback(&self) -> Result<(), super::TimelineEditError> {
-        let owners = self
-            .schema()
-            .map(|schema| (schema.inputs(), &self.properties))
-            .into_iter()
-            .chain(
-                self.effects
-                    .iter()
-                    .map(|effect| (effect.schema().inputs(), &effect.properties)),
-            );
-        for (capabilities, properties) in owners {
-            for ids in capabilities
-                .iter()
-                .filter_map(TextureInput::playback_properties)
-            {
-                MediaPlayback::from_properties(ids, properties)?;
-            }
-        }
         if let Some(schema) = self.schema() {
-            for audio in schema.audio() {
-                MediaPlayback::from_properties(audio.playback_properties(), &self.properties)?;
-            }
-            if let Some(timeline) = schema.timeline() {
-                TimeMapping::from_properties(timeline, &self.properties)?;
-            }
+            schema.playback().validate(&self.properties)?;
+        }
+        for effect in &self.effects {
+            effect.schema().playback().validate(&effect.properties)?;
         }
         Ok(())
     }
@@ -426,10 +412,10 @@ impl TimelineItem {
     pub(super) fn store_timeline_mapping(&mut self, mapping: TimeMapping) -> Option<TimeMapping> {
         let schema = self.schema_arc()?.clone();
         let ids = schema.timeline()?;
-        for (id, value) in mapping.property_values(ids) {
+        for (id, value) in ids.values_for(mapping) {
             self.properties.set(schema.property(id)?, value).ok()?;
         }
-        TimeMapping::from_properties(ids, &self.properties).ok()
+        schema.playback().timeline(&self.properties).ok().flatten()
     }
 
     pub(super) fn timeline_speed_bounds(&self) -> (f64, f64) {
@@ -495,31 +481,6 @@ impl TimelineItem {
         self.duration = duration;
     }
 
-    /// Extend a detached scene item without changing media speed or loop clocks.
-    pub(super) fn extend_at(&mut self, point: Frame, extra: u64, frame_rate: FrameRate) {
-        let duration = FrameDuration::new_saturating(self.duration.get().saturating_add(extra));
-        let local_frame = Frame::new(point.get().saturating_sub(self.start.get()));
-        for animations in std::iter::once(&mut self.animations)
-            .chain(self.effects.iter_mut().map(|effect| &mut effect.animations))
-        {
-            animations.extend_at(local_frame, duration);
-        }
-        if let Some(mapping) = self.timeline_mapping() {
-            let mapping = mapping.with_timeline_duration(duration, frame_rate);
-            let property = self
-                .schema()
-                .and_then(|schema| schema.property(schema.timeline()?.source_duration))
-                .expect("source duration is declared");
-            let value = property
-                .constrained_value(&PropertyValue::F32(mapping.source_span() as f32))
-                .expect("finite source duration preserves its property type");
-            let span = value.as_f32().expect("source duration is f32");
-            self.store_timeline_mapping(mapping.with_span(f64::from(span)))
-                .expect("constrained source duration preserves the source clock");
-        }
-        self.duration = duration;
-    }
-
     /// Synchronize the interval after editing ordinary source-clock properties.
     pub(super) fn synchronize_timeline(
         &mut self,
@@ -529,12 +490,12 @@ impl TimelineItem {
         let Some(previous) = previous else {
             return Ok(());
         };
-        let mapping = TimeMapping::from_properties(
-            self.schema()
-                .and_then(ItemSchema::timeline)
-                .expect("timeline capability is unchanged during property edits"),
-            &self.properties,
-        )?;
+        let mapping = self
+            .schema()
+            .expect("timeline capability belongs to a plugin item")
+            .playback()
+            .timeline(&self.properties)?
+            .expect("timeline capability is unchanged during property edits");
         if previous.source_span() != mapping.source_span() || previous.speed() != mapping.speed() {
             let mode = if previous.speed() == mapping.speed() {
                 ResizeMode::Trim

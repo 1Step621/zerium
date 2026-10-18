@@ -132,6 +132,7 @@ mod item;
 mod property;
 mod scene;
 mod session;
+mod value_edit;
 
-pub use animation::AnimationStopEdit;
 pub use animation_edit::{AnimationEdit, AnimationEditTarget};
+pub use value_edit::{AnimationValuePlan, ValueEdit, ValueEditTarget};

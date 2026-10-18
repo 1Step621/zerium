@@ -185,7 +185,7 @@ impl Render for Preview {
             || self
                 .editor_drag
                 .as_ref()
-                .is_some_and(|drag| !drag.gesture.is_current(self.editor.read(cx)))
+                .is_some_and(|drag| !drag.edit.is_current(self.editor.read(cx)))
         {
             self.end_editor_drag(cx);
         }

@@ -7,10 +7,10 @@ mod category;
 mod editor;
 mod effect;
 mod error;
-mod identifier;
 mod item;
 mod manifest;
 mod passes;
+mod playback;
 mod registry;
 mod shader;
 mod validation;
@@ -25,12 +25,13 @@ pub use category::{EffectCategory, ItemCategory};
 pub use editor::EditorCapability;
 pub use effect::{EffectRenderSchema, EffectSchema};
 pub use error::PluginError;
-pub use identifier::validate_wgsl_identifier;
 pub use item::{ItemRenderSchema, ItemSchema};
 pub use manifest::PluginManifest;
 pub use passes::{ComputeDispatchDimension, EffectPassSchema};
+pub use playback::PlaybackBindings;
 pub use registry::PluginRegistry;
 pub use shader::ShaderSchema;
+pub use validation::validate_wgsl_identifier;
 
 pub trait PluginCatalogEntry {
     type Category;

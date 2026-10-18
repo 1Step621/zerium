@@ -1,5 +1,5 @@
 //! Consumer-local text preparation and timeline-to-scene evaluation.
-use super::{RenderError, RenderScene, RenderSize, text::TextFrameCache};
+use super::{RenderError, RenderScene, RenderSize, graph::SceneGraphBuilder, text::TextFrameCache};
 use crate::engine::{frame::VisualFrame, media::MediaFrameRequest};
 use std::sync::Arc;
 use zerium_core::timeline::{TimelineTime, TimelineView};
@@ -26,7 +26,7 @@ impl SceneEvaluator {
         let active_items = timeline.active_items_at_time(time);
         self.text
             .retain_active(active_items.iter().map(|(_, item)| item));
-        RenderScene::from_timeline(timeline, time, size, media, |request| {
+        SceneGraphBuilder::build(timeline, time, size, media, |request| {
             self.text.frame_for(request, composition_size)
         })
     }

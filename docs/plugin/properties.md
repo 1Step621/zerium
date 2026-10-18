@@ -1,6 +1,6 @@
 # Properties and editor features
 
-[Plugin API v1](../plugin.md) · **Properties** · [Rendering](rendering.md) · [Inputs](inputs.md)
+[Plugin API v1](README.md) · **Properties** · [Rendering](rendering.md) · [Inputs](inputs.md)
 
 ## Properties
 

@@ -32,15 +32,23 @@ pub struct TimelineSnapshot {
 /// command/history implementation.
 pub trait TimelineView {
     fn media_cache(&self) -> &crate::media::MediaMetadataCache;
+
     fn resolution(&self) -> ProjectResolution;
+
     fn frame_rate(&self) -> FrameRate;
+
     fn playhead(&self) -> Frame;
+
     fn active_items_at_time(&self, time: TimelineTime) -> Vec<(LayerId, TimelineItem)>;
+
     fn active_scene_graph_at_time(&self, time: TimelineTime) -> Vec<EvaluatedSceneNode>;
+
     fn active_items_at(&self, frame: Frame) -> Vec<(LayerId, TimelineItem)> {
         self.active_items_at_time(TimelineTime::from_frame(frame))
     }
+
     fn visible_items(&self) -> Vec<TimelineItem>;
+
     fn end_frame_exclusive(&self) -> Frame;
 }
 

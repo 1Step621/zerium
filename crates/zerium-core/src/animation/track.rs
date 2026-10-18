@@ -20,6 +20,7 @@ impl AnimationStop {
     pub const fn frame(&self) -> Frame {
         self.frame
     }
+
     pub const fn value(&self) -> &PropertyValue {
         &self.value
     }
@@ -60,9 +61,11 @@ impl ScalarTrack {
     pub fn span(&self) -> FrameDuration {
         self.span_frames
     }
+
     pub fn repeat(&self) -> AnimationRepeat {
         self.repeat
     }
+
     pub(crate) fn set_repeat(&mut self, repeat: AnimationRepeat, duration: FrameDuration) -> bool {
         let span = repeat.pattern_span(duration);
         if self.repeat == repeat && self.span_frames == span {
@@ -121,9 +124,11 @@ impl ScalarTrack {
     pub fn stops(&self) -> &[AnimationStop] {
         &self.stops
     }
+
     pub fn interpolations(&self) -> &[SegmentInterpolation] {
         &self.interpolations
     }
+
     pub fn stop_index_at(&self, frame: Frame) -> Option<usize> {
         self.stops
             .binary_search_by_key(&frame, AnimationStop::frame)

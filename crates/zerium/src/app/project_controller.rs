@@ -7,7 +7,7 @@ use crate::{
     engine::project_io,
     project_session::{ProjectActivity, ProjectOperation, ProjectSession},
     ui::{
-        animation_curve::AnimationSelection, project_dialogs, session::UiNotifications,
+        animation_curve::AnimationSelection, notifications::UiNotifications, project_dialogs,
         transport::TransportController,
     },
 };

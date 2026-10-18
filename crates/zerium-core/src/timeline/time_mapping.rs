@@ -1,8 +1,4 @@
 use super::{FrameDuration, FrameRate, TimelineEditError};
-use crate::{
-    plugin::TimeMappingProperties,
-    property::{PropertyValue, PropertyValues},
-};
 
 /// A source interval and its rate, independent of media readers and EOF policy.
 /// Stored settings are f32; time conversion uses f64 intermediates.
@@ -26,29 +22,6 @@ impl Default for TimeMapping {
 impl TimeMapping {
     pub const MIN_SPEED: f64 = 0.25;
     pub const MAX_SPEED: f64 = 4.;
-
-    pub fn from_properties(
-        ids: TimeMappingProperties<'_>,
-        values: &PropertyValues,
-    ) -> Result<Self, TimelineEditError> {
-        let number = |id| values.property(id).and_then(PropertyValue::as_f32);
-        Self::new(
-            number(ids.source_start).ok_or(TimelineEditError::InvalidSourceRange)?,
-            number(ids.source_duration).ok_or(TimelineEditError::InvalidSourceRange)?,
-            number(ids.playback_speed).ok_or(TimelineEditError::InvalidPlaybackSpeed)?,
-        )
-    }
-
-    pub(super) fn property_values(
-        self,
-        ids: TimeMappingProperties<'_>,
-    ) -> [(&str, PropertyValue); 3] {
-        [
-            (ids.source_start, PropertyValue::F32(self.source_offset)),
-            (ids.source_duration, PropertyValue::F32(self.source_span)),
-            (ids.playback_speed, PropertyValue::F32(self.speed)),
-        ]
-    }
 
     pub fn new(
         source_offset: f32,

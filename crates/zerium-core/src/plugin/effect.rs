@@ -4,12 +4,12 @@ use crate::localized_text::LocalizedText;
 use serde::{Deserialize, Deserializer, de::Error as _};
 
 use super::EffectCategory;
-use super::PluginError;
 use super::abi::PropertyLayout;
 use super::capability::{TextureInput, validate_texture_inputs};
 use super::editor::{EditorCapability, validate_editors};
 use super::passes::EffectPassSchema;
 use super::validation::{validate_catalog_entry, validate_property_schemas};
+use super::{PlaybackBindings, PluginError};
 use crate::property::PropertySchema;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -21,6 +21,7 @@ pub struct EffectSchema {
     render: EffectRenderSchema,
     editor: Vec<EditorCapability>,
     property_layout: PropertyLayout,
+    playback: PlaybackBindings,
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
@@ -56,7 +57,7 @@ impl<'de> Deserialize<'de> for EffectSchema {
         let property_layout =
             PropertyLayout::compile("effect", &definition.id, definition.properties)
                 .map_err(D::Error::custom)?;
-        let schema = Self {
+        let mut schema = Self {
             id: definition.id,
             label: definition.label,
             category: definition.category,
@@ -64,8 +65,10 @@ impl<'de> Deserialize<'de> for EffectSchema {
             render: definition.render,
             editor: definition.editor,
             property_layout,
+            playback: PlaybackBindings::default(),
         };
         schema.validate().map_err(D::Error::custom)?;
+        schema.playback = PlaybackBindings::compile(&schema.render.inputs, &[], None);
         Ok(schema)
     }
 }
@@ -134,6 +137,10 @@ impl EffectSchema {
             .inputs
             .iter()
             .filter_map(TextureInput::media_source)
+    }
+
+    pub fn playback(&self) -> &PlaybackBindings {
+        &self.playback
     }
 
     pub fn property_layout(&self) -> &PropertyLayout {

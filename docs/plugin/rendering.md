@@ -1,6 +1,6 @@
 # Rendering and shaders
 
-[Plugin API v1](../plugin.md) · [Properties](properties.md) · **Rendering** · [Inputs](inputs.md)
+[Plugin API v1](README.md) · [Properties](properties.md) · **Rendering** · [Inputs](inputs.md)
 
 The manifest declares what an item or effect produces. Generated WESL modules
 provide its properties, image access, and host operations. This page covers the

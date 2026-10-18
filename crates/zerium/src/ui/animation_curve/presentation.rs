@@ -18,7 +18,7 @@ impl AnimationPresentation {
         address: &PropertyAddress,
     ) -> Option<Self> {
         editor.animation_track(address)?;
-        let property = address.schema(editor)?;
+        let property = editor.property_schema(address)?;
         let scalar_index = address.scalar_index;
         let scalar_type = property.scalar_type(address.element_id, scalar_index)?;
         let element_index = address.element_id.and_then(|id| {

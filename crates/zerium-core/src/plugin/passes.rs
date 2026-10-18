@@ -1,7 +1,7 @@
 //! Render, compute, and temporal pass declarations.
 
-use super::identifier::validate_wgsl_identifier;
 use super::shader::validate_shader_module;
+use super::validation::validate_wgsl_identifier;
 use super::{PluginError, ShaderSchema};
 use crate::property::{
     PropertyDefinition, PropertySchema, PropertyValue, PropertyValues, ScalarPropertyType,

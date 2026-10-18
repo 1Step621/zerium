@@ -363,17 +363,12 @@ impl TimelineEditor {
         property_schemas(&self.project().scenes, item, effect_id)
     }
 
-    pub fn property_schema(
-        &self,
-        item_id: ItemId,
-        effect_id: Option<EffectInstanceId>,
-        property_id: &str,
-    ) -> Option<&PropertySchema> {
+    pub fn property_schema(&self, address: &super::PropertyAddress) -> Option<&PropertySchema> {
         resolve_property_schema(
             &self.project().scenes,
-            self.item(item_id)?,
-            effect_id,
-            property_id,
+            self.item(address.item_id)?,
+            address.effect_id,
+            &address.property_id,
         )
     }
 
@@ -419,7 +414,7 @@ impl TimelineEditor {
         time: Option<TimelineTime>,
     ) -> Option<PropertyValue> {
         let item = self.item(address.item_id)?;
-        let property = address.schema(self)?;
+        let property = self.property_schema(address)?;
         let value = resolve_property(
             self.active_scene_arguments(),
             item,

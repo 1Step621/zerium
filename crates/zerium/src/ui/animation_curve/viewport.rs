@@ -34,7 +34,7 @@ impl AnimationCurveEditor {
         ];
         selected
             .curve
-            .stops
+            .endpoints
             .iter()
             .enumerate()
             .find_map(|(index, stop)| {
@@ -141,9 +141,10 @@ impl AnimationCurveEditor {
             ]
         };
 
-        selected.curve.stops.windows(2).any(|stops| {
-            let start_progress = stops[0][0];
-            let end_progress = stops[1][0];
+        {
+            let [start, end] = selected.curve.endpoints;
+            let start_progress = start[0];
+            let end_progress = end[0];
             let mut previous = to_pixel([start_progress, selected.curve.evaluate(start_progress)]);
             let mut distance = f32::INFINITY;
             for step in 1..=SAMPLES_PER_SEGMENT {
@@ -155,7 +156,7 @@ impl AnimationCurveEditor {
                 previous = current;
             }
             distance <= HIT_RADIUS * HIT_RADIUS
-        })
+        }
     }
 
     pub(super) fn focus_source_segment(&mut self, segment: usize, cx: &mut Context<Self>) {
@@ -266,11 +267,15 @@ impl AnimationCurveEditor {
     /// Ends a background press. A completed scrub becomes `SuppressClick` so
     /// the click event following mouse-up cannot change the selection.
     pub(super) fn end_graph_press(&mut self, cx: &mut Context<Self>) {
-        self.graph_interaction = match self.graph_interaction {
-            GraphInteraction::Background { dragged: true, .. } => GraphInteraction::SuppressClick,
-            GraphInteraction::Background { .. } => GraphInteraction::Idle,
-            interaction => interaction,
-        };
+        match self.graph_interaction {
+            GraphInteraction::Background { dragged: true, .. } => {
+                self.graph_interaction = GraphInteraction::SuppressClick;
+            }
+            GraphInteraction::Background { .. } => {
+                self.graph_interaction = GraphInteraction::Idle;
+            }
+            _ => {}
+        }
         self.finish_playhead_scrub(cx);
     }
 

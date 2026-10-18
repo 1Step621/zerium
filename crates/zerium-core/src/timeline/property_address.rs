@@ -88,13 +88,6 @@ impl PropertyAddress {
         PropertyPath::new(&self.property_id, self.element_id, self.scalar_index)
     }
 
-    pub fn schema<'a>(
-        &self,
-        editor: &'a super::TimelineEditor,
-    ) -> Option<&'a crate::property::PropertySchema> {
-        editor.property_schema(self.item_id, self.effect_id, &self.property_id)
-    }
-
     pub fn value<'a>(&self, item: &'a super::TimelineItem) -> Option<&'a PropertyValue> {
         item.property_values(self.effect_id)?
             .property(&self.property_id)?

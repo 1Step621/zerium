@@ -1,6 +1,14 @@
-use super::*;
-use crate::engine::media::prepare_import;
 use rust_i18n::t;
+
+use gpui::{Context, DragMoveEvent, ExternalPaths, SharedString, Window, prelude::*};
+
+use crate::project_session::ProjectActivity;
+use zerium_core::timeline::{Frame, LayerId};
+
+use crate::ui::file_import::{FileImport, FileImportTarget};
+
+use crate::engine::media::prepare_import;
+use crate::ui::timeline::Timeline;
 
 impl Timeline {
     pub(in crate::ui::timeline) fn update_file_drop_target<T>(
@@ -220,4 +228,10 @@ impl Timeline {
         })
         .detach();
     }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(in crate::ui::timeline) struct FileDropTarget {
+    pub(in crate::ui::timeline) layer: LayerId,
+    pub(in crate::ui::timeline) start: Frame,
 }

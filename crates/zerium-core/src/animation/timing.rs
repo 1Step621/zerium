@@ -60,9 +60,11 @@ impl AnimationRepeat {
     pub fn mode(self) -> RepeatMode {
         self.mode
     }
+
     pub fn period(self) -> FrameDuration {
         self.period
     }
+
     pub fn phase(self) -> Frame {
         self.phase_frames
     }
@@ -129,6 +131,7 @@ impl AnimationClock {
     pub fn start_time(self) -> TimelineTime {
         TimelineTime::from_frames(self.start as f64)
     }
+
     pub fn span_frames(self) -> f64 {
         self.span.get() as f64
     }

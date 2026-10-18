@@ -245,17 +245,13 @@ impl RenderPlanner<'_> {
         &mut self,
         item: &RenderItem,
     ) -> Result<(RenderSourceCommand, SourceKey, SurfaceRect), RenderError> {
-        let capabilities = item
-            .inputs
-            .iter()
-            .map(|input| self.encode_node(*input))
-            .collect::<Result<Vec<_>, _>>()?;
-        let image_bounds = item
-            .input_ids
-            .iter()
-            .cloned()
-            .zip(capabilities.iter().map(|id| self.output.nodes[*id].bounds))
-            .collect::<Vec<_>>();
+        let mut capabilities = Vec::with_capacity(item.inputs.len());
+        let mut image_bounds = Vec::with_capacity(item.inputs.len());
+        for input in &item.inputs {
+            let node = self.encode_node(input.node)?;
+            capabilities.push(node);
+            image_bounds.push((input.id.clone(), self.output.nodes[node].bounds));
+        }
         let viewport = SurfaceRect::viewport(self.scene.composition_size);
         let bounds = item.output_bounds.evaluate(&BoundsContext {
             input: viewport,
@@ -352,17 +348,13 @@ impl RenderPlanner<'_> {
         effects: &[RenderEffect],
     ) -> Result<RenderNodeId, RenderError> {
         for effect in effects {
-            let capabilities = effect
-                .inputs
-                .iter()
-                .map(|input| self.encode_node(*input))
-                .collect::<Result<Vec<_>, _>>()?;
-            let image_bounds = effect
-                .input_ids
-                .iter()
-                .cloned()
-                .zip(capabilities.iter().map(|id| self.output.nodes[*id].bounds))
-                .collect::<Vec<_>>();
+            let mut capabilities = Vec::with_capacity(effect.inputs.len());
+            let mut image_bounds = Vec::with_capacity(effect.inputs.len());
+            for input in &effect.inputs {
+                let node = self.encode_node(input.node)?;
+                capabilities.push(node);
+                image_bounds.push((input.id.clone(), self.output.nodes[node].bounds));
+            }
             let mut temporal_inputs = Vec::new();
             if let Some(pass) = effect.passes.first()
                 && let RenderEffectPassKind::Temporal(samples) = &pass.kind

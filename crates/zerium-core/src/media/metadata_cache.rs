@@ -17,22 +17,6 @@ pub struct FileRevision {
     pub modified: SystemTime,
 }
 
-impl FileRevision {
-    pub fn read(path: &Path) -> std::io::Result<Self> {
-        let metadata = std::fs::metadata(path)?;
-        if !metadata.is_file() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::InvalidInput,
-                "Not a regular file",
-            ));
-        }
-        Ok(Self {
-            size: metadata.len(),
-            modified: metadata.modified()?,
-        })
-    }
-}
-
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(deny_unknown_fields)]
 pub struct ProbedFile {

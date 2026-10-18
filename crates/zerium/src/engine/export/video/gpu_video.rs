@@ -1,11 +1,12 @@
-use std::{num::NonZeroU32, sync::mpsc};
+use std::{collections::VecDeque, num::NonZeroU32, sync::mpsc};
 
 use gpu_video::{
     VideoDeviceExt,
     parameters::{ColorRange, ColorSpace, EncoderParametersH264, RateControl, VideoParameters},
 };
 
-use super::{EncodingError, EncodingSettings, VideoEncoderFrame};
+use super::{ColorConversion, EncodingError, EncodingSettings, VideoEncoderFrame};
+use crate::engine::rendering::{RenderScene, RenderSession};
 
 pub(super) struct Encoder {
     // Callback delivery must never block the library's shared GPU waiter thread.
@@ -13,6 +14,7 @@ pub(super) struct Encoder {
     receiver: mpsc::Receiver<gpu_video::EncodedOutputChunk<Vec<u8>>>,
     encoder: gpu_video::WgpuTexturesEncoderH264,
     headers: Vec<u8>,
+    pending: VecDeque<u64>,
 }
 
 impl Encoder {
@@ -97,18 +99,31 @@ impl Encoder {
             receiver,
             encoder,
             headers,
+            pending: VecDeque::with_capacity(depth),
         }))
-    }
-
-    pub(super) fn acquire(&mut self) -> Result<gpu_video::EncodeTexture, EncodingError> {
-        self.encoder.input_texture().map_err(EncodingError::backend)
     }
 
     pub(super) fn submit(
         &mut self,
         index: u64,
-        texture: gpu_video::EncodeTexture,
+        renderer: &RenderSession,
+        conversion: &ColorConversion,
+        scene: &RenderScene,
     ) -> Result<(), EncodingError> {
+        let texture = self
+            .encoder
+            .input_texture()
+            .map_err(EncodingError::backend)?;
+        let views: Vec<_> = texture
+            .texture()
+            .planes()
+            .iter()
+            .map(|plane| {
+                plane.create_view_with_usage(None, Some(wgpu::TextureUsages::RENDER_ATTACHMENT))
+            })
+            .collect();
+        let commands = conversion.render(renderer, scene, &views)?;
+        renderer.gpu().queue.submit([commands.finish()]);
         self.encoder
             .encode(
                 gpu_video::InputFrame {
@@ -117,10 +132,26 @@ impl Encoder {
                 },
                 false,
             )
-            .map_err(EncodingError::backend)
+            .map_err(EncodingError::backend)?;
+        self.pending.push_back(index);
+        Ok(())
     }
 
-    pub(super) fn receive(
+    pub(super) fn pending_frames(&self) -> usize {
+        self.pending.len()
+    }
+
+    pub(super) fn finish_next(
+        &mut self,
+        cancelled: super::Cancellation<'_>,
+    ) -> Result<Option<VideoEncoderFrame>, EncodingError> {
+        let Some(index) = self.pending.pop_front() else {
+            return Ok(None);
+        };
+        self.receive(index, cancelled).map(Some)
+    }
+
+    fn receive(
         &mut self,
         index: u64,
         cancelled: super::Cancellation<'_>,

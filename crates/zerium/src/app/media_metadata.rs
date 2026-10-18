@@ -9,7 +9,7 @@ use zerium_core::timeline::TimelineEditor;
 use crate::{
     engine::media::{MediaMetadataUpdater, MediaReaderRegistry},
     project_session::ProjectSession,
-    ui::session::UiNotifications,
+    ui::notifications::UiNotifications,
 };
 
 enum RefreshRequest {

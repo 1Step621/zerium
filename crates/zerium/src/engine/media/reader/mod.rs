@@ -40,22 +40,19 @@ pub(crate) struct RasterSize {
     pub max_height: u32,
 }
 
-pub(super) fn fit_dimensions(
-    source_width: u32,
-    source_height: u32,
-    max_width: u32,
-    max_height: u32,
-) -> Option<(u32, u32)> {
-    if source_width == 0 || source_height == 0 || max_width == 0 || max_height == 0 {
-        return None;
+impl RasterSize {
+    pub(super) fn fit(self, (source_width, source_height): (u32, u32)) -> Option<(u32, u32)> {
+        if source_width == 0 || source_height == 0 || self.max_width == 0 || self.max_height == 0 {
+            return None;
+        }
+        let scale = (f64::from(self.max_width) / f64::from(source_width))
+            .min(f64::from(self.max_height) / f64::from(source_height))
+            .min(1.);
+        Some((
+            (f64::from(source_width) * scale).round().max(1.) as u32,
+            (f64::from(source_height) * scale).round().max(1.) as u32,
+        ))
     }
-    let scale = (f64::from(max_width) / f64::from(source_width))
-        .min(f64::from(max_height) / f64::from(source_height))
-        .min(1.);
-    Some((
-        (f64::from(source_width) * scale).round().max(1.) as u32,
-        (f64::from(source_height) * scale).round().max(1.) as u32,
-    ))
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

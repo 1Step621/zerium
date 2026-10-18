@@ -2,8 +2,10 @@
 
 mod editing;
 mod placement;
+mod transaction;
 
 pub use placement::{ResizeEdge, ResizeMode};
+pub(super) use transaction::ItemEdit;
 
 use std::{
     collections::{HashMap, HashSet},
@@ -15,7 +17,6 @@ use crate::plugin::ItemSchema;
 use crate::property::PropertyValues;
 
 use super::{
-    TimeMapping,
     aspect_ratio::AspectRatio,
     ids::{ItemId, LayerId},
     item::{TimelineItem, TimelineItemKind},
@@ -298,8 +299,10 @@ impl TimelineDocument {
             })
             .flatten();
         let duration = schema
-            .timeline()
-            .and_then(|timeline| TimeMapping::from_properties(timeline, &properties).ok())
+            .playback()
+            .timeline(&properties)
+            .ok()
+            .flatten()
             .map_or_else(
                 || self.frame_rate.seconds_to_duration(DEFAULT_ITEM_SECONDS),
                 |mapping| mapping.timeline_duration(self.frame_rate),

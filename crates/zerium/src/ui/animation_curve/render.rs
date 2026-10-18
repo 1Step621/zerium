@@ -103,7 +103,7 @@ impl Render for AnimationCurveEditor {
         let curve_editor = cx.entity();
         let focus_handle = self.focus_handle.clone();
         let graph_editor = curve_editor.clone();
-        let stops = curve.stops.clone();
+        let stops = curve.endpoints;
         let source_segment = selected.source_segment;
         let source_stop_count = selected.source_stop_frames.len();
         let overview_playhead_progress = selected.source_playhead_progress;
@@ -112,8 +112,8 @@ impl Render for AnimationCurveEditor {
             .windows(2)
             .map(|stops| (stops[0], stops[1]))
             .collect::<Vec<_>>();
-        let active_handle = match self.graph_interaction {
-            GraphInteraction::HandleDrag { point } => Some(point),
+        let active_handle = match &self.graph_interaction {
+            GraphInteraction::HandleDrag { handle, .. } => Some(*handle),
             _ => None,
         };
         let playhead_position = [playhead_progress, curve.evaluate(playhead_progress)];
@@ -184,10 +184,12 @@ impl Render for AnimationCurveEditor {
                     cx.stop_propagation();
                 }
             })
-            .on_drag_move(move |event: &gpui::DragMoveEvent<CurvePointDrag>, _, cx| {
+            .on_drag_move(move |event: &gpui::DragMoveEvent<CurveHandleDrag>, _, cx| {
                 let drag = event.drag(cx).clone();
                 let position = event.event.position;
-                graph_editor.update(cx, |editor, cx| editor.move_point(drag.point, position, cx));
+                graph_editor.update(cx, |editor, cx| {
+                    editor.move_handle(drag.handle, position, cx)
+                });
             })
             .child(Self::graph_canvas(
                 curve.clone(),
@@ -265,32 +267,28 @@ impl Render for AnimationCurveEditor {
                     )
                 },
             )
-            .children(stops.iter().enumerate().flat_map({
-                let curve_editor = curve_editor.clone();
-                let curve = curve.clone();
-                move |(index, _)| {
-                    [BezierHandle::In, BezierHandle::Out]
-                        .into_iter()
-                        .filter_map(|handle| {
-                            let position = curve.handle_position(index, handle)?;
+            .children(
+                [BezierHandle::Out, BezierHandle::In]
+                    .into_iter()
+                    .filter_map({
+                        let curve_editor = curve_editor.clone();
+                        let curve = curve.clone();
+                        move |handle| {
+                            let position = curve.handle_position(handle)?;
                             let visible = Self::screen_position_is_visible(position);
-                            let display = curve.handle_display_position(index, handle)?;
+                            let display = curve.handle_display_position(handle)?;
                             let radius = if visible { 5. } else { 8. };
                             let (screen, margin_left, margin_bottom) =
                                 Self::point_layout(display, radius);
-                            let (id, point) = match handle {
-                                BezierHandle::In => {
-                                    ("animation-handle-in", CurvePoint::HandleIn(index))
-                                }
-                                BezierHandle::Out => {
-                                    ("animation-handle-out", CurvePoint::HandleOut(index))
-                                }
+                            let id = match handle {
+                                BezierHandle::In => "animation-handle-in",
+                                BezierHandle::Out => "animation-handle-out",
                             };
                             let select_editor = curve_editor.clone();
                             let reveal_editor = curve_editor.clone();
                             Some(
                                 div()
-                                    .id((id, index))
+                                    .id(id)
                                     .absolute()
                                     .left(relative(screen[0]))
                                     .bottom(relative(screen[1]))
@@ -302,15 +300,18 @@ impl Render for AnimationCurveEditor {
                                     .when(visible, |node| {
                                         node.rounded_full()
                                             .border_2()
-                                            .border_color(if active_handle == Some(point) {
+                                            .border_color(if active_handle == Some(handle) {
                                                 colors.primary
                                             } else {
                                                 colors.muted_foreground
                                             })
-                                            .on_drag(CurvePointDrag { point }, |drag, _, _, cx| {
-                                                cx.stop_propagation();
-                                                cx.new(|_| drag.clone())
-                                            })
+                                            .on_drag(
+                                                CurveHandleDrag { handle },
+                                                |drag, _, _, cx| {
+                                                    cx.stop_propagation();
+                                                    cx.new(|_| drag.clone())
+                                                },
+                                            )
                                     })
                                     .when(!visible, |node| {
                                         node.text_color(colors.muted_foreground).child(
@@ -327,7 +328,7 @@ impl Render for AnimationCurveEditor {
                                         if visible {
                                             select_editor.update(cx, |editor, cx| {
                                                 editor.begin_handle_drag(
-                                                    point,
+                                                    handle,
                                                     !event.modifiers.alt,
                                                     cx,
                                                 );
@@ -353,12 +354,11 @@ impl Render for AnimationCurveEditor {
                                     })
                                     .into_any_element(),
                             )
-                        })
-                        .collect::<Vec<_>>()
-                }
-            }));
+                        }
+                    }),
+            );
 
-        let interpolation = curve.interpolations[0];
+        let interpolation = curve.interpolation;
         let interpolation_editor = curve_editor.clone();
         let interpolation_selector = Button::new("animation-interpolation")
             .small()
@@ -480,8 +480,8 @@ impl Render for AnimationCurveEditor {
         });
         let overview_drag_editor = curve_editor.clone();
         let overview_context_menu_editor = curve_editor.clone();
-        let dragging_stop = match self.graph_interaction {
-            GraphInteraction::StopDrag { stop, .. } => Some(stop),
+        let dragging_stop = match &self.graph_interaction {
+            GraphInteraction::StopDrag { stop, .. } => Some(*stop),
             _ => None,
         };
         let overview_start = selected.clock.start_time().seconds(selected.frame_rate);

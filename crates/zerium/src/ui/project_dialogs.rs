@@ -1,5 +1,6 @@
 use rust_i18n::t;
 
+use super::numeric_property::NumericInput::{F32, U32};
 use ::ui::{
     ContextModal as _, Sizable as _, StyledExt as _,
     input::{InputState, NumberInput, NumberInputEvent, StepAction},
@@ -8,14 +9,13 @@ use ::ui::{
 use gpui::{
     App, Context, DragMoveEvent, Entity, MouseButton, Render, Subscription, Window, div, prelude::*,
 };
-use zerium_core::property::ScalarPropertyType::{F32, U32};
 use zerium_core::timeline::{BeatGuide, FrameRate, ProjectResolution, TimelineEditor};
 
 use super::{
     input::set_input_text,
+    notifications::UiNotifications,
     number_input::{NumberValueDrag, number_input_drag},
     numeric_property::{NumericDrag, NumericInput},
-    session::UiNotifications,
     transport::TransportController,
 };
 
@@ -164,11 +164,8 @@ pub(crate) fn open_settings(
             "s",
         ),
     ]
-    .map(|(value, scalar_type, step, suffix)| {
+    .map(|(value, number, step, suffix)| {
         let input = cx.new(|cx| InputState::new(window, cx).default_value(value));
-        let number = NumericInput {
-            scalar: scalar_type,
-        };
         let control =
             cx.new(|cx| SettingsNumberInput::new(input.clone(), number, step, suffix, window, cx));
         (input, control)

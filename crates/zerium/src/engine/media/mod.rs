@@ -9,6 +9,7 @@ mod visual;
 pub(crate) use audio::{
     AudioClipId, AudioGainEvaluation, AudioTimelineError, AudioTimelineGraph, sample_boundary,
 };
+pub(super) use metadata::read_file_revision;
 pub(crate) use metadata::{MediaMetadataUpdater, item_readings, prepare_import, refresh_files};
 pub(super) use reader::{AudioDecoder, DecodedAudioBlock, VideoDecoder};
 pub(crate) use reader::{

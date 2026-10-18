@@ -1,6 +1,6 @@
 //! WGSL validation and pipeline specialization, independent of WESL and GPU devices.
 
-use std::{borrow::Cow, collections::BTreeMap, fmt::Display};
+use std::{borrow::Cow, collections::BTreeMap, fmt::Display, sync::Arc};
 
 use naga::{ShaderStage, back::PipelineConstants};
 
@@ -9,13 +9,18 @@ use crate::ShaderError;
 /// Parsing and structural validation are shared by all passes using a module.
 /// Entry points and overrides are checked separately for each pipeline.
 pub(crate) struct ValidatedShader {
+    source: Arc<str>,
     module: naga::Module,
     info: naga::valid::ModuleInfo,
 }
 
 impl ValidatedShader {
-    pub(crate) fn parse(id: impl Display, source: &str) -> Result<Self, ShaderError> {
-        let module = naga::front::wgsl::parse_str(source).map_err(|error| {
+    pub(crate) fn parse(
+        id: impl Display,
+        source: impl Into<Arc<str>>,
+    ) -> Result<Self, ShaderError> {
+        let source = source.into();
+        let module = naga::front::wgsl::parse_str(&source).map_err(|error| {
             ShaderError::operation(format!("shader '{id}' failed to parse: {error}"))
         })?;
         let info = naga::valid::Validator::new(
@@ -26,7 +31,15 @@ impl ValidatedShader {
         .map_err(|error| {
             ShaderError::operation(format!("shader '{id}' failed validation: {error}"))
         })?;
-        Ok(Self { module, info })
+        Ok(Self {
+            source,
+            module,
+            info,
+        })
+    }
+
+    pub(crate) fn source(&self) -> &Arc<str> {
+        &self.source
     }
 
     pub(crate) fn render(

@@ -34,7 +34,7 @@ use zerium_core::{
 };
 
 use crate::ui::file_input::{FileInputController, FileTarget};
-use crate::ui::session::UiNotifications;
+use crate::ui::notifications::UiNotifications;
 use number_drag::NumberDragOrigin;
 use numeric::{NumericSetting, NumericSettingDraft};
 use state::SettingsStore;

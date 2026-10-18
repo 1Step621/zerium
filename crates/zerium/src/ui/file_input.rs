@@ -1,6 +1,6 @@
 //! Shared file selection for property and scene argument controls.
 
-use super::session::UiNotifications;
+use super::notifications::UiNotifications;
 use crate::{
     app::media_metadata::MediaMetadataController,
     project_session::{ProjectActivity, ProjectOperation, ProjectSession},
@@ -38,7 +38,7 @@ impl FileTarget {
                 None,
             ),
             Self::Property(address) => (
-                address.schema(editor)?,
+                editor.property_schema(address)?,
                 address.element_id,
                 address.scalar_index,
             ),
@@ -115,13 +115,17 @@ pub(crate) fn file_picker(
         })
 }
 
+struct FileSelection {
+    operation: ProjectOperation,
+    _task: Task<()>,
+}
+
 pub(crate) struct FileInputController {
     editor: Entity<TimelineEditor>,
     metadata: Entity<MediaMetadataController>,
     session: Entity<ProjectSession>,
     notifications: Entity<UiNotifications>,
-    operation: Option<ProjectOperation>,
-    _choose_task: Task<()>,
+    selection: Option<FileSelection>,
     _session_subscription: Subscription,
 }
 
@@ -138,8 +142,7 @@ impl FileInputController {
             let next = session.read(cx).id();
             if next != session_id {
                 session_id = next;
-                this._choose_task = Task::ready(());
-                this.operation = None;
+                this.selection = None;
                 cx.notify();
             }
         });
@@ -148,14 +151,13 @@ impl FileInputController {
             metadata,
             session,
             notifications,
-            operation: None,
-            _choose_task: Task::ready(()),
+            selection: None,
             _session_subscription: subscription,
         }
     }
 
     pub(crate) fn is_selecting(&self) -> bool {
-        self.operation.is_some()
+        self.selection.is_some()
     }
 
     pub(crate) fn choose(
@@ -188,14 +190,17 @@ impl FileInputController {
             cx.notify();
             operation
         });
-        self.operation = Some(operation);
-        cx.notify();
-        self._choose_task = cx.spawn(async move |controller, cx| {
+        let task = cx.spawn(async move |controller, cx| {
             let selected = selection.await.map(|file| file.path().to_path_buf());
             let _ = controller.update(cx, |this, cx| {
                 this.finish_selection(operation, scene_id, target, selected, cx);
             });
         });
+        self.selection = Some(FileSelection {
+            operation,
+            _task: task,
+        });
+        cx.notify();
     }
 
     fn finish_selection(
@@ -206,10 +211,14 @@ impl FileInputController {
         selected: Option<PathBuf>,
         cx: &mut Context<Self>,
     ) {
-        if self.operation != Some(operation) {
+        if self
+            .selection
+            .as_ref()
+            .is_none_or(|selection| selection.operation != operation)
+        {
             return;
         }
-        self.operation = None;
+        self.selection = None;
         let current = self.session.update(cx, |session, cx| {
             let current = session.finish(operation);
             if current {

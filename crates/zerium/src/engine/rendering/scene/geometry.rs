@@ -188,10 +188,7 @@ pub(crate) struct BoundsContext<'a> {
 }
 
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct BoundsOperation(Box<BoundsProgram>);
-
-#[derive(Clone, Debug, PartialEq)]
-struct BoundsProgram {
+pub(crate) struct BoundsOperation {
     min: [evalexpr::Node; 2],
     max: [evalexpr::Node; 2],
     values: PropertyValues,
@@ -200,13 +197,12 @@ struct BoundsProgram {
 
 impl BoundsOperation {
     pub(crate) fn evaluate(&self, rects: &BoundsContext<'_>) -> SurfaceRect {
-        let program = self.0.as_ref();
-        let BoundsProgram {
+        let Self {
             min,
             max,
             values,
             overrides,
-        } = program;
+        } = self;
         let mut rectangles = vec![
             ("input".to_owned(), rects.input.min, rects.input.max),
             ("source".to_owned(), rects.source.min, rects.source.max),
@@ -252,12 +248,12 @@ impl BoundsOperation {
         schema: &OutputBoundsSchema,
         values: &PropertyValues,
         overrides: &BTreeMap<String, f64>,
-    ) -> Self {
-        Self(Box::new(BoundsProgram {
+    ) -> Box<Self> {
+        Box::new(Self {
             min: schema.min.clone(),
             max: schema.max.clone(),
             values: values.clone(),
             overrides: overrides.clone(),
-        }))
+        })
     }
 }

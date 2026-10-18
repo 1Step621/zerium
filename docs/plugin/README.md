@@ -1,5 +1,7 @@
 # Plugin API v1
 
+[Documentation](../README.md) · **Plugin API v1** · [Architecture](../architecture/README.md)
+
 A plugin is a directory containing `plugin.json`, WESL modules, and generated
 interfaces. For example:
 
@@ -19,8 +21,8 @@ zerium plugin validate path/to/plugin
 ```
 
 Both commands default to the current directory. Distribute `generated/` with the
-plugin; do not edit generated files manually. The [JSON schema](../plugins/plugin.schema.json)
-is the field reference, and the [bundled plugin](../plugins/zerium.builtin/)
+plugin; do not edit generated files manually. The [JSON schema](../../plugins/plugin.schema.json)
+is the field reference, and the [bundled plugin](../../plugins/zerium.builtin/)
 provides working examples.
 
 ## Minimal plugin
@@ -86,10 +88,10 @@ Categories are host-defined and group entries across plugins.
 
 | Guide | Contents |
 | --- | --- |
-| [Properties and editor features](plugin/properties.md) | Scalar and collection types, animation settings, and preview/timeline editing |
-| [Rendering and shaders](plugin/rendering.md) | Generated WESL API, image coordinates, output bounds, and effect passes |
-| [Visual and audio inputs](plugin/inputs.md) | Media readers, playback, text, numbers, render results, and camera views |
+| [Properties and editor features](properties.md) | Scalar and collection types, animation settings, and preview/timeline editing |
+| [Rendering and shaders](rendering.md) | Generated WESL API, image coordinates, output bounds, and effect passes |
+| [Visual and audio inputs](inputs.md) | Media readers, playback, text, numbers, render results, and camera views |
 
 Use the JSON schema for field definitions and the guides for how those fields
 work together. For runtime implementation and ownership, see
-[Architecture](architecture.md#plugins).
+[Plugin loading and compilation](../architecture/runtime.md#plugin-loading-and-compilation).

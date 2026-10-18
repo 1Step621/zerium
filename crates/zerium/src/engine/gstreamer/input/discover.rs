@@ -11,7 +11,7 @@ use gstreamer_pbutils::{Discoverer, DiscovererInfo, DiscovererResult};
 use zerium_core::media::{FileRevision, MediaKind, MediaMetadata, MediaTarget, VideoFrameRate};
 
 use super::super::{initialize, pipeline::file_uri};
-use crate::engine::media::MediaError;
+use crate::engine::media::{MediaError, read_file_revision};
 
 pub(crate) fn probe(path: &Path, target: MediaTarget) -> Result<Option<MediaMetadata>, MediaError> {
     let info = discover(path)?;
@@ -72,7 +72,7 @@ struct CachedDiscovery {
 fn discover(path: &Path) -> Result<DiscovererInfo, MediaError> {
     initialize().map_err(MediaError::external)?;
     let path = std::fs::canonicalize(path).map_err(MediaError::external)?;
-    let revision = FileRevision::read(&path).map_err(MediaError::external)?;
+    let revision = read_file_revision(&path).map_err(MediaError::external)?;
     static CACHE: OnceLock<Mutex<VecDeque<CachedDiscovery>>> = OnceLock::new();
     let cache = CACHE.get_or_init(Mutex::default);
     let discovery = {

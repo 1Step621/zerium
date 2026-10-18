@@ -9,7 +9,7 @@ use crate::engine::audio_playback::{
 };
 use zerium_core::timeline::{Frame, FrameRate, TimelineEditor};
 
-use super::{TimelineEditorEntityExt, session::UiNotifications};
+use super::{TimelineEditorEntityExt, notifications::UiNotifications};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum ScrubSource {

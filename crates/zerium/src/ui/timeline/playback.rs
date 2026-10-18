@@ -1,4 +1,10 @@
-use super::*;
+use gpui::{App, ClickEvent, Context, Window};
+
+use zerium_core::timeline::TimelineEditor;
+
+use crate::ui::TimelineEditorEntityExt as _;
+
+use crate::ui::timeline::Timeline;
 
 impl Timeline {
     pub(super) fn stop_playback(&mut self, cx: &mut Context<Self>) -> bool {

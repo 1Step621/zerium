@@ -1,4 +1,4 @@
-use crate::timeline::{TimeMapping, TimelineEditError};
+use crate::timeline::TimeMapping;
 use std::time::Duration;
 
 /// How a media input behaves after its source ends.
@@ -25,24 +25,11 @@ pub struct MediaSample {
 }
 
 impl MediaPlayback {
-    pub fn from_properties(
-        ids: crate::plugin::PlaybackProperties<'_>,
-        values: &crate::property::PropertyValues,
-    ) -> Result<Self, TimelineEditError> {
-        let end_behavior = match values
-            .property(ids.end_behavior)
-            .and_then(crate::property::PropertyValue::as_enum)
-            .ok_or(TimelineEditError::InvalidSourceRange)?
-        {
-            0 => MediaEndBehavior::Stop,
-            1 => MediaEndBehavior::Loop,
-            2 => MediaEndBehavior::Hold,
-            _ => return Err(TimelineEditError::InvalidSourceRange),
-        };
-        Ok(Self {
-            mapping: TimeMapping::from_properties(ids.time_mapping(), values)?,
+    pub(crate) fn new(mapping: TimeMapping, end_behavior: MediaEndBehavior) -> Self {
+        Self {
+            mapping,
             end_behavior,
-        })
+        }
     }
 
     pub fn source_span(self) -> f64 {

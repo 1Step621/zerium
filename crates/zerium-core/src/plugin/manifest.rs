@@ -5,8 +5,8 @@ use std::sync::Arc;
 use serde::Deserialize;
 
 use super::{
-    EffectSchema, ItemSchema, PluginError, identifier::validate_logical_id,
-    validation::validate_unique_ids,
+    EffectSchema, ItemSchema, PluginError,
+    validation::{validate_logical_id, validate_unique_ids},
 };
 
 const SUPPORTED_API_VERSION: u32 = 1;

@@ -333,7 +333,7 @@ impl RenderDeviceBuilder {
             "zerium-frame-image-pipeline",
             &[],
         );
-        let yuv_upload = super::video_upload::YuvUploadPipeline::new(device)?;
+        let yuv_upload = super::YuvUploadPipeline::new(device)?;
         let video_planes = super::VideoPlanePipeline::new(device)?;
         Ok(Self {
             render_device: RenderDevice {

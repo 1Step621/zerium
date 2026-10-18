@@ -7,7 +7,7 @@ mod rows;
 mod state;
 mod target;
 
-use crate::ui::numeric_property::{NumericInput, NumericInputSpec, numeric_input_spec};
+use crate::ui::numeric_property::{NumericInputSpec, numeric_input_spec};
 
 use std::{
     collections::{HashMap, HashSet},
@@ -15,13 +15,12 @@ use std::{
 };
 
 use ::ui::{
-    ActiveTheme as _, Disableable as _, Icon, IconName, Selectable as _, Sizable as _, ThemeColor,
+    ActiveTheme as _, Disableable as _, IconName, Sizable as _,
     button::{Button, ButtonVariants as _},
-    color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState},
-    input::{Input, InputEvent, InputState, NumberInput, NumberInputEvent},
+    color_picker::{ColorPickerEvent, ColorPickerState},
+    input::{InputEvent, InputState, NumberInputEvent},
     menu::{PopupMenuItem, context_menu::ContextMenuExt as _, popup_menu::PopupMenuExt as _},
     popover::Popover,
-    switch::Switch,
 };
 use gpui::{
     App, Context, CursorStyle, DismissEvent, Div, DragMoveEvent, Entity, FocusHandle,
@@ -33,17 +32,17 @@ use crate::project_session::{ProjectSession, ProjectSessionId};
 use crate::ui::TimelineEditorEntityExt as _;
 use crate::ui::animation_curve::AnimationSelection;
 use crate::ui::file_input::FileInputController;
+use crate::ui::notifications::UiNotifications;
 use crate::ui::pane::pane_header;
 use crate::ui::search_picker::{SearchPicker, SearchPickerEntry};
-use crate::ui::session::UiNotifications;
 use number_drag::PropertyValueDragOrigin;
 use zerium_core::property::{
-    PropertyDefinition, PropertyElement, PropertyElementId, PropertySchema, PropertyValue,
-    ScalarPropertyType, ValueSchema,
+    PropertyDefinition, PropertyElementId, PropertySchema, PropertyValue, ScalarPropertyType,
+    ValueSchema,
 };
 use zerium_core::timeline::{
-    AnimationStopEdit, EffectInstanceId, ItemId, PropertyAddress, SceneBindingOwner,
-    SceneBindingTarget, TimelineEditor, TimelineItem, TimelineTime,
+    AnimationValuePlan, EffectInstanceId, ItemId, PropertyAddress, SceneArgument,
+    SceneBindingOwner, SceneBindingTarget, TimelineEditor, TimelineItem, TimelineTime, ValueEdit,
 };
 
 pub(super) type EffectPickerTarget = (String, String);
@@ -57,14 +56,6 @@ enum ControlId {
     },
     Group(PropertyAddress),
     EffectGroup(EffectInstanceId),
-}
-
-#[derive(Clone)]
-pub(super) struct SceneArgumentOption {
-    pub id: String,
-    pub label: String,
-    pub schema: PropertySchema,
-    pub bindings: Vec<SceneBindingTarget>,
 }
 
 #[derive(Clone)]

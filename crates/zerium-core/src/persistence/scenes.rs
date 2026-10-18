@@ -68,16 +68,14 @@ impl ProjectScene {
                         self.name, argument.schema.id
                     ))
                 })?;
-            argument.schema = argument
-                .schema
-                .clone()
-                .for_scene_argument()
+            argument.schema = SceneArgument::new(argument.schema.clone(), Vec::new())
                 .ok_or_else(|| {
                     ProjectError::invalid_data(format!(
                         "Scene '{}' argument '{}' must use a supported argument type",
                         self.name, argument.schema.id
                     ))
-                })?;
+                })?
+                .schema;
             if !ids.insert(argument.schema.id.as_str()) {
                 return Err(ProjectError::invalid_data(format!(
                     "Scene '{}' argument '{}' is duplicated",
@@ -111,6 +109,7 @@ impl ProjectSceneArgument {
 
     pub(super) fn into_domain(self) -> SceneArgument {
         SceneArgument::new(self.schema, self.bindings)
+            .expect("project argument contracts were prepared before loading instances")
     }
 }
 

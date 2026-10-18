@@ -1,8 +1,8 @@
 use zerium_core::{
     property::{PropertyElementId, PropertySchema, PropertyValue},
     timeline::{
-        AnimationStopEdit, EditGesture, EffectInstanceId, Frame, PropertyAddress, TimelineEditor,
-        TimelineItem, TimelineTime,
+        EffectInstanceId, Frame, PropertyAddress, TimelineItem, TimelineTime, ValueEdit,
+        ValueEditTarget,
     },
 };
 
@@ -140,10 +140,10 @@ pub(super) struct PreviewEditorOverlay {
 }
 
 pub(super) struct PreviewEditorDrag {
-    controls: Vec<(PreviewScalarControl, Option<AnimationStopEdit>)>,
+    controls: Vec<PreviewScalarControl>,
     pointer: Point<Pixels>,
     composition_units_per_pixel: f32,
-    pub(super) gesture: EditGesture,
+    pub(super) edit: ValueEdit,
 }
 
 impl Preview {

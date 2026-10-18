@@ -36,12 +36,12 @@ pub(super) struct NumericInputSpec {
     pub(super) max: f64,
     pub(super) step: f64,
     pub(super) drag_step: Option<f64>,
-    pub(super) scalar_type: ScalarPropertyType,
+    pub(super) number: NumericInput,
 }
 
 impl NumericInputSpec {
     pub(super) fn parse_number(&self, text: &str) -> Option<f64> {
-        NumericInput::new(self.scalar_type.clone())?.parse_number(text)
+        self.number.parse_number(text)
     }
 
     pub(super) fn stepped_value(&self, value: f64, event: &NumberInputEvent) -> f64 {
@@ -56,9 +56,9 @@ impl NumericInputSpec {
 
     pub(super) fn adjustment_step(&self, fine: bool) -> f64 {
         let step = self.step * if fine { 0.1 } else { 1. };
-        match self.scalar_type {
-            ScalarPropertyType::I32 | ScalarPropertyType::U32 => step.max(1.),
-            _ => step,
+        match self.number {
+            NumericInput::I32 | NumericInput::U32 => step.max(1.),
+            NumericInput::F32 => step,
         }
     }
 }
@@ -71,14 +71,14 @@ pub(super) fn numeric_input_spec(
     if !property.configuration_ui(scalar_index).is_visible() {
         return None;
     }
-    NumericInput::new(scalar_type.clone())?;
+    let number = NumericInput::from_scalar(&scalar_type)?;
     let (min, max) = property
         .configuration_constraints(scalar_index)
         .numeric_bounds(&scalar_type)?;
     let ui = property.configuration_ui(scalar_index);
-    let step = match scalar_type {
-        ScalarPropertyType::I32 | ScalarPropertyType::U32 => f64::from(ui.step()).max(1.),
-        _ => f64::from(ui.step()),
+    let step = match number {
+        NumericInput::I32 | NumericInput::U32 => f64::from(ui.step()).max(1.),
+        NumericInput::F32 => f64::from(ui.step()),
     };
     Some(NumericInputSpec {
         suffix: ui.unit().to_owned(),
@@ -86,30 +86,33 @@ pub(super) fn numeric_input_spec(
         max,
         step,
         drag_step: ui.drag_step().map(f64::from),
-        scalar_type,
+        number,
     })
 }
 
-#[derive(Clone)]
-pub(super) struct NumericInput {
-    pub(super) scalar: ScalarPropertyType,
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum NumericInput {
+    F32,
+    I32,
+    U32,
 }
 
 impl NumericInput {
-    pub(super) fn new(scalar: ScalarPropertyType) -> Option<Self> {
-        matches!(
-            scalar,
-            ScalarPropertyType::F32 | ScalarPropertyType::I32 | ScalarPropertyType::U32
-        )
-        .then_some(Self { scalar })
+    pub(super) fn from_scalar(scalar: &ScalarPropertyType) -> Option<Self> {
+        match scalar {
+            ScalarPropertyType::F32 => Some(Self::F32),
+            ScalarPropertyType::I32 => Some(Self::I32),
+            ScalarPropertyType::U32 => Some(Self::U32),
+            _ => None,
+        }
     }
 
     pub(super) fn for_schema(schema: &PropertySchema) -> Option<Self> {
-        Self::new(schema.scalar_type(None, None)?.clone())
+        Self::from_scalar(schema.scalar_type(None, None)?)
     }
 
     pub(super) fn step(&self, float_step: f64) -> f64 {
-        if matches!(self.scalar, ScalarPropertyType::F32) {
+        if matches!(self, Self::F32) {
             float_step
         } else {
             1.
@@ -117,7 +120,7 @@ impl NumericInput {
     }
 
     pub(super) fn format(&self, value: f64) -> String {
-        if self.scalar == ScalarPropertyType::F32 && (value as f32).is_finite() {
+        if *self == Self::F32 && (value as f32).is_finite() {
             (value as f32).to_string()
         } else {
             value.to_string()
@@ -125,7 +128,12 @@ impl NumericInput {
     }
 
     pub(super) fn value_from_number(&self, value: f64) -> Option<PropertyValue> {
-        self.scalar.value_from_number(value)
+        let scalar = match self {
+            Self::F32 => ScalarPropertyType::F32,
+            Self::I32 => ScalarPropertyType::I32,
+            Self::U32 => ScalarPropertyType::U32,
+        };
+        scalar.value_from_number(value)
     }
 
     pub(super) fn parse_number(&self, text: &str) -> Option<f64> {
@@ -133,26 +141,27 @@ impl NumericInput {
     }
 
     pub(super) fn bounds(&self) -> (f64, f64) {
-        zerium_core::property::PropertyConstraints::default()
-            .numeric_bounds(&self.scalar)
-            .expect("numeric input type")
+        match self {
+            Self::F32 => (f64::from(f32::MIN), f64::from(f32::MAX)),
+            Self::I32 => (f64::from(i32::MIN), f64::from(i32::MAX)),
+            Self::U32 => (0., f64::from(u32::MAX)),
+        }
     }
 
     pub(super) fn parse(&self, text: &str) -> Option<PropertyValue> {
         let text = text.trim();
-        match self.scalar {
+        match self {
             // Parse directly into the declared type to avoid double rounding.
-            ScalarPropertyType::F32 => {
+            Self::F32 => {
                 let value = text.parse::<f32>().ok()?;
                 value.is_finite().then_some(PropertyValue::F32(value))
             }
-            ScalarPropertyType::I32 | ScalarPropertyType::U32 => {
+            Self::I32 | Self::U32 => {
                 let value: f64 = text.parse().ok()?;
                 (value.fract() == 0.)
                     .then(|| self.value_from_number(value))
                     .flatten()
             }
-            _ => None,
         }
     }
 }

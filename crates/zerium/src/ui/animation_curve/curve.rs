@@ -1,27 +1,16 @@
 use super::*;
 
-impl GraphCurve {
+impl GraphSegment {
     pub(super) fn has_handles(&self) -> bool {
-        self.interpolations
-            .iter()
-            .any(|interpolation| matches!(interpolation, SegmentInterpolation::Custom(_)))
+        matches!(self.interpolation, SegmentInterpolation::Custom(_))
     }
 
-    fn segment_for_handle(index: usize, handle: BezierHandle) -> Option<usize> {
-        match handle {
-            BezierHandle::In => index.checked_sub(1),
-            BezierHandle::Out => Some(index),
-        }
-    }
-
-    pub(super) fn handle_position(&self, index: usize, handle: BezierHandle) -> Option<[f32; 2]> {
-        let segment = Self::segment_for_handle(index, handle)?;
-        let SegmentInterpolation::Custom(curve) = self.interpolations.get(segment)? else {
+    pub(super) fn handle_position(&self, handle: BezierHandle) -> Option<[f32; 2]> {
+        let SegmentInterpolation::Custom(curve) = self.interpolation else {
             return None;
         };
         let local = curve.handle(handle);
-        let start = self.stops.get(segment)?;
-        let end = self.stops.get(segment + 1)?;
+        let [start, end] = self.endpoints;
         Some([
             start[0] + (end[0] - start[0]) * local[0],
             start[1] + (end[1] - start[1]) * local[1],
@@ -29,17 +18,16 @@ impl GraphCurve {
     }
 
     /// Off-screen controls are marked where their guide reaches the plot edge.
-    pub(super) fn handle_display_position(
-        &self,
-        index: usize,
-        handle: BezierHandle,
-    ) -> Option<[f32; 2]> {
-        let position = self.handle_position(index, handle)?;
+    pub(super) fn handle_display_position(&self, handle: BezierHandle) -> Option<[f32; 2]> {
+        let position = self.handle_position(handle)?;
         let edge = position[1].clamp(0., 1.);
         if edge == position[1] {
             return Some(position);
         }
-        let stop = self.stops.get(index)?;
+        let stop = match handle {
+            BezierHandle::Out => self.endpoints[0],
+            BezierHandle::In => self.endpoints[1],
+        };
         let span = position[1] - stop[1];
         let progress = if span.abs() <= f32::EPSILON {
             1.
@@ -49,79 +37,53 @@ impl GraphCurve {
         Some([stop[0] + (position[0] - stop[0]) * progress, edge])
     }
 
-    pub(super) fn local_handle_position(
-        &self,
-        index: usize,
-        handle: BezierHandle,
-        point: [f32; 2],
-    ) -> Option<(usize, [f32; 2])> {
-        let segment = Self::segment_for_handle(index, handle)?;
-        let start = self.stops.get(segment)?;
-        let end = self.stops.get(segment + 1)?;
+    pub(super) fn local_handle_position(&self, point: [f32; 2]) -> Option<[f32; 2]> {
+        let [start, end] = self.endpoints;
         let dx = end[0] - start[0];
         if dx <= f32::EPSILON {
             return None;
         }
         let dy = end[1] - start[1];
-        Some((
-            segment,
-            [
-                ((point[0] - start[0]) / dx).clamp(0., 1.),
-                if dy.abs() <= f32::EPSILON {
-                    point[1]
-                } else {
-                    (point[1] - start[1]) / dy
-                },
-            ],
-        ))
+        Some([
+            ((point[0] - start[0]) / dx).clamp(0., 1.),
+            if dy.abs() <= f32::EPSILON {
+                point[1]
+            } else {
+                (point[1] - start[1]) / dy
+            },
+        ])
     }
 
     pub(super) fn evaluate(&self, progress: f32) -> f32 {
         let progress = progress.clamp(0., 1.);
-        let right = self
-            .stops
-            .partition_point(|stop| stop[0] < progress)
-            .min(self.stops.len().saturating_sub(1));
-        if right == 0 || self.stops[right][0] == progress {
-            return self.stops.get(right).map_or(0., |stop| stop[1]);
+        let [start, end] = self.endpoints;
+        if progress <= start[0] {
+            return start[1];
         }
-        let left = right - 1;
-        let start = self.stops[left];
-        let end = self.stops[right];
+        if progress >= end[0] {
+            return end[1];
+        }
         let span = end[0] - start[0];
         if span <= 0. {
             return start[1];
         }
         let local = (progress - start[0]) / span;
-        let eased = self
-            .interpolations
-            .get(left)
-            .map_or(local, |interpolation| interpolation.evaluate(local));
+        let eased = self.interpolation.evaluate(local);
         start[1] + (end[1] - start[1]) * eased
     }
 
     fn value_range(&self, include_handles: bool) -> [f32; 2] {
-        let curve = self;
-        let samples = (0..=64).map(|index| curve.evaluate(index as f32 / 64.));
-        let handles = curve
-            .stops
-            .iter()
-            .enumerate()
+        let samples = (0..=64).map(|index| self.evaluate(index as f32 / 64.));
+        let handles = [BezierHandle::Out, BezierHandle::In]
+            .into_iter()
             .filter(|_| include_handles)
-            .flat_map(|(index, _)| {
-                [BezierHandle::In, BezierHandle::Out]
-                    .into_iter()
-                    .filter_map(move |handle| {
-                        curve.handle_position(index, handle).map(|point| point[1])
-                    })
-            });
+            .filter_map(|handle| self.handle_position(handle).map(|point| point[1]));
         let (minimum, maximum) = samples
             .chain(handles)
-            .chain(self.stops.iter().map(|stop| stop[1]))
-            .fold(
-                (f32::INFINITY, f32::NEG_INFINITY),
-                |(minimum, maximum), value| (minimum.min(value), maximum.max(value)),
-            );
+            .chain(self.endpoints.iter().map(|stop| stop[1]))
+            .fold((f32::INFINITY, f32::NEG_INFINITY), |(min, max), value| {
+                (min.min(value), max.max(value))
+            });
         let padding = ((maximum - minimum) * 0.15).max(0.1);
         [minimum - padding, maximum + padding]
     }
@@ -141,7 +103,7 @@ impl SelectedCurve {
     }
 
     fn set_value_range(&mut self, [minimum, maximum]: [f64; 2]) {
-        for stop in &mut self.curve.stops {
+        for stop in &mut self.curve.endpoints {
             let value = self.value_min + (self.value_max - self.value_min) * f64::from(stop[1]);
             stop[1] = AnimationCurveEditor::normalized_value(value, minimum, maximum);
         }
@@ -195,11 +157,11 @@ impl AnimationCurveEditor {
     }
 
     pub(super) fn selected_curve(&self, cx: &App) -> Option<SelectedCurve> {
-        if let Some(view) = &self.handle_drag_view {
+        if let GraphInteraction::HandleDrag { view, .. } = &self.graph_interaction {
             let editor = self.editor.read(cx);
             let track = editor.animation_track(&view.address)?;
-            let mut selected = view.clone();
-            selected.curve.interpolations[0] = *track.interpolations().get(view.source_segment)?;
+            let mut selected = view.as_ref().clone();
+            selected.curve.interpolation = *track.interpolations().get(view.source_segment)?;
             return Some(selected);
         }
         let mut selected = self.source_curve(cx)?;
@@ -237,32 +199,30 @@ impl AnimationCurveEditor {
         let segment_span = (source_frame_end.get() - source_frame_start.get()) as f64;
         let playhead_progress =
             ((source_frame - source_frame_start.get() as f64) / segment_span).clamp(0., 1.) as f32;
-        let numeric_stops = track.stops()[source_segment..=source_segment + 1]
-            .iter()
-            .map(|stop| stop.value().numeric_scalar())
-            .collect::<Option<Vec<_>>>();
-        let (value_min, value_max, stops, axis_suffix) = if let Some(values) = numeric_stops {
-            let minimum = values.iter().copied().min_by(f64::total_cmp)?;
-            let maximum = values.iter().copied().max_by(f64::total_cmp)?;
-            let padding = if maximum == minimum {
-                (presentation.step * 10.).max(minimum.abs() * 0.1).max(1.)
+        let numeric_stops = [source_segment, source_segment + 1]
+            .map(|index| track.stops()[index].value().numeric_scalar());
+        let (value_min, value_max, endpoints, axis_suffix) =
+            if let [Some(start), Some(end)] = numeric_stops {
+                let minimum = start.min(end);
+                let maximum = start.max(end);
+                let padding = if maximum == minimum {
+                    (presentation.step * 10.).max(minimum.abs() * 0.1).max(1.)
+                } else {
+                    0.
+                };
+                let from = minimum - padding;
+                let to = maximum + padding;
+                let endpoints = [
+                    [0., Self::normalized_value(start, from, to)],
+                    [1., Self::normalized_value(end, from, to)],
+                ];
+                (from, to, endpoints, presentation.suffix.clone())
             } else {
-                0.
+                (0., 100., [[0., 0.], [1., 1.]], "%".to_owned())
             };
-            let from = minimum - padding;
-            let to = maximum + padding;
-            let stops = values
-                .into_iter()
-                .enumerate()
-                .map(|(index, value)| [index as f32, Self::normalized_value(value, from, to)])
-                .collect();
-            (from, to, stops, presentation.suffix.clone())
-        } else {
-            (0., 100., vec![[0., 0.], [1., 1.]], "%".to_owned())
-        };
-        let curve = GraphCurve {
-            stops,
-            interpolations: vec![*track.interpolations().get(source_segment)?],
+        let curve = GraphSegment {
+            endpoints,
+            interpolation: *track.interpolations().get(source_segment)?,
         };
         let frame_rate = editor.frame_rate();
         let frames_per_second = frame_rate.frames_per_second();
@@ -330,7 +290,7 @@ impl AnimationCurveEditor {
 
     pub(super) fn begin_handle_drag(
         &mut self,
-        point: CurvePoint,
+        handle: BezierHandle,
         synchronize: bool,
         cx: &mut Context<Self>,
     ) {
@@ -344,9 +304,11 @@ impl AnimationCurveEditor {
         ) else {
             return;
         };
-        self.animation_edit = Some(edit);
-        self.handle_drag_view = Some(selected);
-        self.graph_interaction = GraphInteraction::HandleDrag { point };
+        self.graph_interaction = GraphInteraction::HandleDrag {
+            handle,
+            edit,
+            view: Box::new(selected),
+        };
         self.finish_playhead_scrub(cx);
         self.editor
             .update(cx, |editor, _| editor.finish_history_group());
