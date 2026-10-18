@@ -43,7 +43,7 @@ serde.workspace = true
 serde_json.workspace = true
 sys-locale = "0.3.2"
 thiserror.workspace = true
-ui = { git = "https://github.com/1Step621/WGPUI-Component", rev = "068e42ac552206db7a6afbeb1771fb2bead1b90c" }
+ui = { git = "https://github.com/1Step621/WGPUI-Component", rev = "4a968bcf72c13303b2e89f06e9cbf0fc6ccf8edf" }
 unicode-segmentation = "1.12"
 url = "2"
 velopack = { version = "=1.2.161", optional = true }
