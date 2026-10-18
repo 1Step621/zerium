@@ -1,13 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-export HOMEBREW_NO_AUTO_UPDATE=1
-brew install --force-bottle dylibbundler
+# Keep the packaging tool isolated from the runner's Python installation.
+mkdir -p target/tools
+python3 -m venv target/tools/delocate
+target/tools/delocate/bin/python -m pip install --disable-pip-version-check 'delocate==0.13.0'
 
 # The official SDK includes SoundTouch and its GStreamer plugin.
 gst_version="1.28.8"
 gst_root="/Library/Frameworks/GStreamer.framework/Versions/1.0"
-mkdir -p target/tools
 for component in gstreamer-1.0 gstreamer-1.0-devel; do
   name="$component-$gst_version-universal.pkg"
   url="https://gstreamer.freedesktop.org/data/pkg/osx/$gst_version/$name"
