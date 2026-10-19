@@ -2576,7 +2576,7 @@ dependencies = [
 [[package]]
 name = "gpui-ce"
 version = "1.0.0"
-source = "git+https://github.com/1Step621/WGPUI?branch=fix%2Finput-selection-replacement#9b0630a3163dcff57b691d9c47d7f63b36bf73a1"
+source = "git+https://github.com/1Step621/WGPUI?branch=fix%2Finput-selection-replacement#80d6b8796058fee43481a51d74427af8b141f185"
 dependencies = [
  "anyhow",
  "arboard",
