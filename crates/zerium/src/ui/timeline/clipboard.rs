@@ -2,15 +2,23 @@ use rust_i18n::t;
 
 use std::collections::HashSet;
 
-use gpui::{App, ClipboardItem, Context, Window};
+use gpui::{App, ClipboardFormat, ClipboardItem, Context, Window};
 
 use crate::ui::TimelineEditorEntityExt as _;
 use zerium_core::{
-    persistence::{DecodedTimelineClipboard, decode_timeline_clipboard, encode_timeline_clipboard},
+    persistence::{
+        DecodedTimelineClipboard, ProjectError, decode_timeline_clipboard,
+        encode_timeline_clipboard,
+    },
     timeline::{Frame, LayerId, TimelineEditor},
 };
 
 use super::Timeline;
+
+const TIMELINE_CLIPBOARD_FORMAT: ClipboardFormat = ClipboardFormat {
+    mime_type: "application/x-zerium-timeline-items",
+    macos_uti: "dev.1step621.zerium.timeline-items",
+};
 
 impl Timeline {
     pub(crate) fn can_copy_items(&self, cx: &App) -> bool {
@@ -18,11 +26,11 @@ impl Timeline {
     }
 
     pub(crate) fn can_paste_items(&self, cx: &App) -> bool {
-        self.clipboard_data(cx).is_some()
+        self.clipboard_data(cx).is_ok()
     }
 
     pub(crate) fn copy_selected_items(&mut self, cx: &mut Context<Self>) -> bool {
-        let (item_count, metadata) = {
+        let (item_count, data) = {
             let editor = self.editor.read(cx);
             let selected = editor.selected_item_ids().collect::<HashSet<_>>();
             if selected.is_empty() {
@@ -35,15 +43,19 @@ impl Timeline {
             items.sort_unstable_by_key(|(layer, item)| {
                 (layer.get(), item.start.get(), item.id.get())
             });
-            let Ok(metadata) = encode_timeline_clipboard(&items, editor) else {
-                return false;
+            let data = match encode_timeline_clipboard(&items, editor) {
+                Ok(data) => data,
+                Err(error) => {
+                    log::warn!("Could not encode timeline clipboard data: {error}");
+                    return false;
+                }
             };
-            (items.len(), metadata)
+            (items.len(), data)
         };
-        cx.write_to_clipboard(ClipboardItem::new_string_with_metadata(
-            t!("clipboard.item_count", count = item_count).to_string(),
-            metadata,
-        ));
+        cx.write_to_clipboard(
+            ClipboardItem::new_string(t!("clipboard.item_count", count = item_count).to_string())
+                .with_custom(TIMELINE_CLIPBOARD_FORMAT, data.into_bytes()),
+        );
         true
     }
 
@@ -56,9 +68,19 @@ impl Timeline {
             .update_if_changed(cx, TimelineEditor::remove_selected_item)
     }
 
-    fn clipboard_data(&self, cx: &App) -> Option<DecodedTimelineClipboard> {
-        let item = cx.read_from_clipboard()?;
-        decode_timeline_clipboard(item.metadata()?, self.editor.read(cx)).ok()
+    fn clipboard_data(&self, cx: &App) -> Result<DecodedTimelineClipboard, ProjectError> {
+        let item = cx
+            .read_from_clipboard_with_formats(&[TIMELINE_CLIPBOARD_FORMAT])
+            .ok_or_else(|| ProjectError::invalid_data("Clipboard is empty or could not be read"))?;
+        let data = item.custom(TIMELINE_CLIPBOARD_FORMAT).ok_or_else(|| {
+            ProjectError::invalid_data("Clipboard does not contain timeline items")
+        })?;
+        let source = std::str::from_utf8(data).map_err(|error| {
+            ProjectError::invalid_data(format!(
+                "Timeline clipboard data is not valid UTF-8: {error}"
+            ))
+        })?;
+        decode_timeline_clipboard(source, self.editor.read(cx))
     }
 
     pub(crate) fn paste_items(&mut self, window: &Window, cx: &mut Context<Self>) -> bool {
@@ -87,8 +109,12 @@ impl Timeline {
         target: Option<(LayerId, Frame)>,
         cx: &mut Context<Self>,
     ) -> bool {
-        let Some(clipboard) = self.clipboard_data(cx) else {
-            return false;
+        let clipboard = match self.clipboard_data(cx) {
+            Ok(clipboard) => clipboard,
+            Err(error) => {
+                log::warn!("Could not paste timeline items: {error}");
+                return false;
+            }
         };
         let default_layer = clipboard
             .items

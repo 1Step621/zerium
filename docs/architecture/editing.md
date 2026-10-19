@@ -109,6 +109,11 @@ fixed without migrating old representations. Core validates loaded values and
 clipboard input; pastes assign fresh IDs. Filesystem access and atomic replacement
 belong to [`engine::project_io`](../../crates/zerium/src/engine/project_io.rs).
 
+Timeline copies store JSON in the application's `application/x-zerium-timeline-items`
+clipboard format (`dev.1step621.zerium.timeline-items` on macOS), alongside a
+human-readable item count. Zerium owns the format and decoding; WGPUI transfers
+the requested custom formats as bytes.
+
 [`ProjectSession`](../../crates/zerium/src/project_session.rs) identifies project
 generations so results from a replaced project can be ignored.
 [`ProjectController`](../../crates/zerium/src/app/project_controller.rs) owns file
