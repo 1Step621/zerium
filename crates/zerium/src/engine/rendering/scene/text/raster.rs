@@ -8,6 +8,11 @@ use crate::engine::frame::VisualFrame;
 
 use super::{RenderError, TextSignature};
 
+struct ResolvedFont<'a> {
+    id: Option<fontdb::ID>,
+    attrs: Attrs<'a>,
+}
+
 pub(super) fn rasterize(
     font_system: &mut FontSystem,
     swash_cache: &mut SwashCache,
@@ -39,18 +44,11 @@ pub(super) fn rasterize(
         })?;
     let font_size = (signature.font_size * uniform_scale).max(1.);
     let line_height = (font_size * 1.2 + signature.line_spacing * uniform_scale).max(1.);
-    // Line spacing must not move or clip the first line inside its line box.
-    let first_line_offset = ((line_height - font_size * 1.2) / 2.).round() as i32;
+    let extra_line_height = line_height - font_size * 1.2;
     let letter_spacing_pixels = signature.letter_spacing * uniform_scale;
     let letter_spacing = letter_spacing_pixels / font_size;
     let metrics = Metrics::new(font_size, line_height);
     let mut buffer = Buffer::new(font_system, metrics);
-    let mut font_families = signature.font_families.clone();
-    font_families.push("sans-serif".into());
-    let primary_family = font_families
-        .first()
-        .map(String::as_str)
-        .unwrap_or_default();
     let weight = if signature.bold {
         Weight::BOLD
     } else {
@@ -61,27 +59,15 @@ pub(super) fn rasterize(
     } else {
         Style::Normal
     };
-    let attrs =
-        attrs_for_family(font_system, primary_family, weight, style).letter_spacing(letter_spacing);
-    let font_runs = font_runs(
-        font_system,
-        &signature.content,
-        &font_families,
-        weight,
-        style,
-    );
-    let run_attrs = font_runs
+    let fonts = signature
+        .font_families
         .iter()
-        .map(|(_, family_index)| {
-            attrs_for_family(
-                font_system,
-                font_families[*family_index].as_str(),
-                weight,
-                style,
-            )
-            .letter_spacing(letter_spacing)
-        })
+        .map(String::as_str)
+        .chain(std::iter::once("sans-serif"))
+        .map(|family| resolve_font(font_system, family, weight, style, letter_spacing))
         .collect::<Vec<_>>();
+    let attrs = &fonts[0].attrs;
+    let font_runs = font_runs(font_system, &signature.content, &fonts, weight);
     let alignment = match signature.horizontal_alignment {
         1 => Align::Center,
         2 => Align::Right,
@@ -91,36 +77,47 @@ pub(super) fn rasterize(
     {
         let mut borrowed = buffer.borrow_with(font_system);
         // cosmic-text counts one trailing letter space in each line's width.
-        borrowed.set_size(
-            Some((width as f32 + letter_spacing_pixels).max(1.)),
-            Some(height as f32 + first_line_offset.max(0) as f32),
-        );
+        borrowed.set_size(Some((width as f32 + letter_spacing_pixels).max(1.)), None);
         borrowed.set_wrap(Wrap::WordOrGlyph);
         if font_runs.is_empty() {
             borrowed.set_text(
                 &signature.content,
-                &attrs,
+                attrs,
                 Shaping::Advanced,
                 Some(alignment),
             );
         } else {
             borrowed.set_rich_text(
-                font_runs
-                    .iter()
-                    .zip(&run_attrs)
-                    .map(|((range, _), attrs)| (&signature.content[range.clone()], attrs.clone())),
-                &attrs,
+                font_runs.iter().map(|(range, family)| {
+                    (
+                        &signature.content[range.clone()],
+                        fonts[*family].attrs.clone(),
+                    )
+                }),
+                attrs,
                 Shaping::Advanced,
                 Some(alignment),
             );
         }
         borrowed.shape_until_scroll(false);
+        // Extra leading belongs between lines, not above or below the text block.
+        let content_height = borrowed
+            .layout_runs()
+            .last()
+            .map_or(0., |run| run.line_top + run.line_height - extra_line_height);
+        let remaining_height = (height as f32 - content_height).max(0.);
+        let offset_y = (match signature.vertical_alignment {
+            1 => remaining_height / 2.,
+            2 => remaining_height,
+            _ => 0.,
+        } - extra_line_height / 2.)
+            .round() as i32;
         borrowed.draw(
             swash_cache,
             Color::rgb(255, 255, 255),
             |x, y, glyph_width, glyph_height, color| {
-                for offset_y in 0..glyph_height as i32 {
-                    let pixel_y = y + offset_y - first_line_offset;
+                for row in 0..glyph_height as i32 {
+                    let pixel_y = y + row + offset_y;
                     if !(0..height as i32).contains(&pixel_y) {
                         continue;
                     }
@@ -136,12 +133,6 @@ pub(super) fn rasterize(
             },
         );
     }
-    align_vertically(
-        &mut coverage,
-        width as usize,
-        height as usize,
-        signature.vertical_alignment,
-    );
     let outline_radius = (signature.outline_width.max(0.) * uniform_scale).min(64.);
     let outline = outline_from_distance(&coverage, width as usize, height as usize, outline_radius);
     let rgba = colorize(
@@ -162,50 +153,45 @@ fn font_family(name: &str) -> Family<'_> {
     }
 }
 
-fn attrs_for_family<'a>(
+fn resolve_font<'a>(
     font_system: &FontSystem,
     name: &'a str,
     requested_weight: Weight,
     style: Style,
-) -> Attrs<'a> {
+    letter_spacing: f32,
+) -> ResolvedFont<'a> {
     let family = font_family(name);
-    let resolved_weight = font_system
-        .db()
-        .query(&fontdb::Query {
-            families: &[family],
-            weight: requested_weight,
-            stretch: Stretch::Normal,
-            style,
-        })
+    let id = font_system.db().query(&fontdb::Query {
+        families: &[family],
+        weight: requested_weight,
+        stretch: Stretch::Normal,
+        style,
+    });
+    let resolved_weight = id
         .and_then(|id| font_system.db().face(id))
         .map_or(requested_weight, |face| face.weight);
-    Attrs::new()
-        .family(family)
-        .weight(resolved_weight)
-        .style(style)
+    ResolvedFont {
+        id,
+        attrs: Attrs::new()
+            .family(family)
+            .weight(resolved_weight)
+            .style(style)
+            .letter_spacing(letter_spacing),
+    }
 }
 
 fn font_runs(
     font_system: &mut FontSystem,
     text: &str,
-    families: &[String],
+    families: &[ResolvedFont<'_>],
     weight: Weight,
-    style: Style,
 ) -> Vec<(std::ops::Range<usize>, usize)> {
     if text.is_empty() || families.len() < 2 {
         return Vec::new();
     }
     let fonts = families
         .iter()
-        .map(|family| {
-            let font_id = font_system.db().query(&fontdb::Query {
-                families: &[font_family(family)],
-                weight,
-                stretch: Stretch::Normal,
-                style,
-            })?;
-            font_system.get_font(font_id, weight)
-        })
+        .map(|family| family.id.and_then(|id| font_system.get_font(id, weight)))
         .collect::<Vec<_>>();
     let mut runs = Vec::new();
     let mut current_family = 0;
@@ -235,43 +221,6 @@ fn font_supports(font: &cosmic_text::Font, grapheme: &str) -> bool {
             || matches!(character as u32, 0x200c..=0x200d | 0xfe00..=0xfe0f | 0xe0100..=0xe01ef)
             || charmap.map(character) != 0
     })
-}
-
-fn align_vertically(coverage: &mut [u8], width: usize, height: usize, alignment: u32) {
-    let Some(first) = (0..height).find(|y| {
-        coverage[y * width..(y + 1) * width]
-            .iter()
-            .any(|alpha| *alpha > 0)
-    }) else {
-        return;
-    };
-    let last = (first..height)
-        .rev()
-        .find(|y| {
-            coverage[y * width..(y + 1) * width]
-                .iter()
-                .any(|alpha| *alpha > 0)
-        })
-        .unwrap_or(first);
-    let content_height = last - first + 1;
-    let target = match alignment {
-        1 => height.saturating_sub(content_height) / 2,
-        2 => height.saturating_sub(content_height),
-        _ => 0,
-    };
-    if target == first {
-        return;
-    }
-    let original = coverage.to_vec();
-    coverage.fill(0);
-    for source_y in first..=last {
-        let destination_y = target + source_y - first;
-        if destination_y >= height {
-            break;
-        }
-        coverage[destination_y * width..(destination_y + 1) * width]
-            .copy_from_slice(&original[source_y * width..(source_y + 1) * width]);
-    }
 }
 
 fn outline_from_distance(source: &[u8], width: usize, height: usize, radius: f32) -> Vec<u8> {

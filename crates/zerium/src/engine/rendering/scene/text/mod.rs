@@ -156,9 +156,6 @@ impl TextFrameCache {
             self.byte_budget,
         )?);
         let bytes = frame.byte_len();
-        if bytes > self.byte_budget {
-            return Ok(frame);
-        }
         if let Some(replaced) = self.frames.remove(&request.id) {
             self.resident_bytes = self
                 .resident_bytes

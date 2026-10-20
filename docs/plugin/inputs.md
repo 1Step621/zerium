@@ -110,7 +110,8 @@ A text input declares all properties used by the rasterizer:
 `text` references a `string` property. In `style`, `size` is a two-`f32` tuple and
 `font_family` is a string array. Font size and outline width are `f32`; colors are
 `color`; bold and italic are `bool`. Alignment enums must contain exactly `0`,
-`1`, and `2`.
+`1`, and `2`: left/center/right horizontally and top/center/bottom vertically.
+Vertical alignment uses line boxes.
 
 `letter_spacing` and `line_spacing` reference `f32` properties in composition
 pixels; zero preserves the default spacing. Letter spacing adjusts glyph
