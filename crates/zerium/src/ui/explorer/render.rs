@@ -2,6 +2,7 @@
 use ::ui::{
     ActiveTheme as _, Disableable as _, Icon, IconName, Sizable as _, ThemeColor,
     button::{Button, ButtonVariants as _},
+    menu::context_menu::ContextMenuExt as _,
 };
 use gpui::{
     Context, Div, MouseButton, MouseUpEvent, Render, SharedString, Stateful, Window, div,
@@ -111,6 +112,14 @@ impl Explorer {
                     .small()
                     .ghost()
                     .on_click(cx.listener(Self::open_home)),
+            )
+            .child(
+                Button::new("explorer-choose-folder")
+                    .icon(IconName::FolderOpen)
+                    .tooltip(t!("explorer.choose_folder").to_string())
+                    .small()
+                    .ghost()
+                    .on_click(cx.listener(Self::choose_directory)),
             )
             .child(
                 div()
@@ -235,7 +244,10 @@ impl Render for Explorer {
         let selected_paths = self.selected_paths.clone();
         let selected_files = Rc::new(Self::selected_drag_files(&entries, &selected_paths));
         let error = self.error.clone();
+        let directory = self.current_directory.clone();
         div()
+            .id("explorer")
+            .relative()
             .size_full()
             .flex()
             .flex_col()
@@ -285,6 +297,21 @@ impl Render for Explorer {
                         .text_xs()
                         .text_color(colors.danger)
                         .child(error),
+                )
+            })
+            .context_menu(move |menu, _, _| {
+                let directory = directory.clone();
+                let label = if cfg!(target_os = "windows") {
+                    t!("explorer.open_in_windows_explorer")
+                } else if cfg!(target_os = "macos") {
+                    t!("explorer.open_in_finder")
+                } else {
+                    t!("explorer.open_in_file_manager")
+                };
+                menu.menu_handler_with_icon(
+                    label.to_string(),
+                    IconName::FolderOpen,
+                    move |_, cx| cx.open_with_system(&directory),
                 )
             })
     }

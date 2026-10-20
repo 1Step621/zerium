@@ -167,6 +167,38 @@ impl Explorer {
         cx.notify();
     }
 
+    pub(in crate::ui::explorer) fn choose_directory(
+        &mut self,
+        _: &ClickEvent,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let generation = self.load_generation;
+        let session_id = self.session.read(cx).id();
+        let selection = rfd::AsyncFileDialog::new()
+            .set_parent(window)
+            .set_directory(&self.current_directory)
+            .set_title(t!("explorer.choose_folder").to_string())
+            .pick_folder();
+        cx.spawn(async move |explorer, cx| {
+            let Some(folder) = selection.await else {
+                return;
+            };
+            explorer
+                .update(cx, |explorer, cx| {
+                    if explorer.load_generation != generation
+                        || !explorer.session.read(cx).is_current(session_id)
+                    {
+                        return;
+                    }
+                    explorer.load_directory(folder.path().to_path_buf(), cx);
+                    cx.notify();
+                })
+                .ok();
+        })
+        .detach();
+    }
+
     pub(in crate::ui::explorer) fn refresh(
         &mut self,
         _: &ClickEvent,
