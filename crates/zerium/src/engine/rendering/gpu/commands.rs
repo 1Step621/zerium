@@ -1,31 +1,35 @@
-use super::RenderSession;
-use super::bindings::{GpuComposite, GpuImage, GpuPass, GpuSurface};
+use super::bindings::{GpuComposite, GpuImage};
+use super::execution::{
+    ExecutionCommand, ExecutionPlan, PlannedSurface, RasterOperation, SurfaceId, SurfaceTask,
+};
 use super::passes::{PassBindings, render_pass};
-use super::plan::{
-    ImageInput, PassKind, RenderCommand, RenderNodeCommandKind, RenderNodeId, RenderPlan,
-    RenderSourceCommand, plan_scene,
-};
+use super::plan::{PassKind, build_render_graph};
 use super::resources::{BackdropPool, FrameResources, NodeResources, RenderTarget};
-use super::scene::{RasterGrid, SurfaceRect};
+use super::scene::SurfaceRect;
 use super::scene::{RenderError, RenderScene, RenderSize, RenderView};
-use super::surfaces::{
-    FrameSurfaces, RenderRequest, RenderedSurface, SurfaceOutput, SurfaceRaster,
-};
+use super::surfaces::{RenderedSurface, SurfaceCache, SurfaceRaster};
 use super::textures::FrameImage;
+use super::{RenderSession, RenderState};
+use wgpu::util::DeviceExt;
 use zerium_core::timeline::BlendMode;
 use zerium_shader::{IMAGE_SAMPLER_BINDING, ImageBinding};
 
 struct FrameEncoding {
-    surfaces: FrameSurfaces,
+    surfaces: SurfaceCache,
     backdrops: Vec<RenderTarget>,
-    unused_resources: Vec<NodeResources>,
 }
 
-struct RenderNodeContext<'a> {
+/// A physical task's image and allocation have one owner until the plan's final
+/// consumer transfers them to either the scratch pool or the next frame's cache.
+struct LiveSurface {
+    surface: RenderedSurface,
+    resources: Option<NodeResources>,
+}
+
+struct SurfaceContext<'a> {
     frame: &'a FrameResources,
-    plan: &'a RenderPlan,
+    previous: &'a mut SurfaceCache,
     available_resources: &'a mut Vec<NodeResources>,
-    surfaces: &'a mut FrameSurfaces,
     backdrops: &'a mut BackdropPool,
     frame_images: &'a mut [FrameImage],
 }
@@ -33,75 +37,53 @@ struct RenderNodeContext<'a> {
 impl RenderSession {
     fn local_resources(
         &self,
-        context: &mut RenderNodeContext<'_>,
-        node_id: RenderNodeId,
+        encoder: &mut wgpu::CommandEncoder,
+        context: &mut SurfaceContext<'_>,
         raster: SurfaceRaster,
+        operation: &RasterOperation,
     ) -> NodeResources {
-        let (rect, size) = (raster.rect(), raster.size());
-        let plan = context.plan;
-        let uniform_size = match &plan.nodes[node_id].kind {
-            RenderNodeCommandKind::Source(RenderSourceCommand::Item { .. }) => {
-                size_of::<GpuSurface>() as u64
-            }
-            RenderNodeCommandKind::Pass { .. } => size_of::<GpuPass>() as u64,
-            _ => 0,
-        };
+        let size = raster.size();
+        let uniform = operation.uniform_bytes();
         let reuse = context
             .available_resources
             .iter()
-            .position(|resource| resource.satisfies(size, uniform_size));
+            .position(|resource| resource.satisfies(size, uniform.len() as u64));
         let resources = if let Some(index) = reuse {
             context.available_resources.swap_remove(index)
         } else {
-            self.create_node_resources(size, uniform_size)
+            self.create_node_resources(size, uniform.len() as u64)
         };
-        let surface_size = [
-            (rect.max[0] - rect.min[0]) as f32,
-            (rect.max[1] - rect.min[1]) as f32,
-        ];
-        let surface_min = [rect.min[0] as f32, rect.min[1] as f32];
-        if let RenderNodeCommandKind::Source(RenderSourceCommand::Item { .. }) =
-            &plan.nodes[node_id].kind
-        {
-            self.shared.gpu.queue.write_buffer(
+        if !uniform.is_empty() {
+            self.write_node_uniform(
+                encoder,
                 resources
                     .uniform
                     .as_ref()
-                    .expect("item nodes have a uniform"),
-                0,
-                bytemuck::bytes_of(&GpuSurface {
-                    output_size: [size.width as f32, size.height as f32],
-                    composition_size: [
-                        context.frame.composition_size.width as f32,
-                        context.frame.composition_size.height as f32,
-                    ],
-                    surface_min,
-                    surface_size,
-                }),
+                    .expect("shader allocations have a uniform buffer"),
+                uniform,
             );
         }
-
-        if let RenderNodeCommandKind::Pass { pass, .. } = &plan.nodes[node_id].kind {
-            let mut uniform = plan.passes[pass.instance as usize];
-            uniform.surface_min = surface_min;
-            uniform.surface_size = surface_size;
-            uniform.output_size = [size.width, size.height];
-            uniform.bounds_min = plan.nodes[node_id].bounds.min.map(|value| value as f32);
-            uniform.bounds_size = [
-                (plan.nodes[node_id].bounds.max[0] - plan.nodes[node_id].bounds.min[0]) as f32,
-                (plan.nodes[node_id].bounds.max[1] - plan.nodes[node_id].bounds.min[1]) as f32,
-            ];
-            self.shared.gpu.queue.write_buffer(
-                resources
-                    .uniform
-                    .as_ref()
-                    .expect("pass nodes have a uniform"),
-                0,
-                bytemuck::bytes_of(&uniform),
-            );
-        }
-
         resources
+    }
+
+    fn write_node_uniform(
+        &self,
+        encoder: &mut wgpu::CommandEncoder,
+        destination: &wgpu::Buffer,
+        bytes: &[u8],
+    ) {
+        // Queue::write_buffer runs before the entire submission. A target reused
+        // later in this command buffer needs its uniform update at that point.
+        let upload = self
+            .shared
+            .gpu
+            .device
+            .create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                label: Some("zerium-node-uniform-upload"),
+                contents: bytes,
+                usage: wgpu::BufferUsages::COPY_SRC,
+            });
+        encoder.copy_buffer_to_buffer(&upload, 0, destination, 0, bytes.len() as u64);
     }
 
     fn clear_target(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
@@ -123,7 +105,7 @@ impl RenderSession {
         view: RenderView,
     ) {
         let info = GpuComposite::new(
-            source.size,
+            source.size(),
             source.rect,
             target_size,
             target_rect,
@@ -163,48 +145,52 @@ impl RenderSession {
         self.encode_composite_pass(encoder, &target.view, &source.view, info, backdrop);
     }
 
-    fn render_surface(
+    fn render_planned_surface(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        context: &mut RenderNodeContext<'_>,
-        node_id: RenderNodeId,
-        request: RenderRequest,
-    ) -> Result<RenderedSurface, RenderError> {
-        let node = &context.plan.nodes[node_id];
-        let Some(output) = SurfaceOutput::resolve(
-            node,
-            request,
-            self.shared.gpu.device.limits().max_texture_dimension_2d,
-        )?
-        else {
-            return Ok(RenderedSurface {
-                bounds: context.plan.nodes[node_id].bounds,
-                view: context.frame.transparent.view.clone(),
-                rect: SurfaceRect {
-                    min: [0.; 2],
-                    max: [1.; 2],
+        context: &mut SurfaceContext<'_>,
+        planned: &PlannedSurface,
+        live: &[Option<LiveSurface>],
+    ) -> Result<LiveSurface, RenderError> {
+        match &planned.task {
+            SurfaceTask::Transparent { bounds } => Ok(LiveSurface {
+                surface: RenderedSurface {
+                    bounds: *bounds,
+                    view: context.frame.transparent.view.clone(),
+                    rect: SurfaceRect {
+                        min: [0.; 2],
+                        max: [1.; 2],
+                    },
                 },
-                size: RenderSize {
-                    width: 1,
-                    height: 1,
-                },
-            });
-        };
-
-        let key = output.key(context.plan.node_keys[node_id]);
-        if let Some(surface) = context.surfaces.get(key) {
-            return Ok(surface);
+                resources: None,
+            }),
+            SurfaceTask::Cached { key, .. } => {
+                let (surface, resources) = context
+                    .previous
+                    .take(*key)
+                    .ok_or_else(|| RenderError::backend("planned surface cache hit is missing"))?;
+                Ok(LiveSurface {
+                    surface,
+                    resources: Some(resources),
+                })
+            }
+            SurfaceTask::NativeFrame { index, bounds } => Ok(LiveSurface {
+                surface: self.render_native_frame(encoder, context, *index, *bounds)?,
+                resources: None,
+            }),
+            SurfaceTask::Raster {
+                bounds,
+                raster,
+                operation,
+                ..
+            } => Ok(self.encode_raster(encoder, context, *bounds, *raster, operation, live)),
         }
-        let (surface, resources) =
-            self.render_surface_uncached(encoder, context, node_id, output)?;
-        context.surfaces.insert(key, surface.clone(), resources);
-        Ok(surface)
     }
 
     fn render_native_frame(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        context: &mut RenderNodeContext<'_>,
+        context: &mut SurfaceContext<'_>,
         index: usize,
         bounds: SurfaceRect,
     ) -> Result<RenderedSurface, RenderError> {
@@ -225,58 +211,41 @@ impl RenderSession {
                 "zerium-image-frame",
             )
         });
-        self.encode_frame_pass(
-            encoder,
-            &target.view,
-            &texture.binding,
-            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-        );
+        self.encode_frame_pass(encoder, &target.view, &texture.binding);
         Ok(RenderedSurface {
             bounds,
             rect: bounds,
-            size,
             view: target.view.clone(),
         })
     }
 
-    fn render_surface_uncached(
+    fn encode_raster(
         &self,
         encoder: &mut wgpu::CommandEncoder,
-        context: &mut RenderNodeContext<'_>,
-        node_id: RenderNodeId,
-        output: SurfaceOutput,
-    ) -> Result<(RenderedSurface, Option<NodeResources>), RenderError> {
-        let node = &context.plan.nodes[node_id];
-        let raster = match output {
-            SurfaceOutput::NativeFrame { index } => {
-                return Ok((
-                    self.render_native_frame(encoder, context, index, node.bounds)?,
-                    None,
-                ));
-            }
-            SurfaceOutput::Raster(raster) => raster,
-        };
-        let (rect, grid) = (raster.rect(), raster.grid());
-        let resources = self.local_resources(context, node_id, raster);
-
-        match &node.kind {
-            RenderNodeCommandKind::Source(RenderSourceCommand::Transparent) => {
-                self.clear_target(encoder, &resources.target.view)
-            }
-            RenderNodeCommandKind::Source(RenderSourceCommand::Item {
+        context: &mut SurfaceContext<'_>,
+        bounds: SurfaceRect,
+        raster: SurfaceRaster,
+        operation: &RasterOperation,
+        live: &[Option<LiveSurface>],
+    ) -> LiveSurface {
+        let rect = raster.rect();
+        let resources = self.local_resources(encoder, context, raster, operation);
+        match operation {
+            RasterOperation::Clear => self.clear_target(encoder, &resources.target.view),
+            RasterOperation::Item {
                 shader,
                 instance,
                 images,
-            }) => {
-                let images = self.render_images(encoder, context, images, grid)?;
-                let bindings = self.image_bind_group(&images, &context.frame.transparent.view);
+                ..
+            } => {
+                let bindings = self.image_bind_group(images, live, &context.frame.transparent.view);
                 let item_bindings = self.item_bind_group(
                     &context.frame.buffers.item_buffer,
                     &context.frame.buffers.properties,
                     resources
                         .uniform
                         .as_ref()
-                        .expect("item nodes have a uniform"),
+                        .expect("shader allocations have a uniform buffer"),
                 );
                 self.encode_item_pass(
                     encoder,
@@ -286,21 +255,20 @@ impl RenderSession {
                         capabilities: &bindings,
                     },
                     shader,
-                    *instance..*instance + 1,
-                    wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+                    *instance,
                 );
             }
-
-            RenderNodeCommandKind::Source(RenderSourceCommand::Frame { .. }) => {
-                unreachable!("native image frames are handled above")
-            }
-            RenderNodeCommandKind::Pass { images, pass } => {
-                let images = self.render_images(encoder, context, images, grid)?;
-                let bindings = self.image_bind_group(&images, &context.frame.transparent.view);
+            RasterOperation::Pass {
+                shader,
+                kind,
+                images,
+                ..
+            } => {
+                let bindings = self.image_bind_group(images, live, &context.frame.transparent.view);
                 let pass_bindings = self.pass_bind_group(
-                    &context.frame.buffers.pass_properties,
+                    &context.frame.buffers.properties,
                     &resources,
-                    matches!(pass.kind, PassKind::Compute { .. }),
+                    matches!(kind, PassKind::Compute { .. }),
                 );
                 self.encode_pass_node(
                     encoder,
@@ -309,91 +277,76 @@ impl RenderSession {
                         input: &pass_bindings,
                         capabilities: &bindings,
                     },
-                    pass,
-                )?;
+                    shader,
+                    *kind,
+                );
             }
-            RenderNodeCommandKind::Composite { children } => {
+            RasterOperation::Composite { children } => {
                 self.clear_target(encoder, &resources.target.view);
-                let request = RenderRequest {
-                    bounds: grid.sampling_bounds(rect),
-                    grid,
-                };
-
-                for child in children {
-                    if context.plan.nodes[child.node]
-                        .bounds
-                        .intersection(request.bounds)
-                        .is_none()
-                    {
-                        continue;
-                    }
-
-                    let surface = self.render_surface(encoder, context, child.node, request)?;
+                for (blend_mode, child) in children {
+                    let surface = &live[*child]
+                        .as_ref()
+                        .expect("composite input is live")
+                        .surface;
                     self.composite_layer(
                         encoder,
                         &resources.target,
                         context.backdrops,
-                        &surface,
+                        surface,
                         GpuComposite::new(
-                            surface.size,
+                            surface.size(),
                             surface.rect,
-                            resources.size,
+                            resources.target.size(),
                             rect,
                             RenderView::default(),
-                            child.blend_mode,
+                            *blend_mode,
                         ),
                     );
                 }
             }
-
-            RenderNodeCommandKind::View { input, view } => {
-                let source_grid = grid.through_view(*view);
-                let source = self.render_surface(
-                    encoder,
-                    context,
-                    *input,
-                    RenderRequest {
-                        bounds: source_grid.sampling_bounds(view.source_bounds(rect)),
-                        grid: source_grid,
-                    },
-                )?;
+            RasterOperation::View { input, view } => {
+                let source = &live[*input].as_ref().expect("view input is live").surface;
                 self.clear_target(encoder, &resources.target.view);
                 self.spatial_composite(
                     encoder,
                     &resources.target.view,
                     rect,
-                    resources.size,
-                    &source,
+                    resources.target.size(),
+                    source,
                     *view,
                 );
             }
         }
-
-        let surface = RenderedSurface {
-            bounds: node.bounds,
-            rect,
-            size: resources.size,
-            view: resources.target.view.clone(),
-        };
-        Ok((surface, Some(resources)))
+        LiveSurface {
+            surface: RenderedSurface {
+                bounds,
+                rect,
+                view: resources.target.view.clone(),
+            },
+            resources: Some(resources),
+        }
     }
 
-    pub(super) fn image_bind_group(
+    fn image_bind_group(
         &self,
-        images: &[(ImageBinding, RenderedSurface)],
+        images: &[(ImageBinding, SurfaceId)],
+        live: &[Option<LiveSurface>],
         fallback: &wgpu::TextureView,
     ) -> wgpu::BindGroup {
         let device = &self.shared.gpu.device;
         let image_size = size_of::<GpuImage>();
         let stride = image_size
             .next_multiple_of(device.limits().min_uniform_buffer_offset_alignment as usize);
-        let mut metadata = vec![0_u8; stride * ImageBinding::all().len()];
-        for (index, binding) in ImageBinding::all().enumerate() {
-            if let Some((_, image)) = images
+        let input_image = |binding| {
+            images
                 .iter()
                 .find(|(image_binding, _)| *image_binding == binding)
-            {
-                let info = GpuImage::new(image.bounds, image.rect, image.size);
+                .map(|(_, id)| &live[*id].as_ref().expect("shader input is live").surface)
+        };
+        let mut metadata = vec![0_u8; stride * ImageBinding::all().len()];
+        for (index, binding) in ImageBinding::all().enumerate() {
+            if let Some(image) = input_image(binding) {
+                let info = GpuImage::new(image.bounds, image.rect, image.size());
                 metadata[index * stride..index * stride + image_size]
                     .copy_from_slice(bytemuck::bytes_of(&info));
             }
@@ -414,10 +367,7 @@ impl RenderSession {
                     wgpu::BindGroupEntry {
                         binding: binding.texture(),
                         resource: wgpu::BindingResource::TextureView(
-                            images
-                                .iter()
-                                .find(|(image_binding, _)| *image_binding == binding)
-                                .map_or(fallback, |(_, image)| &image.view),
+                            input_image(binding).map_or(fallback, |image| &image.view),
                         ),
                     },
                     wgpu::BindGroupEntry {
@@ -446,40 +396,27 @@ impl RenderSession {
             })
     }
 
-    fn render_images(
-        &self,
-        encoder: &mut wgpu::CommandEncoder,
-        context: &mut RenderNodeContext<'_>,
-        inputs: &[ImageInput],
-        grid: RasterGrid,
-    ) -> Result<Vec<(ImageBinding, RenderedSurface)>, RenderError> {
-        let mut images = Vec::with_capacity(inputs.len());
-        for input in inputs {
-            let surface = self.render_surface(
-                encoder,
-                context,
-                input.node,
-                RenderRequest {
-                    bounds: context.plan.nodes[input.node].bounds,
-                    grid,
-                },
-            )?;
-            images.push((input.binding, surface));
-        }
-
-        Ok(images)
-    }
-
     fn encode_frame(
         &self,
         encoder: &mut wgpu::CommandEncoder,
         resources: &mut FrameResources,
         frame_images: &mut [FrameImage],
-        scene: &RenderPlan,
-        available_resources: Vec<NodeResources>,
+        execution: &ExecutionPlan,
+        available_resources: &mut Vec<NodeResources>,
     ) -> Result<FrameEncoding, RenderError> {
-        let mut available_resources = available_resources;
-        let mut surfaces = resources.surfaces.begin_frame();
+        let mut previous = std::mem::take(&mut resources.surfaces);
+        let mut surfaces = SurfaceCache::default();
+        available_resources.extend(
+            previous.recycle_unrequested(
+                execution
+                    .surfaces
+                    .iter()
+                    .filter_map(PlannedSurface::cached_key),
+            ),
+        );
+        let mut live = (0..execution.surfaces.len())
+            .map(|_| None)
+            .collect::<Vec<_>>();
         let mut backdrops = BackdropPool::new(std::mem::take(&mut resources.backdrops));
         let target_view = &resources.scene.view;
         let decode = |value: f64| {
@@ -490,10 +427,10 @@ impl RenderSession {
             }
         };
         let background = wgpu::Color {
-            r: decode(scene.background[0]),
-            g: decode(scene.background[1]),
-            b: decode(scene.background[2]),
-            a: scene.background[3],
+            r: decode(execution.data.background[0]),
+            g: decode(execution.data.background[1]),
+            b: decode(execution.data.background[2]),
+            a: execution.data.background[3],
         };
         render_pass(
             encoder,
@@ -502,68 +439,57 @@ impl RenderSession {
             "zerium-frame-clear-pass",
         );
 
-        for command in &scene.commands {
+        for command in &execution.commands {
             match command {
-                RenderCommand::Items(batch) => {
-                    self.encode_item_pass(
-                        encoder,
-                        target_view,
-                        PassBindings {
-                            input: &resources.buffers.item_bind_group,
-                            capabilities: &resources.empty_capabilities,
-                        },
-                        &batch.shader,
-                        batch.instances.clone(),
-                        wgpu::LoadOp::Load,
-                    );
-                }
-
-                RenderCommand::Frame { index } => {
-                    let texture = frame_images.get(*index).ok_or_else(|| {
-                        RenderError::backend("video render command references a missing frame")
-                    })?;
-                    let bind_group = &texture.binding;
-                    self.encode_frame_pass(encoder, target_view, bind_group, wgpu::LoadOp::Load);
-                }
-
-                RenderCommand::Surface {
-                    layer,
-                    render_scale,
-                } => {
-                    let mut context = RenderNodeContext {
+                ExecutionCommand::Render(id) => {
+                    let mut context = SurfaceContext {
                         frame: resources,
-                        plan: scene,
-                        available_resources: &mut available_resources,
-                        surfaces: &mut surfaces,
+                        previous: &mut previous,
+                        available_resources,
                         backdrops: &mut backdrops,
                         frame_images,
                     };
-                    let surface = self.render_surface(
+                    live[*id] = Some(self.render_planned_surface(
                         encoder,
                         &mut context,
-                        layer.node,
-                        RenderRequest {
-                            bounds: SurfaceRect::viewport(resources.composition_size),
-                            grid: RasterGrid::new(
-                                resources.size,
-                                resources.composition_size,
-                                *render_scale,
-                            ),
-                        },
-                    )?;
+                        &execution.surfaces[*id],
+                        &live,
+                    )?);
+                }
+                ExecutionCommand::Composite { source, blend_mode } => {
+                    let surface = &live[*source]
+                        .as_ref()
+                        .expect("root surface is live")
+                        .surface;
                     self.composite_layer(
                         encoder,
                         &resources.scene,
                         &mut backdrops,
-                        &surface,
+                        surface,
                         GpuComposite::new(
-                            surface.size,
+                            surface.size(),
                             surface.rect,
-                            resources.size,
+                            resources.scene.size(),
                             SurfaceRect::viewport(resources.composition_size),
                             RenderView::default(),
-                            layer.blend_mode,
+                            *blend_mode,
                         ),
+                    );
+                }
+                ExecutionCommand::Release(id) => {
+                    let surface = live[*id].take().expect("released surface is live");
+                    if let Some(resource) = surface.resources {
+                        available_resources.push(resource);
+                    }
+                }
+                ExecutionCommand::Retain { surface: id, key } => {
+                    let surface = live[*id].take().expect("retained surface is live");
+                    surfaces.insert(
+                        *key,
+                        surface.surface,
+                        surface
+                            .resources
+                            .expect("only allocated rasters can be retained"),
                     );
                 }
             }
@@ -572,7 +498,6 @@ impl RenderSession {
         Ok(FrameEncoding {
             surfaces,
             backdrops: backdrops.finish(),
-            unused_resources: available_resources,
         })
     }
 
@@ -582,50 +507,39 @@ impl RenderSession {
         target_view: &wgpu::TextureView,
     ) -> Result<wgpu::SubmissionIndex, RenderError> {
         self.validate_scene(scene)?;
-        let plan = {
-            let mut identities = self
-                .node_identities
-                .lock()
-                .map_err(|_| RenderError::backend("render node identity lock poisoned"))?;
-            plan_scene(scene, &mut identities)?
-        };
-        let mut frame_images = self.create_frame_images(&plan.frames)?;
-        let mut frame_resources = self
-            .frame_resources
+        let mut state = self
+            .state
             .lock()
-            .map_err(|_| RenderError::backend("render resource lock poisoned"))?;
+            .map_err(|_| RenderError::backend("render state lock poisoned"))?;
+        let graph = build_render_graph(scene, &mut state.node_identities)?;
+        let RenderState {
+            frame,
+            local_resources,
+            ..
+        } = &mut *state;
+        let cached = frame.as_ref().filter(|frame| frame.matches_scene(scene));
+        let execution = ExecutionPlan::build(
+            graph,
+            scene,
+            self.shared.gpu.device.limits().max_texture_dimension_2d,
+            |key| cached.and_then(|frame| frame.surfaces.size_bytes(key)),
+        )?;
+        let frame = self.prepare_frame_resources(frame, scene, &execution.data)?;
+        let mut frame_images = self.create_frame_images(&execution.data.frames)?;
 
-        if frame_resources
-            .as_ref()
-            .is_none_or(|frame| !frame.satisfies(scene, &plan))
-        {
-            *frame_resources = Some(self.create_frame_resources(scene, &plan)?);
-        }
-
-        let frame = frame_resources
-            .as_mut()
-            .expect("frame resources were created");
-
-        if !plan.items.is_empty() {
+        if !execution.data.items.is_empty() {
             self.shared.gpu.queue.write_buffer(
                 &frame.buffers.item_buffer,
                 0,
-                bytemuck::cast_slice(&plan.items),
+                bytemuck::cast_slice(&execution.data.items),
             );
         }
 
-        if !plan.properties.is_empty() {
-            self.shared
-                .gpu
-                .queue
-                .write_buffer(&frame.buffers.properties, 0, &plan.properties);
-        }
-
-        if !plan.pass_properties.is_empty() {
+        if !execution.data.properties.is_empty() {
             self.shared.gpu.queue.write_buffer(
-                &frame.buffers.pass_properties,
+                &frame.buffers.properties,
                 0,
-                &plan.pass_properties,
+                &execution.data.properties,
             );
         }
 
@@ -636,26 +550,18 @@ impl RenderSession {
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
                     label: Some("zerium-preview-frame-encoder"),
                 });
-        let available_local_resources = {
-            let mut cached = self
-                .local_resources
-                .lock()
-                .map_err(|_| RenderError::backend("local render resource lock poisoned"))?;
-            std::mem::take(&mut *cached)
-        };
         let scene_encoding = self.encode_frame(
             &mut encoder,
             frame,
             &mut frame_images,
-            &plan,
-            available_local_resources,
+            &execution,
+            local_resources,
         )?;
         self.encode_output_pass(&mut encoder, target_view, &frame.output_input);
         let submission = self.shared.gpu.queue.submit([encoder.finish()]);
-        let mut reusable = scene_encoding.surfaces.finish(&mut frame.surfaces);
-        reusable.extend(scene_encoding.unused_resources);
+        frame.surfaces = scene_encoding.surfaces;
         frame.backdrops = scene_encoding.backdrops;
-        self.recycle_node_resources(reusable)?;
+        state.trim_local_resources();
         self.recycle_frame_images(frame_images)?;
         Ok(submission)
     }

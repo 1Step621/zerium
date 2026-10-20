@@ -42,6 +42,7 @@ impl RenderSession {
         Ok(())
     }
 
+    /// The logical DAG has already interned frames by Arc identity.
     pub(super) fn create_frame_images(
         &self,
         frames: &[Arc<VisualFrame>],
@@ -50,13 +51,11 @@ impl RenderSession {
             .texture_resources
             .lock()
             .map_err(|_| RenderError::backend("video texture cache lock poisoned"))?;
-        let mut current_scene: Vec<Arc<FrameTexture>> = Vec::with_capacity(frames.len());
         let mut images = Vec::with_capacity(frames.len());
         for frame in frames {
             let uploaded = cache
                 .previous_scene
                 .iter()
-                .chain(&current_scene)
                 .find(|uploaded| Arc::ptr_eq(&uploaded.frame, frame))
                 .cloned()
                 .map(Ok)
@@ -80,12 +79,6 @@ impl RenderSession {
                     self.update_frame_texture(slot, frame.clone(), &mut cache.yuv_upload)?;
                     Ok(uploaded)
                 })?;
-            if !current_scene
-                .iter()
-                .any(|current| Arc::ptr_eq(&current.frame, frame))
-            {
-                current_scene.push(uploaded.clone());
-            }
             let extent = Self::frame_extent(frame)?;
             let target = cache
                 .targets
@@ -116,7 +109,7 @@ impl RenderSession {
                 binding,
             });
         }
-        cache.previous_scene = current_scene;
+        cache.previous_scene = images.iter().map(|image| image.uploaded.clone()).collect();
         Ok(images)
     }
 

@@ -133,58 +133,25 @@ pub(crate) struct RenderNode {
 pub(crate) struct RenderScene {
     pub size: RenderSize,
     pub composition_size: RenderSize,
-    pub effect_size: RenderSize,
     pub background: [f64; 4],
     pub nodes: Vec<RenderNode>,
     pub roots: Vec<SceneNodeId>,
 }
 
 impl RenderScene {
-    pub(super) fn render_items(&self) -> Vec<&RenderItem> {
-        self.nodes
-            .iter()
-            .filter_map(|node| match &node.content {
-                RenderNodeContent::Item(item) => Some(item),
-                RenderNodeContent::Scene { .. }
-                | RenderNodeContent::View { .. }
-                | RenderNodeContent::Frame(_) => None,
-            })
-            .collect()
-    }
-
-    pub(super) fn render_effects(&self) -> Vec<&RenderEffect> {
-        self.nodes
-            .iter()
-            .flat_map(|node| match &node.content {
-                RenderNodeContent::Item(item) => item.effects.as_slice(),
-                RenderNodeContent::Scene { effects, .. } => effects.as_slice(),
-                RenderNodeContent::View { .. } | RenderNodeContent::Frame(_) => &[],
-            })
-            .collect()
-    }
-
     pub(super) fn from_graph(
         size: RenderSize,
         composition_size: RenderSize,
         nodes: Vec<RenderNode>,
         roots: Vec<SceneNodeId>,
-    ) -> Result<Self, RenderError> {
-        let effect_scale = roots
-            .iter()
-            .map(|id| nodes[*id].render_scale)
-            .max()
-            .unwrap_or(1);
-        let effect_size = size.checked_scale(effect_scale).ok_or_else(|| {
-            RenderError::resource_limit("hierarchical scene effect size overflows")
-        })?;
-        Ok(Self {
+    ) -> Self {
+        Self {
             size,
             composition_size,
-            effect_size,
             background: [0.008, 0.006, 0.005, 1.],
             nodes,
             roots,
-        })
+        }
     }
 }
 

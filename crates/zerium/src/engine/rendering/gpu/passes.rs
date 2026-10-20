@@ -1,12 +1,11 @@
 //! GPU encoding for independent item, image, and effect-pass nodes.
 
+use super::RenderSession;
 use super::bindings::GpuComposite;
-use super::plan::{PassCommand, PassKind};
+use super::plan::PassKind;
 use super::resources::NodeResources;
-use super::{RenderError, RenderSession};
-use std::ops::Range;
 use zerium_core::plugin::ComputeDispatchDimension;
-use zerium_shader::ItemShaderId;
+use zerium_shader::{EffectShaderId, ItemShaderId};
 
 pub(super) struct PassBindings<'a> {
     pub(super) input: &'a wgpu::BindGroup,
@@ -20,10 +19,14 @@ impl RenderSession {
         target_view: &wgpu::TextureView,
         bindings: PassBindings<'_>,
         shader: &ItemShaderId,
-        instances: Range<u32>,
-        load: wgpu::LoadOp<wgpu::Color>,
+        instance: u32,
     ) {
-        let mut pass = render_pass(encoder, target_view, load, "zerium-item-pass");
+        let mut pass = render_pass(
+            encoder,
+            target_view,
+            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+            "zerium-item-pass",
+        );
         let pipeline = self
             .shared
             .item_pipelines
@@ -32,7 +35,7 @@ impl RenderSession {
         pass.set_pipeline(&pipeline.pipeline);
         pass.set_bind_group(0, bindings.input, &[]);
         pass.set_bind_group(1, bindings.capabilities, &[]);
-        pass.draw(0..pipeline.vertex_count, instances);
+        pass.draw(0..pipeline.vertex_count, instance..instance + 1);
     }
 
     pub(super) fn encode_frame_pass(
@@ -40,9 +43,13 @@ impl RenderSession {
         encoder: &mut wgpu::CommandEncoder,
         target_view: &wgpu::TextureView,
         bind_group: &wgpu::BindGroup,
-        load: wgpu::LoadOp<wgpu::Color>,
     ) {
-        let mut pass = render_pass(encoder, target_view, load, "zerium-frame-image-pass");
+        let mut pass = render_pass(
+            encoder,
+            target_view,
+            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+            "zerium-frame-image-pass",
+        );
         pass.set_pipeline(&self.shared.frame_pipeline);
         pass.set_bind_group(0, bind_group, &[]);
         pass.draw(0..3, 0..1);
@@ -153,14 +160,15 @@ impl RenderSession {
         encoder: &mut wgpu::CommandEncoder,
         resources: &NodeResources,
         bindings: PassBindings<'_>,
-        command: &PassCommand,
-    ) -> Result<(), RenderError> {
-        match command.kind {
+        shader: &EffectShaderId,
+        kind: PassKind,
+    ) {
+        match kind {
             PassKind::Compute { dispatch } => {
                 let pipeline = self
                     .shared
                     .compute_pipelines
-                    .get(&command.shader)
+                    .get(shader)
                     .expect("validated compute shader");
                 let mut pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
                     label: Some("zerium-compute-pass"),
@@ -169,12 +177,11 @@ impl RenderSession {
                 pass.set_pipeline(&pipeline.pipeline);
                 pass.set_bind_group(0, bindings.input, &[]);
                 pass.set_bind_group(1, bindings.capabilities, &[]);
+                let size = resources.target.size();
                 let extent = |dimension| match dimension {
-                    ComputeDispatchDimension::Width => resources.size.width,
-                    ComputeDispatchDimension::Height => resources.size.height,
-                    ComputeDispatchDimension::MaxDimension => {
-                        resources.size.width.max(resources.size.height)
-                    }
+                    ComputeDispatchDimension::Width => size.width,
+                    ComputeDispatchDimension::Height => size.height,
+                    ComputeDispatchDimension::MaxDimension => size.width.max(size.height),
                     ComputeDispatchDimension::One => 1,
                 };
                 pass.dispatch_workgroups(
@@ -185,10 +192,10 @@ impl RenderSession {
             }
 
             PassKind::Render | PassKind::Temporal => {
-                let pipeline = if command.kind == PassKind::Temporal {
-                    self.shared.temporal_pipelines.get(&command.shader)
+                let pipeline = if kind == PassKind::Temporal {
+                    self.shared.temporal_pipelines.get(shader)
                 } else {
-                    self.shared.effect_pipelines.get(&command.shader)
+                    self.shared.effect_pipelines.get(shader)
                 }
                 .expect("validated raster pass");
                 let mut pass = render_pass(
@@ -203,8 +210,6 @@ impl RenderSession {
                 pass.draw(0..pipeline.vertex_count, 0..1);
             }
         }
-
-        Ok(())
     }
 }
 

@@ -3,6 +3,7 @@
 mod bindings;
 mod builder;
 mod commands;
+mod execution;
 mod passes;
 mod pipelines;
 mod plan;
@@ -69,10 +70,16 @@ pub(crate) struct RenderDevice {
 /// shared between concurrent consumers.
 pub(crate) struct RenderSession {
     shared: Arc<RenderDevice>,
-    frame_resources: Mutex<Option<FrameResources>>,
-    node_identities: Mutex<NodeIdentityCache>,
-    local_resources: Mutex<Vec<NodeResources>>,
+    state: Mutex<RenderState>,
     texture_resources: Mutex<TextureResources>,
+}
+
+/// Planning and submission share one ordering, including identities and pools.
+#[derive(Default)]
+struct RenderState {
+    frame: Option<FrameResources>,
+    node_identities: NodeIdentityCache,
+    local_resources: Vec<NodeResources>,
 }
 
 pub(crate) struct RenderDeviceBuilder {
@@ -83,9 +90,7 @@ impl RenderDevice {
     pub(crate) fn create_session(self: &Arc<Self>) -> RenderSession {
         RenderSession {
             shared: self.clone(),
-            frame_resources: Mutex::new(None),
-            node_identities: Mutex::new(NodeIdentityCache::default()),
-            local_resources: Mutex::new(Vec::new()),
+            state: Mutex::new(RenderState::default()),
             texture_resources: Mutex::new(TextureResources::default()),
         }
     }

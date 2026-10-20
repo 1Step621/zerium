@@ -1,21 +1,27 @@
 //! Image identity, resolved raster extents, and result reuse within and between frames.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 
-use super::plan::{
-    RenderNodeCommand, RenderNodeCommandKind, RenderNodeIdentity, RenderSourceCommand,
-};
+use super::plan::{RenderNode, RenderNodeIdentity, RenderNodeKind};
 use super::resources::NodeResources;
 use super::scene::{RasterGrid, RenderError, RenderSize, SurfaceRect};
+use crate::engine::frame::VisualFrame;
 
-const RETAINED_SURFACE_BUDGET: usize = 128 * 1024 * 1024;
-
-#[derive(Clone)]
 pub(super) struct RenderedSurface {
     pub bounds: SurfaceRect,
     pub view: wgpu::TextureView,
     pub rect: SurfaceRect,
-    pub size: RenderSize,
+}
+
+impl RenderedSurface {
+    pub(super) fn size(&self) -> RenderSize {
+        let texture = self.view.texture();
+        RenderSize {
+            width: texture.width(),
+            height: texture.height(),
+        }
+    }
 }
 
 /// The raster is resolved once, before lookup, allocation, or uniform creation.
@@ -63,14 +69,14 @@ pub(super) struct RenderRequest {
 /// The only allocation decision accepted by surface encoding. Native frames
 /// retain their source raster; all other nodes carry a validated raster extent.
 #[derive(Clone, Copy)]
-pub(super) enum SurfaceOutput {
-    NativeFrame { index: usize },
+pub(super) enum SurfaceOutput<'a> {
+    NativeFrame { frame: &'a Arc<VisualFrame> },
     Raster(SurfaceRaster),
 }
 
-impl SurfaceOutput {
+impl<'a> SurfaceOutput<'a> {
     pub(super) fn resolve(
-        node: &RenderNodeCommand,
+        node: &'a RenderNode,
         request: RenderRequest,
         limit: u32,
     ) -> Result<Option<Self>, RenderError> {
@@ -81,13 +87,12 @@ impl SurfaceOutput {
             return Ok(None);
         };
         let bounds = match &node.kind {
-            RenderNodeCommandKind::Source(RenderSourceCommand::Frame { index }) => {
-                return Ok(Some(Self::NativeFrame { index: *index }));
+            RenderNodeKind::Frame { frame } => {
+                return Ok(Some(Self::NativeFrame { frame }));
             }
             // Shader nodes finish their complete logical image. Composition
             // and view nodes select coverage for this consumer.
-            RenderNodeCommandKind::Source(RenderSourceCommand::Item { .. })
-            | RenderNodeCommandKind::Pass { .. } => node.bounds,
+            RenderNodeKind::Item { .. } | RenderNodeKind::Pass { .. } => node.bounds,
             _ => visible_bounds,
         };
         Ok(Some(Self::Raster(SurfaceRaster::new(
@@ -115,24 +120,23 @@ impl SurfaceOutput {
     }
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 struct RasterKey {
     rect: [u64; 4],
     size: [u32; 2],
     grid: [u64; 4],
 }
 
-#[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(super) struct SurfaceKey {
     node: RenderNodeIdentity,
     raster: Option<RasterKey>,
 }
 
+/// Only results explicitly retained by the execution plan cross frame boundaries.
 struct CachedSurface {
     surface: RenderedSurface,
-    // Native conversion targets belong to FrameImage and are shared for this frame only.
-    resources: Option<NodeResources>,
-    uses: usize,
+    resources: NodeResources,
 }
 
 #[derive(Default)]
@@ -140,72 +144,39 @@ pub(super) struct SurfaceCache {
     retained: HashMap<SurfaceKey, CachedSurface>,
 }
 
-pub(super) struct FrameSurfaces {
-    previous: HashMap<SurfaceKey, CachedSurface>,
-    current: HashMap<SurfaceKey, CachedSurface>,
-}
-
 impl SurfaceCache {
-    pub(super) fn begin_frame(&mut self) -> FrameSurfaces {
-        let mut previous = std::mem::take(&mut self.retained);
-        for entry in previous.values_mut() {
-            entry.uses = 0;
-        }
-        FrameSurfaces {
-            previous,
-            current: HashMap::new(),
-        }
+    pub(super) fn size_bytes(&self, key: SurfaceKey) -> Option<usize> {
+        self.retained
+            .get(&key)
+            .map(|entry| entry.resources.size_bytes())
     }
-}
 
-impl FrameSurfaces {
-    pub(super) fn get(&mut self, key: SurfaceKey) -> Option<RenderedSurface> {
-        if let Some(entry) = self.previous.remove(&key) {
-            self.current.insert(key, entry);
-        }
-        let entry = self.current.get_mut(&key)?;
-        entry.uses += 1;
-        Some(entry.surface.clone())
+    /// Consume a previous-frame result once; all of this frame's consumers share
+    /// the resulting SurfaceId rather than looking it up in another cache.
+    pub(super) fn take(&mut self, key: SurfaceKey) -> Option<(RenderedSurface, NodeResources)> {
+        self.retained
+            .remove(&key)
+            .map(|entry| (entry.surface, entry.resources))
     }
 
     pub(super) fn insert(
         &mut self,
         key: SurfaceKey,
         surface: RenderedSurface,
-        resources: Option<NodeResources>,
+        resources: NodeResources,
     ) {
-        self.current.insert(
-            key,
-            CachedSurface {
-                surface,
-                resources,
-                uses: 1,
-            },
-        );
+        self.retained
+            .insert(key, CachedSurface { surface, resources });
     }
 
-    /// Publish retention only after submission. Unused and over-budget targets return to the pool.
-    pub(super) fn finish(self, cache: &mut SurfaceCache) -> Vec<NodeResources> {
-        let mut reusable = self
-            .previous
-            .into_values()
-            .filter_map(|entry| entry.resources)
-            .collect::<Vec<_>>();
-        let mut candidates = self.current.into_iter().collect::<Vec<_>>();
-        candidates.sort_by_key(|(key, entry)| (std::cmp::Reverse(entry.uses), *key));
-        let mut remaining = RETAINED_SURFACE_BUDGET;
-        for (key, mut entry) in candidates {
-            let Some(resources) = &entry.resources else {
-                continue;
-            };
-            let bytes = resources.size_bytes();
-            if bytes <= remaining {
-                remaining -= bytes;
-                cache.retained.insert(key, entry);
-            } else if let Some(resources) = entry.resources.take() {
-                reusable.push(resources);
-            }
-        }
-        reusable
+    pub(super) fn recycle_unrequested(
+        &mut self,
+        requested: impl Iterator<Item = SurfaceKey>,
+    ) -> Vec<NodeResources> {
+        let requested = requested.collect::<HashSet<_>>();
+        self.retained
+            .extract_if(|key, _| !requested.contains(key))
+            .map(|(_, entry)| entry.resources)
+            .collect()
     }
 }

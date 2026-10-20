@@ -1,33 +1,23 @@
-use super::PROPERTY_WORD_SIZE;
-use super::bindings::{GpuItem, GpuPass};
 use super::scene::{
     BoundsContext, RenderEffect, RenderEffectPassKind, RenderError, RenderItem, RenderNodeContent,
     RenderScene, RenderSize, SceneNodeId, SurfaceRect,
 };
 use crate::engine::frame::VisualFrame;
-use bytemuck::Zeroable;
-use std::{collections::HashMap, ops::Range, sync::Arc};
+use std::{
+    collections::HashMap,
+    hash::{Hash, Hasher},
+    sync::{Arc, Weak},
+};
 use zerium_core::{plugin::ComputeDispatchDimension, timeline::BlendMode};
 use zerium_shader::{EffectShaderId, ImageBinding, ItemShaderId};
 
 pub(super) type RenderNodeId = usize;
 
-#[derive(Debug, PartialEq, Eq)]
-pub(super) struct ItemBatch {
-    pub shader: ItemShaderId,
-    pub instances: Range<u32>,
-}
-
-#[derive(Debug, PartialEq)]
-pub(super) enum RenderCommand {
-    Items(ItemBatch),
-    Frame {
-        index: usize,
-    },
-    Surface {
-        layer: RenderLayer,
-        render_scale: u32,
-    },
+/// A root occurrence preserves composition order even when its node is shared.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct RenderRoot {
+    pub layer: RenderLayer,
+    pub render_scale: u32,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,28 +32,26 @@ pub(super) struct ImageInput {
     pub binding: ImageBinding,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub(super) enum RenderSourceCommand {
-    Transparent,
-    Item {
-        shader: ItemShaderId,
-        instance: u32,
-        images: Vec<ImageInput>,
-    },
-    Frame {
-        index: usize,
-    },
-}
-
 #[derive(Debug, PartialEq)]
-pub(super) struct RenderNodeCommand {
-    pub kind: RenderNodeCommandKind,
+pub(super) struct RenderNode {
+    pub identity: RenderNodeIdentity,
+    /// The complete node description also existed in the previous frame.
+    pub unchanged: bool,
+    pub kind: RenderNodeKind,
     pub bounds: SurfaceRect,
 }
 
 #[derive(Debug, PartialEq)]
-pub(super) enum RenderNodeCommandKind {
-    Source(RenderSourceCommand),
+pub(super) enum RenderNodeKind {
+    Transparent,
+    Item {
+        shader: ItemShaderId,
+        properties: Arc<[u8]>,
+        images: Vec<ImageInput>,
+    },
+    Frame {
+        frame: Arc<VisualFrame>,
+    },
     Composite {
         children: Vec<RenderLayer>,
     },
@@ -73,15 +61,16 @@ pub(super) enum RenderNodeCommandKind {
     },
     Pass {
         images: Vec<ImageInput>,
-        pass: PassCommand,
+        pass: ShaderPass,
     },
 }
 
 #[derive(Debug, PartialEq, Eq)]
-pub(super) struct PassCommand {
+pub(super) struct ShaderPass {
     pub shader: EffectShaderId,
-    pub instance: u32,
     pub kind: PassKind,
+    pub properties: Arc<[u8]>,
+    pub temporal: [u32; 4],
 }
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
@@ -94,30 +83,29 @@ pub(super) enum PassKind {
 }
 
 #[derive(Default)]
-pub(super) struct RenderPlan {
+pub(super) struct RenderGraph {
     pub background: [f64; 4],
-    pub items: Vec<GpuItem>,
-    pub properties: Vec<u8>,
-    pub passes: Vec<GpuPass>,
-    pub pass_properties: Vec<u8>,
-    pub frames: Vec<Arc<VisualFrame>>,
-    pub nodes: Vec<RenderNodeCommand>,
-    pub node_keys: Vec<RenderNodeIdentity>,
-    pub commands: Vec<RenderCommand>,
+    pub nodes: Vec<RenderNode>,
+    pub roots: Vec<RenderRoot>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-enum SourceKey {
-    Item {
-        shader: ItemShaderId,
-        capabilities: Vec<RenderNodeIdentity>,
-        properties: Vec<u8>,
-        bounds: [u64; 4],
-    },
-    Frame {
-        frame: usize,
-        bounds: [u64; 4],
-    },
+/// Reserve the Arc allocation's address while its identity is cached, without
+/// retaining decoded pixels when a cached result no longer needs its inputs.
+#[derive(Clone, Debug)]
+struct FrameIdentity(Weak<VisualFrame>);
+
+impl PartialEq for FrameIdentity {
+    fn eq(&self, other: &Self) -> bool {
+        self.0.ptr_eq(&other.0)
+    }
+}
+
+impl Eq for FrameIdentity {}
+
+impl Hash for FrameIdentity {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.0.as_ptr().hash(state);
+    }
 }
 
 fn bounds_key(bounds: SurfaceRect) -> [u64; 4] {
@@ -131,8 +119,17 @@ fn bounds_key(bounds: SurfaceRect) -> [u64; 4] {
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum RenderNodeKey {
-    Source(SourceKey),
     Transparent {
+        bounds: [u64; 4],
+    },
+    Item {
+        shader: ItemShaderId,
+        images: Vec<(ImageBinding, RenderNodeIdentity)>,
+        properties: Arc<[u8]>,
+        bounds: [u64; 4],
+    },
+    Frame {
+        frame: FrameIdentity,
         bounds: [u64; 4],
     },
     Composite {
@@ -147,11 +144,67 @@ enum RenderNodeKey {
     Pass {
         images: Vec<(ImageBinding, RenderNodeIdentity)>,
         shader: EffectShaderId,
-        properties: Vec<u8>,
+        properties: Arc<[u8]>,
         kind: PassKind,
         temporal: [u32; 4],
         bounds: [u64; 4],
     },
+}
+
+impl RenderNodeKind {
+    /// Keys are derived from the same definition that lowering consumes. Child
+    /// identities keep equality independent of the size of dependency subtrees.
+    fn key(&self, bounds: SurfaceRect, nodes: &[RenderNode]) -> RenderNodeKey {
+        let bounds = bounds_key(bounds);
+        let image_keys = |images: &[ImageInput]| {
+            images
+                .iter()
+                .map(|image| (image.binding, nodes[image.node].identity))
+                .collect()
+        };
+        match self {
+            Self::Transparent => RenderNodeKey::Transparent { bounds },
+            Self::Item {
+                shader,
+                properties,
+                images,
+            } => RenderNodeKey::Item {
+                shader: shader.clone(),
+                properties: properties.clone(),
+                images: image_keys(images),
+                bounds,
+            },
+            Self::Frame { frame } => RenderNodeKey::Frame {
+                frame: FrameIdentity(Arc::downgrade(frame)),
+                bounds,
+            },
+            Self::Composite { children } => RenderNodeKey::Composite {
+                children: children
+                    .iter()
+                    .map(|child| (nodes[child.node].identity, child.blend_mode))
+                    .collect(),
+                bounds,
+            },
+            Self::View { input, view } => RenderNodeKey::View {
+                input: nodes[*input].identity,
+                view: [
+                    view.position[0].to_bits(),
+                    view.position[1].to_bits(),
+                    view.zoom.to_bits(),
+                    view.angle.to_bits(),
+                ],
+                bounds,
+            },
+            Self::Pass { images, pass } => RenderNodeKey::Pass {
+                images: image_keys(images),
+                shader: pass.shader.clone(),
+                properties: pass.properties.clone(),
+                kind: pass.kind,
+                temporal: pass.temporal,
+                bounds,
+            },
+        }
+    }
 }
 
 /// Stable across consecutive frames while the node's complete description is unchanged.
@@ -172,84 +225,50 @@ struct PassInputs<'a> {
     capabilities: &'a [RenderNodeId],
 }
 
-struct RenderPlanner<'a> {
+struct RenderGraphBuilder<'a> {
     identities: &'a mut NodeIdentityCache,
     scene: &'a RenderScene,
-    output: RenderPlan,
-    encoded_nodes: HashMap<SceneNodeId, RenderNodeId>,
+    output: RenderGraph,
+    encoded_nodes: Vec<Option<RenderNodeId>>,
     node_cache: HashMap<RenderNodeKey, RenderNodeId>,
-    source_cache: HashMap<SourceKey, RenderSourceCommand>,
 }
 
-impl RenderPlanner<'_> {
-    fn push_pass(&mut self, properties: &[u8], temporal: [u32; 4]) -> Result<u32, RenderError> {
-        let instance = u32::try_from(self.output.passes.len())
-            .map_err(|_| RenderError::resource_limit("too many passes"))?;
-        let offset = u32::try_from(self.output.pass_properties.len() / PROPERTY_WORD_SIZE)
-            .map_err(|_| RenderError::resource_limit("pass properties overflow"))?;
-        self.output.pass_properties.extend_from_slice(properties);
-        self.output.pass_properties.resize(
-            self.output
-                .pass_properties
-                .len()
-                .next_multiple_of(PROPERTY_WORD_SIZE),
-            0,
-        );
-        self.output.passes.push(GpuPass {
-            property_offset: offset,
-            property_size: properties.len() as u32,
-            sample_index: temporal[0],
-            sample_count: temporal[1],
-            frame_offset: f32::from_bits(temporal[2]),
-            sample_progress: f32::from_bits(temporal[3]),
-            composition_size: [
-                self.scene.composition_size.width as f32,
-                self.scene.composition_size.height as f32,
-            ],
-            ..GpuPass::zeroed()
-        });
-        Ok(instance)
-    }
-
-    fn intern_node(
-        &mut self,
-        key: RenderNodeKey,
-        kind: RenderNodeCommandKind,
-        bounds: SurfaceRect,
-    ) -> RenderNodeId {
+impl RenderGraphBuilder<'_> {
+    fn intern_node(&mut self, kind: RenderNodeKind, bounds: SurfaceRect) -> RenderNodeId {
+        let key = kind.key(bounds, &self.output.nodes);
         if let Some(id) = self.node_cache.get(&key) {
             return *id;
         }
 
         let id = self.output.nodes.len();
-        self.output.nodes.push(RenderNodeCommand { kind, bounds });
-        let identity = self
-            .identities
-            .previous
-            .get(&key)
-            .copied()
-            .unwrap_or_else(|| {
-                self.identities.next = self
-                    .identities
-                    .next
-                    .checked_add(1)
-                    .expect("render node identity space exhausted");
-                RenderNodeIdentity(self.identities.next)
-            });
-        self.output.node_keys.push(identity);
+        let previous = self.identities.previous.get(&key).copied();
+        let identity = previous.unwrap_or_else(|| {
+            self.identities.next = self
+                .identities
+                .next
+                .checked_add(1)
+                .expect("render node identity space exhausted");
+            RenderNodeIdentity(self.identities.next)
+        });
+        self.output.nodes.push(RenderNode {
+            identity,
+            unchanged: previous.is_some(),
+            kind,
+            bounds,
+        });
         self.node_cache.insert(key, id);
         id
     }
 
-    fn encode_source(
-        &mut self,
-        item: &RenderItem,
-    ) -> Result<(RenderSourceCommand, SourceKey, SurfaceRect), RenderError> {
-        let mut capabilities = Vec::with_capacity(item.inputs.len());
+    fn encode_source(&mut self, item: &RenderItem) -> RenderNodeId {
+        let mut images = Vec::with_capacity(item.inputs.len());
         let mut image_bounds = Vec::with_capacity(item.inputs.len());
-        for input in &item.inputs {
-            let node = self.encode_node(input.node)?;
-            capabilities.push(node);
+        for (index, input) in item.inputs.iter().enumerate() {
+            let node = self.encode_node(input.node);
+            images.push(ImageInput {
+                node,
+                binding: ImageBinding::named(index),
+            });
             image_bounds.push((input.id.clone(), self.output.nodes[node].bounds));
         }
         let viewport = SurfaceRect::viewport(self.scene.composition_size);
@@ -259,52 +278,12 @@ impl RenderPlanner<'_> {
             viewport,
             images: &image_bounds,
         });
-        let key = SourceKey::Item {
+        let kind = RenderNodeKind::Item {
             shader: item.shader.clone(),
-            capabilities: capabilities
-                .iter()
-                .map(|id| self.output.node_keys[*id])
-                .collect(),
-            properties: item.properties.clone(),
-            bounds: bounds_key(bounds),
+            properties: item.properties.as_slice().into(),
+            images,
         };
-
-        if let Some(source) = self.source_cache.get(&key) {
-            return Ok((source.clone(), key, bounds));
-        }
-
-        let instance = u32::try_from(self.output.items.len())
-            .map_err(|_| RenderError::backend("too many visible items in one frame"))?;
-        let property_offset = u32::try_from(self.output.properties.len() / PROPERTY_WORD_SIZE)
-            .map_err(|_| RenderError::backend("item property offset exceeds u32"))?;
-        let property_size = u32::try_from(item.properties.len())
-            .map_err(|_| RenderError::backend("item property size exceeds u32"))?;
-        self.output.properties.extend_from_slice(&item.properties);
-        self.output.properties.resize(
-            self.output
-                .properties
-                .len()
-                .next_multiple_of(PROPERTY_WORD_SIZE),
-            0,
-        );
-        self.output.items.push(GpuItem {
-            property_offset,
-            property_size,
-        });
-        let source = RenderSourceCommand::Item {
-            shader: item.shader.clone(),
-            instance,
-            images: capabilities
-                .iter()
-                .enumerate()
-                .map(|(index, &node)| ImageInput {
-                    node,
-                    binding: ImageBinding::named(index),
-                })
-                .collect(),
-        };
-        self.source_cache.insert(key.clone(), source.clone());
-        Ok((source, key, bounds))
+        self.intern_node(kind, bounds)
     }
 
     fn encode_frame(&mut self, frame: &Arc<VisualFrame>) -> RenderNodeId {
@@ -312,46 +291,24 @@ impl RenderPlanner<'_> {
             width: frame.width,
             height: frame.height,
         });
-        let key = SourceKey::Frame {
-            frame: Arc::as_ptr(frame) as usize,
-            bounds: bounds_key(bounds),
-        };
-        let source = self
-            .source_cache
-            .entry(key.clone())
-            .or_insert_with(|| {
-                let index = self.output.frames.len();
-                self.output.frames.push(frame.clone());
-                RenderSourceCommand::Frame { index }
-            })
-            .clone();
         self.intern_node(
-            RenderNodeKey::Source(key),
-            RenderNodeCommandKind::Source(source),
+            RenderNodeKind::Frame {
+                frame: frame.clone(),
+            },
             bounds,
         )
     }
 
     fn transparent(&mut self, bounds: SurfaceRect) -> RenderNodeId {
-        self.intern_node(
-            RenderNodeKey::Transparent {
-                bounds: bounds_key(bounds),
-            },
-            RenderNodeCommandKind::Source(RenderSourceCommand::Transparent),
-            bounds,
-        )
+        self.intern_node(RenderNodeKind::Transparent, bounds)
     }
 
-    fn encode_effects(
-        &mut self,
-        mut node: RenderNodeId,
-        effects: &[RenderEffect],
-    ) -> Result<RenderNodeId, RenderError> {
+    fn encode_effects(&mut self, mut node: RenderNodeId, effects: &[RenderEffect]) -> RenderNodeId {
         for effect in effects {
             let mut capabilities = Vec::with_capacity(effect.inputs.len());
             let mut image_bounds = Vec::with_capacity(effect.inputs.len());
             for input in &effect.inputs {
-                let node = self.encode_node(input.node)?;
+                let node = self.encode_node(input.node);
                 capabilities.push(node);
                 image_bounds.push((input.id.clone(), self.output.nodes[node].bounds));
             }
@@ -361,10 +318,7 @@ impl RenderPlanner<'_> {
             {
                 for sample in samples {
                     temporal_inputs.push((
-                        match sample.input {
-                            Some(input) => Some(self.encode_node(input)?),
-                            None => None,
-                        },
+                        sample.input.map(|input| self.encode_node(input)),
                         sample.frame_offset,
                     ));
                 }
@@ -418,7 +372,7 @@ impl RenderPlanner<'_> {
                                 PassKind::Temporal,
                                 temporal,
                                 bounds,
-                            )?;
+                            );
                         }
 
                         node = accumulation;
@@ -432,7 +386,7 @@ impl RenderPlanner<'_> {
                             PassKind::Render,
                             [0; 4],
                             bounds,
-                        )?
+                        )
                     }
                     RenderEffectPassKind::Compute(dispatch) => {
                         node = self.encode_pass(
@@ -443,13 +397,13 @@ impl RenderPlanner<'_> {
                             },
                             [0; 4],
                             bounds,
-                        )?
+                        )
                     }
                 }
             }
         }
 
-        Ok(node)
+        node
     }
 
     fn encode_pass(
@@ -459,7 +413,7 @@ impl RenderPlanner<'_> {
         kind: PassKind,
         temporal: [u32; 4],
         bounds: SurfaceRect,
-    ) -> Result<RenderNodeId, RenderError> {
+    ) -> RenderNodeId {
         let mut images = vec![
             ImageInput {
                 node: inputs.input,
@@ -480,172 +434,84 @@ impl RenderPlanner<'_> {
                     binding: ImageBinding::named(index),
                 }),
         );
-        let key = RenderNodeKey::Pass {
-            images: images
-                .iter()
-                .map(|image| (image.binding, self.output.node_keys[image.node]))
-                .collect(),
+        let pass = ShaderPass {
             shader: pass.shader.clone(),
-            properties: pass.properties.clone(),
             kind,
+            properties: pass.properties.as_slice().into(),
             temporal,
-            bounds: bounds_key(bounds),
         };
-        if let Some(id) = self.node_cache.get(&key) {
-            return Ok(*id);
-        }
-        let instance = self.push_pass(&pass.properties, temporal)?;
-        Ok(self.intern_node(
-            key,
-            RenderNodeCommandKind::Pass {
-                images,
-                pass: PassCommand {
-                    shader: pass.shader.clone(),
-                    instance,
-                    kind,
-                },
-            },
-            bounds,
-        ))
+        self.intern_node(RenderNodeKind::Pass { images, pass }, bounds)
     }
 
-    fn encode_composite(&mut self, children: &[SceneNodeId]) -> Result<RenderNodeId, RenderError> {
+    fn encode_composite(&mut self, children: &[SceneNodeId]) -> RenderNodeId {
         let children = children
             .iter()
-            .map(|child| {
-                Ok(RenderLayer {
-                    node: self.encode_node(*child)?,
-                    blend_mode: self.scene.nodes[*child].blend_mode,
-                })
+            .map(|child| RenderLayer {
+                node: self.encode_node(*child),
+                blend_mode: self.scene.nodes[*child].blend_mode,
             })
-            .collect::<Result<Vec<_>, RenderError>>()?;
+            .collect::<Vec<_>>();
         let bounds = children
             .iter()
             .map(|child| self.output.nodes[child.node].bounds)
             .filter(|bounds| !bounds.is_empty())
             .reduce(SurfaceRect::union)
             .unwrap_or(SurfaceRect::EMPTY);
-        Ok(self.intern_node(
-            RenderNodeKey::Composite {
-                bounds: bounds_key(bounds),
-                children: children
-                    .iter()
-                    .map(|child| (self.output.node_keys[child.node], child.blend_mode))
-                    .collect(),
-            },
-            RenderNodeCommandKind::Composite { children },
-            bounds,
-        ))
+        self.intern_node(RenderNodeKind::Composite { children }, bounds)
     }
 
-    fn encode_node(&mut self, id: SceneNodeId) -> Result<RenderNodeId, RenderError> {
-        if let Some(plan) = self.encoded_nodes.get(&id) {
-            return Ok(*plan);
+    fn encode_node(&mut self, id: SceneNodeId) -> RenderNodeId {
+        if let Some(plan) = self.encoded_nodes[id] {
+            return plan;
         }
 
         let node = &self.scene.nodes[id];
         let plan = match &node.content {
-            RenderNodeContent::Frame(frame) => Ok(self.encode_frame(frame)),
+            RenderNodeContent::Frame(frame) => self.encode_frame(frame),
             RenderNodeContent::Item(item) => {
-                let (source, key, bounds) = self.encode_source(item)?;
-                let source = self.intern_node(
-                    RenderNodeKey::Source(key),
-                    RenderNodeCommandKind::Source(source),
-                    bounds,
-                );
+                let source = self.encode_source(item);
                 self.encode_effects(source, &item.effects)
             }
             RenderNodeContent::Scene {
                 children, effects, ..
             } => {
-                let composite = self.encode_composite(children)?;
+                let composite = self.encode_composite(children);
                 self.encode_effects(composite, effects)
             }
             RenderNodeContent::View { input, view } => {
-                let input = self.encode_node(*input)?;
+                let input = self.encode_node(*input);
                 let bounds = SurfaceRect::viewport(self.scene.composition_size);
-                Ok(self.intern_node(
-                    RenderNodeKey::View {
-                        input: self.output.node_keys[input],
-                        view: [
-                            view.position[0].to_bits(),
-                            view.position[1].to_bits(),
-                            view.zoom.to_bits(),
-                            view.angle.to_bits(),
-                        ],
-                        bounds: bounds_key(bounds),
-                    },
-                    RenderNodeCommandKind::View { input, view: *view },
-                    bounds,
-                ))
+                self.intern_node(RenderNodeKind::View { input, view: *view }, bounds)
             }
-        }?;
-        self.encoded_nodes.insert(id, plan);
-        Ok(plan)
+        };
+        self.encoded_nodes[id] = Some(plan);
+        plan
     }
 }
 
-pub(super) fn plan_scene(
+pub(super) fn build_render_graph(
     scene: &RenderScene,
     identities: &mut NodeIdentityCache,
-) -> Result<RenderPlan, RenderError> {
-    let mut encoder = RenderPlanner {
+) -> Result<RenderGraph, RenderError> {
+    let mut encoder = RenderGraphBuilder {
         identities,
         scene,
-        output: RenderPlan {
+        output: RenderGraph {
             background: scene.background,
-            ..RenderPlan::default()
+            ..RenderGraph::default()
         },
-        encoded_nodes: HashMap::new(),
+        encoded_nodes: vec![None; scene.nodes.len()],
         node_cache: HashMap::new(),
-        source_cache: HashMap::new(),
     };
-    let viewport = SurfaceRect::viewport(scene.composition_size);
     for node in &scene.roots {
-        let root = encoder.encode_node(*node)?;
-        let blend_mode = scene.nodes[*node].blend_mode;
-        match &encoder.output.nodes[root].kind {
-            RenderNodeCommandKind::Source(RenderSourceCommand::Item {
-                shader,
-                instance,
-                images,
-            }) if images.is_empty()
-                && encoder.output.nodes[root].bounds == viewport
-                && blend_mode == BlendMode::Normal =>
-            {
-                match encoder.output.commands.last_mut() {
-                    Some(RenderCommand::Items(batch))
-                        if batch.shader == *shader && batch.instances.end == *instance =>
-                    {
-                        batch.instances.end = instance + 1;
-                    }
-                    _ => encoder
-                        .output
-                        .commands
-                        .push(RenderCommand::Items(ItemBatch {
-                            shader: shader.clone(),
-                            instances: *instance..instance + 1,
-                        })),
-                }
-            }
-
-            RenderNodeCommandKind::Source(RenderSourceCommand::Frame { index })
-                if encoder.output.nodes[root].bounds == viewport
-                    && blend_mode == BlendMode::Normal =>
-            {
-                encoder
-                    .output
-                    .commands
-                    .push(RenderCommand::Frame { index: *index });
-            }
-            _ => encoder.output.commands.push(RenderCommand::Surface {
-                layer: RenderLayer {
-                    node: root,
-                    blend_mode,
-                },
-                render_scale: scene.nodes[*node].render_scale,
-            }),
-        }
+        let root = encoder.encode_node(*node);
+        encoder.output.roots.push(RenderRoot {
+            layer: RenderLayer {
+                node: root,
+                blend_mode: scene.nodes[*node].blend_mode,
+            },
+            render_scale: scene.nodes[*node].render_scale,
+        });
     }
 
     if encoder
@@ -662,7 +528,7 @@ pub(super) fn plan_scene(
     encoder.identities.previous = encoder
         .node_cache
         .into_iter()
-        .map(|(key, node)| (key, encoder.output.node_keys[node]))
+        .map(|(key, node)| (key, encoder.output.nodes[node].identity))
         .collect();
     Ok(encoder.output)
 }

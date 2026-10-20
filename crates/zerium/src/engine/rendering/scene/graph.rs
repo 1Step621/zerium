@@ -153,7 +153,7 @@ where
             RenderSize::from(timeline.resolution()),
             builder.nodes,
             roots,
-        )?)
+        ))
     }
 
     fn composition(

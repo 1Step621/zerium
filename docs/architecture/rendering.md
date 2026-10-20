@@ -10,7 +10,8 @@ flowchart LR
     Timeline[TimelineView] --> Evaluate[SceneEvaluator]
     Frames[VisualFrame] --> Evaluate
     Evaluate --> Scene[RenderScene]
-    Scene --> Plan[RenderPlan]
+    Scene --> Graph[RenderGraph]
+    Graph --> Plan[ExecutionPlan]
     Plan --> Render[RenderSession]
     Render --> Preview[GPUI preview surface]
     Render --> Export[ExportVideoPipeline]
@@ -19,7 +20,8 @@ flowchart LR
 [`SceneEvaluator`](../../crates/zerium/src/engine/rendering/scene/) resolves properties,
 media requests, text, scene boundaries, and temporal samples.
 [`rendering/gpu`](../../crates/zerium/src/engine/rendering/gpu/) lowers the resulting
-scene into a render plan and submits its passes asynchronously.
+scene into a logical DAG, analyzes its consumers, and submits an ordered GPU
+execution plan asynchronously.
 [`RenderRuntime`](../../crates/zerium/src/engine/rendering/runtime.rs) manages the
 preview session and creates independent export sessions.
 
@@ -31,10 +33,24 @@ its required temporal samples together, then creates a `RenderEffect` with its
 complete input list. `RenderInput` pairs each shader input name with its node.
 Media raster requests use the input source's properties and placement.
 
-The planner interns nodes using descriptions that contain child identities rather
-than nested keys. Unchanged nodes retain their identity from the previous frame;
-older descriptions are discarded. Duplicate passes reuse their node before pass
-data is allocated. Hashing and equality do not traverse the dependency graph.
+`RenderGraph` is a logical DAG that interns equivalent items, native frames, and
+passes. Node descriptions refer to child identities, so hashing and equality do
+not traverse the dependency graph. Unchanged nodes retain their identity from
+the previous frame; older descriptions are discarded. Root occurrences retain
+their composition order and blend modes independently of the shared image nodes.
+
+`ExecutionPlan` resolves consumer requests into physical surfaces keyed by node
+identity, raster coverage, and sampling grid. Equal requests share a task. Raster
+coverage and dimensions are resolved before cache lookup, allocation, and uniform
+creation. A retained cache hit stops traversal of its inputs. Only visible,
+uncached work contributes item records, shader properties, and input frames.
+Tasks carry their resolved inputs, output raster, and uniforms in dependency
+order. GPU encoding consumes this plan, preserving root and child composition
+order.
+
+Every root produces an image before it is composited into the output, including
+single-use items and native media frames. Roots, effect inputs, and scene children
+share the same surface execution path.
 
 For each evaluated scene scope, `SceneCompositionPlan` resolves layer-relative
 render-result inputs, camera settings, and the nodes visible to each consumer.
@@ -56,8 +72,9 @@ share the same scene and effect nodes.
 
 Shader nodes render their complete logical images. Composition and view nodes
 select the region needed by their destination. Camera zoom changes raster density
-without changing logical bounds. Complete intermediate images must fit the GPU
-texture limit, so effects on widely separated groups can require large surfaces.
+without changing logical bounds. Each resolved intermediate surface and the final
+output target must fit the GPU texture limit, so effects on widely separated
+groups can require large surfaces.
 
 Images carry logical bounds, raster coverage, and sampling density through paired
 texture and metadata bindings. Generated sampling functions use the pair for each
@@ -76,32 +93,34 @@ frame reuse, pinning, and eviction within its byte budget.
 ## GPU resources
 
 `RenderDevice` shares pipelines across sessions. Each `RenderSession` reuses frame
-buffers, render targets, uploaded media, and rendered images.
+buffers, render targets, uploaded media, and rendered images. Planning and
+submission are serialized within a session; input texture preparation is separate.
+Changes to output or composition size recreate frame targets and invalidate the
+rendered-image cache. Growing shared data buffers preserves cached images.
 
-Item data and item/pass properties are uploaded once per frame. Each shader node
-supplies a small uniform for its current output size and raster extent. Composition
-nodes own render targets without shader data buffers. Node resources do not copy
-frame-wide item or property data.
+Item and pass properties share one word-aligned GPU storage buffer. Item records
+are uploaded separately, with both uploads limited to data required by the
+execution plan. A fully cached frame uploads no shader properties or item records
+and prepares no input images.
 
-Raster coverage and dimensions are resolved once, before cache lookup, allocation,
-or uniform creation. One image key combines the stable node identity with this
-coverage and raster grid. The surface cache shares results across consumers and
-root layers, then retains frequently used results from the current frame within
-a byte budget. Retained entries own their targets until eviction; other targets
-return to the resource pool after submission. Native frame conversions are shared
-within a frame independently of the consumer's grid; their targets remain owned
-by the input texture pool.
+Shader uniforms are resolved during planning for each output size and raster
+extent. Uniform updates follow command order, allowing buffers to be reused within
+a submission. Composition nodes need targets without shader data buffers.
 
-Each node owns one output target. A non-normal composition acquires its backdrop
-only when it is encoded. Queue ordering lets compositions of the same size share
-one scratch backdrop, including nested compositions and root layers. Scratch
-retention is bounded and drops sizes unused by the next frame.
+The execution plan determines each surface's final use and selects results for
+the next frame's cache within a byte budget. Retention prioritizes roots, stable
+inputs to changing consumers, and shared intermediates. Retaining a static
+subtree's output avoids recomputing it beneath an animated effect. Other surfaces
+return to the allocation pool after their last consumer is encoded and can be
+reused later in the submission. Retained entries are published after submission
+and own their targets until eviction. Native frame conversions are shared within
+a frame independently of the consumer's grid; their targets remain owned by the
+input texture pool.
 
-`SurfaceOutput` resolves a node and consumer request to either a native frame or
-a validated `SurfaceRaster`. Shader nodes retain their complete logical bounds;
-composition and view nodes select coverage. Cache identity, allocation, and GPU
-uniforms consume this same decision. Raster fields cannot be constructed outside
-the surface resolver.
+Each live physical raster has an output target. A non-normal composition acquires
+its backdrop only when it is encoded. Queue ordering lets compositions of the
+same size share one scratch backdrop, including nested compositions and root
+layers. Scratch retention is bounded and drops sizes unused by the next frame.
 
 For the shader authoring contract, see
 [Rendering and shaders](../plugin/rendering.md). Reader scheduling and output
