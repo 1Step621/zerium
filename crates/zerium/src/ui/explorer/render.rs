@@ -198,7 +198,7 @@ impl Explorer {
                         this.child(
                             Icon::new(IconName::Folder)
                                 .small()
-                                .text_color(colors.primary),
+                                .text_color(colors.accent_foreground),
                         )
                     })
                     .when(!is_directory, |this| {

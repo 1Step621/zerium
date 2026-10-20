@@ -256,7 +256,7 @@ impl Timeline {
                                 .when(scene_id.is_none(), |this| {
                                     this.child(
                                         div()
-                                            .text_color(state.colors.primary)
+                                            .text_color(state.colors.accent_foreground)
                                             .child(item.symbol().to_owned()),
                                     )
                                 })

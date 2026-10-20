@@ -1,5 +1,5 @@
 use ::ui::{
-    ContextModal as _, StyledExt as _,
+    ContextModal as _, Selectable as _, StyledExt as _, ThemeMode,
     button::Button,
     form::{form_field, h_form},
     menu::{PopupMenuItem, popup_menu::PopupMenuExt as _},
@@ -11,7 +11,7 @@ use gpui::{App, AppContext as _, Context, Render, Window, div, prelude::*, px};
 use rust_i18n::t;
 use ui::Sizable;
 
-use crate::app::config::{AppConfig, ConfigStore};
+use crate::app::config::{AccentColor, AppConfig, ConfigStore};
 
 struct ConfigSettings {
     draft: AppConfig,
@@ -49,7 +49,7 @@ pub(super) fn open(window: &mut Window, cx: &mut App) {
             .button_props(
                 ModalButtonProps::default()
                     .ok_text(t!("menu.save").to_string())
-                    .cancel_text(t!("common.cancel").to_string()),
+                    .cancel_text(t!("common.close").to_string()),
             )
             .on_ok(move |_, window, cx| {
                 let draft = confirm_settings.read(cx).draft.clone();
@@ -59,13 +59,13 @@ pub(super) fn open(window: &mut Window, cx: &mut App) {
                     language_changed
                 }) {
                     Ok(language_changed) => {
+                        super::theme::apply(cx);
                         let message = if language_changed {
                             t!("settings.saved_restart")
                         } else {
                             t!("settings.saved")
                         };
                         window.push_notification(Notification::success(message.to_string()), cx);
-                        true
                     }
                     Err(error) => {
                         log::warn!("Could not save settings: {error}");
@@ -75,9 +75,9 @@ pub(super) fn open(window: &mut Window, cx: &mut App) {
                             ),
                             cx,
                         );
-                        false
                     }
                 }
+                false
             })
             .child(settings.clone())
     });
@@ -112,10 +112,88 @@ impl Render for ConfigSettings {
                 languages.len() - 1
             });
         let settings = cx.entity();
+        let accent_settings = cx.entity();
+        let theme_mode = self.draft.theme_mode.unwrap_or(ThemeMode::Dark);
+        let accent = self.draft.accent_color.unwrap_or_default();
+        let accents = [
+            (
+                AccentColor::Orange,
+                t!("settings.accent_orange").to_string(),
+            ),
+            (AccentColor::Teal, t!("settings.accent_teal").to_string()),
+            (AccentColor::Red, t!("settings.accent_red").to_string()),
+            (AccentColor::Pink, t!("settings.accent_pink").to_string()),
+            (
+                AccentColor::Purple,
+                t!("settings.accent_purple").to_string(),
+            ),
+            (
+                AccentColor::Yellow,
+                t!("settings.accent_yellow").to_string(),
+            ),
+        ];
+        let selected_accent_index = accents
+            .iter()
+            .position(|(choice, _)| *choice == accent)
+            .unwrap_or(0);
 
         div().font_family(super::theme::FONT_FAMILY).child(
             h_form()
                 .label_width(px(208.))
+                .child(
+                    form_field()
+                        .label(t!("settings.theme_mode").to_string())
+                        .items_center()
+                        .child(
+                            div().flex().gap_1().children(
+                                [
+                                    (ThemeMode::Dark, t!("settings.dark")),
+                                    (ThemeMode::Light, t!("settings.light")),
+                                ]
+                                .into_iter()
+                                .enumerate()
+                                .map(|(index, (mode, label))| {
+                                    Button::new(("settings-theme", index))
+                                        .small()
+                                        .outline()
+                                        .selected(mode == theme_mode)
+                                        .label(label.to_string())
+                                        .on_click(cx.listener(move |this, _, _, cx| {
+                                            this.draft.theme_mode = Some(mode);
+                                            cx.notify();
+                                        }))
+                                }),
+                            ),
+                        ),
+                )
+                .child(
+                    form_field()
+                        .label(t!("settings.accent_color").to_string())
+                        .items_center()
+                        .child(
+                            Button::new("settings-accent")
+                                .small()
+                                .outline()
+                                .label(accents[selected_accent_index].1.clone())
+                                .dropdown_caret(true)
+                                .popup_menu(move |menu, _, _| {
+                                    accents.iter().fold(menu, |menu, (choice, label)| {
+                                        let settings = accent_settings.clone();
+                                        let choice = *choice;
+                                        menu.item(
+                                            PopupMenuItem::new(label.clone())
+                                                .checked(choice == accent)
+                                                .on_click(move |_, _, cx| {
+                                                    settings.update(cx, |this, cx| {
+                                                        this.draft.accent_color = Some(choice);
+                                                        cx.notify();
+                                                    });
+                                                }),
+                                        )
+                                    })
+                                }),
+                        ),
+                )
                 .child(
                     form_field()
                         .label(t!("settings.language").to_string())

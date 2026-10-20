@@ -17,5 +17,5 @@ pub(crate) fn pane_header(colors: ThemeColor) -> Div {
         .border_color(colors.border)
         .bg(colors.title_bar)
         .text_sm()
-        .text_color(colors.primary)
+        .text_color(colors.accent_foreground)
 }

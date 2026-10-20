@@ -55,7 +55,9 @@ impl PropertyInspector {
             .overflow_hidden()
             .whitespace_nowrap()
             .text_ellipsis()
-            .when(focused, |this| this.text_color(ctx.colors.primary))
+            .when(focused, |this| {
+                this.text_color(ctx.colors.accent_foreground)
+            })
             .child(label.replace(['\n', '\r'], " "));
         let label = div()
             .min_h(px(24.))

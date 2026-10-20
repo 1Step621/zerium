@@ -13,4 +13,20 @@ pub(crate) struct AppConfig {
     pub(crate) language: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) show_support_reminder: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) theme_mode: Option<ui::ThemeMode>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(crate) accent_color: Option<AccentColor>,
+}
+
+#[derive(Clone, Copy, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum AccentColor {
+    #[default]
+    Orange,
+    Teal,
+    Red,
+    Pink,
+    Purple,
+    Yellow,
 }

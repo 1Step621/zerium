@@ -1,6 +1,8 @@
 use ::ui::{Theme, ThemeMode};
-use gpui::{App, Hsla, rgb, rgba};
+use gpui::{App, Hsla, rgb};
 use std::borrow::Cow;
+
+use crate::app::config::{AccentColor, ConfigStore};
 
 pub(crate) const FONT_FAMILY: &str = "Inter";
 
@@ -15,148 +17,254 @@ const INTER_FONTS: [&[u8]; 8] = [
     include_bytes!("../../../../assets/inter/Inter-BoldItalic.otf"),
 ];
 
-const BACKGROUND: u32 = 0x282c34;
-const SURFACE: u32 = 0x2c313a;
-const SURFACE_RAISED: u32 = 0x343a45;
-const SURFACE_HOVER: u32 = 0x3e4451;
+struct BasePalette {
+    background: u32,
+    surface: u32,
+    raised: u32,
+    hover: u32,
+    border: u32,
+    foreground: u32,
+    muted_foreground: u32,
+    popover: u32,
+    scrollbar_hover: u32,
+    warning: [u32; 3],
+    warning_foreground: u32,
+}
 
-const BORDER: u32 = 0x4b5263;
-
-const FOREGROUND: u32 = 0xabb2bf;
-const MUTED_FOREGROUND: u32 = 0x7f848e;
-
-const ORANGE: u32 = 0xf97316;
-const ORANGE_HOVER: u32 = 0xfb923c;
-const ORANGE_ACTIVE: u32 = 0xea580c;
-
-const ORANGE_SOFT: u32 = 0x3d3733;
-const ORANGE_FOREGROUND: u32 = 0x21160e;
+impl BasePalette {
+    fn for_mode(mode: ThemeMode) -> Self {
+        match mode {
+            ThemeMode::Dark => Self {
+                background: 0x282c34,
+                surface: 0x2c313a,
+                raised: 0x343a45,
+                hover: 0x3e4451,
+                border: 0x4b5263,
+                foreground: 0xabb2bf,
+                muted_foreground: 0x7f848e,
+                popover: 0x303640,
+                scrollbar_hover: 0x9da5b4,
+                warning: [0xf97316, 0xfb923c, 0xea580c],
+                warning_foreground: 0x21160e,
+            },
+            ThemeMode::Light => Self {
+                background: 0xf5f6f8,
+                surface: 0xffffff,
+                raised: 0xedeff2,
+                hover: 0xe2e5ea,
+                border: 0xc4c9d1,
+                foreground: 0x282c34,
+                muted_foreground: 0x5f6877,
+                popover: 0xffffff,
+                scrollbar_hover: 0x7c8593,
+                warning: [0xc2410c, 0x9a3412, 0x7c2d12],
+                warning_foreground: 0xffffff,
+            },
+        }
+    }
+}
 
 fn color(hex: u32) -> Hsla {
     rgb(hex).into()
 }
 
-fn color_with_alpha(hex: u32) -> Hsla {
-    rgba(hex).into()
+struct AccentPalette {
+    primary: [Hsla; 3],
+    foreground: Hsla,
+    text: Hsla,
+    link: [Hsla; 3],
+}
+
+impl AccentPalette {
+    fn for_theme(mode: ThemeMode, accent: AccentColor) -> Self {
+        use AccentColor::*;
+        use ThemeMode::*;
+
+        let (primary, foreground, text, link) = match (mode, accent) {
+            (Dark, Orange) => (
+                [0xf97316, 0xfb923c, 0xea580c],
+                0x21160e,
+                0xfb923c,
+                [0xf97316, 0xfb923c, 0xea580c],
+            ),
+            (Dark, Teal) => (
+                [0x2dd4bf, 0x5eead4, 0x14b8a6],
+                0x21160e,
+                0x5eead4,
+                [0x2dd4bf, 0x5eead4, 0x14b8a6],
+            ),
+            (Dark, Red) => (
+                [0xc24353, 0xc74859, 0xaa3445],
+                0xffffff,
+                0xe995a3,
+                [0xe995a3, 0xf2b7c0, 0xdf7d8f],
+            ),
+            (Dark, Pink) => (
+                [0xf2a6c4, 0xf7bfd5, 0xe88fb3],
+                0x21160e,
+                0xf7bfd5,
+                [0xf2a6c4, 0xf7bfd5, 0xe88fb3],
+            ),
+            (Dark, Purple) => (
+                [0xa78bfa, 0xc4b5fd, 0x9868f5],
+                0x21160e,
+                0xc4b5fd,
+                [0xa78bfa, 0xc4b5fd, 0x9868f5],
+            ),
+            (Dark, Yellow) => (
+                [0xfacc15, 0xfde047, 0xeab308],
+                0x21160e,
+                0xfde047,
+                [0xfacc15, 0xfde047, 0xeab308],
+            ),
+            (Light, Orange) => (
+                [0xc2410c, 0x9a3412, 0x7c2d12],
+                0xffffff,
+                0x7c2d12,
+                [0xc2410c, 0x9a3412, 0x7c2d12],
+            ),
+            (Light, Teal) => (
+                [0x0f766e, 0x115e59, 0x134e4a],
+                0xffffff,
+                0x134e4a,
+                [0x0f766e, 0x115e59, 0x134e4a],
+            ),
+            (Light, Red) => (
+                [0xc24353, 0xb03a4b, 0x963042],
+                0xffffff,
+                0x963042,
+                [0xc24353, 0xb03a4b, 0x963042],
+            ),
+            (Light, Pink) => (
+                [0xf2a6c4, 0xf7bfd5, 0xe88fb3],
+                0x21160e,
+                0x9c3f65,
+                [0x9c3f65, 0x842e51, 0x6e2443],
+            ),
+            (Light, Purple) => (
+                [0x6d28d9, 0x5b21b6, 0x4c1d95],
+                0xffffff,
+                0x4c1d95,
+                [0x6d28d9, 0x5b21b6, 0x4c1d95],
+            ),
+            (Light, Yellow) => (
+                [0xfacc15, 0xfde047, 0xeab308],
+                0x21160e,
+                0x854d0e,
+                [0x854d0e, 0x713f12, 0x713f12],
+            ),
+        };
+        Self {
+            primary: primary.map(color),
+            foreground: color(foreground),
+            text: color(text),
+            link: link.map(color),
+        }
+    }
 }
 
 pub(crate) fn install(cx: &mut App) {
     cx.text_system()
         .add_fonts(INTER_FONTS.into_iter().map(Cow::Borrowed).collect())
         .expect("bundled Inter fonts must be valid");
-    Theme::change(ThemeMode::Dark, None, cx);
+    apply(cx);
+}
 
+pub(super) fn apply(cx: &mut App) {
+    let config = ConfigStore::read(cx).cloned().unwrap_or_default();
+    let mode = config.theme_mode.unwrap_or(ThemeMode::Dark);
+    let accent = config.accent_color.unwrap_or_default();
+    Theme::change(mode, None, cx);
     let theme = Theme::global_mut(cx);
     theme.font_family = FONT_FAMILY.into();
-
     let colors = &mut theme.colors;
+    let base = BasePalette::for_mode(mode);
+    let accent = AccentPalette::for_theme(mode, accent);
+    let [primary, primary_hover, primary_active] = accent.primary;
+    let soft = color(base.background).blend(primary.opacity(0.1));
 
-    colors.background = color(BACKGROUND);
-    colors.foreground = color(FOREGROUND);
-    colors.border = color(BORDER);
+    colors.background = color(base.background);
+    colors.foreground = color(base.foreground);
+    colors.border = color(base.border);
+    colors.input = color(base.hover);
+    colors.ring = primary;
+    colors.caret = primary;
+    colors.drag_border = primary;
+    colors.drop_target = primary.opacity(0.25);
+    colors.selection = primary.opacity(0.3);
 
-    colors.input = color(0x3e4451);
-    colors.ring = color(ORANGE);
-    colors.caret = color(ORANGE);
-    colors.drag_border = color(ORANGE);
-    colors.drop_target = color_with_alpha(0xf9731640);
-    colors.selection = color_with_alpha(0xf973164d);
+    colors.primary = primary;
+    colors.primary_hover = primary_hover;
+    colors.primary_active = primary_active;
+    colors.primary_foreground = accent.foreground;
+    colors.progress_bar = primary;
+    colors.accent = soft;
+    colors.accent_foreground = accent.text;
+    colors.secondary = color(base.raised);
+    colors.secondary_hover = color(base.hover);
+    colors.secondary_active = soft;
+    colors.secondary_foreground = color(base.foreground);
+    colors.muted = color(base.raised);
+    colors.muted_foreground = color(base.muted_foreground);
 
-    // Primary
-    colors.primary = color(ORANGE);
-    colors.primary_hover = color(ORANGE_HOVER);
-    colors.primary_active = color(ORANGE_ACTIVE);
-    colors.primary_foreground = color(ORANGE_FOREGROUND);
-    colors.progress_bar = color(ORANGE);
+    colors.accordion = color(base.surface);
+    colors.accordion_hover = color(base.hover);
+    colors.group_box = color(base.surface);
+    colors.group_box_foreground = color(base.foreground);
+    colors.popover = color(base.popover);
+    colors.popover_foreground = color(base.foreground);
 
-    // Accent / Secondary / Muted
-    colors.accent = color(ORANGE_SOFT);
-    colors.accent_foreground = color(ORANGE_HOVER);
+    colors.list = color(base.background);
+    colors.list_head = color(base.surface);
+    colors.list_even = color(base.surface);
+    colors.list_hover = color(base.hover);
+    colors.list_active = primary.opacity(0.18);
+    colors.list_active_border = primary;
+    colors.table = color(base.background);
+    colors.table_head = color(base.surface);
+    colors.table_head_foreground = color(base.muted_foreground);
+    colors.table_even = color(base.surface);
+    colors.table_hover = color(base.hover);
+    colors.table_active = primary.opacity(0.18);
+    colors.table_active_border = primary;
+    colors.table_row_border = color(base.hover);
 
-    colors.secondary = color(SURFACE_RAISED);
-    colors.secondary_hover = color(SURFACE_HOVER);
-    colors.secondary_active = color(ORANGE_SOFT);
-    colors.secondary_foreground = color(FOREGROUND);
+    colors.sidebar = color(base.surface);
+    colors.sidebar_foreground = color(base.foreground);
+    colors.sidebar_border = color(base.hover);
+    colors.sidebar_accent = soft;
+    colors.sidebar_accent_foreground = accent.text;
+    colors.sidebar_primary = primary;
+    colors.sidebar_primary_foreground = accent.foreground;
+    colors.tab = color(base.background);
+    colors.tab_bar = color(base.surface);
+    colors.tab_bar_segmented = color(base.raised);
+    colors.tab_foreground = color(base.muted_foreground);
+    colors.tab_active = soft;
+    colors.tab_active_foreground = accent.text;
 
-    colors.muted = color(SURFACE_RAISED);
-    colors.muted_foreground = color(MUTED_FOREGROUND);
+    colors.title_bar = color(base.surface);
+    colors.title_bar_border = color(base.hover);
+    colors.tiles = color(base.background);
+    colors.window_border = color(base.border);
+    colors.scrollbar = Hsla::transparent_black();
+    colors.scrollbar_thumb = color(base.muted_foreground).opacity(0.44);
+    colors.scrollbar_thumb_hover = color(base.scrollbar_hover);
+    colors.slider_bar = color(base.hover);
+    colors.slider_thumb = primary;
+    colors.switch = color(base.hover);
+    colors.skeleton = color(base.raised);
 
-    // Containers
-    colors.accordion = color(SURFACE);
-    colors.accordion_hover = color(SURFACE_HOVER);
+    [colors.link, colors.link_hover, colors.link_active] = accent.link;
 
-    colors.group_box = color(SURFACE);
-    colors.group_box_foreground = color(FOREGROUND);
+    [colors.warning, colors.warning_hover, colors.warning_active] = base.warning.map(color);
+    colors.warning_foreground = color(base.warning_foreground);
 
-    colors.popover = color(0x303640);
-    colors.popover_foreground = color(FOREGROUND);
+    colors.chart_1 = primary.blend(Hsla::white().opacity(0.7));
+    colors.chart_2 = primary.blend(Hsla::white().opacity(0.5));
+    colors.chart_3 = primary_hover;
+    colors.chart_4 = primary;
+    colors.chart_5 = primary_active;
 
-    // Lists
-    colors.list = color(BACKGROUND);
-    colors.list_head = color(SURFACE);
-    colors.list_even = color(0x2a2f37);
-    colors.list_hover = color(SURFACE_HOVER);
-    colors.list_active = color_with_alpha(0xf973162e);
-    colors.list_active_border = color(ORANGE);
-
-    // Tables
-    colors.table = color(BACKGROUND);
-    colors.table_head = color(SURFACE);
-    colors.table_head_foreground = color(MUTED_FOREGROUND);
-    colors.table_even = color(0x2a2f37);
-    colors.table_hover = color(SURFACE_HOVER);
-    colors.table_active = color_with_alpha(0xf973162e);
-    colors.table_active_border = color(ORANGE);
-    colors.table_row_border = color(0x3e4451);
-
-    // Sidebar
-    colors.sidebar = color(SURFACE);
-    colors.sidebar_foreground = color(FOREGROUND);
-    colors.sidebar_border = color(0x3e4451);
-    colors.sidebar_accent = color(ORANGE_SOFT);
-    colors.sidebar_accent_foreground = color(ORANGE_HOVER);
-    colors.sidebar_primary = color(ORANGE);
-    colors.sidebar_primary_foreground = color(ORANGE_FOREGROUND);
-
-    // Tabs
-    colors.tab = color(BACKGROUND);
-    colors.tab_bar = color(SURFACE);
-    colors.tab_bar_segmented = color(SURFACE_RAISED);
-    colors.tab_foreground = color(MUTED_FOREGROUND);
-    colors.tab_active = color(ORANGE_SOFT);
-    colors.tab_active_foreground = color(ORANGE_HOVER);
-
-    // Window chrome
-    colors.title_bar = color(SURFACE);
-    colors.title_bar_border = color(0x3e4451);
-    colors.tiles = color(BACKGROUND);
-    colors.window_border = color(BORDER);
-
-    // Controls
-    colors.scrollbar = color_with_alpha(0x282c3400);
-    colors.scrollbar_thumb = color_with_alpha(0x7f848e70);
-    colors.scrollbar_thumb_hover = color(0x9da5b4);
-
-    colors.slider_bar = color(SURFACE_HOVER);
-    colors.slider_thumb = color(ORANGE);
-
-    colors.switch = color(SURFACE_HOVER);
-    colors.skeleton = color(SURFACE_RAISED);
-
-    // Links / warnings
-    colors.link = color(ORANGE);
-    colors.link_hover = color(ORANGE_HOVER);
-    colors.link_active = color(ORANGE_ACTIVE);
-
-    colors.warning = color(ORANGE);
-    colors.warning_hover = color(ORANGE_HOVER);
-    colors.warning_active = color(ORANGE_ACTIVE);
-    colors.warning_foreground = color(ORANGE_FOREGROUND);
-
-    // Charts
-    colors.chart_1 = color(0xffd7b5);
-    colors.chart_2 = color(0xfdba74);
-    colors.chart_3 = color(ORANGE_HOVER);
-    colors.chart_4 = color(ORANGE);
-    colors.chart_5 = color(ORANGE_ACTIVE);
+    cx.refresh_windows();
 }

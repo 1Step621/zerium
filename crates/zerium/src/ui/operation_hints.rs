@@ -315,7 +315,7 @@ impl Render for OperationHintBar {
                     .child(
                         div()
                             .text_color(if hint.active {
-                                colors.primary
+                                colors.accent_foreground
                             } else {
                                 colors.foreground
                             })

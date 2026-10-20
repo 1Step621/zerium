@@ -436,7 +436,7 @@ impl PropertyInspector {
                     )))
                     .text_sm()
                     .text_color(if focused {
-                        render.colors.primary
+                        render.colors.accent_foreground
                     } else if hidden {
                         render.colors.muted_foreground
                     } else {
