@@ -7,6 +7,7 @@ use gpui::{Context, Empty, EntityId, Render, Window, prelude::*};
 
 use zerium_core::timeline::{AnimationEdit, Frame, PropertyAddress, TimelineTime};
 
+use crate::ui::TimelineEditorEntityExt as _;
 use crate::ui::time_grid;
 
 use crate::ui::timeline::Timeline;
@@ -27,6 +28,24 @@ impl Render for MoveAnimationStop {
 }
 
 impl Timeline {
+    pub(in crate::ui::timeline) fn add_animation_stop_at_time(
+        &mut self,
+        address: &PropertyAddress,
+        time: TimelineTime,
+        cx: &mut Context<Self>,
+    ) {
+        let changed = self.editor.update_if_changed(cx, |editor| {
+            editor
+                .insert_animation_stop_at_time(address, time)
+                .is_some()
+        });
+        if changed {
+            self.transport.update(cx, |transport, cx| {
+                transport.set_playhead(time.nearest_frame(), cx)
+            });
+        }
+    }
+
     pub(in crate::ui::timeline) fn move_animation_stop_from_pointer(
         &mut self,
         drag: &MoveAnimationStop,

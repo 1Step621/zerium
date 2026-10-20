@@ -5,46 +5,31 @@ use rust_i18n::t;
 use std::cell::RefCell;
 
 impl AnimationCurveEditor {
-    fn stop_location_at_time(
-        &self,
-        time: TimelineTime,
-        cx: &App,
-    ) -> Option<(SelectedCurve, Frame)> {
-        let selected = self.selected_curve(cx)?;
-        let editor = self.editor.read(cx);
-        let item = editor.item(selected.address.item_id)?;
-        let track = editor.animation_track(&selected.address)?;
-        let frame = item.animation_clock(track).pattern_frame_at(time);
-        (frame.get() > 0
-            && frame.get() < track.span().get()
-            && track.stop_index_at(frame).is_none())
-        .then_some((selected, frame))
-    }
-
     pub(super) fn can_add_stop_at_time(&self, time: TimelineTime, cx: &App) -> bool {
-        self.stop_location_at_time(time, cx).is_some()
+        self.selection.read(cx).address().is_some_and(|address| {
+            self.editor
+                .read(cx)
+                .animation_stop_insertion_frame(address, time)
+                .is_some()
+        })
     }
 
     pub(super) fn add_stop_at_time(&mut self, time: TimelineTime, cx: &mut Context<Self>) {
-        let Some((selected, pattern_frame)) = self.stop_location_at_time(time, cx) else {
+        let Some(selected) = self.selected_curve(cx) else {
             return;
         };
-        let Some(value) = (|| {
-            let editor = self.editor.read(cx);
-            let track = editor.animation_track(&selected.address)?;
-            track
-                .stops()
-                .iter()
-                .min_by_key(|stop| stop.frame().get().abs_diff(pattern_frame.get()))
-                .map(|stop| stop.value().clone())
-        })() else {
+        let Some(pattern_frame) = self
+            .editor
+            .read(cx)
+            .animation_stop_insertion_frame(&selected.address, time)
+        else {
             return;
         };
         let frame = Self::frame_at_pattern_frame(&selected, pattern_frame);
         let target = selected.address;
         let changed = self.editor.update_if_changed(cx, |editor| {
             editor
-                .insert_animation_stop(&target, pattern_frame, value)
+                .insert_animation_stop_at_time(&target, time)
                 .is_some()
         });
         if !changed {

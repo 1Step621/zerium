@@ -1,7 +1,8 @@
 use crate::animation::{AnimationRepeat, ScalarAnimations, ScalarTrack};
-use crate::property::PropertyValue;
 use crate::timeline::history::HistoryKey;
-use crate::timeline::{EffectInstanceId, Frame, ItemId, PropertyAddress, TimelineEditor};
+use crate::timeline::{
+    EffectInstanceId, Frame, ItemId, PropertyAddress, TimelineEditor, TimelineTime,
+};
 
 impl TimelineEditor {
     pub fn set_property_animation_enabled(
@@ -58,21 +59,48 @@ impl TimelineEditor {
         })
     }
 
-    /// Insert at an integer frame within the track's editable forward pattern.
-    pub fn insert_animation_stop(
-        &mut self,
+    pub fn animation_stop_insertion_frame(
+        &self,
         address: &PropertyAddress,
-        frame: Frame,
-        value: PropertyValue,
-    ) -> Option<usize> {
-        if !self.is_item_selected(address.item_id) {
+        time: TimelineTime,
+    ) -> Option<Frame> {
+        if !self.is_item_selected(address.item_id)
+            || !self
+                .property_schema(address)?
+                .is_editable(address.scalar_index)
+        {
             return None;
         }
+        let item = self.item(address.item_id)?;
+        let track = self.animation_track(address)?;
+        let frame = item.animation_clock(track).pattern_frame_at(time);
+        if frame.get() == 0
+            || frame.get() >= track.span().get()
+            || track.stop_index_at(frame).is_some()
+        {
+            return None;
+        }
+        Some(frame)
+    }
+
+    /// Insert within the editable forward pattern, inheriting the nearest stop's value.
+    pub fn insert_animation_stop_at_time(
+        &mut self,
+        address: &PropertyAddress,
+        time: TimelineTime,
+    ) -> Option<usize> {
+        let frame = self.animation_stop_insertion_frame(address, time)?;
+        let value = self
+            .animation_track(address)?
+            .stops()
+            .iter()
+            .min_by_key(|stop| stop.frame().get().abs_diff(frame.get()))?
+            .value()
+            .clone();
         let schema = self.property_schema(address)?;
-        if !schema.is_editable(address.scalar_index)
-            || !schema
-                .configuration_constraints(address.scalar_index)
-                .allows(&value)
+        if !schema
+            .configuration_constraints(address.scalar_index)
+            .allows(&value)
         {
             return None;
         }

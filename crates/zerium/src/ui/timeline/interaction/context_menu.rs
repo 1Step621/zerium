@@ -1,7 +1,7 @@
 use rust_i18n::t;
 
 use ::ui::{
-    ThemeColor,
+    IconName, ThemeColor,
     menu::{PopupMenu, PopupMenuItem},
 };
 use gpui::{
@@ -9,7 +9,7 @@ use gpui::{
     prelude::*, px,
 };
 
-use zerium_core::timeline::{Frame, ItemId, LayerId, SceneId, TimelineEditError};
+use zerium_core::timeline::{Frame, ItemId, LayerId, SceneId, TimelineEditError, TimelineTime};
 
 use crate::ui::{
     TimelineEditorEntityExt as _,
@@ -30,11 +30,14 @@ impl Timeline {
         let target = self.context_target_at(layer, pointer_x, true, window, cx);
         self.cursor_layer = Some(layer);
         self.context_target = Some(target);
-        if let Some(item_id) = target.item
-            && !self.editor.read(cx).is_item_selected(item_id)
-        {
-            self.editor
-                .update_if_changed(cx, |editor| editor.select(item_id));
+        if let Some(item_id) = target.item {
+            if !self.editor.read(cx).is_item_selected(item_id) {
+                self.editor
+                    .update_if_changed(cx, |editor| editor.select(item_id));
+            }
+            self.animation_selection.update(cx, |selection, cx| {
+                selection.select_item(item_id, &self.editor, cx);
+            });
         }
     }
 
@@ -184,6 +187,17 @@ impl Timeline {
     ) {
         self.prepare_context_target(layer_index, pointer_x, window, cx);
         let target_item = self.context_target.and_then(|target| target.item);
+        let stop_target = self.context_target.and_then(|target| {
+            let address = self.animation_selection.read(cx).address()?;
+            if Some(address.item_id) != target.item {
+                return None;
+            }
+            let time = TimelineTime::from_frame(target.start);
+            self.editor
+                .read(cx)
+                .animation_stop_insertion_frame(address, time)?;
+            Some((address.clone(), time))
+        });
         let can_group = self.editor.read(cx).selected_item_ids().count() >= 1;
         let can_paste = self.can_paste_items(cx);
         let paste_target = self
@@ -196,6 +210,7 @@ impl Timeline {
                 let copy_timeline = timeline.clone();
                 let cut_timeline = timeline.clone();
                 let paste_timeline = timeline.clone();
+                let add_stop_timeline = timeline.clone();
                 menu.item(PopupMenuItem::new(t!("context.copy").to_string()).on_click(
                     move |_, _, cx| {
                         copy_timeline.update(cx, |timeline, cx| {
@@ -221,6 +236,19 @@ impl Timeline {
                         ),
                     )
                 })
+                .separator()
+                .menu_handler_with_icon_and_disabled(
+                    t!("curve.add_stop").to_string(),
+                    IconName::Plus,
+                    stop_target.is_none(),
+                    move |_, cx| {
+                        if let Some((address, time)) = &stop_target {
+                            add_stop_timeline.update(cx, |timeline, cx| {
+                                timeline.add_animation_stop_at_time(address, *time, cx);
+                            });
+                        }
+                    },
+                )
                 .separator()
                 .when(can_group, |menu| {
                     let group_timeline = timeline.clone();
