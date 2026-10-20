@@ -94,6 +94,8 @@ A text input declares all properties used by the rasterizer:
     "size": "size",
     "font_family": "font_family",
     "font_size": "font_size",
+    "letter_spacing": "letter_spacing",
+    "line_spacing": "line_spacing",
     "color": "color",
     "outline_width": "outline_width",
     "outline_color": "outline_color",
@@ -109,6 +111,11 @@ A text input declares all properties used by the rasterizer:
 `font_family` is a string array. Font size and outline width are `f32`; colors are
 `color`; bold and italic are `bool`. Alignment enums must contain exactly `0`,
 `1`, and `2`.
+
+`letter_spacing` and `line_spacing` reference `f32` properties in composition
+pixels; zero preserves the default spacing. Letter spacing adjusts glyph
+advances; line spacing adds to the default line height of 1.2 times the font size.
+Negative values tighten spacing; the resulting line height is at least one render pixel.
 
 ## Number
 

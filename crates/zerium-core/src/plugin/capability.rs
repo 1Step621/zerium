@@ -77,6 +77,8 @@ pub struct TextStyle {
     pub size: String,
     pub font_family: String,
     pub font_size: String,
+    pub letter_spacing: String,
+    pub line_spacing: String,
     pub color: String,
     pub outline_width: String,
     pub outline_color: String,
@@ -284,6 +286,8 @@ impl TextStyle {
             )
         })?;
         references.scalar(&self.font_size, ScalarPropertyType::F32)?;
+        references.scalar(&self.letter_spacing, ScalarPropertyType::F32)?;
+        references.scalar(&self.line_spacing, ScalarPropertyType::F32)?;
         references.scalar(&self.color, ScalarPropertyType::Color)?;
         references.scalar(&self.outline_width, ScalarPropertyType::F32)?;
         references.scalar(&self.outline_color, ScalarPropertyType::Color)?;

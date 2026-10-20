@@ -38,7 +38,12 @@ pub(super) fn rasterize(
             ))
         })?;
     let font_size = (signature.font_size * uniform_scale).max(1.);
-    let metrics = Metrics::new(font_size, font_size * 1.2);
+    let line_height = (font_size * 1.2 + signature.line_spacing * uniform_scale).max(1.);
+    // Line spacing must not move or clip the first line inside its line box.
+    let first_line_offset = ((line_height - font_size * 1.2) / 2.).round() as i32;
+    let letter_spacing_pixels = signature.letter_spacing * uniform_scale;
+    let letter_spacing = letter_spacing_pixels / font_size;
+    let metrics = Metrics::new(font_size, line_height);
     let mut buffer = Buffer::new(font_system, metrics);
     let mut font_families = signature.font_families.clone();
     font_families.push("sans-serif".into());
@@ -56,7 +61,8 @@ pub(super) fn rasterize(
     } else {
         Style::Normal
     };
-    let attrs = attrs_for_family(font_system, primary_family, weight, style);
+    let attrs =
+        attrs_for_family(font_system, primary_family, weight, style).letter_spacing(letter_spacing);
     let font_runs = font_runs(
         font_system,
         &signature.content,
@@ -73,6 +79,7 @@ pub(super) fn rasterize(
                 weight,
                 style,
             )
+            .letter_spacing(letter_spacing)
         })
         .collect::<Vec<_>>();
     let alignment = match signature.horizontal_alignment {
@@ -83,7 +90,11 @@ pub(super) fn rasterize(
     let mut coverage = vec![0_u8; pixel_count];
     {
         let mut borrowed = buffer.borrow_with(font_system);
-        borrowed.set_size(Some(width as f32), Some(height as f32));
+        // cosmic-text counts one trailing letter space in each line's width.
+        borrowed.set_size(
+            Some((width as f32 + letter_spacing_pixels).max(1.)),
+            Some(height as f32 + first_line_offset.max(0) as f32),
+        );
         borrowed.set_wrap(Wrap::WordOrGlyph);
         if font_runs.is_empty() {
             borrowed.set_text(
@@ -109,7 +120,7 @@ pub(super) fn rasterize(
             Color::rgb(255, 255, 255),
             |x, y, glyph_width, glyph_height, color| {
                 for offset_y in 0..glyph_height as i32 {
-                    let pixel_y = y + offset_y;
+                    let pixel_y = y + offset_y - first_line_offset;
                     if !(0..height as i32).contains(&pixel_y) {
                         continue;
                     }

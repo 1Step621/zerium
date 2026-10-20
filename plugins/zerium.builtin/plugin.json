@@ -1729,6 +1729,8 @@
               "size": "size",
               "font_family": "font_family",
               "font_size": "font_size",
+              "letter_spacing": "letter_spacing",
+              "line_spacing": "line_spacing",
               "color": "color",
               "outline_width": "outline_width",
               "outline_color": "outline_color",
@@ -1856,6 +1858,24 @@
           "ui": { "unit": "px" }
         },
         {
+          "id": "letter_spacing",
+          "label": { "ja-JP": "字間", "en-US": "Letter Spacing" },
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": -1000, "max": 1000 },
+          "ui": { "unit": "px" }
+        },
+        {
+          "id": "line_spacing",
+          "label": { "ja-JP": "行間", "en-US": "Line Spacing" },
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": -1000, "max": 1000 },
+          "ui": { "unit": "px" }
+        },
+        {
           "id": "color",
           "label": { "ja-JP": "色", "en-US": "Color" },
           "type": "color",
@@ -1942,6 +1962,8 @@
               "size": "size",
               "font_family": "font_family",
               "font_size": "font_size",
+              "letter_spacing": "letter_spacing",
+              "line_spacing": "line_spacing",
               "color": "color",
               "outline_width": "outline_width",
               "outline_color": "outline_color",
@@ -2074,6 +2096,24 @@
           "default": 64,
           "animatable": true,
           "constraints": { "min": 1, "max": 1000 },
+          "ui": { "unit": "px" }
+        },
+        {
+          "id": "letter_spacing",
+          "label": { "ja-JP": "字間", "en-US": "Letter Spacing" },
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": -1000, "max": 1000 },
+          "ui": { "unit": "px" }
+        },
+        {
+          "id": "line_spacing",
+          "label": { "ja-JP": "行間", "en-US": "Line Spacing" },
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": -1000, "max": 1000 },
           "ui": { "unit": "px" }
         },
         {

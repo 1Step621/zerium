@@ -34,6 +34,8 @@ struct TextSignature {
     content: String,
     font_families: Vec<String>,
     font_size: f32,
+    letter_spacing: f32,
+    line_spacing: f32,
     color: [f32; 4],
     outline_width: f32,
     outline_color: [f32; 4],
@@ -198,6 +200,8 @@ impl TextSignature {
             size,
             font_family,
             font_size,
+            letter_spacing,
+            line_spacing,
             color,
             outline_width,
             outline_color,
@@ -246,6 +250,12 @@ impl TextSignature {
             content,
             font_families: string_array(font_family).ok_or_else(missing)?,
             font_size: property(font_size)
+                .and_then(PropertyValue::as_f32)
+                .ok_or_else(missing)?,
+            letter_spacing: property(letter_spacing)
+                .and_then(PropertyValue::as_f32)
+                .ok_or_else(missing)?,
+            line_spacing: property(line_spacing)
                 .and_then(PropertyValue::as_f32)
                 .ok_or_else(missing)?,
             color: property(color)
