@@ -201,6 +201,19 @@ pub(in crate::ui::timeline) fn timeline_item(
                     this.editor
                         .update_if_changed(cx, |editor| editor.select(item_id));
                 }
+                let seek_frame = {
+                    let editor = this.editor.read(cx);
+                    editor
+                        .item(item_id)
+                        .filter(|item| {
+                            editor.is_item_selected(item_id) && !item.contains(editor.playhead())
+                        })
+                        .map(|item| item.start)
+                };
+                if let Some(frame) = seek_frame {
+                    this.transport
+                        .update(cx, |transport, cx| transport.set_playhead(frame, cx));
+                }
                 this.open_scene_item(item_id, event, cx);
                 cx.stop_propagation();
             }))
