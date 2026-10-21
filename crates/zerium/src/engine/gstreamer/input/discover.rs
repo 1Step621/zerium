@@ -61,6 +61,7 @@ pub(crate) fn probe(path: &Path, target: MediaTarget) -> Result<Option<MediaMeta
 }
 
 const CACHE_ENTRIES: usize = 128;
+
 type Discovery = Arc<OnceLock<Result<DiscovererInfo, String>>>;
 
 struct CachedDiscovery {

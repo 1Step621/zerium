@@ -9,6 +9,30 @@ mod file;
 mod number;
 mod text;
 
+pub(super) use animation::{
+    animation_container_label, animation_label_base, animation_property_label,
+    animation_scalar_label, animation_stop_inputs, control_contains_focused_animation,
+    keyframe_base,
+};
+
+pub(super) use array::elements_section;
+
+pub(super) use binding::scene_binding_button;
+
+pub(super) use choice::{
+    dropdown_compact_row, dropdown_full_row, toggle_compact_row, toggle_full_row,
+};
+
+pub(super) use color::{color_compact_row, color_full_row};
+
+pub(super) use composition::{group_box, scalar_compact_row, scalar_full_row};
+
+pub(super) use file::file_row;
+
+pub(super) use number::{element_number, number_compact_row, number_full_row};
+
+pub(super) use text::{text_compact_row, text_full_row};
+
 use ::ui::ThemeColor;
 use gpui::{Div, Entity, div, prelude::*};
 
@@ -57,22 +81,20 @@ impl IntoElement for PropertyRow {
     type Element = Div;
 
     fn into_element(self) -> Div {
-        PropertyInspector::property_grid().children(self.into_cells())
+        property_grid().children(self.into_cells())
     }
 }
 
-impl PropertyInspector {
-    pub(super) fn property_grid() -> Div {
-        div()
-            .grid()
-            .grid_template_columns([
-                gpui::GridTrackSize::FitContent(gpui::relative(0.3)),
-                gpui::GridTrackSize::Fraction(1.),
-            ])
-            .min_w_0()
-            .w_full()
-            .items_center()
-            .gap_x_3()
-            .gap_y_1()
-    }
+pub(in crate::ui::property_inspector) fn property_grid() -> Div {
+    div()
+        .grid()
+        .grid_template_columns([
+            gpui::GridTrackSize::FitContent(gpui::relative(0.3)),
+            gpui::GridTrackSize::Fraction(1.),
+        ])
+        .min_w_0()
+        .w_full()
+        .items_center()
+        .gap_x_3()
+        .gap_y_1()
 }

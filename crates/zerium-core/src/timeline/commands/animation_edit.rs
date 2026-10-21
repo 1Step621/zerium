@@ -4,7 +4,7 @@ use std::{collections::HashMap, ops::RangeInclusive};
 use crate::animation::{ScalarTrack, SegmentInterpolation};
 use crate::timeline::{PropertyAddress, TimelineEditor, TimelineItem, TimelineTime};
 
-use super::EditGesture;
+use super::EditSession;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AnimationEditTarget {
@@ -59,7 +59,7 @@ enum AnimationEditKind {
 pub struct AnimationEdit {
     targets: Vec<Target>,
     kind: AnimationEditKind,
-    gesture: EditGesture,
+    gesture: EditSession,
 }
 
 impl AnimationEdit {
@@ -209,18 +209,26 @@ impl TimelineEditor {
         if !edit.gesture.is_current(self) {
             return false;
         }
-        let mut updates = HashMap::new();
+        let mut candidates = HashMap::new();
         let mut changed = false;
         for target in &edit.targets {
             let Some(item) = self.item(target.address.item_id) else {
                 return false;
             };
-            let Some(current) = self.animation_track(&target.address) else {
+            if let std::collections::hash_map::Entry::Vacant(entry) = candidates.entry(item.id) {
+                let Ok(candidate) = self.active_document().prepare_item_edit(item.id) else {
+                    return false;
+                };
+                entry.insert(candidate);
+            }
+            let candidate = candidates.get_mut(&item.id).expect("prepared item");
+            let Some(track) = candidate
+                .item
+                .animations_mut(target.address.effect_id)
+                .and_then(|animations| animations.track_mut(&target.address.path()))
+            else {
                 return false;
             };
-            let track = updates
-                .entry(target.address.clone())
-                .or_insert_with(|| current.clone());
             let Some(updated) = update(item, target.index, track) else {
                 return false;
             };
@@ -230,14 +238,9 @@ impl TimelineEditor {
             return false;
         }
         self.edit_gesture(&mut edit.gesture, |editor| {
-            editor.edit_project_if_changed(None, |editor| {
-                for (address, track) in updates {
-                    *editor
-                        .animation_track_mut(&address)
-                        .expect("all gesture targets were validated before mutation") = track;
-                }
-                true
-            });
+            editor
+                .commit_item_edits(None, candidates.into_values())
+                .unwrap_or(false);
         })
     }
 }

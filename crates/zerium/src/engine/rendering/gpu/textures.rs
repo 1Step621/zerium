@@ -79,7 +79,7 @@ impl RenderSession {
                     self.update_frame_texture(slot, frame.clone(), &mut cache.yuv_upload)?;
                     Ok(uploaded)
                 })?;
-            let extent = Self::frame_extent(frame)?;
+            let extent = frame_extent(frame)?;
             let target = cache
                 .targets
                 .iter()
@@ -136,7 +136,7 @@ impl RenderSession {
                 "cannot reuse a video texture with different dimensions",
             ));
         }
-        let extent = Self::frame_extent(&frame)?;
+        let extent = frame_extent(&frame)?;
         self.write_frame(&uploaded._texture, &frame, extent, yuv_upload)?;
         uploaded.frame = frame;
         Ok(())
@@ -147,7 +147,7 @@ impl RenderSession {
         frame: Arc<VisualFrame>,
         yuv_upload: &mut Option<YuvUpload>,
     ) -> Result<Arc<FrameTexture>, RenderError> {
-        let extent = Self::frame_extent(&frame)?;
+        let extent = frame_extent(&frame)?;
         if let FrameData::Video(video) = &frame.data
             && let Some(texture) = video
                 .rgba_texture(&self.shared.gpu.device)
@@ -183,43 +183,6 @@ impl RenderSession {
             _texture: texture,
             view,
         }))
-    }
-
-    pub(super) fn frame_extent(frame: &VisualFrame) -> Result<wgpu::Extent3d, RenderError> {
-        if frame.width == 0 || frame.height == 0 {
-            return Err(RenderError::backend("video dimensions must be non-zero"));
-        }
-        if let FrameData::Video(video) = &frame.data {
-            if video.dimensions() != [frame.width, frame.height] {
-                return Err(RenderError::backend("Invalid decoded video dimensions"));
-            }
-            return Ok(wgpu::Extent3d {
-                width: frame.width,
-                height: frame.height,
-                depth_or_array_layers: 1,
-            });
-        }
-        let expected_len = usize::try_from(frame.width)
-            .ok()
-            .and_then(|width| {
-                usize::try_from(frame.height)
-                    .ok()
-                    .and_then(|height| width.checked_mul(height))
-            })
-            .and_then(|pixels| pixels.checked_mul(4))
-            .ok_or_else(|| RenderError::backend("video frame size overflow"))?;
-        if frame.byte_len() != expected_len {
-            return Err(RenderError::backend(format!(
-                "video frame has {} bytes but {} were expected",
-                frame.byte_len(),
-                expected_len
-            )));
-        }
-        Ok(wgpu::Extent3d {
-            width: frame.width,
-            height: frame.height,
-            depth_or_array_layers: 1,
-        })
     }
 
     pub(super) fn write_frame(
@@ -317,4 +280,41 @@ impl RenderSession {
         );
         Ok(())
     }
+}
+
+fn frame_extent(frame: &VisualFrame) -> Result<wgpu::Extent3d, RenderError> {
+    if frame.width == 0 || frame.height == 0 {
+        return Err(RenderError::backend("video dimensions must be non-zero"));
+    }
+    if let FrameData::Video(video) = &frame.data {
+        if video.dimensions() != [frame.width, frame.height] {
+            return Err(RenderError::backend("Invalid decoded video dimensions"));
+        }
+        return Ok(wgpu::Extent3d {
+            width: frame.width,
+            height: frame.height,
+            depth_or_array_layers: 1,
+        });
+    }
+    let expected_len = usize::try_from(frame.width)
+        .ok()
+        .and_then(|width| {
+            usize::try_from(frame.height)
+                .ok()
+                .and_then(|height| width.checked_mul(height))
+        })
+        .and_then(|pixels| pixels.checked_mul(4))
+        .ok_or_else(|| RenderError::backend("video frame size overflow"))?;
+    if frame.byte_len() != expected_len {
+        return Err(RenderError::backend(format!(
+            "video frame has {} bytes but {} were expected",
+            frame.byte_len(),
+            expected_len
+        )));
+    }
+    Ok(wgpu::Extent3d {
+        width: frame.width,
+        height: frame.height,
+        depth_or_array_layers: 1,
+    })
 }

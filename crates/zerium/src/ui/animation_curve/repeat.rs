@@ -1,5 +1,6 @@
 //! Playback controls belong to the whole scalar track, not its intervals.
 use super::*;
+use crate::ui::animation_curve::format_number;
 use crate::ui::{
     TimelineEditorEntityExt as _,
     input::{InputControl, set_input_text},
@@ -33,7 +34,7 @@ impl RepeatParameter {
     fn text(self, repeat: AnimationRepeat) -> String {
         match self {
             Self::Period => self.value(repeat).to_string(),
-            Self::Phase => AnimationCurveEditor::format_number(self.value(repeat)),
+            Self::Phase => format_number(self.value(repeat)),
         }
     }
 }

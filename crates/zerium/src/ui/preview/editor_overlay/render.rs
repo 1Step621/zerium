@@ -141,60 +141,6 @@ impl Preview {
         .size_full()
     }
 
-    fn size_overlay(
-        bounds: PreviewBounds,
-        resolution: zerium_core::timeline::ProjectResolution,
-        color: Hsla,
-    ) -> impl IntoElement {
-        let resolution = [resolution.width() as f32, resolution.height() as f32];
-        div()
-            .absolute()
-            .left(relative(
-                (bounds.center[0] - bounds.size[0] * 0.5) / resolution[0] + 0.5,
-            ))
-            .top(relative(
-                (bounds.center[1] - bounds.size[1] * 0.5) / resolution[1] + 0.5,
-            ))
-            .w(relative(bounds.size[0] / resolution[0]))
-            .h(relative(bounds.size[1] / resolution[1]))
-            .border_1()
-            .border_color(color.opacity(0.6))
-    }
-
-    fn path_overlay(
-        positions: Vec<[f32; 2]>,
-        resolution: zerium_core::timeline::ProjectResolution,
-        color: Hsla,
-    ) -> impl IntoElement {
-        canvas(
-            move |_, _, _| positions.clone(),
-            move |bounds, positions, window, _| {
-                let to_point = |position: [f32; 2]| {
-                    point(
-                        bounds.origin.x
-                            + bounds.size.width * (position[0] / resolution.width() as f32 + 0.5),
-                        bounds.origin.y
-                            + bounds.size.height * (position[1] / resolution.height() as f32 + 0.5),
-                    )
-                };
-                let mut builder = PathBuilder::stroke(px(1.5));
-                let mut positions = positions.iter().copied();
-                if let Some(first) = positions.next() {
-                    builder.move_to(to_point(first));
-                    for position in positions {
-                        builder.line_to(to_point(position));
-                    }
-                    if let Ok(path) = builder.build() {
-                        window.paint_path(path, color.opacity(0.75));
-                    }
-                }
-            },
-        )
-        .absolute()
-        .inset_0()
-        .size_full()
-    }
-
     pub(in crate::ui::preview) fn editor_overlay(
         &self,
         overlay: PreviewEditorOverlay,
@@ -209,13 +155,13 @@ impl Preview {
                 overlay
                     .motion_paths
                     .into_iter()
-                    .map(|path| Self::path_overlay(path, resolution, color)),
+                    .map(|path| path_overlay(path, resolution, color)),
             )
             .when(!overlay.spline_path.is_empty(), |this| {
-                this.child(Self::path_overlay(overlay.spline_path, resolution, color))
+                this.child(path_overlay(overlay.spline_path, resolution, color))
             })
             .when_some(overlay.bounds, |this, bounds| {
-                this.child(Self::size_overlay(bounds, resolution, color))
+                this.child(size_overlay(bounds, resolution, color))
             })
             .children(overlay.points.into_iter().map(|point| {
                 div()
@@ -230,4 +176,58 @@ impl Preview {
             }))
             .child(self.scalar_controls(overlay.controls, resolution, color, cx))
     }
+}
+
+fn size_overlay(
+    bounds: PreviewBounds,
+    resolution: zerium_core::timeline::ProjectResolution,
+    color: Hsla,
+) -> impl IntoElement {
+    let resolution = [resolution.width() as f32, resolution.height() as f32];
+    div()
+        .absolute()
+        .left(relative(
+            (bounds.center[0] - bounds.size[0] * 0.5) / resolution[0] + 0.5,
+        ))
+        .top(relative(
+            (bounds.center[1] - bounds.size[1] * 0.5) / resolution[1] + 0.5,
+        ))
+        .w(relative(bounds.size[0] / resolution[0]))
+        .h(relative(bounds.size[1] / resolution[1]))
+        .border_1()
+        .border_color(color.opacity(0.6))
+}
+
+fn path_overlay(
+    positions: Vec<[f32; 2]>,
+    resolution: zerium_core::timeline::ProjectResolution,
+    color: Hsla,
+) -> impl IntoElement {
+    canvas(
+        move |_, _, _| positions.clone(),
+        move |bounds, positions, window, _| {
+            let to_point = |position: [f32; 2]| {
+                point(
+                    bounds.origin.x
+                        + bounds.size.width * (position[0] / resolution.width() as f32 + 0.5),
+                    bounds.origin.y
+                        + bounds.size.height * (position[1] / resolution.height() as f32 + 0.5),
+                )
+            };
+            let mut builder = PathBuilder::stroke(px(1.5));
+            let mut positions = positions.iter().copied();
+            if let Some(first) = positions.next() {
+                builder.move_to(to_point(first));
+                for position in positions {
+                    builder.line_to(to_point(position));
+                }
+                if let Ok(path) = builder.build() {
+                    window.paint_path(path, color.opacity(0.75));
+                }
+            }
+        },
+    )
+    .absolute()
+    .inset_0()
+    .size_full()
 }

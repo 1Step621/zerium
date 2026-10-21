@@ -1,7 +1,8 @@
 //! Resolve defaults, scene variables and animation through one property pipeline.
 
-use std::collections::HashMap;
+use std::{cell::RefCell, collections::HashMap, sync::Arc};
 
+use super::{CalculationDiagnostic, CalculationFailure};
 use crate::property::{PropertySchema, PropertyValue, PropertyValues};
 
 use super::{
@@ -13,22 +14,22 @@ use super::{
 /// Failed bindings retain their destination's authored value.
 pub(super) struct ResolvedProperty {
     pub value: PropertyValue,
-    pub diagnostics: Vec<String>,
+    pub diagnostics: Vec<CalculationDiagnostic>,
 }
 
 impl ResolvedProperty {
     /// A scene argument propagates a failed input to its downstream consumers.
-    fn into_result(self) -> Result<PropertyValue, String> {
+    fn into_result(self) -> Result<PropertyValue, CalculationFailure> {
         match self.diagnostics.into_iter().next() {
-            Some(error) => Err(error),
+            Some(error) => Err(CalculationFailure::Argument(Arc::new(error))),
             None => Ok(self.value),
         }
     }
 }
 
 pub(super) struct ResolvedItem {
-    pub value: TimelineItem,
-    pub diagnostics: Vec<String>,
+    pub value: super::EvaluatedItem,
+    pub diagnostics: Vec<CalculationDiagnostic>,
 }
 
 /// Evaluated scene variables shared by all connected properties in one sample.
@@ -36,6 +37,8 @@ pub(super) struct SceneBindings<'a> {
     scenes: &'a HashMap<SceneId, SceneDefinition>,
     scene: &'a SceneDefinition,
     evaluation: super::scene::VariableEvaluator<'a>,
+    targets:
+        RefCell<HashMap<super::SceneBindingTarget, Option<super::scene::ResolvedSceneBinding>>>,
 }
 
 impl<'a> SceneBindings<'a> {
@@ -48,6 +51,7 @@ impl<'a> SceneBindings<'a> {
             scenes,
             scene,
             evaluation: scene.variable_evaluator(values),
+            targets: RefCell::default(),
         }
     }
 
@@ -63,6 +67,7 @@ impl<'a> SceneBindings<'a> {
         Self {
             scenes,
             scene,
+            targets: RefCell::default(),
             evaluation: super::scene::VariableEvaluator::new(scene, move |variable| {
                 resolve_property(
                     parent,
@@ -71,40 +76,43 @@ impl<'a> SceneBindings<'a> {
                     variable.argument_schema().expect("instance argument"),
                     time,
                 )
-                .ok_or_else(|| format!("Missing instance argument '{}'", variable.id()))?
+                .ok_or_else(|| CalculationFailure::MissingArgument(variable.id().to_owned()))?
                 .into_result()
             }),
         }
     }
 
     fn resolve(&self, address: &PropertyAddress, resolved: &mut ResolvedProperty) {
-        for variable in self.scene.variables() {
-            for binding in variable.bindings.iter().filter(|binding| {
-                binding.matches(address.item_id, address.effect_id, &address.property_id)
-            }) {
-                let input = match self.evaluation.get(variable.id()) {
-                    Ok(input) => input,
-                    Err(error) => {
-                        resolved.diagnostics.push(format!(
-                            "Scene '{}' variable '{}' (item {}): {error}",
-                            self.scene.name,
-                            variable.label(),
-                            address.item_id.get(),
-                        ));
-                        continue;
-                    }
-                };
-                let Some(target) = resolve_scene_binding(self.scenes, self.scene, binding) else {
+        for (variable, binding) in self.scene.bindings_for(address) {
+            let input = match self.evaluation.get(variable.id()) {
+                Ok(input) => input,
+                Err(error) => {
+                    resolved.diagnostics.push(CalculationDiagnostic {
+                        scene_id: self.scene.id,
+                        scene_name: self.scene.name.clone(),
+                        variable_id: variable.id().to_owned(),
+                        variable_label: variable.label().to_owned(),
+                        address: binding.address().clone(),
+                        cause: error,
+                    });
                     continue;
-                };
-                let Some(input) = target.schema.constrained_value(&input) else {
-                    continue;
-                };
-                resolved.value = resolved
-                    .value
-                    .replaced_at(binding.element_id(), binding.scalar_index(), input)
-                    .expect("validated scene binding must remain applicable during evaluation");
-            }
+                }
+            };
+            let mut targets = self.targets.borrow_mut();
+            let Some(target) = targets
+                .entry(binding.clone())
+                .or_insert_with(|| resolve_scene_binding(self.scenes, self.scene, binding))
+                .as_ref()
+            else {
+                continue;
+            };
+            let Some(input) = target.schema.constrained_value(&input) else {
+                continue;
+            };
+            resolved.value = resolved
+                .value
+                .replaced_at(binding.element_id(), binding.scalar_index(), input)
+                .expect("validated scene binding must remain applicable during evaluation");
         }
     }
 }
@@ -148,6 +156,21 @@ pub(super) fn resolve_item(
     source: &TimelineItem,
     time: Option<TimelineTime>,
 ) -> TimelineItem {
+    let evaluated = evaluate_item(scenes, arguments, source, time);
+    let mut materialized = source.clone();
+    materialized.properties = evaluated.properties;
+    for (effect, values) in materialized.effects.iter_mut().zip(evaluated.effects) {
+        effect.properties = values.properties;
+    }
+    materialized
+}
+
+pub(super) fn evaluate_item(
+    scenes: &HashMap<SceneId, SceneDefinition>,
+    arguments: Option<&SceneBindings<'_>>,
+    source: &TimelineItem,
+    time: Option<TimelineTime>,
+) -> super::EvaluatedItem {
     resolve_item_properties(scenes, arguments, source, time, true).value
 }
 
@@ -168,7 +191,7 @@ fn resolve_item_properties(
     time: Option<TimelineTime>,
     instance_arguments: bool,
 ) -> ResolvedItem {
-    let values = |effect, diagnostics: &mut Vec<String>| {
+    let values = |effect, diagnostics: &mut Vec<CalculationDiagnostic>| {
         let mut values = PropertyValues::default();
         let render = source.schema().and_then(|schema| schema.render());
         for property in property_schemas(scenes, source, effect).filter(|property| {
@@ -190,16 +213,38 @@ fn resolve_item_properties(
         }
         values
     };
-    let mut item = source.clone();
     let mut diagnostics = Vec::new();
-    if instance_arguments || source.scene_id().is_none() {
-        item.properties = values(None, &mut diagnostics);
-    }
-    for effect in &mut item.effects {
-        effect.properties = values(Some(effect.id), &mut diagnostics);
-    }
+    let properties = if instance_arguments || source.scene_id().is_none() {
+        values(None, &mut diagnostics)
+    } else {
+        source.properties.clone()
+    };
+    let effects = source
+        .effects
+        .iter()
+        .map(|effect| super::EvaluatedEffect {
+            id: effect.id,
+            plugin_id: effect.plugin_id.clone(),
+            effect_id: effect.effect_id.clone(),
+            properties: values(Some(effect.id), &mut diagnostics),
+            schema: effect.schema.clone(),
+            aspect_ratio: effect.aspect_ratio,
+        })
+        .collect();
     ResolvedItem {
-        value: item,
+        value: super::EvaluatedItem {
+            runtime_id: source.id,
+            source_id: source.id,
+            placement: super::EvaluatedClip {
+                start: source.start,
+                duration: source.duration,
+            },
+            blend_mode: source.blend_mode,
+            kind: source.kind.clone(),
+            properties,
+            effects,
+            aspect_ratio: source.aspect_ratio,
+        },
         diagnostics,
     }
 }

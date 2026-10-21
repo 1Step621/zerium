@@ -22,7 +22,31 @@ struct PlaybackSession {
     start_frame: Frame,
     start_seconds: f64,
     started_at: Instant,
-    uses_audio_clock: bool,
+    clock: PlaybackClock,
+}
+
+impl PlaybackSession {
+    fn seconds(&mut self, audio: Option<f64>, displayed: f64, now: Instant) -> f64 {
+        match self.clock {
+            PlaybackClock::Audio => audio.unwrap_or_else(|| {
+                // A failed output resumes from the last displayed position.
+                self.set_clock(PlaybackClock::Wall, displayed, now);
+                displayed
+            }),
+            PlaybackClock::Preparing => self.start_seconds,
+            PlaybackClock::Wall => {
+                self.start_seconds + now.duration_since(self.started_at).as_secs_f64()
+            }
+        }
+    }
+
+    fn set_clock(&mut self, clock: PlaybackClock, seconds: f64, now: Instant) {
+        if clock != self.clock && clock != PlaybackClock::Audio {
+            self.start_seconds = seconds;
+            self.started_at = now;
+        }
+        self.clock = clock;
+    }
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -109,7 +133,7 @@ impl TransportController {
             start_frame,
             start_seconds: frame_rate.frame_to_seconds(start_frame),
             started_at: Instant::now(),
-            uses_audio_clock: clock == PlaybackClock::Audio,
+            clock,
         });
         let start_seconds = frame_rate.frame_to_seconds(start_frame);
         self.editor.update(cx, |editor, cx| {
@@ -190,25 +214,16 @@ impl TransportController {
         let TransportMode::Playing(mut playback) = self.mode else {
             return;
         };
-        let (frame_rate, end) = {
+        let (frame_rate, end, displayed_seconds) = {
             let editor = self.editor.read(cx);
-            (editor.frame_rate(), editor.end_frame_exclusive())
+            (
+                editor.frame_rate(),
+                editor.end_frame_exclusive(),
+                editor.playhead_seconds(),
+            )
         };
         let audio_seconds = self.audio.read(cx).playhead_seconds();
-        if playback.uses_audio_clock && audio_seconds.is_none() {
-            // Continue from the last displayed position if the audio worker exits.
-            let editor = self.editor.read(cx);
-            playback.start_seconds = editor
-                .playback_time_seconds()
-                .unwrap_or_else(|| frame_rate.frame_to_seconds(editor.playhead()));
-            playback.started_at = Instant::now();
-            playback.uses_audio_clock = false;
-        }
-        let mut seconds = if playback.uses_audio_clock {
-            audio_seconds.unwrap()
-        } else {
-            playback.start_seconds + playback.started_at.elapsed().as_secs_f64()
-        };
+        let mut seconds = playback.seconds(audio_seconds, displayed_seconds, Instant::now());
         let mut frame = frame_rate.seconds_to_frame(seconds);
         if frame >= end {
             self.stop(cx);
@@ -219,21 +234,14 @@ impl TransportController {
             .audio
             .update(cx, |audio, _| audio.update_timeline(timeline, seconds))
         {
-            Ok(PlaybackClock::Audio) => {
-                playback.uses_audio_clock = true;
-                seconds = self.audio.read(cx).playhead_seconds().unwrap_or(seconds);
-            }
-            Ok(PlaybackClock::Wall) => {
-                if playback.uses_audio_clock {
-                    playback.start_seconds = seconds;
-                    playback.started_at = Instant::now();
+            Ok(clock) => {
+                if clock == PlaybackClock::Audio {
+                    seconds = self.audio.read(cx).playhead_seconds().unwrap_or(seconds);
                 }
-                playback.uses_audio_clock = false;
+                playback.set_clock(clock, seconds, Instant::now());
             }
             Err(error) => {
-                playback.start_seconds = seconds;
-                playback.started_at = Instant::now();
-                playback.uses_audio_clock = false;
+                playback.set_clock(PlaybackClock::Wall, seconds, Instant::now());
                 self.notifications.update(cx, |notifications, cx| {
                     notifications.push(
                         t!("transport.start_playback_failed", error = error).to_string(),

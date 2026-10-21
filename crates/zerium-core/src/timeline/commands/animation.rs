@@ -1,5 +1,5 @@
 use crate::animation::{AnimationRepeat, ScalarAnimations, ScalarTrack};
-use crate::timeline::history::HistoryKey;
+use crate::timeline::history::{EditImpact, HistoryKey};
 use crate::timeline::{
     EffectInstanceId, Frame, ItemId, PropertyAddress, TimelineEditor, TimelineTime,
 };
@@ -25,7 +25,7 @@ impl TimelineEditor {
         {
             return false;
         }
-        self.edit_project_if_changed(None, |editor| {
+        self.edit_project_if_changed(EditImpact::Values, None, |editor| {
             let Some(schema) = editor.property_schema(target).cloned() else {
                 return false;
             };
@@ -108,7 +108,7 @@ impl TimelineEditor {
         let track = self.animation_track(address)?;
         let stop_time = item.animation_clock(track).key_time_at(frame);
         let key = HistoryKey::AnimationStopInsertion(address.clone(), stop_time);
-        self.edit_project_option(Some(key), |editor| {
+        self.edit_project_option(EditImpact::Values, Some(key), |editor| {
             editor
                 .animation_track_mut(address)?
                 .insert_stop(frame, value)
@@ -128,7 +128,7 @@ impl TimelineEditor {
             return false;
         }
         let key = HistoryKey::AnimationRepeat(address.clone());
-        self.edit_project_if_changed(Some(key), |editor| {
+        self.edit_project_if_changed(EditImpact::Values, Some(key), |editor| {
             let Some(duration) = editor.item(address.item_id).map(|item| item.duration) else {
                 return false;
             };
@@ -146,7 +146,7 @@ impl TimelineEditor {
         {
             return false;
         }
-        self.edit_project_if_changed(None, |editor| {
+        self.edit_project_if_changed(EditImpact::Values, None, |editor| {
             editor
                 .animation_track_mut(address)
                 .is_some_and(|track| track.remove_stop(stop))

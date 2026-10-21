@@ -8,6 +8,11 @@ mod scene;
 mod stretch;
 mod viewport;
 
+use render::timeline_item;
+use ruler::{grid_canvas, timeline_grid};
+use stretch::stretch_indicator;
+use viewport::track_viewport_width;
+
 use viewport::TimelineViewport;
 
 use std::sync::Arc;

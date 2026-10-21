@@ -1,7 +1,7 @@
 use std::collections::{HashMap, HashSet};
 
 use crate::media::ImportedFile;
-use crate::timeline::history::HistoryKey;
+use crate::timeline::history::{EditImpact, HistoryKey};
 use crate::timeline::{
     BlendMode, EffectInstanceId, Frame, ItemId, LayerId, ResizeEdge, ResizeMode, SceneBindingOwner,
     SceneBindingTarget, SceneId, TimelineEditor, TimelineItem,
@@ -15,7 +15,7 @@ impl TimelineEditor {
         if !self.is_item_selected(id) {
             return false;
         }
-        self.edit_project_if_changed(None, |editor| {
+        self.edit_project_if_changed(EditImpact::Values, None, |editor| {
             let item = editor
                 .active_document_mut()
                 .item_mut(id)
@@ -55,7 +55,7 @@ impl TimelineEditor {
         let Some(scene_id) = self.active_scene_id() else {
             return;
         };
-        let Some(scene) = self.project_mut().scenes.get_mut(&scene_id) else {
+        let Some(scene) = self.project_mut().scenes_mut().get_mut(&scene_id) else {
             return;
         };
         remove_bindings_for_items(scene, item_ids);
@@ -82,7 +82,7 @@ impl TimelineEditor {
             return Err(TimelineEditError::IncompatibleMedia);
         }
         let key = Some(HistoryKey::ItemCreation(id));
-        self.try_edit_project(key, |editor| {
+        self.try_edit_project(EditImpact::MediaDependencies, key, |editor| {
             let file = imported.file.clone();
             let changed = editor.active_document_mut().import_item_file(id, imported);
             if !changed {
@@ -94,7 +94,7 @@ impl TimelineEditor {
     }
 
     pub fn remove_item(&mut self, id: ItemId) -> bool {
-        self.edit_project_if_changed(None, |editor| {
+        self.edit_project_if_changed(EditImpact::MediaDependencies, None, |editor| {
             let changed = editor.active_document_mut().remove_item(id);
             if changed {
                 editor.remove_active_scene_bindings_for(&HashSet::from([id]));
@@ -109,7 +109,7 @@ impl TimelineEditor {
         if selected.is_empty() {
             return false;
         }
-        self.edit_project_if_changed(None, |editor| {
+        self.edit_project_if_changed(EditImpact::MediaDependencies, None, |editor| {
             let mut changed = false;
             for id in &selected {
                 changed |= editor.active_document_mut().remove_item(*id);
@@ -138,9 +138,8 @@ impl TimelineEditor {
             return None;
         }
 
-        self.edit_project_option(None, |editor| {
+        self.edit_project_option(EditImpact::MediaDependencies, None, |editor| {
             let active_scene = editor.active_scene_id();
-            let mut next_project = editor.project().clone();
             let mut copies = sources.to_vec();
             let mut next_effect_id = editor.next_effect_id;
             let mut effect_ids = HashMap::new();
@@ -158,17 +157,14 @@ impl TimelineEditor {
                 }
             }
 
-            let document = match active_scene {
-                Some(scene_id) => next_project.scenes.get_mut(&scene_id)?.document_mut(),
-                None => &mut next_project.document,
-            };
+            let document = editor.active_document_mut();
             let item_ids = document.insert_item_copies(&copies, target_layer, target_start)?;
             let item_id_map = item_ids.iter().copied().collect::<HashMap<_, _>>();
 
             if source_scene == active_scene
                 && let Some(scene_id) = active_scene
             {
-                let scene = next_project.scenes.get_mut(&scene_id)?;
+                let scene = editor.project_mut().scenes_mut().get_mut(&scene_id)?;
                 for (argument_id, binding) in source_bindings {
                     let item_id = item_id_map.get(&binding.item_id()).copied()?;
                     let effect_id = match binding.owner() {
@@ -205,11 +201,11 @@ impl TimelineEditor {
             // Clipboard references are untrusted and may outlive schema edits.
             // Validate connections against the copied items before committing.
             if let Some(scene_id) = active_scene {
-                let scene = next_project.scenes.get(&scene_id)?;
+                let scene = editor.project().scenes.get(&scene_id)?;
                 for variable in scene.variables() {
                     for binding in &variable.bindings {
                         let resolved = crate::timeline::resolve_scene_binding(
-                            &next_project.scenes,
+                            &editor.project().scenes,
                             scene,
                             binding,
                         )?;
@@ -230,7 +226,6 @@ impl TimelineEditor {
                 .into_iter()
                 .map(|(_, new_id)| new_id)
                 .collect::<Vec<_>>();
-            editor.commit_project_state(next_project);
             editor.next_effect_id = next_effect_id;
             editor.visibility.toggle_effects(
                 source_hidden_effects
@@ -262,11 +257,13 @@ impl TimelineEditor {
         ids.sort_unstable_by_key(|id| id.get());
         ids.dedup();
         let key = HistoryKey::ItemsResize(ids, edge, mode);
-        self.edit_project_if_changed(Some(key), |editor| {
-            editor
-                .active_document_mut()
-                .resize_items_from(origins, anchor_id, edge, pointer, mode)
-        })
+        let Some(edits) = self
+            .active_document()
+            .prepare_resize_items_from(origins, anchor_id, edge, pointer, mode)
+        else {
+            return false;
+        };
+        self.commit_item_edits(Some(key), edits).unwrap_or(false)
     }
 
     pub fn move_items_from(
@@ -282,10 +279,12 @@ impl TimelineEditor {
             return false;
         }
         let key = HistoryKey::ItemsMove(ids);
-        self.edit_project_if_changed(Some(key), |editor| {
-            editor
-                .active_document_mut()
-                .move_items_from(origins, frame_delta, layer_delta)
-        })
+        let Some(edits) =
+            self.active_document()
+                .prepare_move_items_from(origins, frame_delta, layer_delta)
+        else {
+            return false;
+        };
+        self.commit_item_edits(Some(key), edits).unwrap_or(false)
     }
 }

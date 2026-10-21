@@ -71,8 +71,10 @@ impl Timeline {
             .paths()
             .iter()
             .filter_map(|path| {
-                FileImportTarget::for_path(path, &plugins)
-                    .map(|target| FileImport::new(path.clone(), target))
+                FileImportTarget::for_path(path, &plugins).map(|target| FileImport {
+                    path: path.clone(),
+                    target,
+                })
             })
             .collect();
         self.drop_files(layer_index, files, window, cx);

@@ -105,7 +105,7 @@ impl SceneCompositionPlan {
                     .flat_map(move |(effect, inputs, properties)| {
                         inputs.iter().filter_map(move |input| {
                             CaptureDefinition::resolve(
-                                item.id,
+                                item.runtime_id,
                                 effect,
                                 node.local_layer,
                                 input,

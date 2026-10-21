@@ -1,13 +1,10 @@
 //! File dependencies are resolved independently of rendering and audio controls.
-use std::{
-    collections::{HashMap, HashSet},
-    ops::Range,
-};
+use std::collections::{HashMap, HashSet};
 
 use crate::media::{MediaDependency, MediaSource};
 
 use super::{
-    EffectInstanceId, LayerId, SceneDefinition, SceneId, TimelineItem, TimelineSnapshot,
+    EffectInstanceId, SceneDefinition, SceneId, TimelineItem, TimelineSnapshot,
     properties::{SceneBindings, resolve_property},
     property_address::resolve_property_schema,
 };
@@ -40,48 +37,34 @@ impl Dependencies<'_> {
             }
         }
     }
+}
 
-    /// A clip limits export dependencies to occupied placements. Project-wide
-    /// discovery omits it so unused definitions and trimmed sources stay known.
-    fn collect(
+impl super::placement::SceneVisitor for Dependencies<'_> {
+    type State = ();
+    type Output = ();
+
+    fn enter(
         &mut self,
-        items: Vec<(LayerId, TimelineItem)>,
+        placed: &super::placement::PlacedItem,
+        _time: Option<super::TimelineTime>,
         bindings: Option<&SceneBindings<'_>>,
-        clip: Option<Range<u64>>,
     ) {
-        for (_, item) in items {
-            let child_clip = clip.as_ref().map(|parent| {
-                let start = parent.start.saturating_add(item.start.get());
-                start..parent.end.min(start.saturating_add(item.duration.get()))
-            });
-            if child_clip.as_ref().is_some_and(Range::is_empty) {
-                continue;
-            }
-            if let Some(schema) = item.schema() {
-                self.add_sources(&item, None, schema.media_sources(), bindings);
-            }
-            for effect in &item.effects {
-                self.add_sources(
-                    &item,
-                    Some(effect.id),
-                    effect.schema().media_sources(),
-                    bindings,
-                );
-            }
-            let Some(scene) = item.scene_id().and_then(|id| self.scenes.get(&id)) else {
-                continue;
-            };
-            // Only file arguments are read by add_sources. Other arguments and
-            // calculations remain lazy throughout the nested binding scopes.
-            let child_bindings =
-                SceneBindings::for_instance(self.scenes, scene, &item, None, bindings);
-            let children = if child_clip.is_some() {
-                scene.expanded_items(&item, None)
-            } else {
-                scene.document().source_items()
-            };
-            self.collect(children, Some(&child_bindings), child_clip);
+        let item = &placed.source;
+        if let Some(schema) = item.schema() {
+            self.add_sources(item, None, schema.media_sources(), bindings);
         }
+        for effect in &item.effects {
+            self.add_sources(
+                item,
+                Some(effect.id),
+                effect.schema().media_sources(),
+                bindings,
+            );
+        }
+    }
+
+    fn exit(&mut self, _item: super::placement::PlacedItem, _: (), _: Vec<()>) -> Option<()> {
+        None
     }
 }
 
@@ -93,10 +76,15 @@ impl TimelineSnapshot {
             scenes: &self.project.scenes,
             files: HashSet::new(),
         };
-        dependencies.collect(
+        super::placement::SceneWalker {
+            scenes: &self.project.scenes,
+            visibility: None,
+        }
+        .walk(
             self.project.document.source_items(),
+            super::placement::WalkMode::Occupied,
             None,
-            Some(0..u64::MAX),
+            &mut dependencies,
         );
         dependencies.files
     }
@@ -108,10 +96,24 @@ impl TimelineSnapshot {
             scenes: &self.project.scenes,
             files: HashSet::new(),
         };
-        dependencies.collect(self.project.document.source_items(), None, None);
+        let walker = super::placement::SceneWalker {
+            scenes: &self.project.scenes,
+            visibility: None,
+        };
+        walker.walk(
+            self.project.document.source_items(),
+            super::placement::WalkMode::Definitions,
+            None,
+            &mut dependencies,
+        );
         for scene in self.project.scenes.values() {
             let bindings = SceneBindings::new(&self.project.scenes, scene, None);
-            dependencies.collect(scene.document().source_items(), Some(&bindings), None);
+            walker.walk(
+                scene.document().source_items(),
+                super::placement::WalkMode::Definitions,
+                Some(&bindings),
+                &mut dependencies,
+            );
         }
         dependencies.files
     }

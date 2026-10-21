@@ -15,16 +15,6 @@ pub(crate) struct ShaderContract<'a> {
     pub input_ids: Vec<String>,
 }
 
-impl<'a> ShaderContract<'a> {
-    fn new(scope: PropertyScope, layout: &'a PropertyLayout, input_ids: Vec<String>) -> Self {
-        Self {
-            scope,
-            layout,
-            input_ids,
-        }
-    }
-}
-
 pub(crate) fn shader_contracts(
     manifest: &PluginManifest,
 ) -> Result<BTreeMap<String, ShaderContract<'_>>, PluginError> {
@@ -34,15 +24,15 @@ pub(crate) fn shader_contracts(
             insert_contract(
                 &mut contracts,
                 schema.id(),
-                ShaderContract::new(
-                    PropertyScope::Item,
-                    render.property_layout(),
-                    schema
+                ShaderContract {
+                    scope: PropertyScope::Item,
+                    layout: render.property_layout(),
+                    input_ids: schema
                         .inputs()
                         .iter()
                         .map(|input| input.id().to_owned())
                         .collect(),
-                ),
+                },
             )?;
         }
     }
@@ -51,15 +41,15 @@ pub(crate) fn shader_contracts(
         insert_contract(
             &mut contracts,
             schema.id(),
-            ShaderContract::new(
-                PropertyScope::Pass,
-                schema.property_layout(),
-                schema
+            ShaderContract {
+                scope: PropertyScope::Pass,
+                layout: schema.property_layout(),
+                input_ids: schema
                     .inputs()
                     .iter()
                     .map(|input| input.id().to_owned())
                     .collect(),
-            ),
+            },
         )?;
     }
 

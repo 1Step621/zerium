@@ -25,7 +25,7 @@ impl AnimationCurveEditor {
         else {
             return;
         };
-        let frame = Self::frame_at_pattern_frame(&selected, pattern_frame);
+        let frame = selected.frame_at_pattern_frame(pattern_frame);
         let target = selected.address;
         let changed = self.editor.update_if_changed(cx, |editor| {
             editor

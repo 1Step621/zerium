@@ -26,59 +26,8 @@ pub(super) struct ExplorerEntry {
 }
 
 impl Explorer {
-    pub(in crate::ui::explorer) fn default_directory(session: &ProjectSession) -> PathBuf {
-        session
-            .path()
-            .and_then(Path::parent)
-            .map(Path::to_path_buf)
-            .or_else(|| UserDirs::new().map(|directories| directories.home_dir().to_path_buf()))
-            .or_else(|| std::env::current_dir().ok())
-            .unwrap_or_else(|| PathBuf::from("."))
-    }
-
     pub(in crate::ui::explorer) fn import_target(&self, path: &Path) -> Option<FileImportTarget> {
         FileImportTarget::for_path(path, &self.plugins)
-    }
-
-    fn read_directory(path: &Path) -> Result<Vec<(PathBuf, String, bool)>, String> {
-        let directory = fs::read_dir(path).map_err(|error| {
-            t!("explorer.open_failed", path = path.display(), error = error).to_string()
-        })?;
-        let mut entries = Vec::new();
-        for entry in directory {
-            let entry = entry.map_err(|error| {
-                t!(
-                    "explorer.read_entries_failed",
-                    path = path.display(),
-                    error = error
-                )
-                .to_string()
-            })?;
-            let entry_path = entry.path();
-            let name = entry.file_name().to_string_lossy().into_owned();
-            if name.starts_with('.') {
-                continue;
-            }
-            let is_directory = entry
-                .file_type()
-                .map_err(|error| {
-                    t!(
-                        "explorer.determine_type_failed",
-                        path = entry_path.display(),
-                        error = error
-                    )
-                    .to_string()
-                })?
-                .is_dir();
-            entries.push((entry_path, name, is_directory));
-        }
-        entries.sort_by(|left, right| {
-            right
-                .2
-                .cmp(&left.2)
-                .then_with(|| left.1.to_lowercase().cmp(&right.1.to_lowercase()))
-        });
-        Ok(entries)
     }
 
     pub(in crate::ui::explorer) fn load_directory(
@@ -94,7 +43,7 @@ impl Explorer {
         self._load_task = cx.spawn(async move |explorer, cx| {
             let input = path.clone();
             let result = cx
-                .background_spawn(async move { Self::read_directory(&input) })
+                .background_spawn(async move { read_directory(&input) })
                 .await;
             if !session.update(cx, |session, _| session.is_current(session_id)) {
                 return;
@@ -221,4 +170,55 @@ impl Explorer {
             cx.notify();
         }
     }
+}
+
+pub(in crate::ui::explorer) fn default_directory(session: &ProjectSession) -> PathBuf {
+    session
+        .path()
+        .and_then(Path::parent)
+        .map(Path::to_path_buf)
+        .or_else(|| UserDirs::new().map(|directories| directories.home_dir().to_path_buf()))
+        .or_else(|| std::env::current_dir().ok())
+        .unwrap_or_else(|| PathBuf::from("."))
+}
+
+fn read_directory(path: &Path) -> Result<Vec<(PathBuf, String, bool)>, String> {
+    let directory = fs::read_dir(path).map_err(|error| {
+        t!("explorer.open_failed", path = path.display(), error = error).to_string()
+    })?;
+    let mut entries = Vec::new();
+    for entry in directory {
+        let entry = entry.map_err(|error| {
+            t!(
+                "explorer.read_entries_failed",
+                path = path.display(),
+                error = error
+            )
+            .to_string()
+        })?;
+        let entry_path = entry.path();
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') {
+            continue;
+        }
+        let is_directory = entry
+            .file_type()
+            .map_err(|error| {
+                t!(
+                    "explorer.determine_type_failed",
+                    path = entry_path.display(),
+                    error = error
+                )
+                .to_string()
+            })?
+            .is_dir();
+        entries.push((entry_path, name, is_directory));
+    }
+    entries.sort_by(|left, right| {
+        right
+            .2
+            .cmp(&left.2)
+            .then_with(|| left.1.to_lowercase().cmp(&right.1.to_lowercase()))
+    });
+    Ok(entries)
 }

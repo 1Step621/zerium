@@ -45,7 +45,7 @@ pub struct EvaluatedClip {
 }
 
 impl EvaluatedClip {
-    fn from_bounds(start: u64, end: u64) -> Option<Self> {
+    pub(super) fn from_bounds(start: u64, end: u64) -> Option<Self> {
         (end > start).then(|| Self {
             start: Frame::new(start),
             duration: FrameDuration::new_saturating(end - start),
@@ -75,20 +75,10 @@ pub struct EvaluatedSceneNode {
     pub local_layer: LayerId,
     /// Root timeline layer used by visibility and flattened media evaluation.
     pub layer: LayerId,
-    pub clip: EvaluatedClip,
     pub path: Vec<ItemId>,
-    pub item: TimelineItem,
+    pub item: super::EvaluatedItem,
     pub children: Vec<EvaluatedSceneNode>,
-    pub calculation_errors: Vec<String>,
-}
-
-impl EvaluatedSceneNode {
-    pub fn calculation_error(&self) -> Option<&str> {
-        self.calculation_errors
-            .first()
-            .map(String::as_str)
-            .or_else(|| self.children.iter().find_map(Self::calculation_error))
-    }
+    pub calculation_errors: Vec<super::CalculationDiagnostic>,
 }
 
 pub(crate) fn evaluated_scene_graph_at_time(
@@ -99,131 +89,73 @@ pub(crate) fn evaluated_scene_graph_at_time(
     scene: Option<&SceneDefinition>,
     stages: &[SceneRenderStage],
 ) -> Vec<EvaluatedSceneNode> {
-    struct EvaluationContext<'a> {
+    use super::placement::{PlacedItem, SceneVisitor, SceneWalker, WalkMode};
+
+    struct RenderVisitor<'a> {
         scenes: &'a HashMap<SceneId, SceneDefinition>,
         visibility: Option<&'a PreviewVisibility>,
         stages: &'a [SceneRenderStage],
         used_ids: HashSet<ItemId>,
     }
 
-    #[derive(Default)]
-    struct Placement<'a> {
-        time_offset: u64,
-        runtime_seed: u64,
-        layer: Option<LayerId>,
-        clip_end: Option<u64>,
-        path: &'a [ItemId],
-        bindings: Option<&'a SceneBindings<'a>>,
-    }
+    impl SceneVisitor for RenderVisitor<'_> {
+        type State = super::properties::ResolvedItem;
+        type Output = EvaluatedSceneNode;
 
-    fn expand(
-        context: &mut EvaluationContext<'_>,
-        items: Vec<(LayerId, TimelineItem)>,
-        time: TimelineTime,
-        placement: Placement<'_>,
-    ) -> Vec<EvaluatedSceneNode> {
-        let mut output = Vec::new();
-        for (layer, mut source) in items {
-            if placement.path.is_empty()
-                && context
-                    .visibility
-                    .is_some_and(|visibility| !visibility.is_item_visible(layer, source.id))
-            {
-                continue;
+        fn prepare(&mut self, source: &mut TimelineItem, path: &[ItemId]) {
+            if let Some(visibility) = self.visibility {
+                visibility.retain_visible_effects(source);
             }
-            let source_id = source.id;
-            let mut path = placement.path.to_vec();
-            path.push(source_id);
-            if let Some(visibility) = context.visibility {
-                visibility.retain_visible_effects(&mut source);
-            }
-            for stage in context.stages.iter().filter(|stage| stage.path == path) {
+            for stage in self.stages.iter().filter(|stage| stage.path == path) {
                 source.effects.truncate(stage.effect_count);
             }
-            let resolved = resolve_render_item(context.scenes, placement.bindings, &source, time);
-            let mut item = resolved.value;
-            let calculation_errors = resolved.diagnostics;
-            let output_layer = placement.layer.unwrap_or(layer);
-            let global_start = placement.time_offset.saturating_add(item.start.get());
-            let source_end = global_start.saturating_add(item.duration.get());
-            let global_end = placement
-                .clip_end
-                .map_or(source_end, |end| end.min(source_end));
-            let Some(clip) = EvaluatedClip::from_bounds(global_start, global_end) else {
-                continue;
-            };
-            item.id = unique_runtime_id(placement.runtime_seed, source_id, &mut context.used_ids);
-            let Some(scene_id) = item.scene_id() else {
-                item.start = clip.start;
-                item.duration = clip.duration;
-                output.push(EvaluatedSceneNode {
-                    local_layer: layer,
-                    layer: output_layer,
-                    clip,
-                    path,
-                    item,
-                    children: Vec::new(),
-                    calculation_errors,
-                });
-                continue;
-            };
-            let Some(scene) = context.scenes.get(&scene_id) else {
-                continue;
-            };
-            let local = TimelineTime::from_frames(time.frames() - item.start.get() as f64);
-            if local.frames() < 0. || local.frames() >= item.duration.get() as f64 {
-                continue;
-            }
-            let child_items = scene.expanded_items(&item, Some(local));
-            let bindings = SceneBindings::for_instance(
-                context.scenes,
-                scene,
-                &source,
-                Some(time),
-                placement.bindings,
-            );
-            let children = expand(
-                context,
-                child_items,
-                local,
-                Placement {
-                    time_offset: global_start,
-                    runtime_seed: scene_runtime_seed(placement.runtime_seed, source_id, scene_id),
-                    layer: Some(output_layer),
-                    clip_end: Some(global_end),
-                    path: &path,
-                    bindings: Some(&bindings),
-                },
-            );
-            item.start = clip.start;
-            item.duration = clip.duration;
-            output.push(EvaluatedSceneNode {
-                local_layer: layer,
-                layer: output_layer,
-                clip,
-                path,
-                item,
-                children,
-                calculation_errors,
-            });
         }
-        output
+
+        fn enter(
+            &mut self,
+            placed: &PlacedItem,
+            time: Option<TimelineTime>,
+            bindings: Option<&SceneBindings<'_>>,
+        ) -> Self::State {
+            let mut resolved = resolve_render_item(
+                self.scenes,
+                bindings,
+                &placed.source,
+                time.expect("render sample"),
+            );
+            resolved.value.runtime_id =
+                unique_runtime_id(placed.seed, placed.source.id, &mut self.used_ids);
+            resolved.value.placement = placed.clip;
+            resolved
+        }
+
+        fn exit(
+            &mut self,
+            placed: PlacedItem,
+            resolved: Self::State,
+            children: Vec<Self::Output>,
+        ) -> Option<Self::Output> {
+            Some(EvaluatedSceneNode {
+                local_layer: placed.local_layer,
+                layer: placed.layer,
+                path: placed.path,
+                item: resolved.value,
+                children,
+                calculation_errors: resolved.diagnostics,
+            })
+        }
     }
 
-    let mut context = EvaluationContext {
-        scenes,
-        visibility,
-        stages,
-        used_ids: HashSet::new(),
-    };
     let bindings = scene.map(|scene| SceneBindings::new(scenes, scene, None));
-    expand(
-        &mut context,
+    SceneWalker { scenes, visibility }.walk(
         items,
-        time,
-        Placement {
-            bindings: bindings.as_ref(),
-            ..Default::default()
+        WalkMode::Sample(time),
+        bindings.as_ref(),
+        &mut RenderVisitor {
+            scenes,
+            visibility,
+            stages,
+            used_ids: HashSet::new(),
         },
     )
 }
@@ -234,8 +166,8 @@ pub(crate) fn evaluated_items_at_time(
     time: TimelineTime,
     visibility: Option<&PreviewVisibility>,
     scene: Option<&SceneDefinition>,
-) -> Vec<(LayerId, TimelineItem)> {
-    fn flatten(nodes: Vec<EvaluatedSceneNode>, output: &mut Vec<(LayerId, TimelineItem)>) {
+) -> Vec<(LayerId, super::EvaluatedItem)> {
+    fn flatten(nodes: Vec<EvaluatedSceneNode>, output: &mut Vec<(LayerId, super::EvaluatedItem)>) {
         for node in nodes {
             if node.item.scene_id().is_some() {
                 flatten(node.children, output);

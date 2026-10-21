@@ -8,7 +8,7 @@ use cosmic_text::{FontSystem, SwashCache};
 use crate::engine::frame::VisualFrame;
 use zerium_core::plugin::{MAX_DECIMAL_PLACES, TextStyle, TextureInput};
 use zerium_core::property::{PropertyValue, PropertyValues};
-use zerium_core::timeline::{EffectInstanceId, ItemId, TimelineItem};
+use zerium_core::timeline::{EffectInstanceId, EvaluatedItem, ItemId};
 
 use super::{RenderError, RenderSize};
 
@@ -85,7 +85,7 @@ impl TextFrameCache {
 
     /// Pins text sources on the active items and their effects.
     /// Call once before resolving a frame; unpinned entries remain reusable LRU entries.
-    pub(crate) fn retain_active<'a>(&mut self, items: impl IntoIterator<Item = &'a TimelineItem>) {
+    pub(crate) fn retain_active<'a>(&mut self, items: impl IntoIterator<Item = &'a EvaluatedItem>) {
         self.active.clear();
         for item in items {
             let owners = item
@@ -101,7 +101,7 @@ impl TextFrameCache {
                 for (capability_index, capability) in capabilities.iter().enumerate() {
                     if capability.text_style().is_some() {
                         self.active.insert(TextSourceId {
-                            item_id: item.id,
+                            item_id: item.runtime_id,
                             effect_id,
                             capability_index,
                         });

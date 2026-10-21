@@ -33,7 +33,7 @@ impl SceneSettings {
         {
             let variable_id = variable_id.clone();
             let input_name = input_name.clone();
-            self.store.drafts.remove(key);
+            self.store.inputs.drafts.remove(key);
             let accepted = self.edit_calculation_inputs(
                 &variable_id,
                 move |inputs| {
@@ -44,7 +44,7 @@ impl SceneSettings {
                 cx,
             );
             if !accepted {
-                self.store.drafts.insert(key.clone());
+                self.store.inputs.drafts.insert(key.clone());
             }
             self.sync_inputs(window, cx);
             return;
@@ -86,7 +86,7 @@ impl SceneSettings {
             .argument_schema()?;
         let number = NumericInput::for_schema(schema)?;
         let [Some(default), Some(min), Some(max)] = NumericSetting::ALL.map(|setting| {
-            self.store.text(&ControlId::scene_argument_setting(
+            self.store.inputs.text(&ControlId::scene_argument_setting(
                 scene_id,
                 argument_id,
                 setting,

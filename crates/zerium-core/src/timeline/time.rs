@@ -23,6 +23,9 @@ impl Frame {
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd)]
 pub struct TimelineTime(f64);
 
+// Construction rejects non-finite values, so equality is reflexive.
+impl Eq for TimelineTime {}
+
 impl TimelineTime {
     pub fn from_frames(frames: f64) -> Self {
         Self(if frames.is_finite() { frames } else { 0. })

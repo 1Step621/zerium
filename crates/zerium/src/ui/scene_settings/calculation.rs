@@ -62,7 +62,7 @@ impl SceneSettings {
                 .child(t!("calc.output_type", ty = ty).to_string()),
         );
         for (index, input) in calculation.inputs.iter().enumerate() {
-            let Some(name_input) = self.store.text(&ControlId::CalculationInputName {
+            let Some(name_input) = self.store.inputs.text(&ControlId::CalculationInputName {
                 scene_id: variable.scene_id,
                 variable_id: variable.id.clone(),
                 input_name: input.name.clone(),
@@ -192,7 +192,7 @@ impl SceneSettings {
                 })
             }),
         );
-        if let Some(code) = self.store.text(&ControlId::CalculationScript {
+        if let Some(code) = self.store.inputs.text(&ControlId::CalculationScript {
             scene_id: variable.scene_id,
             variable_id: variable.id.clone(),
         }) {

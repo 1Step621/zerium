@@ -161,6 +161,13 @@ pub(crate) enum RenderError {
     ResourceLimit(String),
     #[error("{0}")]
     Backend(String),
+    #[error("At frame {frame} (path {path:?}): {diagnostic}", frame = time.frames())]
+    Calculation {
+        time: zerium_core::timeline::TimelineTime,
+        path: Vec<zerium_core::timeline::ItemId>,
+        #[source]
+        diagnostic: Box<zerium_core::timeline::CalculationDiagnostic>,
+    },
 }
 
 impl RenderError {

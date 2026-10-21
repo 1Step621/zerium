@@ -7,7 +7,7 @@ use gpui::{
     Render, Window, canvas, div, point, prelude::*, px, size,
 };
 
-use zerium_core::timeline::{EditGesture, SceneId};
+use zerium_core::timeline::{EditSession, SceneId};
 
 use crate::ui::operation_hints::{Hint, OperationHintExt as _};
 use crate::ui::timeline::Timeline;
@@ -24,7 +24,7 @@ pub(super) const STRETCH_COLOR: Hsla = Hsla {
 pub(super) struct StretchPointDrag {
     timeline_id: EntityId,
     scene_id: SceneId,
-    gesture: Rc<RefCell<Option<EditGesture>>>,
+    gesture: Rc<RefCell<Option<EditSession>>>,
 }
 
 impl Render for StretchPointDrag {
@@ -34,34 +34,6 @@ impl Render for StretchPointDrag {
 }
 
 impl Timeline {
-    pub(super) fn stretch_indicator(background: Hsla) -> impl IntoElement {
-        canvas(
-            |_, _, _| (),
-            move |bounds, _, window, _| {
-                window.paint_quad(fill(
-                    Bounds::new(
-                        point(bounds.origin.x + px(4.), bounds.origin.y),
-                        size(px(6.), bounds.size.height),
-                    ),
-                    background,
-                ));
-                let mut lines = PathBuilder::stroke(px(1.5));
-                for offset in [4., 10.] {
-                    lines.move_to(point(bounds.origin.x + px(offset), bounds.origin.y));
-                    lines.line_to(point(
-                        bounds.origin.x + px(offset),
-                        bounds.origin.y + bounds.size.height,
-                    ));
-                }
-                if let Ok(path) = lines.build() {
-                    window.paint_path(path, STRETCH_COLOR.opacity(0.4));
-                }
-            },
-        )
-        .absolute()
-        .size_full()
-    }
-
     pub(super) fn stretch_marker(
         &self,
         colors: ThemeColor,
@@ -94,7 +66,7 @@ impl Timeline {
                 .w(px(14.))
                 .cursor(CursorStyle::ResizeLeftRight)
                 .hover(|style| style.bg(STRETCH_COLOR.opacity(0.12)))
-                .child(Self::stretch_indicator(colors.background))
+                .child(stretch_indicator(colors.background))
                 .tooltip(|window, cx| {
                     ::ui::tooltip::Tooltip::new(t!("timeline.stretch_point_tooltip").to_string())
                         .build(window, cx)
@@ -150,4 +122,32 @@ impl Timeline {
             }
         });
     }
+}
+
+pub(in crate::ui::timeline) fn stretch_indicator(background: Hsla) -> impl IntoElement {
+    canvas(
+        |_, _, _| (),
+        move |bounds, _, window, _| {
+            window.paint_quad(fill(
+                Bounds::new(
+                    point(bounds.origin.x + px(4.), bounds.origin.y),
+                    size(px(6.), bounds.size.height),
+                ),
+                background,
+            ));
+            let mut lines = PathBuilder::stroke(px(1.5));
+            for offset in [4., 10.] {
+                lines.move_to(point(bounds.origin.x + px(offset), bounds.origin.y));
+                lines.line_to(point(
+                    bounds.origin.x + px(offset),
+                    bounds.origin.y + bounds.size.height,
+                ));
+            }
+            if let Ok(path) = lines.build() {
+                window.paint_path(path, STRETCH_COLOR.opacity(0.4));
+            }
+        },
+    )
+    .absolute()
+    .size_full()
 }

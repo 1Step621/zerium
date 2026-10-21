@@ -177,14 +177,14 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                     });
                     let preview = cx.new(|cx| {
                         crate::ui::preview::Preview::new(
-                            crate::ui::preview::PreviewDependencies::new(
-                                editor.clone(),
-                                transport.clone(),
-                                session.clone(),
-                                notifications.clone(),
-                                render_runtime.clone(),
-                                media_readers.clone(),
-                            ),
+                            crate::ui::preview::PreviewDependencies {
+                                editor: editor.clone(),
+                                transport: transport.clone(),
+                                session: session.clone(),
+                                notifications: notifications.clone(),
+                                render_runtime: render_runtime.clone(),
+                                media_readers: media_readers.clone(),
+                            },
                             window,
                             cx,
                         )

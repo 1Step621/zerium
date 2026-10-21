@@ -72,16 +72,19 @@ impl fmt::Debug for Script {
         self.source().fmt(f)
     }
 }
+
 impl PartialEq for Script {
     fn eq(&self, other: &Self) -> bool {
         self.source() == other.source()
     }
 }
+
 impl Serialize for Script {
     fn serialize<S: Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         serializer.serialize_str(self.source())
     }
 }
+
 impl<'de> Deserialize<'de> for Script {
     fn deserialize<D: Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         String::deserialize(deserializer).map(Self::new)

@@ -7,7 +7,7 @@ use std::{
 
 use zerium_core::{
     media::{MediaAsset, MediaKind, MediaMetadataCache},
-    timeline::TimelineItem,
+    timeline::EvaluatedItem,
 };
 
 use super::reader::{
@@ -25,7 +25,7 @@ pub(crate) struct MediaFrameRequest {
 
 impl MediaFrameRequest {
     pub(crate) fn from_input(
-        item: &TimelineItem,
+        item: &EvaluatedItem,
         input: MediaInputId,
         local_seconds: f64,
         cache: &MediaMetadataCache,

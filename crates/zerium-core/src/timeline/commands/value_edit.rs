@@ -7,7 +7,10 @@ use crate::timeline::{
     PropertyAddress, TimelineEditor, TimelineTime, document::ItemEdit, history::HistoryKey,
 };
 
-use super::EditContext;
+use super::{
+    EditContext,
+    edit_session::{EditSession, UndoPolicy},
+};
 
 /// Immutable targets of a displayed key or interval endpoint. Equal neighbors
 /// are resolved before editing, so crossing another value cannot recruit keys.
@@ -126,10 +129,7 @@ impl ValueEditTarget {
 /// Plans stay fixed while successful updates advance only this operation's revision.
 pub struct ValueEdit {
     targets: Vec<ValueEditTarget>,
-    context: EditContext,
-    key: HistoryKey,
-    explicit_gesture: bool,
-    has_changes: bool,
+    session: EditSession,
 }
 
 impl ValueEdit {
@@ -140,12 +140,7 @@ impl ValueEdit {
     }
 
     pub fn is_current(&self, editor: &TimelineEditor) -> bool {
-        self.context == editor.edit_context()
-            && (!self.explicit_gesture
-                || !self.has_changes
-                || editor
-                    .history
-                    .is_current_group(&(self.context.scene_id, self.key.clone())))
+        self.session.is_current(editor)
     }
 
     pub fn matches_animation(&self, plan: &AnimationValuePlan) -> bool {
@@ -244,17 +239,14 @@ impl TimelineEditor {
         }) {
             return None;
         }
-        let key = if explicit_gesture {
-            HistoryKey::Gesture(context.revision)
+        let policy = if explicit_gesture {
+            UndoPolicy::Gesture
         } else {
-            targets[0].history_key()
+            UndoPolicy::Coalesced(targets[0].history_key())
         };
         Some(ValueEdit {
+            session: EditSession::new(self, policy),
             targets,
-            context,
-            key,
-            explicit_gesture,
-            has_changes: false,
         })
     }
 
@@ -268,26 +260,11 @@ impl TimelineEditor {
         let Some(candidates) = edit.prepare_values(self, values) else {
             return false;
         };
-        let key = edit.key.clone();
-        if edit.explicit_gesture
-            || (edit.has_changes
-                && self
-                    .history
-                    .is_current_group(&(self.active_scene_id(), key.clone())))
-        {
-            self.history_group = Some(key.clone());
-        }
-        let changed = self
-            .try_edit_project(Some(key), |editor| {
-                let changed = editor.active_document_mut().commit_item_edits(candidates)?;
-                Ok::<_, super::TimelineEditError>((changed, changed))
-            })
-            .unwrap_or(false);
-        self.history_group = None;
-        if changed {
-            edit.context = self.edit_context();
-            edit.has_changes = true;
-        }
-        changed
+        let key = edit.targets[0].history_key();
+        self.update_edit_session(&mut edit.session, |editor| {
+            editor
+                .commit_item_edits(Some(key), candidates)
+                .unwrap_or(false)
+        })
     }
 }

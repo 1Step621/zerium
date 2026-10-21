@@ -152,10 +152,6 @@ impl TimelineDocument {
             .unwrap_or(Frame::new(0))
     }
 
-    pub(super) fn items_mut(&mut self) -> impl Iterator<Item = &mut TimelineItem> {
-        self.items.values_mut().map(Arc::make_mut)
-    }
-
     pub(super) fn item_layouts(
         &self,
     ) -> impl Iterator<Item = (ItemId, LayerId, Frame, Frame)> + '_ {

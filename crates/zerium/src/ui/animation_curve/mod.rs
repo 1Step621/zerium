@@ -8,6 +8,11 @@ mod repeat;
 mod selection;
 mod viewport;
 
+use canvas::graph_canvas;
+use curve::format_number;
+use grid::{normalized_value, value_grid};
+use viewport::{point_layout, screen_position_is_visible};
+
 use presentation::AnimationPresentation;
 pub(crate) use selection::AnimationSelection;
 

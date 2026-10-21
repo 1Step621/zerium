@@ -9,6 +9,7 @@ use rhai::Scope;
 use serde::{Deserialize, Serialize};
 
 use super::SceneDefinition;
+use crate::timeline::CalculationFailure;
 use crate::{
     property::{PropertyValue, PropertyValues},
     script::{Script, from_dynamic, to_dynamic},
@@ -32,7 +33,7 @@ pub struct SceneCalculation {
 /// have no value; their dependants fail too, while unrelated outputs still work.
 #[derive(Default, Debug)]
 pub struct SceneEvaluation {
-    pub values: HashMap<String, Result<PropertyValue, String>>,
+    pub values: HashMap<String, Result<PropertyValue, CalculationFailure>>,
 }
 
 pub(crate) fn valid_input_name(name: &str) -> bool {
@@ -49,6 +50,7 @@ pub(crate) fn valid_input_name(name: &str) -> bool {
 #[derive(Default)]
 pub(super) struct SceneRuntime {
     plan: OnceLock<Result<VariablePlan, String>>,
+    pub(super) bindings: OnceLock<super::binding::BindingIndex>,
     defaults: OnceLock<Arc<SceneEvaluation>>,
     inputs: Mutex<VecDeque<SuppliedEvaluation>>,
     calculations: Mutex<HashMap<String, VecDeque<CalculationResult>>>,
@@ -92,18 +94,19 @@ fn same_arguments(left: &PropertyValues, right: &PropertyValues) -> bool {
 
 /// One demand-driven evaluation scope. Cross-scene arguments are resolved only
 /// when a connected output reads them; local results are shared by its consumers.
-type ArgumentResolver<'a> = dyn Fn(&super::SceneVariable) -> Result<PropertyValue, String> + 'a;
+type ArgumentResolver<'a> =
+    dyn Fn(&super::SceneVariable) -> Result<PropertyValue, CalculationFailure> + 'a;
 
 pub(in crate::timeline) struct VariableEvaluator<'a> {
     scene: &'a SceneDefinition,
     argument: Box<ArgumentResolver<'a>>,
-    values: RefCell<HashMap<String, Result<PropertyValue, String>>>,
+    values: RefCell<HashMap<String, Result<PropertyValue, CalculationFailure>>>,
 }
 
 impl<'a> VariableEvaluator<'a> {
     pub(in crate::timeline) fn new(
         scene: &'a SceneDefinition,
-        argument: impl Fn(&super::SceneVariable) -> Result<PropertyValue, String> + 'a,
+        argument: impl Fn(&super::SceneVariable) -> Result<PropertyValue, CalculationFailure> + 'a,
     ) -> Self {
         Self {
             scene,
@@ -112,15 +115,19 @@ impl<'a> VariableEvaluator<'a> {
         }
     }
 
-    pub(in crate::timeline) fn get(&self, id: &str) -> Result<PropertyValue, String> {
+    pub(in crate::timeline) fn get(&self, id: &str) -> Result<PropertyValue, CalculationFailure> {
         if let Some(value) = self.values.borrow().get(id).cloned() {
             return value;
         }
-        let plan = self.scene.variable_plan().as_ref().map_err(Clone::clone)?;
+        let plan = self
+            .scene
+            .variable_plan()
+            .as_ref()
+            .map_err(|error| CalculationFailure::InvalidGraph(error.clone()))?;
         let index = plan
             .indices
             .get(id)
-            .ok_or_else(|| format!("Missing variable '{id}'"))?;
+            .ok_or_else(|| CalculationFailure::MissingVariable(id.to_owned()))?;
         let mut pending = vec![(*index, false)];
         while let Some((index, ready)) = pending.pop() {
             let variable = &self.scene.variables[index];
@@ -146,15 +153,24 @@ impl<'a> VariableEvaluator<'a> {
                             .get(&input.variable_id)
                             .expect("dependency was evaluated")
                             .clone()
-                            .map_err(|error| format!("Input '{}': {error}", input.name))
+                            .map_err(|cause| CalculationFailure::Input {
+                                name: input.name.clone(),
+                                variable_id: input.variable_id.clone(),
+                                cause: Arc::new(cause),
+                            })
                     })
                     .collect::<Result<Vec<_>, _>>();
-                inputs.and_then(|inputs| self.scene.evaluate_calculation(variable, &inputs))
+                inputs.and_then(|inputs| {
+                    self.scene
+                        .runtime
+                        .evaluate_calculation(variable, &inputs)
+                        .map_err(CalculationFailure::Script)
+                })
             } else {
                 (self.argument)(variable).and_then(|value| {
-                    variable
-                        .apply_argument_limits(&value)
-                        .ok_or_else(|| format!("Invalid argument '{}'", variable.id()))
+                    variable.apply_argument_limits(&value).ok_or_else(|| {
+                        CalculationFailure::InvalidArgument(variable.id().to_owned())
+                    })
                 })
             };
             self.values
@@ -280,12 +296,11 @@ impl SceneDefinition {
         (order, pending)
     }
 
-    /// Extract the dependency graph required by selected items. Exclusive
-    /// calculations move; shared calculations become independent copies.
+    /// Copy the dependency graph required by selected items into a new scene.
     pub(in crate::timeline) fn variables_for_grouping(
         &self,
         selected: &HashSet<crate::timeline::ItemId>,
-    ) -> (Vec<super::SceneVariable>, HashSet<String>) {
+    ) -> Vec<super::SceneVariable> {
         let mut required = self
             .variables
             .iter()
@@ -310,38 +325,7 @@ impl SceneDefinition {
                 }
             }
         }
-        let mut moved = self
-            .variables
-            .iter()
-            .filter(|variable| {
-                required.contains(variable.id())
-                    && variable.calculation().is_some()
-                    && variable
-                        .bindings
-                        .iter()
-                        .all(|binding| selected.contains(&binding.item_id()))
-            })
-            .map(|variable| variable.id().to_owned())
-            .collect::<HashSet<_>>();
-        loop {
-            let before = moved.len();
-            let referenced = self
-                .variables
-                .iter()
-                .filter(|variable| !moved.contains(variable.id()))
-                .filter_map(|variable| variable.calculation())
-                .flat_map(|calculation| &calculation.inputs)
-                .map(|input| input.variable_id.clone())
-                .collect::<Vec<_>>();
-            for id in referenced {
-                moved.remove(&id);
-            }
-            if moved.len() == before {
-                break;
-            }
-        }
-        let variables = self
-            .variables
+        self.variables
             .iter()
             .filter(|variable| required.contains(variable.id()))
             .cloned()
@@ -351,8 +335,7 @@ impl SceneDefinition {
                     .retain(|binding| selected.contains(&binding.item_id()));
                 variable
             })
-            .collect();
-        (variables, moved)
+            .collect()
     }
 
     pub(in crate::timeline) fn variable_evaluator<'a>(
@@ -422,7 +405,9 @@ impl SceneDefinition {
                 .collect(),
         }
     }
+}
 
+impl SceneRuntime {
     fn evaluate_calculation(
         &self,
         variable: &super::SceneVariable,
@@ -430,7 +415,6 @@ impl SceneDefinition {
     ) -> Result<PropertyValue, String> {
         {
             let cached = self
-                .runtime
                 .calculations
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
@@ -459,7 +443,6 @@ impl SceneDefinition {
             .evaluate(&mut scope)
             .and_then(|value| from_dynamic(value, variable.ty()));
         let mut all = self
-            .runtime
             .calculations
             .lock()
             .unwrap_or_else(|error| error.into_inner());

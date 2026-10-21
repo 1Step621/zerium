@@ -34,7 +34,9 @@ pub(crate) enum AudioTimelineError {
     #[error("Audio render range is too large")]
     RangeTooLarge,
     #[error("{0}")]
-    Calculation(String),
+    Calculation(Box<zerium_core::timeline::AudioCalculationDiagnostic>),
+    #[error("Missing gain for audio clip {clip:?} at sample {sample}")]
+    MissingGain { clip: AudioClipId, sample: u64 },
 }
 
 struct AudioClip {
@@ -226,12 +228,13 @@ impl AudioTimelineGraph {
             let clip = &mut self.clips[index];
             let intersection_start = block_start.max(clip.start_sample_frame);
             let intersection_end = block_end.min(clip.end_sample_frame);
-            let gains = evaluated_gains.get(&clip.id).ok_or_else(|| {
-                AudioTimelineError::Calculation(format!(
-                    "Missing gain for audio clip {:?} at sample {intersection_start}",
-                    clip.id
-                ))
-            })?;
+            let gains =
+                evaluated_gains
+                    .get(&clip.id)
+                    .ok_or_else(|| AudioTimelineError::MissingGain {
+                        clip: clip.id.clone(),
+                        sample: intersection_start,
+                    })?;
             clip.mix_into(
                 &mut mix,
                 block_start,
@@ -430,7 +433,7 @@ fn gain_segments(
             if let AudioCalculationPolicy::Report = policy
                 && let Some(error) = gain.diagnostic.as_ref().or(next_gain.diagnostic.as_ref())
             {
-                return Err(AudioTimelineError::Calculation(error.clone()));
+                return Err(AudioTimelineError::Calculation(Box::new(error.clone())));
             }
             values.entry(id.clone()).or_default().push(GainSegment {
                 samples: sample..end,

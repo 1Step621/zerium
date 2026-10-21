@@ -9,6 +9,13 @@ use super::{
     TimelineEditor, TimelineTime, project::TimelineProject, selection::SelectionState,
 };
 
+/// Media discovery follows authored file references, independently of rendering.
+#[derive(Clone, Copy)]
+pub(super) enum EditImpact {
+    Values,
+    MediaDependencies,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum HistoryKey {
     ItemCreation(ItemId),
@@ -151,11 +158,15 @@ impl TimelineEditor {
             .then(|| self.history_snapshot())
     }
 
-    pub(super) fn finish_project_edit(
+    fn finish_project_edit(
         &mut self,
         before: Option<HistorySnapshot>,
         key: Option<HistoryKey>,
+        impact: EditImpact,
     ) {
+        if matches!(impact, EditImpact::MediaDependencies) {
+            self.advance_media_dependencies_revision();
+        }
         let scoped_key = self
             .history_group
             .clone()
@@ -165,26 +176,49 @@ impl TimelineEditor {
         self.advance_project_revision();
     }
 
+    /// Fast path for validated item-only changes: no whole-project rollback copy.
+    pub(super) fn commit_item_edits(
+        &mut self,
+        key: Option<HistoryKey>,
+        edits: impl IntoIterator<Item = super::document::ItemEdit>,
+    ) -> Result<bool, super::TimelineEditError> {
+        let prepared = self.active_document().prepare_item_edits(edits)?;
+        if prepared.is_empty() {
+            return Ok(false);
+        }
+        let media_dependencies_changed = prepared.media_dependencies_changed;
+        let before = self.history_snapshot_for_edit(key.as_ref());
+        self.active_document_mut().publish_item_edits(prepared);
+        let impact = if media_dependencies_changed {
+            EditImpact::MediaDependencies
+        } else {
+            EditImpact::Values
+        };
+        self.finish_project_edit(before, key, impact);
+        Ok(true)
+    }
+
     /// Own the history and revision boundary; the command reports its actual change.
     pub(super) fn edit_project<T>(
         &mut self,
+        impact: EditImpact,
         key: Option<HistoryKey>,
         update: impl FnOnce(&mut Self) -> (T, bool),
     ) -> T {
+        let prepared = self.prepare_project_edit();
         let before = self.history_snapshot_for_edit(key.as_ref());
         let (value, changed) = update(self);
-        if changed {
-            self.finish_project_edit(before, key);
-        }
+        self.complete_project_edit(prepared, before, key, impact, changed);
         value
     }
 
     pub(super) fn edit_project_if_changed(
         &mut self,
+        impact: EditImpact,
         key: Option<HistoryKey>,
         update: impl FnOnce(&mut Self) -> bool,
     ) -> bool {
-        self.edit_project(key, |editor| {
+        self.edit_project(impact, key, |editor| {
             let changed = update(editor);
             (changed, changed)
         })
@@ -192,10 +226,11 @@ impl TimelineEditor {
 
     pub(super) fn try_edit_project<T, E>(
         &mut self,
+        impact: EditImpact,
         key: Option<HistoryKey>,
         update: impl FnOnce(&mut Self) -> Result<(T, bool), E>,
     ) -> Result<T, E> {
-        self.edit_project(key, |editor| {
+        self.edit_project(impact, key, |editor| {
             let result = update(editor);
             let changed = result.as_ref().is_ok_and(|(_, changed)| *changed);
             (result.map(|(value, _)| value), changed)
@@ -204,14 +239,30 @@ impl TimelineEditor {
 
     pub(super) fn edit_project_option<T>(
         &mut self,
+        impact: EditImpact,
         key: Option<HistoryKey>,
         update: impl FnOnce(&mut Self) -> Option<T>,
     ) -> Option<T> {
-        self.edit_project(key, |editor| {
+        self.edit_project(impact, key, |editor| {
             let value = update(editor);
             let changed = value.is_some();
             (value, changed)
         })
+    }
+
+    fn complete_project_edit(
+        &mut self,
+        prepared: super::editor::ProjectEditState,
+        before: Option<HistorySnapshot>,
+        key: Option<HistoryKey>,
+        impact: EditImpact,
+        changed: bool,
+    ) {
+        if changed {
+            self.finish_project_edit(before, key, impact);
+        } else {
+            self.discard_project_edit(prepared);
+        }
     }
 
     /// Creation and subsequent file initialization share the newly allocated item's group.
@@ -219,9 +270,17 @@ impl TimelineEditor {
         &mut self,
         create: impl FnOnce(&mut Self) -> Result<ItemId, E>,
     ) -> Result<ItemId, E> {
+        let prepared = self.prepare_project_edit();
         let before = self.history_snapshot();
-        let id = create(self)?;
-        self.finish_project_edit(Some(before), Some(HistoryKey::ItemCreation(id)));
-        Ok(id)
+        let result = create(self);
+        let key = result.as_ref().ok().map(|id| HistoryKey::ItemCreation(*id));
+        self.complete_project_edit(
+            prepared,
+            Some(before),
+            key,
+            EditImpact::MediaDependencies,
+            result.is_ok(),
+        );
+        result
     }
 }

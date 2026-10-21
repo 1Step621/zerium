@@ -39,6 +39,7 @@ impl PartialEq for VideoFrame {
         std::ptr::eq(self, other)
     }
 }
+
 impl Eq for VideoFrame {}
 
 impl VideoFrame {

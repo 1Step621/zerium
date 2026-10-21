@@ -56,6 +56,33 @@ pub(in crate::ui::timeline) struct ItemMoveOrigin {
     pub(in crate::ui::timeline) pointer_y: f32,
 }
 
+impl ItemMoveOrigin {
+    fn delta_at(
+        &self,
+        pointer_x: f32,
+        pointer_y: f32,
+        pixels_per_second: f64,
+        frame_rate: FrameRate,
+        layer_height: f32,
+    ) -> (i64, i64) {
+        let delta_seconds = (pointer_x - self.pointer_x) as f64 / pixels_per_second;
+        let delta_frames = frame_rate.seconds_delta_to_frames(delta_seconds);
+        let layer_delta = ((pointer_y - self.pointer_y) / layer_height).round() as i64;
+        self.clamp_delta(delta_frames, layer_delta)
+    }
+
+    fn clamp_delta(&self, frame_delta: i64, layer_delta: i64) -> (i64, i64) {
+        let origins = self.items.iter().map(|item| {
+            (
+                item.start.get(),
+                item.duration.get(),
+                item.source_layer.get(),
+            )
+        });
+        clamp_move_delta(origins, frame_delta, layer_delta)
+    }
+}
+
 impl Timeline {
     pub(in crate::ui::timeline) fn resize_item_from_pointer(
         &mut self,
@@ -170,35 +197,6 @@ impl Timeline {
         cx.stop_propagation();
     }
 
-    fn moved_items_delta(
-        origin: &ItemMoveOrigin,
-        pointer_x: f32,
-        pointer_y: f32,
-        pixels_per_second: f64,
-        frame_rate: FrameRate,
-        layer_height: f32,
-    ) -> (i64, i64) {
-        let delta_seconds = (pointer_x - origin.pointer_x) as f64 / pixels_per_second;
-        let delta_frames = frame_rate.seconds_delta_to_frames(delta_seconds);
-        let layer_delta = ((pointer_y - origin.pointer_y) / layer_height).round() as i64;
-        Self::clamp_item_move_delta(origin, delta_frames, layer_delta)
-    }
-
-    fn clamp_item_move_delta(
-        origin: &ItemMoveOrigin,
-        frame_delta: i64,
-        layer_delta: i64,
-    ) -> (i64, i64) {
-        let origins = origin.items.iter().map(|item| {
-            (
-                item.start.get(),
-                item.duration.get(),
-                item.source_layer.get(),
-            )
-        });
-        clamp_move_delta(origins, frame_delta, layer_delta)
-    }
-
     pub(in crate::ui::timeline) fn move_item_from_pointer(
         &mut self,
         drag: &MoveTimelineItem,
@@ -220,8 +218,7 @@ impl Timeline {
         };
 
         let frame_rate = self.editor.read(cx).frame_rate();
-        let (mut frame_delta, layer_delta) = Self::moved_items_delta(
-            origin,
+        let (mut frame_delta, layer_delta) = origin.delta_at(
             pointer_x,
             pointer_y,
             self.viewport.pixels_per_second(),
@@ -274,7 +271,7 @@ impl Timeline {
             self.viewport.pixels_per_second(),
         );
         let snapped = frame_delta.saturating_add(frame_rate.seconds_delta_to_frames(offset));
-        Self::clamp_item_move_delta(origin, snapped, layer_delta).0
+        origin.clamp_delta(snapped, layer_delta).0
     }
 
     pub(in crate::ui::timeline) fn snap_frame(

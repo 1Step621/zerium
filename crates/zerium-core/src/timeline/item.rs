@@ -15,6 +15,43 @@ use super::{
     time::{Frame, FrameDuration, TimelineTime},
 };
 
+/// Resolve media from sampled values without materializing an editable item.
+pub(super) fn media_input_for(
+    inputs: &[TextureInput],
+    playback: &crate::plugin::PlaybackBindings,
+    properties: &PropertyValues,
+    input_id: &str,
+    cache: &MediaMetadataCache,
+) -> Option<(MediaAsset, MediaPlayback)> {
+    let capability = inputs
+        .iter()
+        .find(|capability| capability.id() == input_id)?;
+    let asset = capability.media_source()?.asset(properties, cache)?;
+    let clock = playback
+        .media(input_id, properties)
+        .expect("validated media playback properties");
+    Some((asset, clock))
+}
+
+pub(super) fn audio_input_for(
+    schema: &ItemSchema,
+    input_id: &str,
+    properties: &PropertyValues,
+    cache: &MediaMetadataCache,
+) -> Option<(MediaAsset, MediaPlayback, bool)> {
+    let input = schema.audio_input(input_id)?;
+    let asset = input.media_source().asset(properties, cache)?;
+    let playback = schema
+        .playback()
+        .audio(input_id, properties)?
+        .expect("validated audio playback properties");
+    let preserve_pitch = properties
+        .property(input.preserve_pitch_property())?
+        .as_bool()
+        .expect("validated preserve-pitch property");
+    Some((asset, playback, preserve_pitch))
+}
+
 const MAX_ITEM_LABEL_CHARS: usize = 40;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -160,6 +197,18 @@ pub struct TimelineItem {
     pub effects: Vec<EffectInstance>,
 }
 
+/// One resolved property owner, shared by schema lookup, evaluation and editing.
+pub(super) struct PropertyOwnerRef<'a> {
+    pub values: &'a PropertyValues,
+    pub animations: &'a ScalarAnimations,
+    pub schemas: &'a [PropertySchema],
+}
+
+pub(super) struct PropertyOwnerMut<'a> {
+    pub values: &'a mut PropertyValues,
+    pub animations: &'a mut ScalarAnimations,
+}
+
 impl TimelineItem {
     pub(super) fn scene_instance(
         id: ItemId,
@@ -188,28 +237,58 @@ impl TimelineItem {
         self.effects.iter_mut().find(|effect| effect.id == id)
     }
 
+    pub(super) fn property_owner(
+        &self,
+        effect_id: Option<EffectInstanceId>,
+    ) -> Option<PropertyOwnerRef<'_>> {
+        Some(match effect_id {
+            Some(id) => {
+                let effect = self.effect(id)?;
+                PropertyOwnerRef {
+                    values: &effect.properties,
+                    animations: &effect.animations,
+                    schemas: effect.schema.properties(),
+                }
+            }
+            None => PropertyOwnerRef {
+                values: &self.properties,
+                animations: &self.animations,
+                schemas: self.schema().map_or(&[], |schema| schema.properties()),
+            },
+        })
+    }
+
+    pub(super) fn property_owner_mut(
+        &mut self,
+        effect_id: Option<EffectInstanceId>,
+    ) -> Option<PropertyOwnerMut<'_>> {
+        Some(match effect_id {
+            Some(id) => {
+                let effect = self.effect_mut(id)?;
+                PropertyOwnerMut {
+                    values: &mut effect.properties,
+                    animations: &mut effect.animations,
+                }
+            }
+            None => PropertyOwnerMut {
+                values: &mut self.properties,
+                animations: &mut self.animations,
+            },
+        })
+    }
+
     pub(super) fn animations(
         &self,
         effect_id: Option<EffectInstanceId>,
     ) -> Option<&ScalarAnimations> {
-        match effect_id {
-            Some(id) => Some(&self.effect(id)?.animations),
-            None => Some(&self.animations),
-        }
+        Some(self.property_owner(effect_id)?.animations)
     }
 
     pub(super) fn animations_mut(
         &mut self,
         effect_id: Option<EffectInstanceId>,
     ) -> Option<&mut ScalarAnimations> {
-        match effect_id {
-            Some(id) => Some(&mut self.effect_mut(id)?.animations),
-            None => Some(&mut self.animations),
-        }
-    }
-
-    pub fn local_seconds(&self, time: TimelineTime, frame_rate: FrameRate) -> f64 {
-        (time.frames() - self.start.get() as f64) / frame_rate.frames_per_second()
+        Some(self.property_owner_mut(effect_id)?.animations)
     }
 
     pub fn schema(&self) -> Option<&ItemSchema> {
@@ -282,30 +361,6 @@ impl TimelineItem {
             .symbol()
     }
 
-    /// Linear gain read through this audio input's volume reference.
-    pub fn audio_gain(&self, input_id: &str) -> Option<f32> {
-        let audio = self.schema()?.audio_input(input_id)?;
-        Some(
-            self.properties
-                .property(audio.volume_property())?
-                .as_f32()
-                .expect("validated audio volume property")
-                .max(0.),
-        )
-    }
-
-    pub fn audio_gain_at(&self, input_id: &str, time: TimelineTime) -> Option<f32> {
-        let schema = self.schema()?;
-        let input = schema.audio_input(input_id)?;
-        let property = schema.property(input.volume_property())?;
-        Some(
-            self.evaluated_property_at(time, None, property)?
-                .as_f32()
-                .expect("validated audio volume property")
-                .max(0.),
-        )
-    }
-
     pub fn render_result_ranges(&self) -> impl Iterator<Item = RenderResultSettings> + '_ {
         self.schema()
             .into_iter()
@@ -337,58 +392,6 @@ impl TimelineItem {
 
     pub fn animation_clock(&self, track: &ScalarTrack) -> AnimationClock {
         AnimationClock::new(self.start, track)
-    }
-
-    /// Resolve a loaded visual input using only its owner's media declaration.
-    pub fn media_input(
-        &self,
-        effect_id: Option<EffectInstanceId>,
-        input_id: &str,
-        cache: &MediaMetadataCache,
-    ) -> Option<(MediaAsset, MediaPlayback)> {
-        let (capabilities, playback, properties) = match effect_id {
-            Some(id) => {
-                let effect = self.effect(id)?;
-                (
-                    effect.schema().inputs(),
-                    effect.schema().playback(),
-                    &effect.properties,
-                )
-            }
-            None => {
-                let schema = self.schema()?;
-                (schema.inputs(), schema.playback(), &self.properties)
-            }
-        };
-        let capability = capabilities
-            .iter()
-            .find(|capability| capability.id() == input_id)?;
-        let asset = capability.media_source()?.asset(properties, cache)?;
-        let clock = playback
-            .media(input_id, properties)
-            .expect("validated media playback properties");
-        Some((asset, clock))
-    }
-
-    /// Resolve a loaded audio input using only its own audio declaration.
-    pub fn audio_input(
-        &self,
-        input_id: &str,
-        cache: &MediaMetadataCache,
-    ) -> Option<(MediaAsset, MediaPlayback, bool)> {
-        let input = self.schema()?.audio_input(input_id)?;
-        let asset = input.media_source().asset(&self.properties, cache)?;
-        let playback = self
-            .schema()?
-            .playback()
-            .audio(input_id, &self.properties)?
-            .expect("validated audio playback properties");
-        let preserve_pitch = self
-            .properties
-            .property(input.preserve_pitch_property())?
-            .as_bool()
-            .expect("validated preserve-pitch property");
-        Some((asset, playback, preserve_pitch))
     }
 
     pub(super) fn timeline_mapping(&self) -> Option<TimeMapping> {
@@ -530,20 +533,14 @@ impl TimelineItem {
     }
 
     pub fn property_values(&self, effect_id: Option<EffectInstanceId>) -> Option<&PropertyValues> {
-        match effect_id {
-            Some(id) => Some(&self.effect(id)?.properties),
-            None => Some(&self.properties),
-        }
+        Some(self.property_owner(effect_id)?.values)
     }
 
     pub(super) fn property_values_mut(
         &mut self,
         effect_id: Option<EffectInstanceId>,
     ) -> Option<&mut PropertyValues> {
-        match effect_id {
-            Some(id) => Some(&mut self.effect_mut(id)?.properties),
-            None => Some(&mut self.properties),
-        }
+        Some(self.property_owner_mut(effect_id)?.values)
     }
 
     /// First frame after the item.
@@ -553,5 +550,86 @@ impl TimelineItem {
 
     pub fn contains(&self, frame: Frame) -> bool {
         frame >= self.start && frame < self.end_exclusive()
+    }
+}
+
+impl TimelineItem {
+    pub(super) fn set_aspect_ratio(
+        &mut self,
+        effect_id: Option<EffectInstanceId>,
+        ratio: Option<AspectRatio>,
+    ) -> bool {
+        let current = match effect_id {
+            Some(id) => {
+                &mut self
+                    .effect_mut(id)
+                    .expect("prepared effect must exist")
+                    .aspect_ratio
+            }
+            None => &mut self.aspect_ratio,
+        };
+        if *current == ratio {
+            return false;
+        }
+        *current = ratio;
+        true
+    }
+
+    pub(super) fn add_effect(
+        &mut self,
+        instance_id: EffectInstanceId,
+        plugin_id: &str,
+        effect_id: &str,
+        schema: Arc<EffectSchema>,
+    ) -> bool {
+        let properties = PropertyValues::from_properties(schema.properties());
+        let aspect_ratio = schema
+            .aspect_lock_default()
+            .then(|| {
+                schema.aspect_lock_property().and_then(|property| {
+                    AspectRatio::from_value(properties.property(property.id())?)
+                })
+            })
+            .flatten();
+        if self.scene_id().is_none() {
+            let Some(item_schema) = self.schema() else {
+                return false;
+            };
+            if item_schema.render().is_none() {
+                return false;
+            }
+        }
+        self.effects.push(EffectInstance {
+            id: instance_id,
+            plugin_id: plugin_id.to_owned(),
+            effect_id: effect_id.to_owned(),
+            properties,
+            animations: ScalarAnimations::default(),
+            aspect_ratio,
+            schema,
+        });
+        true
+    }
+
+    pub(super) fn remove_effect(&mut self, effect_id: EffectInstanceId) -> bool {
+        let previous_len = self.effects.len();
+        self.effects.retain(|effect| effect.id != effect_id);
+        self.effects.len() != previous_len
+    }
+
+    pub(super) fn move_effect(&mut self, effect_id: EffectInstanceId, target_index: usize) -> bool {
+        let Some(source_index) = self
+            .effects
+            .iter()
+            .position(|effect| effect.id == effect_id)
+        else {
+            return false;
+        };
+        if target_index >= self.effects.len() || source_index == target_index {
+            return false;
+        }
+        let effect = self.effects.remove(source_index);
+        self.effects.insert(target_index, effect);
+        true
     }
 }

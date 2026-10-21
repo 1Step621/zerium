@@ -1,5 +1,5 @@
 use crate::property::PropertyValue;
-use crate::timeline::history::HistoryKey;
+use crate::timeline::history::{EditImpact, HistoryKey};
 use crate::timeline::{AspectRatio, EffectInstanceId, ItemId, PropertyAddress, TimelineEditor};
 
 use super::TimelineEditError;
@@ -43,12 +43,7 @@ impl TimelineEditor {
             address.effect_id,
             address.property_id.clone(),
         );
-        self.try_edit_project(Some(key), |editor| {
-            let changed = editor
-                .active_document_mut()
-                .commit_item_edits([candidate])?;
-            Ok((changed, changed))
-        })
+        self.commit_item_edits(Some(key), [candidate])
     }
 
     pub(super) fn prepare_property_value(
@@ -151,10 +146,16 @@ impl TimelineEditor {
         } else {
             None
         };
-        self.edit_project_if_changed(Some(HistoryKey::AspectRatioLock(id, effect)), |editor| {
-            editor
-                .active_document_mut()
-                .set_item_aspect_ratio(id, effect, ratio)
-        })
+        self.edit_project_if_changed(
+            EditImpact::Values,
+            Some(HistoryKey::AspectRatioLock(id, effect)),
+            |editor| {
+                editor
+                    .active_document_mut()
+                    .item_mut(id)
+                    .expect("prepared item must exist")
+                    .set_aspect_ratio(effect, ratio)
+            },
+        )
     }
 }

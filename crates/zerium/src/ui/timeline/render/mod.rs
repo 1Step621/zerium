@@ -1,4 +1,8 @@
 //! Timeline pane composition and per-frame render state.
+use crate::ui::timeline::timeline_grid;
+use crate::ui::timeline::track_viewport_width;
+pub(in crate::ui::timeline) use item::timeline_item;
+pub(in crate::ui::timeline) use layer::layer_row;
 mod item;
 mod layer;
 
@@ -100,7 +104,7 @@ impl Render for Timeline {
         }
         let layer_count = self.dynamic_layer_count(window, cx);
         let colors = cx.theme().colors;
-        let viewport_width = Self::track_viewport_width(window);
+        let viewport_width = track_viewport_width(window);
         let layer_height = self.viewport.layer_height;
         let (
             frame_rate,
@@ -155,7 +159,7 @@ impl Render for Timeline {
         self.viewport
             .follow_playhead(playhead, viewport_width, frame_rate);
         let active_scene_is_empty = active_scene.is_some_and(|(_, is_empty)| is_empty);
-        let grid = Self::timeline_grid(
+        let grid = timeline_grid(
             self.viewport,
             viewport_width,
             frame_rate,
@@ -290,7 +294,7 @@ impl Render for Timeline {
                                             })
                                             .collect()
                                     };
-                                    Self::layer_row(layer_index, row_state.clone(), items, cx)
+                                    layer_row(layer_index, row_state.clone(), items, cx)
                                 })
                                 .collect::<Vec<_>>()
                         })

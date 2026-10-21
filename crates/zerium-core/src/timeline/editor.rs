@@ -8,7 +8,7 @@ use crate::{
 use super::{
     document::TimelineDocument,
     evaluation::evaluated_items_at_time,
-    history::{EditHistory, HistoryKey, HistorySnapshot, ScopedHistoryKey},
+    history::{EditHistory, EditImpact, HistoryKey, HistorySnapshot, ScopedHistoryKey},
     ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId},
     item::TimelineItem,
     project::TimelineProject,
@@ -44,22 +44,65 @@ pub struct TimelineEditor {
     render_revision: u64,
     project_revision: u64,
     next_project_revision: u64,
+    next_media_dependencies_revision: u64,
     pub(super) history: EditHistory<HistorySnapshot, ScopedHistoryKey>,
     /// Override individual command keys while applying a gesture update.
     pub(super) history_group: Option<HistoryKey>,
 }
 
+/// A prepared edit owns the pre-publication state until it is committed.
+/// Failed and unchanged commands restore IDs and session side effects as well as data.
+pub(super) struct ProjectEditState {
+    project: Arc<TimelineProject>,
+    media_cache: Arc<crate::media::MediaMetadataCache>,
+    scene_path: Vec<SceneId>,
+    next_scene_id: Option<u64>,
+    next_effect_id: Option<u64>,
+    playhead: Frame,
+    playback_time: Option<TimelineTime>,
+    selection: SelectionState,
+    active_edit_target: Option<(ItemId, EffectInstanceId)>,
+    visibility: PreviewVisibility,
+    render_revision: u64,
+}
+
 impl TimelineEditor {
+    pub(super) fn prepare_project_edit(&self) -> ProjectEditState {
+        ProjectEditState {
+            project: self.project.clone(),
+            media_cache: self.media_cache.clone(),
+            scene_path: self.scene_path.clone(),
+            next_scene_id: self.next_scene_id,
+            next_effect_id: self.next_effect_id,
+            playhead: self.playhead,
+            playback_time: self.playback_time,
+            selection: self.selection.clone(),
+            active_edit_target: self.active_edit_target,
+            visibility: self.visibility.clone(),
+            render_revision: self.render_revision,
+        }
+    }
+
+    pub(super) fn discard_project_edit(&mut self, state: ProjectEditState) {
+        self.project = state.project;
+        self.media_cache = state.media_cache;
+        self.scene_path = state.scene_path;
+        self.next_scene_id = state.next_scene_id;
+        self.next_effect_id = state.next_effect_id;
+        self.playhead = state.playhead;
+        self.playback_time = state.playback_time;
+        self.selection = state.selection;
+        self.active_edit_target = state.active_edit_target;
+        self.visibility = state.visibility;
+        self.render_revision = state.render_revision;
+    }
+
     pub(super) fn project(&self) -> &TimelineProject {
         &self.project
     }
 
     pub(super) fn project_mut(&mut self) -> &mut TimelineProject {
         Arc::make_mut(&mut self.project)
-    }
-
-    pub(super) fn commit_project_state(&mut self, project: TimelineProject) {
-        self.project = Arc::new(project);
     }
 
     pub fn new(frame_rate: FrameRate, plugins: Arc<PluginRegistry>) -> Self {
@@ -80,8 +123,9 @@ impl TimelineEditor {
             plugins,
             project: Arc::new(TimelineProject {
                 id: ProjectId::generate(),
-                document,
-                scenes: HashMap::new(),
+                media_dependencies_revision: 0,
+                document: Arc::new(document),
+                scenes: Arc::default(),
                 resolution,
                 beat_guide: BeatGuide::default(),
             }),
@@ -97,6 +141,7 @@ impl TimelineEditor {
             render_revision: 0,
             project_revision: 0,
             next_project_revision: 1,
+            next_media_dependencies_revision: 1,
             history: EditHistory::new(HISTORY_LIMIT),
             history_group: None,
         }
@@ -125,6 +170,20 @@ impl TimelineEditor {
         self.project_revision = self.next_project_revision;
         self.next_project_revision = self.next_project_revision.saturating_add(1);
         self.advance_render_revision();
+    }
+
+    pub(super) fn advance_media_dependencies_revision(&mut self) {
+        let revision = self.next_media_dependencies_revision;
+        self.project_mut().media_dependencies_revision = revision;
+        self.next_media_dependencies_revision = revision.saturating_add(1);
+    }
+
+    pub fn media_dependencies_revision(&self) -> u64 {
+        self.project().media_dependencies_revision
+    }
+
+    pub fn project_id(&self) -> ProjectId {
+        self.project().id
     }
 
     pub fn project_revision(&self) -> u64 {
@@ -232,8 +291,9 @@ impl TimelineEditor {
         self.next_effect_id = Self::next_effect_id(&document, scenes.values());
         self.project = Arc::new(TimelineProject {
             id: project_id,
-            document,
-            scenes,
+            media_dependencies_revision: 0,
+            document: Arc::new(document),
+            scenes: Arc::new(scenes),
             resolution,
             beat_guide,
         });
@@ -304,31 +364,41 @@ impl TimelineEditor {
         {
             return Ok(false);
         }
-        let document = self.project().document.retimed(frame_rate)?;
-        let scenes = self
-            .project()
-            .scenes
-            .iter()
-            .map(|(id, scene)| {
-                let mut scene = scene.clone();
-                let document = scene.document().retimed(frame_rate)?;
-                *scene.document_mut() = document;
-                Ok((*id, scene))
-            })
-            .collect::<Result<HashMap<_, _>, ProjectSettingsError>>()?;
+        let (document, scenes) = if self.frame_rate() == frame_rate {
+            (
+                self.project().document.clone(),
+                self.project().scenes.clone(),
+            )
+        } else {
+            let document = Arc::new(self.project().document.retimed(frame_rate)?);
+            let scenes = self
+                .project()
+                .scenes
+                .iter()
+                .map(|(id, scene)| {
+                    let document = scene.document().retimed(frame_rate)?;
+                    let mut scene = scene.clone();
+                    scene.replace_document(document);
+                    Ok((*id, scene))
+                })
+                .collect::<Result<HashMap<_, _>, ProjectSettingsError>>()?;
+            (document, Arc::new(scenes))
+        };
         let playhead = super::document::retime_frame(self.playhead, self.frame_rate(), frame_rate)?;
-        Ok(self.edit_project_if_changed(None, |editor| {
-            {
-                let project = editor.project_mut();
-                project.document = document;
-                project.scenes = scenes;
-                project.resolution = resolution;
-                project.beat_guide = beat_guide;
-            }
-            editor.playhead = playhead;
-            editor.playback_time = None;
-            true
-        }))
+        Ok(
+            self.edit_project_if_changed(EditImpact::Values, None, |editor| {
+                {
+                    let project = editor.project_mut();
+                    project.document = document;
+                    project.scenes = scenes;
+                    project.resolution = resolution;
+                    project.beat_guide = beat_guide;
+                }
+                editor.playhead = playhead;
+                editor.playback_time = None;
+                true
+            }),
+        )
     }
 
     pub(super) fn active_document(&self) -> &TimelineDocument {
@@ -343,11 +413,11 @@ impl TimelineEditor {
         match active {
             Some(id) => self
                 .project_mut()
-                .scenes
+                .scenes_mut()
                 .get_mut(&id)
                 .expect("active scene must remain available")
                 .document_mut(),
-            None => &mut self.project_mut().document,
+            None => self.project_mut().document_mut(),
         }
     }
 
@@ -373,6 +443,24 @@ impl TimelineEditor {
         property_schemas(&self.project().scenes, item, effect_id)
     }
 
+    /// Property metadata for sampled UI values, independent of authored value storage.
+    pub fn evaluated_property_schemas<'a>(
+        &'a self,
+        item: &'a super::EvaluatedItem,
+        effect_id: Option<EffectInstanceId>,
+    ) -> impl Iterator<Item = &'a PropertySchema> {
+        let properties = match effect_id {
+            Some(id) => item
+                .effects
+                .iter()
+                .find(|effect| effect.id == id)
+                .map(|effect| effect.schema().properties()),
+            None => item.schema().map(|schema| schema.properties()),
+        };
+        let scene = effect_id.is_none().then(|| item.scene_id()).flatten();
+        super::property_address::owner_property_schemas(&self.project().scenes, properties, scene)
+    }
+
     pub fn property_schema(&self, address: &super::PropertyAddress) -> Option<&PropertySchema> {
         resolve_property_schema(
             &self.project().scenes,
@@ -383,8 +471,12 @@ impl TimelineEditor {
     }
 
     /// Resolve defaults, arguments, and animations in the current editing document.
-    pub fn evaluated_item_at(&self, item: &TimelineItem, time: TimelineTime) -> TimelineItem {
-        resolve_item(
+    pub fn evaluated_item_at(
+        &self,
+        item: &TimelineItem,
+        time: TimelineTime,
+    ) -> super::EvaluatedItem {
+        super::properties::evaluate_item(
             &self.project().scenes,
             self.active_scene_variables().as_ref(),
             item,
@@ -581,11 +673,11 @@ impl TimelineEditor {
         self.active_document().items_on_layer(layer)
     }
 
-    pub fn active_items_at(&self, frame: Frame) -> Vec<(LayerId, TimelineItem)> {
+    pub fn active_items_at(&self, frame: Frame) -> Vec<(LayerId, super::EvaluatedItem)> {
         self.active_items_at_time(TimelineTime::from_frame(frame))
     }
 
-    pub fn active_items_at_time(&self, time: TimelineTime) -> Vec<(LayerId, TimelineItem)> {
+    pub fn active_items_at_time(&self, time: TimelineTime) -> Vec<(LayerId, super::EvaluatedItem)> {
         evaluated_items_at_time(
             self.active_document().active_source_items_at_time(time),
             &self.project().scenes,

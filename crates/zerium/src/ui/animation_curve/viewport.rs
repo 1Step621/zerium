@@ -87,32 +87,6 @@ impl AnimationCurveEditor {
         ])
     }
 
-    pub(super) fn point_layout(position: [f32; 2], radius: f32) -> ([f32; 2], f32, f32) {
-        let screen = position.map(|value| {
-            if value.abs() <= Self::SCREEN_EDGE_EPSILON {
-                0.
-            } else if (value - 1.).abs() <= Self::SCREEN_EDGE_EPSILON {
-                1.
-            } else {
-                value
-            }
-        });
-        (
-            screen,
-            Self::GRAPH_INSET_LEFT * (1. - screen[0])
-                - Self::GRAPH_INSET_RIGHT * screen[0]
-                - radius,
-            Self::GRAPH_INSET_BOTTOM * (1. - screen[1])
-                - Self::GRAPH_INSET_TOP * screen[1]
-                - radius,
-        )
-    }
-
-    pub(super) fn screen_position_is_visible(screen: [f32; 2]) -> bool {
-        let visible = -Self::SCREEN_EDGE_EPSILON..=1. + Self::SCREEN_EDGE_EPSILON;
-        visible.contains(&screen[0]) && visible.contains(&screen[1])
-    }
-
     pub(super) fn curve_contains_position(&self, position: gpui::Point<Pixels>, cx: &App) -> bool {
         const HIT_RADIUS: f32 = 8.;
         const SAMPLES_PER_SEGMENT: usize = 48;
@@ -166,7 +140,7 @@ impl AnimationCurveEditor {
         let Some(pattern_frame) = selected.source_stop_frames.get(segment).copied() else {
             return;
         };
-        let Some(frame) = Self::frame_at_pattern_frame(&selected, pattern_frame) else {
+        let Some(frame) = selected.frame_at_pattern_frame(pattern_frame) else {
             return;
         };
         self.editor
@@ -302,20 +276,6 @@ impl AnimationCurveEditor {
         }
     }
 
-    pub(super) fn frame_at_pattern_frame(selected: &SelectedCurve, frame: Frame) -> Option<Frame> {
-        selected
-            .clock
-            .first_occurrence(
-                frame,
-                TimelineTime::from_frame(selected.clip_start),
-                TimelineTime::from_frames(
-                    selected.clip_start.get() as f64
-                        + selected.clip_duration.get().saturating_sub(1) as f64,
-                ),
-            )
-            .map(TimelineTime::nearest_frame)
-    }
-
     pub(super) fn frame_at_graph_position(
         &self,
         position: gpui::Point<Pixels>,
@@ -328,7 +288,7 @@ impl AnimationCurveEditor {
         let to = selected.source_stop_frames[selected.source_segment + 1].get();
         let frame =
             Frame::new((from as f64 + (to - from) as f64 * f64::from(progress)).round() as u64);
-        Self::frame_at_pattern_frame(&selected, frame)
+        selected.frame_at_pattern_frame(frame)
     }
 
     pub(super) fn time_at_overview_position(
@@ -362,4 +322,34 @@ impl AnimationCurveEditor {
             transport.end_scrub(ScrubSource::AnimationCurve, cx);
         });
     }
+}
+
+pub(in crate::ui::animation_curve) fn point_layout(
+    position: [f32; 2],
+    radius: f32,
+) -> ([f32; 2], f32, f32) {
+    let screen = position.map(|value| {
+        if value.abs() <= AnimationCurveEditor::SCREEN_EDGE_EPSILON {
+            0.
+        } else if (value - 1.).abs() <= AnimationCurveEditor::SCREEN_EDGE_EPSILON {
+            1.
+        } else {
+            value
+        }
+    });
+    (
+        screen,
+        AnimationCurveEditor::GRAPH_INSET_LEFT * (1. - screen[0])
+            - AnimationCurveEditor::GRAPH_INSET_RIGHT * screen[0]
+            - radius,
+        AnimationCurveEditor::GRAPH_INSET_BOTTOM * (1. - screen[1])
+            - AnimationCurveEditor::GRAPH_INSET_TOP * screen[1]
+            - radius,
+    )
+}
+
+pub(in crate::ui::animation_curve) fn screen_position_is_visible(screen: [f32; 2]) -> bool {
+    let visible =
+        -AnimationCurveEditor::SCREEN_EDGE_EPSILON..=1. + AnimationCurveEditor::SCREEN_EDGE_EPSILON;
+    visible.contains(&screen[0]) && visible.contains(&screen[1])
 }

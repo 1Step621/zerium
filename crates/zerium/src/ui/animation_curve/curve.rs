@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::animation_curve::normalized_value;
 
 impl GraphSegment {
     pub(super) fn has_handles(&self) -> bool {
@@ -90,6 +91,19 @@ impl GraphSegment {
 }
 
 impl SelectedCurve {
+    pub(super) fn frame_at_pattern_frame(&self, frame: Frame) -> Option<Frame> {
+        self.clock
+            .first_occurrence(
+                frame,
+                TimelineTime::from_frame(self.clip_start),
+                TimelineTime::from_frames(
+                    self.clip_start.get() as f64
+                        + self.clip_duration.get().saturating_sub(1) as f64,
+                ),
+            )
+            .map(TimelineTime::nearest_frame)
+    }
+
     pub(super) fn stop_positions(&self) -> impl Iterator<Item = f32> + '_ {
         self.source_stop_frames
             .iter()
@@ -105,7 +119,7 @@ impl SelectedCurve {
     fn set_value_range(&mut self, [minimum, maximum]: [f64; 2]) {
         for stop in &mut self.curve.endpoints {
             let value = self.value_min + (self.value_max - self.value_min) * f64::from(stop[1]);
-            stop[1] = AnimationCurveEditor::normalized_value(value, minimum, maximum);
+            stop[1] = normalized_value(value, minimum, maximum);
         }
         self.value_min = minimum;
         self.value_max = maximum;
@@ -124,30 +138,6 @@ impl HandleFitTarget {
 }
 
 impl AnimationCurveEditor {
-    fn source_segment_for_frame(
-        stop_frames: &[Frame],
-        frame: f64,
-        focused_segment: Option<usize>,
-    ) -> Option<usize> {
-        if !frame.is_finite() {
-            return None;
-        }
-        let last_segment = stop_frames.len().checked_sub(2)?;
-        if let Some(segment) = focused_segment.filter(|segment| *segment <= last_segment) {
-            let start = stop_frames.get(segment)?.get() as f64;
-            let end = stop_frames.get(segment + 1)?.get() as f64;
-            if frame >= start && frame <= end {
-                return Some(segment);
-            }
-        }
-        Some(
-            stop_frames
-                .partition_point(|stop| (stop.get() as f64) < frame)
-                .saturating_sub(1)
-                .min(last_segment),
-        )
-    }
-
     pub(crate) fn has_visible_curve(&self, cx: &App) -> bool {
         self.selection.read(cx).address().is_some_and(|address| {
             self.editor
@@ -192,7 +182,7 @@ impl AnimationCurveEditor {
             .map(|stop| stop.frame())
             .collect::<Vec<_>>();
         let source_segment =
-            Self::source_segment_for_frame(&source_stop_frames, source_frame, focused_segment)?;
+            source_segment_for_frame(&source_stop_frames, source_frame, focused_segment)?;
         self.selection.read(cx).focus_segment(source_segment);
         let source_frame_start = track.stops().get(source_segment)?.frame();
         let source_frame_end = track.stops().get(source_segment + 1)?.frame();
@@ -213,8 +203,8 @@ impl AnimationCurveEditor {
                 let from = minimum - padding;
                 let to = maximum + padding;
                 let endpoints = [
-                    [0., Self::normalized_value(start, from, to)],
-                    [1., Self::normalized_value(end, from, to)],
+                    [0., normalized_value(start, from, to)],
+                    [1., normalized_value(end, from, to)],
                 ];
                 (from, to, endpoints, presentation.suffix.clone())
             } else {
@@ -274,20 +264,6 @@ impl AnimationCurveEditor {
         cx.notify();
     }
 
-    pub(super) fn format_number(value: impl Into<f64>) -> String {
-        let mut value = format!("{:.4}", value.into());
-        while value.contains('.') && value.ends_with('0') {
-            value.pop();
-        }
-        if value.ends_with('.') {
-            value.pop();
-        }
-        if value == "-0" {
-            value = "0".to_owned();
-        }
-        value
-    }
-
     pub(super) fn begin_handle_drag(
         &mut self,
         handle: BezierHandle,
@@ -319,4 +295,42 @@ impl AnimationCurveEditor {
         self.editor
             .update(cx, |editor, _| editor.finish_history_group());
     }
+}
+
+fn source_segment_for_frame(
+    stop_frames: &[Frame],
+    frame: f64,
+    focused_segment: Option<usize>,
+) -> Option<usize> {
+    if !frame.is_finite() {
+        return None;
+    }
+    let last_segment = stop_frames.len().checked_sub(2)?;
+    if let Some(segment) = focused_segment.filter(|segment| *segment <= last_segment) {
+        let start = stop_frames.get(segment)?.get() as f64;
+        let end = stop_frames.get(segment + 1)?.get() as f64;
+        if frame >= start && frame <= end {
+            return Some(segment);
+        }
+    }
+    Some(
+        stop_frames
+            .partition_point(|stop| (stop.get() as f64) < frame)
+            .saturating_sub(1)
+            .min(last_segment),
+    )
+}
+
+pub(in crate::ui::animation_curve) fn format_number(value: impl Into<f64>) -> String {
+    let mut value = format!("{:.4}", value.into());
+    while value.contains('.') && value.ends_with('0') {
+        value.pop();
+    }
+    if value.ends_with('.') {
+        value.pop();
+    }
+    if value == "-0" {
+        value = "0".to_owned();
+    }
+    value
 }

@@ -47,6 +47,8 @@ pub(crate) enum ExportError {
     Media(#[from] crate::engine::media::MediaError),
     #[error(transparent)]
     Render(#[from] crate::engine::rendering::RenderError),
+    #[error(transparent)]
+    Audio(#[from] crate::engine::media::AudioTimelineError),
     #[error("{0}")]
     Encoding(String),
 }
@@ -126,8 +128,7 @@ pub(crate) fn export_timeline(
         EXPORT_AUDIO_FORMAT,
         &media_readers,
         AudioCalculationPolicy::Report,
-    )
-    .map_err(ExportError::encoding)?;
+    )?;
     let video_frame_rate = VideoFrameRate::new(frame_rate.numerator(), frame_rate.denominator())
         .ok_or_else(|| ExportError::encoding("Invalid output frame rate"))?;
     if cancelled.load(Ordering::Relaxed) {
@@ -332,11 +333,10 @@ fn write_output(
                 frame_rate,
                 EXPORT_AUDIO_FORMAT.sample_rate,
             );
-            let frame_count = usize::try_from(end.saturating_sub(start))
-                .map_err(|_| ExportError::encoding("Export audio range is too large"))?;
-            let audio = audio_graph
-                .render(start, frame_count)
-                .map_err(ExportError::encoding)?;
+            let frame_count = usize::try_from(end.saturating_sub(start)).map_err(|_| {
+                ExportError::Audio(crate::engine::media::AudioTimelineError::RangeTooLarge)
+            })?;
+            let audio = audio_graph.render(start, frame_count)?;
             encoder.write_audio(&audio).map_err(ExportError::from)?;
         }
     }

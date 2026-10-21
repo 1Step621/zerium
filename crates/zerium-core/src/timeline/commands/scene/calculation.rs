@@ -1,4 +1,4 @@
-use crate::timeline::history::HistoryKey;
+use crate::timeline::history::{EditImpact, HistoryKey};
 use crate::{
     script::Script,
     timeline::{SceneCalculation, SceneCalculationInput, SceneVariablePreset, TimelineEditor},
@@ -36,11 +36,12 @@ impl TimelineEditor {
             return false;
         };
         self.edit_project_if_changed(
+            EditImpact::Values,
             Some(HistoryKey::SceneCalculationCode(scene_id, id.to_owned())),
             |editor| {
                 let Some(calculation) = editor
                     .project_mut()
-                    .scenes
+                    .scenes_mut()
                     .get_mut(&scene_id)
                     .and_then(|scene| scene.variable_mut(id))
                     .and_then(|variable| variable.calculation_mut())
@@ -73,9 +74,13 @@ impl TimelineEditor {
         calculation.inputs = inputs;
         candidate.validate_calculations()?;
         Ok(self.edit_project_if_changed(
+            EditImpact::Values,
             Some(HistoryKey::SceneCalculationInputs(scene_id, id.to_owned())),
             |editor| {
-                editor.project_mut().scenes.insert(scene_id, candidate);
+                editor
+                    .project_mut()
+                    .scenes_mut()
+                    .insert(scene_id, candidate);
                 true
             },
         ))

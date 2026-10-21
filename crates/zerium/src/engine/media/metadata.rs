@@ -33,6 +33,7 @@ pub(in crate::engine) fn read_file_revision(path: &Path) -> std::io::Result<File
 }
 
 type Reading = (String, MediaTarget);
+
 type Readings = HashMap<PathBuf, FileReadings>;
 
 #[derive(Default)]
@@ -69,7 +70,10 @@ impl MediaMetadataUpdater {
         snapshot: &TimelineSnapshot,
         readers: &MediaReaderRegistry,
     ) -> (Vec<ProbedFile>, Vec<MediaError>) {
-        let revision = (snapshot.project_id(), snapshot.project_revision());
+        let revision = (
+            snapshot.project_id(),
+            snapshot.media_dependencies_revision(),
+        );
         if self.revision != Some(revision) {
             let mut readings = dependency_readings(snapshot.project_media_dependencies());
             for (path, file) in &mut readings {

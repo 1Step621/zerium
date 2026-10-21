@@ -320,40 +320,40 @@ impl PropertyInspector {
         });
         cx.notify();
     }
+}
 
-    pub(super) fn edit_array(
-        editor: &mut TimelineEditor,
-        address: &PropertyAddress,
-        edit: ArrayEdit,
-    ) -> bool {
-        let Some(PropertyValue::Array(mut elements)) = editor.property_value(address) else {
-            return false;
-        };
-        let Some(index) = elements
-            .iter()
-            .position(|element| element.element_id() == edit.element_id())
-        else {
-            return false;
-        };
-        match edit {
-            ArrayEdit::MoveUp(_) if index > 0 => elements.swap(index, index - 1),
-            ArrayEdit::MoveDown(_) if index + 1 < elements.len() => elements.swap(index, index + 1),
-            ArrayEdit::Remove(_) => {
-                elements.remove(index);
-            }
-            _ => return false,
+pub(in crate::ui::property_inspector) fn edit_array(
+    editor: &mut TimelineEditor,
+    address: &PropertyAddress,
+    edit: ArrayEdit,
+) -> bool {
+    let Some(PropertyValue::Array(mut elements)) = editor.property_value(address) else {
+        return false;
+    };
+    let Some(index) = elements
+        .iter()
+        .position(|element| element.element_id() == edit.element_id())
+    else {
+        return false;
+    };
+    match edit {
+        ArrayEdit::MoveUp(_) if index > 0 => elements.swap(index, index - 1),
+        ArrayEdit::MoveDown(_) if index + 1 < elements.len() => elements.swap(index, index + 1),
+        ArrayEdit::Remove(_) => {
+            elements.remove(index);
         }
-        editor.update_property(address, PropertyValue::Array(elements))
+        _ => return false,
     }
+    editor.update_property(address, PropertyValue::Array(elements))
+}
 
-    pub(super) fn push_element(
-        editor: &mut TimelineEditor,
-        address: &PropertyAddress,
-        value: PropertyValue,
-    ) -> bool {
-        let Some(mut updated) = editor.property_value(address) else {
-            return false;
-        };
-        updated.push_element(value) && editor.update_property(address, updated)
-    }
+pub(in crate::ui::property_inspector) fn push_element(
+    editor: &mut TimelineEditor,
+    address: &PropertyAddress,
+    value: PropertyValue,
+) -> bool {
+    let Some(mut updated) = editor.property_value(address) else {
+        return false;
+    };
+    updated.push_element(value) && editor.update_property(address, updated)
 }

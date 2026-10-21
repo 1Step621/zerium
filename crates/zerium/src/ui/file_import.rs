@@ -32,9 +32,3 @@ pub(crate) struct FileImport {
     pub(crate) path: PathBuf,
     pub(crate) target: FileImportTarget,
 }
-
-impl FileImport {
-    pub(crate) fn new(path: PathBuf, target: FileImportTarget) -> Self {
-        Self { path, target }
-    }
-}

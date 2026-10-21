@@ -45,7 +45,7 @@ impl Explorer {
         cx: &mut Context<Self>,
     ) -> Self {
         let session_id = session.read(cx).id();
-        let initial_directory = Self::default_directory(session.read(cx));
+        let initial_directory = directory::default_directory(session.read(cx));
         let mut project_path = session.read(cx).path().map(Path::to_path_buf);
         let session_subscription = cx.observe(&session, move |this, _, cx| {
             let session = this.session.read(cx);
@@ -54,7 +54,7 @@ impl Explorer {
             if session_id == this.session_id && path == project_path {
                 return;
             }
-            let directory = Self::default_directory(session);
+            let directory = directory::default_directory(session);
             this.session_id = session_id;
             project_path = path;
             this.load_directory(directory, cx);

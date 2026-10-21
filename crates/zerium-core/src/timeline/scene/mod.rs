@@ -6,6 +6,7 @@ pub(in crate::timeline) use calculation::VariableEvaluator;
 pub use calculation::{SceneCalculation, SceneCalculationInput, SceneEvaluation};
 mod expansion;
 
+pub(in crate::timeline) use binding::ResolvedSceneBinding;
 pub(crate) use binding::apply_scene_binding_to_item;
 pub use binding::{SceneBindingOwner, SceneBindingTarget, resolve_scene_binding};
 pub(in crate::timeline) use variable::unique_scene_variable_name;
@@ -24,7 +25,7 @@ pub struct SceneDefinition {
     pub name: String,
     variables: Vec<SceneVariable>,
     runtime: Arc<calculation::SceneRuntime>,
-    document: TimelineDocument,
+    document: Arc<TimelineDocument>,
     stretch_point: Frame,
     next_variable_ordinal: Option<u64>,
 }
@@ -153,8 +154,12 @@ impl SceneDefinition {
         &self.document
     }
 
+    pub(super) fn replace_document(&mut self, document: TimelineDocument) {
+        self.document = Arc::new(document);
+    }
+
     pub(super) fn document_mut(&mut self) -> &mut TimelineDocument {
-        &mut self.document
+        Arc::make_mut(&mut self.document)
     }
 
     pub(super) fn allocate_variable_id(&mut self) -> Option<(String, u64)> {
@@ -183,7 +188,7 @@ impl SceneDefinition {
             name,
             variables,
             runtime: Arc::default(),
-            document,
+            document: Arc::new(document),
             stretch_point,
             next_variable_ordinal,
         }

@@ -12,7 +12,7 @@ use crate::engine::media::{MediaFrameRequest, MediaInputId, RasterSize};
 use std::{collections::HashMap, sync::Arc};
 use zerium_core::plugin::{EffectPassSchema, TextureInput};
 use zerium_core::timeline::{
-    BlendMode, EffectInstance, EffectInstanceId, TimelineItem, TimelineItemKind,
+    BlendMode, EffectInstanceId, EvaluatedEffect, EvaluatedItem, TimelineItemKind,
 };
 use zerium_core::timeline::{
     EvaluatedSceneNode, ItemId, ProjectResolution, SceneRenderStage, TimelineTime, TimelineView,
@@ -64,10 +64,10 @@ struct InputSource<'a> {
 }
 
 impl<'a> InputSource<'a> {
-    fn item(item: &'a TimelineItem) -> Self {
+    fn item(item: &'a EvaluatedItem) -> Self {
         let schema = item.schema().expect("renderable item has a schema");
         Self {
-            item_id: item.id,
+            item_id: item.runtime_id,
             effect_id: None,
             inputs: schema.inputs(),
             properties: &item.properties,
@@ -75,7 +75,7 @@ impl<'a> InputSource<'a> {
         }
     }
 
-    fn effect(item_id: ItemId, effect: &'a EffectInstance) -> Self {
+    fn effect(item_id: ItemId, effect: &'a EvaluatedEffect) -> Self {
         let schema = effect.schema();
         Self {
             item_id,
@@ -246,10 +246,11 @@ where
         if self.strict_calculations
             && let Some(error) = node.calculation_errors.first()
         {
-            return Err(RenderError::backend(format!(
-                "At frame {} (path {path:?}): {error}",
-                context.time.frames()
-            ))
+            return Err(RenderError::Calculation {
+                time: context.time,
+                path: path.to_vec(),
+                diagnostic: Box::new(error.clone()),
+            }
             .into());
         }
         let owner = &node.item;
@@ -433,7 +434,7 @@ where
                 });
             }
             let inputs = self.render_inputs(
-                InputSource::effect(node.item.id, instance),
+                InputSource::effect(node.item.runtime_id, instance),
                 node,
                 composition,
                 context,

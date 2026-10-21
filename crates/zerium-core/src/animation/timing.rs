@@ -27,6 +27,7 @@ impl<'de> Deserialize<'de> for AnimationRepeat {
             period: FrameDuration,
             phase_frames: Frame,
         }
+
         let settings = Settings::deserialize(deserializer)?;
         let repeat = Self::new(settings.mode, settings.period, settings.phase_frames);
         if repeat.period != settings.period || repeat.phase_frames != settings.phase_frames {

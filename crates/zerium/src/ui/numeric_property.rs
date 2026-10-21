@@ -40,6 +40,20 @@ pub(super) struct NumericInputSpec {
 }
 
 impl NumericInputSpec {
+    pub(super) fn drag_sensitivity(&self) -> f64 {
+        if let Some(step) = self.drag_step {
+            return step;
+        }
+        let range = self.max - self.min;
+        if range == 0. {
+            return 0.;
+        }
+        if !range.is_finite() || range < 0. {
+            return self.step;
+        }
+        (range / 200.).clamp(self.step * 0.1, self.step * 2.)
+    }
+
     pub(super) fn parse_number(&self, text: &str) -> Option<f64> {
         self.number.parse_number(text)
     }

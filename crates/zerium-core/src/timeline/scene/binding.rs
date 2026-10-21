@@ -26,11 +26,40 @@ impl SceneBindingOwner {
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq, Hash, Serialize)]
-#[serde(deny_unknown_fields)]
+#[serde(from = "BindingTargetFile", into = "BindingTargetFile")]
 pub struct SceneBindingTarget {
+    address: crate::timeline::PropertyAddress,
+}
+
+// Keep the project and clipboard wire format independent of runtime addressing.
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct BindingTargetFile {
     item_id: ItemId,
     owner: SceneBindingOwner,
     path: PropertyPath,
+}
+
+impl From<BindingTargetFile> for SceneBindingTarget {
+    fn from(file: BindingTargetFile) -> Self {
+        Self::new(
+            file.item_id,
+            file.owner,
+            file.path.property_id(),
+            file.path.element_id(),
+            file.path.scalar_index(),
+        )
+    }
+}
+
+impl From<SceneBindingTarget> for BindingTargetFile {
+    fn from(target: SceneBindingTarget) -> Self {
+        Self {
+            item_id: target.item_id(),
+            owner: target.owner(),
+            path: target.address.path(),
+        }
+    }
 }
 
 impl SceneBindingTarget {
@@ -42,30 +71,38 @@ impl SceneBindingTarget {
         scalar_index: Option<usize>,
     ) -> Self {
         Self {
-            item_id,
-            owner,
-            path: PropertyPath::new(property_id, element_id, scalar_index),
+            address: crate::timeline::PropertyAddress {
+                item_id,
+                effect_id: owner.effect_id(),
+                property_id: property_id.into(),
+                element_id,
+                scalar_index,
+            },
         }
     }
 
-    pub const fn item_id(&self) -> ItemId {
-        self.item_id
+    pub fn address(&self) -> &crate::timeline::PropertyAddress {
+        &self.address
     }
 
-    pub const fn owner(&self) -> SceneBindingOwner {
-        self.owner
+    pub const fn item_id(&self) -> ItemId {
+        self.address.item_id
+    }
+
+    pub fn owner(&self) -> SceneBindingOwner {
+        SceneBindingOwner::from_effect(self.address.effect_id)
     }
 
     pub fn property_id(&self) -> &str {
-        self.path.property_id()
+        &self.address.property_id
     }
 
     pub const fn element_id(&self) -> Option<PropertyElementId> {
-        self.path.element_id()
+        self.address.element_id
     }
 
     pub const fn scalar_index(&self) -> Option<usize> {
-        self.path.scalar_index()
+        self.address.scalar_index
     }
 
     pub fn matches(
@@ -74,8 +111,8 @@ impl SceneBindingTarget {
         effect_id: Option<EffectInstanceId>,
         property_id: &str,
     ) -> bool {
-        self.item_id == item_id
-            && self.owner.effect_id() == effect_id
+        self.item_id() == item_id
+            && self.owner().effect_id() == effect_id
             && self.property_id() == property_id
     }
 
@@ -99,6 +136,7 @@ impl SceneBindingTarget {
 ///
 /// Keeping this resolution here gives editing, persistence validation, and
 /// evaluation one definition of what a valid scene binding points at.
+#[derive(Clone)]
 pub struct ResolvedSceneBinding {
     pub schema: PropertySchema,
     pub animated: bool,
@@ -112,27 +150,17 @@ pub fn resolve_scene_binding(
     let item = scene.document().item(target.item_id())?;
     let property_id = target.property_id();
     let schema = resolve_property_schema(scenes, item, target.owner().effect_id(), property_id)?;
-    let (value, animations) = match target.owner() {
-        SceneBindingOwner::Effect(effect_id) => {
-            let effect = item.effect(effect_id)?;
-            (
-                effect.properties.property(property_id)?.clone(),
-                &effect.animations,
-            )
-        }
-        SceneBindingOwner::Item => {
-            let value = item.properties.property(property_id).cloned().or_else(|| {
-                let nested = scenes.get(&item.scene_id()?)?;
-                nested.argument(property_id).and_then(|argument| {
-                    argument
-                        .argument_schema()
-                        .map(|schema| schema.default_value())
-                })
-            })?;
-            (value, &item.animations)
-        }
-    };
-    let animated = animations.track(&target.path).is_some();
+    let owner = item.property_owner(target.owner().effect_id())?;
+    let value = owner.values.property(property_id).cloned().or_else(|| {
+        target.owner().effect_id().is_none().then_some(())?;
+        scenes
+            .get(&item.scene_id()?)?
+            .argument(property_id)?
+            .argument_schema()
+            .map(|schema| schema.default_value())
+    })?;
+    let animations = owner.animations;
+    let animated = animations.track(&target.address.path()).is_some();
     let schema = schema.scalar_projection(&value, target.element_id(), target.scalar_index())?;
     Some(ResolvedSceneBinding { schema, animated })
 }
@@ -167,5 +195,40 @@ pub(crate) fn apply_scene_binding_to_item(
             let value = current.replaced_at(target.element_id(), target.scalar_index(), value)?;
             item.properties.set(target_schema, value).ok()
         }
+    }
+}
+
+/// Ordered reverse connections, derived once for an immutable variable collection.
+pub(super) type BindingIndex =
+    HashMap<(ItemId, Option<EffectInstanceId>), HashMap<String, Vec<(usize, usize)>>>;
+
+impl SceneDefinition {
+    pub(in crate::timeline) fn bindings_for<'a>(
+        &'a self,
+        address: &crate::timeline::PropertyAddress,
+    ) -> impl Iterator<Item = (&'a super::SceneVariable, &'a SceneBindingTarget)> {
+        let index = self.runtime.bindings.get_or_init(|| {
+            let mut index = BindingIndex::new();
+            for (variable_index, variable) in self.variables.iter().enumerate() {
+                for (binding_index, binding) in variable.bindings.iter().enumerate() {
+                    index
+                        .entry((binding.item_id(), binding.address().effect_id))
+                        .or_default()
+                        .entry(binding.property_id().to_owned())
+                        .or_default()
+                        .push((variable_index, binding_index));
+                }
+            }
+            index
+        });
+        index
+            .get(&(address.item_id, address.effect_id))
+            .and_then(|properties| properties.get(address.property_id.as_str()))
+            .into_iter()
+            .flatten()
+            .map(|&(variable, binding)| {
+                let variable = &self.variables[variable];
+                (variable, &variable.bindings[binding])
+            })
     }
 }

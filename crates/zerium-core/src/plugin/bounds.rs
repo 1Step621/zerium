@@ -166,6 +166,7 @@ pub(crate) fn register_functions(engine: &mut Engine) {
 fn invalid(message: &str) -> String {
     format!("projected rectangle: {message}")
 }
+
 fn numbers<const N: usize>(value: &Dynamic) -> Result<[f64; N], String> {
     let values = value
         .clone()

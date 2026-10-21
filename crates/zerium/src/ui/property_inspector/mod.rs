@@ -7,14 +7,16 @@ mod rows;
 mod state;
 mod target;
 
+use edit::{edit_array, push_element};
+
 use crate::ui::numeric_property::{NumericInputSpec, numeric_input_spec};
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 
 use ::ui::{
     ActiveTheme as _, Disableable as _, IconName, Sizable as _,
     button::{Button, ButtonVariants as _},
-    color_picker::{ColorPickerEvent, ColorPickerState},
+    color_picker::ColorPickerEvent,
     input::{InputEvent, InputState, NumberInputEvent},
     menu::{PopupMenuItem, context_menu::ContextMenuExt as _, popup_menu::PopupMenuExt as _},
     popover::Popover,
@@ -38,9 +40,9 @@ use zerium_core::property::{
     ValueSchema,
 };
 use zerium_core::timeline::{
-    AnimationValuePlan, EffectInstanceId, ItemId, PropertyAddress, SceneBindingOwner,
-    SceneBindingTarget, SceneVariable, TimelineEditor, TimelineItem, TimelineTime, ValueEdit,
-    ValueEditTarget,
+    AnimationValuePlan, EffectInstanceId, EvaluatedItem, ItemId, PropertyAddress,
+    SceneBindingOwner, SceneBindingTarget, SceneVariable, TimelineEditor, TimelineItem,
+    TimelineTime, ValueEdit, ValueEditTarget,
 };
 
 pub(super) type EffectPickerTarget = (String, String);
@@ -80,10 +82,6 @@ pub(crate) struct PropertyInspector {
 }
 
 impl PropertyInspector {
-    pub(super) const DRAG_RANGE_PIXELS: f64 = 200.;
-    pub(super) const MIN_STEP_MULTIPLIER: f64 = 0.1;
-    pub(super) const MAX_STEP_MULTIPLIER: f64 = 2.;
-
     pub(crate) fn new(
         editor: Entity<TimelineEditor>,
         animation_selection: Entity<AnimationSelection>,
@@ -95,13 +93,13 @@ impl PropertyInspector {
     ) -> Self {
         let session_id = session.read(cx).id();
         let mut document = (
-            editor.read(cx).snapshot().project_id(),
+            editor.read(cx).project_id(),
             editor.read(cx).active_scene_id(),
         );
         let editor_subscription =
             cx.observe_in(&editor, window, move |this, editor, window, cx| {
                 let next = (
-                    editor.read(cx).snapshot().project_id(),
+                    editor.read(cx).project_id(),
                     editor.read(cx).active_scene_id(),
                 );
                 if document != next {

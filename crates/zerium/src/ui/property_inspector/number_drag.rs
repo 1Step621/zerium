@@ -46,6 +46,7 @@ impl PropertyInspector {
         };
         let start_value = self
             .store
+            .inputs
             .text_inputs
             .get(input_id)
             .and_then(|state| spec.parse_number(&state.input.read(cx).value()))
@@ -57,9 +58,7 @@ impl PropertyInspector {
                 start_x: f32::from(event.position.x),
                 start_value,
                 step: spec.step,
-                sensitivity: spec
-                    .drag_step
-                    .unwrap_or_else(|| Self::drag_sensitivity(spec.min, spec.max, spec.step)),
+                sensitivity: spec.drag_sensitivity(),
             },
             min: spec.min,
             max: spec.max,
@@ -81,7 +80,7 @@ impl PropertyInspector {
             .store
             .number_drag
             .as_ref()
-            .and_then(|drag| self.store.text_inputs.get(&drag.input_id))
+            .and_then(|drag| self.store.inputs.text_inputs.get(&drag.input_id))
             .map(|state| state.input.clone())
             .filter(|input| input.entity_id() == drag.input_id)
         else {
@@ -109,7 +108,7 @@ impl PropertyInspector {
             drag.edit.value(editor, 0)
         });
         if let Some(value) = displayed {
-            set_input_text(&input, Self::numeric_value_text(&value), window, cx);
+            set_input_text(&input, value.numeric_text().unwrap_or_default(), window, cx);
         }
     }
 

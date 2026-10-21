@@ -5,7 +5,6 @@
 
 use thiserror::Error;
 
-use super::history::HistoryKey;
 use super::{ItemId, SceneId, TimelineEditor};
 
 /// Identifies the document state for which an edit was resolved.
@@ -16,22 +15,7 @@ struct EditContext {
     scene_id: Option<SceneId>,
 }
 
-/// Groups commands from one gesture and rejects updates after unrelated edits.
-pub struct EditGesture {
-    context: EditContext,
-    group_revision: u64,
-}
-
-impl EditGesture {
-    pub fn is_current(&self, editor: &TimelineEditor) -> bool {
-        self.context == editor.edit_context()
-            && (self.context.revision == self.group_revision
-                || editor.history.is_current_group(&(
-                    self.context.scene_id,
-                    HistoryKey::Gesture(self.group_revision),
-                )))
-    }
-}
+pub use edit_session::EditSession;
 
 impl TimelineEditor {
     fn edit_context(&self) -> EditContext {
@@ -42,32 +26,20 @@ impl TimelineEditor {
         }
     }
 
-    pub fn begin_edit_gesture(&self) -> EditGesture {
-        EditGesture {
-            context: self.edit_context(),
-            group_revision: self.project_revision(),
-        }
+    pub fn begin_edit_gesture(&self) -> EditSession {
+        EditSession::new(self, edit_session::UndoPolicy::Gesture)
     }
 
     pub fn edit_gesture(
         &mut self,
-        gesture: &mut EditGesture,
+        gesture: &mut EditSession,
         update: impl FnOnce(&mut Self),
     ) -> bool {
-        let key = HistoryKey::Gesture(gesture.group_revision);
-        if !gesture.is_current(self) {
-            return false;
-        }
-        assert!(
-            self.history_group.is_none(),
-            "edit gestures cannot be nested"
-        );
-        self.history_group = Some(key);
-        update(self);
-        self.history_group = None;
-        let changed = gesture.context != self.edit_context();
-        gesture.context = self.edit_context();
-        changed
+        self.update_edit_session(gesture, |editor| {
+            let before = editor.edit_context();
+            update(editor);
+            before != editor.edit_context()
+        })
     }
 }
 
@@ -129,6 +101,7 @@ pub enum TimelineEditError {
 
 mod animation;
 mod animation_edit;
+mod edit_session;
 mod effect;
 mod item;
 mod property;

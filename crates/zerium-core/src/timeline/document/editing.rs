@@ -1,13 +1,11 @@
-//! Property transactions, media initialization, and effect edits.
+//! Media initialization and collision-aware document placement.
 
 use std::sync::Arc;
 
-use crate::animation::ScalarAnimations;
 use crate::media::ImportedFile;
-use crate::plugin::EffectSchema;
-use crate::property::{PropertyValue, PropertyValues};
-use crate::timeline::item::{EffectInstance, set_size_values, size_values};
-use crate::timeline::{AspectRatio, EffectInstanceId, ItemId, TimeMapping};
+use crate::property::PropertyValue;
+use crate::timeline::item::{set_size_values, size_values};
+use crate::timeline::{ItemId, TimeMapping};
 
 use super::{ResizeMode, TimelineDocument};
 
@@ -89,102 +87,6 @@ impl TimelineDocument {
         self.items.insert(id, Arc::new(item));
         #[cfg(debug_assertions)]
         self.assert_consistent();
-        true
-    }
-
-    pub(in crate::timeline) fn set_item_aspect_ratio(
-        &mut self,
-        id: ItemId,
-        effect_id: Option<EffectInstanceId>,
-        ratio: Option<AspectRatio>,
-    ) -> bool {
-        let item = self.item_mut(id).expect("prepared item must exist");
-        let current = match effect_id {
-            Some(id) => {
-                &mut item
-                    .effect_mut(id)
-                    .expect("prepared effect must exist")
-                    .aspect_ratio
-            }
-            None => &mut item.aspect_ratio,
-        };
-        if *current == ratio {
-            return false;
-        }
-        *current = ratio;
-        true
-    }
-
-    pub(in crate::timeline) fn add_item_effect(
-        &mut self,
-        id: ItemId,
-        instance_id: EffectInstanceId,
-        plugin_id: &str,
-        effect_id: &str,
-        schema: Arc<EffectSchema>,
-    ) -> bool {
-        let properties = PropertyValues::from_properties(schema.properties());
-        let aspect_ratio = schema
-            .aspect_lock_default()
-            .then(|| {
-                schema.aspect_lock_property().and_then(|property| {
-                    AspectRatio::from_value(properties.property(property.id())?)
-                })
-            })
-            .flatten();
-        let Some(item) = self.items.get_mut(&id).map(Arc::make_mut) else {
-            return false;
-        };
-        if item.scene_id().is_none() {
-            let Some(item_schema) = item.schema() else {
-                return false;
-            };
-            if item_schema.render().is_none() {
-                return false;
-            }
-        }
-        item.effects.push(EffectInstance {
-            id: instance_id,
-            plugin_id: plugin_id.to_owned(),
-            effect_id: effect_id.to_owned(),
-            properties,
-            animations: ScalarAnimations::default(),
-            aspect_ratio,
-            schema,
-        });
-        true
-    }
-
-    pub fn remove_item_effect(&mut self, item_id: ItemId, effect_id: EffectInstanceId) -> bool {
-        let Some(item) = self.items.get_mut(&item_id).map(Arc::make_mut) else {
-            return false;
-        };
-        let previous_len = item.effects.len();
-        item.effects.retain(|effect| effect.id != effect_id);
-        item.effects.len() != previous_len
-    }
-
-    pub fn move_item_effect(
-        &mut self,
-        item_id: ItemId,
-        effect_id: EffectInstanceId,
-        target_index: usize,
-    ) -> bool {
-        let Some(item) = self.items.get_mut(&item_id).map(Arc::make_mut) else {
-            return false;
-        };
-        let Some(source_index) = item
-            .effects
-            .iter()
-            .position(|effect| effect.id == effect_id)
-        else {
-            return false;
-        };
-        if target_index >= item.effects.len() || source_index == target_index {
-            return false;
-        }
-        let effect = item.effects.remove(source_index);
-        item.effects.insert(target_index, effect);
         true
     }
 }

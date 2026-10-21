@@ -1,3 +1,6 @@
+mod preparation;
+
+use preparation::{AudioPreparation, PlaybackPosition, PreparedAudio};
 use std::{
     collections::VecDeque,
     sync::{
@@ -10,13 +13,10 @@ use std::{
 
 use thiserror::Error;
 
-use cpal::traits::{DeviceTrait as _, HostTrait as _, StreamTrait as _};
+use cpal::traits::{DeviceTrait as _, StreamTrait as _};
 
-use crate::engine::media::{
-    AudioCalculationPolicy, AudioFormat, AudioTimelineError, AudioTimelineGraph,
-    MediaReaderRegistry,
-};
-use zerium_core::timeline::{AudioTimelineSnapshot, Frame, FrameRate};
+use crate::engine::media::{AudioTimelineError, MediaReaderRegistry};
+use zerium_core::timeline::{AudioTimelineSnapshot, Frame};
 
 const AUDIO_BUFFER_MILLIS: u64 = 200;
 const MIX_BLOCK_SAMPLE_FRAMES: usize = 2_048;
@@ -26,22 +26,7 @@ const PREBUFFER_MILLIS: u64 = 200;
 pub(crate) enum PlaybackClock {
     Audio,
     Wall,
-}
-
-/// Initial playback starts at an exact video-frame boundary. Deferred starts
-/// join the running wall clock at a continuous position instead.
-enum PlaybackPosition {
-    Frame(Frame),
-    Seconds(f64),
-}
-
-impl PlaybackPosition {
-    fn sample_frame(self, frame_rate: FrameRate, sample_rate: u32) -> u64 {
-        match self {
-            Self::Frame(frame) => frame_rate.sample_boundary(frame, sample_rate),
-            Self::Seconds(seconds) => (seconds * f64::from(sample_rate)).floor() as u64,
-        }
-    }
+    Preparing,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -155,10 +140,25 @@ impl AudioWorker {
     }
 }
 
+enum AudioPlaybackState {
+    Idle,
+    Preparing(AudioPreparation),
+    Playing(AudioPlaybackSession),
+}
+
+impl AudioPlaybackState {
+    fn clock(&self) -> PlaybackClock {
+        match self {
+            Self::Idle => PlaybackClock::Wall,
+            Self::Preparing(_) => PlaybackClock::Preparing,
+            Self::Playing(_) => PlaybackClock::Audio,
+        }
+    }
+}
+
 pub(crate) struct AudioPlaybackEngine {
     timeline: Option<AudioTimelineSnapshot>,
-    pending: bool,
-    session: Option<AudioPlaybackSession>,
+    state: AudioPlaybackState,
     retiring: Vec<AudioWorker>,
     media_readers: Arc<MediaReaderRegistry>,
     completed_events: VecDeque<AudioPlaybackEvent>,
@@ -168,8 +168,7 @@ impl AudioPlaybackEngine {
     pub(crate) fn new(media_readers: Arc<MediaReaderRegistry>) -> Self {
         Self {
             timeline: None,
-            pending: false,
-            session: None,
+            state: AudioPlaybackState::Idle,
             retiring: Vec::new(),
             media_readers,
             completed_events: VecDeque::new(),
@@ -183,19 +182,7 @@ impl AudioPlaybackEngine {
     ) -> Result<PlaybackClock, AudioPlaybackError> {
         self.request_stop();
         self.timeline = Some(timeline.clone());
-        self.start_or_defer(timeline, PlaybackPosition::Frame(start_frame))
-    }
-
-    fn start_or_defer(
-        &mut self,
-        timeline: AudioTimelineSnapshot,
-        position: PlaybackPosition,
-    ) -> Result<PlaybackClock, AudioPlaybackError> {
-        if !self.retiring.is_empty() {
-            self.pending = true;
-            return Ok(PlaybackClock::Wall);
-        }
-        self.start(timeline, position)
+        self.start(timeline, PlaybackPosition::Frame(start_frame))
     }
 
     fn start(
@@ -203,67 +190,30 @@ impl AudioPlaybackEngine {
         timeline: AudioTimelineSnapshot,
         position: PlaybackPosition,
     ) -> Result<PlaybackClock, AudioPlaybackError> {
-        if timeline.sources().is_empty() {
-            return Ok(PlaybackClock::Wall);
-        }
-        let host = cpal::default_host();
-        let device = host
-            .default_output_device()
-            .ok_or(AudioPlaybackError::DeviceUnavailable)?;
-        let supported = device.default_output_config().map_err(|error| {
-            AudioPlaybackError::Configuration(format!(
-                "Failed to get audio output configuration: {error}"
-            ))
-        })?;
-        let format = AudioFormat {
-            sample_rate: supported.sample_rate(),
-            channels: supported.channels(),
-        };
-        let mut graph = AudioTimelineGraph::new(
-            timeline.clone(),
+        self.state = AudioPlaybackState::Preparing(AudioPreparation::spawn(
+            timeline,
+            position,
+            self.media_readers.clone(),
+        )?);
+        Ok(PlaybackClock::Preparing)
+    }
+
+    fn start_prepared(
+        &mut self,
+        prepared: PreparedAudio,
+    ) -> Result<PlaybackClock, AudioPlaybackError> {
+        let PreparedAudio {
+            device,
+            supported,
             format,
-            &self.media_readers,
-            AudioCalculationPolicy::Fallback,
-        )
-        .map_err(AudioPlaybackError::Timeline)?;
-        if graph.is_empty() {
-            return Ok(PlaybackClock::Wall);
-        }
-        let updates = Arc::new(Mutex::new(None));
-
-        let channels = usize::from(format.channels);
-        let capacity = u64::from(format.sample_rate)
-            .saturating_mul(channels as u64)
-            .saturating_mul(AUDIO_BUFFER_MILLIS)
-            .checked_div(1000)
-            .and_then(|samples| usize::try_from(samples).ok())
-            .unwrap_or(channels)
-            .max(channels);
-        let (mut producer, consumer) = rtrb::RingBuffer::<f32>::new(capacity);
-        let start_sample_frame = position.sample_frame(timeline.frame_rate(), format.sample_rate);
-        let mut render_cursor = start_sample_frame;
-        let mut prebuffered_frames = 0u64;
-        let prebuffer_target =
-            u64::from(format.sample_rate).saturating_mul(PREBUFFER_MILLIS) / 1000;
-        let capacity_frames = (capacity / channels.max(1)) as u64;
-        while prebuffered_frames < prebuffer_target
-            && prebuffered_frames.saturating_add(MIX_BLOCK_SAMPLE_FRAMES as u64) <= capacity_frames
-        {
-            let block = graph
-                .render(render_cursor, MIX_BLOCK_SAMPLE_FRAMES)
-                .map_err(AudioPlaybackError::Timeline)?;
-            if block.is_empty() {
-                break;
-            }
-            for sample in block {
-                producer.push(sample).map_err(|_| {
-                    AudioPlaybackError::Worker("Initial audio buffer is too small".to_owned())
-                })?;
-            }
-            prebuffered_frames = prebuffered_frames.saturating_add(MIX_BLOCK_SAMPLE_FRAMES as u64);
-            render_cursor = render_cursor.saturating_add(MIX_BLOCK_SAMPLE_FRAMES as u64);
-        }
-
+            mut graph,
+            mut producer,
+            consumer,
+            start_sample_frame,
+            render_cursor,
+        } = prepared;
+        // Edits received during preparation are applied by the mixer worker.
+        let updates = Arc::new(Mutex::new(self.timeline.clone()));
         let output = AudioOutputState {
             played_sample_frames: Arc::new(AtomicU64::new(0)),
             events: Arc::new(Mutex::new(VecDeque::with_capacity(16))),
@@ -348,7 +298,7 @@ impl AudioPlaybackEngine {
                 "Failed to start audio playback: {error}"
             )));
         }
-        self.session = Some(AudioPlaybackSession {
+        self.state = AudioPlaybackState::Playing(AudioPlaybackSession {
             stream,
             worker,
             output,
@@ -377,22 +327,33 @@ impl AudioPlaybackEngine {
         if changed {
             self.timeline = Some(timeline.clone());
         }
-        if self.pending {
-            if !self.retiring.is_empty() {
-                return Ok(PlaybackClock::Wall);
+        if let AudioPlaybackState::Preparing(preparation) = &self.state {
+            if !preparation.handle.is_finished() {
+                return Ok(PlaybackClock::Preparing);
             }
-            self.pending = false;
-            return self.start(timeline, PlaybackPosition::Seconds(seconds));
+            let AudioPlaybackState::Preparing(preparation) =
+                std::mem::replace(&mut self.state, AudioPlaybackState::Idle)
+            else {
+                unreachable!("checked preparation")
+            };
+            let superseded = !preparation.timeline.same_content(&timeline);
+            return match preparation.handle.join() {
+                Ok(Ok(Some(prepared))) => self.start_prepared(prepared),
+                Ok(Ok(None)) | Ok(Err(_)) if superseded => {
+                    self.start(timeline, PlaybackPosition::Seconds(seconds))
+                }
+                Ok(Ok(None)) => Ok(PlaybackClock::Wall),
+                Ok(Err(error)) => Err(error),
+                Err(_) => Err(AudioPlaybackError::Worker(
+                    "Audio preparation panicked".to_owned(),
+                )),
+            };
         }
         if !changed {
-            return Ok(if self.session.is_some() {
-                PlaybackClock::Audio
-            } else {
-                PlaybackClock::Wall
-            });
+            return Ok(self.state.clock());
         }
-        let Some(session) = &mut self.session else {
-            return self.start_or_defer(timeline, PlaybackPosition::Seconds(seconds));
+        let AudioPlaybackState::Playing(session) = &mut self.state else {
+            return self.start(timeline, PlaybackPosition::Seconds(seconds));
         };
         *session
             .updates
@@ -403,21 +364,40 @@ impl AudioPlaybackEngine {
 
     pub(crate) fn request_stop(&mut self) -> bool {
         self.reap_finished_workers();
-        let had_pending = std::mem::take(&mut self.pending);
         self.timeline = None;
-        self.stop_session() || had_pending
+        match std::mem::replace(&mut self.state, AudioPlaybackState::Idle) {
+            AudioPlaybackState::Idle => false,
+            AudioPlaybackState::Preparing(preparation) => {
+                preparation.stop.store(true, Ordering::Release);
+                // Detached tasks own their resources; removed results cannot be installed.
+                true
+            }
+            AudioPlaybackState::Playing(session) => {
+                self.retire_session(session);
+                true
+            }
+        }
     }
 
     /// Keep the requested revision after a worker failure, so an unchanged
     /// timeline does not repeatedly restart a failed decoder or output device.
     fn stop_session(&mut self) -> bool {
-        let Some(session) = self.session.take() else {
+        if !matches!(self.state, AudioPlaybackState::Playing(_)) {
             return false;
+        }
+        let AudioPlaybackState::Playing(session) =
+            std::mem::replace(&mut self.state, AudioPlaybackState::Idle)
+        else {
+            unreachable!("checked session")
         };
+        self.retire_session(session);
+        true
+    }
+
+    fn retire_session(&mut self, session: AudioPlaybackSession) {
         session.worker.request_stop();
         drop(session.stream);
         self.retire_worker(session.worker);
-        true
     }
 
     fn retire_worker(&mut self, mut worker: AudioWorker) {
@@ -449,20 +429,20 @@ impl AudioPlaybackEngine {
             self.stop_session();
         }
         self.reap_finished_workers();
-        if let Some(session) = self.session.as_mut() {
+        if let AudioPlaybackState::Playing(session) = &mut self.state {
             session.worker.poll_events(&mut self.completed_events);
         }
         self.completed_events.drain(..).collect()
     }
 
     fn session_stopped(&self) -> bool {
-        self.session
-            .as_ref()
-            .is_some_and(|session| session.worker.has_stopped())
+        matches!(&self.state, AudioPlaybackState::Playing(session) if session.worker.has_stopped())
     }
 
     pub(crate) fn playhead_seconds(&self) -> Option<f64> {
-        let session = self.session.as_ref()?;
+        let AudioPlaybackState::Playing(session) = &self.state else {
+            return None;
+        };
         if session.worker.has_stopped() {
             return None;
         }
@@ -471,11 +451,12 @@ impl AudioPlaybackEngine {
     }
 
     pub(crate) fn levels(&self) -> [f32; 2] {
-        self.session
-            .as_ref()
-            .filter(|session| !session.worker.has_stopped())
-            .map(|session| session.output.levels.values())
-            .unwrap_or([0.; 2])
+        match &self.state {
+            AudioPlaybackState::Playing(session) if !session.worker.has_stopped() => {
+                session.output.levels.values()
+            }
+            _ => [0.; 2],
+        }
     }
 }
 

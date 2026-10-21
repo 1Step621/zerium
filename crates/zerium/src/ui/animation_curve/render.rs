@@ -1,3 +1,8 @@
+use crate::ui::animation_curve::format_number;
+use crate::ui::animation_curve::graph_canvas;
+use crate::ui::animation_curve::point_layout;
+use crate::ui::animation_curve::screen_position_is_visible;
+use crate::ui::animation_curve::value_grid;
 use rust_i18n::t;
 
 use super::*;
@@ -92,8 +97,8 @@ impl Render for AnimationCurveEditor {
                 " · {}",
                 t!(
                     "curve.frame_time",
-                    frame = Self::format_number(time.frames()),
-                    seconds = Self::format_number(time.seconds(selected.frame_rate))
+                    frame = format_number(time.frames()),
+                    seconds = format_number(time.seconds(selected.frame_rate))
                 )
             ));
         }
@@ -120,7 +125,7 @@ impl Render for AnimationCurveEditor {
         let axis_suffix = selected.axis_suffix.clone();
         let beat_guide = self.editor.read(cx).beat_guide();
         let mut curve_grid = self.time_grid(&selected, beat_guide);
-        curve_grid.values = Self::value_grid(selected.value_min, selected.value_max);
+        curve_grid.values = value_grid(selected.value_min, selected.value_max);
         let value_ticks = curve_grid.values.clone();
         let time_ticks = curve_grid.ruler_ticks.clone();
         let begin_scrub_editor = curve_editor.clone();
@@ -130,8 +135,8 @@ impl Render for AnimationCurveEditor {
             .iter()
             .enumerate()
             .filter_map(|(index, stop)| {
-                let (screen, margin_left, margin_bottom) = Self::point_layout(*stop, 7.);
-                Self::screen_position_is_visible(screen).then(|| {
+                let (screen, margin_left, margin_bottom) = point_layout(*stop, 7.);
+                screen_position_is_visible(screen).then(|| {
                     div()
                         .id(("animation-stop", index))
                         .absolute()
@@ -191,7 +196,7 @@ impl Render for AnimationCurveEditor {
                     editor.move_handle(drag.handle, position, cx)
                 });
             })
-            .child(Self::graph_canvas(
+            .child(graph_canvas(
                 curve.clone(),
                 playhead_progress,
                 curve_grid,
@@ -214,7 +219,7 @@ impl Render for AnimationCurveEditor {
                     .bg(colors.background),
             )
             .children(value_ticks.into_iter().map(move |(value, screen_y)| {
-                let label = format!("{}{}", Self::format_number(value), axis_suffix);
+                let label = format!("{}{}", format_number(value), axis_suffix);
                 div()
                     .absolute()
                     .left(px(4.))
@@ -245,28 +250,25 @@ impl Render for AnimationCurveEditor {
                     .child(label)
             }))
             .children(stop_nodes)
-            .when(
-                Self::screen_position_is_visible(playhead_position),
-                |this| {
-                    this.child(
-                        div()
-                            .absolute()
-                            .left(relative(playhead_position[0]))
-                            .bottom(relative(playhead_position[1]))
-                            .ml(px(Self::GRAPH_INSET_LEFT * (1. - playhead_position[0])
-                                - Self::GRAPH_INSET_RIGHT * playhead_position[0]
-                                - 4.))
-                            .mb(px(Self::GRAPH_INSET_BOTTOM * (1. - playhead_position[1])
-                                - Self::GRAPH_INSET_TOP * playhead_position[1]
-                                - 4.))
-                            .size(px(8.))
-                            .rounded_full()
-                            .border_1()
-                            .border_color(colors.background)
-                            .bg(colors.warning),
-                    )
-                },
-            )
+            .when(screen_position_is_visible(playhead_position), |this| {
+                this.child(
+                    div()
+                        .absolute()
+                        .left(relative(playhead_position[0]))
+                        .bottom(relative(playhead_position[1]))
+                        .ml(px(Self::GRAPH_INSET_LEFT * (1. - playhead_position[0])
+                            - Self::GRAPH_INSET_RIGHT * playhead_position[0]
+                            - 4.))
+                        .mb(px(Self::GRAPH_INSET_BOTTOM * (1. - playhead_position[1])
+                            - Self::GRAPH_INSET_TOP * playhead_position[1]
+                            - 4.))
+                        .size(px(8.))
+                        .rounded_full()
+                        .border_1()
+                        .border_color(colors.background)
+                        .bg(colors.warning),
+                )
+            })
             .children(
                 [BezierHandle::Out, BezierHandle::In]
                     .into_iter()
@@ -275,11 +277,11 @@ impl Render for AnimationCurveEditor {
                         let curve = curve.clone();
                         move |handle| {
                             let position = curve.handle_position(handle)?;
-                            let visible = Self::screen_position_is_visible(position);
+                            let visible = screen_position_is_visible(position);
                             let display = curve.handle_display_position(handle)?;
                             let radius = if visible { 5. } else { 8. };
                             let (screen, margin_left, margin_bottom) =
-                                Self::point_layout(display, radius);
+                                point_layout(display, radius);
                             let id = match handle {
                                 BezierHandle::In => "animation-handle-in",
                                 BezierHandle::Out => "animation-handle-out",

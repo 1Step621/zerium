@@ -3,7 +3,7 @@ mod calculation;
 mod variable;
 
 use crate::timeline::commands::TimelineEditError;
-use crate::timeline::history::HistoryKey;
+use crate::timeline::history::{EditImpact, HistoryKey};
 use crate::timeline::{
     Frame, FrameDuration, ItemId, LayerId, SceneBindingOwner, SceneBindingTarget, SceneDefinition,
     SceneId, TimelineDocument, TimelineEditor, TimelineItem,
@@ -36,13 +36,17 @@ impl TimelineEditor {
         if self.active_scene_id() != Some(scene_id) {
             return false;
         }
-        self.edit_project_if_changed(Some(HistoryKey::SceneStretchPoint(scene_id)), |editor| {
-            editor
-                .project_mut()
-                .scenes
-                .get_mut(&scene_id)
-                .is_some_and(|scene| scene.set_stretch_point(point))
-        })
+        self.edit_project_if_changed(
+            EditImpact::Values,
+            Some(HistoryKey::SceneStretchPoint(scene_id)),
+            |editor| {
+                editor
+                    .project_mut()
+                    .scenes_mut()
+                    .get_mut(&scene_id)
+                    .is_some_and(|scene| scene.set_stretch_point(point))
+            },
+        )
     }
 
     fn scene_reaches(
@@ -131,10 +135,9 @@ impl TimelineEditor {
         };
 
         let raw_scene_id = self.next_scene_id?;
-        self.edit_project_option(None, |editor| {
+        self.edit_project_option(EditImpact::MediaDependencies, None, |editor| {
             let frame_rate = editor.frame_rate();
-            let mut next_document = editor.active_document().clone();
-            let mut items = next_document.take_items(&selected);
+            let mut items = editor.active_document_mut().take_items(&selected);
             for (layer, item) in &mut items {
                 *layer = LayerId::new(layer.get().saturating_sub(min_layer.get()));
                 item.start = Frame::new(item.start.get().saturating_sub(start.get()));
@@ -159,7 +162,7 @@ impl TimelineEditor {
                     })
                     .expect("a scene name suffix must eventually be available")
             };
-            let (variables, moved_calculations) = editor
+            let variables = editor
                 .active_scene_id()
                 .and_then(|id| editor.scene(id))
                 .map(|scene| scene.variables_for_grouping(&selected))
@@ -172,21 +175,17 @@ impl TimelineEditor {
             );
             let duration = FrameDuration::new(end.get().saturating_sub(start.get()))?;
             debug_assert_eq!(scene.duration(), duration);
-            let instance = next_document.insert_item(
+            let instance = editor.active_document_mut().insert_item(
                 target_layer,
                 start,
                 duration,
                 |id, start, duration| TimelineItem::scene_instance(id, start, duration, scene_id),
             )?;
 
-            *editor.active_document_mut() = next_document;
             if let Some(parent) = editor
                 .active_scene_id()
-                .and_then(|id| editor.project_mut().scenes.get_mut(&id))
+                .and_then(|id| editor.project_mut().scenes_mut().get_mut(&id))
             {
-                parent
-                    .variables_mut()
-                    .retain(|variable| !moved_calculations.contains(variable.id()));
                 for variable in parent.variables_mut() {
                     variable
                         .bindings
@@ -206,7 +205,7 @@ impl TimelineEditor {
                         ));
                 }
             }
-            editor.project_mut().scenes.insert(scene_id, scene);
+            editor.project_mut().scenes_mut().insert(scene_id, scene);
             editor.next_scene_id = raw_scene_id.checked_add(1).filter(|id| *id != u64::MAX);
             editor.selection.set(HashSet::from([instance]));
             Some(scene_id)
@@ -226,8 +225,8 @@ impl TimelineEditor {
             return false;
         }
         let key = HistoryKey::SceneName(scene_id);
-        self.edit_project_if_changed(Some(key), |editor| {
-            let Some(scene) = editor.project_mut().scenes.get_mut(&scene_id) else {
+        self.edit_project_if_changed(EditImpact::Values, Some(key), |editor| {
+            let Some(scene) = editor.project_mut().scenes_mut().get_mut(&scene_id) else {
                 return false;
             };
             if scene.name == name {
@@ -242,18 +241,28 @@ impl TimelineEditor {
         if !self.project().scenes.contains_key(&scene_id) {
             return false;
         }
-        self.edit_project_if_changed(None, |editor| {
-            remove_scene_instances(&mut editor.project_mut().document, scene_id);
+        self.edit_project_if_changed(EditImpact::MediaDependencies, None, |editor| {
+            if editor
+                .project()
+                .document
+                .items()
+                .any(|item| item.scene_id() == Some(scene_id))
+            {
+                remove_scene_instances(editor.project_mut().document_mut(), scene_id);
+            }
             for scene in editor
                 .project_mut()
-                .scenes
+                .scenes_mut()
                 .values_mut()
-                .filter(|scene| scene.id != scene_id)
+                .filter(|scene| {
+                    scene.id != scene_id
+                        && scene.items().any(|item| item.scene_id() == Some(scene_id))
+                })
             {
                 let removed_items = remove_scene_instances(scene.document_mut(), scene_id);
                 remove_bindings_for_items(scene, &removed_items);
             }
-            editor.project_mut().scenes.remove(&scene_id);
+            editor.project_mut().scenes_mut().remove(&scene_id);
 
             if let Some(path_index) = editor.scene_path.iter().position(|id| *id == scene_id) {
                 editor.scene_path.truncate(path_index);

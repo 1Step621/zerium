@@ -150,10 +150,6 @@ impl Timeline {
         self.viewport = TimelineViewport::default();
         layer_scroll_base(&self.layer_scroll).set_offset(point(px(0.), px(0.)));
     }
-
-    pub(super) fn track_viewport_width(window: &Window) -> f32 {
-        (f32::from(window.viewport_size().width) - LAYER_HEADER_WIDTH).max(1.)
-    }
 }
 
 fn virtual_layer_count(highest_occupied_layer: Option<usize>, viewport_end: usize) -> usize {
@@ -161,4 +157,8 @@ fn virtual_layer_count(highest_occupied_layer: Option<usize>, viewport_end: usiz
         .map_or(0, |layer| layer.saturating_add(1))
         .max(viewport_end)
         .saturating_add(1)
+}
+
+pub(in crate::ui::timeline) fn track_viewport_width(window: &Window) -> f32 {
+    (f32::from(window.viewport_size().width) - LAYER_HEADER_WIDTH).max(1.)
 }

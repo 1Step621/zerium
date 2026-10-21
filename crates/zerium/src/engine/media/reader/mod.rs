@@ -62,11 +62,15 @@ pub(crate) struct DecodedFrame {
     pub frame: VisualFrame,
 }
 
+pub(crate) fn frame_covers(start: Duration, duration: Duration, time: Duration) -> bool {
+    let rounded = time.saturating_add(Duration::from_nanos(1));
+    (start <= rounded && rounded < start.saturating_add(duration))
+        || (duration.is_zero() && time == start)
+}
+
 impl DecodedFrame {
-    pub(crate) fn covers(&self, presentation_time: Duration) -> bool {
-        let rounded = presentation_time.saturating_add(Duration::from_nanos(1));
-        self.presentation_time <= rounded
-            && rounded < self.presentation_time.saturating_add(self.duration)
+    pub(crate) fn covers(&self, time: Duration) -> bool {
+        frame_covers(self.presentation_time, self.duration, time)
     }
 }
 
@@ -146,6 +150,8 @@ pub(crate) enum MediaError {
     ReaderUnavailable(String),
     #[error("{0}")]
     External(String),
+    #[error("Media decoder worker terminated unexpectedly")]
+    WorkerStopped,
     #[error("Operation was cancelled")]
     Cancelled,
 }

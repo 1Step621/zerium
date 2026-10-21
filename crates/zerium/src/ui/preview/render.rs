@@ -116,28 +116,6 @@ impl Preview {
                     ),
             )
     }
-
-    fn render_audio_meter(level: f32, background: Hsla, primary: Hsla) -> impl IntoElement {
-        let level = if level > 0. {
-            ((20. * level.log10() - Self::METER_MIN_DB) / -Self::METER_MIN_DB).clamp(0., 1.)
-        } else {
-            0.
-        };
-        div()
-            .w(px(Self::BAR_THICKNESS))
-            .h_full()
-            .relative()
-            .bg(background.opacity(0.75))
-            .child(
-                div()
-                    .absolute()
-                    .left_0()
-                    .right_0()
-                    .bottom_0()
-                    .h(relative(level))
-                    .bg(primary),
-            )
-    }
 }
 
 impl Render for Preview {
@@ -198,7 +176,7 @@ impl Render for Preview {
                     .w_full()
                     .flex()
                     .overflow_hidden()
-                    .child(Self::render_audio_meter(
+                    .child(render_audio_meter(
                         levels[0],
                         colors.slider_bar,
                         colors.primary,
@@ -251,7 +229,7 @@ impl Render for Preview {
                                 )
                             }),
                     )
-                    .child(Self::render_audio_meter(
+                    .child(render_audio_meter(
                         levels[1],
                         colors.slider_bar,
                         colors.primary,
@@ -263,4 +241,26 @@ impl Render for Preview {
                 "hints.hide_preview_overlay",
             )])
     }
+}
+
+fn render_audio_meter(level: f32, background: Hsla, primary: Hsla) -> impl IntoElement {
+    let level = if level > 0. {
+        ((20. * level.log10() - Preview::METER_MIN_DB) / -Preview::METER_MIN_DB).clamp(0., 1.)
+    } else {
+        0.
+    };
+    div()
+        .w(px(Preview::BAR_THICKNESS))
+        .h_full()
+        .relative()
+        .bg(background.opacity(0.75))
+        .child(
+            div()
+                .absolute()
+                .left_0()
+                .right_0()
+                .bottom_0()
+                .h(relative(level))
+                .bg(primary),
+        )
 }

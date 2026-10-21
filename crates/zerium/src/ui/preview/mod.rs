@@ -1,4 +1,7 @@
 use crate::engine::gpu::GpuContext;
+use editor_overlay::{
+    f32_pair, item_center, item_origin, item_position, item_size, motion_paths, position_at_time,
+};
 use rust_i18n::t;
 use std::sync::Arc;
 
@@ -27,32 +30,12 @@ use crate::{
 use zerium_core::timeline::{Frame, TimelineEditor};
 
 pub(crate) struct PreviewDependencies {
-    editor: Entity<TimelineEditor>,
-    transport: Entity<TransportController>,
-    session: Entity<ProjectSession>,
-    notifications: Entity<UiNotifications>,
-    render_runtime: Entity<RenderRuntime>,
-    media_readers: Arc<MediaReaderRegistry>,
-}
-
-impl PreviewDependencies {
-    pub(crate) fn new(
-        editor: Entity<TimelineEditor>,
-        transport: Entity<TransportController>,
-        session: Entity<ProjectSession>,
-        notifications: Entity<UiNotifications>,
-        render_runtime: Entity<RenderRuntime>,
-        media_readers: Arc<MediaReaderRegistry>,
-    ) -> Self {
-        Self {
-            editor,
-            transport,
-            session,
-            notifications,
-            render_runtime,
-            media_readers,
-        }
-    }
+    pub(crate) editor: Entity<TimelineEditor>,
+    pub(crate) transport: Entity<TransportController>,
+    pub(crate) session: Entity<ProjectSession>,
+    pub(crate) notifications: Entity<UiNotifications>,
+    pub(crate) render_runtime: Entity<RenderRuntime>,
+    pub(crate) media_readers: Arc<MediaReaderRegistry>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

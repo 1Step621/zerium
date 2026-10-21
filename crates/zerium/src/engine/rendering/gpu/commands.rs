@@ -86,15 +86,6 @@ impl RenderSession {
         encoder.copy_buffer_to_buffer(&upload, 0, destination, 0, bytes.len() as u64);
     }
 
-    fn clear_target(&self, encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
-        render_pass(
-            encoder,
-            target,
-            wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
-            "zerium-surface-clear",
-        );
-    }
-
     fn spatial_composite(
         &self,
         encoder: &mut wgpu::CommandEncoder,
@@ -231,7 +222,7 @@ impl RenderSession {
         let rect = raster.rect();
         let resources = self.local_resources(encoder, context, raster, operation);
         match operation {
-            RasterOperation::Clear => self.clear_target(encoder, &resources.target.view),
+            RasterOperation::Clear => clear_target(encoder, &resources.target.view),
             RasterOperation::Item {
                 shader,
                 instance,
@@ -282,7 +273,7 @@ impl RenderSession {
                 );
             }
             RasterOperation::Composite { children } => {
-                self.clear_target(encoder, &resources.target.view);
+                clear_target(encoder, &resources.target.view);
                 for (blend_mode, child) in children {
                     let surface = &live[*child]
                         .as_ref()
@@ -306,7 +297,7 @@ impl RenderSession {
             }
             RasterOperation::View { input, view } => {
                 let source = &live[*input].as_ref().expect("view input is live").surface;
-                self.clear_target(encoder, &resources.target.view);
+                clear_target(encoder, &resources.target.view);
                 self.spatial_composite(
                     encoder,
                     &resources.target.view,
@@ -565,4 +556,13 @@ impl RenderSession {
         self.recycle_frame_images(frame_images)?;
         Ok(submission)
     }
+}
+
+fn clear_target(encoder: &mut wgpu::CommandEncoder, target: &wgpu::TextureView) {
+    render_pass(
+        encoder,
+        target,
+        wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
+        "zerium-surface-clear",
+    );
 }

@@ -6,8 +6,8 @@ use std::{
 };
 
 use super::{
-    Frame, FrameDuration, FrameRate, ItemId, LayerId, SceneId, TimelineItem, TimelineTime,
-    evaluation::{scene_runtime_seed, unique_runtime_id},
+    Frame, FrameDuration, FrameRate, ItemId, SceneId, TimelineItem, TimelineTime,
+    evaluation::unique_runtime_id,
     project::TimelineProject,
     properties::{SceneBindings, resolve_property},
     visibility::PreviewVisibility,
@@ -39,7 +39,7 @@ pub struct AudioTimelineSource {
 #[derive(Clone)]
 pub struct EvaluatedAudioGain {
     pub value: f32,
-    pub diagnostic: Option<String>,
+    pub diagnostic: Option<super::AudioCalculationDiagnostic>,
 }
 
 #[derive(Clone)]
@@ -79,14 +79,6 @@ struct GainInput {
     property: PropertySchema,
 }
 
-#[derive(Clone, Copy)]
-struct Placement {
-    offset: u64,
-    seed: u64,
-    end: u64,
-    root: bool,
-}
-
 struct PlanBuilder<'a> {
     snapshot: &'a AudioTimelineSnapshot,
     used_ids: HashSet<ItemId>,
@@ -94,73 +86,6 @@ struct PlanBuilder<'a> {
 }
 
 impl PlanBuilder<'_> {
-    fn expand(
-        &mut self,
-        items: Vec<(LayerId, TimelineItem)>,
-        placement: Placement,
-        bindings: Option<&SceneBindings<'_>>,
-    ) -> Vec<AudioNode> {
-        let mut nodes = Vec::new();
-        for (layer, source) in items {
-            if placement.root
-                && self
-                    .snapshot
-                    .visibility
-                    .as_ref()
-                    .is_some_and(|visibility| !visibility.is_item_visible(layer, source.id))
-            {
-                continue;
-            }
-            let start = placement.offset.saturating_add(source.start.get());
-            let end = placement
-                .end
-                .min(start.saturating_add(source.duration.get()));
-            if end <= start {
-                continue;
-            }
-            let scenes = &self.snapshot.project.scenes;
-            let kind = if let Some(scene_id) = source.scene_id() {
-                let Some(scene) = scenes.get(&scene_id) else {
-                    continue;
-                };
-                let child_bindings = SceneBindings::for_instance(
-                    scenes,
-                    scene,
-                    &source,
-                    Some(TimelineTime::from_frame(source.start)),
-                    bindings,
-                );
-                let children = self.expand(
-                    scene.expanded_items(&source, None),
-                    Placement {
-                        offset: start,
-                        seed: scene_runtime_seed(placement.seed, source.id, scene_id),
-                        end,
-                        root: false,
-                    },
-                    Some(&child_bindings),
-                );
-                if children.is_empty() {
-                    continue;
-                }
-                AudioNodeKind::Scene { scene_id, children }
-            } else {
-                let inputs = self.source_inputs(&source, placement.seed, start..end, bindings);
-                if inputs.is_empty() {
-                    continue;
-                }
-                AudioNodeKind::Source { inputs }
-            };
-            nodes.push(AudioNode {
-                item: source,
-                offset: placement.offset,
-                clip: start..end,
-                kind,
-            });
-        }
-        nodes
-    }
-
     fn source_inputs(
         &mut self,
         source: &TimelineItem,
@@ -174,7 +99,7 @@ impl PlanBuilder<'_> {
         let runtime_id = unique_runtime_id(seed, source.id, &mut self.used_ids);
         // Source clocks and preserve-pitch are static by schema. Resolve only
         // decoder inputs; gain and visual properties do not belong here.
-        let mut item = source.clone();
+        let mut properties = source.properties.clone();
         let mut resolved = HashSet::new();
         let mut inputs = Vec::new();
         for input in schema.audio() {
@@ -196,13 +121,16 @@ impl PlanBuilder<'_> {
                 let value = resolve_property(bindings, source, None, property, None)
                     .expect("audio property owner")
                     .value;
-                item.properties
+                properties
                     .set(property, value)
                     .expect("resolved audio source property");
             }
-            let Some((asset, playback, preserve_pitch)) =
-                item.audio_input(input.id(), &self.snapshot.media_cache)
-            else {
+            let Some((asset, playback, preserve_pitch)) = super::item::audio_input_for(
+                schema,
+                input.id(),
+                &properties,
+                &self.snapshot.media_cache,
+            ) else {
                 continue;
             };
             let id = AudioClipId {
@@ -227,6 +155,54 @@ impl PlanBuilder<'_> {
             });
         }
         inputs
+    }
+}
+
+impl super::placement::SceneVisitor for PlanBuilder<'_> {
+    type State = Vec<GainInput>;
+    type Output = AudioNode;
+
+    fn enter(
+        &mut self,
+        item: &super::placement::PlacedItem,
+        _time: Option<TimelineTime>,
+        bindings: Option<&SceneBindings<'_>>,
+    ) -> Self::State {
+        if item.source.scene_id().is_some() {
+            Vec::new()
+        } else {
+            self.source_inputs(
+                &item.source,
+                item.seed,
+                item.clip.start.get()..item.clip.end_exclusive().get(),
+                bindings,
+            )
+        }
+    }
+
+    fn exit(
+        &mut self,
+        item: super::placement::PlacedItem,
+        inputs: Self::State,
+        children: Vec<AudioNode>,
+    ) -> Option<AudioNode> {
+        let kind = if let Some(scene_id) = item.source.scene_id() {
+            if children.is_empty() {
+                return None;
+            }
+            AudioNodeKind::Scene { scene_id, children }
+        } else {
+            if inputs.is_empty() {
+                return None;
+            }
+            AudioNodeKind::Source { inputs }
+        };
+        Some(AudioNode {
+            item: item.source,
+            offset: item.offset,
+            clip: item.clip.start.get()..item.clip.end_exclusive().get(),
+            kind,
+        })
     }
 }
 
@@ -270,15 +246,15 @@ impl AudioTimelineSnapshot {
                 used_ids: HashSet::new(),
                 sources: Vec::new(),
             };
-            let nodes = builder.expand(
+            let nodes = super::placement::SceneWalker {
+                scenes: &self.project.scenes,
+                visibility: self.visibility.as_ref(),
+            }
+            .walk(
                 items,
-                Placement {
-                    offset: 0,
-                    seed: 0,
-                    end: u64::MAX,
-                    root: true,
-                },
+                super::placement::WalkMode::AudioPlan,
                 bindings.as_ref(),
+                &mut builder,
             );
             builder.sources.sort_unstable_by(|a, b| {
                 (a.id.item_id.get(), &a.id.input_id).cmp(&(b.id.item_id.get(), &b.id.input_id))
@@ -344,10 +320,13 @@ impl AudioTimelineSnapshot {
                                 .as_f32()
                                 .expect("audio volume is f32")
                                 .max(0.);
-                            let diagnostic =
-                                resolved.diagnostics.into_iter().next().map(|error| {
-                                    format!("At audio frame {}: {error}", frame.get())
-                                });
+                            let diagnostic = resolved.diagnostics.into_iter().next().map(|error| {
+                                super::AudioCalculationDiagnostic {
+                                    frame,
+                                    clip: input.id.clone(),
+                                    diagnostic: error,
+                                }
+                            });
                             gains
                                 .insert(input.id.clone(), EvaluatedAudioGain { value, diagnostic });
                         }
@@ -355,6 +334,7 @@ impl AudioTimelineSnapshot {
                 }
             }
         }
+
         let mut gains = HashMap::new();
         if !requested.is_empty() {
             let bindings = self

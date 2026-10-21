@@ -34,14 +34,14 @@ impl MediaMetadataController {
     ) -> Self {
         let (requests, mut receiver) = mpsc::unbounded();
         let mut revision = (
-            editor.read(cx).snapshot().project_id(),
-            editor.read(cx).project_revision(),
+            editor.read(cx).project_id(),
+            editor.read(cx).media_dependencies_revision(),
         );
         let editor_subscription = cx.observe(&editor, {
             let requests = requests.clone();
             move |_, editor, cx| {
                 let editor = editor.read(cx);
-                let next = (editor.snapshot().project_id(), editor.project_revision());
+                let next = (editor.project_id(), editor.media_dependencies_revision());
                 if next != revision {
                     revision = next;
                     let _ = requests.unbounded_send(RefreshRequest::Refresh);
@@ -80,7 +80,7 @@ impl MediaMetadataController {
                 updater = next_updater;
                 if session.read_with(cx, |session, _| session.id()) == current_session {
                     editor.update(cx, |editor, cx| {
-                        if editor.snapshot().project_id() != project_id {
+                        if editor.project_id() != project_id {
                             return;
                         }
                         let mut changed = false;

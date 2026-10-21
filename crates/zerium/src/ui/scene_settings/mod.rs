@@ -25,10 +25,7 @@ use gpui::{
     prelude::*, px,
 };
 use rust_i18n::t;
-use std::{
-    collections::{HashMap, HashSet},
-    rc::Rc,
-};
+use std::{collections::HashSet, rc::Rc};
 use zerium_core::{
     property::{PropertySchema, PropertyValue},
     timeline::{

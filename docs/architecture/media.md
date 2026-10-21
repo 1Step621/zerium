@@ -39,15 +39,27 @@ the output stream and clock.
 CPAL plays the mix; export passes it to the encoder. Device failure stops the
 worker and invalidates the audio clock immediately, letting transport continue
 on its wall clock. Frame-based starts use exact rational sample boundaries;
-deferred starts join the continuous wall-clock position, rounded down to a sample.
+starts during playback use the continuous position, rounded down to a sample.
+Device discovery, decoder opening and initial buffering run in a preparation
+worker. Transport holds the requested position until preparation finishes, then
+switches to the audio clock or anchors the wall clock there. Cancellation removes
+the preparation handle and signals its worker, so late results cannot start a
+stream after stop or project replacement. An unchanged failed snapshot is not
+retried on each UI tick. CPAL streams remain on their owning UI thread.
 
 ## Preview
 
 [`PreviewFrameScheduler`](../../crates/zerium/src/engine/preview/) tracks current
-scene demand, including temporal samples. Each input has at most one outstanding
-decode. Preview displays the requested frame or retains a candidate while waiting;
-unchanged frames skip scene construction and rendering. Texture preparation and
+scene demand, including temporal samples. `FrameDemand` owns frame selection,
+cache retention, failure suppression and publication without worker I/O. The
+scheduler owns worker channels, cancellation and generation checks. Each input
+has at most one outstanding decode. Preview displays the requested frame or
+retains a candidate while waiting; unchanged frames skip scene construction and
+rendering. Texture preparation and
 drawing share queue ordering without blocking the UI on GPU completion.
+Each worker owns its decoder and upload renderer; cancellation releases those
+resources on the worker without joining a live thread on UI teardown. Unexpected
+worker termination is reported against its pending request.
 
 ## Export
 
@@ -55,8 +67,9 @@ The UI owns destination selection, progress, cancellation, and the background
 task. Project replacement cancels active work. The output path persists within
 the project session.
 
-Export freezes the timeline and processes output frames in order. Evaluation,
-decoding, rendering, and encoding overlap through bounded queues. Output is
+Export preserves media, audio timeline and visual calculation errors as distinct
+typed causes. It freezes the timeline and processes output frames in order.
+Evaluation, decoding, rendering, and encoding overlap through bounded queues. Output is
 converted to limited-range BT.709 NV12. Encoding uses Vulkan Video on Linux and
 Windows or VideoToolbox on macOS, with GStreamer's x264 fallback if a GPU encoder
 cannot initialize. Later failures are reported.

@@ -1,3 +1,4 @@
+use crate::timeline::history::EditImpact;
 use crate::timeline::{
     EffectInstance, EffectInstanceId, ItemId, SceneBindingOwner, TimelineEditor,
 };
@@ -52,17 +53,19 @@ impl TimelineEditor {
                 Ok(effect)
             })
             .collect::<Result<Vec<_>, TimelineEditError>>()?;
-        Ok(self.edit_project_if_changed(None, |editor| {
-            editor
-                .active_document_mut()
-                .item_mut(id)
-                .expect("paste target was validated before mutation")
-                .effects
-                .extend(effects);
-            editor.next_effect_id = next_id;
-            editor.visibility.toggle_effects(hidden_copies);
-            true
-        }))
+        Ok(
+            self.edit_project_if_changed(EditImpact::MediaDependencies, None, |editor| {
+                editor
+                    .active_document_mut()
+                    .item_mut(id)
+                    .expect("paste target was validated before mutation")
+                    .effects
+                    .extend(effects);
+                editor.next_effect_id = next_id;
+                editor.visibility.toggle_effects(hidden_copies);
+                true
+            }),
+        )
     }
 
     pub fn move_effect(
@@ -74,10 +77,11 @@ impl TimelineEditor {
         let Some(target_index) = self.effect_move_target(item_id, effect_id, offset) else {
             return false;
         };
-        self.edit_project_if_changed(None, |editor| {
+        self.edit_project_if_changed(EditImpact::Values, None, |editor| {
             editor
                 .active_document_mut()
-                .move_item_effect(item_id, effect_id, target_index)
+                .item_mut(item_id)
+                .is_some_and(|item| item.move_effect(effect_id, target_index))
         })
     }
 
@@ -100,14 +104,12 @@ impl TimelineEditor {
             .next_effect_id
             .ok_or(TimelineEditError::IdentifierExhausted)?;
         let instance_id = EffectInstanceId::new(raw_effect_id);
-        self.try_edit_project(None, |editor| {
-            if !editor.active_document_mut().add_item_effect(
-                id,
-                instance_id,
-                plugin_id,
-                effect_id,
-                schema,
-            ) {
+        self.try_edit_project(EditImpact::MediaDependencies, None, |editor| {
+            if !editor
+                .active_document_mut()
+                .item_mut(id)
+                .is_some_and(|item| item.add_effect(instance_id, plugin_id, effect_id, schema))
+            {
                 return Err(TimelineEditError::ItemNotFound(id));
             }
             editor.next_effect_id = raw_effect_id.checked_add(1).filter(|id| *id != u64::MAX);
@@ -134,16 +136,17 @@ impl TimelineEditor {
         if !self.is_item_selected(item_id) {
             return false;
         }
-        self.edit_project_if_changed(None, |editor| {
+        self.edit_project_if_changed(EditImpact::MediaDependencies, None, |editor| {
             let changed = editor
                 .active_document_mut()
-                .remove_item_effect(item_id, effect_id);
+                .item_mut(item_id)
+                .is_some_and(|item| item.remove_effect(effect_id));
             if changed && editor.active_edit_target == Some((item_id, effect_id)) {
                 editor.active_edit_target = None;
             }
             if changed
                 && let Some(scene_id) = editor.active_scene_id()
-                && let Some(scene) = editor.project_mut().scenes.get_mut(&scene_id)
+                && let Some(scene) = editor.project_mut().scenes_mut().get_mut(&scene_id)
             {
                 for argument in scene.variables_mut() {
                     argument.bindings.retain(|binding| {

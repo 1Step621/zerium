@@ -2,13 +2,16 @@ mod aspect_ratio;
 mod audio;
 mod blend_mode;
 mod commands;
+mod diagnostic;
 mod document;
 mod editor;
+mod evaluated;
 mod evaluation;
 mod history;
 mod ids;
 mod item;
 mod media;
+mod placement;
 mod project;
 mod properties;
 mod property_address;
@@ -23,13 +26,15 @@ mod visibility;
 pub use aspect_ratio::AspectRatio;
 pub use blend_mode::BlendMode;
 pub use commands::{
-    AnimationEdit, AnimationEditTarget, AnimationValuePlan, EditGesture, SceneVariableEditError,
+    AnimationEdit, AnimationEditTarget, AnimationValuePlan, EditSession, SceneVariableEditError,
     TimelineEditError, ValueEdit, ValueEditTarget,
 };
+pub use diagnostic::{AudioCalculationDiagnostic, CalculationDiagnostic, CalculationFailure};
 pub use document::TimelineDocument;
 pub use document::{ResizeEdge, ResizeMode};
 pub use editor::TimelineEditor;
-pub use evaluation::{EvaluatedSceneNode, SceneRenderStage};
+pub use evaluated::{EvaluatedEffect, EvaluatedItem};
+pub use evaluation::{EvaluatedClip, EvaluatedSceneNode, SceneRenderStage};
 pub use ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId};
 pub use item::{EffectInstance, RenderResultSettings, TimelineItem, TimelineItemKind};
 pub use property_address::PropertyAddress;

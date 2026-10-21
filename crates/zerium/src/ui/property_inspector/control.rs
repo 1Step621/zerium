@@ -52,7 +52,7 @@ pub(super) struct TupleControl {
     pub target: PropertyAddress,
     pub label: String,
     pub children: Vec<Control>,
-    pub extensions: Vec<EditorControl>,
+    pub aspect_ratio_lock: Option<AspectRatioControl>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -65,15 +65,6 @@ pub(super) enum ElementKind {
 pub(super) struct ArrayRow {
     pub element_id: PropertyElementId,
     pub controls: Vec<Control>,
-}
-
-impl ArrayRow {
-    pub(super) fn font(&self) -> Option<&str> {
-        self.controls.iter().find_map(|control| match control {
-            Control::Text(text) => Some(text.value.as_str()),
-            _ => None,
-        })
-    }
 }
 
 #[derive(Clone)]
@@ -95,14 +86,11 @@ pub(super) struct EffectControl {
     pub children: Vec<Control>,
 }
 
-/// Controls declared by editor capabilities, independent of property values.
 #[derive(Clone)]
-pub(super) enum EditorControl {
-    AspectRatioLock {
-        address: PropertyAddress,
-        locked: bool,
-        read_only: bool,
-    },
+pub(super) struct AspectRatioControl {
+    pub address: PropertyAddress,
+    pub locked: bool,
+    pub read_only: bool,
 }
 
 #[derive(Clone)]
@@ -171,50 +159,21 @@ impl ControlTree {
                 .and_then(|common| common.animation_stops.iter().find(|stop| &stop.id == id))
                 .or_else(|| control.children().find_map(|child| find(child, id)))
         }
+
         self.roots.iter().find_map(|control| find(control, id))
     }
 }
 
 struct ControlResolution<'a> {
     editor: &'a TimelineEditor,
-    item: &'a TimelineItem,
+    item: &'a EvaluatedItem,
     playhead: TimelineTime,
     editing_scene: bool,
     variables: &'a [SceneVariable],
 }
 
-impl PropertyInspector {
-    pub(super) fn numeric_value_text(value: &PropertyValue) -> String {
-        value.numeric_text().unwrap_or_default()
-    }
-
-    pub(super) fn drag_sensitivity(min: f64, max: f64, step: f64) -> f64 {
-        let range = max - min;
-        if range == 0. {
-            return 0.;
-        }
-        if !range.is_finite() || range < 0. {
-            return step;
-        }
-        (range / Self::DRAG_RANGE_PIXELS).clamp(
-            step * Self::MIN_STEP_MULTIPLIER,
-            step * Self::MAX_STEP_MULTIPLIER,
-        )
-    }
-
-    pub(super) fn color_to_hsla(color: [f32; 4]) -> gpui::Hsla {
-        Rgba {
-            r: color[0],
-            g: color[1],
-            b: color[2],
-            a: color[3],
-        }
-        .into()
-    }
-}
-
 impl ControlTree {
-    pub(super) fn resolve(editor: &TimelineEditor, item: &TimelineItem) -> Self {
+    pub(super) fn resolve(editor: &TimelineEditor, item: &EvaluatedItem) -> Self {
         let scene_arguments = editor
             .active_scene_id()
             .and_then(|id| editor.scene(id))
@@ -227,12 +186,12 @@ impl ControlTree {
             editing_scene: editor.active_scene_id().is_some(),
             variables: scene_arguments,
         };
-        let item_controls = Self::property_controls(None, &resolution);
+        let item_controls = resolution.property_controls(None);
         let effect_groups: Vec<Control> = item
             .effects
             .iter()
             .map(|effect| {
-                let controls = Self::property_controls(Some(effect.id), &resolution);
+                let controls = resolution.property_controls(Some(effect.id));
                 Control::Effect(EffectControl {
                     id: effect.id,
                     label: effect.schema().label().to_owned(),
@@ -245,24 +204,25 @@ impl ControlTree {
         let roots = item_controls.into_iter().chain(effect_groups).collect();
         Self { roots }
     }
+}
 
+impl ControlResolution<'_> {
     fn leaf_control(
+        &self,
         property: &PropertySchema,
         address: PropertyAddress,
         label: String,
         ty: &ScalarPropertyType,
-        resolution: &ControlResolution<'_>,
     ) -> ControlMeta {
         let scalar_index = address.scalar_index;
-        let animation_enabled = resolution.editor.animation_track(&address).is_some();
+        let animation_enabled = self.editor.animation_track(&address).is_some();
         let stops = if animation_enabled {
-            Self::animation_stop_controls(resolution, &address)
+            self.animation_stop_controls(&address)
         } else {
             Some(Vec::new())
         };
         let scene_bindable = property.is_scene_bindable(scalar_index);
-        let binding = Self::scene_field_binding(
-            resolution.editing_scene,
+        let binding = self.scene_field_binding(
             animation_enabled,
             scene_bindable,
             SceneBindingTarget::new(
@@ -273,7 +233,6 @@ impl ControlTree {
                 scalar_index,
             ),
             ty,
-            resolution.variables,
         );
         ControlMeta {
             id: ControlId::Property(address.clone()),
@@ -289,11 +248,11 @@ impl ControlTree {
     }
 
     fn leaf_controls(
+        &self,
         property: &PropertySchema,
         value: &PropertyValue,
         effect_id: Option<EffectInstanceId>,
         element: Option<(usize, PropertyElementId)>,
-        resolution: &ControlResolution<'_>,
     ) -> Vec<Control> {
         if !property.is_visible() {
             return Vec::new();
@@ -328,10 +287,10 @@ impl ControlTree {
                         )
                     },
                 );
-                let common = Self::leaf_control(
+                let common = self.leaf_control(
                     property,
                     PropertyAddress {
-                        item_id: resolution.item.id,
+                        item_id: self.item.source_id,
                         effect_id,
                         property_id: property.id().to_owned(),
                         element_id: element.map(|(_, id)| id),
@@ -339,7 +298,6 @@ impl ControlTree {
                     },
                     label,
                     scalar_type,
-                    resolution,
                 );
                 let control = match (scalar_type, value) {
                     (
@@ -350,11 +308,11 @@ impl ControlTree {
                             if effect_id.is_some() {
                                 return None;
                             }
-                            let scene = resolution.editor.scene(resolution.item.scene_id()?)?;
+                            let scene = self.editor.scene(self.item.scene_id()?)?;
                             let argument = scene.argument(property.id())?;
-                            let authored = resolution
+                            let authored = self
                                 .editor
-                                .evaluated_property_value(&common.target, resolution.playhead)?;
+                                .evaluated_property_value(&common.target, self.playhead)?;
                             let applied = argument.apply_argument_limits(&authored)?;
                             (applied != authored)
                                 .then(|| applied.numeric_text())
@@ -401,21 +359,18 @@ impl ControlTree {
             .collect()
     }
 
-    fn editor_controls(
+    fn aspect_ratio_control(
+        &self,
         effect_id: Option<EffectInstanceId>,
         property: &PropertySchema,
-        resolution: &ControlResolution<'_>,
-    ) -> Vec<EditorControl> {
-        let item = resolution.item;
-        let Some(declared) = item
+    ) -> Option<AspectRatioControl> {
+        let item = self.item;
+        let declared = item
             .aspect_lock_property(effect_id)
-            .filter(|declared| declared.id() == property.id())
-        else {
-            return Vec::new();
-        };
-        vec![EditorControl::AspectRatioLock {
+            .filter(|declared| declared.id() == property.id())?;
+        Some(AspectRatioControl {
             address: PropertyAddress {
-                item_id: item.id,
+                item_id: item.source_id,
                 effect_id,
                 property_id: property.id().to_owned(),
                 element_id: None,
@@ -423,29 +378,29 @@ impl ControlTree {
             },
             locked: item.aspect_ratio(effect_id).is_some(),
             read_only: !declared.is_editable(None),
-        }]
+        })
     }
 
     fn property_control(
+        &self,
         effect_id: Option<EffectInstanceId>,
         property: &PropertySchema,
-        resolution: &ControlResolution<'_>,
     ) -> Option<Control> {
-        if let Some(group) = Self::elements_group(effect_id, property, resolution) {
+        if let Some(group) = self.elements_group(effect_id, property) {
             return Some(group);
         }
-        let value = resolution
+        let value = self
             .item
             .property_values(effect_id)?
             .property(property.id())?;
-        let children = Self::leaf_controls(property, value, effect_id, None, resolution);
+        let children = self.leaf_controls(property, value, effect_id, None);
         if children.is_empty() {
             return None;
         }
         if let ValueSchema::Tuple(_) = property.value_schema() {
             Some(Control::Tuple(TupleControl {
                 target: PropertyAddress {
-                    item_id: resolution.item.id,
+                    item_id: self.item.source_id,
                     effect_id,
                     property_id: property.id().to_owned(),
                     element_id: None,
@@ -453,7 +408,7 @@ impl ControlTree {
                 },
                 label: property.label().to_owned(),
                 children,
-                extensions: Self::editor_controls(effect_id, property, resolution),
+                aspect_ratio_lock: self.aspect_ratio_control(effect_id, property),
             }))
         } else {
             children.into_iter().next()
@@ -461,9 +416,9 @@ impl ControlTree {
     }
 
     fn elements_group(
+        &self,
         effect_id: Option<EffectInstanceId>,
         property: &PropertySchema,
-        resolution: &ControlResolution<'_>,
     ) -> Option<Control> {
         if !property.is_visible() {
             return None;
@@ -476,7 +431,7 @@ impl ControlTree {
         else {
             return None;
         };
-        let value = resolution
+        let value = self
             .item
             .property_values(effect_id)?
             .property(property.id())?;
@@ -489,15 +444,15 @@ impl ControlTree {
             ElementKind::Scalar
         };
         let target = PropertyAddress {
-            item_id: resolution.item.id,
+            item_id: self.item.source_id,
             property_id: property.id().to_owned(),
             effect_id,
             element_id: None,
             scalar_index: None,
         };
-        let has_scene_binding = resolution.variables.iter().any(|argument| {
+        let has_scene_binding = self.variables.iter().any(|argument| {
             argument.bindings.iter().any(|binding| {
-                binding.item_id() == resolution.item.id
+                binding.item_id() == self.item.source_id
                     && binding.owner() == SceneBindingOwner::from_effect(target.effect_id)
                     && binding.property_id() == target.property_id
                     && binding.element_id().is_some()
@@ -508,12 +463,11 @@ impl ControlTree {
             .enumerate()
             .map(|(index, element)| ArrayRow {
                 element_id: element.element_id(),
-                controls: Self::leaf_controls(
+                controls: self.leaf_controls(
                     property,
                     element.value(),
                     effect_id,
                     Some((index, element.element_id())),
-                    resolution,
                 ),
             })
             .collect();
@@ -528,25 +482,20 @@ impl ControlTree {
         })))
     }
 
-    fn property_controls(
-        effect_id: Option<EffectInstanceId>,
-        resolution: &ControlResolution<'_>,
-    ) -> Vec<Control> {
-        resolution
-            .editor
-            .property_schemas(resolution.item, effect_id)
-            .filter_map(|property| Self::property_control(effect_id, property, resolution))
+    fn property_controls(&self, effect_id: Option<EffectInstanceId>) -> Vec<Control> {
+        self.editor
+            .evaluated_property_schemas(self.item, effect_id)
+            .filter_map(|property| self.property_control(effect_id, property))
             .collect()
     }
 
     fn animation_stop_controls(
-        resolution: &ControlResolution<'_>,
+        &self,
         target: &PropertyAddress,
     ) -> Option<Vec<AnimationStopControl>> {
         Some(
-            resolution
-                .editor
-                .property_animation_stops(target, resolution.playhead)?
+            self.editor
+                .property_animation_stops(target, self.playhead)?
                 .into_iter()
                 .map(|plan| AnimationStopControl {
                     id: ControlId::AnimationStop {
@@ -560,23 +509,23 @@ impl ControlTree {
     }
 
     fn scene_field_binding(
-        editing_scene: bool,
+        &self,
         animation_enabled: bool,
         scene_bindable: bool,
         target: SceneBindingTarget,
         ty: &ScalarPropertyType,
-        arguments: &[SceneVariable],
     ) -> Option<SceneFieldBinding> {
-        if !editing_scene || animation_enabled || !scene_bindable {
+        if !self.editing_scene || animation_enabled || !scene_bindable {
             return None;
         }
-        let connected = arguments.iter().find_map(|argument| {
+        let connected = self.variables.iter().find_map(|argument| {
             argument
                 .bindings
                 .contains(&target)
                 .then(|| (argument.id().to_owned(), argument.label().to_owned()))
         });
-        let compatible = arguments
+        let compatible = self
+            .variables
             .iter()
             .filter(|argument| argument.ty().same_type(ty))
             .map(|argument| (argument.id().to_owned(), argument.label().to_owned()))

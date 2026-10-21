@@ -1,6 +1,7 @@
 use std::sync::Arc;
 
 use super::{
+    EvaluatedItem,
     editor::TimelineEditor,
     evaluation::{
         EvaluatedSceneNode, SceneRenderStage, evaluated_items_at_time,
@@ -39,7 +40,7 @@ pub trait TimelineView {
 
     fn playhead(&self) -> Frame;
 
-    fn active_items_at_time(&self, time: TimelineTime) -> Vec<(LayerId, TimelineItem)>;
+    fn active_items_at_time(&self, time: TimelineTime) -> Vec<(LayerId, EvaluatedItem)>;
 
     fn active_scene_graph_at_time(&self, time: TimelineTime) -> Vec<EvaluatedSceneNode> {
         self.scene_graph_at_time(time, &[])
@@ -53,7 +54,7 @@ pub trait TimelineView {
         stages: &[SceneRenderStage],
     ) -> Vec<EvaluatedSceneNode>;
 
-    fn active_items_at(&self, frame: Frame) -> Vec<(LayerId, TimelineItem)> {
+    fn active_items_at(&self, frame: Frame) -> Vec<(LayerId, EvaluatedItem)> {
         self.active_items_at_time(TimelineTime::from_frame(frame))
     }
 
@@ -64,6 +65,10 @@ impl TimelineSnapshot {
     pub fn with_media_cache(mut self, cache: crate::media::MediaMetadataCache) -> Self {
         self.media_cache = Arc::new(cache);
         self
+    }
+
+    pub fn media_dependencies_revision(&self) -> u64 {
+        self.project.media_dependencies_revision
     }
 
     pub fn project_revision(&self) -> u64 {
@@ -121,7 +126,7 @@ impl TimelineView for TimelineSnapshot {
         self.playhead
     }
 
-    fn active_items_at_time(&self, time: TimelineTime) -> Vec<(LayerId, TimelineItem)> {
+    fn active_items_at_time(&self, time: TimelineTime) -> Vec<(LayerId, EvaluatedItem)> {
         evaluated_items_at_time(
             self.project.document.active_source_items_at_time(time),
             &self.project.scenes,
@@ -168,7 +173,7 @@ impl TimelineView for TimelineEditor {
         TimelineEditor::playhead(self)
     }
 
-    fn active_items_at_time(&self, time: TimelineTime) -> Vec<(LayerId, TimelineItem)> {
+    fn active_items_at_time(&self, time: TimelineTime) -> Vec<(LayerId, EvaluatedItem)> {
         TimelineEditor::active_items_at_time(self, time)
     }
 

@@ -179,6 +179,7 @@ pub(super) fn validate_scenes(
         visited.insert(scene_id);
         Ok(())
     }
+
     let mut visiting = HashSet::new();
     let mut visited = HashSet::new();
     for scene_id in scenes.keys().copied() {

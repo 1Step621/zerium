@@ -1,36 +1,14 @@
 use super::*;
-use crate::ui::input::{InputControl, set_input_text};
-
-pub(super) struct ColorState {
-    pub picker: Entity<ColorPickerState>,
-    pub _subscription: Subscription,
-}
+use crate::ui::input::color_to_hsla;
+use crate::ui::input::{InputStore, TextOptions, TextSync};
 
 #[derive(Default)]
 pub(super) struct SettingsStore {
-    pub drafts: HashSet<ControlId>,
-    pub text_inputs: HashMap<ControlId, InputControl>,
-    pub color_pickers: HashMap<ControlId, ColorState>,
+    pub inputs: InputStore<ControlId>,
     pub number_drag_origin: Option<Rc<NumberDragOrigin>>,
 }
 
-impl SettingsStore {
-    pub(super) fn text(&self, id: &ControlId) -> Option<Entity<InputState>> {
-        self.text_inputs.get(id).map(|state| state.input.clone())
-    }
-}
-
 impl SceneSettings {
-    fn color_to_hsla(color: [f32; 4]) -> gpui::Hsla {
-        Rgba {
-            r: color[0],
-            g: color[1],
-            b: color[2],
-            a: color[3],
-        }
-        .into()
-    }
-
     pub(super) fn sync_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         let Some((scene_id, name, arguments)) = self
             .scene_id
@@ -101,11 +79,7 @@ impl SceneSettings {
                     .map(|(id, _)| ControlId::scene_argument_color(scene_id, id)),
             )
             .collect();
-        self.store.drafts.retain(|id| controls.contains(id));
-        self.store.text_inputs.retain(|id, _| controls.contains(id));
-        self.store
-            .color_pickers
-            .retain(|id, _| controls.contains(id));
+        self.store.inputs.retain(&controls);
         for (id, text) in texts {
             self.ensure_text(id, text, window, cx);
         }
@@ -121,70 +95,66 @@ impl SceneSettings {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if let Some(input) = self.store.text(&key) {
-            if self.store.drafts.contains(&key) {
-                return;
-            }
-            set_input_text(&input, value, window, cx);
-            return;
-        }
         let placeholder = match &key {
             ControlId::ArgumentSetting { setting, .. } => setting.placeholder(),
             _ => String::new(),
         };
-        let input = cx.new(|cx| {
-            let input = InputState::new(window, cx);
-            let input = if let ControlId::CalculationScript { .. } = &key {
-                input.auto_grow(3, 12)
-            } else {
-                input
-            };
-            input
-                .placeholder(placeholder)
-                .default_value(SharedString::from(value))
-        });
-        let edited_key = key.clone();
-        let mut subscriptions =
-            vec![
-                cx.subscribe_in(&input, window, move |this, input, event, window, cx| {
-                    let commit = if let ControlId::CalculationInputName { .. } = &edited_key {
-                        if let InputEvent::Change = event {
-                            this.store.drafts.insert(edited_key.clone());
-                        }
-                        matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. })
-                    } else {
-                        matches!(event, InputEvent::Change)
-                    };
-                    if commit {
-                        this.apply_text_input(&edited_key, input, window, cx);
-                    }
-                }),
-            ];
-        if let ControlId::ArgumentSetting {
-            scene_id,
-            argument_id,
-            setting,
-        } = &key
-        {
-            let (scene_id, argument_id, setting) = (*scene_id, argument_id.clone(), *setting);
-            subscriptions.push(cx.subscribe_in(
-                &input,
-                window,
-                move |this, _, event: &NumberInputEvent, window, cx| {
-                    this.step_scene_argument_setting(
-                        scene_id,
-                        &argument_id,
-                        setting,
-                        event,
+        let options = TextOptions {
+            multiline: matches!(&key, ControlId::CalculationScript { .. }).then_some((3, 12)),
+            placeholder,
+            sync: TextSync::PreserveDraft,
+        };
+        self.store.inputs.ensure_text(
+            key.clone(),
+            value,
+            options,
+            |input, window, cx| {
+                let edited_key = key.clone();
+                let mut subscriptions =
+                    vec![
+                        cx.subscribe_in(input, window, move |this, input, event, window, cx| {
+                            let commit = if let ControlId::CalculationInputName { .. } = &edited_key
+                            {
+                                if let InputEvent::Change = event {
+                                    this.store.inputs.drafts.insert(edited_key.clone());
+                                }
+                                matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. })
+                            } else {
+                                matches!(event, InputEvent::Change)
+                            };
+                            if commit {
+                                this.apply_text_input(&edited_key, input, window, cx);
+                            }
+                        }),
+                    ];
+                if let ControlId::ArgumentSetting {
+                    scene_id,
+                    argument_id,
+                    setting,
+                } = &key
+                {
+                    let (scene_id, argument_id, setting) =
+                        (*scene_id, argument_id.clone(), *setting);
+                    subscriptions.push(cx.subscribe_in(
+                        input,
                         window,
-                        cx,
-                    );
-                },
-            ));
-        }
-        self.store
-            .text_inputs
-            .insert(key, InputControl::new(input, subscriptions));
+                        move |this, _, event: &NumberInputEvent, window, cx| {
+                            this.step_scene_argument_setting(
+                                scene_id,
+                                &argument_id,
+                                setting,
+                                event,
+                                window,
+                                cx,
+                            );
+                        },
+                    ));
+                }
+                subscriptions
+            },
+            window,
+            cx,
+        );
     }
 
     fn ensure_color(
@@ -195,39 +165,28 @@ impl SceneSettings {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        let color = Self::color_to_hsla(value);
+        let color = color_to_hsla(value);
         let color_key = ControlId::scene_argument_color(scene_id, argument_id);
-        if let Some(picker) = self
-            .store
-            .color_pickers
-            .get(&color_key)
-            .map(|state| &state.picker)
-        {
-            if picker.read(cx).value() != Some(color) {
-                picker.update(cx, |picker, cx| picker.set_value(color, window, cx));
-            }
-        } else {
-            let picker = cx.new(|cx| ColorPickerState::new(window, cx).default_value(color));
-            let edited_id = argument_id.to_owned();
-            let subscription = cx.subscribe_in(&picker, window, move |this, _, event, _, cx| {
-                let ColorPickerEvent::Change(Some(color)) = event else {
-                    return;
-                };
-                let color = Rgba::from(*color);
-                let value = PropertyValue::Color([color.r, color.g, color.b, color.a]);
-                this.editor.update(cx, |editor, cx| {
-                    if editor.update_scene_argument_default(&edited_id, value) == Ok(true) {
-                        cx.notify();
-                    }
-                });
-            });
-            self.store.color_pickers.insert(
-                color_key,
-                ColorState {
-                    picker,
-                    _subscription: subscription,
-                },
-            );
-        }
+        let edited_id = argument_id.to_owned();
+        self.store.inputs.ensure_color(
+            color_key,
+            color,
+            |picker, window, cx| {
+                cx.subscribe_in(picker, window, move |this, _, event, _, cx| {
+                    let ColorPickerEvent::Change(Some(color)) = event else {
+                        return;
+                    };
+                    let color = Rgba::from(*color);
+                    let value = PropertyValue::Color([color.r, color.g, color.b, color.a]);
+                    this.editor.update(cx, |editor, cx| {
+                        if editor.update_scene_argument_default(&edited_id, value) == Ok(true) {
+                            cx.notify();
+                        }
+                    });
+                })
+            },
+            window,
+            cx,
+        );
     }
 }

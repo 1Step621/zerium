@@ -242,7 +242,7 @@ impl FileInputController {
 
     fn set_value(&mut self, target: FileTarget, path: Option<PathBuf>, cx: &mut Context<Self>) {
         let result = self.editor.update(cx, |editor, cx| {
-            let result = Self::apply(editor, target, path);
+            let result = target.apply(editor, path);
             if result == Ok(true) {
                 cx.notify();
             }
@@ -253,14 +253,12 @@ impl FileInputController {
                 .update(cx, |notifs, cx| notifs.push(error, cx));
         }
     }
+}
 
-    fn apply(
-        editor: &mut TimelineEditor,
-        target: FileTarget,
-        path: Option<PathBuf>,
-    ) -> Result<bool, String> {
+impl FileTarget {
+    fn apply(self, editor: &mut TimelineEditor, path: Option<PathBuf>) -> Result<bool, String> {
         let value = PropertyValue::File(path);
-        match target {
+        match self {
             FileTarget::Argument {
                 scene_id,
                 argument_id,

@@ -15,23 +15,26 @@ pub(super) fn property_schemas<'a>(
     item: &'a TimelineItem,
     effect_id: Option<EffectInstanceId>,
 ) -> impl Iterator<Item = &'a PropertySchema> {
-    let properties = match effect_id {
-        Some(id) => item.effect(id).map(|effect| effect.schema().properties()),
-        None => item.schema().map(|schema| schema.properties()),
-    };
-    let scene = effect_id
-        .is_none()
-        .then(|| item.scene_id())
-        .flatten()
-        .and_then(|id| scenes.get(&id));
-    properties
-        .into_iter()
-        .flatten()
-        .chain(scene.into_iter().flat_map(|scene| {
-            scene
-                .arguments()
-                .filter_map(|argument| argument.argument_schema())
-        }))
+    let properties = item.property_owner(effect_id).map(|owner| owner.schemas);
+    let scene = effect_id.is_none().then(|| item.scene_id()).flatten();
+    owner_property_schemas(scenes, properties, scene)
+}
+
+pub(super) fn owner_property_schemas<'a>(
+    scenes: &'a HashMap<SceneId, SceneDefinition>,
+    properties: Option<&'a [PropertySchema]>,
+    scene: Option<SceneId>,
+) -> impl Iterator<Item = &'a PropertySchema> {
+    properties.into_iter().flatten().chain(
+        scene
+            .and_then(|id| scenes.get(&id))
+            .into_iter()
+            .flat_map(|scene| {
+                scene
+                    .arguments()
+                    .filter_map(|argument| argument.argument_schema())
+            }),
+    )
 }
 
 pub(super) fn resolve_property_schema<'a>(

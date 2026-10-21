@@ -11,12 +11,12 @@ pub(crate) struct AnimationSelection {
 impl AnimationSelection {
     pub(crate) fn new(editor: Entity<TimelineEditor>, cx: &mut Context<Self>) -> Self {
         let mut document = (
-            editor.read(cx).snapshot().project_id(),
+            editor.read(cx).project_id(),
             editor.read(cx).active_scene_id(),
         );
         let subscription = cx.observe(&editor, move |this, editor, cx| {
             let editor = editor.read(cx);
-            let next = (editor.snapshot().project_id(), editor.active_scene_id());
+            let next = (editor.project_id(), editor.active_scene_id());
             if document != next {
                 document = next;
                 this.clear(cx);

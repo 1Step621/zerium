@@ -1,9 +1,14 @@
-use gpui::{App, AppContext as _};
+use gpui::App;
+
+#[cfg(feature = "self-update")]
+use gpui::AppContext as _;
+#[cfg(feature = "self-update")]
 use velopack::{UpdateCheck, UpdateManager, sources::GithubSource};
 
-#[cfg(target_os = "windows")]
+#[cfg(all(feature = "self-update", target_os = "windows"))]
 mod windows_install;
 
+#[cfg(feature = "self-update")]
 pub(crate) fn initialize() {
     let mut updater = velopack::VelopackApp::build();
     #[cfg(target_os = "windows")]
@@ -22,6 +27,7 @@ pub(crate) fn initialize() {
     updater.run();
 }
 
+#[cfg(feature = "self-update")]
 pub(crate) fn start(cx: &mut App) {
     cx.background_spawn(async {
         match download_update() {
@@ -32,6 +38,7 @@ pub(crate) fn start(cx: &mut App) {
     .detach();
 }
 
+#[cfg(feature = "self-update")]
 fn download_update() -> Result<(), velopack::Error> {
     let source = GithubSource::new("https://github.com/1Step621/zerium", None, false);
     let manager = UpdateManager::new(source, None, None)?;
@@ -40,3 +47,9 @@ fn download_update() -> Result<(), velopack::Error> {
     }
     Ok(())
 }
+
+#[cfg(not(feature = "self-update"))]
+pub(crate) fn initialize() {}
+
+#[cfg(not(feature = "self-update"))]
+pub(crate) fn start(_cx: &mut App) {}

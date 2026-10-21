@@ -249,16 +249,16 @@ impl TimelineDocument {
         Some(id_map)
     }
 
-    pub fn resize_items_from(
-        &mut self,
+    pub(in crate::timeline) fn prepare_resize_items_from(
+        &self,
         origins: &[TimelineItem],
         anchor_id: ItemId,
         edge: ResizeEdge,
         pointer: Frame,
         mode: ResizeMode,
-    ) -> bool {
+    ) -> Option<Vec<super::ItemEdit>> {
         if origins.is_empty() {
-            return false;
+            return None;
         }
 
         let moving = origins.iter().map(|item| item.id).collect::<HashSet<_>>();
@@ -267,11 +267,9 @@ impl TimelineDocument {
                 .iter()
                 .all(|id| self.items.contains_key(id) && self.item_layers.contains_key(id))
         {
-            return false;
+            return None;
         }
-        let Some(anchor) = origins.iter().find(|item| item.id == anchor_id) else {
-            return false;
-        };
+        let anchor = origins.iter().find(|item| item.id == anchor_id)?;
         let anchor_edge = edge.item_frame(anchor);
         let requested_delta = i128::from(pointer.get()) - i128::from(anchor_edge);
         let mut minimum_delta = i128::MIN;
@@ -305,104 +303,40 @@ impl TimelineDocument {
         }
 
         if minimum_delta > maximum_delta {
-            return false;
+            return None;
         }
         let delta = requested_delta.clamp(minimum_delta, maximum_delta);
-        let updates = origins
+        origins
             .iter()
             .map(|origin| {
                 let mut edit = super::ItemEdit::new(origin.clone());
                 edge.resize_by(&mut edit.item, delta, self.frame_rate, mode)?;
                 Some(edit)
             })
-            .collect::<Option<Vec<_>>>();
-        let Some(updates) = updates else {
-            return false;
-        };
-        self.commit_item_edits(updates).unwrap_or(false)
+            .collect::<Option<Vec<_>>>()
     }
 
-    pub fn move_items_from(
-        &mut self,
+    pub(in crate::timeline) fn prepare_move_items_from(
+        &self,
         origins: &[(ItemId, Frame, LayerId)],
         frame_delta: i64,
         layer_delta: i64,
-    ) -> bool {
+    ) -> Option<Vec<super::ItemEdit>> {
         if origins.is_empty() {
-            return false;
+            return None;
         }
-
         let moving = origins.iter().map(|(id, _, _)| *id).collect::<HashSet<_>>();
         if moving.len() != origins.len() {
-            return false;
+            return None;
         }
-
-        let mut targets = Vec::with_capacity(origins.len());
-        for (id, start, layer) in origins {
-            let Some(item) = self.items.get(id) else {
-                return false;
-            };
-            let Some(target_start) = start.get().checked_add_signed(frame_delta) else {
-                return false;
-            };
-            let Some(target_layer) = layer.get().checked_add_signed(layer_delta) else {
-                return false;
-            };
-            let Some(target_end) = target_start.checked_add(item.duration.get()) else {
-                return false;
-            };
-            targets.push((*id, target_start, target_end, LayerId::new(target_layer)));
-        }
-
-        for (index, (_, start, end, layer)) in targets.iter().enumerate() {
-            let collides_with_moving_item =
-                targets
-                    .iter()
-                    .skip(index + 1)
-                    .any(|(_, other_start, other_end, other_layer)| {
-                        layer == other_layer && *start < *other_end && *other_start < *end
-                    });
-            if collides_with_moving_item {
-                return false;
-            }
-            let collides_with_stationary_item = self
-                .layer_items
-                .get(layer)
-                .into_iter()
-                .flatten()
-                .filter(|candidate| !moving.contains(candidate))
-                .filter_map(|candidate| self.items.get(candidate))
-                .any(|candidate| {
-                    *start < candidate.end_exclusive().get() && candidate.start.get() < *end
-                });
-            if collides_with_stationary_item {
-                return false;
-            }
-        }
-
-        let changed = targets.iter().any(|(id, start, _, layer)| {
-            self.items
-                .get(id)
-                .is_some_and(|item| item.start.get() != *start)
-                || self.item_layers.get(id) != Some(layer)
-        });
-        if !changed {
-            return false;
-        }
-
-        for ids in self.layer_items.values_mut() {
-            ids.retain(|id| !moving.contains(id));
-        }
-        self.layer_items.retain(|_, ids| !ids.is_empty());
-        for (id, start, _, layer) in targets {
-            if let Some(item) = self.items.get_mut(&id).map(Arc::make_mut) {
-                item.start = Frame::new(start);
-            }
-            self.item_layers.insert(id, layer);
-            self.layer_items.entry(layer).or_default().push(id);
-        }
-        #[cfg(debug_assertions)]
-        self.assert_consistent();
-        true
+        origins
+            .iter()
+            .map(|(id, start, layer)| {
+                let mut edit = super::ItemEdit::new(self.item(*id)?.clone());
+                edit.item.start = Frame::new(start.get().checked_add_signed(frame_delta)?);
+                edit.layer = Some(LayerId::new(layer.get().checked_add_signed(layer_delta)?));
+                Some(edit)
+            })
+            .collect()
     }
 }

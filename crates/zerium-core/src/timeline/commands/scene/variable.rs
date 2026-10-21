@@ -1,6 +1,6 @@
 use crate::property::{PropertyConfiguration, PropertySchema, PropertyValue};
 use crate::timeline::commands::SceneVariableEditError;
-use crate::timeline::history::HistoryKey;
+use crate::timeline::history::{EditImpact, HistoryKey};
 use crate::timeline::scene::{
     apply_scene_binding_to_item, resolve_scene_binding, unique_scene_variable_name,
 };
@@ -21,12 +21,22 @@ fn remove_bindings_for_nested_argument(
             .filter(|item| item.scene_id() == Some(nested_scene_id))
             .map(|item| item.id)
             .collect::<HashSet<_>>();
-        for argument in scene.variables_mut() {
-            argument.bindings.retain(|binding| {
-                !(item_ids.contains(&binding.item_id())
-                    && binding.owner() == SceneBindingOwner::Item
-                    && binding.property_id() == argument_id)
-            });
+        let targets_argument = |binding: &SceneBindingTarget| {
+            item_ids.contains(&binding.item_id())
+                && binding.owner() == SceneBindingOwner::Item
+                && binding.property_id() == argument_id
+        };
+        if scene
+            .variables()
+            .iter()
+            .flat_map(|variable| &variable.bindings)
+            .any(&targets_argument)
+        {
+            for argument in scene.variables_mut() {
+                argument
+                    .bindings
+                    .retain(|binding| !targets_argument(binding));
+            }
         }
     }
 }
@@ -74,19 +84,40 @@ impl TimelineEditor {
         scene_id: SceneId,
         mut update: impl FnMut(&mut TimelineItem),
     ) {
-        let project = self.project_mut();
-        for item in project
-            .document
-            .items_mut()
-            .chain(
-                project
-                    .scenes
-                    .values_mut()
-                    .flat_map(|scene| scene.document_mut().items_mut()),
-            )
-            .filter(|item| item.scene_id() == Some(scene_id))
-        {
-            update(item);
+        fn instances(document: &crate::timeline::TimelineDocument, scene: SceneId) -> Vec<ItemId> {
+            document
+                .items()
+                .filter(|item| item.scene_id() == Some(scene))
+                .map(|item| item.id)
+                .collect()
+        }
+
+        let root_items = instances(&self.project().document, scene_id);
+        if !root_items.is_empty() {
+            let document = self.project_mut().document_mut();
+            for id in root_items {
+                update(document.item_mut(id).expect("located instance"));
+            }
+        }
+        let scene_items = self
+            .project()
+            .scenes
+            .iter()
+            .filter_map(|(id, scene)| {
+                let items = instances(scene.document(), scene_id);
+                (!items.is_empty()).then_some((*id, items))
+            })
+            .collect::<Vec<_>>();
+        for (id, items) in scene_items {
+            let document = self
+                .project_mut()
+                .scenes_mut()
+                .get_mut(&id)
+                .expect("located scene")
+                .document_mut();
+            for id in items {
+                update(document.item_mut(id).expect("located instance"));
+            }
         }
     }
 
@@ -103,7 +134,7 @@ impl TimelineEditor {
         };
         let item = self
             .project_mut()
-            .scenes
+            .scenes_mut()
             .get_mut(&scene_id)
             .and_then(|scene| scene.document_mut().item_mut(target.item_id()))?;
         apply_scene_binding_to_item(item, target, &schema, value)
@@ -124,8 +155,8 @@ impl TimelineEditor {
         calculation: Option<crate::timeline::SceneCalculation>,
     ) -> Option<String> {
         let scene_id = self.active_scene_id()?;
-        self.edit_project_option(None, |editor| {
-            let scene = editor.project_mut().scenes.get_mut(&scene_id)?;
+        self.edit_project_option(EditImpact::Values, None, |editor| {
+            let scene = editor.project_mut().scenes_mut().get_mut(&scene_id)?;
             let (argument_id, ordinal) = scene.allocate_variable_id()?;
             let label =
                 unique_scene_variable_name(scene.variables(), &label(ordinal), &argument_id);
@@ -171,7 +202,7 @@ impl TimelineEditor {
             return false;
         }
         let key = HistoryKey::SceneVariableLabel(scene_id, argument_id.to_owned());
-        self.edit_project_if_changed(Some(key), |editor| {
+        self.edit_project_if_changed(EditImpact::Values, Some(key), |editor| {
             let Some(scene) = editor.project().scenes.get(&scene_id) else {
                 return false;
             };
@@ -190,7 +221,7 @@ impl TimelineEditor {
             }
             editor
                 .project_mut()
-                .scenes
+                .scenes_mut()
                 .get_mut(&scene_id)
                 .and_then(|scene| scene.variable_mut(argument_id))
                 .expect("the scene argument was checked")
@@ -237,10 +268,10 @@ impl TimelineEditor {
         };
         let index = indices[index];
 
-        self.edit_project_if_changed(None, |editor| {
+        self.edit_project_if_changed(EditImpact::Values, None, |editor| {
             let scene = editor
                 .project_mut()
-                .scenes
+                .scenes_mut()
                 .get_mut(&scene_id)
                 .expect("the active scene was checked");
             scene.variables_mut().swap(index, target);
@@ -257,10 +288,10 @@ impl TimelineEditor {
             return false;
         };
         let key = HistoryKey::SceneArgumentSettings(scene_id, argument_id.to_owned());
-        self.edit_project_if_changed(Some(key), |editor| {
+        self.edit_project_if_changed(EditImpact::Values, Some(key), |editor| {
             editor
                 .project_mut()
-                .scenes
+                .scenes_mut()
                 .get_mut(&scene_id)
                 .and_then(|scene| scene.variable_mut(argument_id))
                 .filter(|variable| variable.calculation().is_none())
@@ -277,10 +308,15 @@ impl TimelineEditor {
             .active_scene_id()
             .ok_or(SceneVariableEditError::NoActiveScene)?;
         let key = HistoryKey::SceneArgumentSettings(scene_id, argument_id.to_owned());
-        self.try_edit_project(Some(key), |editor| {
+        let impact = if matches!(value, PropertyValue::File(_)) {
+            EditImpact::MediaDependencies
+        } else {
+            EditImpact::Values
+        };
+        self.try_edit_project(impact, Some(key), |editor| {
             let argument = editor
                 .project_mut()
-                .scenes
+                .scenes_mut()
                 .get_mut(&scene_id)
                 .and_then(|scene| scene.variable_mut(argument_id))
                 .filter(|variable| variable.calculation().is_none())
@@ -330,10 +366,10 @@ impl TimelineEditor {
         {
             return Err(SceneVariableEditError::IncompatibleContract);
         }
-        self.try_edit_project(None, |editor| {
+        self.try_edit_project(EditImpact::MediaDependencies, None, |editor| {
             let Some(argument) = editor
                 .project_mut()
-                .scenes
+                .scenes_mut()
                 .get_mut(&scene_id)
                 .and_then(|scene| scene.variable_mut(argument_id))
             else {
@@ -360,21 +396,15 @@ impl TimelineEditor {
             return Err(SceneVariableEditError::TargetNotFound);
         }
         let value = self
-            .property_value(&crate::timeline::PropertyAddress {
-                item_id: target.item_id(),
-                effect_id: target.owner().effect_id(),
-                property_id: target.property_id().to_owned(),
-                element_id: target.element_id(),
-                scalar_index: target.scalar_index(),
-            })
+            .property_value(target.address())
             .ok_or(SceneVariableEditError::TargetNotFound)?;
-        self.try_edit_project(None, |editor| {
+        self.try_edit_project(EditImpact::MediaDependencies, None, |editor| {
             editor
                 .apply_scene_binding(scene_id, target, value)
                 .expect("validated binding must accept its value");
             editor
                 .project_mut()
-                .scenes
+                .scenes_mut()
                 .get_mut(&scene_id)
                 .and_then(|scene| scene.variable_mut(argument_id))
                 .expect("argument was checked")
@@ -413,18 +443,12 @@ impl TimelineEditor {
             .iter()
             .map(|target| {
                 let value = self
-                    .property_value(&crate::timeline::PropertyAddress {
-                        item_id: target.item_id(),
-                        effect_id: target.owner().effect_id(),
-                        property_id: target.property_id().to_owned(),
-                        element_id: target.element_id(),
-                        scalar_index: target.scalar_index(),
-                    })
+                    .property_value(target.address())
                     .ok_or(SceneVariableEditError::TargetNotFound)?;
                 Ok((target.clone(), value))
             })
             .collect::<Result<Vec<_>, SceneVariableEditError>>()?;
-        self.try_edit_project(None, |editor| {
+        self.try_edit_project(EditImpact::MediaDependencies, None, |editor| {
             for (target, value) in bindings {
                 editor
                     .apply_scene_binding(scene_id, &target, value)
@@ -432,7 +456,7 @@ impl TimelineEditor {
             }
             editor
                 .project_mut()
-                .scenes
+                .scenes_mut()
                 .get_mut(&scene_id)
                 .expect("active scene exists")
                 .variables_mut()
@@ -443,7 +467,7 @@ impl TimelineEditor {
                     item.animations.retain_valid_for_property(argument_id, None);
                 });
                 remove_bindings_for_nested_argument(
-                    &mut editor.project_mut().scenes,
+                    editor.project_mut().scenes_mut(),
                     scene_id,
                     argument_id,
                 );

@@ -1,3 +1,4 @@
+use crate::ui::timeline::track_viewport_width;
 use gpui::{Context, MouseDownEvent, MouseMoveEvent, ScrollWheelEvent, Window, point, px};
 
 use zerium_core::timeline::Frame;
@@ -9,36 +10,17 @@ use crate::ui::timeline::{LAYER_HEADER_WIDTH, Timeline, layer_scroll_base};
 const ZOOM_STEP: f32 = 1.05;
 
 impl Timeline {
-    fn dominant_scroll_delta(event: &ScrollWheelEvent, window: &Window) -> f32 {
-        let delta = event.delta.pixel_delta(window.line_height());
-        let x = f32::from(delta.x);
-        let y = f32::from(delta.y);
-
-        if x.abs() > y.abs() { x } else { y }
-    }
-
-    fn zoom_factor(event: &ScrollWheelEvent, window: &Window) -> Option<f32> {
-        let delta = Self::dominant_scroll_delta(event, window);
-        if delta > 0. {
-            Some(ZOOM_STEP)
-        } else if delta < 0. {
-            Some(1. / ZOOM_STEP)
-        } else {
-            None
-        }
-    }
-
     pub(in crate::ui::timeline) fn zoom_horizontal(
         &mut self,
         event: &ScrollWheelEvent,
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(factor) = Self::zoom_factor(event, window) else {
+        let Some(factor) = zoom_factor(event, window) else {
             return;
         };
 
-        let viewport_width = Self::track_viewport_width(window);
+        let viewport_width = track_viewport_width(window);
         let cursor_x = (f32::from(event.position.x) - LAYER_HEADER_WIDTH).clamp(0., viewport_width);
         if self
             .viewport
@@ -54,7 +36,7 @@ impl Timeline {
         window: &Window,
         cx: &mut Context<Self>,
     ) {
-        let Some(factor) = Self::zoom_factor(event, window) else {
+        let Some(factor) = zoom_factor(event, window) else {
             return;
         };
 
@@ -99,7 +81,7 @@ impl Timeline {
         } else if event.modifiers.alt {
             self.scroll_layers(event, window, cx);
         } else {
-            let delta = Self::dominant_scroll_delta(event, window);
+            let delta = dominant_scroll_delta(event, window);
             if self.viewport.scroll_horizontal(delta) {
                 cx.notify();
             }
@@ -135,7 +117,7 @@ impl Timeline {
         window: &Window,
         cx: &Context<Self>,
     ) -> Frame {
-        let viewport_width = Self::track_viewport_width(window);
+        let viewport_width = track_viewport_width(window);
         self.viewport.frame_at_x(
             position_x,
             LAYER_HEADER_WIDTH,
@@ -188,5 +170,24 @@ impl Timeline {
         self.transport.update(cx, |transport, cx| {
             transport.end_scrub(ScrubSource::Timeline, cx);
         });
+    }
+}
+
+fn dominant_scroll_delta(event: &ScrollWheelEvent, window: &Window) -> f32 {
+    let delta = event.delta.pixel_delta(window.line_height());
+    let x = f32::from(delta.x);
+    let y = f32::from(delta.y);
+
+    if x.abs() > y.abs() { x } else { y }
+}
+
+fn zoom_factor(event: &ScrollWheelEvent, window: &Window) -> Option<f32> {
+    let delta = dominant_scroll_delta(event, window);
+    if delta > 0. {
+        Some(ZOOM_STEP)
+    } else if delta < 0. {
+        Some(1. / ZOOM_STEP)
+    } else {
+        None
     }
 }
