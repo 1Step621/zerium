@@ -1,9 +1,9 @@
 use std::sync::Arc;
 
 use crate::engine::media::{
-    AudioFormat, AudioGainEvaluation, AudioTimelineGraph, MediaReaderRegistry, sample_boundary,
+    AudioCalculationPolicy, AudioFormat, AudioTimelineGraph, MediaReaderRegistry, sample_boundary,
 };
-use zerium_core::timeline::{Frame, FrameRate, TimelineItem};
+use zerium_core::timeline::{AudioTimelineSnapshot, Frame, TimelineEditor};
 
 const SAMPLE_FRAMES: usize = 2_048;
 const FORMAT: AudioFormat = AudioFormat {
@@ -13,9 +13,7 @@ const FORMAT: AudioFormat = AudioFormat {
 
 pub(crate) struct AudioLevelSampler {
     media_readers: Arc<MediaReaderRegistry>,
-    items: Vec<TimelineItem>,
-    media_cache: Arc<zerium_core::media::MediaMetadataCache>,
-    frame_rate: Option<FrameRate>,
+    timeline: Option<AudioTimelineSnapshot>,
     graph: Option<AudioTimelineGraph>,
     cached: Option<(Frame, [f32; 2])>,
 }
@@ -24,52 +22,52 @@ impl AudioLevelSampler {
     pub(crate) fn new(media_readers: Arc<MediaReaderRegistry>) -> Self {
         Self {
             media_readers,
-            items: Vec::new(),
-            media_cache: Arc::default(),
-            frame_rate: None,
+            timeline: None,
             graph: None,
             cached: None,
         }
     }
 
     pub(crate) fn clear(&mut self) {
-        self.items.clear();
-        self.frame_rate = None;
+        self.timeline = None;
         self.graph = None;
         self.cached = None;
     }
 
-    pub(crate) fn levels_at(
-        &mut self,
-        items: Vec<TimelineItem>,
-        frame: Frame,
-        frame_rate: FrameRate,
-        cache: Arc<zerium_core::media::MediaMetadataCache>,
-    ) -> [f32; 2] {
-        if self.frame_rate != Some(frame_rate)
-            || self.items != items
-            || !Arc::ptr_eq(&self.media_cache, &cache)
-        {
-            self.graph = AudioTimelineGraph::new(
-                &items,
-                &cache,
-                frame_rate,
-                FORMAT,
-                &self.media_readers,
-                AudioGainEvaluation::TimelineAnimation,
-            )
-            .ok();
-            self.media_cache = cache;
-            self.items = items;
-            self.frame_rate = Some(frame_rate);
-            self.cached = None;
-        }
-        if let Some((cached_frame, levels)) = self.cached
+    pub(crate) fn levels_at(&mut self, editor: &TimelineEditor) -> [f32; 2] {
+        let timeline = editor.audio_snapshot();
+        let frame = editor.playhead();
+        let frame_rate = timeline.frame_rate();
+        let unchanged = self
+            .timeline
+            .as_ref()
+            .is_some_and(|previous| previous.same_content(&timeline));
+        if unchanged
+            && let Some((cached_frame, levels)) = self.cached
             && cached_frame == frame
         {
             return levels;
         }
-
+        if !unchanged {
+            if let Some(graph) = &mut self.graph {
+                if graph
+                    .update_timeline(timeline.clone(), &self.media_readers)
+                    .is_err()
+                {
+                    self.graph = None;
+                }
+            } else {
+                self.graph = AudioTimelineGraph::new(
+                    timeline.clone(),
+                    FORMAT,
+                    &self.media_readers,
+                    AudioCalculationPolicy::Fallback,
+                )
+                .ok();
+            }
+            self.timeline = Some(timeline);
+            self.cached = None;
+        }
         let levels = self
             .graph
             .as_mut()

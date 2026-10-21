@@ -2,6 +2,7 @@
 
 mod abi;
 mod bounds;
+pub(crate) use bounds::register_functions as register_script_functions;
 mod capability;
 mod category;
 mod editor;

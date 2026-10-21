@@ -1,4 +1,5 @@
 mod aspect_ratio;
+mod audio;
 mod blend_mode;
 mod commands;
 mod document;
@@ -7,6 +8,7 @@ mod evaluation;
 mod history;
 mod ids;
 mod item;
+mod media;
 mod project;
 mod properties;
 mod property_address;
@@ -21,22 +23,25 @@ mod visibility;
 pub use aspect_ratio::AspectRatio;
 pub use blend_mode::BlendMode;
 pub use commands::{
-    AnimationEdit, AnimationEditTarget, AnimationValuePlan, EditGesture, SceneArgumentEditError,
+    AnimationEdit, AnimationEditTarget, AnimationValuePlan, EditGesture, SceneVariableEditError,
     TimelineEditError, ValueEdit, ValueEditTarget,
 };
 pub use document::TimelineDocument;
 pub use document::{ResizeEdge, ResizeMode};
 pub use editor::TimelineEditor;
-pub use evaluation::EvaluatedSceneNode;
+pub use evaluation::{EvaluatedSceneNode, SceneRenderStage};
 pub use ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId};
 pub use item::{EffectInstance, RenderResultSettings, TimelineItem, TimelineItemKind};
 pub use property_address::PropertyAddress;
 pub use scene::SceneDefinition;
 pub use scene::{
-    SceneArgument, SceneArgumentPreset, SceneBindingOwner, SceneBindingTarget,
+    SceneBindingOwner, SceneBindingTarget, SceneCalculation, SceneCalculationInput,
+    SceneEvaluation, SceneVariable, SceneVariablePreset, SceneVariableSource,
     resolve_scene_binding,
 };
 pub use settings::{BeatGuide, ProjectResolution};
 pub use time::{Frame, FrameDuration, FrameRate, TimelineTime};
 pub use time_mapping::TimeMapping;
 pub use view::{TimelineSnapshot, TimelineView};
+
+pub use audio::{AudioClipId, AudioTimelineSnapshot, AudioTimelineSource, EvaluatedAudioGain};

@@ -183,9 +183,9 @@ impl TimelineEditor {
                         binding.scalar_index(),
                     );
                     let argument = scene
-                        .arguments
+                        .variables_mut()
                         .iter_mut()
-                        .find(|argument| argument.schema.id() == argument_id)?;
+                        .find(|argument| argument.id() == argument_id)?;
                     if argument.bindings.contains(&remapped) {
                         return None;
                     }
@@ -193,12 +193,36 @@ impl TimelineEditor {
                 }
                 let mut targets = HashSet::new();
                 if scene
-                    .arguments
+                    .variables()
                     .iter()
                     .flat_map(|argument| &argument.bindings)
                     .any(|binding| !targets.insert(binding.clone()))
                 {
                     return None;
+                }
+            }
+
+            // Clipboard references are untrusted and may outlive schema edits.
+            // Validate connections against the copied items before committing.
+            if let Some(scene_id) = active_scene {
+                let scene = next_project.scenes.get(&scene_id)?;
+                for variable in scene.variables() {
+                    for binding in &variable.bindings {
+                        let resolved = crate::timeline::resolve_scene_binding(
+                            &next_project.scenes,
+                            scene,
+                            binding,
+                        )?;
+                        if resolved.animated
+                            || !resolved.schema.is_scene_bindable(None)
+                            || !resolved
+                                .schema
+                                .scalar_type(None, None)
+                                .is_some_and(|ty| ty.same_type(variable.ty()))
+                        {
+                            return None;
+                        }
+                    }
                 }
             }
 

@@ -9,7 +9,7 @@ edition = "2024"
 license = "GPL-3.0-or-later"
 
 [workspace.dependencies]
-evalexpr = { version = "13.1", features = ["serde"] }
+rhai = { version = "1.25", features = ["sync", "no_module", "no_time"] }
 naga = { version = "30", features = ["wgsl-in"] }
 rust-i18n = "4.2.2"
 serde = { version = "1", features = ["derive"] }

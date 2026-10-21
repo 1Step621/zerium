@@ -1,46 +1,50 @@
-//! Scene definitions, their exposed arguments, and instance expansion.
-mod argument;
+//! Scene definitions, arguments, calculations, and instance expansion.
 mod binding;
+mod calculation;
+mod variable;
+pub(in crate::timeline) use calculation::VariableEvaluator;
+pub use calculation::{SceneCalculation, SceneCalculationInput, SceneEvaluation};
 mod expansion;
 
-pub(in crate::timeline) use argument::unique_scene_argument_name;
-pub use argument::{SceneArgument, SceneArgumentPreset};
 pub(crate) use binding::apply_scene_binding_to_item;
 pub use binding::{SceneBindingOwner, SceneBindingTarget, resolve_scene_binding};
+pub(in crate::timeline) use variable::unique_scene_variable_name;
+pub use variable::{SceneVariable, SceneVariablePreset, SceneVariableSource};
 
 use super::{
     Frame, FrameDuration, ItemId, LayerId, SceneId, TimelineDocument, TimelineItem, TimelineTime,
-    properties::{SceneArguments, resolve_item},
+    properties::{SceneBindings, resolve_item},
     property_address::resolve_property_schema,
 };
-use std::collections::HashMap;
+use std::{collections::HashMap, sync::Arc};
 
 #[derive(Clone)]
 pub struct SceneDefinition {
     pub id: SceneId,
     pub name: String,
-    pub arguments: Vec<SceneArgument>,
+    variables: Vec<SceneVariable>,
+    runtime: Arc<calculation::SceneRuntime>,
     document: TimelineDocument,
     stretch_point: Frame,
-    next_argument_id: Option<u64>,
+    next_variable_ordinal: Option<u64>,
 }
 
 impl SceneDefinition {
-    /// Apply arguments to detached items. None selects the scene's defaults when
+    /// Apply scene variables to detached items. None selects the scene's defaults when
     /// editing or visiting the definition independently of a placed instance.
-    pub(crate) fn apply_arguments<'a>(
+    pub(crate) fn apply_variables<'a>(
         &self,
         scenes: &HashMap<SceneId, SceneDefinition>,
         instance: Option<&TimelineItem>,
         items: impl IntoIterator<Item = &'a mut TimelineItem>,
     ) {
-        let arguments = SceneArguments::new(scenes, self, instance.map(|item| &item.properties));
+        let arguments = SceneBindings::new(scenes, self, instance.map(|item| &item.properties));
         for item in items {
-            let resolved = resolve_item(scenes, Some(arguments), item, None);
+            let resolved = resolve_item(scenes, Some(&arguments), item, None);
             // Only connected inputs become stored values. Other scene inputs
             // must keep inheriting defaults when this detached item is copied.
             for binding in self
-                .arguments
+                .variables
                 .iter()
                 .flat_map(|argument| &argument.bindings)
                 .filter(|binding| binding.item_id() == resolved.id)
@@ -80,10 +84,9 @@ impl SceneDefinition {
         true
     }
 
-    /// Expand a resolved instance and apply its arguments to detached children.
-    pub(super) fn instance_items(
+    /// Placement and clocks are independent of property and diagnostic resolution.
+    pub(super) fn expanded_items(
         &self,
-        scenes: &HashMap<SceneId, SceneDefinition>,
         instance: &TimelineItem,
         time: Option<TimelineTime>,
     ) -> Vec<(LayerId, TimelineItem)> {
@@ -102,11 +105,6 @@ impl SceneDefinition {
         for (_, item) in &mut items {
             expansion.apply(item);
         }
-        self.apply_arguments(
-            scenes,
-            Some(instance),
-            items.iter_mut().map(|(_, item)| item),
-        );
         items
     }
 
@@ -114,20 +112,33 @@ impl SceneDefinition {
         self.document.items()
     }
 
-    pub fn arguments(&self) -> impl Iterator<Item = &SceneArgument> {
-        self.arguments.iter()
+    pub fn variables(&self) -> &[SceneVariable] {
+        &self.variables
     }
 
-    pub fn argument(&self, id: &str) -> Option<&SceneArgument> {
-        self.arguments
+    pub(in crate::timeline) fn variables_mut(&mut self) -> &mut Vec<SceneVariable> {
+        self.runtime = Arc::default();
+        &mut self.variables
+    }
+
+    pub fn arguments(&self) -> impl Iterator<Item = &SceneVariable> {
+        self.variables
             .iter()
-            .find(|argument| argument.schema.id() == id)
+            .filter(|variable| variable.calculation().is_none())
     }
 
-    pub fn argument_mut(&mut self, id: &str) -> Option<&mut SceneArgument> {
-        self.arguments
+    pub fn argument(&self, id: &str) -> Option<&SceneVariable> {
+        self.arguments().find(|argument| argument.id() == id)
+    }
+
+    pub fn variable(&self, id: &str) -> Option<&SceneVariable> {
+        self.variables.iter().find(|variable| variable.id() == id)
+    }
+
+    pub fn variable_mut(&mut self, id: &str) -> Option<&mut SceneVariable> {
+        self.variables_mut()
             .iter_mut()
-            .find(|argument| argument.schema.id() == id)
+            .find(|variable| variable.id() == id)
     }
 
     pub fn is_empty(&self) -> bool {
@@ -146,35 +157,35 @@ impl SceneDefinition {
         &mut self.document
     }
 
-    pub(super) fn allocate_argument_id(&mut self) -> Option<(String, u64)> {
-        let ordinal = self.next_argument_id?;
-        self.next_argument_id = ordinal.checked_add(1).filter(|id| *id != u64::MAX);
-        Some((format!("argument_{ordinal}"), ordinal))
+    pub(super) fn allocate_variable_id(&mut self) -> Option<(String, u64)> {
+        let ordinal = self.next_variable_ordinal?;
+        self.next_variable_ordinal = ordinal.checked_add(1).filter(|id| *id != u64::MAX);
+        let identity = super::ProjectId::generate();
+        Some((
+            format!("variable_{:016x}{:016x}", identity.high(), identity.low()),
+            ordinal,
+        ))
     }
 
     pub fn from_project(
         id: SceneId,
         name: String,
-        arguments: Vec<SceneArgument>,
+        variables: Vec<SceneVariable>,
         document: TimelineDocument,
     ) -> Self {
-        let next_argument_id = arguments
-            .iter()
-            .filter_map(|argument| argument.schema.id().strip_prefix("argument_"))
-            .filter_map(|id| id.parse::<u64>().ok())
-            .max()
-            .unwrap_or(0)
-            .checked_add(1)
-            .filter(|id| *id != u64::MAX);
+        let next_variable_ordinal = u64::try_from(variables.len())
+            .ok()
+            .and_then(|n| n.checked_add(1));
         let duration = document.end_frame_exclusive();
         let stretch_point = Frame::new(duration.get() / 2);
         Self {
             id,
             name,
-            arguments,
+            variables,
+            runtime: Arc::default(),
             document,
             stretch_point,
-            next_argument_id,
+            next_variable_ordinal,
         }
     }
 }

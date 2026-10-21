@@ -43,7 +43,7 @@ impl AnimationRepeat {
     /// even frame count so both turnaround keys occupy whole frames.
     pub fn new(mode: RepeatMode, period: FrameDuration, phase: Frame) -> Self {
         let mut period = period.get();
-        if mode == RepeatMode::PingPong && period % 2 != 0 {
+        if mode == RepeatMode::PingPong && !period.is_multiple_of(2) {
             period = period.checked_add(1).unwrap_or(period - 1);
         }
         Self {

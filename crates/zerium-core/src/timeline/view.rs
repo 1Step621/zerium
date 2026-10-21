@@ -3,8 +3,8 @@ use std::sync::Arc;
 use super::{
     editor::TimelineEditor,
     evaluation::{
-        EvaluatedSceneNode, evaluated_items_at_time, evaluated_scene_graph_at_time, visible_items,
-        visit_source_items,
+        EvaluatedSceneNode, SceneRenderStage, evaluated_items_at_time,
+        evaluated_scene_graph_at_time,
     },
     ids::{ItemId, LayerId, ProjectId},
     item::TimelineItem,
@@ -41,13 +41,21 @@ pub trait TimelineView {
 
     fn active_items_at_time(&self, time: TimelineTime) -> Vec<(LayerId, TimelineItem)>;
 
-    fn active_scene_graph_at_time(&self, time: TimelineTime) -> Vec<EvaluatedSceneNode>;
+    fn active_scene_graph_at_time(&self, time: TimelineTime) -> Vec<EvaluatedSceneNode> {
+        self.scene_graph_at_time(time, &[])
+    }
+
+    /// Evaluate the edited composition for a consumer's effect-stage limits.
+    /// Omitted effects never resolve properties or execute scene calculations.
+    fn scene_graph_at_time(
+        &self,
+        time: TimelineTime,
+        stages: &[SceneRenderStage],
+    ) -> Vec<EvaluatedSceneNode>;
 
     fn active_items_at(&self, frame: Frame) -> Vec<(LayerId, TimelineItem)> {
         self.active_items_at_time(TimelineTime::from_frame(frame))
     }
-
-    fn visible_items(&self) -> Vec<TimelineItem>;
 
     fn end_frame_exclusive(&self) -> Frame;
 }
@@ -78,24 +86,13 @@ impl TimelineSnapshot {
         self.project.document.items()
     }
 
-    /// Visit all argument-resolved source items, including unused scenes and
-    /// scene-instance effects. Unlike rendering, this traversal does not clip
-    /// items to a time range or assign runtime identities.
-    pub fn visit_resolved_items(&self, mut visit: impl FnMut(&TimelineItem)) {
-        visit_source_items(
-            self.project.document.source_items(),
-            &self.project.scenes,
-            &mut visit,
-        );
-        for scene in self.project.scenes.values() {
-            let mut items = scene.document().source_items();
-            scene.apply_arguments(
-                &self.project.scenes,
-                None,
-                items.iter_mut().map(|(_, item)| item),
-            );
-            visit_source_items(items, &self.project.scenes, &mut visit);
-        }
+    pub fn audio_snapshot(&self) -> super::AudioTimelineSnapshot {
+        super::AudioTimelineSnapshot::new(
+            self.project.clone(),
+            self.media_cache.clone(),
+            None,
+            None,
+        )
     }
 
     pub fn item_layer(&self, id: ItemId) -> Option<LayerId> {
@@ -130,23 +127,22 @@ impl TimelineView for TimelineSnapshot {
             &self.project.scenes,
             time,
             None,
+            None,
         )
     }
 
-    fn active_scene_graph_at_time(&self, time: TimelineTime) -> Vec<EvaluatedSceneNode> {
+    fn scene_graph_at_time(
+        &self,
+        time: TimelineTime,
+        stages: &[SceneRenderStage],
+    ) -> Vec<EvaluatedSceneNode> {
         evaluated_scene_graph_at_time(
             self.project.document.active_source_items_at_time(time),
             &self.project.scenes,
             time,
             None,
-        )
-    }
-
-    fn visible_items(&self) -> Vec<TimelineItem> {
-        visible_items(
-            self.project.document.source_items(),
-            &self.project.scenes,
             None,
+            stages,
         )
     }
 
@@ -176,17 +172,19 @@ impl TimelineView for TimelineEditor {
         TimelineEditor::active_items_at_time(self, time)
     }
 
-    fn active_scene_graph_at_time(&self, time: TimelineTime) -> Vec<EvaluatedSceneNode> {
+    fn scene_graph_at_time(
+        &self,
+        time: TimelineTime,
+        stages: &[SceneRenderStage],
+    ) -> Vec<EvaluatedSceneNode> {
         evaluated_scene_graph_at_time(
-            self.active_source_items(Some(time)),
+            self.active_document().active_source_items_at_time(time),
             &self.project().scenes,
             time,
             Some(&self.visibility),
+            self.active_scene_id().and_then(|id| self.scene(id)),
+            stages,
         )
-    }
-
-    fn visible_items(&self) -> Vec<TimelineItem> {
-        TimelineEditor::visible_items(self)
     }
 
     fn end_frame_exclusive(&self) -> Frame {

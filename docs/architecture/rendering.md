@@ -33,6 +33,19 @@ its required temporal samples together, then creates a `RenderEffect` with its
 complete input list. `RenderInput` pairs each shader input name with its node.
 Media raster requests use the input source's properties and placement.
 
+Temporal samples request the image before their consuming effect. Core scene
+evaluation removes later effects before resolving properties, so their
+calculations and render-result captures cannot affect that sample. Stage limits
+use stable scene-instance paths and count preview-visible effects. Nested samples
+retain ancestor limits while adding their own. Scene evaluation, composition,
+and render-node caches include these limits as well as time, keeping a sampled
+prefix separate from the complete effect chain even at the same timestamp.
+
+Evaluated items and scene instances both receive placement-specific runtime IDs.
+Media and text inputs on scene-instance effects therefore remain independent
+across repeated placements. Stable source paths continue to identify evaluation
+stages and composition scopes.
+
 `RenderGraph` is a logical DAG that interns equivalent items, native frames, and
 passes. Node descriptions refer to child identities, so hashing and equality do
 not traverse the dependency graph. Unchanged nodes retain their identity from

@@ -132,7 +132,7 @@ impl PropertyConstraints {
         ty.value_from_number(value.clamp(min, max))
     }
 
-    pub(super) fn validate(
+    pub(crate) fn validate(
         &self,
         owner_kind: &str,
         owner_id: &str,

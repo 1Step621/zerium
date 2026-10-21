@@ -1,6 +1,5 @@
 //! Logical composition-space bounds, independent of the texture resolution.
 
-use evalexpr::{ContextWithMutableVariables, Value};
 use std::collections::BTreeMap;
 use zerium_core::plugin::{OutputBoundsSchema, program_context};
 use zerium_core::property::PropertyValues;
@@ -189,17 +188,15 @@ pub(crate) struct BoundsContext<'a> {
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct BoundsOperation {
-    min: [evalexpr::Node; 2],
-    max: [evalexpr::Node; 2],
+    schema: OutputBoundsSchema,
     values: PropertyValues,
     overrides: BTreeMap<String, f64>,
 }
 
 impl BoundsOperation {
-    pub(crate) fn evaluate(&self, rects: &BoundsContext<'_>) -> SurfaceRect {
+    pub(crate) fn evaluate(&self, rects: &BoundsContext<'_>) -> Result<SurfaceRect, String> {
         let Self {
-            min,
-            max,
+            schema,
             values,
             overrides,
         } = self;
@@ -223,25 +220,10 @@ impl BoundsOperation {
                 .iter()
                 .map(|(name, min, max)| (name.as_str(), *min, *max)),
             values,
+            overrides,
         );
-
-        for (name, value) in overrides {
-            context
-                .set_value(format!("o::{name}"), Value::from_float(*value))
-                .expect("validated override");
-        }
-
-        let mut evaluate = |nodes: &[evalexpr::Node; 2]| {
-            std::array::from_fn(|axis| {
-                nodes[axis]
-                    .eval_number_with_context_mut(&mut context)
-                    .unwrap_or(f64::NAN)
-            })
-        };
-        SurfaceRect {
-            min: evaluate(min),
-            max: evaluate(max),
-        }
+        let [min, max] = schema.evaluate(&mut context)?;
+        Ok(SurfaceRect { min, max })
     }
 
     pub(crate) fn from_schema(
@@ -250,8 +232,7 @@ impl BoundsOperation {
         overrides: &BTreeMap<String, f64>,
     ) -> Box<Self> {
         Box::new(Self {
-            min: schema.min.clone(),
-            max: schema.max.clone(),
+            schema: schema.clone(),
             values: values.clone(),
             overrides: overrides.clone(),
         })

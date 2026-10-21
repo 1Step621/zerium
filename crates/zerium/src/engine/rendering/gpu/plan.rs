@@ -260,11 +260,11 @@ impl RenderGraphBuilder<'_> {
         id
     }
 
-    fn encode_source(&mut self, item: &RenderItem) -> RenderNodeId {
+    fn encode_source(&mut self, item: &RenderItem) -> Result<RenderNodeId, RenderError> {
         let mut images = Vec::with_capacity(item.inputs.len());
         let mut image_bounds = Vec::with_capacity(item.inputs.len());
         for (index, input) in item.inputs.iter().enumerate() {
-            let node = self.encode_node(input.node);
+            let node = self.encode_node(input.node)?;
             images.push(ImageInput {
                 node,
                 binding: ImageBinding::named(index),
@@ -272,18 +272,23 @@ impl RenderGraphBuilder<'_> {
             image_bounds.push((input.id.clone(), self.output.nodes[node].bounds));
         }
         let viewport = SurfaceRect::viewport(self.scene.composition_size);
-        let bounds = item.output_bounds.evaluate(&BoundsContext {
-            input: viewport,
-            source: viewport,
-            viewport,
-            images: &image_bounds,
-        });
+        let bounds = item
+            .output_bounds
+            .evaluate(&BoundsContext {
+                input: viewport,
+                source: viewport,
+                viewport,
+                images: &image_bounds,
+            })
+            .map_err(|error| {
+                RenderError::backend(format!("Item {:?} bounds: {error}", item.shader))
+            })?;
         let kind = RenderNodeKind::Item {
             shader: item.shader.clone(),
             properties: item.properties.as_slice().into(),
             images,
         };
-        self.intern_node(kind, bounds)
+        Ok(self.intern_node(kind, bounds))
     }
 
     fn encode_frame(&mut self, frame: &Arc<VisualFrame>) -> RenderNodeId {
@@ -303,12 +308,16 @@ impl RenderGraphBuilder<'_> {
         self.intern_node(RenderNodeKind::Transparent, bounds)
     }
 
-    fn encode_effects(&mut self, mut node: RenderNodeId, effects: &[RenderEffect]) -> RenderNodeId {
+    fn encode_effects(
+        &mut self,
+        mut node: RenderNodeId,
+        effects: &[RenderEffect],
+    ) -> Result<RenderNodeId, RenderError> {
         for effect in effects {
             let mut capabilities = Vec::with_capacity(effect.inputs.len());
             let mut image_bounds = Vec::with_capacity(effect.inputs.len());
             for input in &effect.inputs {
-                let node = self.encode_node(input.node);
+                let node = self.encode_node(input.node)?;
                 capabilities.push(node);
                 image_bounds.push((input.id.clone(), self.output.nodes[node].bounds));
             }
@@ -318,7 +327,10 @@ impl RenderGraphBuilder<'_> {
             {
                 for sample in samples {
                     temporal_inputs.push((
-                        sample.input.map(|input| self.encode_node(input)),
+                        sample
+                            .input
+                            .map(|input| self.encode_node(input))
+                            .transpose()?,
                         sample.frame_offset,
                     ));
                 }
@@ -347,12 +359,20 @@ impl RenderGraphBuilder<'_> {
                             self.output.nodes[source].bounds,
                         )
                     };
-                let bounds = pass.output_bounds.evaluate(&BoundsContext {
-                    input: input_bounds,
-                    source: source_bounds,
-                    viewport,
-                    images: &image_bounds,
-                });
+                let bounds = pass
+                    .output_bounds
+                    .evaluate(&BoundsContext {
+                        input: input_bounds,
+                        source: source_bounds,
+                        viewport,
+                        images: &image_bounds,
+                    })
+                    .map_err(|error| {
+                        RenderError::backend(format!(
+                            "Effect pass {:?} bounds: {error}",
+                            pass.shader
+                        ))
+                    })?;
 
                 match &pass.kind {
                     RenderEffectPassKind::Temporal(_) => {
@@ -403,7 +423,7 @@ impl RenderGraphBuilder<'_> {
             }
         }
 
-        node
+        Ok(node)
     }
 
     fn encode_pass(
@@ -443,49 +463,51 @@ impl RenderGraphBuilder<'_> {
         self.intern_node(RenderNodeKind::Pass { images, pass }, bounds)
     }
 
-    fn encode_composite(&mut self, children: &[SceneNodeId]) -> RenderNodeId {
+    fn encode_composite(&mut self, children: &[SceneNodeId]) -> Result<RenderNodeId, RenderError> {
         let children = children
             .iter()
-            .map(|child| RenderLayer {
-                node: self.encode_node(*child),
-                blend_mode: self.scene.nodes[*child].blend_mode,
+            .map(|child| {
+                Ok(RenderLayer {
+                    node: self.encode_node(*child)?,
+                    blend_mode: self.scene.nodes[*child].blend_mode,
+                })
             })
-            .collect::<Vec<_>>();
+            .collect::<Result<Vec<_>, RenderError>>()?;
         let bounds = children
             .iter()
             .map(|child| self.output.nodes[child.node].bounds)
             .filter(|bounds| !bounds.is_empty())
             .reduce(SurfaceRect::union)
             .unwrap_or(SurfaceRect::EMPTY);
-        self.intern_node(RenderNodeKind::Composite { children }, bounds)
+        Ok(self.intern_node(RenderNodeKind::Composite { children }, bounds))
     }
 
-    fn encode_node(&mut self, id: SceneNodeId) -> RenderNodeId {
+    fn encode_node(&mut self, id: SceneNodeId) -> Result<RenderNodeId, RenderError> {
         if let Some(plan) = self.encoded_nodes[id] {
-            return plan;
+            return Ok(plan);
         }
 
         let node = &self.scene.nodes[id];
         let plan = match &node.content {
             RenderNodeContent::Frame(frame) => self.encode_frame(frame),
             RenderNodeContent::Item(item) => {
-                let source = self.encode_source(item);
-                self.encode_effects(source, &item.effects)
+                let source = self.encode_source(item)?;
+                self.encode_effects(source, &item.effects)?
             }
             RenderNodeContent::Scene {
                 children, effects, ..
             } => {
-                let composite = self.encode_composite(children);
-                self.encode_effects(composite, effects)
+                let composite = self.encode_composite(children)?;
+                self.encode_effects(composite, effects)?
             }
             RenderNodeContent::View { input, view } => {
-                let input = self.encode_node(*input);
+                let input = self.encode_node(*input)?;
                 let bounds = SurfaceRect::viewport(self.scene.composition_size);
                 self.intern_node(RenderNodeKind::View { input, view: *view }, bounds)
             }
         };
         self.encoded_nodes[id] = Some(plan);
-        plan
+        Ok(plan)
     }
 }
 
@@ -504,7 +526,7 @@ pub(super) fn build_render_graph(
         node_cache: HashMap::new(),
     };
     for node in &scene.roots {
-        let root = encoder.encode_node(*node);
+        let root = encoder.encode_node(*node)?;
         encoder.output.roots.push(RenderRoot {
             layer: RenderLayer {
                 node: root,

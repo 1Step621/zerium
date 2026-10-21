@@ -1,23 +1,34 @@
-//! Plugin declarations for the logical area produced by a visual operation.
-
-use evalexpr::{
-    ContextWithMutableFunctions, ContextWithMutableVariables, EvalexprError, Function,
-    HashMapContext, Node, Value,
-};
+//! Rhai programs returning logical output rectangles.
+use rhai::{Array, Dynamic, Engine, Map, Scope};
 use serde::Deserialize;
-use std::collections::{BTreeMap, HashSet};
+use std::collections::BTreeMap;
 
 use super::PluginError;
-use crate::property::{PropertySchema, PropertyValue, PropertyValues};
+use crate::{
+    property::{PropertySchema, PropertyValues},
+    script::{Script, number, to_dynamic},
+};
 
 #[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
+#[serde(deny_unknown_fields)]
 pub struct OutputBoundsSchema {
-    pub min: [Node; 2],
-    pub max: [Node; 2],
+    pub script: Script,
 }
 
 impl OutputBoundsSchema {
+    pub fn evaluate(&self, scope: &mut Scope<'_>) -> Result<[[f64; 2]; 2], String> {
+        let value = self.script.evaluate(scope)?;
+        let bounds = value
+            .try_cast::<Map>()
+            .ok_or("Bounds must return a map with min and max arrays")?;
+        let min = numbers::<2>(bounds.get("min").ok_or("Bounds must contain min")?)?;
+        let max = numbers::<2>(bounds.get("max").ok_or("Bounds must contain max")?)?;
+        if (0..2).any(|axis| min[axis] > max[axis]) {
+            return Err("Bounds minimum must not exceed maximum".to_owned());
+        }
+        Ok([min, max])
+    }
+
     pub(super) fn validate(
         &self,
         owner: &str,
@@ -27,18 +38,6 @@ impl OutputBoundsSchema {
         overrides: &BTreeMap<String, f64>,
     ) -> Result<(), PluginError> {
         let defaults = PropertyValues::from_properties(properties);
-        let mut names = HashSet::new();
-        for (name, value) in defaults.iter() {
-            let aliases = property_variables(name, value);
-            for (alias, _) in aliases {
-                if !names.insert(alias) {
-                    return Err(PluginError::invalid_definition(format!(
-                        "{owner} '{id}' bounds program has ambiguous property variables"
-                    )));
-                }
-            }
-        }
-
         let mut rectangles = ["input", "source", "viewport"]
             .into_iter()
             .map(|name| (name.to_owned(), [-960., -540.], [960., 540.]))
@@ -48,170 +47,147 @@ impl OutputBoundsSchema {
                 .iter()
                 .map(|input| (format!("images::{}", input.id()), [-1., -1.], [1., 1.])),
         );
-        let mut context = program_context(
+        let mut scope = program_context(
             rectangles
                 .iter()
                 .map(|(name, min, max)| (name.as_str(), *min, *max)),
             &defaults,
+            overrides,
         );
-
-        for (name, value) in overrides {
-            set_bound_variable(&mut context, format!("o::{name}"), *value);
-        }
-
-        let mut result = [[0.0; 2]; 2];
-        for (side, expressions) in [&self.min, &self.max].into_iter().enumerate() {
-            for (axis, expression) in expressions.iter().enumerate() {
-                result[side][axis] = expression
-                    .eval_number_with_context_mut(&mut context)
-                    .map_err(|error| {
-                        PluginError::invalid_definition(format!(
-                            "{owner} '{id}' bounds program expression is invalid: {error}"
-                        ))
-                    })?;
-
-                if !result[side][axis].is_finite() {
-                    return Err(PluginError::invalid_definition(format!(
-                        "{owner} '{id}' bounds program expression must be finite at default values"
-                    )));
-                }
-            }
-        }
-
-        if (0..2).any(|axis| result[0][axis] > result[1][axis]) {
-            return Err(PluginError::invalid_definition(format!(
-                "{owner} '{id}' bounds program has reversed bounds at default values"
-            )));
-        }
-        Ok(())
-    }
-}
-
-fn bound_scalar(value: &PropertyValue) -> Option<f64> {
-    match value {
-        PropertyValue::Enum(value) => Some(f64::from(*value)),
-        PropertyValue::Bool(value) => Some(f64::from(u8::from(*value))),
-        _ => value.numeric_scalar(),
-    }
-}
-
-fn property_variables<'a>(
-    id: &'a str,
-    value: &'a PropertyValue,
-) -> impl Iterator<Item = (String, f64)> + 'a {
-    let (scalars, tuple) = match value {
-        PropertyValue::Tuple(values) => (values.as_slice(), true),
-        value => (std::slice::from_ref(value), false),
-    };
-    scalars
-        .iter()
-        .enumerate()
-        .filter_map(move |(index, value)| {
-            let value = bound_scalar(value)?;
-            let name = if tuple {
-                format!("p::{id}::v{index}")
-            } else {
-                format!("p::{id}")
-            };
-            Some((name, value))
+        self.evaluate(&mut scope).map(|_| ()).map_err(|error| {
+            PluginError::invalid_definition(format!(
+                "{owner} '{id}' bounds program is invalid: {error}"
+            ))
         })
+    }
+}
+
+fn point(x: f64, y: f64) -> Dynamic {
+    Dynamic::from_map(
+        [
+            ("x".into(), Dynamic::from_float(x)),
+            ("y".into(), Dynamic::from_float(y)),
+        ]
+        .into_iter()
+        .collect(),
+    )
 }
 
 pub fn program_context<'a>(
     rectangles: impl IntoIterator<Item = (&'a str, [f64; 2], [f64; 2])>,
     values: &PropertyValues,
-) -> HashMapContext {
-    let mut context = HashMapContext::new();
-    for (name, side, axis) in [
-        ("projected_rect_min_x", 0, 0),
-        ("projected_rect_min_y", 0, 1),
-        ("projected_rect_max_x", 1, 0),
-        ("projected_rect_max_y", 1, 1),
-    ] {
-        context
-            .set_function(
-                name.to_owned(),
-                Function::new(move |arguments| {
-                    projected_rect(arguments).map(|bounds| Value::from_float(bounds[side][axis]))
-                }),
-            )
-            .expect("bounds function names are static identifiers");
+    overrides: &BTreeMap<String, f64>,
+) -> Scope<'static> {
+    let mut scope = Scope::new();
+    let mut images = Map::new();
+    for (name, min, max) in rectangles {
+        let rectangle = Dynamic::from_map(
+            [
+                ("min".into(), point(min[0], min[1])),
+                ("max".into(), point(max[0], max[1])),
+                (
+                    "center".into(),
+                    point((min[0] + max[0]) * 0.5, (min[1] + max[1]) * 0.5),
+                ),
+                ("size".into(), point(max[0] - min[0], max[1] - min[1])),
+            ]
+            .into_iter()
+            .collect(),
+        );
+        if let Some(id) = name.strip_prefix("images::") {
+            images.insert(id.into(), rectangle);
+        } else {
+            scope.push_constant_dynamic(name.to_owned(), rectangle);
+        }
     }
+    scope.push_constant("images", images);
+    scope.push_constant(
+        "p",
+        values
+            .iter()
+            .map(|(id, value)| (id.into(), to_dynamic(value)))
+            .collect::<Map>(),
+    );
+    scope.push_constant(
+        "o",
+        overrides
+            .iter()
+            .map(|(id, value)| (id.as_str().into(), Dynamic::from_float(*value)))
+            .collect::<Map>(),
+    );
+    scope
+}
 
-    context
-        .set_function(
-            "placement_center".to_owned(),
-            Function::new(|arguments: &Value| {
-                let arguments = arguments.as_fixed_len_tuple(3)?;
-                let position = arguments[0].as_number()?;
-                let size = arguments[1].as_number()?;
-                let origin = arguments[2].as_number()?;
-                if !(0. ..=2.).contains(&origin) || origin.fract() != 0. {
-                    return Err(EvalexprError::CustomMessage(
-                        "placement origin must be an integer in 0..=2".to_owned(),
-                    ));
-                }
-                Ok(Value::from_float(position + (1. - origin) * size * 0.5))
-            }),
-        )
-        .expect("bounds function names are static identifiers");
-
-    for (prefix, min, max) in rectangles {
-        for (axis, name) in ["x", "y"].into_iter().enumerate() {
-            for (kind, value) in [
-                ("min", min[axis]),
-                ("max", max[axis]),
-                ("center", (min[axis] + max[axis]) * 0.5),
-                ("size", max[axis] - min[axis]),
-            ] {
-                set_bound_variable(&mut context, format!("{prefix}::{kind}::{name}"), value);
+pub(crate) fn register_functions(engine: &mut Engine) {
+    engine.register_fn(
+        "projected_rect",
+        |min: Dynamic,
+         max: Dynamic,
+         rotation: Dynamic,
+         center: Dynamic,
+         focal: Dynamic,
+         near: Dynamic|
+         -> Result<Map, Box<rhai::EvalAltResult>> {
+            projected_rect(&[min, max, rotation, center, focal, near])
+                .map(|[min, max]| {
+                    [
+                        (
+                            "min".into(),
+                            Dynamic::from_array(min.into_iter().map(Dynamic::from_float).collect()),
+                        ),
+                        (
+                            "max".into(),
+                            Dynamic::from_array(max.into_iter().map(Dynamic::from_float).collect()),
+                        ),
+                    ]
+                    .into_iter()
+                    .collect()
+                })
+                .map_err(Into::into)
+        },
+    );
+    engine.register_fn(
+        "placement_center",
+        |position: Dynamic,
+         size: Dynamic,
+         origin: Dynamic|
+         -> Result<f64, Box<rhai::EvalAltResult>> {
+            let position = number(&position)?;
+            let size = number(&size)?;
+            let origin = number(&origin)?;
+            if !(0. ..=2.).contains(&origin) || origin.fract() != 0. {
+                return Err("placement origin must be an integer in 0..=2".into());
             }
-        }
+            Ok(position + (1. - origin) * size * 0.5)
+        },
+    );
+}
+
+fn invalid(message: &str) -> String {
+    format!("projected rectangle: {message}")
+}
+fn numbers<const N: usize>(value: &Dynamic) -> Result<[f64; N], String> {
+    let values = value
+        .clone()
+        .try_cast::<Array>()
+        .ok_or("Expected an array")?;
+    if values.len() != N {
+        return Err(format!("Expected {N} components"));
     }
-
-    for (id, value) in values.iter() {
-        for (name, value) in property_variables(id, value) {
-            set_bound_variable(&mut context, name, value);
-        }
-    }
-    context
-}
-
-fn set_bound_variable(context: &mut HashMapContext, name: String, value: f64) {
-    context
-        .set_value(name, Value::from_float(value))
-        .expect("bounds variable names are validated plugin identifiers");
-}
-
-fn invalid(message: &str) -> EvalexprError {
-    EvalexprError::CustomMessage(format!("projected rectangle: {message}"))
-}
-
-fn number(value: &Value) -> Result<f64, EvalexprError> {
-    let value = value.as_number()?;
-    if !value.is_finite() {
-        return Err(invalid("arguments must be finite"));
-    }
-    Ok(value)
-}
-
-fn numbers<const N: usize>(value: &Value) -> Result<[f64; N], EvalexprError> {
-    let values = value.as_fixed_len_tuple(N)?;
-    let mut result = [0.0; N];
-    for (result, value) in result.iter_mut().zip(&values) {
-        *result = number(value)?;
+    let mut result = [0.; N];
+    for (output, input) in result.iter_mut().zip(&values) {
+        *output = number(input)?;
     }
     Ok(result)
 }
 
-fn projected_rect(arguments: &Value) -> Result<[[f64; 2]; 2], EvalexprError> {
-    let arguments = arguments.as_fixed_len_tuple(6)?;
+fn projected_rect(arguments: &[Dynamic; 6]) -> Result<[[f64; 2]; 2], String> {
     let min: [f64; 2] = numbers(&arguments[0])?;
     let max: [f64; 2] = numbers(&arguments[1])?;
     let rotation: [f64; 3] = numbers(&arguments[2])?;
     let center: [f64; 2] = numbers(&arguments[3])?;
-    let focal = number(&arguments[4])?;
-    let near_ratio = number(&arguments[5])?;
+    let focal = crate::script::number(&arguments[4])?;
+    let near_ratio = crate::script::number(&arguments[5])?;
     let near = focal * near_ratio;
     if (0..2).any(|axis| min[axis] > max[axis]) {
         return Err(invalid("minimum must not exceed maximum"));
@@ -250,7 +226,7 @@ fn projected_rect(arguments: &Value) -> Result<[[f64; 2]; 2], EvalexprError> {
 
     let mut bounds = [[f64::INFINITY; 2], [f64::NEG_INFINITY; 2]];
     let mut visible = false;
-    let mut include = |vertex: [f64; 3]| -> Result<(), EvalexprError> {
+    let mut include = |vertex: [f64; 3]| -> Result<(), String> {
         for axis in 0..2 {
             let position = center[axis] + (focal / vertex[2]) * vertex[axis];
             if !position.is_finite() {

@@ -27,8 +27,9 @@ pub(super) struct NumericSettingDraft {
 }
 
 impl NumericSettingDraft {
-    pub(super) fn for_schema(schema: &PropertySchema) -> Option<Self> {
-        let constraints = schema.configuration_constraints(None);
+    pub(super) fn for_argument(argument: &zerium_core::timeline::SceneVariable) -> Option<Self> {
+        let schema = argument.argument_schema()?;
+        let constraints = argument.argument_limits()?;
         let ty = schema.scalar_type(None, None)?;
         let (min, max) = constraints.numeric_bounds(ty)?;
         Some(Self {
@@ -103,8 +104,6 @@ impl NumericSettingDraft {
                 NumericSetting::Default => return None,
             }
         }
-        let (min, max) = self.bounds(number);
-        self.default = self.default.clamp(min, max);
         Some(self)
     }
 

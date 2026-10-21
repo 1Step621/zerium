@@ -287,26 +287,9 @@
     "outputBounds": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["min", "max"],
+      "required": ["script"],
       "properties": {
-        "min": {
-          "type": "array",
-          "prefixItems": [
-            { "type": "string", "minLength": 1 },
-            { "type": "string", "minLength": 1 }
-          ],
-          "minItems": 2,
-          "maxItems": 2
-        },
-        "max": {
-          "type": "array",
-          "prefixItems": [
-            { "type": "string", "minLength": 1 },
-            { "type": "string", "minLength": 1 }
-          ],
-          "minItems": 2,
-          "maxItems": 2
-        }
+        "script": { "type": "string", "minLength": 1, "description": "Rhai script returning #{ min: [x, y], max: [x, y] }." }
       }
     },
     "item": {
@@ -723,8 +706,14 @@
     "itemRender": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["shader", "bounds"],
+      "required": ["shader", "bounds", "properties"],
       "properties": {
+        "properties": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": { "$ref": "#/$defs/wgslId" },
+          "description": "Ordered item property IDs consumed by shaders, bounds, and visual inputs. Audio-only properties are excluded."
+        },
         "shader": { "$ref": "#/$defs/shader" },
         "vertex_count": {
           "type": "integer",

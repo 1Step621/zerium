@@ -93,7 +93,7 @@ pub(super) fn validate_search_tags(
     Ok(())
 }
 
-/// Validate value contracts; ABI compilation already validates declaration names.
+/// Validate property value contracts; callers validate declaration names and uniqueness.
 pub(super) fn validate_property_schemas(
     owner_kind: &str,
     owner_id: &str,

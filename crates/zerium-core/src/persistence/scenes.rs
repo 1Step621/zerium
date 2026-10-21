@@ -7,8 +7,7 @@ use super::{
 use crate::{
     property::PropertySchema,
     timeline::{
-        LayerId, SceneArgument, SceneBindingTarget, SceneDefinition, SceneId, TimelineItem,
-        resolve_scene_binding,
+        LayerId, SceneDefinition, SceneId, SceneVariable, TimelineItem, resolve_scene_binding,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -23,7 +22,7 @@ pub(super) struct ProjectScene {
     pub(super) id: u64,
     pub(super) name: String,
     pub(super) stretch_point: u64,
-    pub(super) arguments: Vec<ProjectSceneArgument>,
+    pub(super) variables: Vec<SceneVariable>,
     pub(super) items: Vec<ProjectItem>,
 }
 
@@ -36,17 +35,25 @@ impl ProjectScene {
             id: scene.id.get(),
             name: scene.name.clone(),
             stretch_point: scene.stretch_point().get(),
-            arguments: scene
-                .arguments
+            variables: scene
+                .variables()
                 .iter()
-                .map(|argument| ProjectSceneArgument::capture(argument, project_path))
+                .cloned()
+                .map(|mut variable| {
+                    if let Some(schema) = variable.argument_schema_mut() {
+                        let mut value = schema.default_value();
+                        value.map_file_paths(&mut |path| make_relative(path, project_path));
+                        schema.set_default(value);
+                    }
+                    variable
+                })
                 .collect(),
             items: capture_items(scene.items(), |id| scene.item_layer(id), project_path)?,
         })
     }
 
     /// Resolve file defaults and prepare argument contracts before loading any instances.
-    pub(super) fn prepare_arguments(
+    pub(super) fn prepare_variables(
         &mut self,
         project_path: &Path,
     ) -> Result<Vec<PropertySchema>, ProjectError> {
@@ -54,62 +61,24 @@ impl ProjectScene {
             return Err(ProjectError::invalid_data("Scene name cannot be empty"));
         }
         let mut ids = HashSet::new();
-        let mut schemas = Vec::with_capacity(self.arguments.len());
-        for argument in &mut self.arguments {
-            let mut default = argument.schema.default_value();
-            default.map_file_paths(&mut |path| resolve_path(path, project_path));
-            argument.schema.set_default(default);
-            argument
-                .schema
-                .validate("scene", &self.name)
-                .map_err(|error| {
-                    ProjectError::invalid_data(format!(
-                        "Scene '{}' argument '{}' is invalid: {error}",
-                        self.name, argument.schema.id
-                    ))
-                })?;
-            argument.schema = SceneArgument::new(argument.schema.clone(), Vec::new())
-                .ok_or_else(|| {
-                    ProjectError::invalid_data(format!(
-                        "Scene '{}' argument '{}' must use a supported argument type",
-                        self.name, argument.schema.id
-                    ))
-                })?
-                .schema;
-            if !ids.insert(argument.schema.id.as_str()) {
-                return Err(ProjectError::invalid_data(format!(
-                    "Scene '{}' argument '{}' is duplicated",
-                    self.name, argument.schema.id
-                )));
+        let mut schemas = Vec::with_capacity(self.variables.len());
+        for variable in &mut self.variables {
+            if !ids.insert(variable.id().to_owned()) {
+                return Err(ProjectError::invalid_data("Duplicate scene variable ID"));
             }
-            schemas.push(argument.schema.clone());
+            if let Some(schema) = variable.argument_schema_mut() {
+                let mut default = schema.default_value();
+                default.map_file_paths(&mut |path| resolve_path(path, project_path));
+                schema.set_default(default);
+                schema.validate("scene", &self.name).map_err(|error| {
+                    ProjectError::invalid_data(format!("Scene '{}': {error}", self.name))
+                })?;
+                schema.configuration_mut(None).editable = true;
+                schema.configuration_mut(None).scene_bindable = true;
+                schemas.push(schema.clone());
+            }
         }
         Ok(schemas)
-    }
-}
-
-#[derive(Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub(super) struct ProjectSceneArgument {
-    schema: PropertySchema,
-    bindings: Vec<SceneBindingTarget>,
-}
-
-impl ProjectSceneArgument {
-    fn capture(argument: &SceneArgument, project_path: &Path) -> Self {
-        let mut schema = argument.schema.clone();
-        let mut default = schema.default_value();
-        default.map_file_paths(&mut |path| make_relative(path, project_path));
-        schema.set_default(default);
-        Self {
-            schema,
-            bindings: argument.bindings.clone(),
-        }
-    }
-
-    pub(super) fn into_domain(self) -> SceneArgument {
-        SceneArgument::new(self.schema, self.bindings)
-            .expect("project argument contracts were prepared before loading instances")
     }
 }
 
@@ -125,8 +94,11 @@ pub(super) fn validate_scenes(
                 scene.name
             )));
         }
+        scene.validate_calculations().map_err(|error| {
+            ProjectError::invalid_data(format!("Scene '{}': {error}", scene.name))
+        })?;
         let mut bound_targets = HashSet::new();
-        for argument in &scene.arguments {
+        for argument in scene.variables() {
             for binding in &argument.bindings {
                 if !bound_targets.insert(binding) {
                     return Err(ProjectError::invalid_data(format!(
@@ -147,11 +119,15 @@ pub(super) fn validate_scenes(
                         scene.name, property_id
                     )));
                 }
-                if !resolved.schema.same_type(&argument.schema) {
+                if !resolved
+                    .schema
+                    .scalar_type(None, None)
+                    .is_some_and(|ty| ty.same_type(argument.ty()))
+                {
                     return Err(ProjectError::invalid_data(format!(
                         "Scene '{}' argument '{}' does not match the binding target type",
                         scene.name,
-                        argument.schema.id()
+                        argument.id()
                     )));
                 }
                 if resolved.animated {

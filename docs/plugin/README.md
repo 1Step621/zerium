@@ -38,10 +38,10 @@ provides working examples.
     "category": "shape",
     "symbol": "■",
     "render": {
+      "properties": [],
       "shader": { "module": "shape" },
       "bounds": {
-        "min": ["viewport::min::x", "viewport::min::y"],
-        "max": ["viewport::max::x", "viewport::max::y"]
+        "script": "#{ min: [viewport.min.x, viewport.min.y], max: [viewport.max.x, viewport.max.y] }"
       }
     }
   }]

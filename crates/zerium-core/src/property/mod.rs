@@ -18,6 +18,7 @@ pub use schema::{
     PropertyConfiguration, PropertyDefinition, PropertySchema, ScalarSchema, ValueSchema,
 };
 pub use types::{EnumPropertyType, EnumVariant, ScalarPropertyType};
+pub(crate) use value::MAX_STRING_BYTES;
 pub use value::materialized_property_values;
 pub use value::{PropertyElement, PropertyElementId, PropertyValue, PropertyValues};
 

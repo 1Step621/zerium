@@ -15,7 +15,7 @@ use zerium_core::timeline::{
     BlendMode, EffectInstance, EffectInstanceId, TimelineItem, TimelineItemKind,
 };
 use zerium_core::timeline::{
-    EvaluatedSceneNode, ItemId, ProjectResolution, TimelineTime, TimelineView,
+    EvaluatedSceneNode, ItemId, ProjectResolution, SceneRenderStage, TimelineTime, TimelineView,
 };
 use zerium_shader::{EffectShaderId, ItemShaderId};
 
@@ -26,10 +26,31 @@ type MediaFrameCache =
     HashMap<(ItemId, Option<EffectInstanceId>, usize, u64, RenderSize), Option<Arc<VisualFrame>>>;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
+struct EvaluationKey {
+    time_bits: u64,
+    stages: Vec<SceneRenderStage>,
+}
+
+#[derive(Clone, Copy)]
+struct RenderContext<'a> {
+    time: TimelineTime,
+    temporal_depth: usize,
+    stages: &'a [SceneRenderStage],
+}
+
+impl RenderContext<'_> {
+    fn key(self) -> EvaluationKey {
+        EvaluationKey {
+            time_bits: self.time.frames().to_bits(),
+            stages: self.stages.to_vec(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
 struct RenderCacheKey {
     path: Vec<ItemId>,
-    effect_count: usize,
-    time_bits: u64,
+    evaluation: EvaluationKey,
     temporal_depth: usize,
 }
 
@@ -108,10 +129,11 @@ impl<'a> InputSource<'a> {
 /// item and scene effects use the same temporal sampling and texture input resolver.
 pub(super) struct SceneGraphBuilder<'a, M, T> {
     timeline: &'a dyn TimelineView,
+    strict_calculations: bool,
     size: RenderSize,
     nodes: Vec<RenderNode>,
-    graph_cache: HashMap<u64, Arc<Vec<EvaluatedSceneNode>>>,
-    compositions: HashMap<(u64, Vec<ItemId>), Arc<SceneCompositionPlan>>,
+    graph_cache: HashMap<EvaluationKey, Arc<Vec<EvaluatedSceneNode>>>,
+    compositions: HashMap<(EvaluationKey, Vec<ItemId>), Arc<SceneCompositionPlan>>,
     node_cache: HashMap<RenderCacheKey, Option<SceneNodeId>>,
     media_cache: MediaFrameCache,
     temporal_nodes_remaining: usize,
@@ -129,14 +151,22 @@ where
         timeline: &dyn TimelineView,
         time: TimelineTime,
         size: RenderSize,
+        graph: Vec<EvaluatedSceneNode>,
+        strict_calculations: bool,
         media_frame: M,
         text_frame: T,
     ) -> Result<RenderScene, E> {
+        let context = RenderContext {
+            time,
+            temporal_depth: 0,
+            stages: &[],
+        };
         let mut builder = SceneGraphBuilder {
             timeline,
+            strict_calculations,
             size,
             nodes: Vec::new(),
-            graph_cache: HashMap::new(),
+            graph_cache: HashMap::from([(context.key(), Arc::new(graph))]),
             compositions: HashMap::new(),
             node_cache: HashMap::new(),
             media_cache: HashMap::new(),
@@ -145,9 +175,9 @@ where
             text_frame,
         };
         let composition = builder
-            .composition(time, &[])
+            .composition(context, &[])?
             .expect("root scope always exists");
-        let roots = builder.render_scope(&composition, time, 0)?;
+        let roots = builder.render_scope(&composition, context)?;
         Ok(RenderScene::from_graph(
             size,
             RenderSize::from(timeline.resolution()),
@@ -158,39 +188,44 @@ where
 
     fn composition(
         &mut self,
-        time: TimelineTime,
+        context: RenderContext<'_>,
         path: &[ItemId],
-    ) -> Option<Arc<SceneCompositionPlan>> {
-        let key = (time.frames().to_bits(), path.to_vec());
+    ) -> Result<Option<Arc<SceneCompositionPlan>>, E> {
+        let key = (context.key(), path.to_vec());
         if let Some(plan) = self.compositions.get(&key) {
-            return Some(plan.clone());
+            return Ok(Some(plan.clone()));
         }
 
-        let graph = self
-            .graph_cache
-            .entry(key.0)
-            .or_insert_with(|| Arc::new(self.timeline.active_scene_graph_at_time(time)));
+        let graph = self.graph_cache.entry(key.0.clone()).or_insert_with(|| {
+            Arc::new(
+                self.timeline
+                    .scene_graph_at_time(context.time, context.stages),
+            )
+        });
         let mut scope = graph.as_slice();
         for id in path {
-            let node = scope.iter().find(|node| node.path.last() == Some(id))?;
-            node.item.scene_id()?;
+            let Some(node) = scope.iter().find(|node| node.path.last() == Some(id)) else {
+                return Ok(None);
+            };
+            if node.item.scene_id().is_none() {
+                return Ok(None);
+            }
             scope = &node.children;
         }
 
         let plan = Arc::new(SceneCompositionPlan::new(scope.to_vec()));
         self.compositions.insert(key, plan.clone());
-        Some(plan)
+        Ok(Some(plan))
     }
 
     fn render_scope(
         &mut self,
         composition: &SceneCompositionPlan,
-        time: TimelineTime,
-        depth: usize,
+        context: RenderContext<'_>,
     ) -> Result<Vec<SceneNodeId>, E> {
         let mut children = Vec::new();
         for child in composition.normal_nodes() {
-            if let Some(id) = self.render_node(&child.path, None, time, depth)? {
+            if let Some(id) = self.render_node(&child.path, context)? {
                 children.push(id);
             }
         }
@@ -200,23 +235,28 @@ where
     fn render_node(
         &mut self,
         path: &[ItemId],
-        effect_count: Option<usize>,
-        time: TimelineTime,
-        depth: usize,
+        context: RenderContext<'_>,
     ) -> Result<Option<SceneNodeId>, E> {
-        let Some(composition) = self.composition(time, &path[..path.len() - 1]) else {
+        let Some(composition) = self.composition(context, &path[..path.len() - 1])? else {
             return Ok(None);
         };
         let Some(node) = composition.nodes.iter().find(|node| node.path == path) else {
             return Ok(None);
         };
+        if self.strict_calculations
+            && let Some(error) = node.calculation_errors.first()
+        {
+            return Err(RenderError::backend(format!(
+                "At frame {} (path {path:?}): {error}",
+                context.time.frames()
+            ))
+            .into());
+        }
         let owner = &node.item;
-        let effect_count = effect_count.unwrap_or(owner.effects.len());
         let key = RenderCacheKey {
             path: path.to_vec(),
-            effect_count,
-            time_bits: time.frames().to_bits(),
-            temporal_depth: depth,
+            evaluation: context.key(),
+            temporal_depth: context.temporal_depth,
         };
 
         if let Some(id) = self.node_cache.get(&key) {
@@ -226,7 +266,6 @@ where
         let render_scale = owner
             .effects
             .iter()
-            .take(effect_count)
             .map(|effect| effect.schema().render().scale)
             .max()
             .unwrap_or(1);
@@ -246,14 +285,13 @@ where
                     InputSource::item(item),
                     node,
                     &composition,
-                    time,
+                    context,
                     target_size,
-                    depth,
                 )?;
                 RenderNodeContent::Item(RenderItem {
                     shader: ItemShaderId::plugin_item(plugin_id, item_id),
                     inputs,
-                    properties: schema
+                    properties: render
                         .property_layout()
                         .pack("item", schema.id(), &item.properties)
                         .expect("validated plugin properties must match their schema"),
@@ -269,9 +307,9 @@ where
 
             TimelineItemKind::Scene { .. } => {
                 let child_scope = self
-                    .composition(time, path)
+                    .composition(context, path)?
                     .expect("evaluated scene has a scope");
-                let children = self.render_scope(&child_scope, time, depth)?;
+                let children = self.render_scope(&child_scope, context)?;
                 RenderNodeContent::Scene {
                     children,
                     effects: Vec::new(),
@@ -280,8 +318,7 @@ where
             }
         };
         let source_scale = self.content_scale(&content);
-        let effects =
-            self.render_effects(node, &composition, effect_count, time, source_scale, depth)?;
+        let effects = self.render_effects(node, &composition, source_scale, context)?;
 
         match &mut content {
             RenderNodeContent::Item(item) => item.effects = effects,
@@ -351,13 +388,11 @@ where
         &mut self,
         node: &EvaluatedSceneNode,
         composition: &SceneCompositionPlan,
-        count: usize,
-        time: TimelineTime,
         scale: u32,
-        depth: usize,
+        context: RenderContext<'_>,
     ) -> Result<Vec<RenderEffect>, E> {
-        let mut effects = Vec::with_capacity(count);
-        for (effect_index, instance) in node.item.effects.iter().take(count).enumerate() {
+        let mut effects = Vec::with_capacity(node.item.effects.len());
+        for (effect_index, instance) in node.item.effects.iter().enumerate() {
             let schema = instance.schema();
             let properties = schema
                 .property_layout()
@@ -377,9 +412,8 @@ where
                         RenderEffectPassKind::Temporal(self.temporal_samples(
                             &node.path,
                             effect_index,
-                            time,
                             offsets,
-                            depth,
+                            context,
                         )?)
                     }
                 };
@@ -402,9 +436,8 @@ where
                 InputSource::effect(node.item.id, instance),
                 node,
                 composition,
-                time,
+                context,
                 self.scaled_size(scale)?,
-                depth,
             )?;
             effects.push(RenderEffect { passes, inputs });
         }
@@ -416,15 +449,25 @@ where
         &mut self,
         path: &[ItemId],
         effect_index: usize,
-        time: TimelineTime,
         offsets: Vec<f64>,
-        depth: usize,
+        context: RenderContext<'_>,
     ) -> Result<Vec<RenderTemporalSample>, E> {
-        if depth >= MAX_TEMPORAL_DEPTH {
+        if context.temporal_depth >= MAX_TEMPORAL_DEPTH {
             return Err(RenderError::resource_limit(format!(
                 "temporal effect depth exceeds {MAX_TEMPORAL_DEPTH}"
             ))
             .into());
+        }
+        // Keep ancestor limits while adding this consumer's source stage.
+        // Captures and nested temporal effects must share the same evaluation.
+        let mut stages = context.stages.to_vec();
+        if let Some(stage) = stages.iter_mut().find(|stage| stage.path == path) {
+            stage.effect_count = stage.effect_count.min(effect_index);
+        } else {
+            stages.push(SceneRenderStage {
+                path: path.to_vec(),
+                effect_count: effect_index,
+            });
         }
         offsets
             .into_iter()
@@ -437,8 +480,12 @@ where
                             "temporal render graph exceeds {MAX_TEMPORAL_RENDER_NODES} nodes"
                         ))
                     })?;
-                let sample_time = time.offset(offset);
-                let input = self.render_node(path, Some(effect_index), sample_time, depth + 1)?;
+                let sample = RenderContext {
+                    time: context.time.offset(offset),
+                    temporal_depth: context.temporal_depth + 1,
+                    stages: &stages,
+                };
+                let input = self.render_node(path, sample)?;
                 Ok(RenderTemporalSample {
                     frame_offset: offset as f32,
                     input,
@@ -452,9 +499,8 @@ where
         source: InputSource<'_>,
         node: &EvaluatedSceneNode,
         composition: &SceneCompositionPlan,
-        time: TimelineTime,
+        context: RenderContext<'_>,
         target_size: RenderSize,
-        depth: usize,
     ) -> Result<Vec<RenderInput>, E> {
         let mut inputs = Vec::with_capacity(source.inputs.len());
         for (index, capability) in source.inputs.iter().enumerate() {
@@ -464,7 +510,7 @@ where
                         source.item_id,
                         source.effect_id,
                         index,
-                        time.frames().to_bits(),
+                        context.time.frames().to_bits(),
                         target_size,
                     );
                     let frame = match self.media_cache.entry(key) {
@@ -483,7 +529,8 @@ where
                             let request = MediaFrameRequest::from_input(
                                 &node.item,
                                 input,
-                                node.item.local_seconds(time, self.timeline.frame_rate()),
+                                node.item
+                                    .local_seconds(context.time, self.timeline.frame_rate()),
                                 self.timeline.media_cache(),
                                 RasterSize {
                                     max_width: size.width,
@@ -522,7 +569,7 @@ where
                         composition.capture(source.item_id, source.effect_id, capability.id());
                     let mut children = Vec::new();
                     for candidate in composition.captured_nodes(capture) {
-                        if let Some(child) = self.render_node(&candidate.path, None, time, depth)? {
+                        if let Some(child) = self.render_node(&candidate.path, context)? {
                             children.push(child);
                         }
                     }

@@ -9,3 +9,5 @@ pub mod persistence;
 pub mod plugin;
 pub mod property;
 pub mod timeline;
+
+pub mod script;

@@ -41,8 +41,8 @@ use zerium_core::property::{
     ValueSchema,
 };
 use zerium_core::timeline::{
-    AnimationValuePlan, EffectInstanceId, ItemId, PropertyAddress, SceneArgument,
-    SceneBindingOwner, SceneBindingTarget, TimelineEditor, TimelineItem, TimelineTime, ValueEdit,
+    AnimationValuePlan, EffectInstanceId, ItemId, PropertyAddress, SceneBindingOwner,
+    SceneBindingTarget, SceneVariable, TimelineEditor, TimelineItem, TimelineTime, ValueEdit,
 };
 
 pub(super) type EffectPickerTarget = (String, String);

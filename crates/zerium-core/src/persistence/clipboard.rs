@@ -4,8 +4,10 @@ use super::{
     items::{ProjectItem, load_items},
     paths::item_files,
 };
+use crate::property::PropertyValue;
 use crate::timeline::{
-    EffectInstanceId, LayerId, ProjectId, SceneBindingTarget, SceneId, TimelineEditor, TimelineItem,
+    EffectInstanceId, ItemId, LayerId, ProjectId, SceneBindingOwner, SceneBindingTarget, SceneId,
+    TimelineEditor, TimelineItem,
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -37,19 +39,46 @@ pub fn encode_timeline_clipboard(
         .collect::<HashSet<_>>();
     let scene_bindings = scene
         .into_iter()
-        .flat_map(|scene| &scene.arguments)
+        .flat_map(|scene| scene.variables())
         .flat_map(|argument| {
             argument
                 .bindings
                 .iter()
                 .filter(|binding| ids.contains(&binding.item_id()))
-                .map(|binding| (argument.schema.id().to_owned(), binding.clone()))
+                .map(|binding| (argument.id().to_owned(), binding.clone()))
         })
         .collect::<Vec<_>>();
-    // A clipboard copy carries usable values even when pasted outside the
-    // source scene. Unbound scene instance inputs retain their inheritance.
-    let mut items = items.to_vec();
-    editor.resolve_active_scene_arguments(items.iter_mut().map(|(_, item)| item));
+    // Preserve authored fallbacks for copies that retain their connections.
+    // Detached copies use the connected properties' values at copy time.
+    let mut resolved = items.to_vec();
+    editor.resolve_active_scene_variables(resolved.iter_mut().map(|(_, item)| item));
+    let mut properties = HashSet::new();
+    let resolved_properties = scene_bindings
+        .iter()
+        .filter_map(|(_, binding)| {
+            let key = (
+                binding.item_id(),
+                binding.owner(),
+                binding.property_id().to_owned(),
+            );
+            if !properties.insert(key.clone()) {
+                return None;
+            }
+            let (_, item) = resolved
+                .iter()
+                .find(|(_, item)| item.id == binding.item_id())?;
+            let value = item
+                .property_values(binding.owner().effect_id())?
+                .property(binding.property_id())?
+                .clone();
+            Some(ClipboardProperty {
+                item_id: key.0,
+                owner: key.1,
+                property_id: key.2,
+                value,
+            })
+        })
+        .collect();
     let file = TimelineClipboardFile {
         hidden_effects: items
             .iter()
@@ -66,9 +95,13 @@ pub fn encode_timeline_clipboard(
             .map(|(layer, item)| ProjectItem::capture(item, *layer, Path::new("")))
             .collect(),
         scene_bindings,
-        media_cache: editor
-            .media_cache()
-            .retained_paths(items.iter().flat_map(|(_, item)| item_files(item))),
+        resolved_properties,
+        media_cache: editor.media_cache().retained_paths(
+            items
+                .iter()
+                .chain(&resolved)
+                .flat_map(|(_, item)| item_files(item)),
+        ),
     };
     serde_json::to_string(&file).map_err(|error| {
         ProjectError::encode(
@@ -82,7 +115,7 @@ pub fn decode_timeline_clipboard(
     source: &str,
     editor: &TimelineEditor,
 ) -> Result<DecodedTimelineClipboard, ProjectError> {
-    let file = serde_json::from_str::<TimelineClipboardFile>(source).map_err(|error| {
+    let mut file = serde_json::from_str::<TimelineClipboardFile>(source).map_err(|error| {
         ProjectError::invalid_format(format!("Invalid clipboard data format: {error}"), error)
     })?;
     if file.format != TIMELINE_CLIPBOARD_FORMAT
@@ -110,11 +143,36 @@ pub fn decode_timeline_clipboard(
                 scene.id,
                 scene
                     .arguments()
-                    .map(|argument| argument.schema.clone())
+                    .filter_map(|argument| argument.argument_schema().cloned())
                     .collect::<Vec<_>>(),
             )
         })
         .collect::<HashMap<_, _>>();
+    let preserve_bindings = source_scene.is_some()
+        && source_scene == editor.active_scene_id()
+        && source_scene
+            .and_then(|id| editor.scene(id))
+            .is_some_and(|scene| {
+                file.scene_bindings
+                    .iter()
+                    .all(|(id, _)| scene.variable(id).is_some())
+            });
+    if !preserve_bindings {
+        for property in &file.resolved_properties {
+            if !file.items.iter_mut().any(|item| {
+                item.apply_clipboard_property(
+                    property.item_id,
+                    property.owner,
+                    &property.property_id,
+                    &property.value,
+                )
+            }) {
+                return Err(ProjectError::invalid_data(
+                    "Copied property target was not found",
+                ));
+            }
+        }
+    }
     let mut effect_ids = HashSet::new();
     let items = load_items(
         file.items,
@@ -143,9 +201,13 @@ pub fn decode_timeline_clipboard(
     }
     Ok(DecodedTimelineClipboard {
         media_cache: file.media_cache,
-        source_scene,
+        source_scene: preserve_bindings.then_some(source_scene).flatten(),
         items,
-        scene_bindings: file.scene_bindings,
+        scene_bindings: if preserve_bindings {
+            file.scene_bindings
+        } else {
+            Vec::new()
+        },
         hidden_effects: file.hidden_effects,
     })
 }
@@ -160,4 +222,14 @@ struct TimelineClipboardFile {
     source_scene: Option<[u64; 3]>,
     items: Vec<ProjectItem>,
     scene_bindings: Vec<(String, SceneBindingTarget)>,
+    resolved_properties: Vec<ClipboardProperty>,
+}
+
+#[derive(Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct ClipboardProperty {
+    item_id: ItemId,
+    owner: SceneBindingOwner,
+    property_id: String,
+    value: PropertyValue,
 }

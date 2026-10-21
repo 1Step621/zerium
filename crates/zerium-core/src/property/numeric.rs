@@ -53,7 +53,7 @@ impl ScalarPropertyType {
     }
 }
 
-fn normalize_numeric_settings<T: Copy + PartialOrd + Into<f64>>(
+fn validate_numeric_settings<T: Copy + PartialOrd + Into<f64>>(
     default: T,
     min: Option<T>,
     max: Option<T>,
@@ -65,8 +65,6 @@ fn normalize_numeric_settings<T: Copy + PartialOrd + Into<f64>>(
     {
         return None;
     }
-    let default = min.filter(|min| default < *min).unwrap_or(default);
-    let default = max.filter(|max| default > *max).unwrap_or(default);
     let constraints = PropertyConstraints::from_bounds(min.map(Into::into), max.map(Into::into));
     Some((default, constraints))
 }
@@ -78,7 +76,8 @@ pub struct NumericSettings {
 }
 
 impl NumericSettings {
-    /// Validate dynamically typed input once, before it enters an editing command.
+    /// Validate typed defaults and evaluation bounds without changing the default.
+    /// Bounds may exclude it; consumers apply them when evaluating an argument.
     pub fn from_values(
         default: PropertyValue,
         min: Option<PropertyValue>,
@@ -96,7 +95,7 @@ impl NumericSettings {
                     None => None,
                     _ => return None,
                 };
-                let (default, constraints) = normalize_numeric_settings($default, min, max)?;
+                let (default, constraints) = validate_numeric_settings($default, min, max)?;
                 Some(Self {
                     default: PropertyValue::$variant(default),
                     constraints,

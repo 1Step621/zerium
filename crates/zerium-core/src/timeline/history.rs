@@ -22,8 +22,10 @@ pub(super) enum HistoryKey {
     ItemsMove(Vec<ItemId>),
     SceneName(SceneId),
     SceneStretchPoint(SceneId),
-    SceneArgumentLabel(SceneId, String),
+    SceneVariableLabel(SceneId, String),
     SceneArgumentSettings(SceneId, String),
+    SceneCalculationCode(SceneId, String),
+    SceneCalculationInputs(SceneId, String),
 }
 
 #[derive(Clone)]

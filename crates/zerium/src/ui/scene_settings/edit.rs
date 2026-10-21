@@ -25,11 +25,38 @@ impl SceneSettings {
             return;
         }
         let value = input.read(cx).value().to_string();
+        if let ControlId::CalculationInputName {
+            variable_id,
+            input_name,
+            ..
+        } = key
+        {
+            let variable_id = variable_id.clone();
+            let input_name = input_name.clone();
+            self.store.drafts.remove(key);
+            let accepted = self.edit_calculation_inputs(
+                &variable_id,
+                move |inputs| {
+                    if let Some(input) = inputs.iter_mut().find(|input| input.name == input_name) {
+                        input.name = value;
+                    }
+                },
+                cx,
+            );
+            if !accepted {
+                self.store.drafts.insert(key.clone());
+            }
+            self.sync_inputs(window, cx);
+            return;
+        }
         self.editor.update(cx, |editor, cx| {
             let changed = match key {
                 ControlId::Name(scene_id) => editor.rename_scene(*scene_id, value),
+                ControlId::CalculationScript { variable_id, .. } => {
+                    editor.update_scene_calculation_script(variable_id, value)
+                }
                 ControlId::ArgumentName { argument_id, .. } => {
-                    editor.rename_scene_argument(argument_id, &value)
+                    editor.rename_scene_variable(argument_id, &value)
                 }
                 ControlId::ArgumentDefault { argument_id, .. } => {
                     editor.update_scene_argument_default(argument_id, PropertyValue::String(value))
@@ -53,12 +80,10 @@ impl SceneSettings {
         if editor.active_scene_id() != Some(scene_id) {
             return None;
         }
-        let schema = &editor
+        let schema = editor
             .scene(scene_id)?
-            .arguments
-            .iter()
-            .find(|argument| argument.schema.id() == argument_id)?
-            .schema;
+            .argument(argument_id)?
+            .argument_schema()?;
         let number = NumericInput::for_schema(schema)?;
         let [Some(default), Some(min), Some(max)] = NumericSetting::ALL.map(|setting| {
             self.store.text(&ControlId::scene_argument_setting(

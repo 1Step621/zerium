@@ -145,7 +145,7 @@ impl TimelineEditor {
                 && let Some(scene_id) = editor.active_scene_id()
                 && let Some(scene) = editor.project_mut().scenes.get_mut(&scene_id)
             {
-                for argument in &mut scene.arguments {
+                for argument in scene.variables_mut() {
                     argument.bindings.retain(|binding| {
                         !(binding.item_id() == item_id
                             && binding.owner() == SceneBindingOwner::Effect(effect_id))

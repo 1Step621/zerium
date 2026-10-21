@@ -3,7 +3,7 @@ use super::{
     ProjectError,
     items::{ProjectItem, capture_items, load_items},
     paths::{item_files, make_relative, resolve_path},
-    scenes::{ProjectScene, ProjectSceneArgument, validate_scenes},
+    scenes::{ProjectScene, validate_scenes},
 };
 use std::{
     collections::{HashMap, HashSet},
@@ -96,10 +96,10 @@ impl ProjectFile {
         let argument_files: Vec<_> = snapshot
             .scenes()
             .flat_map(|scene| {
-                scene
-                    .arguments
-                    .iter()
-                    .filter_map(|arg| arg.schema.default_value().file().map(Path::to_path_buf))
+                scene.variables().iter().filter_map(|arg| {
+                    arg.argument_schema()
+                        .and_then(|schema| schema.default_value().file().map(Path::to_path_buf))
+                })
             })
             .collect();
         Ok(Self {
@@ -159,7 +159,7 @@ impl ProjectFile {
             }
             scene_schemas.insert(
                 SceneId::new(project_id, scene.id),
-                scene.prepare_arguments(project_path)?,
+                scene.prepare_variables(project_path)?,
             );
         }
 
@@ -181,15 +181,11 @@ impl ProjectFile {
                 &mut effect_ids,
                 plugins,
             )?;
-            let arguments = scene
-                .arguments
-                .into_iter()
-                .map(ProjectSceneArgument::into_domain)
-                .collect();
+            let variables = scene.variables;
             let mut definition = SceneDefinition::from_project(
                 scene_id,
                 scene.name,
-                arguments,
+                variables,
                 TimelineDocument::from_items(frame_rate, scene_items),
             );
             if scene.stretch_point >= definition.duration().get() {

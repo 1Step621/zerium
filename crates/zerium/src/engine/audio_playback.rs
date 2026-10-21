@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::VecDeque,
     sync::{
         Arc, Mutex,
         atomic::{AtomicBool, AtomicU32, AtomicU64, AtomicUsize, Ordering},
@@ -13,51 +13,10 @@ use thiserror::Error;
 use cpal::traits::{DeviceTrait as _, HostTrait as _, StreamTrait as _};
 
 use crate::engine::media::{
-    AudioClipId, AudioFormat, AudioGainEvaluation, AudioTimelineError, AudioTimelineGraph,
+    AudioCalculationPolicy, AudioFormat, AudioTimelineError, AudioTimelineGraph,
     MediaReaderRegistry,
 };
-use zerium_core::media::{MediaAsset, MediaMetadataCache, MediaPlayback};
-use zerium_core::timeline::{Frame, FrameDuration, FrameRate, ItemId, TimelineItem, TimelineTime};
-
-#[derive(Clone, Debug, PartialEq)]
-pub(crate) struct AudioSourcePlan {
-    item_id: ItemId,
-    input_id: String,
-    asset: MediaAsset,
-    start: Frame,
-    duration: FrameDuration,
-    playback: MediaPlayback,
-    preserve_pitch: bool,
-}
-
-pub(crate) fn audio_plan(
-    items: &[TimelineItem],
-    cache: &MediaMetadataCache,
-) -> Vec<AudioSourcePlan> {
-    let mut plan = Vec::new();
-    for item in items {
-        let Some(schema) = item.schema() else {
-            continue;
-        };
-        for input in schema.audio() {
-            if let Some((asset, playback, preserve_pitch)) = item.audio_input(input.id(), cache) {
-                plan.push(AudioSourcePlan {
-                    item_id: item.id,
-                    input_id: input.id().to_owned(),
-                    asset,
-                    start: item.start,
-                    duration: item.duration,
-                    playback,
-                    preserve_pitch,
-                });
-            }
-        }
-    }
-    plan.sort_unstable_by(|a, b| {
-        (a.item_id.get(), &a.input_id).cmp(&(b.item_id.get(), &b.input_id))
-    });
-    plan
-}
+use zerium_core::timeline::{AudioTimelineSnapshot, Frame, FrameRate};
 
 const AUDIO_BUFFER_MILLIS: u64 = 200;
 const MIX_BLOCK_SAMPLE_FRAMES: usize = 2_048;
@@ -67,6 +26,22 @@ const PREBUFFER_MILLIS: u64 = 200;
 pub(crate) enum PlaybackClock {
     Audio,
     Wall,
+}
+
+/// Initial playback starts at an exact video-frame boundary. Deferred starts
+/// join the running wall clock at a continuous position instead.
+enum PlaybackPosition {
+    Frame(Frame),
+    Seconds(f64),
+}
+
+impl PlaybackPosition {
+    fn sample_frame(self, frame_rate: FrameRate, sample_rate: u32) -> u64 {
+        match self {
+            Self::Frame(frame) => frame_rate.sample_boundary(frame, sample_rate),
+            Self::Seconds(seconds) => (seconds * f64::from(sample_rate)).floor() as u64,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -117,14 +92,31 @@ impl SharedAudioLevels {
     }
 }
 
+/// Callback state shared with the render worker. Device failure stops the
+/// worker and invalidates its clock even if no more output callbacks arrive.
+#[derive(Clone)]
+struct AudioOutputState {
+    played_sample_frames: Arc<AtomicU64>,
+    events: Arc<Mutex<VecDeque<AudioPlaybackEvent>>>,
+    underrun: Arc<AudioUnderrunState>,
+    levels: SharedAudioLevels,
+    stop: Arc<AtomicBool>,
+}
+
+impl AudioOutputState {
+    fn device_failed(&self, error: String) {
+        push_event(&self.events, AudioPlaybackEvent::DeviceFailed(error));
+        self.stop.store(true, Ordering::Release);
+    }
+}
+
 struct AudioPlaybackSession {
     stream: cpal::Stream,
     worker: AudioWorker,
-    played_sample_frames: Arc<AtomicU64>,
+    output: AudioOutputState,
     start_seconds: f64,
     sample_rate: u32,
-    levels: SharedAudioLevels,
-    gains: HashMap<AudioClipId, Arc<AtomicU32>>,
+    updates: Arc<Mutex<Option<AudioTimelineSnapshot>>>,
 }
 
 struct AudioWorker {
@@ -136,6 +128,10 @@ struct AudioWorker {
 }
 
 impl AudioWorker {
+    fn has_stopped(&self) -> bool {
+        self.stop.load(Ordering::Acquire) || self.handle.is_finished()
+    }
+
     fn request_stop(&self) {
         self.stop.store(true, Ordering::Release);
     }
@@ -159,14 +155,9 @@ impl AudioWorker {
     }
 }
 
-struct PendingAudioPlayback {
-    cache: Arc<MediaMetadataCache>,
-    items: Vec<TimelineItem>,
-    frame_rate: FrameRate,
-}
-
 pub(crate) struct AudioPlaybackEngine {
-    pending: Option<PendingAudioPlayback>,
+    timeline: Option<AudioTimelineSnapshot>,
+    pending: bool,
     session: Option<AudioPlaybackSession>,
     retiring: Vec<AudioWorker>,
     media_readers: Arc<MediaReaderRegistry>,
@@ -176,7 +167,8 @@ pub(crate) struct AudioPlaybackEngine {
 impl AudioPlaybackEngine {
     pub(crate) fn new(media_readers: Arc<MediaReaderRegistry>) -> Self {
         Self {
-            pending: None,
+            timeline: None,
+            pending: false,
             session: None,
             retiring: Vec::new(),
             media_readers,
@@ -186,51 +178,34 @@ impl AudioPlaybackEngine {
 
     pub(crate) fn play(
         &mut self,
-        items: Vec<TimelineItem>,
+        timeline: AudioTimelineSnapshot,
         start_frame: Frame,
-        frame_rate: FrameRate,
-        cache: Arc<MediaMetadataCache>,
     ) -> Result<PlaybackClock, AudioPlaybackError> {
         self.request_stop();
+        self.timeline = Some(timeline.clone());
+        self.start_or_defer(timeline, PlaybackPosition::Frame(start_frame))
+    }
+
+    fn start_or_defer(
+        &mut self,
+        timeline: AudioTimelineSnapshot,
+        position: PlaybackPosition,
+    ) -> Result<PlaybackClock, AudioPlaybackError> {
         if !self.retiring.is_empty() {
-            self.pending = Some(PendingAudioPlayback {
-                items,
-                frame_rate,
-                cache,
-            });
+            self.pending = true;
             return Ok(PlaybackClock::Wall);
         }
-        self.start(
-            items,
-            frame_rate.frame_to_seconds(start_frame),
-            frame_rate,
-            cache,
-        )
-    }
-
-    pub(crate) fn resume_pending(
-        &mut self,
-        seconds: f64,
-    ) -> Option<Result<PlaybackClock, AudioPlaybackError>> {
-        let pending = self.take_pending_if_ready()?;
-        Some(self.start(pending.items, seconds, pending.frame_rate, pending.cache))
-    }
-
-    fn take_pending_if_ready(&mut self) -> Option<PendingAudioPlayback> {
-        self.reap_finished_workers();
-        if !self.retiring.is_empty() {
-            return None;
-        }
-        self.pending.take()
+        self.start(timeline, position)
     }
 
     fn start(
         &mut self,
-        items: Vec<TimelineItem>,
-        start_seconds: f64,
-        frame_rate: FrameRate,
-        cache: Arc<MediaMetadataCache>,
+        timeline: AudioTimelineSnapshot,
+        position: PlaybackPosition,
     ) -> Result<PlaybackClock, AudioPlaybackError> {
+        if timeline.sources().is_empty() {
+            return Ok(PlaybackClock::Wall);
+        }
         let host = cpal::default_host();
         let device = host
             .default_output_device()
@@ -244,21 +219,17 @@ impl AudioPlaybackEngine {
             sample_rate: supported.sample_rate(),
             channels: supported.channels(),
         };
-        let seed_time = TimelineTime::from_frames(start_seconds * frame_rate.frames_per_second());
         let mut graph = AudioTimelineGraph::new(
-            &items,
-            &cache,
-            frame_rate,
+            timeline.clone(),
             format,
             &self.media_readers,
-            AudioGainEvaluation::Live,
+            AudioCalculationPolicy::Fallback,
         )
         .map_err(AudioPlaybackError::Timeline)?;
         if graph.is_empty() {
             return Ok(PlaybackClock::Wall);
         }
-        let gains = graph.live_gains();
-        update_gain_slots(&gains, &items, seed_time);
+        let updates = Arc::new(Mutex::new(None));
 
         let channels = usize::from(format.channels);
         let capacity = u64::from(format.sample_rate)
@@ -269,7 +240,7 @@ impl AudioPlaybackEngine {
             .unwrap_or(channels)
             .max(channels);
         let (mut producer, consumer) = rtrb::RingBuffer::<f32>::new(capacity);
-        let start_sample_frame = (start_seconds * f64::from(format.sample_rate)).round() as u64;
+        let start_sample_frame = position.sample_frame(timeline.frame_rate(), format.sample_rate);
         let mut render_cursor = start_sample_frame;
         let mut prebuffered_frames = 0u64;
         let prebuffer_target =
@@ -293,27 +264,23 @@ impl AudioPlaybackEngine {
             render_cursor = render_cursor.saturating_add(MIX_BLOCK_SAMPLE_FRAMES as u64);
         }
 
-        let played_sample_frames = Arc::new(AtomicU64::new(0));
-        let events = Arc::new(Mutex::new(VecDeque::with_capacity(16)));
-        let underrun = Arc::new(AudioUnderrunState {
-            active: AtomicBool::new(false),
-            pending: AtomicBool::new(false),
-            missing: AtomicUsize::new(0),
-        });
-        let levels = SharedAudioLevels::default();
-        let stream = build_output_stream(
-            &device,
-            &supported,
-            consumer,
-            played_sample_frames.clone(),
-            events.clone(),
-            underrun.clone(),
-            levels.clone(),
-        )?;
-        let stop = Arc::new(AtomicBool::new(false));
-        let worker_stop = stop.clone();
-        let worker_events = events.clone();
-        let worker_played = played_sample_frames.clone();
+        let output = AudioOutputState {
+            played_sample_frames: Arc::new(AtomicU64::new(0)),
+            events: Arc::new(Mutex::new(VecDeque::with_capacity(16))),
+            underrun: Arc::new(AudioUnderrunState {
+                active: AtomicBool::new(false),
+                pending: AtomicBool::new(false),
+                missing: AtomicUsize::new(0),
+            }),
+            levels: SharedAudioLevels::default(),
+            stop: Arc::new(AtomicBool::new(false)),
+        };
+        let stream = build_output_stream(&device, &supported, consumer, output.clone())?;
+        let worker_stop = output.stop.clone();
+        let worker_events = output.events.clone();
+        let worker_played = output.played_sample_frames.clone();
+        let worker_updates = updates.clone();
+        let worker_readers = self.media_readers.clone();
         let worker = thread::Builder::new()
             .name("zerium-audio-render".to_owned())
             .spawn(move || {
@@ -324,7 +291,16 @@ impl AudioPlaybackEngine {
                     if expected > cursor {
                         cursor = expected;
                     }
-                    let mixed = match graph.render(cursor, MIX_BLOCK_SAMPLE_FRAMES) {
+                    let update = worker_updates
+                        .lock()
+                        .unwrap_or_else(|error| error.into_inner())
+                        .take();
+                    let mixed = update
+                        .map_or(Ok(false), |timeline| {
+                            graph.update_timeline(timeline, &worker_readers)
+                        })
+                        .and_then(|_| graph.render(cursor, MIX_BLOCK_SAMPLE_FRAMES));
+                    let mixed = match mixed {
                         Ok(mixed) => mixed,
                         Err(error) => {
                             push_event(
@@ -359,9 +335,9 @@ impl AudioPlaybackEngine {
 
         let worker = AudioWorker {
             handle: worker,
-            stop,
-            events,
-            underrun,
+            stop: output.stop.clone(),
+            events: output.events.clone(),
+            underrun: output.underrun.clone(),
             underrun_reported: false,
         };
         if let Err(error) = stream.play() {
@@ -375,38 +351,68 @@ impl AudioPlaybackEngine {
         self.session = Some(AudioPlaybackSession {
             stream,
             worker,
-            played_sample_frames,
+            output,
             start_seconds: start_sample_frame as f64 / f64::from(format.sample_rate),
             sample_rate: format.sample_rate,
-            levels,
-            gains,
+            updates,
         });
         Ok(PlaybackClock::Audio)
     }
 
-    pub(crate) fn update_gains(
+    /// Accept edits and resume deferred playback at the current cursor. Decoder
+    /// rebuilding happens in the mixer worker; UI code only follows the clock.
+    pub(crate) fn update_timeline(
         &mut self,
-        items: &[TimelineItem],
-        time_seconds: f64,
-        frame_rate: FrameRate,
-    ) {
+        timeline: AudioTimelineSnapshot,
+        seconds: f64,
+    ) -> Result<PlaybackClock, AudioPlaybackError> {
         self.reap_finished_workers();
-        if self.worker_finished() {
-            self.request_stop();
-            return;
+        if self.session_stopped() {
+            self.stop_session();
         }
-        let Some(session) = &self.session else {
-            return;
+        let changed = self
+            .timeline
+            .as_ref()
+            .is_none_or(|previous| !previous.same_content(&timeline));
+        if changed {
+            self.timeline = Some(timeline.clone());
+        }
+        if self.pending {
+            if !self.retiring.is_empty() {
+                return Ok(PlaybackClock::Wall);
+            }
+            self.pending = false;
+            return self.start(timeline, PlaybackPosition::Seconds(seconds));
+        }
+        if !changed {
+            return Ok(if self.session.is_some() {
+                PlaybackClock::Audio
+            } else {
+                PlaybackClock::Wall
+            });
+        }
+        let Some(session) = &mut self.session else {
+            return self.start_or_defer(timeline, PlaybackPosition::Seconds(seconds));
         };
-        let time = TimelineTime::from_frames(time_seconds * frame_rate.frames_per_second());
-        update_gain_slots(&session.gains, items, time);
+        *session
+            .updates
+            .lock()
+            .unwrap_or_else(|error| error.into_inner()) = Some(timeline);
+        Ok(PlaybackClock::Audio)
     }
 
     pub(crate) fn request_stop(&mut self) -> bool {
         self.reap_finished_workers();
-        let had_pending = self.pending.take().is_some();
+        let had_pending = std::mem::take(&mut self.pending);
+        self.timeline = None;
+        self.stop_session() || had_pending
+    }
+
+    /// Keep the requested revision after a worker failure, so an unchanged
+    /// timeline does not repeatedly restart a failed decoder or output device.
+    fn stop_session(&mut self) -> bool {
         let Some(session) = self.session.take() else {
-            return had_pending;
+            return false;
         };
         session.worker.request_stop();
         drop(session.stream);
@@ -439,8 +445,8 @@ impl AudioPlaybackEngine {
     }
 
     pub(crate) fn take_events(&mut self) -> Vec<AudioPlaybackEvent> {
-        if self.worker_finished() {
-            self.request_stop();
+        if self.session_stopped() {
+            self.stop_session();
         }
         self.reap_finished_workers();
         if let Some(session) = self.session.as_mut() {
@@ -449,22 +455,26 @@ impl AudioPlaybackEngine {
         self.completed_events.drain(..).collect()
     }
 
-    fn worker_finished(&self) -> bool {
+    fn session_stopped(&self) -> bool {
         self.session
             .as_ref()
-            .is_some_and(|session| session.worker.handle.is_finished())
+            .is_some_and(|session| session.worker.has_stopped())
     }
 
     pub(crate) fn playhead_seconds(&self) -> Option<f64> {
         let session = self.session.as_ref()?;
-        let played = session.played_sample_frames.load(Ordering::Acquire);
+        if session.worker.has_stopped() {
+            return None;
+        }
+        let played = session.output.played_sample_frames.load(Ordering::Acquire);
         Some(session.start_seconds + played as f64 / f64::from(session.sample_rate))
     }
 
     pub(crate) fn levels(&self) -> [f32; 2] {
         self.session
             .as_ref()
-            .map(|session| session.levels.values())
+            .filter(|session| !session.worker.has_stopped())
+            .map(|session| session.output.levels.values())
             .unwrap_or([0.; 2])
     }
 }
@@ -479,22 +489,11 @@ fn build_output_stream(
     device: &cpal::Device,
     supported: &cpal::SupportedStreamConfig,
     consumer: rtrb::Consumer<f32>,
-    played_sample_frames: Arc<AtomicU64>,
-    events: Arc<Mutex<VecDeque<AudioPlaybackEvent>>>,
-    underrun: Arc<AudioUnderrunState>,
-    levels: SharedAudioLevels,
+    state: AudioOutputState,
 ) -> Result<cpal::Stream, AudioPlaybackError> {
     macro_rules! build_stream {
         ($sample:ty) => {
-            build_output_stream_for_format::<$sample>(
-                device,
-                supported,
-                consumer,
-                played_sample_frames,
-                events,
-                underrun,
-                levels,
-            )
+            build_output_stream_for_format::<$sample>(device, supported, consumer, state)
         };
     }
     match supported.sample_format() {
@@ -520,29 +519,21 @@ fn build_output_stream_for_format<T: cpal::SizedSample + cpal::FromSample<f32>>(
     device: &cpal::Device,
     supported: &cpal::SupportedStreamConfig,
     mut consumer: rtrb::Consumer<f32>,
-    played_sample_frames: Arc<AtomicU64>,
-    events: Arc<Mutex<VecDeque<AudioPlaybackEvent>>>,
-    underrun: Arc<AudioUnderrunState>,
-    levels: SharedAudioLevels,
+    state: AudioOutputState,
 ) -> Result<cpal::Stream, AudioPlaybackError> {
+    let errors = state.clone();
     let config = supported.config();
     let channels = usize::from(config.channels).max(1);
     device
         .build_output_stream(
             config,
             move |output: &mut [T], _| {
-                fill_output(
-                    output,
-                    channels,
-                    &mut consumer,
-                    &played_sample_frames,
-                    &underrun,
-                    &levels,
-                    |sample| T::from_sample(sample.clamp(-1., 1.)),
-                )
+                fill_output(output, channels, &mut consumer, &state, |sample| {
+                    T::from_sample(sample.clamp(-1., 1.))
+                })
             },
             move |error| {
-                push_event(&events, AudioPlaybackEvent::DeviceFailed(error.to_string()));
+                errors.device_failed(error.to_string());
             },
             None,
         )
@@ -555,9 +546,7 @@ fn fill_output<T: Copy>(
     output: &mut [T],
     channels: usize,
     consumer: &mut rtrb::Consumer<f32>,
-    played_sample_frames: &AtomicU64,
-    underrun: &AudioUnderrunState,
-    levels: &SharedAudioLevels,
+    state: &AudioOutputState,
     convert: impl Fn(f32) -> T,
 ) {
     let queued_samples = consumer.slots().min(output.len());
@@ -578,16 +567,18 @@ fn fill_output<T: Copy>(
     if channels == 1 {
         peak[1] = peak[0];
     }
-    levels.store(peak);
+    state.levels.store(peak);
     if queued_samples < output.len() {
         let missing = (output.len() - queued_samples).div_ceil(channels);
-        underrun.missing.fetch_add(missing, Ordering::Relaxed);
-        underrun.active.store(true, Ordering::Relaxed);
-        underrun.pending.store(true, Ordering::Release);
+        state.underrun.missing.fetch_add(missing, Ordering::Relaxed);
+        state.underrun.active.store(true, Ordering::Relaxed);
+        state.underrun.pending.store(true, Ordering::Release);
     } else {
-        underrun.active.store(false, Ordering::Release);
+        state.underrun.active.store(false, Ordering::Release);
     }
-    played_sample_frames.fetch_add((output.len() / channels) as u64, Ordering::Release);
+    state
+        .played_sample_frames
+        .fetch_add((output.len() / channels) as u64, Ordering::Release);
 }
 
 fn poll_underrun(
@@ -613,35 +604,5 @@ fn poll_underrun(
 fn push_event(events: &Mutex<VecDeque<AudioPlaybackEvent>>, event: AudioPlaybackEvent) {
     if let Ok(mut events) = events.lock() {
         events.push_back(event);
-    }
-}
-
-/// Update each input through its own animated gain property.
-fn update_gain_slots(
-    gains: &HashMap<AudioClipId, Arc<AtomicU32>>,
-    items: &[TimelineItem],
-    time: TimelineTime,
-) {
-    for item in items {
-        let Some(schema) = item.schema() else {
-            continue;
-        };
-        if schema.audio().is_empty() {
-            continue;
-        }
-        for input in schema.audio() {
-            let id = AudioClipId {
-                item_id: item.id,
-                input_id: input.id().to_owned(),
-            };
-            if let Some(slot) = gains.get(&id) {
-                slot.store(
-                    item.audio_gain_at(input.id(), time)
-                        .expect("validated audio input")
-                        .to_bits(),
-                    Ordering::Relaxed,
-                );
-            }
-        }
     }
 }

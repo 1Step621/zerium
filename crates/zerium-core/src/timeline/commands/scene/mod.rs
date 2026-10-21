@@ -1,16 +1,17 @@
 //! Commands on scene definitions and placed instances.
-mod argument;
+mod calculation;
+mod variable;
 
 use crate::timeline::commands::TimelineEditError;
 use crate::timeline::history::HistoryKey;
 use crate::timeline::{
-    Frame, FrameDuration, ItemId, LayerId, SceneArgument, SceneBindingOwner, SceneBindingTarget,
-    SceneDefinition, SceneId, TimelineDocument, TimelineEditor, TimelineItem,
+    Frame, FrameDuration, ItemId, LayerId, SceneBindingOwner, SceneBindingTarget, SceneDefinition,
+    SceneId, TimelineDocument, TimelineEditor, TimelineItem,
 };
 use std::collections::HashSet;
 
 pub(super) fn remove_bindings_for_items(scene: &mut SceneDefinition, item_ids: &HashSet<ItemId>) {
-    for argument in &mut scene.arguments {
+    for argument in scene.variables_mut() {
         argument
             .bindings
             .retain(|binding| !item_ids.contains(&binding.item_id()));
@@ -158,35 +159,15 @@ impl TimelineEditor {
                     })
                     .expect("a scene name suffix must eventually be available")
             };
-            let arguments = editor
+            let (variables, moved_calculations) = editor
                 .active_scene_id()
                 .and_then(|id| editor.scene(id))
-                .into_iter()
-                .flat_map(|scene| &scene.arguments)
-                .filter_map(|argument| {
-                    let bindings = argument
-                        .bindings
-                        .iter()
-                        .filter(|binding| selected.contains(&binding.item_id()))
-                        .cloned()
-                        .collect::<Vec<_>>();
-                    if bindings.is_empty() {
-                        return None;
-                    }
-                    let mut schema = argument.schema.clone();
-                    // Forward values unchanged across the new scene boundary. Each
-                    // original target still applies its own constraints.
-                    schema.configuration_mut(None).constraints = Default::default();
-                    Some(
-                        SceneArgument::new(schema, bindings)
-                            .expect("forwarded scene arguments retain their scalar contract"),
-                    )
-                })
-                .collect();
+                .map(|scene| scene.variables_for_grouping(&selected))
+                .unwrap_or_default();
             let scene = SceneDefinition::from_project(
                 scene_id,
                 name,
-                arguments,
+                variables,
                 TimelineDocument::from_items(frame_rate, items),
             );
             let duration = FrameDuration::new(end.get().saturating_sub(start.get()))?;
@@ -203,20 +184,26 @@ impl TimelineEditor {
                 .active_scene_id()
                 .and_then(|id| editor.project_mut().scenes.get_mut(&id))
             {
-                for argument in &scene.arguments {
-                    let parent_argument = parent
-                        .argument_mut(argument.schema.id())
-                        .expect("forwarded arguments came from the parent scene");
-                    parent_argument
+                parent
+                    .variables_mut()
+                    .retain(|variable| !moved_calculations.contains(variable.id()));
+                for variable in parent.variables_mut() {
+                    variable
                         .bindings
                         .retain(|binding| !selected.contains(&binding.item_id()));
-                    parent_argument.bindings.push(SceneBindingTarget::new(
-                        instance,
-                        SceneBindingOwner::Item,
-                        argument.schema.id(),
-                        None,
-                        None,
-                    ));
+                }
+                for argument in scene.arguments() {
+                    parent
+                        .variable_mut(argument.id())
+                        .expect("forwarded argument exists in parent")
+                        .bindings
+                        .push(SceneBindingTarget::new(
+                            instance,
+                            SceneBindingOwner::Item,
+                            argument.id(),
+                            None,
+                            None,
+                        ));
                 }
             }
             editor.project_mut().scenes.insert(scene_id, scene);

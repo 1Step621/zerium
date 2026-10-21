@@ -162,12 +162,7 @@ impl Render for Preview {
             self.transport.read(cx).audio_levels(cx)
         } else {
             let editor = self.editor.read(cx);
-            self.audio_level_sampler.levels_at(
-                editor.visible_items(),
-                frame,
-                editor.frame_rate(),
-                editor.media_cache().clone(),
-            )
+            self.audio_level_sampler.levels_at(editor)
         };
         let error = self
             .render_runtime

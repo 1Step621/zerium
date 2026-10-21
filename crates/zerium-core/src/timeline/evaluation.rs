@@ -3,7 +3,7 @@ use std::collections::{HashMap, HashSet};
 use super::{
     ids::{ItemId, LayerId, SceneId},
     item::TimelineItem,
-    properties::resolve_item,
+    properties::{SceneBindings, resolve_render_item},
     scene::SceneDefinition,
     time::{Frame, FrameDuration, TimelineTime},
     visibility::PreviewVisibility,
@@ -18,7 +18,7 @@ fn mixed_runtime_id(seed: u64, item_id: ItemId) -> ItemId {
     ItemId(mixed.max(1))
 }
 
-fn unique_runtime_id(seed: u64, item_id: ItemId, used: &mut HashSet<ItemId>) -> ItemId {
+pub(super) fn unique_runtime_id(seed: u64, item_id: ItemId, used: &mut HashSet<ItemId>) -> ItemId {
     let mut salt = 0_u64;
     loop {
         let candidate = mixed_runtime_id(seed.wrapping_add(salt), item_id);
@@ -29,34 +29,11 @@ fn unique_runtime_id(seed: u64, item_id: ItemId, used: &mut HashSet<ItemId>) -> 
     }
 }
 
-fn scene_runtime_seed(parent_seed: u64, item_id: ItemId, scene_id: SceneId) -> u64 {
+pub(super) fn scene_runtime_seed(parent_seed: u64, item_id: ItemId, scene_id: SceneId) -> u64 {
     parent_seed
         .wrapping_mul(0x9E37_79B1_85EB_CA87)
         .wrapping_add(item_id.get())
         .wrapping_add(scene_id.get().rotate_left(23))
-}
-
-/// Visit every source item after applying scene instance arguments, without
-/// visibility or time clipping. Scene instances themselves are included so
-/// their effects remain available to consumers of project resources.
-pub(crate) fn visit_source_items(
-    items: Vec<(LayerId, TimelineItem)>,
-    scenes: &HashMap<SceneId, SceneDefinition>,
-    visit: &mut impl FnMut(&TimelineItem),
-) {
-    for (_, item) in items {
-        visit(&item);
-        if let Some(scene) = item.scene_id().and_then(|id| scenes.get(&id)) {
-            let instance = resolve_item(
-                scenes,
-                None,
-                &item,
-                Some(TimelineTime::from_frame(item.start)),
-            );
-            let children = scene.instance_items(scenes, &instance, None);
-            visit_source_items(children, scenes, visit);
-        }
-    }
 }
 
 /// Global clip retained on every evaluated render node. Scene clips are
@@ -80,9 +57,18 @@ impl EvaluatedClip {
     }
 }
 
+/// A temporal consumer requests the image before a particular effect. Limits
+/// refer to source paths and count effects after preview visibility is applied.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct SceneRenderStage {
+    pub path: Vec<ItemId>,
+    pub effect_count: usize,
+}
+
 /// Hierarchical timeline evaluation consumed by the renderer graph adapter.
 /// `path` contains stable source IDs from the outermost scene instance to this
-/// node; runtime-remapped leaf IDs remain available on `item`.
+/// node; placement-specific runtime IDs remain available on `item`, including
+/// scene instances that own effect inputs.
 #[derive(Clone, Debug)]
 pub struct EvaluatedSceneNode {
     /// Layer in the composition that directly contains this node.
@@ -93,6 +79,16 @@ pub struct EvaluatedSceneNode {
     pub path: Vec<ItemId>,
     pub item: TimelineItem,
     pub children: Vec<EvaluatedSceneNode>,
+    pub calculation_errors: Vec<String>,
+}
+
+impl EvaluatedSceneNode {
+    pub fn calculation_error(&self) -> Option<&str> {
+        self.calculation_errors
+            .first()
+            .map(String::as_str)
+            .or_else(|| self.children.iter().find_map(Self::calculation_error))
+    }
 }
 
 pub(crate) fn evaluated_scene_graph_at_time(
@@ -100,10 +96,13 @@ pub(crate) fn evaluated_scene_graph_at_time(
     scenes: &HashMap<SceneId, SceneDefinition>,
     time: TimelineTime,
     visibility: Option<&PreviewVisibility>,
+    scene: Option<&SceneDefinition>,
+    stages: &[SceneRenderStage],
 ) -> Vec<EvaluatedSceneNode> {
     struct EvaluationContext<'a> {
         scenes: &'a HashMap<SceneId, SceneDefinition>,
         visibility: Option<&'a PreviewVisibility>,
+        stages: &'a [SceneRenderStage],
         used_ids: HashSet<ItemId>,
     }
 
@@ -114,6 +113,7 @@ pub(crate) fn evaluated_scene_graph_at_time(
         layer: Option<LayerId>,
         clip_end: Option<u64>,
         path: &'a [ItemId],
+        bindings: Option<&'a SceneBindings<'a>>,
     }
 
     fn expand(
@@ -123,7 +123,7 @@ pub(crate) fn evaluated_scene_graph_at_time(
         placement: Placement<'_>,
     ) -> Vec<EvaluatedSceneNode> {
         let mut output = Vec::new();
-        for (layer, source) in items {
+        for (layer, mut source) in items {
             if placement.path.is_empty()
                 && context
                     .visibility
@@ -132,7 +132,17 @@ pub(crate) fn evaluated_scene_graph_at_time(
                 continue;
             }
             let source_id = source.id;
-            let mut item = resolve_item(context.scenes, None, &source, Some(time));
+            let mut path = placement.path.to_vec();
+            path.push(source_id);
+            if let Some(visibility) = context.visibility {
+                visibility.retain_visible_effects(&mut source);
+            }
+            for stage in context.stages.iter().filter(|stage| stage.path == path) {
+                source.effects.truncate(stage.effect_count);
+            }
+            let resolved = resolve_render_item(context.scenes, placement.bindings, &source, time);
+            let mut item = resolved.value;
+            let calculation_errors = resolved.diagnostics;
             let output_layer = placement.layer.unwrap_or(layer);
             let global_start = placement.time_offset.saturating_add(item.start.get());
             let source_end = global_start.saturating_add(item.duration.get());
@@ -142,13 +152,8 @@ pub(crate) fn evaluated_scene_graph_at_time(
             let Some(clip) = EvaluatedClip::from_bounds(global_start, global_end) else {
                 continue;
             };
-            let mut path = placement.path.to_vec();
-            path.push(source_id);
+            item.id = unique_runtime_id(placement.runtime_seed, source_id, &mut context.used_ids);
             let Some(scene_id) = item.scene_id() else {
-                if let Some(visibility) = context.visibility {
-                    visibility.retain_visible_effects(&mut item);
-                }
-                item.id = unique_runtime_id(placement.runtime_seed, item.id, &mut context.used_ids);
                 item.start = clip.start;
                 item.duration = clip.duration;
                 output.push(EvaluatedSceneNode {
@@ -158,6 +163,7 @@ pub(crate) fn evaluated_scene_graph_at_time(
                     path,
                     item,
                     children: Vec::new(),
+                    calculation_errors,
                 });
                 continue;
             };
@@ -168,24 +174,29 @@ pub(crate) fn evaluated_scene_graph_at_time(
             if local.frames() < 0. || local.frames() >= item.duration.get() as f64 {
                 continue;
             }
-            let child_items = scene.instance_items(context.scenes, &item, Some(local));
+            let child_items = scene.expanded_items(&item, Some(local));
+            let bindings = SceneBindings::for_instance(
+                context.scenes,
+                scene,
+                &source,
+                Some(time),
+                placement.bindings,
+            );
             let children = expand(
                 context,
                 child_items,
                 local,
                 Placement {
                     time_offset: global_start,
-                    runtime_seed: scene_runtime_seed(placement.runtime_seed, item.id, scene_id),
+                    runtime_seed: scene_runtime_seed(placement.runtime_seed, source_id, scene_id),
                     layer: Some(output_layer),
                     clip_end: Some(global_end),
                     path: &path,
+                    bindings: Some(&bindings),
                 },
             );
             item.start = clip.start;
             item.duration = clip.duration;
-            if let Some(visibility) = context.visibility {
-                visibility.retain_visible_effects(&mut item);
-            }
             output.push(EvaluatedSceneNode {
                 local_layer: layer,
                 layer: output_layer,
@@ -193,6 +204,7 @@ pub(crate) fn evaluated_scene_graph_at_time(
                 path,
                 item,
                 children,
+                calculation_errors,
             });
         }
         output
@@ -201,9 +213,19 @@ pub(crate) fn evaluated_scene_graph_at_time(
     let mut context = EvaluationContext {
         scenes,
         visibility,
+        stages,
         used_ids: HashSet::new(),
     };
-    expand(&mut context, items, time, Placement::default())
+    let bindings = scene.map(|scene| SceneBindings::new(scenes, scene, None));
+    expand(
+        &mut context,
+        items,
+        time,
+        Placement {
+            bindings: bindings.as_ref(),
+            ..Default::default()
+        },
+    )
 }
 
 pub(crate) fn evaluated_items_at_time(
@@ -211,6 +233,7 @@ pub(crate) fn evaluated_items_at_time(
     scenes: &HashMap<SceneId, SceneDefinition>,
     time: TimelineTime,
     visibility: Option<&PreviewVisibility>,
+    scene: Option<&SceneDefinition>,
 ) -> Vec<(LayerId, TimelineItem)> {
     fn flatten(nodes: Vec<EvaluatedSceneNode>, output: &mut Vec<(LayerId, TimelineItem)>) {
         for node in nodes {
@@ -222,79 +245,8 @@ pub(crate) fn evaluated_items_at_time(
         }
     }
 
-    let graph = evaluated_scene_graph_at_time(items, scenes, time, visibility);
+    let graph = evaluated_scene_graph_at_time(items, scenes, time, visibility, scene, &[]);
     let mut output = Vec::new();
     flatten(graph, &mut output);
     output
-}
-
-pub(crate) fn visible_items(
-    items: Vec<(LayerId, TimelineItem)>,
-    scenes: &HashMap<SceneId, SceneDefinition>,
-    visibility: Option<&PreviewVisibility>,
-) -> Vec<TimelineItem> {
-    struct VisibilityContext<'a> {
-        scenes: &'a HashMap<SceneId, SceneDefinition>,
-        visibility: Option<&'a PreviewVisibility>,
-        output: Vec<TimelineItem>,
-        used_ids: HashSet<ItemId>,
-    }
-
-    fn expand(
-        context: &mut VisibilityContext<'_>,
-        items: Vec<(LayerId, TimelineItem)>,
-        time_offset: u64,
-        runtime_seed: u64,
-        clip_end: Option<u64>,
-    ) {
-        for (layer, source) in items {
-            if context
-                .visibility
-                .is_some_and(|visibility| !visibility.is_item_visible(layer, source.id))
-            {
-                continue;
-            }
-            let global_start = time_offset.saturating_add(source.start.get());
-            let source_end = global_start.saturating_add(source.duration.get());
-            let visible_end = clip_end.map_or(source_end, |end| end.min(source_end));
-            if visible_end <= global_start {
-                continue;
-            }
-            let Some(scene_id) = source.scene_id() else {
-                let mut item = source;
-                item.id = unique_runtime_id(runtime_seed, item.id, &mut context.used_ids);
-                item.start = Frame::new(global_start);
-                item.duration = FrameDuration::new_saturating(visible_end - global_start);
-                context.output.push(item);
-                continue;
-            };
-            let Some(scene) = context.scenes.get(&scene_id) else {
-                continue;
-            };
-            let instance = resolve_item(
-                context.scenes,
-                None,
-                &source,
-                Some(TimelineTime::from_frame(source.start)),
-            );
-            let children = scene.instance_items(context.scenes, &instance, None);
-            let child_seed = scene_runtime_seed(runtime_seed, source.id, scene_id);
-            expand(
-                context,
-                children,
-                global_start,
-                child_seed,
-                Some(visible_end),
-            );
-        }
-    }
-
-    let mut context = VisibilityContext {
-        scenes,
-        visibility,
-        output: Vec::new(),
-        used_ids: HashSet::new(),
-    };
-    expand(&mut context, items, 0, 0, None);
-    context.output
 }

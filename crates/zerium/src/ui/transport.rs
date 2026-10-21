@@ -4,10 +4,9 @@ use std::time::Instant;
 use gpui::{App, Context, Entity};
 
 use crate::engine::audio_playback::{
-    AudioPlaybackEngine, AudioPlaybackError, AudioPlaybackEvent, AudioSourcePlan, PlaybackClock,
-    audio_plan,
+    AudioPlaybackEngine, AudioPlaybackError, AudioPlaybackEvent, PlaybackClock,
 };
-use zerium_core::timeline::{Frame, FrameRate, TimelineEditor};
+use zerium_core::timeline::{Frame, TimelineEditor};
 
 use super::{TimelineEditorEntityExt, notifications::UiNotifications};
 
@@ -38,8 +37,6 @@ pub(crate) struct TransportController {
     audio: Entity<AudioPlaybackEngine>,
     notifications: Entity<UiNotifications>,
     mode: TransportMode,
-    audio_plan: Vec<AudioSourcePlan>,
-    audio_frame_rate: FrameRate,
 }
 
 impl TransportController {
@@ -53,8 +50,6 @@ impl TransportController {
             audio,
             notifications,
             mode: TransportMode::Stopped,
-            audio_plan: Vec::new(),
-            audio_frame_rate: FrameRate::FPS_30,
         }
     }
 
@@ -84,26 +79,20 @@ impl TransportController {
 
     fn play(&mut self, cx: &mut Context<Self>) {
         self.stop_audio(cx);
-        let (start_frame, frame_rate, items, cache) = {
+        let (start_frame, timeline) = {
             let editor = self.editor.read(cx);
             let playhead = editor.playhead();
-            let start_frame = if playhead >= editor.end_frame_exclusive() {
+            let start = if playhead >= editor.end_frame_exclusive() {
                 Frame::new(0)
             } else {
                 playhead
             };
-            (
-                start_frame,
-                editor.frame_rate(),
-                editor.visible_items(),
-                editor.media_cache().clone(),
-            )
+            (start, editor.audio_snapshot())
         };
-        let clock: Result<PlaybackClock, AudioPlaybackError> = self.audio.update(cx, |audio, _| {
-            audio.play(items.clone(), start_frame, frame_rate, cache.clone())
-        });
-        self.audio_plan = audio_plan(&items, &cache);
-        self.audio_frame_rate = frame_rate;
+        let frame_rate = timeline.frame_rate();
+        let clock: Result<PlaybackClock, AudioPlaybackError> = self
+            .audio
+            .update(cx, |audio, _| audio.play(timeline.clone(), start_frame));
         let clock = match clock {
             Ok(clock) => clock,
             Err(error) => {
@@ -225,48 +214,32 @@ impl TransportController {
             self.stop(cx);
             return;
         }
-        let items = self.editor.read(cx).visible_items();
-        let cache = self.editor.read(cx).media_cache().clone();
-        let plan = audio_plan(&items, &cache);
-        if plan != self.audio_plan || frame_rate != self.audio_frame_rate {
-            let clock = self
-                .audio
-                .update(cx, |audio, _| audio.play(items, frame, frame_rate, cache));
-            playback.start_seconds = seconds;
-            playback.started_at = Instant::now();
-            playback.uses_audio_clock = match clock {
-                Ok(clock) => clock == PlaybackClock::Audio,
-                Err(error) => {
-                    self.notifications.update(cx, |notifications, cx| {
-                        notifications.push(
-                            t!("transport.start_playback_failed", error = error).to_string(),
-                            cx,
-                        )
-                    });
-                    false
+        let timeline = self.editor.read(cx).audio_snapshot();
+        match self
+            .audio
+            .update(cx, |audio, _| audio.update_timeline(timeline, seconds))
+        {
+            Ok(PlaybackClock::Audio) => {
+                playback.uses_audio_clock = true;
+                seconds = self.audio.read(cx).playhead_seconds().unwrap_or(seconds);
+            }
+            Ok(PlaybackClock::Wall) => {
+                if playback.uses_audio_clock {
+                    playback.start_seconds = seconds;
+                    playback.started_at = Instant::now();
                 }
-            };
-            self.audio_plan = plan;
-            self.audio_frame_rate = frame_rate;
-        }
-        if !playback.uses_audio_clock && frame_rate.seconds_to_frame(seconds) < end {
-            match self
-                .audio
-                .update(cx, |audio, _| audio.resume_pending(seconds))
-            {
-                Some(Ok(PlaybackClock::Audio)) => {
-                    playback.uses_audio_clock = true;
-                    seconds = self.audio.read(cx).playhead_seconds().unwrap_or(seconds);
-                }
-                Some(Err(error)) => {
-                    self.notifications.update(cx, |notifications, cx| {
-                        notifications.push(
-                            t!("transport.start_playback_failed", error = error).to_string(),
-                            cx,
-                        );
-                    });
-                }
-                _ => {}
+                playback.uses_audio_clock = false;
+            }
+            Err(error) => {
+                playback.start_seconds = seconds;
+                playback.started_at = Instant::now();
+                playback.uses_audio_clock = false;
+                self.notifications.update(cx, |notifications, cx| {
+                    notifications.push(
+                        t!("transport.start_playback_failed", error = error).to_string(),
+                        cx,
+                    );
+                });
             }
         }
         frame = frame_rate.seconds_to_frame(seconds);
@@ -275,21 +248,8 @@ impl TransportController {
             return;
         }
         self.mode = TransportMode::Playing(playback);
-        let changed = self
-            .editor
+        self.editor
             .update_if_changed(cx, |editor| editor.set_playback_position(seconds, frame));
-        if changed {
-            let active_items = self
-                .editor
-                .read(cx)
-                .active_items_at(frame)
-                .into_iter()
-                .map(|(_, item)| item)
-                .collect::<Vec<_>>();
-            self.audio.update(cx, |audio, _| {
-                audio.update_gains(&active_items, seconds, frame_rate)
-            });
-        }
     }
 
     fn report_audio_events(&mut self, cx: &mut Context<Self>) {

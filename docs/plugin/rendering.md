@@ -11,6 +11,20 @@ contract shared by item rendering and all effect pass kinds.
 - [Image sampling](#image-sampling)
 - [Effects and passes](#effects-and-passes)
 
+## Visual property contract
+
+Each item's `render.properties` lists the IDs consumed by its shaders, bounds
+script, and visual input capabilities, in shader ABI order. Use `[]` when the
+item needs no properties. The referenced properties are declared in the item's
+ordinary `properties` array. Missing or duplicate IDs and visual input references
+outside this list are rejected when loading the manifest.
+
+Only this set is evaluated for visual rendering and exposed in the generated
+property interface. Keep audio-only controls such as volume outside the list so
+visual temporal samples never execute their calculations. A property deliberately
+shared by audio and visuals belongs in the list and is evaluated independently
+at each consumer's times. Effect passes consume their owner's property contract.
+
 ## Generated WESL API
 
 Shader sources import the host and entity interfaces explicitly. For an item
@@ -65,7 +79,8 @@ owner-specific values as arguments. Item and effect IDs must be distinct across
 both kinds. Module path components, entity IDs, and input IDs must be WGSL
 identifiers; WGSL reserved words cannot be used.
 
-Regenerate after changing entity IDs, property IDs/types/order, input IDs/order,
+Regenerate after changing entity IDs, property IDs/types, `render.properties`
+order or membership, input IDs/order,
 item/effect ownership, or the host API. Labels, defaults, enum choices, and array
 length limits do not require regeneration.
 
@@ -139,34 +154,36 @@ children requires an image covering the space between them.
     "module": "expand"
   },
   "bounds": {
-    "min": [
-      "input::min::x - p::radius",
-      "input::min::y - p::radius"
-    ],
-    "max": [
-      "input::max::x + p::radius",
-      "input::max::y + p::radius"
-    ]
+    "script": "#{ min: [input.min.x - p.radius, input.min.y - p.radius], max: [input.max.x + p.radius, input.max.y + p.radius] }"
   }
 }
 ```
 
 For an item, `input` starts as the viewport; for an effect, it is the incoming
-image rectangle. Use `viewport::*` edges for a full-frame item and `input::*` to
+image rectangle. Use `viewport` edges for a full-frame item and `input` to
 preserve an effect's input. Invalid, reversed, or non-finite results fail rendering.
-The shader is responsible for drawing within its declared bounds.
+The shader is responsible for drawing within its declared bounds. Runtime script
+failures retain their Rhai diagnostic and item/pass identity through render-graph
+construction; they are not converted to non-finite rectangles.
 
-Expressions support arithmetic, parentheses, `min`, `max`, and functions such
-as `math::abs`, `math::sin`, and `math::cos`. Local assignments can be separated
-with `;`. Rectangle variables use `{input,source,viewport}::{min,max,center,size}::{x,y}`.
-Numeric, boolean (`0`/`1`), and enum properties use `p::<id>`; tuple scalars use
-`p::<id>::v0`, `::v1`, and subsequent zero-based component indices. Named image
-bounds use `images::<id>::{min,max,center,size}::{x,y}`. `o::<id>` provides pass
-overrides.
+`bounds.script` is a Rhai script returning `#{ min: [x, y], max: [x, y] }`.
+It supports local `let` bindings, conditionals, arrays, maps, loops, and functions.
+Use `abs`, `sin`, `cos`, `min`, `max`, `exp2`, `pow`, `lerp`, and `clamp` for
+numeric operations. Bounds and scene calculations share the same bounded runtime:
+50,000 operations, 32 call levels, and no module imports or dynamic `eval`.
 
-For ordinary effect passes, `source::*` describes the image entering the current
+Rectangle inputs use `input.min.x`, `source.size.y`, and equivalent members of
+`viewport`; each rectangle has `min`, `max`, `center`, and `size` points with `x`
+and `y` members. Properties use `p.<id>`; tuples and arrays use zero-based indices,
+for example `p.position[0]`. Values retain their types: booleans are `true`/`false`,
+integer and enum values are integers, colors are four-component arrays, and text
+is a string. Named images use `images.<id>.min.x`; `o.<id>` provides numeric pass
+overrides. Map index syntax handles IDs that are not Rhai identifiers, such as
+`o["0"]`. Inputs are read-only, and each evaluation starts with a fresh scope.
+
+For ordinary effect passes, `source` describes the image entering the current
 effect. After a temporal pass, it describes the reduced image. For the
-temporal pass's bounds program, both `input::*` and `source::*` describe the union
+temporal pass's bounds program, both `input` and `source` describe the union
 of available sample bounds. The reducer's sampled `source` is its accumulation;
 see [Temporal passes](#temporal-passes).
 
@@ -177,16 +194,17 @@ center on one axis, matching WESL's `item::placement_center`. Use the unpadded
 local size and an origin of `0` (start), `1` (center), or `2` (end):
 
 ```text
-placement_center(p::position::v0, p::size::v0, p::origin::v0) - math::abs(p::size::v0) / 2
+placement_center(p.position[0], p.size[0], p.origin[0]) - abs(p.size[0]) / 2.0
 ```
 
-Use `v1` for the vertical axis. Arguments may be integers or floating-point
+Use index `[1]` for the vertical axis. Arguments may be integers or floating-point
 numbers; origin must be an integer in the declared range.
 
-Perspective bounds use `projected_rect_min_x`, `projected_rect_min_y`,
-`projected_rect_max_x`, and `projected_rect_max_y`. Each takes the minimum corner,
-maximum corner, XYZ rotation in degrees, rotation center, focal length, and near
-clip ratio. Match the shader's projection and near depth; see the bundled
+`projected_rect(min, max, rotation, center, focal, near_ratio)` returns the
+complete `#{ min: [x, y], max: [x, y] }` rectangle from one projection. Pass arrays
+for the minimum corner, maximum corner, XYZ rotation in degrees, and rotation
+center, followed by focal length and near clip ratio. Its result can be returned
+directly from a bounds program. Match the shader's projection and near depth; see the bundled
 [rotation declaration](../../plugins/zerium.builtin/plugin.json) and
 [3D rotation shader](../../plugins/zerium.builtin/effects/rotate_3d/render.wesl).
 
@@ -285,14 +303,7 @@ Effects declare an ordered, non-empty `render.passes` array:
           "one"
         ],
         "bounds": {
-          "min": [
-            "input::min::x - 10",
-            "input::min::y"
-          ],
-          "max": [
-            "input::max::x + 10",
-            "input::max::y"
-          ]
+          "script": "#{ min: [input.min.x - 10, input.min.y], max: [input.max.x + 10, input.max.y] }"
         },
         "overrides": {
           "direction_x": 1,
@@ -337,14 +348,7 @@ A temporal pass must be first and can occur only once:
     "module": "motion_blur_accumulate"
   },
   "bounds": {
-    "min": [
-      "input::min::x",
-      "input::min::y"
-    ],
-    "max": [
-      "input::max::x",
-      "input::max::y"
-    ]
+    "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
   }
 }
 ```

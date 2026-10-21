@@ -1,0 +1,476 @@
+//! Named, typed calculations with explicit, stable input connections.
+use std::{
+    cell::RefCell,
+    collections::{HashMap, HashSet, VecDeque},
+    sync::{Arc, Mutex, OnceLock},
+};
+
+use rhai::Scope;
+use serde::{Deserialize, Serialize};
+
+use super::SceneDefinition;
+use crate::{
+    property::{PropertyValue, PropertyValues},
+    script::{Script, from_dynamic, to_dynamic},
+};
+
+#[derive(Clone, Debug, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SceneCalculationInput {
+    pub name: String,
+    pub variable_id: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct SceneCalculation {
+    pub inputs: Vec<SceneCalculationInput>,
+    pub script: Script,
+}
+
+/// Results are local to one scene instance and one sample. Failed calculations
+/// have no value; their dependants fail too, while unrelated outputs still work.
+#[derive(Default, Debug)]
+pub struct SceneEvaluation {
+    pub values: HashMap<String, Result<PropertyValue, String>>,
+}
+
+pub(crate) fn valid_input_name(name: &str) -> bool {
+    let mut chars = name.chars();
+    matches!(chars.next(), Some(c) if c.is_ascii_alphabetic() || c == '_')
+        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && Script::new(format!("let {name} = 0; {name}"))
+            .validate()
+            .is_ok()
+}
+
+/// Derived state belongs to an immutable scene revision. Clones share it until
+/// a command obtains mutable variables, then detach without touching history.
+#[derive(Default)]
+pub(super) struct SceneRuntime {
+    plan: OnceLock<Result<VariablePlan, String>>,
+    defaults: OnceLock<Arc<SceneEvaluation>>,
+    inputs: Mutex<VecDeque<SuppliedEvaluation>>,
+    calculations: Mutex<HashMap<String, VecDeque<CalculationResult>>>,
+}
+
+struct SuppliedEvaluation {
+    arguments: PropertyValues,
+    result: Arc<SceneEvaluation>,
+}
+
+struct VariablePlan {
+    order: Vec<usize>,
+    indices: HashMap<String, usize>,
+}
+
+struct CalculationResult {
+    inputs: Vec<PropertyValue>,
+    result: Result<PropertyValue, String>,
+}
+
+// Rhai can distinguish -0.0 from 0.0, so numeric cache keys compare bits.
+fn same_value(left: &PropertyValue, right: &PropertyValue) -> bool {
+    match (left, right) {
+        (PropertyValue::F32(left), PropertyValue::F32(right)) => left.to_bits() == right.to_bits(),
+        (PropertyValue::Color(left), PropertyValue::Color(right)) => left
+            .iter()
+            .zip(right)
+            .all(|(left, right)| left.to_bits() == right.to_bits()),
+        _ => left == right,
+    }
+}
+
+fn same_arguments(left: &PropertyValues, right: &PropertyValues) -> bool {
+    left.iter().count() == right.iter().count()
+        && left.iter().all(|(id, value)| {
+            right
+                .property(id)
+                .is_some_and(|other| same_value(value, other))
+        })
+}
+
+/// One demand-driven evaluation scope. Cross-scene arguments are resolved only
+/// when a connected output reads them; local results are shared by its consumers.
+type ArgumentResolver<'a> = dyn Fn(&super::SceneVariable) -> Result<PropertyValue, String> + 'a;
+
+pub(in crate::timeline) struct VariableEvaluator<'a> {
+    scene: &'a SceneDefinition,
+    argument: Box<ArgumentResolver<'a>>,
+    values: RefCell<HashMap<String, Result<PropertyValue, String>>>,
+}
+
+impl<'a> VariableEvaluator<'a> {
+    pub(in crate::timeline) fn new(
+        scene: &'a SceneDefinition,
+        argument: impl Fn(&super::SceneVariable) -> Result<PropertyValue, String> + 'a,
+    ) -> Self {
+        Self {
+            scene,
+            argument: Box::new(argument),
+            values: RefCell::default(),
+        }
+    }
+
+    pub(in crate::timeline) fn get(&self, id: &str) -> Result<PropertyValue, String> {
+        if let Some(value) = self.values.borrow().get(id).cloned() {
+            return value;
+        }
+        let plan = self.scene.variable_plan().as_ref().map_err(Clone::clone)?;
+        let index = plan
+            .indices
+            .get(id)
+            .ok_or_else(|| format!("Missing variable '{id}'"))?;
+        let mut pending = vec![(*index, false)];
+        while let Some((index, ready)) = pending.pop() {
+            let variable = &self.scene.variables[index];
+            if self.values.borrow().contains_key(variable.id()) {
+                continue;
+            }
+            if !ready {
+                pending.push((index, true));
+                if let Some(calculation) = variable.calculation() {
+                    for input in calculation.inputs.iter().rev() {
+                        pending.push((plan.indices[&input.variable_id], false));
+                    }
+                }
+                continue;
+            }
+            let result = if let Some(calculation) = variable.calculation() {
+                let inputs = calculation
+                    .inputs
+                    .iter()
+                    .map(|input| {
+                        self.values
+                            .borrow()
+                            .get(&input.variable_id)
+                            .expect("dependency was evaluated")
+                            .clone()
+                            .map_err(|error| format!("Input '{}': {error}", input.name))
+                    })
+                    .collect::<Result<Vec<_>, _>>();
+                inputs.and_then(|inputs| self.scene.evaluate_calculation(variable, &inputs))
+            } else {
+                (self.argument)(variable).and_then(|value| {
+                    variable
+                        .apply_argument_limits(&value)
+                        .ok_or_else(|| format!("Invalid argument '{}'", variable.id()))
+                })
+            };
+            self.values
+                .borrow_mut()
+                .insert(variable.id().to_owned(), result);
+        }
+        self.values
+            .borrow()
+            .get(id)
+            .expect("requested output was evaluated")
+            .clone()
+    }
+}
+
+impl SceneDefinition {
+    /// UI order does not affect dependency order. This validation is shared by
+    /// editing and loading; script errors remain saveable while being authored.
+    pub fn validate_calculations(&self) -> Result<(), String> {
+        self.variable_plan()
+            .as_ref()
+            .map(|_| ())
+            .map_err(Clone::clone)
+    }
+
+    fn variable_plan(&self) -> &Result<VariablePlan, String> {
+        self.runtime
+            .plan
+            .get_or_init(|| self.compile_variable_plan())
+    }
+
+    fn compile_variable_plan(&self) -> Result<VariablePlan, String> {
+        let mut ids = HashSet::new();
+        for variable in &self.variables {
+            variable.validate_argument()?;
+            if variable.id().trim().is_empty() || variable.label().trim().is_empty() {
+                return Err("Scene variables must have an ID and name".to_owned());
+            }
+            if !ids.insert(variable.id()) {
+                return Err("Duplicate scene variable ID".to_owned());
+            }
+            if let Some(calculation) = variable.calculation() {
+                use crate::property::ScalarPropertyType;
+                if !matches!(
+                    variable.ty(),
+                    ScalarPropertyType::F32
+                        | ScalarPropertyType::I32
+                        | ScalarPropertyType::U32
+                        | ScalarPropertyType::Bool
+                        | ScalarPropertyType::Color
+                        | ScalarPropertyType::String
+                ) {
+                    return Err("Unsupported calculation output type".to_owned());
+                }
+                let mut aliases = HashSet::new();
+                for input in &calculation.inputs {
+                    if !valid_input_name(&input.name) || !aliases.insert(&input.name) {
+                        return Err(format!("Invalid or duplicate input name '{}'", input.name));
+                    }
+                    if self.variable(&input.variable_id).is_none() {
+                        return Err(format!(
+                            "Input '{}' references a missing variable",
+                            input.name
+                        ));
+                    }
+                }
+            }
+        }
+        let (order, pending) = self.calculation_order();
+        if pending.is_empty() {
+            Ok(VariablePlan {
+                order,
+                indices: self
+                    .variables
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| (v.id().to_owned(), i))
+                    .collect(),
+            })
+        } else {
+            Err("Calculation inputs contain a cycle".to_owned())
+        }
+    }
+
+    fn calculation_order(&self) -> (Vec<usize>, Vec<usize>) {
+        let by_id = self
+            .variables
+            .iter()
+            .enumerate()
+            .map(|(i, v)| (v.id(), i))
+            .collect::<HashMap<_, _>>();
+        let mut remaining = vec![0; self.variables.len()];
+        let mut dependants = vec![Vec::new(); self.variables.len()];
+        for (index, variable) in self.variables.iter().enumerate() {
+            if let Some(calculation) = variable.calculation() {
+                for input in &calculation.inputs {
+                    if let Some(&dependency) = by_id.get(input.variable_id.as_str()) {
+                        remaining[index] += 1;
+                        dependants[dependency].push(index);
+                    }
+                }
+            }
+        }
+        let mut ready = remaining
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &n)| (n == 0).then_some(i))
+            .collect::<VecDeque<_>>();
+        let mut order = Vec::with_capacity(self.variables.len());
+        while let Some(index) = ready.pop_front() {
+            order.push(index);
+            for &dependent in &dependants[index] {
+                remaining[dependent] -= 1;
+                if remaining[dependent] == 0 {
+                    ready.push_back(dependent);
+                }
+            }
+        }
+        let pending = remaining
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &n)| (n != 0).then_some(i))
+            .collect();
+        (order, pending)
+    }
+
+    /// Extract the dependency graph required by selected items. Exclusive
+    /// calculations move; shared calculations become independent copies.
+    pub(in crate::timeline) fn variables_for_grouping(
+        &self,
+        selected: &HashSet<crate::timeline::ItemId>,
+    ) -> (Vec<super::SceneVariable>, HashSet<String>) {
+        let mut required = self
+            .variables
+            .iter()
+            .filter(|variable| {
+                variable
+                    .bindings
+                    .iter()
+                    .any(|binding| selected.contains(&binding.item_id()))
+            })
+            .map(|variable| variable.id().to_owned())
+            .collect::<HashSet<_>>();
+        let mut pending = required.iter().cloned().collect::<Vec<_>>();
+        while let Some(id) = pending.pop() {
+            if let Some(calculation) = self
+                .variable(&id)
+                .and_then(|variable| variable.calculation())
+            {
+                for input in &calculation.inputs {
+                    if required.insert(input.variable_id.clone()) {
+                        pending.push(input.variable_id.clone());
+                    }
+                }
+            }
+        }
+        let mut moved = self
+            .variables
+            .iter()
+            .filter(|variable| {
+                required.contains(variable.id())
+                    && variable.calculation().is_some()
+                    && variable
+                        .bindings
+                        .iter()
+                        .all(|binding| selected.contains(&binding.item_id()))
+            })
+            .map(|variable| variable.id().to_owned())
+            .collect::<HashSet<_>>();
+        loop {
+            let before = moved.len();
+            let referenced = self
+                .variables
+                .iter()
+                .filter(|variable| !moved.contains(variable.id()))
+                .filter_map(|variable| variable.calculation())
+                .flat_map(|calculation| &calculation.inputs)
+                .map(|input| input.variable_id.clone())
+                .collect::<Vec<_>>();
+            for id in referenced {
+                moved.remove(&id);
+            }
+            if moved.len() == before {
+                break;
+            }
+        }
+        let variables = self
+            .variables
+            .iter()
+            .filter(|variable| required.contains(variable.id()))
+            .cloned()
+            .map(|mut variable| {
+                variable
+                    .bindings
+                    .retain(|binding| selected.contains(&binding.item_id()));
+                variable
+            })
+            .collect();
+        (variables, moved)
+    }
+
+    pub(in crate::timeline) fn variable_evaluator<'a>(
+        &'a self,
+        inputs: Option<&'a PropertyValues>,
+    ) -> VariableEvaluator<'a> {
+        VariableEvaluator::new(self, move |variable| {
+            let schema = variable
+                .argument_schema()
+                .expect("argument source owns its schema");
+            Ok(schema.resolve_value(inputs.and_then(|values| values.property(variable.id()))))
+        })
+    }
+
+    pub fn evaluate_variables(&self, inputs: Option<&PropertyValues>) -> Arc<SceneEvaluation> {
+        let Some(inputs) = inputs else {
+            return self
+                .runtime
+                .defaults
+                .get_or_init(|| Arc::new(self.evaluate_all_variables(None)))
+                .clone();
+        };
+        {
+            let cached = self
+                .runtime
+                .inputs
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if let Some(previous) = cached
+                .iter()
+                .find(|previous| same_arguments(&previous.arguments, inputs))
+            {
+                return previous.result.clone();
+            }
+        }
+        let result = Arc::new(self.evaluate_all_variables(Some(inputs)));
+        let mut cached = self
+            .runtime
+            .inputs
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        if cached.len() == 8 {
+            cached.pop_front();
+        }
+        cached.push_back(SuppliedEvaluation {
+            arguments: inputs.clone(),
+            result: result.clone(),
+        });
+        result
+    }
+
+    fn evaluate_all_variables(&self, inputs: Option<&PropertyValues>) -> SceneEvaluation {
+        let evaluation = self.variable_evaluator(inputs);
+        // Visiting in dependency order keeps the explicit "evaluate all" UI path
+        // iterative for long chains. Ordinary property readers request one output.
+        let order = match self.variable_plan() {
+            Ok(plan) => plan.order.clone(),
+            Err(_) => (0..self.variables.len()).collect(),
+        };
+        SceneEvaluation {
+            values: order
+                .into_iter()
+                .map(|i| {
+                    let id = self.variables[i].id();
+                    (id.to_owned(), evaluation.get(id))
+                })
+                .collect(),
+        }
+    }
+
+    fn evaluate_calculation(
+        &self,
+        variable: &super::SceneVariable,
+        inputs: &[PropertyValue],
+    ) -> Result<PropertyValue, String> {
+        {
+            let cached = self
+                .runtime
+                .calculations
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if let Some(previous) = cached.get(variable.id()).and_then(|cached| {
+                cached.iter().find(|previous| {
+                    previous.inputs.len() == inputs.len()
+                        && previous
+                            .inputs
+                            .iter()
+                            .zip(inputs)
+                            .all(|(a, b)| same_value(a, b))
+                })
+            }) {
+                return previous.result.clone();
+            }
+        }
+        let calculation = variable.calculation().expect("calculation source");
+        let mut scope = Scope::new();
+        for (input, value) in calculation.inputs.iter().zip(inputs) {
+            scope.push_constant_dynamic(input.name.clone(), to_dynamic(value));
+        }
+        // Execute outside the cache lock: audio, rendering and UI readers do not
+        // serialize behind a script that another consumer is currently running.
+        let result = calculation
+            .script
+            .evaluate(&mut scope)
+            .and_then(|value| from_dynamic(value, variable.ty()));
+        let mut all = self
+            .runtime
+            .calculations
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        let cached = all.entry(variable.id().to_owned()).or_default();
+        if cached.len() == 8 {
+            cached.pop_front();
+        }
+        cached.push_back(CalculationResult {
+            inputs: inputs.to_vec(),
+            result: result.clone(),
+        });
+        result
+    }
+}

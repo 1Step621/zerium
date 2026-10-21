@@ -7,12 +7,11 @@ use std::{
 
 use zerium_core::{
     media::{
-        FileMediaMetadata, FileRevision, ImportedFile, MediaMetadataCache, MediaSource,
+        FileMediaMetadata, FileRevision, ImportedFile, MediaDependency, MediaMetadataCache,
         MediaTarget, ProbedFile,
     },
     plugin::PluginRegistry,
-    property::PropertyValues,
-    timeline::{ProjectId, TimelineItem, TimelineSnapshot, TimelineView},
+    timeline::{ProjectId, TimelineSnapshot, TimelineView},
 };
 
 use super::{MediaError, MediaReaderRegistry};
@@ -72,8 +71,7 @@ impl MediaMetadataUpdater {
     ) -> (Vec<ProbedFile>, Vec<MediaError>) {
         let revision = (snapshot.project_id(), snapshot.project_revision());
         if self.revision != Some(revision) {
-            let mut readings = Readings::new();
-            snapshot.visit_resolved_items(|item| add_item_readings(&mut readings, item));
+            let mut readings = dependency_readings(snapshot.project_media_dependencies());
             for (path, file) in &mut readings {
                 if let Some(previous) = self.readings.remove(path) {
                     file.revision = previous.revision;
@@ -224,42 +222,16 @@ pub(super) fn refresh_file(
     ((previous != Some(&file)).then_some(file), errors)
 }
 
-pub(crate) fn item_readings<'a>(items: impl IntoIterator<Item = &'a TimelineItem>) -> Readings {
+pub(crate) fn dependency_readings(
+    dependencies: impl IntoIterator<Item = MediaDependency>,
+) -> Readings {
     let mut readings = Readings::new();
-    for item in items {
-        add_item_readings(&mut readings, item);
+    for dependency in dependencies {
+        readings
+            .entry(dependency.path)
+            .or_default()
+            .sources
+            .insert((dependency.reader_id, dependency.target));
     }
     readings
-}
-
-fn add_item_readings(readings: &mut Readings, item: &TimelineItem) {
-    if let Some(schema) = item.schema() {
-        add_readings(readings, &item.properties, schema.media_sources());
-    }
-    for effect in &item.effects {
-        add_readings(
-            readings,
-            &effect.properties,
-            effect.schema().media_sources(),
-        );
-    }
-}
-
-fn add_readings<'a>(
-    readings: &mut Readings,
-    properties: &PropertyValues,
-    sources: impl Iterator<Item = MediaSource<'a>>,
-) {
-    for source in sources {
-        if let Some(path) = properties
-            .property(source.file)
-            .and_then(|value| value.file())
-        {
-            readings
-                .entry(path.to_owned())
-                .or_default()
-                .sources
-                .insert((source.reader.to_owned(), source.input.target()));
-        }
-    }
 }

@@ -27,19 +27,71 @@ pub struct ItemSchema {
     render: Option<ItemRenderSchema>,
     audio: Vec<AudioCapability>,
     editor: Vec<EditorCapability>,
-    property_layout: PropertyLayout,
+    properties: Vec<PropertySchema>,
     playback: PlaybackBindings,
 }
 
-#[derive(Clone, Debug, Deserialize, PartialEq)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq)]
 pub struct ItemRenderSchema {
     pub shader: ShaderSchema,
-    #[serde(default = "default_vertex_count")]
     pub vertex_count: u32,
     pub bounds: OutputBoundsSchema,
-    #[serde(default)]
     pub inputs: Vec<TextureInput>,
+    property_layout: PropertyLayout,
+}
+
+impl ItemRenderSchema {
+    /// The complete property contract for shaders, bounds, and visual inputs.
+    pub fn properties(&self) -> &[PropertySchema] {
+        self.property_layout.properties()
+    }
+
+    pub fn property_layout(&self) -> &PropertyLayout {
+        &self.property_layout
+    }
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct ItemRenderDefinition {
+    shader: ShaderSchema,
+    #[serde(default = "default_vertex_count")]
+    vertex_count: u32,
+    bounds: OutputBoundsSchema,
+    #[serde(default)]
+    inputs: Vec<TextureInput>,
+    properties: Vec<String>,
+}
+
+impl ItemRenderDefinition {
+    fn compile(
+        self,
+        id: &str,
+        properties: &[PropertySchema],
+    ) -> Result<ItemRenderSchema, PluginError> {
+        let properties = self
+            .properties
+            .iter()
+            .map(|name| {
+                properties
+                    .iter()
+                    .find(|property| property.id() == name)
+                    .cloned()
+                    .ok_or_else(|| {
+                        PluginError::invalid_definition(format!(
+                            "item '{id}' render references missing property '{name}'"
+                        ))
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        Ok(ItemRenderSchema {
+            shader: self.shader,
+            vertex_count: self.vertex_count,
+            bounds: self.bounds,
+            inputs: self.inputs,
+            property_layout: PropertyLayout::compile("item render", id, properties)?,
+        })
+    }
 }
 
 #[derive(Deserialize)]
@@ -52,7 +104,7 @@ struct ItemSchemaDefinition {
     tags: Vec<String>,
     symbol: String,
     #[serde(default)]
-    render: Option<ItemRenderSchema>,
+    render: Option<ItemRenderDefinition>,
     #[serde(default)]
     audio: Vec<AudioCapability>,
     #[serde(default)]
@@ -67,19 +119,21 @@ impl<'de> Deserialize<'de> for ItemSchema {
         D: Deserializer<'de>,
     {
         let definition = ItemSchemaDefinition::deserialize(deserializer)?;
-        let property_layout =
-            PropertyLayout::compile("item", &definition.id, definition.properties)
-                .map_err(D::Error::custom)?;
+        let render = definition
+            .render
+            .map(|render| render.compile(&definition.id, &definition.properties))
+            .transpose()
+            .map_err(D::Error::custom)?;
         let mut schema = Self {
             id: definition.id,
             label: definition.label,
             category: definition.category,
             tags: definition.tags,
             symbol: definition.symbol,
-            render: definition.render,
+            render,
             audio: definition.audio,
             editor: definition.editor,
-            property_layout,
+            properties: definition.properties,
             playback: PlaybackBindings::default(),
         };
         schema.validate().map_err(D::Error::custom)?;
@@ -121,15 +175,11 @@ impl ItemSchema {
     }
 
     pub fn properties(&self) -> &[PropertySchema] {
-        self.property_layout.properties()
+        &self.properties
     }
 
     pub fn playback(&self) -> &PlaybackBindings {
         &self.playback
-    }
-
-    pub fn property_layout(&self) -> &PropertyLayout {
-        &self.property_layout
     }
 
     pub fn file_properties(&self) -> impl Iterator<Item = &PropertySchema> {
@@ -158,17 +208,24 @@ impl ItemSchema {
 
     pub(super) fn validate(&self) -> Result<(), PluginError> {
         validate_catalog_entry("item", &self.id, &self.label, &self.tags)?;
+        super::validation::validate_unique_ids(
+            "item property",
+            self.properties().iter().map(PropertySchema::id),
+        )?;
+        for property in self.properties() {
+            super::validation::validate_wgsl_identifier("property", property.id())?;
+        }
         validate_property_schemas("item", &self.id, self.properties())?;
 
         if let Some(render) = &self.render {
             render.bounds.validate(
                 "item",
                 &self.id,
-                self.properties(),
+                render.properties(),
                 &render.inputs,
                 &Default::default(),
             )?;
-            validate_texture_inputs("item", &self.id, self.properties(), &render.inputs)?;
+            validate_texture_inputs("item", &self.id, render.properties(), &render.inputs)?;
             render.shader.validate("item", &self.id)?;
 
             if render.vertex_count == 0 {

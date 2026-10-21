@@ -9,7 +9,7 @@ use super::{
 ///
 /// Keeping this separate from the timeline document makes it impossible for
 /// solo/mute-style preview choices to leak into project persistence or undo.
-#[derive(Clone, Default)]
+#[derive(Clone, Default, PartialEq, Eq)]
 pub(super) struct PreviewVisibility {
     layers: HashSet<LayerId>,
     items: HashSet<ItemId>,

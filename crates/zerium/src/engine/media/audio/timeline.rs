@@ -1,29 +1,22 @@
 use std::{
-    collections::HashMap,
+    collections::{HashMap, HashSet, VecDeque},
     ops::Range,
-    sync::{
-        Arc,
-        atomic::{AtomicU32, Ordering},
-    },
+    sync::Arc,
 };
 
 use thiserror::Error;
-
-use zerium_core::timeline::{FrameRate, ItemId, TimelineItem, TimelineTime};
+use zerium_core::timeline::AudioClipId;
+use zerium_core::timeline::{
+    AudioTimelineSnapshot, AudioTimelineSource, EvaluatedAudioGain, Frame, FrameRate,
+};
 
 use super::super::reader::{AudioFormat, MediaError, MediaReaderRegistry};
 use super::source::AudioSource;
 
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct AudioClipId {
-    pub(crate) item_id: ItemId,
-    pub(crate) input_id: String,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum AudioGainEvaluation {
-    Live,
-    TimelineAnimation,
+#[derive(Clone, Copy)]
+pub(crate) enum AudioCalculationPolicy {
+    Report,
+    Fallback,
 }
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
@@ -40,89 +33,67 @@ pub(crate) enum AudioTimelineError {
     },
     #[error("Audio render range is too large")]
     RangeTooLarge,
+    #[error("{0}")]
+    Calculation(String),
 }
 
 struct AudioClip {
     id: AudioClipId,
-    item: TimelineItem,
     start_sample_frame: u64,
     end_sample_frame: u64,
-    live_gain: Arc<AtomicU32>,
     source: AudioSource,
 }
 
 pub(crate) struct AudioTimelineGraph {
     clips: Vec<AudioClip>,
     format: AudioFormat,
-    frame_rate: FrameRate,
-    gain_evaluation: AudioGainEvaluation,
+    timeline: AudioTimelineSnapshot,
+    calculation_policy: AudioCalculationPolicy,
     active: Vec<usize>,
     next_clip: usize,
     previous_end: Option<u64>,
+    gains: VecDeque<FrameGains>,
 }
 
 impl AudioTimelineGraph {
     pub(crate) fn new(
-        items: &[TimelineItem],
-        cache: &zerium_core::media::MediaMetadataCache,
-        frame_rate: FrameRate,
+        timeline: AudioTimelineSnapshot,
         format: AudioFormat,
         media_readers: &MediaReaderRegistry,
-        gain_evaluation: AudioGainEvaluation,
+        calculation_policy: AudioCalculationPolicy,
     ) -> Result<Self, AudioTimelineError> {
+        let frame_rate = timeline.frame_rate();
         let mut clips = Vec::new();
-        for item in items {
-            let Some(schema) = item.schema() else {
-                continue;
-            };
+        for input in timeline.sources() {
             let start_sample_frame =
-                sample_boundary(item.start.get(), frame_rate, format.sample_rate);
+                sample_boundary(input.start.get(), frame_rate, format.sample_rate);
             let end_sample_frame = sample_boundary(
-                item.start.get().saturating_add(item.duration.get()),
+                input.start.get().saturating_add(input.duration.get()),
                 frame_rate,
                 format.sample_rate,
             );
-            for input in schema.audio() {
-                let Some((asset, playback, preserve_pitch)) = item.audio_input(input.id(), cache)
-                else {
-                    continue;
-                };
-                let id = AudioClipId {
-                    item_id: item.id,
-                    input_id: input.id().to_owned(),
-                };
-                let live_gain = Arc::new(AtomicU32::new(
-                    item.audio_gain(input.id())
-                        .expect("validated audio input")
-                        .to_bits(),
-                ));
-                let decoder = media_readers.open_audio_decoder(&asset).map_err(|error| {
-                    AudioTimelineError::Media {
-                        clip: id.clone(),
-                        error,
-                    }
-                })?;
-                let source =
-                    AudioSource::new(decoder, playback, preserve_pitch, asset.duration, format);
-                clips.push(AudioClip {
-                    id,
-                    item: item.clone(),
-                    start_sample_frame,
-                    end_sample_frame,
-                    live_gain,
-                    source,
-                });
+            if end_sample_frame <= start_sample_frame {
+                continue;
             }
+            let id = input.id.clone();
+            let source = open_source(input, format, media_readers)?;
+            clips.push(AudioClip {
+                id,
+                start_sample_frame,
+                end_sample_frame,
+                source,
+            });
         }
         clips.sort_by_key(|clip| clip.start_sample_frame);
         Ok(Self {
             clips,
             format,
-            frame_rate,
-            gain_evaluation,
+            timeline,
+            calculation_policy,
             active: Vec::new(),
             next_clip: 0,
             previous_end: None,
+            gains: VecDeque::new(),
         })
     }
 
@@ -130,11 +101,95 @@ impl AudioTimelineGraph {
         self.clips.is_empty()
     }
 
-    pub(crate) fn live_gains(&self) -> HashMap<AudioClipId, Arc<AtomicU32>> {
-        self.clips
+    /// Refresh both decoder sources and control values. Callers never need to
+    /// determine whether a timeline edit requires rebuilding the mixer.
+    pub(crate) fn update_timeline(
+        &mut self,
+        timeline: AudioTimelineSnapshot,
+        media_readers: &MediaReaderRegistry,
+    ) -> Result<bool, AudioTimelineError> {
+        if self.timeline.same_content(&timeline) {
+            return Ok(false);
+        }
+        if self.timeline.frame_rate() != timeline.frame_rate()
+            || self.timeline.sources() != timeline.sources()
+        {
+            self.update_sources(&timeline, media_readers)?;
+        }
+        self.gains.clear();
+        self.timeline = timeline;
+        Ok(true)
+    }
+
+    fn update_sources(
+        &mut self,
+        timeline: &AudioTimelineSnapshot,
+        media_readers: &MediaReaderRegistry,
+    ) -> Result<(), AudioTimelineError> {
+        let rate = timeline.frame_rate();
+        let desired = timeline
+            .sources()
             .iter()
-            .map(|clip| (clip.id.clone(), clip.live_gain.clone()))
-            .collect()
+            .filter_map(|input| {
+                let start = sample_boundary(input.start.get(), rate, self.format.sample_rate);
+                let end = sample_boundary(
+                    input.start.get().saturating_add(input.duration.get()),
+                    rate,
+                    self.format.sample_rate,
+                );
+                (end > start).then_some((input, start..end))
+            })
+            .collect::<Vec<_>>();
+        let previous = self
+            .timeline
+            .sources()
+            .iter()
+            .map(|input| (&input.id, input))
+            .collect::<HashMap<_, _>>();
+        let existing = self
+            .clips
+            .iter()
+            .map(|clip| &clip.id)
+            .collect::<HashSet<_>>();
+        // Open replacements before mutating the graph, so a failed decoder
+        // leaves the previous sources, cursor, and gain cache usable.
+        let mut replacements = HashMap::new();
+        for (input, _) in &desired {
+            let reusable = existing.contains(&input.id)
+                && previous
+                    .get(&input.id)
+                    .is_some_and(|old| old.asset == input.asset);
+            if !reusable {
+                replacements.insert(
+                    input.id.clone(),
+                    open_source(input, self.format, media_readers)?,
+                );
+            }
+        }
+        let mut previous = std::mem::take(&mut self.clips)
+            .into_iter()
+            .map(|clip| (clip.id, clip.source))
+            .collect::<HashMap<_, _>>();
+        self.clips = desired
+            .into_iter()
+            .map(|(input, range)| {
+                let mut source = replacements
+                    .remove(&input.id)
+                    .unwrap_or_else(|| previous.remove(&input.id).expect("retained audio source"));
+                source.update_playback(input.playback, input.preserve_pitch);
+                AudioClip {
+                    id: input.id.clone(),
+                    source,
+                    start_sample_frame: range.start,
+                    end_sample_frame: range.end,
+                }
+            })
+            .collect();
+        self.clips.sort_by_key(|clip| clip.start_sample_frame);
+        self.active.clear();
+        self.next_clip = 0;
+        self.previous_end = None;
+        Ok(())
     }
 
     pub(crate) fn render(
@@ -145,23 +200,44 @@ impl AudioTimelineGraph {
         let block_end = block_start
             .checked_add(u64::try_from(frame_count).map_err(|_| AudioTimelineError::RangeTooLarge)?)
             .ok_or(AudioTimelineError::RangeTooLarge)?;
+        if frame_count == 0 {
+            return Ok(Vec::new());
+        }
         self.update_active(block_start, block_end);
         let channels = usize::from(self.format.channels);
         let sample_count = frame_count
             .checked_mul(channels)
             .ok_or(AudioTimelineError::RangeTooLarge)?;
         let mut mix = vec![0.; sample_count];
+        let requested = self
+            .active
+            .iter()
+            .map(|&index| self.clips[index].id.clone())
+            .collect();
+        let evaluated_gains = gain_segments(
+            &self.timeline,
+            block_start..block_end,
+            self.format,
+            &requested,
+            &mut self.gains,
+            self.calculation_policy,
+        )?;
         for &index in &self.active {
             let clip = &mut self.clips[index];
             let intersection_start = block_start.max(clip.start_sample_frame);
             let intersection_end = block_end.min(clip.end_sample_frame);
+            let gains = evaluated_gains.get(&clip.id).ok_or_else(|| {
+                AudioTimelineError::Calculation(format!(
+                    "Missing gain for audio clip {:?} at sample {intersection_start}",
+                    clip.id
+                ))
+            })?;
             clip.mix_into(
                 &mut mix,
                 block_start,
                 intersection_start..intersection_end,
                 self.format,
-                self.frame_rate,
-                self.gain_evaluation,
+                gains,
             )?;
         }
         for sample in &mut mix {
@@ -190,6 +266,26 @@ impl AudioTimelineGraph {
     }
 }
 
+fn open_source(
+    input: &AudioTimelineSource,
+    format: AudioFormat,
+    media_readers: &MediaReaderRegistry,
+) -> Result<AudioSource, AudioTimelineError> {
+    let decoder = media_readers
+        .open_audio_decoder(&input.asset)
+        .map_err(|error| AudioTimelineError::Media {
+            clip: input.id.clone(),
+            error,
+        })?;
+    Ok(AudioSource::new(
+        decoder,
+        input.playback,
+        input.preserve_pitch,
+        input.asset.duration,
+        format,
+    ))
+}
+
 impl AudioClip {
     fn mix_into(
         &mut self,
@@ -197,8 +293,7 @@ impl AudioClip {
         block_start: u64,
         intersection: Range<u64>,
         format: AudioFormat,
-        frame_rate: FrameRate,
-        gain_evaluation: AudioGainEvaluation,
+        gains: &[GainSegment],
     ) -> Result<(), AudioTimelineError> {
         let channels = usize::from(format.channels);
         let frame_count = usize::try_from(intersection.end.saturating_sub(intersection.start))
@@ -211,50 +306,144 @@ impl AudioClip {
                 clip: self.id.clone(),
                 error,
             })?;
-        let target_frame = usize::try_from(intersection.start.saturating_sub(block_start))
+        let target_frame = usize::try_from(intersection.start - block_start)
             .map_err(|_| AudioTimelineError::RangeTooLarge)?;
-        let gain_start = self.gain_at(intersection.start, format, frame_rate, gain_evaluation);
-        let gain_end = self.gain_at(intersection.end, format, frame_rate, gain_evaluation);
         let mix_start = target_frame
             .checked_mul(channels)
             .ok_or(AudioTimelineError::RangeTooLarge)?;
-        for frame in 0..frame_count {
-            let progress = frame as f32 / frame_count.max(1) as f32;
-            let gain = gain_start + (gain_end - gain_start) * progress;
-            for channel in 0..channels {
-                mix[mix_start + frame * channels + channel] +=
-                    samples[frame * channels + channel] * gain;
+        for segment in gains {
+            let start = intersection.start.max(segment.samples.start);
+            let end = intersection.end.min(segment.samples.end);
+            for cursor in start..end {
+                let gain = segment.value_at(cursor);
+                let source_frame = (cursor - intersection.start) as usize;
+                let target = mix_start + source_frame * channels;
+                for channel in 0..channels {
+                    mix[target + channel] += samples[source_frame * channels + channel] * gain;
+                }
             }
         }
         Ok(())
     }
+}
 
-    fn gain_at(
-        &self,
-        sample_frame: u64,
-        format: AudioFormat,
-        frame_rate: FrameRate,
-        evaluation: AudioGainEvaluation,
-    ) -> f32 {
-        match evaluation {
-            AudioGainEvaluation::Live => {
-                f32::from_bits(self.live_gain.load(Ordering::Relaxed)).max(0.)
-            }
-            AudioGainEvaluation::TimelineAnimation => {
-                let seconds = sample_frame as f64 / f64::from(format.sample_rate);
-                let time = TimelineTime::from_frames(seconds * frame_rate.frames_per_second());
-                self.item
-                    .audio_gain_at(&self.id.input_id, time)
-                    .expect("validated audio input")
-            }
+/// Adjacent authored frames are shared across render blocks. Requested IDs are
+/// tracked as well, so newly active streams can join a cached frame on demand.
+struct FrameGains {
+    frame: Frame,
+    requested: HashSet<AudioClipId>,
+    values: Arc<HashMap<AudioClipId, EvaluatedAudioGain>>,
+}
+
+fn frame_gains(
+    timeline: &AudioTimelineSnapshot,
+    frame: Frame,
+    requested: &HashSet<AudioClipId>,
+    cache: &mut VecDeque<FrameGains>,
+) -> Arc<HashMap<AudioClipId, EvaluatedAudioGain>> {
+    let index = if let Some(index) = cache.iter().position(|entry| entry.frame == frame) {
+        index
+    } else {
+        if cache.len() == 2 {
+            cache.pop_front();
         }
+        cache.push_back(FrameGains {
+            frame,
+            requested: HashSet::new(),
+            values: Arc::default(),
+        });
+        cache.len() - 1
+    };
+    let entry = &mut cache[index];
+    let missing = requested
+        .difference(&entry.requested)
+        .cloned()
+        .collect::<HashSet<_>>();
+    if !missing.is_empty() {
+        Arc::make_mut(&mut entry.values).extend(timeline.gains_at_frame(frame, &missing));
+        entry.requested.extend(missing);
+    }
+    entry.values.clone()
+}
+
+/// One frame's control ramp. Samples are interpolated while mixing decoded
+/// audio, without allocating an expanded gain buffer for each clip.
+struct GainSegment {
+    samples: Range<u64>,
+    frame_samples: Range<u64>,
+    left: f32,
+    right: f32,
+}
+
+impl GainSegment {
+    fn value_at(&self, sample: u64) -> f32 {
+        let t = (sample - self.frame_samples.start) as f64
+            / (self.frame_samples.end - self.frame_samples.start) as f64;
+        (f64::from(self.left) + (f64::from(self.right) - f64::from(self.left)) * t) as f32
     }
 }
 
+fn gain_segments(
+    timeline: &AudioTimelineSnapshot,
+    range: Range<u64>,
+    format: AudioFormat,
+    requested: &HashSet<AudioClipId>,
+    cache: &mut VecDeque<FrameGains>,
+    policy: AudioCalculationPolicy,
+) -> Result<HashMap<AudioClipId, Vec<GainSegment>>, AudioTimelineError> {
+    let mut values: HashMap<AudioClipId, Vec<GainSegment>> = HashMap::new();
+    if requested.is_empty() {
+        return Ok(values);
+    }
+    let rate = timeline.frame_rate();
+    let mut sample = range.start;
+    while sample < range.end {
+        let frame = rate
+            .frame_at_sample(sample, format.sample_rate)
+            .expect("audio sample rate is positive");
+        let next = Frame::new(
+            frame
+                .get()
+                .checked_add(1)
+                .ok_or(AudioTimelineError::RangeTooLarge)?,
+        );
+        let boundary = rate.sample_boundary(frame, format.sample_rate);
+        let next_boundary = rate.sample_boundary(next, format.sample_rate);
+        let end = range.end.min(next_boundary);
+        let left = frame_gains(timeline, frame, requested, cache);
+        // Only an output present on the left contributes to this interval.
+        // A clip's final frame holds its last gain instead of fading to silence.
+        let interpolated = if end - 1 > boundary {
+            left.keys()
+                .filter(|id| requested.contains(*id))
+                .cloned()
+                .collect()
+        } else {
+            HashSet::new()
+        };
+        let right = frame_gains(timeline, next, &interpolated, cache);
+        for (id, gain) in left.iter().filter(|(id, _)| requested.contains(*id)) {
+            let next_gain = right
+                .get(id)
+                .filter(|_| interpolated.contains(id))
+                .unwrap_or(gain);
+            if matches!(policy, AudioCalculationPolicy::Report)
+                && let Some(error) = gain.diagnostic.as_ref().or(next_gain.diagnostic.as_ref())
+            {
+                return Err(AudioTimelineError::Calculation(error.clone()));
+            }
+            values.entry(id.clone()).or_default().push(GainSegment {
+                samples: sample..end,
+                frame_samples: boundary..next_boundary,
+                left: gain.value,
+                right: next_gain.value,
+            });
+        }
+        sample = end;
+    }
+    Ok(values)
+}
+
 pub(crate) fn sample_boundary(frame: u64, frame_rate: FrameRate, sample_rate: u32) -> u64 {
-    let samples = u128::from(frame)
-        .saturating_mul(u128::from(sample_rate))
-        .saturating_mul(u128::from(frame_rate.denominator()))
-        / u128::from(frame_rate.numerator());
-    u64::try_from(samples).unwrap_or(u64::MAX)
+    frame_rate.sample_boundary(zerium_core::timeline::Frame::new(frame), sample_rate)
 }

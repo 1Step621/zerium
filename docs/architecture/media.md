@@ -20,9 +20,40 @@ Filesystem revision reads belong to the media runtime; core's `FileRevision`
 stores only the observed metadata. `RasterSize` owns fitting source dimensions
 within a requested image size.
 
+Metadata discovery reads `MediaDependency` values from the snapshot, resolving
+only file properties through nested scene arguments. It includes media inputs
+on scene-instance effects without evaluating visual or gain calculations.
+Background discovery includes unused scene definitions and default file values;
+export discovery follows occupied root placements and their intersected clips.
+Both feed the same reader refresh path.
+
 H.264 decoding uses `gpu-video` when available, with a GStreamer software fallback.
 GPU-decoded NV12 planes are converted to RGB for rendering. Audio readers feed a
 shared timeline mixer; preview sends its output to CPAL and export to the encoder.
+The mixer reads `AudioTimelineSnapshot` with the same audio plan and frame-based
+gain evaluator for playback, export, and the meter. Preview captures the current
+editing scope and visibility; export captures the root timeline. The plan expands
+scene placements once and resolves only static decoder inputs. Only inputs with
+a loaded audio stream request gains. Gain calculations run at integer video
+frames; the mixer linearly interpolates their results between floor-rounded
+sample boundaries. The final occupied frame holds its gain until the clip ends.
+Frame gains are shared across blocks and calculation results are reused while
+their inputs stay constant. The playback worker receives updated immutable
+snapshots between blocks. The mixer owns source-change detection, decoder
+reconciliation, and frame-cache invalidation; the UI and meter submit snapshots
+without deciding which internal resources to replace. The worker retains
+existing decoders by clip ID and asset identity, updates placement and playback
+configuration in place, and opens only new or replaced assets before committing
+the edit. The output stream and its clock continue through source changes.
+Frame control ramps are interpolated directly while mixing decoded samples,
+without allocating a sample-sized gain buffer for every clip. Calculations use
+the render cursor rather than a UI-sampled gain. Preview retains authored gains
+for failed calculations; export reports diagnostics from contributing frames.
+Device failure signals the render worker to stop and invalidates its audio
+clock immediately, allowing transport to continue with its wall clock.
+Playback started at a video frame uses its exact rational, floor-rounded sample
+boundary without converting through floating-point seconds. A deferred start
+joins the continuous wall-clock position, also rounded down to a sample.
 
 ## Preview
 

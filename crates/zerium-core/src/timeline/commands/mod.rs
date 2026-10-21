@@ -72,20 +72,22 @@ impl TimelineEditor {
 }
 
 #[derive(Clone, Copy, Debug, Error, PartialEq, Eq)]
-pub enum SceneArgumentEditError {
+pub enum SceneVariableEditError {
+    #[error("This variable is used by a calculation. Disconnect its inputs first.")]
+    VariableInUse,
     #[error("No scene is active")]
     NoActiveScene,
-    #[error("Scene argument was not found")]
-    ArgumentNotFound,
+    #[error("Scene variable was not found")]
+    VariableNotFound,
     #[error("Binding target was not found")]
     TargetNotFound,
     #[error("Binding target is already connected")]
     TargetAlreadyBound,
     #[error("Binding target is animated")]
     TargetAnimated,
-    #[error("Binding target does not support scene arguments")]
+    #[error("Binding target does not support scene variables")]
     TargetNotBindable,
-    #[error("Value or binding does not match the argument type")]
+    #[error("Value or binding does not match the variable type")]
     IncompatibleContract,
 }
 

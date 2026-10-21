@@ -24,11 +24,14 @@ pub(super) fn property_schemas<'a>(
         .then(|| item.scene_id())
         .flatten()
         .and_then(|id| scenes.get(&id));
-    properties.into_iter().flatten().chain(
-        scene
-            .into_iter()
-            .flat_map(|scene| scene.arguments.iter().map(|argument| &argument.schema)),
-    )
+    properties
+        .into_iter()
+        .flatten()
+        .chain(scene.into_iter().flat_map(|scene| {
+            scene
+                .arguments()
+                .filter_map(|argument| argument.argument_schema())
+        }))
 }
 
 pub(super) fn resolve_property_schema<'a>(

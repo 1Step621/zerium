@@ -34,7 +34,7 @@ impl PropertyInspector {
                             inspector.update(cx, |inspector, cx| {
                                 let result = inspector.editor.update(cx, |editor, cx| {
                                     let result =
-                                        editor.disconnect_scene_argument(&argument_id, &target);
+                                        editor.disconnect_scene_variable(&argument_id, &target);
                                     if result.is_ok() {
                                         cx.notify();
                                     }

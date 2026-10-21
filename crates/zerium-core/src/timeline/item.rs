@@ -515,7 +515,7 @@ impl TimelineItem {
         effect_id: Option<EffectInstanceId>,
         property: &PropertySchema,
     ) -> Option<PropertyValue> {
-        resolve_property(None, self, effect_id, property, Some(time))
+        resolve_property(None, self, effect_id, property, Some(time)).map(|resolved| resolved.value)
     }
 
     pub fn animation_track(

@@ -26,12 +26,10 @@ struct ZeriumProps {
     position: ZeriumPropsTuple0,
     origin: ZeriumPropsTuple1,
     size: ZeriumPropsTuple2,
-    volume: f32,
     source_start: f32,
     source_duration: f32,
     playback_speed: f32,
     end_behavior: u32,
-    preserve_pitch: bool,
 }
 
 fn props(instance_index: u32) -> ZeriumProps {
@@ -43,8 +41,6 @@ fn props(instance_index: u32) -> ZeriumProps {
         read_f32(raw, 24u),
         read_f32(raw, 28u),
         read_f32(raw, 32u),
-        read_f32(raw, 36u),
-        read_u32(raw, 40u),
-        read_bool(raw, 44u),
+        read_u32(raw, 36u),
     );
 }

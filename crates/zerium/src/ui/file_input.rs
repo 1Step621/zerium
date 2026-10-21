@@ -33,7 +33,10 @@ impl FileTarget {
                 scene_id,
                 argument_id,
             } => (
-                &editor.scene(*scene_id)?.argument(argument_id)?.schema,
+                editor
+                    .scene(*scene_id)?
+                    .argument(argument_id)?
+                    .argument_schema()?,
                 None,
                 None,
             ),

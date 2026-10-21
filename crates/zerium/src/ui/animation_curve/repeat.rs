@@ -184,7 +184,7 @@ impl AnimationCurveEditor {
         let Some(repeat) = self.repeat_for(&inputs.address, cx) else {
             return;
         };
-        let start_value = f64::from(parameter.value(repeat));
+        let start_value = parameter.value(repeat);
         self.editor
             .update(cx, |editor, _| editor.finish_history_group());
         self.repeat_inputs.as_mut().unwrap().drag = Some((

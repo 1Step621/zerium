@@ -8,6 +8,7 @@ pub(super) struct ColorState {
 
 #[derive(Default)]
 pub(super) struct SettingsStore {
+    pub drafts: HashSet<ControlId>,
     pub text_inputs: HashMap<ControlId, InputControl>,
     pub color_pickers: HashMap<ControlId, ColorState>,
     pub number_drag_origin: Option<Rc<NumberDragOrigin>>,
@@ -34,25 +35,42 @@ impl SceneSettings {
         let Some((scene_id, name, arguments)) = self
             .scene_id
             .and_then(|id| self.editor.read(cx).scene(id))
-            .map(|scene| (scene.id, scene.name.clone(), scene.arguments.clone()))
+            .map(|scene| (scene.id, scene.name.clone(), scene.variables().to_vec()))
         else {
             return;
         };
         let mut texts = vec![(ControlId::scene_name(scene_id), name)];
         let mut colors = Vec::new();
         for argument in arguments {
-            let argument_id = argument.schema.id();
-            let label = if argument.schema.label().is_empty() {
-                argument_id
-            } else {
-                argument.schema.label()
-            };
+            let argument_id = argument.id();
+            let label = argument.label();
             texts.push((
                 ControlId::scene_argument_name(scene_id, argument_id),
                 label.to_owned(),
             ));
-            if let Some(number) = NumericInput::for_schema(&argument.schema) {
-                if let Some(values) = NumericSettingDraft::for_schema(&argument.schema) {
+            if let Some(calculation) = argument.calculation() {
+                texts.push((
+                    ControlId::CalculationScript {
+                        scene_id,
+                        variable_id: argument_id.to_owned(),
+                    },
+                    calculation.script.source().to_owned(),
+                ));
+                for input in &calculation.inputs {
+                    texts.push((
+                        ControlId::CalculationInputName {
+                            scene_id,
+                            variable_id: argument_id.to_owned(),
+                            input_name: input.name.clone(),
+                        },
+                        input.name.clone(),
+                    ));
+                }
+                continue;
+            }
+            let schema = argument.argument_schema().expect("argument row");
+            if let Some(number) = NumericInput::for_schema(schema) {
+                if let Some(values) = NumericSettingDraft::for_argument(&argument) {
                     for (setting, text) in NumericSetting::ALL
                         .into_iter()
                         .zip(values.formatted(&number))
@@ -64,7 +82,7 @@ impl SceneSettings {
                     }
                 }
             } else {
-                match argument.schema.default_value() {
+                match schema.default_value() {
                     PropertyValue::String(value) => texts.push((
                         ControlId::scene_argument_default(scene_id, argument_id),
                         value.clone(),
@@ -83,6 +101,7 @@ impl SceneSettings {
                     .map(|(id, _)| ControlId::scene_argument_color(scene_id, id)),
             )
             .collect();
+        self.store.drafts.retain(|id| controls.contains(id));
         self.store.text_inputs.retain(|id, _| controls.contains(id));
         self.store
             .color_pickers
@@ -103,6 +122,9 @@ impl SceneSettings {
         cx: &mut Context<Self>,
     ) {
         if let Some(input) = self.store.text(&key) {
+            if self.store.drafts.contains(&key) {
+                return;
+            }
             set_input_text(&input, value, window, cx);
             return;
         }
@@ -111,7 +133,13 @@ impl SceneSettings {
             _ => String::new(),
         };
         let input = cx.new(|cx| {
-            InputState::new(window, cx)
+            let input = InputState::new(window, cx);
+            let input = if matches!(&key, ControlId::CalculationScript { .. }) {
+                input.auto_grow(3, 12)
+            } else {
+                input
+            };
+            input
                 .placeholder(placeholder)
                 .default_value(SharedString::from(value))
         });
@@ -119,7 +147,15 @@ impl SceneSettings {
         let mut subscriptions =
             vec![
                 cx.subscribe_in(&input, window, move |this, input, event, window, cx| {
-                    if matches!(event, InputEvent::Change) {
+                    let commit = if matches!(&edited_key, ControlId::CalculationInputName { .. }) {
+                        if matches!(event, InputEvent::Change) {
+                            this.store.drafts.insert(edited_key.clone());
+                        }
+                        matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. })
+                    } else {
+                        matches!(event, InputEvent::Change)
+                    };
+                    if commit {
                         this.apply_text_input(&edited_key, input, window, cx);
                     }
                 }),

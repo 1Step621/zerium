@@ -29,6 +29,14 @@ pub struct MediaAsset {
     pub kind: MediaKind,
 }
 
+/// A file and the reader interpretation needed to discover its metadata.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub struct MediaDependency {
+    pub path: PathBuf,
+    pub reader_id: String,
+    pub target: MediaTarget,
+}
+
 /// Identifies an interpreted input, independently of its file property.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(

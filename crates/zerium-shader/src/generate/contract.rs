@@ -30,13 +30,13 @@ pub(crate) fn shader_contracts(
 ) -> Result<BTreeMap<String, ShaderContract<'_>>, PluginError> {
     let mut contracts = BTreeMap::new();
     for schema in manifest.items() {
-        if schema.render().is_some() {
+        if let Some(render) = schema.render() {
             insert_contract(
                 &mut contracts,
                 schema.id(),
                 ShaderContract::new(
                     PropertyScope::Item,
-                    schema.property_layout(),
+                    render.property_layout(),
                     schema
                         .inputs()
                         .iter()

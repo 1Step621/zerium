@@ -30,6 +30,7 @@ pub(super) struct NumberControl {
     pub common: ControlMeta,
     pub value: f64,
     pub spec: NumericInputSpec,
+    pub applied_value: Option<String>,
 }
 
 #[derive(Clone)]
@@ -179,7 +180,7 @@ struct ControlResolution<'a> {
     item: &'a TimelineItem,
     playhead: TimelineTime,
     editing_scene: bool,
-    arguments: &'a [SceneArgument],
+    variables: &'a [SceneVariable],
 }
 
 impl PropertyInspector {
@@ -221,14 +222,14 @@ impl ControlTree {
         let scene_arguments = editor
             .active_scene_id()
             .and_then(|id| editor.scene(id))
-            .map(|scene| scene.arguments.as_slice())
+            .map(|scene| scene.variables())
             .unwrap_or(&[]);
         let resolution = ControlResolution {
             editor,
             item,
             playhead: zerium_core::timeline::TimelineTime::from_frame(editor.playhead()),
             editing_scene: editor.active_scene_id().is_some(),
-            arguments: scene_arguments,
+            variables: scene_arguments,
         };
         let item_controls = Self::property_controls(None, &resolution);
         let effect_groups: Vec<Control> = item
@@ -276,7 +277,7 @@ impl ControlTree {
                 scalar_index,
             ),
             ty,
-            resolution.arguments,
+            resolution.variables,
         );
         ControlMeta {
             id: ControlId::Property(address.clone()),
@@ -348,11 +349,28 @@ impl ControlTree {
                     (
                         ScalarPropertyType::F32 | ScalarPropertyType::I32 | ScalarPropertyType::U32,
                         value,
-                    ) => Control::Number(NumberControl {
-                        common,
-                        value: value.numeric_scalar()?,
-                        spec: numeric_input_spec(property, scalar_index)?,
-                    }),
+                    ) => {
+                        let applied_value = (|| {
+                            if effect_id.is_some() {
+                                return None;
+                            }
+                            let scene = resolution.editor.scene(resolution.item.scene_id()?)?;
+                            let argument = scene.argument(property.id())?;
+                            let authored = resolution
+                                .editor
+                                .evaluated_property_value(&common.target, resolution.playhead)?;
+                            let applied = argument.apply_argument_limits(&authored)?;
+                            (applied != authored)
+                                .then(|| applied.numeric_text())
+                                .flatten()
+                        })();
+                        Control::Number(NumberControl {
+                            common,
+                            value: value.numeric_scalar()?,
+                            spec: numeric_input_spec(property, scalar_index)?,
+                            applied_value,
+                        })
+                    }
                     (ScalarPropertyType::File, PropertyValue::File(value)) => {
                         Control::File(ValueControl { common, value })
                     }
@@ -481,7 +499,7 @@ impl ControlTree {
             element_id: None,
             scalar_index: None,
         };
-        let has_scene_binding = resolution.arguments.iter().any(|argument| {
+        let has_scene_binding = resolution.variables.iter().any(|argument| {
             argument.bindings.iter().any(|binding| {
                 binding.item_id() == resolution.item.id
                     && binding.owner() == SceneBindingOwner::from_effect(target.effect_id)
@@ -551,7 +569,7 @@ impl ControlTree {
         scene_bindable: bool,
         target: SceneBindingTarget,
         ty: &ScalarPropertyType,
-        arguments: &[SceneArgument],
+        arguments: &[SceneVariable],
     ) -> Option<SceneFieldBinding> {
         if !editing_scene || animation_enabled || !scene_bindable {
             return None;
@@ -560,17 +578,12 @@ impl ControlTree {
             argument
                 .bindings
                 .contains(&target)
-                .then(|| (argument.schema.id().to_owned(), argument.label().to_owned()))
+                .then(|| (argument.id().to_owned(), argument.label().to_owned()))
         });
         let compatible = arguments
             .iter()
-            .filter(|argument| {
-                argument
-                    .schema
-                    .scalar_type(None, None)
-                    .is_some_and(|actual| actual.same_type(ty))
-            })
-            .map(|argument| (argument.schema.id().to_owned(), argument.label().to_owned()))
+            .filter(|argument| argument.ty().same_type(ty))
+            .map(|argument| (argument.id().to_owned(), argument.label().to_owned()))
             .collect::<Vec<_>>();
         if connected.is_none() && compatible.is_empty() {
             return None;

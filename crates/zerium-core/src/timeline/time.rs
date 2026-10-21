@@ -132,6 +132,29 @@ impl FrameRate {
         frames.round().clamp(i64::MIN as f64, i64::MAX as f64) as i64
     }
 
+    /// Half-open authored frame intervals use these same boundaries for audio
+    /// scheduling and property sampling, including fractional frame rates.
+    pub fn sample_boundary(self, frame: Frame, sample_rate: u32) -> u64 {
+        let samples = u128::from(frame.get())
+            .saturating_mul(u128::from(sample_rate))
+            .saturating_mul(u128::from(self.denominator()))
+            / u128::from(self.numerator());
+        u64::try_from(samples).unwrap_or(u64::MAX)
+    }
+
+    /// Inverse of the floor-rounded audio boundaries. A boundary sample belongs
+    /// to the new frame even when its continuous frame time rounds just below it.
+    pub fn frame_at_sample(self, sample: u64, sample_rate: u32) -> Option<Frame> {
+        if sample_rate == 0 {
+            return None;
+        }
+        let numerator = (u128::from(sample) + 1) * u128::from(self.numerator) - 1;
+        let denominator = u128::from(sample_rate) * u128::from(self.denominator);
+        Some(Frame::new(
+            u64::try_from(numerator / denominator).unwrap_or(u64::MAX),
+        ))
+    }
+
     pub fn frames_per_second(self) -> f64 {
         f64::from(self.numerator) / f64::from(self.denominator)
     }

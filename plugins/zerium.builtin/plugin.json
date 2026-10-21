@@ -10,16 +10,10 @@
       "tags": ["矩形", "長方形", "square", "box"],
       "symbol": "■",
       "render": {
+        "properties": ["position", "origin", "size", "fill_enabled", "color", "outline_width", "outline_position", "outline_color", "corner_radius"],
         "shader": { "module": "items::rectangle::render" },
         "bounds": {
-          "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2) - (p::outline_width * (2 - p::outline_position) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2) - (p::outline_width * (2 - p::outline_position) / 2)"
-          ],
-          "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2) + (p::outline_width * (2 - p::outline_position) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2) + (p::outline_width * (2 - p::outline_position) / 2)"
-          ]
+          "script": "#{ min: [placement_center(p.position[0], p.size[0], p.origin[0]) - (abs(p.size[0]) / 2) - (p.outline_width * (2 - p.outline_position) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) - (abs(p.size[1]) / 2) - (p.outline_width * (2 - p.outline_position) / 2)], max: [placement_center(p.position[0], p.size[0], p.origin[0]) + (abs(p.size[0]) / 2) + (p.outline_width * (2 - p.outline_position) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) + (abs(p.size[1]) / 2) + (p.outline_width * (2 - p.outline_position) / 2)] }"
         }
       },
       "editor": [
@@ -166,16 +160,10 @@
       "tags": ["さんかく", "triangle"],
       "symbol": "▲",
       "render": {
+        "properties": ["position", "origin", "size", "fill_enabled", "color", "outline_width", "outline_position", "outline_color", "apex_position"],
         "shader": { "module": "items::triangle::render" },
         "bounds": {
-          "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2) - (p::outline_width * (2 - p::outline_position) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2) - (p::outline_width * (2 - p::outline_position) / 2)"
-          ],
-          "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2) + (p::outline_width * (2 - p::outline_position) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2) + (p::outline_width * (2 - p::outline_position) / 2)"
-          ]
+          "script": "#{ min: [placement_center(p.position[0], p.size[0], p.origin[0]) - (abs(p.size[0]) / 2) - (p.outline_width * (2 - p.outline_position) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) - (abs(p.size[1]) / 2) - (p.outline_width * (2 - p.outline_position) / 2)], max: [placement_center(p.position[0], p.size[0], p.origin[0]) + (abs(p.size[0]) / 2) + (p.outline_width * (2 - p.outline_position) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) + (abs(p.size[1]) / 2) + (p.outline_width * (2 - p.outline_position) / 2)] }"
         }
       },
       "editor": [
@@ -322,16 +310,10 @@
       "tags": ["円", "丸", "circle", "oval"],
       "symbol": "●",
       "render": {
+        "properties": ["position", "origin", "diameter", "fill_enabled", "color", "outline_width", "outline_position", "outline_color"],
         "shader": { "module": "items::ellipse::render" },
         "bounds": {
-          "min": [
-            "placement_center(p::position::v0, p::diameter::v0, p::origin::v0) - (math::abs(p::diameter::v0) / 2) - (p::outline_width * (2 - p::outline_position) / 2)",
-            "placement_center(p::position::v1, p::diameter::v1, p::origin::v1) - (math::abs(p::diameter::v1) / 2) - (p::outline_width * (2 - p::outline_position) / 2)"
-          ],
-          "max": [
-            "placement_center(p::position::v0, p::diameter::v0, p::origin::v0) + (math::abs(p::diameter::v0) / 2) + (p::outline_width * (2 - p::outline_position) / 2)",
-            "placement_center(p::position::v1, p::diameter::v1, p::origin::v1) + (math::abs(p::diameter::v1) / 2) + (p::outline_width * (2 - p::outline_position) / 2)"
-          ]
+          "script": "#{ min: [placement_center(p.position[0], p.diameter[0], p.origin[0]) - (abs(p.diameter[0]) / 2) - (p.outline_width * (2 - p.outline_position) / 2), placement_center(p.position[1], p.diameter[1], p.origin[1]) - (abs(p.diameter[1]) / 2) - (p.outline_width * (2 - p.outline_position) / 2)], max: [placement_center(p.position[0], p.diameter[0], p.origin[0]) + (abs(p.diameter[0]) / 2) + (p.outline_width * (2 - p.outline_position) / 2), placement_center(p.position[1], p.diameter[1], p.origin[1]) + (abs(p.diameter[1]) / 2) + (p.outline_width * (2 - p.outline_position) / 2)] }"
         }
       },
       "editor": [
@@ -469,16 +451,10 @@
       "tags": ["円弧", "パイ", "arc", "pie"],
       "symbol": "◔",
       "render": {
+        "properties": ["position", "origin", "size", "start_angle", "sweep_angle", "inner_radius", "fill_enabled", "color", "outline_width", "outline_position", "outline_color"],
         "shader": { "module": "items::sector::render" },
         "bounds": {
-          "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - p::size::v0 / 2 - (p::outline_width * (2 - p::outline_position) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - p::size::v1 / 2 - (p::outline_width * (2 - p::outline_position) / 2)"
-          ],
-          "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + p::size::v0 / 2 + (p::outline_width * (2 - p::outline_position) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + p::size::v1 / 2 + (p::outline_width * (2 - p::outline_position) / 2)"
-          ]
+          "script": "#{ min: [placement_center(p.position[0], p.size[0], p.origin[0]) - p.size[0] / 2 - (p.outline_width * (2 - p.outline_position) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) - p.size[1] / 2 - (p.outline_width * (2 - p.outline_position) / 2)], max: [placement_center(p.position[0], p.size[0], p.origin[0]) + p.size[0] / 2 + (p.outline_width * (2 - p.outline_position) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) + p.size[1] / 2 + (p.outline_width * (2 - p.outline_position) / 2)] }"
         }
       },
       "editor": [
@@ -637,16 +613,10 @@
       "tags": ["ポリゴン", "polygon"],
       "symbol": "⬟",
       "render": {
+        "properties": ["position", "origin", "size", "points", "fill_enabled", "color", "outline_width", "outline_position", "outline_color"],
         "shader": { "module": "items::polygon::render" },
         "bounds": {
-          "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2) - (p::outline_width * (2 - p::outline_position) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2) - (p::outline_width * (2 - p::outline_position) / 2)"
-          ],
-          "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2) + (p::outline_width * (2 - p::outline_position) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2) + (p::outline_width * (2 - p::outline_position) / 2)"
-          ]
+          "script": "#{ min: [placement_center(p.position[0], p.size[0], p.origin[0]) - (abs(p.size[0]) / 2) - (p.outline_width * (2 - p.outline_position) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) - (abs(p.size[1]) / 2) - (p.outline_width * (2 - p.outline_position) / 2)], max: [placement_center(p.position[0], p.size[0], p.origin[0]) + (abs(p.size[0]) / 2) + (p.outline_width * (2 - p.outline_position) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) + (abs(p.size[1]) / 2) + (p.outline_width * (2 - p.outline_position) / 2)] }"
         }
       },
       "editor": [
@@ -830,16 +800,10 @@
       "tags": ["角丸", "図形", "rounded", "polygon"],
       "symbol": "⬡",
       "render": {
+        "properties": ["position", "origin", "size", "sides", "rounding", "angle", "fill_enabled", "color", "outline_width", "outline_position", "outline_color"],
         "shader": { "module": "items::regular_polygon::render" },
         "bounds": {
-          "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - p::size::v0 / 2 - (p::outline_width * (2 - p::outline_position) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - p::size::v1 / 2 - (p::outline_width * (2 - p::outline_position) / 2)"
-          ],
-          "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + p::size::v0 / 2 + (p::outline_width * (2 - p::outline_position) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + p::size::v1 / 2 + (p::outline_width * (2 - p::outline_position) / 2)"
-          ]
+          "script": "#{ min: [placement_center(p.position[0], p.size[0], p.origin[0]) - p.size[0] / 2 - (p.outline_width * (2 - p.outline_position) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) - p.size[1] / 2 - (p.outline_width * (2 - p.outline_position) / 2)], max: [placement_center(p.position[0], p.size[0], p.origin[0]) + p.size[0] / 2 + (p.outline_width * (2 - p.outline_position) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) + p.size[1] / 2 + (p.outline_width * (2 - p.outline_position) / 2)] }"
         }
       },
       "editor": [
@@ -997,16 +961,10 @@
       "tags": ["線", "line"],
       "symbol": "╱",
       "render": {
+        "properties": ["position", "origin", "size", "angle", "fill_enabled", "color", "outline_width", "outline_position", "outline_color", "round_ends"],
         "shader": { "module": "items::line::render" },
         "bounds": {
-          "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - ((math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2) - (p::outline_width * (2 - p::outline_position) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - ((math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2) - (p::outline_width * (2 - p::outline_position) / 2)"
-          ],
-          "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + ((math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2) + (p::outline_width * (2 - p::outline_position) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + ((math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v0) + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * math::abs(p::size::v1)) / 2) + (p::outline_width * (2 - p::outline_position) / 2)"
-          ]
+          "script": "#{ min: [placement_center(p.position[0], p.size[0], p.origin[0]) - ((abs(cos(p.angle * 3.141592653589793 / 180)) * abs(p.size[0]) + abs(sin(p.angle * 3.141592653589793 / 180)) * abs(p.size[1])) / 2) - (p.outline_width * (2 - p.outline_position) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) - ((abs(sin(p.angle * 3.141592653589793 / 180)) * abs(p.size[0]) + abs(cos(p.angle * 3.141592653589793 / 180)) * abs(p.size[1])) / 2) - (p.outline_width * (2 - p.outline_position) / 2)], max: [placement_center(p.position[0], p.size[0], p.origin[0]) + ((abs(cos(p.angle * 3.141592653589793 / 180)) * abs(p.size[0]) + abs(sin(p.angle * 3.141592653589793 / 180)) * abs(p.size[1])) / 2) + (p.outline_width * (2 - p.outline_position) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) + ((abs(sin(p.angle * 3.141592653589793 / 180)) * abs(p.size[0]) + abs(cos(p.angle * 3.141592653589793 / 180)) * abs(p.size[1])) / 2) + (p.outline_width * (2 - p.outline_position) / 2)] }"
         }
       },
       "editor": [
@@ -1159,16 +1117,10 @@
       "tags": ["スター", "star"],
       "symbol": "★",
       "render": {
+        "properties": ["position", "origin", "size", "points", "inner_radius", "rotation", "fill_enabled", "color", "outline_width", "outline_position", "outline_color"],
         "shader": { "module": "items::star::render" },
         "bounds": {
-          "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2) - (p::outline_width * (2 - p::outline_position) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2) - (p::outline_width * (2 - p::outline_position) / 2)"
-          ],
-          "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2) + (p::outline_width * (2 - p::outline_position) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2) + (p::outline_width * (2 - p::outline_position) / 2)"
-          ]
+          "script": "#{ min: [placement_center(p.position[0], p.size[0], p.origin[0]) - (abs(p.size[0]) / 2) - (p.outline_width * (2 - p.outline_position) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) - (abs(p.size[1]) / 2) - (p.outline_width * (2 - p.outline_position) / 2)], max: [placement_center(p.position[0], p.size[0], p.origin[0]) + (abs(p.size[0]) / 2) + (p.outline_width * (2 - p.outline_position) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) + (abs(p.size[1]) / 2) + (p.outline_width * (2 - p.outline_position) / 2)] }"
         }
       },
       "editor": [
@@ -1332,16 +1284,10 @@
       "tags": ["曲線", "パス", "スプライン", "spline", "path"],
       "symbol": "〰",
       "render": {
+        "properties": ["position", "origin", "size", "points", "tension", "width", "color", "closed", "fill_enabled", "fill_color", "stroke_start", "stroke_end"],
         "shader": { "module": "items::spline_path::render" },
         "bounds": {
-          "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) * 1.504 / 2 + math::abs(p::width))",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) * 1.504 / 2 + math::abs(p::width))"
-          ],
-          "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) * 1.504 / 2 + math::abs(p::width))",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) * 1.504 / 2 + math::abs(p::width))"
-          ]
+          "script": "#{ min: [placement_center(p.position[0], p.size[0], p.origin[0]) - (abs(p.size[0]) * 1.504 / 2 + abs(p.width)), placement_center(p.position[1], p.size[1], p.origin[1]) - (abs(p.size[1]) * 1.504 / 2 + abs(p.width))], max: [placement_center(p.position[0], p.size[0], p.origin[0]) + (abs(p.size[0]) * 1.504 / 2 + abs(p.width)), placement_center(p.position[1], p.size[1], p.origin[1]) + (abs(p.size[1]) * 1.504 / 2 + abs(p.width))] }"
         }
       },
       "editor": [
@@ -1557,16 +1503,10 @@
       "tags": ["漫画", "放射", "speed lines", "radial"],
       "symbol": "✺",
       "render": {
+        "properties": ["position", "origin", "size", "count", "inner_radius", "width", "variation", "seed", "color"],
         "shader": { "module": "items::concentration_lines::render" },
         "bounds": {
-          "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - p::size::v0 / 2",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - p::size::v1 / 2"
-          ],
-          "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + p::size::v0 / 2",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + p::size::v1 / 2"
-          ]
+          "script": "#{ min: [placement_center(p.position[0], p.size[0], p.origin[0]) - p.size[0] / 2, placement_center(p.position[1], p.size[1], p.origin[1]) - p.size[1] / 2], max: [placement_center(p.position[0], p.size[0], p.origin[0]) + p.size[0] / 2, placement_center(p.position[1], p.size[1], p.origin[1]) + p.size[1] / 2] }"
         }
       },
       "editor": [
@@ -1709,16 +1649,10 @@
       "tags": ["文字", "字幕", "title", "caption"],
       "symbol": "T",
       "render": {
+        "properties": ["position", "origin", "size", "text", "font_family", "font_size", "letter_spacing", "line_spacing", "color", "outline_width", "outline_color", "horizontal_alignment", "vertical_alignment", "bold", "italic"],
         "shader": { "module": "items::text::render" },
         "bounds": {
-          "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
-          ],
-          "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
-          ]
+          "script": "#{ min: [placement_center(p.position[0], p.size[0], p.origin[0]) - (abs(p.size[0]) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) - (abs(p.size[1]) / 2)], max: [placement_center(p.position[0], p.size[0], p.origin[0]) + (abs(p.size[0]) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) + (abs(p.size[1]) / 2)] }"
         },
         "inputs": [
           {
@@ -1941,16 +1875,10 @@
       "tags": ["数値", "カウンター", "number", "counter"],
       "symbol": "#",
       "render": {
+        "properties": ["position", "origin", "size", "value", "decimal_places", "font_family", "font_size", "letter_spacing", "line_spacing", "color", "outline_width", "outline_color", "horizontal_alignment", "vertical_alignment", "bold", "italic"],
         "shader": { "module": "items::number::render" },
         "bounds": {
-          "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
-          ],
-          "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
-          ]
+          "script": "#{ min: [placement_center(p.position[0], p.size[0], p.origin[0]) - (abs(p.size[0]) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) - (abs(p.size[1]) / 2)], max: [placement_center(p.position[0], p.size[0], p.origin[0]) + (abs(p.size[0]) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) + (abs(p.size[1]) / 2)] }"
         },
         "inputs": [
           {
@@ -2182,16 +2110,10 @@
       "tags": ["映像", "movie", "clip"],
       "symbol": "▶",
       "render": {
+        "properties": ["position", "origin", "size", "source_start", "source_duration", "playback_speed", "end_behavior", "source"],
         "shader": { "module": "items::video::render" },
         "bounds": {
-          "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
-          ],
-          "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
-          ]
+          "script": "#{ min: [placement_center(p.position[0], p.size[0], p.origin[0]) - (abs(p.size[0]) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) - (abs(p.size[1]) / 2)], max: [placement_center(p.position[0], p.size[0], p.origin[0]) + (abs(p.size[0]) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) + (abs(p.size[1]) / 2)] }"
         },
         "inputs": [
           {
@@ -2393,16 +2315,10 @@
       "tags": ["静止画", "写真", "photo", "picture"],
       "symbol": "▧",
       "render": {
+        "properties": ["position", "origin", "size", "source"],
         "shader": { "module": "items::image::render" },
         "bounds": {
-          "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
-          ],
-          "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
-          ]
+          "script": "#{ min: [placement_center(p.position[0], p.size[0], p.origin[0]) - (abs(p.size[0]) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) - (abs(p.size[1]) / 2)], max: [placement_center(p.position[0], p.size[0], p.origin[0]) + (abs(p.size[0]) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) + (abs(p.size[1]) / 2)] }"
         },
         "inputs": [
           {
@@ -2522,16 +2438,10 @@
       "tags": ["ベクター", "vector", "svg"],
       "symbol": "▧",
       "render": {
+        "properties": ["position", "origin", "size", "source"],
         "shader": { "module": "items::svg::render" },
         "bounds": {
-          "min": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) - (math::abs(p::size::v0) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) - (math::abs(p::size::v1) / 2)"
-          ],
-          "max": [
-            "placement_center(p::position::v0, p::size::v0, p::origin::v0) + (math::abs(p::size::v0) / 2)",
-            "placement_center(p::position::v1, p::size::v1, p::origin::v1) + (math::abs(p::size::v1) / 2)"
-          ]
+          "script": "#{ min: [placement_center(p.position[0], p.size[0], p.origin[0]) - (abs(p.size[0]) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) - (abs(p.size[1]) / 2)], max: [placement_center(p.position[0], p.size[0], p.origin[0]) + (abs(p.size[0]) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) + (abs(p.size[1]) / 2)] }"
         },
         "inputs": [
           {
@@ -2745,16 +2655,10 @@
       "tags": ["レイヤー", "範囲", "render", "composite"],
       "symbol": "▣",
       "render": {
+        "properties": ["start_offset", "end_offset", "hide_original"],
         "shader": { "module": "items::render_result::render" },
         "bounds": {
-          "min": [
-            "images::render_result::min::x",
-            "images::render_result::min::y"
-          ],
-          "max": [
-            "images::render_result::max::x",
-            "images::render_result::max::y"
-          ]
+          "script": "#{ min: [images.render_result.min.x, images.render_result.min.y], max: [images.render_result.max.x, images.render_result.max.y] }"
         },
         "inputs": [
           {
@@ -2798,10 +2702,10 @@
       "tags": ["撮影", "移動", "ズーム", "camera", "zoom"],
       "symbol": "◉",
       "render": {
+        "properties": ["start_offset", "end_offset", "hide_original", "position", "zoom", "angle"],
         "shader": { "module": "items::camera::render" },
         "bounds": {
-          "min": ["viewport::min::x", "viewport::min::y"],
-          "max": ["viewport::max::x", "viewport::max::y"]
+          "script": "#{ min: [viewport.min.x, viewport.min.y], max: [viewport.max.x, viewport.max.y] }"
         },
         "inputs": [
           {
@@ -2891,14 +2795,7 @@
             "type": "render",
             "shader": { "module": "effects::translate::render" },
             "bounds": {
-              "min": [
-                "input::min::x + p::offset::v0",
-                "input::min::y + p::offset::v1"
-              ],
-              "max": [
-                "input::max::x + p::offset::v0",
-                "input::max::y + p::offset::v1"
-              ]
+              "script": "#{ min: [input.min.x + p.offset[0], input.min.y + p.offset[1]], max: [input.max.x + p.offset[0], input.max.y + p.offset[1]] }"
             }
           }
         ]
@@ -2938,14 +2835,7 @@
             "type": "render",
             "shader": { "module": "effects::scale::render" },
             "bounds": {
-              "min": [
-                "input::center::x + (input::min::x - input::center::x) * p::amount::v0 / 100",
-                "input::center::y + (input::min::y - input::center::y) * p::amount::v1 / 100"
-              ],
-              "max": [
-                "input::center::x + (input::max::x - input::center::x) * p::amount::v0 / 100",
-                "input::center::y + (input::max::y - input::center::y) * p::amount::v1 / 100"
-              ]
+              "script": "#{ min: [input.center.x + (input.min.x - input.center.x) * p.amount[0] / 100, input.center.y + (input.min.y - input.center.y) * p.amount[1] / 100], max: [input.center.x + (input.max.x - input.center.x) * p.amount[0] / 100, input.center.y + (input.max.y - input.center.y) * p.amount[1] / 100] }"
             }
           }
         ]
@@ -2996,14 +2886,7 @@
             "type": "render",
             "shader": { "module": "effects::rotate_2d::render" },
             "bounds": {
-              "min": [
-                "p::center::v0 + (input::center::x - p::center::v0) * math::cos(p::angle * 3.141592653589793 / 180) - (input::center::y - p::center::v1) * math::sin(p::angle * 3.141592653589793 / 180) - (math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * input::size::x + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * input::size::y) / 2",
-                "p::center::v1 + (input::center::x - p::center::v0) * math::sin(p::angle * 3.141592653589793 / 180) + (input::center::y - p::center::v1) * math::cos(p::angle * 3.141592653589793 / 180) - (math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * input::size::x + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * input::size::y) / 2"
-              ],
-              "max": [
-                "p::center::v0 + (input::center::x - p::center::v0) * math::cos(p::angle * 3.141592653589793 / 180) - (input::center::y - p::center::v1) * math::sin(p::angle * 3.141592653589793 / 180) + (math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * input::size::x + math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * input::size::y) / 2",
-                "p::center::v1 + (input::center::x - p::center::v0) * math::sin(p::angle * 3.141592653589793 / 180) + (input::center::y - p::center::v1) * math::cos(p::angle * 3.141592653589793 / 180) + (math::abs(math::sin(p::angle * 3.141592653589793 / 180)) * input::size::x + math::abs(math::cos(p::angle * 3.141592653589793 / 180)) * input::size::y) / 2"
-              ]
+              "script": "#{ min: [p.center[0] + (input.center.x - p.center[0]) * cos(p.angle * 3.141592653589793 / 180) - (input.center.y - p.center[1]) * sin(p.angle * 3.141592653589793 / 180) - (abs(cos(p.angle * 3.141592653589793 / 180)) * input.size.x + abs(sin(p.angle * 3.141592653589793 / 180)) * input.size.y) / 2, p.center[1] + (input.center.x - p.center[0]) * sin(p.angle * 3.141592653589793 / 180) + (input.center.y - p.center[1]) * cos(p.angle * 3.141592653589793 / 180) - (abs(sin(p.angle * 3.141592653589793 / 180)) * input.size.x + abs(cos(p.angle * 3.141592653589793 / 180)) * input.size.y) / 2], max: [p.center[0] + (input.center.x - p.center[0]) * cos(p.angle * 3.141592653589793 / 180) - (input.center.y - p.center[1]) * sin(p.angle * 3.141592653589793 / 180) + (abs(cos(p.angle * 3.141592653589793 / 180)) * input.size.x + abs(sin(p.angle * 3.141592653589793 / 180)) * input.size.y) / 2, p.center[1] + (input.center.x - p.center[0]) * sin(p.angle * 3.141592653589793 / 180) + (input.center.y - p.center[1]) * cos(p.angle * 3.141592653589793 / 180) + (abs(sin(p.angle * 3.141592653589793 / 180)) * input.size.x + abs(cos(p.angle * 3.141592653589793 / 180)) * input.size.y) / 2] }"
             }
           }
         ]
@@ -3053,14 +2936,7 @@
             "shader": { "module": "effects::rotate_3d::render" },
             "overrides": { "near_clip_ratio": 0.1 },
             "bounds": {
-              "min": [
-                "projected_rect_min_x((input::min::x, input::min::y), (input::max::x, input::max::y), (p::rotation::v0, p::rotation::v1, p::rotation::v2), (p::center::v0, p::center::v1), max((p::perspective, 1.0)), 0.1)",
-                "projected_rect_min_y((input::min::x, input::min::y), (input::max::x, input::max::y), (p::rotation::v0, p::rotation::v1, p::rotation::v2), (p::center::v0, p::center::v1), max((p::perspective, 1.0)), 0.1)"
-              ],
-              "max": [
-                "projected_rect_max_x((input::min::x, input::min::y), (input::max::x, input::max::y), (p::rotation::v0, p::rotation::v1, p::rotation::v2), (p::center::v0, p::center::v1), max((p::perspective, 1.0)), 0.1)",
-                "projected_rect_max_y((input::min::x, input::min::y), (input::max::x, input::max::y), (p::rotation::v0, p::rotation::v1, p::rotation::v2), (p::center::v0, p::center::v1), max((p::perspective, 1.0)), 0.1)"
-              ]
+              "script": "projected_rect([input.min.x, input.min.y], [input.max.x, input.max.y], p.rotation, p.center, max(p.perspective, 1.0), 0.1)"
             }
           }
         ]
@@ -3149,14 +3025,7 @@
             "type": "render",
             "shader": { "module": "effects::shear::render" },
             "bounds": {
-              "min": [
-                "sx = p::amount::v0 / 100; sy = p::amount::v1 / 100; cx = input::center::x + sx * (input::center::y - p::center::v1); cy = input::center::y + sy * (cx - p::center::v0); cx - (input::size::x / 2 + math::abs(sx) * input::size::y / 2)",
-                "sx = p::amount::v0 / 100; sy = p::amount::v1 / 100; cx = input::center::x + sx * (input::center::y - p::center::v1); cy = input::center::y + sy * (cx - p::center::v0); cy - (math::abs(sy) * input::size::x / 2 + math::abs(1 + sx * sy) * input::size::y / 2)"
-              ],
-              "max": [
-                "sx = p::amount::v0 / 100; sy = p::amount::v1 / 100; cx = input::center::x + sx * (input::center::y - p::center::v1); cy = input::center::y + sy * (cx - p::center::v0); cx + (input::size::x / 2 + math::abs(sx) * input::size::y / 2)",
-                "sx = p::amount::v0 / 100; sy = p::amount::v1 / 100; cx = input::center::x + sx * (input::center::y - p::center::v1); cy = input::center::y + sy * (cx - p::center::v0); cy + (math::abs(sy) * input::size::x / 2 + math::abs(1 + sx * sy) * input::size::y / 2)"
-              ]
+              "script": "let sx = p.amount[0] / 100; let sy = p.amount[1] / 100; let cx = input.center.x + sx * (input.center.y - p.center[1]); let cy = input.center.y + sy * (cx - p.center[0]); #{ min: [cx - (input.size.x / 2 + abs(sx) * input.size.y / 2), cy - (abs(sy) * input.size.x / 2 + abs(1 + sx * sy) * input.size.y / 2)], max: [cx + (input.size.x / 2 + abs(sx) * input.size.y / 2), cy + (abs(sy) * input.size.x / 2 + abs(1 + sx * sy) * input.size.y / 2)] }"
             }
           }
         ]
@@ -3218,8 +3087,7 @@
             "type": "render",
             "shader": { "module": "effects::flip::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -3250,8 +3118,7 @@
             "type": "render",
             "shader": { "module": "effects::polar_coordinates::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -3310,14 +3177,7 @@
             "type": "render",
             "shader": { "module": "effects::follow_spline::render" },
             "bounds": {
-              "min": [
-                "p::position::v0 - (math::abs(p::size::v0) * 1.504 + input::size::x) / 2 - 4",
-                "p::position::v1 - (math::abs(p::size::v1) * 1.504 + input::size::y) / 2 - 4"
-              ],
-              "max": [
-                "p::position::v0 + (math::abs(p::size::v0) * 1.504 + input::size::x) / 2 + 4",
-                "p::position::v1 + (math::abs(p::size::v1) * 1.504 + input::size::y) / 2 + 4"
-              ]
+              "script": "#{ min: [p.position[0] - (abs(p.size[0]) * 1.504 + input.size.x) / 2 - 4, p.position[1] - (abs(p.size[1]) * 1.504 + input.size.y) / 2 - 4], max: [p.position[0] + (abs(p.size[0]) * 1.504 + input.size.x) / 2 + 4, p.position[1] + (abs(p.size[1]) * 1.504 + input.size.y) / 2 + 4] }"
             }
           }
         ]
@@ -3477,8 +3337,7 @@
             "type": "render",
             "shader": { "module": "effects::turbulent::render" },
             "bounds": {
-              "min": ["input::min::x - p::amount", "input::min::y - p::amount"],
-              "max": ["input::max::x + p::amount", "input::max::y + p::amount"]
+              "script": "#{ min: [input.min.x - p.amount, input.min.y - p.amount], max: [input.max.x + p.amount, input.max.y + p.amount] }"
             }
           }
         ]
@@ -3540,14 +3399,7 @@
             "type": "render",
             "shader": { "module": "effects::fisheye::render" },
             "bounds": {
-              "min": [
-                "radius = min((input::size::x, input::size::y)) * p::radius / 200; exponent = math::exp2(math::abs(p::strength) / 100 * 1.5); distance_x = max((input::min::x - p::center::v0, p::center::v0 - input::max::x, 0.0)); distance_y = max((input::min::y - p::center::v1, p::center::v1 - input::max::y, 0.0)); padding = if(distance_x ^ 2 + distance_y ^ 2 < radius ^ 2, radius * math::pow(exponent, -1 / max((exponent - 1, 0.000001))) * (1 - 1 / exponent), 0.0); min((input::min::x, max((input::min::x - padding, p::center::v0 - radius))))",
-                "radius = min((input::size::x, input::size::y)) * p::radius / 200; exponent = math::exp2(math::abs(p::strength) / 100 * 1.5); distance_x = max((input::min::x - p::center::v0, p::center::v0 - input::max::x, 0.0)); distance_y = max((input::min::y - p::center::v1, p::center::v1 - input::max::y, 0.0)); padding = if(distance_x ^ 2 + distance_y ^ 2 < radius ^ 2, radius * math::pow(exponent, -1 / max((exponent - 1, 0.000001))) * (1 - 1 / exponent), 0.0); min((input::min::y, max((input::min::y - padding, p::center::v1 - radius))))"
-              ],
-              "max": [
-                "radius = min((input::size::x, input::size::y)) * p::radius / 200; exponent = math::exp2(math::abs(p::strength) / 100 * 1.5); distance_x = max((input::min::x - p::center::v0, p::center::v0 - input::max::x, 0.0)); distance_y = max((input::min::y - p::center::v1, p::center::v1 - input::max::y, 0.0)); padding = if(distance_x ^ 2 + distance_y ^ 2 < radius ^ 2, radius * math::pow(exponent, -1 / max((exponent - 1, 0.000001))) * (1 - 1 / exponent), 0.0); max((input::max::x, min((input::max::x + padding, p::center::v0 + radius))))",
-                "radius = min((input::size::x, input::size::y)) * p::radius / 200; exponent = math::exp2(math::abs(p::strength) / 100 * 1.5); distance_x = max((input::min::x - p::center::v0, p::center::v0 - input::max::x, 0.0)); distance_y = max((input::min::y - p::center::v1, p::center::v1 - input::max::y, 0.0)); padding = if(distance_x ^ 2 + distance_y ^ 2 < radius ^ 2, radius * math::pow(exponent, -1 / max((exponent - 1, 0.000001))) * (1 - 1 / exponent), 0.0); max((input::max::y, min((input::max::y + padding, p::center::v1 + radius))))"
-              ]
+              "script": "let radius = min(input.size.x, input.size.y) * p.radius / 200; let exponent = exp2(abs(p.strength) / 100 * 1.5); let distance_x = max(max(input.min.x - p.center[0], p.center[0] - input.max.x), 0.0); let distance_y = max(max(input.min.y - p.center[1], p.center[1] - input.max.y), 0.0); let padding = if distance_x ** 2 + distance_y ** 2 < radius ** 2 { radius * pow(exponent, -1 / max(exponent - 1, 0.000001)) * (1 - 1 / exponent) } else { 0.0 }; #{ min: [min(input.min.x, max(input.min.x - padding, p.center[0] - radius)), min(input.min.y, max(input.min.y - padding, p.center[1] - radius))], max: [max(input.max.x, min(input.max.x + padding, p.center[0] + radius)), max(input.max.y, min(input.max.y + padding, p.center[1] + radius))] }"
             }
           }
         ]
@@ -3606,14 +3458,7 @@
             "type": "render",
             "shader": { "module": "effects::wave_warp::render" },
             "bounds": {
-              "min": [
-                "input::min::x - math::abs(p::amplitude::v0)",
-                "input::min::y - math::abs(p::amplitude::v1)"
-              ],
-              "max": [
-                "input::max::x + math::abs(p::amplitude::v0)",
-                "input::max::y + math::abs(p::amplitude::v1)"
-              ]
+              "script": "#{ min: [input.min.x - abs(p.amplitude[0]), input.min.y - abs(p.amplitude[1])], max: [input.max.x + abs(p.amplitude[0]), input.max.y + abs(p.amplitude[1])] }"
             }
           }
         ]
@@ -3693,8 +3538,7 @@
             "type": "render",
             "shader": { "module": "effects::color_adjustment::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -3767,8 +3611,7 @@
             "type": "render",
             "shader": { "module": "effects::hue_saturation::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -3814,8 +3657,7 @@
             "type": "render",
             "shader": { "module": "effects::exposure::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -3851,8 +3693,7 @@
             "type": "render",
             "shader": { "module": "effects::levels::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -3916,8 +3757,7 @@
             "type": "render",
             "shader": { "module": "effects::gradient_map::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -3978,8 +3818,7 @@
             "type": "render",
             "shader": { "module": "effects::invert_colors::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -4007,8 +3846,7 @@
             "type": "render",
             "shader": { "module": "effects::color_temperature::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -4045,8 +3883,7 @@
             "type": "render",
             "shader": { "module": "effects::monochrome::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -4078,8 +3915,7 @@
             "type": "render",
             "shader": { "module": "effects::opacity::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -4114,8 +3950,7 @@
             "type": "render",
             "shader": { "module": "effects::posterize::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -4162,8 +3997,7 @@
             "type": "render",
             "shader": { "module": "effects::binarize::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -4226,8 +4060,7 @@
             "type": "render",
             "shader": { "module": "effects::linear_gradient::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -4296,8 +4129,7 @@
             "type": "render",
             "shader": { "module": "effects::noise_gradient::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -4416,14 +4248,7 @@
               "radius_scale": 0.57735027
             },
             "bounds": {
-              "min": [
-                "input::min::x - (math::abs(o::direction_x * p::width * o::radius_scale))",
-                "input::min::y - (math::abs(o::direction_y * p::width * o::radius_scale))"
-              ],
-              "max": [
-                "input::max::x + (math::abs(o::direction_x * p::width * o::radius_scale))",
-                "input::max::y + (math::abs(o::direction_y * p::width * o::radius_scale))"
-              ]
+              "script": "#{ min: [input.min.x - (abs(o.direction_x * p.width * o.radius_scale)), input.min.y - (abs(o.direction_y * p.width * o.radius_scale))], max: [input.max.x + (abs(o.direction_x * p.width * o.radius_scale)), input.max.y + (abs(o.direction_y * p.width * o.radius_scale))] }"
             }
           },
           {
@@ -4435,14 +4260,7 @@
               "radius_scale": 0.57735027
             },
             "bounds": {
-              "min": [
-                "input::min::x - (math::abs(o::direction_x * p::width * o::radius_scale))",
-                "input::min::y - (math::abs(o::direction_y * p::width * o::radius_scale))"
-              ],
-              "max": [
-                "input::max::x + (math::abs(o::direction_x * p::width * o::radius_scale))",
-                "input::max::y + (math::abs(o::direction_y * p::width * o::radius_scale))"
-              ]
+              "script": "#{ min: [input.min.x - (abs(o.direction_x * p.width * o.radius_scale)), input.min.y - (abs(o.direction_y * p.width * o.radius_scale))], max: [input.max.x + (abs(o.direction_x * p.width * o.radius_scale)), input.max.y + (abs(o.direction_y * p.width * o.radius_scale))] }"
             }
           },
           {
@@ -4454,14 +4272,7 @@
               "radius_scale": 0.81649658
             },
             "bounds": {
-              "min": [
-                "input::min::x - (math::abs(o::direction_x * p::width * o::radius_scale))",
-                "input::min::y - (math::abs(o::direction_y * p::width * o::radius_scale))"
-              ],
-              "max": [
-                "input::max::x + (math::abs(o::direction_x * p::width * o::radius_scale))",
-                "input::max::y + (math::abs(o::direction_y * p::width * o::radius_scale))"
-              ]
+              "script": "#{ min: [input.min.x - (abs(o.direction_x * p.width * o.radius_scale)), input.min.y - (abs(o.direction_y * p.width * o.radius_scale))], max: [input.max.x + (abs(o.direction_x * p.width * o.radius_scale)), input.max.y + (abs(o.direction_y * p.width * o.radius_scale))] }"
             }
           },
           {
@@ -4473,28 +4284,14 @@
               "radius_scale": 0.81649658
             },
             "bounds": {
-              "min": [
-                "input::min::x - (math::abs(o::direction_x * p::width * o::radius_scale))",
-                "input::min::y - (math::abs(o::direction_y * p::width * o::radius_scale))"
-              ],
-              "max": [
-                "input::max::x + (math::abs(o::direction_x * p::width * o::radius_scale))",
-                "input::max::y + (math::abs(o::direction_y * p::width * o::radius_scale))"
-              ]
+              "script": "#{ min: [input.min.x - (abs(o.direction_x * p.width * o.radius_scale)), input.min.y - (abs(o.direction_y * p.width * o.radius_scale))], max: [input.max.x + (abs(o.direction_x * p.width * o.radius_scale)), input.max.y + (abs(o.direction_y * p.width * o.radius_scale))] }"
             }
           },
           {
             "type": "render",
             "shader": { "module": "effects::glow::render" },
             "bounds": {
-              "min": [
-                "min((input::min::x, source::min::x))",
-                "min((input::min::y, source::min::y))"
-              ],
-              "max": [
-                "max((input::max::x, source::max::x))",
-                "max((input::max::y, source::max::y))"
-              ]
+              "script": "#{ min: [min(input.min.x, source.min.x), min(input.min.y, source.min.y)], max: [max(input.max.x, source.max.x), max(input.max.y, source.max.y)] }"
             }
           }
         ],
@@ -4548,8 +4345,7 @@
             "type": "compute",
             "shader": { "module": "effects::bloom::extract" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           },
           {
@@ -4561,14 +4357,7 @@
               "radius_scale": 0.57735027
             },
             "bounds": {
-              "min": [
-                "input::min::x - (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::min::y - (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ],
-              "max": [
-                "input::max::x + (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::max::y + (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ]
+              "script": "#{ min: [input.min.x - (abs(o.direction_x * p.radius * o.radius_scale)), input.min.y - (abs(o.direction_y * p.radius * o.radius_scale))], max: [input.max.x + (abs(o.direction_x * p.radius * o.radius_scale)), input.max.y + (abs(o.direction_y * p.radius * o.radius_scale))] }"
             }
           },
           {
@@ -4580,14 +4369,7 @@
               "radius_scale": 0.57735027
             },
             "bounds": {
-              "min": [
-                "input::min::x - (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::min::y - (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ],
-              "max": [
-                "input::max::x + (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::max::y + (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ]
+              "script": "#{ min: [input.min.x - (abs(o.direction_x * p.radius * o.radius_scale)), input.min.y - (abs(o.direction_y * p.radius * o.radius_scale))], max: [input.max.x + (abs(o.direction_x * p.radius * o.radius_scale)), input.max.y + (abs(o.direction_y * p.radius * o.radius_scale))] }"
             }
           },
           {
@@ -4599,14 +4381,7 @@
               "radius_scale": 0.81649658
             },
             "bounds": {
-              "min": [
-                "input::min::x - (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::min::y - (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ],
-              "max": [
-                "input::max::x + (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::max::y + (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ]
+              "script": "#{ min: [input.min.x - (abs(o.direction_x * p.radius * o.radius_scale)), input.min.y - (abs(o.direction_y * p.radius * o.radius_scale))], max: [input.max.x + (abs(o.direction_x * p.radius * o.radius_scale)), input.max.y + (abs(o.direction_y * p.radius * o.radius_scale))] }"
             }
           },
           {
@@ -4618,28 +4393,14 @@
               "radius_scale": 0.81649658
             },
             "bounds": {
-              "min": [
-                "input::min::x - (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::min::y - (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ],
-              "max": [
-                "input::max::x + (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::max::y + (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ]
+              "script": "#{ min: [input.min.x - (abs(o.direction_x * p.radius * o.radius_scale)), input.min.y - (abs(o.direction_y * p.radius * o.radius_scale))], max: [input.max.x + (abs(o.direction_x * p.radius * o.radius_scale)), input.max.y + (abs(o.direction_y * p.radius * o.radius_scale))] }"
             }
           },
           {
             "type": "render",
             "shader": { "module": "effects::bloom::render" },
             "bounds": {
-              "min": [
-                "min((input::min::x, source::min::x))",
-                "min((input::min::y, source::min::y))"
-              ],
-              "max": [
-                "max((input::max::x, source::max::x))",
-                "max((input::max::y, source::max::y))"
-              ]
+              "script": "#{ min: [min(input.min.x, source.min.x), min(input.min.y, source.min.y)], max: [max(input.max.x, source.max.x), max(input.max.y, source.max.y)] }"
             }
           }
         ]
@@ -4689,14 +4450,7 @@
             "shader": { "module": "effects::outline::distance_field" },
             "overrides": { "phase": 0 },
             "bounds": {
-              "min": [
-                "source::min::x - math::abs(p::width) * 1",
-                "source::min::y - math::abs(p::width) * 1"
-              ],
-              "max": [
-                "source::max::x + math::abs(p::width) * 1",
-                "source::max::y + math::abs(p::width) * 1"
-              ]
+              "script": "#{ min: [source.min.x - abs(p.width) * 1, source.min.y - abs(p.width) * 1], max: [source.max.x + abs(p.width) * 1, source.max.y + abs(p.width) * 1] }"
             }
           },
           {
@@ -4704,14 +4458,7 @@
             "shader": { "module": "effects::outline::distance_field" },
             "overrides": { "phase": 1 },
             "bounds": {
-              "min": [
-                "source::min::x - math::abs(p::width) * 1",
-                "source::min::y - math::abs(p::width) * 1"
-              ],
-              "max": [
-                "source::max::x + math::abs(p::width) * 1",
-                "source::max::y + math::abs(p::width) * 1"
-              ]
+              "script": "#{ min: [source.min.x - abs(p.width) * 1, source.min.y - abs(p.width) * 1], max: [source.max.x + abs(p.width) * 1, source.max.y + abs(p.width) * 1] }"
             }
           },
           {
@@ -4719,28 +4466,14 @@
             "shader": { "module": "effects::outline::distance_field" },
             "overrides": { "phase": 2 },
             "bounds": {
-              "min": [
-                "source::min::x - math::abs(p::width) * 1",
-                "source::min::y - math::abs(p::width) * 1"
-              ],
-              "max": [
-                "source::max::x + math::abs(p::width) * 1",
-                "source::max::y + math::abs(p::width) * 1"
-              ]
+              "script": "#{ min: [source.min.x - abs(p.width) * 1, source.min.y - abs(p.width) * 1], max: [source.max.x + abs(p.width) * 1, source.max.y + abs(p.width) * 1] }"
             }
           },
           {
             "type": "render",
             "shader": { "module": "effects::outline::render" },
             "bounds": {
-              "min": [
-                "source::min::x - math::abs(p::width) * 1",
-                "source::min::y - math::abs(p::width) * 1"
-              ],
-              "max": [
-                "source::max::x + math::abs(p::width) * 1",
-                "source::max::y + math::abs(p::width) * 1"
-              ]
+              "script": "#{ min: [source.min.x - abs(p.width) * 1, source.min.y - abs(p.width) * 1], max: [source.max.x + abs(p.width) * 1, source.max.y + abs(p.width) * 1] }"
             }
           }
         ],
@@ -4787,8 +4520,7 @@
             "type": "render",
             "shader": { "module": "effects::vignette::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -4839,14 +4571,7 @@
               "radius_scale": 0.57735027
             },
             "bounds": {
-              "min": [
-                "input::min::x - (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::min::y - (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ],
-              "max": [
-                "input::max::x + (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::max::y + (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ]
+              "script": "#{ min: [input.min.x - (abs(o.direction_x * p.radius * o.radius_scale)), input.min.y - (abs(o.direction_y * p.radius * o.radius_scale))], max: [input.max.x + (abs(o.direction_x * p.radius * o.radius_scale)), input.max.y + (abs(o.direction_y * p.radius * o.radius_scale))] }"
             }
           },
           {
@@ -4858,14 +4583,7 @@
               "radius_scale": 0.57735027
             },
             "bounds": {
-              "min": [
-                "input::min::x - (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::min::y - (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ],
-              "max": [
-                "input::max::x + (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::max::y + (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ]
+              "script": "#{ min: [input.min.x - (abs(o.direction_x * p.radius * o.radius_scale)), input.min.y - (abs(o.direction_y * p.radius * o.radius_scale))], max: [input.max.x + (abs(o.direction_x * p.radius * o.radius_scale)), input.max.y + (abs(o.direction_y * p.radius * o.radius_scale))] }"
             }
           },
           {
@@ -4877,14 +4595,7 @@
               "radius_scale": 0.81649658
             },
             "bounds": {
-              "min": [
-                "input::min::x - (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::min::y - (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ],
-              "max": [
-                "input::max::x + (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::max::y + (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ]
+              "script": "#{ min: [input.min.x - (abs(o.direction_x * p.radius * o.radius_scale)), input.min.y - (abs(o.direction_y * p.radius * o.radius_scale))], max: [input.max.x + (abs(o.direction_x * p.radius * o.radius_scale)), input.max.y + (abs(o.direction_y * p.radius * o.radius_scale))] }"
             }
           },
           {
@@ -4896,28 +4607,14 @@
               "radius_scale": 0.81649658
             },
             "bounds": {
-              "min": [
-                "input::min::x - (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::min::y - (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ],
-              "max": [
-                "input::max::x + (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::max::y + (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ]
+              "script": "#{ min: [input.min.x - (abs(o.direction_x * p.radius * o.radius_scale)), input.min.y - (abs(o.direction_y * p.radius * o.radius_scale))], max: [input.max.x + (abs(o.direction_x * p.radius * o.radius_scale)), input.max.y + (abs(o.direction_y * p.radius * o.radius_scale))] }"
             }
           },
           {
             "type": "render",
             "shader": { "module": "effects::drop_shadow::render" },
             "bounds": {
-              "min": [
-                "min((input::min::x + p::offset::v0, source::min::x))",
-                "min((input::min::y + p::offset::v1, source::min::y))"
-              ],
-              "max": [
-                "max((input::max::x + p::offset::v0, source::max::x))",
-                "max((input::max::y + p::offset::v1, source::max::y))"
-              ]
+              "script": "#{ min: [min(input.min.x + p.offset[0], source.min.x), min(input.min.y + p.offset[1], source.min.y)], max: [max(input.max.x + p.offset[0], source.max.x), max(input.max.y + p.offset[1], source.max.y)] }"
             }
           }
         ]
@@ -4973,14 +4670,7 @@
             "type": "render",
             "shader": { "module": "effects::long_shadow::render" },
             "bounds": {
-              "min": [
-                "input::min::x + min((0.0, p::length * math::cos(p::angle * 0.017453292519943295)))",
-                "input::min::y + min((0.0, p::length * math::sin(p::angle * 0.017453292519943295)))"
-              ],
-              "max": [
-                "input::max::x + max((0.0, p::length * math::cos(p::angle * 0.017453292519943295)))",
-                "input::max::y + max((0.0, p::length * math::sin(p::angle * 0.017453292519943295)))"
-              ]
+              "script": "#{ min: [input.min.x + min(0.0, p.length * cos(p.angle * 0.017453292519943295)), input.min.y + min(0.0, p.length * sin(p.angle * 0.017453292519943295))], max: [input.max.x + max(0.0, p.length * cos(p.angle * 0.017453292519943295)), input.max.y + max(0.0, p.length * sin(p.angle * 0.017453292519943295))] }"
             }
           }
         ]
@@ -5043,14 +4733,7 @@
               "radius_scale": 0.70710678
             },
             "bounds": {
-              "min": [
-                "input::min::x - (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::min::y - (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ],
-              "max": [
-                "input::max::x + (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::max::y + (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ]
+              "script": "#{ min: [input.min.x - (abs(o.direction_x * p.radius * o.radius_scale)), input.min.y - (abs(o.direction_y * p.radius * o.radius_scale))], max: [input.max.x + (abs(o.direction_x * p.radius * o.radius_scale)), input.max.y + (abs(o.direction_y * p.radius * o.radius_scale))] }"
             }
           },
           {
@@ -5062,14 +4745,7 @@
               "radius_scale": 0.70710678
             },
             "bounds": {
-              "min": [
-                "input::min::x - (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::min::y - (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ],
-              "max": [
-                "input::max::x + (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::max::y + (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ]
+              "script": "#{ min: [input.min.x - (abs(o.direction_x * p.radius * o.radius_scale)), input.min.y - (abs(o.direction_y * p.radius * o.radius_scale))], max: [input.max.x + (abs(o.direction_x * p.radius * o.radius_scale)), input.max.y + (abs(o.direction_y * p.radius * o.radius_scale))] }"
             }
           },
           {
@@ -5081,14 +4757,7 @@
               "radius_scale": 0.70710678
             },
             "bounds": {
-              "min": [
-                "input::min::x - (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::min::y - (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ],
-              "max": [
-                "input::max::x + (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::max::y + (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ]
+              "script": "#{ min: [input.min.x - (abs(o.direction_x * p.radius * o.radius_scale)), input.min.y - (abs(o.direction_y * p.radius * o.radius_scale))], max: [input.max.x + (abs(o.direction_x * p.radius * o.radius_scale)), input.max.y + (abs(o.direction_y * p.radius * o.radius_scale))] }"
             }
           },
           {
@@ -5100,14 +4769,7 @@
               "radius_scale": 0.70710678
             },
             "bounds": {
-              "min": [
-                "input::min::x - (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::min::y - (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ],
-              "max": [
-                "input::max::x + (math::abs(o::direction_x * p::radius * o::radius_scale))",
-                "input::max::y + (math::abs(o::direction_y * p::radius * o::radius_scale))"
-              ]
+              "script": "#{ min: [input.min.x - (abs(o.direction_x * p.radius * o.radius_scale)), input.min.y - (abs(o.direction_y * p.radius * o.radius_scale))], max: [input.max.x + (abs(o.direction_x * p.radius * o.radius_scale)), input.max.y + (abs(o.direction_y * p.radius * o.radius_scale))] }"
             }
           }
         ]
@@ -5141,8 +4803,7 @@
             },
             "reducer": { "module": "effects::motion_blur::reduce" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -5187,8 +4848,7 @@
             "type": "render",
             "shader": { "module": "effects::pixelate::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -5216,14 +4876,7 @@
             "type": "render",
             "shader": { "module": "effects::chromatic_aberration::render" },
             "bounds": {
-              "min": [
-                "input::min::x - math::abs(p::amount) * 1",
-                "input::min::y - math::abs(p::amount) * 1"
-              ],
-              "max": [
-                "input::max::x + math::abs(p::amount) * 1",
-                "input::max::y + math::abs(p::amount) * 1"
-              ]
+              "script": "#{ min: [input.min.x - abs(p.amount) * 1, input.min.y - abs(p.amount) * 1], max: [input.max.x + abs(p.amount) * 1, input.max.y + abs(p.amount) * 1] }"
             }
           }
         ]
@@ -5260,8 +4913,7 @@
             "type": "render",
             "shader": { "module": "effects::dither::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -5329,8 +4981,7 @@
             "shader": { "module": "effects::pixel_sort::compute" },
             "dispatch": ["width", "height", "one"],
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -5370,8 +5021,7 @@
             "type": "render",
             "shader": { "module": "effects::ntsc_noise::render" },
             "bounds": {
-              "min": ["input::min::x - p::tracking / 2", "input::min::y"],
-              "max": ["input::max::x + p::tracking / 2", "input::max::y"]
+              "script": "#{ min: [input.min.x - p.tracking / 2, input.min.y], max: [input.max.x + p.tracking / 2, input.max.y] }"
             }
           }
         ]
@@ -5443,8 +5093,7 @@
             "type": "render",
             "shader": { "module": "effects::emboss::render" },
             "bounds": {
-              "min": ["input::min::x", "input::min::y"],
-              "max": ["input::max::x", "input::max::y"]
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
             }
           }
         ]
@@ -5496,8 +5145,7 @@
             "type": "render",
             "shader": { "module": "effects::layer_mask::render" },
             "bounds": {
-              "min": ["images::behind::min::x", "images::behind::min::y"],
-              "max": ["images::behind::max::x", "images::behind::max::y"]
+              "script": "#{ min: [images.behind.min.x, images.behind.min.y], max: [images.behind.max.x, images.behind.max.y] }"
             }
           }
         ],
@@ -5563,14 +5211,7 @@
             "type": "render",
             "shader": { "module": "effects::tile_layers::render" },
             "bounds": {
-              "min": [
-                "placement_center(input::center::x + p::offset::v0, math::abs(input::size::x * p::scale::v0 / 100 + p::padding::v0) * (p::count::v0 - 1), p::origin::v0) - (input::size::x * p::scale::v0 / 100 + math::abs(input::size::x * p::scale::v0 / 100 + p::padding::v0) * (p::count::v0 - 1)) / 2",
-                "placement_center(input::center::y + p::offset::v1, math::abs(input::size::y * p::scale::v1 / 100 + p::padding::v1) * (p::count::v1 - 1), p::origin::v1) - (input::size::y * p::scale::v1 / 100 + math::abs(input::size::y * p::scale::v1 / 100 + p::padding::v1) * (p::count::v1 - 1)) / 2"
-              ],
-              "max": [
-                "placement_center(input::center::x + p::offset::v0, math::abs(input::size::x * p::scale::v0 / 100 + p::padding::v0) * (p::count::v0 - 1), p::origin::v0) + (input::size::x * p::scale::v0 / 100 + math::abs(input::size::x * p::scale::v0 / 100 + p::padding::v0) * (p::count::v0 - 1)) / 2",
-                "placement_center(input::center::y + p::offset::v1, math::abs(input::size::y * p::scale::v1 / 100 + p::padding::v1) * (p::count::v1 - 1), p::origin::v1) + (input::size::y * p::scale::v1 / 100 + math::abs(input::size::y * p::scale::v1 / 100 + p::padding::v1) * (p::count::v1 - 1)) / 2"
-              ]
+              "script": "#{ min: [placement_center(input.center.x + p.offset[0], abs(input.size.x * p.scale[0] / 100 + p.padding[0]) * (p.count[0] - 1), p.origin[0]) - (input.size.x * p.scale[0] / 100 + abs(input.size.x * p.scale[0] / 100 + p.padding[0]) * (p.count[0] - 1)) / 2, placement_center(input.center.y + p.offset[1], abs(input.size.y * p.scale[1] / 100 + p.padding[1]) * (p.count[1] - 1), p.origin[1]) - (input.size.y * p.scale[1] / 100 + abs(input.size.y * p.scale[1] / 100 + p.padding[1]) * (p.count[1] - 1)) / 2], max: [placement_center(input.center.x + p.offset[0], abs(input.size.x * p.scale[0] / 100 + p.padding[0]) * (p.count[0] - 1), p.origin[0]) + (input.size.x * p.scale[0] / 100 + abs(input.size.x * p.scale[0] / 100 + p.padding[0]) * (p.count[0] - 1)) / 2, placement_center(input.center.y + p.offset[1], abs(input.size.y * p.scale[1] / 100 + p.padding[1]) * (p.count[1] - 1), p.origin[1]) + (input.size.y * p.scale[1] / 100 + abs(input.size.y * p.scale[1] / 100 + p.padding[1]) * (p.count[1] - 1)) / 2] }"
             }
           }
         ]

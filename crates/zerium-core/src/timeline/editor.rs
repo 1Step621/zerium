@@ -7,12 +7,12 @@ use crate::{
 
 use super::{
     document::TimelineDocument,
-    evaluation::{evaluated_items_at_time, visible_items},
+    evaluation::evaluated_items_at_time,
     history::{EditHistory, HistoryKey, HistorySnapshot, ScopedHistoryKey},
     ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId},
     item::TimelineItem,
     project::TimelineProject,
-    properties::{SceneArguments, resolve_item, resolve_property},
+    properties::{SceneBindings, resolve_item, resolve_property},
     property_address::{property_schemas, resolve_property_schema},
     scene::SceneDefinition,
     selection::SelectionState,
@@ -146,6 +146,16 @@ impl TimelineEditor {
             playhead: self.playhead,
             project_revision: self.project_revision,
         }
+    }
+
+    /// Capture the currently edited scope and its preview visibility for audio.
+    pub fn audio_snapshot(&self) -> super::AudioTimelineSnapshot {
+        super::AudioTimelineSnapshot::new(
+            self.project.clone(),
+            self.media_cache.clone(),
+            self.active_scene_id(),
+            Some(self.visibility.clone()),
+        )
     }
 
     pub(super) fn history_snapshot(&self) -> HistorySnapshot {
@@ -376,7 +386,7 @@ impl TimelineEditor {
     pub fn evaluated_item_at(&self, item: &TimelineItem, time: TimelineTime) -> TimelineItem {
         resolve_item(
             &self.project().scenes,
-            self.active_scene_arguments(),
+            self.active_scene_variables().as_ref(),
             item,
             Some(time),
         )
@@ -402,9 +412,14 @@ impl TimelineEditor {
         item_id: ItemId,
     ) -> Option<super::PropertyAddress> {
         let scenes = &self.project().scenes;
-        let arguments = self.active_scene_arguments();
-        let source = resolve_item(scenes, arguments, self.item(address.item_id)?, None);
-        let item = resolve_item(scenes, arguments, self.item(item_id)?, None);
+        let arguments = self.active_scene_variables();
+        let source = resolve_item(
+            scenes,
+            arguments.as_ref(),
+            self.item(address.item_id)?,
+            None,
+        );
+        let item = resolve_item(scenes, arguments.as_ref(), self.item(item_id)?, None);
         address.on_item(&source, &item)
     }
 
@@ -416,12 +431,13 @@ impl TimelineEditor {
         let item = self.item(address.item_id)?;
         let property = self.property_schema(address)?;
         let value = resolve_property(
-            self.active_scene_arguments(),
+            self.active_scene_variables().as_ref(),
             item,
             address.effect_id,
             property,
             time,
-        )?;
+        )?
+        .value;
         if address.element_id.is_none() && address.scalar_index.is_none() {
             return Some(value);
         }
@@ -433,9 +449,9 @@ impl TimelineEditor {
         .cloned()
     }
 
-    fn active_scene_arguments(&self) -> Option<SceneArguments<'_>> {
+    fn active_scene_variables(&self) -> Option<SceneBindings<'_>> {
         let scene = self.scene(self.active_scene_id()?)?;
-        Some(SceneArguments::new(&self.project().scenes, scene, None))
+        Some(SceneBindings::new(&self.project().scenes, scene, None))
     }
 
     pub fn playhead(&self) -> Frame {
@@ -491,18 +507,18 @@ impl TimelineEditor {
     pub fn resolved_item(&self, id: ItemId) -> Option<TimelineItem> {
         Some(resolve_item(
             &self.project().scenes,
-            self.active_scene_arguments(),
+            self.active_scene_variables().as_ref(),
             self.item(id)?,
             None,
         ))
     }
 
-    pub(crate) fn resolve_active_scene_arguments<'a>(
+    pub(crate) fn resolve_active_scene_variables<'a>(
         &self,
         items: impl IntoIterator<Item = &'a mut TimelineItem>,
     ) {
         if let Some(scene) = self.active_scene_id().and_then(|id| self.scene(id)) {
-            scene.apply_arguments(&self.project().scenes, None, items);
+            scene.apply_variables(&self.project().scenes, None, items);
         }
     }
 
@@ -569,39 +585,14 @@ impl TimelineEditor {
         self.active_items_at_time(TimelineTime::from_frame(frame))
     }
 
-    pub(super) fn active_source_items(
-        &self,
-        time: Option<TimelineTime>,
-    ) -> Vec<(LayerId, TimelineItem)> {
-        let mut items = time.map_or_else(
-            || self.active_document().source_items(),
-            |time| self.active_document().active_source_items_at_time(time),
-        );
-        self.resolve_active_scene_arguments(items.iter_mut().map(|(_, item)| item));
-        items
-    }
-
     pub fn active_items_at_time(&self, time: TimelineTime) -> Vec<(LayerId, TimelineItem)> {
         evaluated_items_at_time(
-            self.active_source_items(Some(time)),
+            self.active_document().active_source_items_at_time(time),
             &self.project().scenes,
             time,
             Some(&self.visibility),
+            self.active_scene_id().and_then(|id| self.scene(id)),
         )
-    }
-
-    pub fn visible_items(&self) -> Vec<TimelineItem> {
-        visible_items(
-            self.active_source_items(None),
-            &self.project().scenes,
-            Some(&self.visibility),
-        )
-        .into_iter()
-        .map(|mut item| {
-            self.visibility.retain_visible_effects(&mut item);
-            item
-        })
-        .collect()
     }
 
     pub fn hidden_layer_ids(&self) -> impl Iterator<Item = LayerId> + '_ {

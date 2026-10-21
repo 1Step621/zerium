@@ -44,7 +44,7 @@ impl PropertyInspector {
         cx: &mut Context<Self>,
     ) {
         let result = self.editor.update(cx, |editor, cx| {
-            let result = editor.connect_scene_argument(argument_id, target);
+            let result = editor.connect_scene_variable(argument_id, target);
             if result.is_ok() {
                 cx.notify();
             }

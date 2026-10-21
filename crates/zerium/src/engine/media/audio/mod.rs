@@ -3,7 +3,7 @@ mod source;
 mod timeline;
 
 pub(crate) use timeline::{
-    AudioClipId, AudioGainEvaluation, AudioTimelineError, AudioTimelineGraph, sample_boundary,
+    AudioCalculationPolicy, AudioTimelineError, AudioTimelineGraph, sample_boundary,
 };
 
 use std::path::Path;

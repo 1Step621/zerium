@@ -123,9 +123,11 @@ pub fn resolve_scene_binding(
         SceneBindingOwner::Item => {
             let value = item.properties.property(property_id).cloned().or_else(|| {
                 let nested = scenes.get(&item.scene_id()?)?;
-                nested
-                    .argument(property_id)
-                    .map(|argument| argument.schema.default_value())
+                nested.argument(property_id).and_then(|argument| {
+                    argument
+                        .argument_schema()
+                        .map(|schema| schema.default_value())
+                })
             })?;
             (value, &item.animations)
         }

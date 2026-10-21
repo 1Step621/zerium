@@ -20,8 +20,8 @@ use crate::engine::{
     atomic_file::AtomicFileTransaction,
     gstreamer::encoding::Mp4Writer,
     media::{
-        AudioFormat, AudioGainEvaluation, AudioTimelineGraph, MediaInputId, MediaReaderRegistry,
-        VisualDecodeSession, item_readings, refresh_files, sample_boundary,
+        AudioCalculationPolicy, AudioFormat, AudioTimelineGraph, MediaInputId, MediaReaderRegistry,
+        VisualDecodeSession, dependency_readings, refresh_files, sample_boundary,
     },
     rendering::{RenderScene, RenderSession, RenderSize, SceneEvaluator},
 };
@@ -99,7 +99,7 @@ pub(crate) fn export_timeline(
         ));
     }
     let (files, errors) = refresh_files(
-        &mut item_readings(&timeline.visible_items()),
+        &mut dependency_readings(timeline.media_dependencies()),
         timeline.media_cache(),
         &media_readers,
     );
@@ -120,12 +120,10 @@ pub(crate) fn export_timeline(
     .validate()
     .map_err(ExportError::encoding)?;
     let audio_graph = AudioTimelineGraph::new(
-        &timeline.visible_items(),
-        timeline.media_cache(),
-        frame_rate,
+        timeline.audio_snapshot(),
         EXPORT_AUDIO_FORMAT,
         &media_readers,
-        AudioGainEvaluation::TimelineAnimation,
+        AudioCalculationPolicy::Report,
     )
     .map_err(ExportError::encoding)?;
     let video_frame_rate = VideoFrameRate::new(frame_rate.numerator(), frame_rate.denominator())
@@ -252,7 +250,7 @@ fn decode_scenes(
     cancelled: &AtomicBool,
 ) {
     let mut decoders = HashMap::<MediaInputId, VisualDecodeSession>::new();
-    let mut evaluator = SceneEvaluator::new();
+    let mut evaluator = SceneEvaluator::for_export();
     for frame_index in 0..frame_count {
         if cancelled.load(Ordering::Relaxed) {
             break;

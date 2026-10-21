@@ -22,14 +22,29 @@ impl PropertyInspector {
             Control::Number(number) => {
                 let common = &number.common;
                 let input = ctx.store.text(&common.id)?;
-                Some(Self::number_full_row(
+                let mut row = Self::number_full_row(
                     common,
                     &number.spec,
                     &input,
                     common.animation_enabled,
                     common.binding.clone(),
                     ctx,
-                ))
+                );
+                if let Some(value) = &number.applied_value {
+                    row.content = div()
+                        .min_w_0()
+                        .flex()
+                        .flex_col()
+                        .gap_1()
+                        .child(row.content)
+                        .child(
+                            div()
+                                .text_sm()
+                                .text_color(ctx.colors.muted_foreground)
+                                .child(t!("args.applied_value", value = value).to_string()),
+                        );
+                }
+                Some(row)
             }
             Control::Text(text) => {
                 let common = &text.common;

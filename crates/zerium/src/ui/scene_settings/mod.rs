@@ -1,5 +1,6 @@
 //! Scene schema authoring lives outside the plugin property inspector.
 
+mod calculation;
 mod edit;
 mod number_drag;
 mod numeric;
@@ -30,7 +31,9 @@ use std::{
 };
 use zerium_core::{
     property::{PropertySchema, PropertyValue},
-    timeline::{SceneArgumentPreset, SceneId, TimelineEditor},
+    timeline::{
+        SceneCalculation, SceneCalculationInput, SceneId, SceneVariablePreset, TimelineEditor,
+    },
 };
 
 use crate::ui::file_input::{FileInputController, FileTarget};
@@ -42,6 +45,15 @@ use state::SettingsStore;
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 enum ControlId {
     Name(SceneId),
+    CalculationScript {
+        scene_id: SceneId,
+        variable_id: String,
+    },
+    CalculationInputName {
+        scene_id: SceneId,
+        variable_id: String,
+        input_name: String,
+    },
     ArgumentName {
         scene_id: SceneId,
         argument_id: String,

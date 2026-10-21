@@ -7,7 +7,7 @@ publish = false
 description = "Zerium domain models and editing operations"
 
 [dependencies]
-evalexpr.workspace = true
+rhai.workspace = true
 naga.workspace = true
 rust-i18n.workspace = true
 serde.workspace = true

@@ -115,6 +115,30 @@ enum ProjectItemKind {
 }
 
 impl ProjectItem {
+    pub(super) fn apply_clipboard_property(
+        &mut self,
+        item_id: crate::timeline::ItemId,
+        owner: crate::timeline::SceneBindingOwner,
+        property_id: &str,
+        value: &PropertyValue,
+    ) -> bool {
+        if self.id != item_id.get() {
+            return false;
+        }
+        let properties = match owner {
+            crate::timeline::SceneBindingOwner::Item => &mut self.properties,
+            crate::timeline::SceneBindingOwner::Effect(id) => {
+                let Some(effect) = self.effects.iter_mut().find(|effect| effect.id == id.get())
+                else {
+                    return false;
+                };
+                &mut effect.properties
+            }
+        };
+        properties.insert(property_id.to_owned(), value.clone());
+        true
+    }
+
     pub(super) fn capture(item: &TimelineItem, layer: LayerId, project_path: &Path) -> Self {
         Self {
             id: item.id.get(),

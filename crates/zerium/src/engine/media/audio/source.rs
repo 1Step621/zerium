@@ -30,6 +30,11 @@ impl AudioSource {
         }
     }
 
+    pub(super) fn update_playback(&mut self, playback: MediaPlayback, preserve_pitch: bool) {
+        self.playback = playback;
+        self.preserve_pitch = preserve_pitch;
+    }
+
     pub(super) fn read(
         &mut self,
         start_frame: u64,
