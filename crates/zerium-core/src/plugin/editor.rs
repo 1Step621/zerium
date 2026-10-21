@@ -5,7 +5,7 @@ use serde::Deserialize;
 
 use super::validation::{PropertyReferences, is_f32_pair};
 use super::{PluginError, TimeMappingProperties};
-use crate::property::{PropertyDefinition, PropertySchema, ScalarPropertyType};
+use crate::property::{PropertySchema, ScalarPropertyType};
 
 /// One editor feature; each declaration owns all references it consumes.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -102,11 +102,11 @@ impl EditorCapability {
                 .map_or(Ok(()), |id| references.origin(id).map(|_| ()))
         };
         let points = |property: &str, position: &str, size: &str| {
-            references.check(
-                property,
-                "an array of two-f32 tuples",
-                |property| matches!(property.definition(), PropertyDefinition::Array { element, .. } if is_f32_pair(element)),
-            )?;
+            references.check(property, "an array of two-f32 tuples", |property| {
+                property
+                    .array()
+                    .is_some_and(|array| is_f32_pair(array.element))
+            })?;
             references.pair(position)?;
             references.pair(size).map(|_| ())
         };

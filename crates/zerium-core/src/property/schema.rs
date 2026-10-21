@@ -77,6 +77,14 @@ pub enum PropertyDefinition {
     },
 }
 
+/// The element contract and length limits of an array property.
+#[derive(Clone, Copy, Debug)]
+pub struct ArraySchema<'a> {
+    pub element: &'a ValueSchema,
+    pub min_items: u32,
+    pub max_items: u32,
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum ValueSchema {
     Scalar(ScalarSchema),
@@ -91,6 +99,14 @@ pub struct ScalarSchema {
 }
 
 impl ValueSchema {
+    pub fn tuple(&self) -> Option<&[ScalarSchema]> {
+        if let Self::Tuple(elements) = self {
+            Some(elements)
+        } else {
+            None
+        }
+    }
+
     pub fn scalars(&self) -> &[ScalarSchema] {
         match self {
             Self::Scalar(scalar) => std::slice::from_ref(scalar),
@@ -179,6 +195,32 @@ impl PropertySchema {
         }
     }
 
+    pub fn single_value_schema(&self) -> Option<&ValueSchema> {
+        if let PropertyDefinition::Value(value) = &self.definition {
+            Some(value)
+        } else {
+            None
+        }
+    }
+
+    pub fn array(&self) -> Option<ArraySchema<'_>> {
+        if let PropertyDefinition::Array {
+            element,
+            min_items,
+            max_items,
+            ..
+        } = &self.definition
+        {
+            Some(ArraySchema {
+                element,
+                min_items: *min_items,
+                max_items: *max_items,
+            })
+        } else {
+            None
+        }
+    }
+
     pub fn value_schema(&self) -> &ValueSchema {
         match &self.definition {
             PropertyDefinition::Value(value) | PropertyDefinition::Array { element: value, .. } => {
@@ -206,7 +248,7 @@ impl PropertySchema {
         element_id: Option<PropertyElementId>,
         scalar_index: Option<usize>,
     ) -> Option<&ScalarPropertyType> {
-        if element_id.is_some() != matches!(self.definition, PropertyDefinition::Array { .. }) {
+        if element_id.is_some() != self.array().is_some() {
             return None;
         }
         Some(&self.value_schema().scalar(scalar_index)?.ty)
@@ -334,13 +376,7 @@ impl PropertySchema {
     }
 
     pub fn is_file(&self) -> bool {
-        matches!(
-            &self.definition,
-            PropertyDefinition::Value(ValueSchema::Scalar(ScalarSchema {
-                ty: ScalarPropertyType::File,
-                ..
-            }))
-        )
+        self.scalar_type(None, None) == Some(&ScalarPropertyType::File)
     }
 
     pub fn default_value(&self) -> PropertyValue {
@@ -475,13 +511,9 @@ impl PropertySchema {
                     "scalar default or animation settings do not match its type",
                 ));
             }
-            let is_array = matches!(
-                &self.definition,
-                PropertyDefinition::Array {
-                    element: ValueSchema::Scalar(_),
-                    ..
-                }
-            );
+            let is_array = self
+                .array()
+                .is_some_and(|array| array.element.scalar(None).is_some());
             scalar.configuration.validate(
                 owner_kind,
                 owner_id,

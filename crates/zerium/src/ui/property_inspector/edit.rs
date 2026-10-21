@@ -1,7 +1,6 @@
 use rust_i18n::t;
 
 use super::*;
-use crate::ui::input::set_input_text;
 
 #[derive(Clone, Copy)]
 pub(super) enum ArrayEdit {
@@ -255,9 +254,9 @@ impl PropertyInspector {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !matches!(event, InputEvent::Change) {
+        let InputEvent::Change = event else {
             return;
-        }
+        };
         let value = input.read(cx).value().to_string();
         self.set_scalar(target, PropertyValue::String(value), cx);
     }
@@ -275,78 +274,6 @@ impl PropertyInspector {
         let color = Rgba::from(*color);
         let value = PropertyValue::Color([color.r, color.g, color.b, color.a]);
         self.set_scalar(target, value, cx);
-    }
-
-    pub(super) fn handle_value_drag(
-        &mut self,
-        origin: &PropertyValueDragOrigin,
-        pointer_x: f32,
-        fine_adjustment: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.editor.read(cx).selected_item_ids().next().is_none() {
-            return;
-        }
-        let value = origin
-            .adjustment
-            .value_at(pointer_x, fine_adjustment)
-            .clamp(origin.min, origin.max);
-
-        if matches!(origin.input_id, ControlId::AnimationStop { .. }) {
-            self.update_animation_stop_numeric(&origin.input_id, value, cx);
-        } else {
-            self.update_numeric_scalar(&origin.target, value, cx);
-        }
-        if let Some(input) = self.store.text_inputs.get(&origin.input_id) {
-            let displayed = if matches!(origin.input_id, ControlId::AnimationStop { .. }) {
-                self.animation_stop_value(&origin.input_id, cx)
-            } else {
-                self.inspector_value_at_playhead(&origin.target, cx)
-            }
-            .map(|value| Self::numeric_value_text(&value))
-            .unwrap_or_else(|| Self::format_value(value));
-            set_input_text(&input.input, displayed, window, cx);
-        }
-    }
-
-    pub(super) fn prepare_value_drag(
-        &mut self,
-        target: &PropertyAddress,
-        spec: &NumericInputSpec,
-        input_id: &ControlId,
-        event: &MouseDownEvent,
-        cx: &mut Context<Self>,
-    ) {
-        let input = self.store.text_inputs.get(input_id);
-        let start_value = input
-            .and_then(|state| spec.parse_number(&state.input.read(cx).value()))
-            .or_else(|| {
-                if matches!(input_id, ControlId::AnimationStop { .. }) {
-                    self.animation_stop_value(input_id, cx)
-                        .and_then(|value| value.numeric_scalar())
-                } else {
-                    self.live_numeric_value(target, cx)
-                }
-            })
-            .unwrap_or(spec.min);
-        self.begin_number_drag(
-            Rc::new(PropertyValueDragOrigin {
-                target: target.clone(),
-                input_id: input_id.clone(),
-                adjustment: crate::ui::numeric_property::NumericDrag {
-                    start_x: f32::from(event.position.x),
-                    start_value,
-                    step: spec.step,
-                    sensitivity: spec
-                        .drag_step
-                        .unwrap_or_else(|| Self::drag_sensitivity(spec.min, spec.max, spec.step)),
-                },
-                min: spec.min,
-                max: spec.max,
-            }),
-            cx,
-        );
     }
 
     pub(super) fn select_animation(&mut self, address: &PropertyAddress, cx: &mut Context<Self>) {

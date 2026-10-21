@@ -196,9 +196,9 @@ impl PreviewFrameScheduler {
         {
             return Some((candidate, ready));
         }
-        if !matches!(sequence.source.kind, MediaKind::Image { .. }) {
+        let MediaKind::Image { .. } = sequence.source.kind else {
             return None;
-        }
+        };
         // A still image remains usable while its new raster size is prepared.
         // Decode scheduling still requires an exact size through frame_for().
         self.ready_frames

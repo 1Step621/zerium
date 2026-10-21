@@ -26,11 +26,11 @@ impl MediaReader for AudioReader {
     }
 
     fn open_audio_decoder(&self, asset: &MediaAsset) -> Result<Box<dyn AudioDecoder>, MediaError> {
-        if !matches!(asset.kind, MediaKind::Audio { .. }) {
+        let MediaKind::Audio { .. } = asset.kind else {
             return Err(MediaError::invalid_input(
                 "Audio reader requires audio media",
             ));
-        }
+        };
         Ok(Box::new(input::AudioDecodeSession::open(asset.clone())?))
     }
 }

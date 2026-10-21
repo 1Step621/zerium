@@ -109,9 +109,9 @@ fn prepare_video_frame(
     frame: &VisualFrame,
     cancelled: &AtomicBool,
 ) -> Result<(), MediaError> {
-    if !matches!(frame.data, FrameData::Video(_)) {
+    let FrameData::Video(_) = frame.data else {
         return Ok(());
-    }
+    };
     if cancelled.load(Ordering::Acquire) {
         return Err(MediaError::Cancelled);
     }

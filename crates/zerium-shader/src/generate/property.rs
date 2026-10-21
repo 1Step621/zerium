@@ -13,7 +13,7 @@ struct Field<'a> {
 
 impl Field<'_> {
     fn is_array(&self) -> bool {
-        matches!(self.schema.definition(), PropertyDefinition::Array { .. })
+        self.schema.array().is_some()
     }
 
     fn type_name(&self) -> String {
@@ -41,8 +41,10 @@ pub(super) fn interface(layout: &PropertyLayout, scope: PropertyScope) -> String
         .map(|(index, (schema, offset))| Field {
             schema,
             offset,
-            tuple_name: matches!(schema.value_schema(), ValueSchema::Tuple(_))
-                .then(|| format!("ZeriumPropsTuple{index}")),
+            tuple_name: schema
+                .value_schema()
+                .tuple()
+                .map(|_| format!("ZeriumPropsTuple{index}")),
         })
         .collect::<Vec<_>>();
     if fields.is_empty() {

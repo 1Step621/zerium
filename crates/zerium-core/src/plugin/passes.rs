@@ -3,10 +3,7 @@
 use super::shader::validate_shader_module;
 use super::validation::validate_wgsl_identifier;
 use super::{PluginError, ShaderSchema};
-use crate::property::{
-    PropertyDefinition, PropertySchema, PropertyValue, PropertyValues, ScalarPropertyType,
-    ScalarSchema, ValueSchema,
-};
+use crate::property::{PropertySchema, PropertyValue, PropertyValues, ScalarPropertyType};
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
@@ -203,15 +200,18 @@ impl TemporalSamplingSchema {
             }
 
             Self::Offsets { offsets } => {
-                let valid = matches!(
-                    properties.iter().find(|property| property.id() == offsets).map(|property| property.definition()),
-                    Some(PropertyDefinition::Array {
-                        element: ValueSchema::Scalar(ScalarSchema { ty: ScalarPropertyType::F32, .. }),
-                        min_items,
-                        max_items,
-                        ..
-                    }) if *min_items >= 1 && *max_items <= MAX_TEMPORAL_SAMPLES
-                );
+                let valid = properties
+                    .iter()
+                    .find(|property| property.id() == offsets)
+                    .and_then(PropertySchema::array)
+                    .is_some_and(|array| {
+                        array
+                            .element
+                            .scalar(None)
+                            .is_some_and(|scalar| scalar.ty == ScalarPropertyType::F32)
+                            && array.min_items >= 1
+                            && array.max_items <= MAX_TEMPORAL_SAMPLES
+                    });
 
                 if !valid {
                     return Err(PluginError::invalid_definition(format!(

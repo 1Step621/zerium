@@ -35,9 +35,9 @@ impl MediaReader for SvgMediaReader {
     }
 
     fn open_image_decoder(&self, asset: &MediaAsset) -> Result<Box<dyn ImageDecoder>, MediaError> {
-        if !matches!(asset.kind, MediaKind::Image { .. }) {
+        let MediaKind::Image { .. } = asset.kind else {
             return Err(MediaError::external("SVG reader requires image media"));
-        }
+        };
         Ok(Box::new(SvgDecodeSession {
             tree: read_tree(&asset.path)?,
             cached: None,

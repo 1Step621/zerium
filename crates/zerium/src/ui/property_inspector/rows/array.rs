@@ -6,7 +6,7 @@ use ::ui::{
 use gpui::{SharedString, div, prelude::*, px};
 
 use crate::ui::search_picker::{SearchPicker, SearchPickerEntry};
-use zerium_core::property::{PropertyValue, ValueSchema};
+use zerium_core::property::PropertyValue;
 use zerium_core::timeline::PropertyAddress;
 
 use crate::ui::property_inspector::PropertyInspector;
@@ -60,7 +60,7 @@ impl PropertyInspector {
         allow_structure_edit: bool,
     ) -> PropertyRow {
         let property_label = group.property.label().to_owned();
-        let rows_are_tuples = matches!(group.property.value_schema(), ValueSchema::Tuple(_));
+        let rows_are_tuples = group.property.value_schema().tuple().is_some();
         let rows_have_scene_binding = group.has_scene_binding;
         let mut rows = div().w_full().min_w_0().flex().flex_col().gap_1();
         for (element_index, row) in group.rows.iter().enumerate() {

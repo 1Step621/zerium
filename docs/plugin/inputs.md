@@ -2,10 +2,9 @@
 
 [Plugin API v1](README.md) · [Properties](properties.md) · [Rendering](rendering.md) · **Inputs**
 
-Items and effects declare visual inputs in `render.inputs`. Array order fixes GPU
-binding order; IDs must be unique WGSL identifiers. At most eight inputs are
-allowed. Inputs contain scene-linear, premultiplied color and are accessed through
-the generated [image sampling functions](rendering.md#image-sampling).
+Items and effects declare up to eight visual inputs in `render.inputs`. Order
+fixes GPU binding order; IDs are unique WGSL identifiers. Inputs use scene-linear,
+premultiplied color through generated [sampling functions](rendering.md#image-sampling).
 
 ## Media
 
@@ -25,24 +24,20 @@ the generated [image sampling functions](rendering.md#image-sampling).
 }
 ```
 
-`file` references a file property; `reader` selects the decoder. The built-in
-`zerium.video` reader handles video, `zerium.image` handles raster images,
-`zerium.audio` handles audio streams (including those in video files), and
-`zerium.svg` handles SVG images. Multiple inputs can share the file with
-different readers or playback settings. Missing frames produce a transparent texture.
+`file` references a standalone file property. Built-in readers are `zerium.video`,
+`zerium.image` (raster images), `zerium.svg`, and `zerium.audio` (including audio in
+video files). Multiple inputs can share a file with different readers or playback
+settings. Missing visual frames produce transparency.
 
-`placement` is optional. Its position and size are two-`f32` tuples; its optional
-origin uses the [origin contract](properties.md#editor-features). The host uses
-placement to request sufficient source resolution. Without placement it requests the render
-target size. The shader receives the resolution returned by the reader.
-
-`playback` is optional and applies to temporal media. Without it, video starts at
-zero, runs at 1× speed, and stops at EOF. Images provide a static texture.
+Optional `placement` uses position and size pairs plus the
+[origin contract](properties.md#editor-features). It guides source resolution;
+without it, the host requests the render target size. The reader determines the
+returned resolution. Optional `playback` affects temporal media; without it,
+video starts at zero at 1× and stops at EOF. Images stay static.
 
 ## Playback and audio
 
-Audio is declared in an item's top-level `audio` array, independently of visual
-inputs:
+Items declare audio separately in their top-level `audio` array:
 
 ```json
 {
@@ -56,34 +51,31 @@ inputs:
 }
 ```
 
-Audio IDs must be unique within the item. `volume` references an `f32` linear gain
-property; a missing audio stream contributes silence.
+Audio IDs are unique within the item. `volume` references an `f32` linear gain;
+a missing stream contributes silence. Gain sampling is described under
+[Audio](../architecture/media.md#audio).
 
-Visual playback, audio playback, and timeline editing each use their own explicit
-property references. Share property IDs to synchronize their settings.
+Audio accepts the same optional `playback` block as visual media, with the
+required `preserve_pitch` reference outside it. Visual playback, audio, and
+timeline editing use explicit references; share property IDs to synchronize them.
 
 | Reference | Property type | Meaning |
 | --- | --- | --- |
-| `source_start` | `f32` | Nonnegative source start in seconds |
-| `source_duration` | `f32` | Positive source duration in seconds |
-| `playback_speed` | `f32` | Playback multiplier, 0.25–4 |
+| `source_start` | `f32` | Nonnegative source start, seconds |
+| `source_duration` | `f32` | Positive source duration, seconds |
+| `playback_speed` | `f32` | Multiplier, 0.25–4 |
 | `end_behavior` | Enum `[0, 1, 2]` | Stop, loop, hold |
-| `preserve_pitch` (audio) | `bool` | Preserve pitch when changing speed |
+| `preserve_pitch` | `bool` | Keep audio pitch while changing speed |
 
-Audio accepts the same optional `playback` block as visual media and additionally
-requires `preserve_pitch` outside that block.
-The three time-mapping references must be distinct. All settings in this
-table must disable animation and set `scene_bindable: false`.
+The three time-mapping references must be distinct. All properties in this table
+must disable animation and set `scene_bindable: false`.
 
-Playback reads the interval from `source_start` to `source_start + source_duration`
-at the declared speed. Intervals can extend beyond the stream. Stop produces
-transparent video or silent audio at EOF; loop wraps the stream; hold repeats
-the last video frame and produces silent audio. EOF policy does not alter clip
-length.
+Playback reads from `source_start` to `source_start + source_duration` at the
+specified speed. Intervals may exceed the stream. At EOF, stop produces
+transparent video/silent audio; loop wraps; hold retains the last video frame
+and produces silent audio. EOF behavior does not change clip length.
 
 ## Text
-
-A text input declares all properties used by the rasterizer:
 
 ```json
 {
@@ -107,29 +99,28 @@ A text input declares all properties used by the rasterizer:
 }
 ```
 
-`text` references a `string` property. In `style`, `size` is a two-`f32` tuple and
-`font_family` is a string array. Font size and outline width are `f32`; colors are
-`color`; bold and italic are `bool`. Alignment enums must contain exactly `0`,
-`1`, and `2`: left/center/right horizontally and top/center/bottom vertically.
-Vertical alignment uses line boxes.
+`text` is a string. Style references use:
 
-`letter_spacing` and `line_spacing` reference `f32` properties in composition
-pixels; zero preserves the default spacing. Letter spacing adjusts glyph
-advances; line spacing adds to the default line height of 1.2 times the font size.
-Negative values tighten spacing; the resulting line height is at least one render pixel.
+| References | Type |
+| --- | --- |
+| `size` | Two-`f32` tuple |
+| `font_family` | String array |
+| `font_size`, `outline_width`, `letter_spacing`, `line_spacing` | `f32`, composition pixels |
+| `color`, `outline_color` | `color` |
+| `bold`, `italic` | `bool` |
+| `horizontal_alignment`, `vertical_alignment` | Enum exactly `[0, 1, 2]` |
+
+Alignment means left/center/right or top/center/bottom; vertical alignment uses
+line boxes. Letter spacing adjusts glyph advances. Line spacing adds to the
+default line height of 1.2 times font size, with a minimum of one render pixel.
+Negative spacing tightens layout; zero preserves defaults.
 
 ## Number
 
-A `number` capability uses the same `style` and rasterizer as [text](#text),
-with `value` and `decimal_places` references instead of `text`.
-
-| Reference | Property type | Meaning |
-| --- | --- | --- |
-| `value` | `f32`, `i32`, or `u32` | Number to display |
-| `decimal_places` | `u32` constrained to `0..=10` | Fixed decimal precision |
-
-Formatting follows animation evaluation: `12.3` with two places displays as `12.30`.
-See the bundled [Number shader](../../plugins/zerium.builtin/items/number/render.wesl).
+A `number` input shares text's `style`, replacing `text` with `value` (`f32`,
+`i32`, or `u32`) and `decimal_places` (`u32` constrained to `0..=10`). Formatting
+follows evaluation: `12.3` at two places displays `12.30`. See the bundled
+[Number shader](../../plugins/zerium.builtin/items/number/render.wesl).
 
 ## Render result
 
@@ -143,24 +134,21 @@ See the bundled [Number shader](../../plugins/zerium.builtin/items/number/render
 }
 ```
 
-The two offsets reference `u32` properties constrained to `1..=30`. Offset `1`
-means the layer immediately behind the owner. The range is inclusive, accepts
-either order, and supplies transparency for out-of-range layers. Offsets inside
-a scene are local to that scene. The `hide_original` bool controls whether those
-layers also appear in the scene's normal output.
+Offsets are `u32` properties constrained to `1..=30`, relative to the owning layer
+within its scene. `1` is immediately behind it. The inclusive range accepts
+either order; out-of-range layers are transparent. The `hide_original` bool
+removes captured layers from normal output, without removing other captures'
+dependencies.
 
-Without a `view`, the input retains the selected composition's complete logical
-bounds. An optional `view` produces a camera image clipped to the scene viewport:
+Without `view`, the input keeps complete composition bounds. An optional camera
+clips to the scene viewport:
 
 ```json
 { "view": { "position": "position", "zoom": "zoom", "angle": "angle" } }
 ```
 
 `position` is an `f32` pair in scene pixels, `zoom` an `f32` percentage with a
-positive minimum, and `angle` an `f32` clockwise camera angle in degrees. These
-properties support animation. A view can bring offscreen items into the capture,
-including content inside nested scenes and their effects. Scene bounds are
-retained until a camera view or final output clips the image. Nested camera views
-keep their own viewport clipping; plain render results do not introduce a clip.
-See [Render surfaces and bounds](rendering.md#render-surfaces-and-bounds) and the
-bundled [Camera shader](../../plugins/zerium.builtin/items/camera/render.wesl).
+positive minimum, and `angle` an `f32` clockwise angle in degrees. All support
+animation. Views can capture offscreen content in nested scenes and effects;
+nested cameras retain their own clips. See [Bounds](rendering.md#render-surfaces-and-bounds)
+and the bundled [Camera shader](../../plugins/zerium.builtin/items/camera/render.wesl).

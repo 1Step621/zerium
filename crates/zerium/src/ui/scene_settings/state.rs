@@ -134,7 +134,7 @@ impl SceneSettings {
         };
         let input = cx.new(|cx| {
             let input = InputState::new(window, cx);
-            let input = if matches!(&key, ControlId::CalculationScript { .. }) {
+            let input = if let ControlId::CalculationScript { .. } = &key {
                 input.auto_grow(3, 12)
             } else {
                 input
@@ -147,8 +147,8 @@ impl SceneSettings {
         let mut subscriptions =
             vec![
                 cx.subscribe_in(&input, window, move |this, input, event, window, cx| {
-                    let commit = if matches!(&edited_key, ControlId::CalculationInputName { .. }) {
-                        if matches!(event, InputEvent::Change) {
+                    let commit = if let ControlId::CalculationInputName { .. } = &edited_key {
+                        if let InputEvent::Change = event {
                             this.store.drafts.insert(edited_key.clone());
                         }
                         matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. })

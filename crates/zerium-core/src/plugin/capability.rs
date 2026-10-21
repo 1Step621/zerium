@@ -5,11 +5,10 @@ use std::collections::HashSet;
 use serde::Deserialize;
 
 use super::PluginError;
-use super::validation::{PropertyReferences, validate_logical_id, validate_wgsl_identifier};
-use crate::property::{
-    PropertyDefinition, PropertySchema, PropertyValue, PropertyValues, ScalarPropertyType,
-    ScalarSchema, ValueSchema,
+use super::validation::{
+    PropertyReferences, has_enum_values, validate_logical_id, validate_wgsl_identifier,
 };
+use crate::property::{PropertySchema, PropertyValue, PropertyValues, ScalarPropertyType};
 
 pub(super) const MAX_RENDER_RESULT_OFFSET: u32 = 30;
 
@@ -274,16 +273,10 @@ impl TextStyle {
     fn validate(&self, references: &PropertyReferences<'_>) -> Result<(), PluginError> {
         references.pair(&self.size)?;
         references.check(&self.font_family, "an array of strings", |property| {
-            matches!(
-                property.definition(),
-                PropertyDefinition::Array {
-                    element: ValueSchema::Scalar(ScalarSchema {
-                        ty: ScalarPropertyType::String,
-                        ..
-                    }),
-                    ..
-                }
-            )
+            property
+                .array()
+                .and_then(|array| array.element.scalar(None))
+                .is_some_and(|scalar| scalar.ty == ScalarPropertyType::String)
         })?;
         references.scalar(&self.font_size, ScalarPropertyType::F32)?;
         references.scalar(&self.letter_spacing, ScalarPropertyType::F32)?;
@@ -298,7 +291,11 @@ impl TextStyle {
             references.check(
                 property_id,
                 "an enum containing exactly 0, 1, and 2",
-                |property| matches!(property.scalar_type(None, None), Some(ScalarPropertyType::Enum(enumeration)) if enumeration.values().len() == 3 && [0, 1, 2].into_iter().all(|value| enumeration.contains(value))),
+                |property| {
+                    property
+                        .scalar_type(None, None)
+                        .is_some_and(|ty| has_enum_values(ty, &[0, 1, 2]))
+                },
             )?;
         }
         Ok(())
@@ -503,15 +500,19 @@ impl<'a> PlaybackProperties<'a> {
         properties: &[PropertySchema],
     ) -> Result<(), PluginError> {
         self.time_mapping().validate(owner, id, properties)?;
-        PropertyReferences::new(&format!("{owner} '{id}' playback"), properties).check(
-            self.end_behavior,
-            "an enum [0, 1, 2] property without animation or scene bindings",
-            |property| {
-                matches!(property.scalar_type(None, None), Some(ScalarPropertyType::Enum(enumeration)) if enumeration.values().len() == 3 && [0, 1, 2].into_iter().all(|value| enumeration.contains(value)))
-                    && !property.is_animatable(None)
-                    && !property.is_scene_bindable(None)
-            },
-        ).map(|_| ())
+        PropertyReferences::new(&format!("{owner} '{id}' playback"), properties)
+            .check(
+                self.end_behavior,
+                "an enum [0, 1, 2] property without animation or scene bindings",
+                |property| {
+                    property
+                        .scalar_type(None, None)
+                        .is_some_and(|ty| has_enum_values(ty, &[0, 1, 2]))
+                        && !property.is_animatable(None)
+                        && !property.is_scene_bindable(None)
+                },
+            )
+            .map(|_| ())
     }
 }
 

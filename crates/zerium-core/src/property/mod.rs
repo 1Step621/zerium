@@ -15,7 +15,8 @@ pub use metadata::PropertyUi;
 pub use numeric::NumericSettings;
 pub use path::PropertyPath;
 pub use schema::{
-    PropertyConfiguration, PropertyDefinition, PropertySchema, ScalarSchema, ValueSchema,
+    ArraySchema, PropertyConfiguration, PropertyDefinition, PropertySchema, ScalarSchema,
+    ValueSchema,
 };
 pub use types::{EnumPropertyType, EnumVariant, ScalarPropertyType};
 pub(crate) use value::MAX_STRING_BYTES;

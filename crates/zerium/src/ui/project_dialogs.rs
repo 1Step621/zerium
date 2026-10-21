@@ -201,7 +201,7 @@ pub(crate) fn open_settings(
                         editor.update(cx, |editor, cx| {
                             let result =
                                 editor.update_project_settings(resolution, frame_rate, beat_guide);
-                            if matches!(result, Ok(true)) {
+                            if let Ok(true) = result {
                                 cx.notify();
                             }
                             result.map_err(|error| error.to_string())

@@ -112,11 +112,7 @@ impl NumericInput {
     }
 
     pub(super) fn step(&self, float_step: f64) -> f64 {
-        if matches!(self, Self::F32) {
-            float_step
-        } else {
-            1.
-        }
+        if let Self::F32 = self { float_step } else { 1. }
     }
 
     pub(super) fn format(&self, value: f64) -> String {

@@ -184,10 +184,6 @@ struct ControlResolution<'a> {
 }
 
 impl PropertyInspector {
-    pub(super) fn format_value(value: impl Into<f64>) -> String {
-        value.into().to_string()
-    }
-
     pub(super) fn numeric_value_text(value: &PropertyValue) -> String {
         value.numeric_text().unwrap_or_default()
     }
@@ -306,7 +302,7 @@ impl ControlTree {
             || property.label().to_owned(),
             |(index, _)| format!("{} {}", property.label(), index + 1),
         );
-        let tuple = matches!(property.value_schema(), ValueSchema::Tuple(_));
+        let tuple = property.value_schema().tuple().is_some();
         property
             .value_schema()
             .scalars()
@@ -446,7 +442,7 @@ impl ControlTree {
         if children.is_empty() {
             return None;
         }
-        if matches!(property.value_schema(), ValueSchema::Tuple(_)) {
+        if let ValueSchema::Tuple(_) = property.value_schema() {
             Some(Control::Tuple(TupleControl {
                 target: PropertyAddress {
                     item_id: resolution.item.id,

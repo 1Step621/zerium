@@ -22,7 +22,7 @@ pub(super) struct ControlStore {
     pub color_pickers: HashMap<ControlId, ColorState>,
     pub tree: ControlTree,
     pub source: Option<InspectorSource>,
-    pub number_drag_origin: Option<Rc<PropertyValueDragOrigin>>,
+    pub number_drag: Option<PropertyValueDrag>,
     pub animation_value_edit: Option<ValueEdit>,
 }
 

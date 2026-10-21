@@ -166,10 +166,9 @@ impl AnimationCurveEditor {
         if let Some(inputs) = &mut self.repeat_inputs {
             inputs.drag = None;
         }
-        if matches!(
-            self.graph_interaction,
-            GraphInteraction::HandleDrag { .. } | GraphInteraction::StopDrag { .. }
-        ) {
+        if let GraphInteraction::HandleDrag { .. } | GraphInteraction::StopDrag { .. } =
+            self.graph_interaction
+        {
             self.graph_interaction = GraphInteraction::Idle;
             cx.notify();
         }

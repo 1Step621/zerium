@@ -95,6 +95,18 @@ impl ValueEditTarget {
         }
     }
 
+    fn value(&self, editor: &TimelineEditor) -> Option<PropertyValue> {
+        match self {
+            Self::Property(address) => editor
+                .evaluated_property_value(address, TimelineTime::from_frame(editor.playhead())),
+            Self::Animation(plan) => editor
+                .animation_track(&plan.address)?
+                .stops()
+                .get(plan.index)
+                .map(|stop| stop.value().clone()),
+        }
+    }
+
     fn prepare_value(
         &self,
         editor: &TimelineEditor,
@@ -121,6 +133,12 @@ pub struct ValueEdit {
 }
 
 impl ValueEdit {
+    /// Read the current value of a target resolved when this operation began.
+    pub fn value(&self, editor: &TimelineEditor, index: usize) -> Option<PropertyValue> {
+        self.is_current(editor).then_some(())?;
+        self.targets.get(index)?.value(editor)
+    }
+
     pub fn is_current(&self, editor: &TimelineEditor) -> bool {
         self.context == editor.edit_context()
             && (!self.explicit_gesture

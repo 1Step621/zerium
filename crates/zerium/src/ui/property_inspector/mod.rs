@@ -9,10 +9,7 @@ mod target;
 
 use crate::ui::numeric_property::{NumericInputSpec, numeric_input_spec};
 
-use std::{
-    collections::{HashMap, HashSet},
-    rc::Rc,
-};
+use std::collections::{HashMap, HashSet};
 
 use ::ui::{
     ActiveTheme as _, Disableable as _, IconName, Sizable as _,
@@ -35,7 +32,7 @@ use crate::ui::file_input::FileInputController;
 use crate::ui::notifications::UiNotifications;
 use crate::ui::pane::pane_header;
 use crate::ui::search_picker::{SearchPicker, SearchPickerEntry};
-use number_drag::PropertyValueDragOrigin;
+use number_drag::PropertyValueDrag;
 use zerium_core::property::{
     PropertyDefinition, PropertyElementId, PropertySchema, PropertyValue, ScalarPropertyType,
     ValueSchema,
@@ -43,6 +40,7 @@ use zerium_core::property::{
 use zerium_core::timeline::{
     AnimationValuePlan, EffectInstanceId, ItemId, PropertyAddress, SceneBindingOwner,
     SceneBindingTarget, SceneVariable, TimelineEditor, TimelineItem, TimelineTime, ValueEdit,
+    ValueEditTarget,
 };
 
 pub(super) type EffectPickerTarget = (String, String);

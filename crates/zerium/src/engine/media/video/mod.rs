@@ -27,11 +27,11 @@ impl MediaReader for VideoReader {
         asset: &MediaAsset,
         gpu: Option<&GpuContext>,
     ) -> Result<Box<dyn VideoDecoder>, MediaError> {
-        if !matches!(asset.kind, MediaKind::Video { .. }) {
+        let MediaKind::Video { .. } = asset.kind else {
             return Err(MediaError::invalid_input(
                 "Video reader requires video media",
             ));
-        }
+        };
         Ok(Box::new(decoder::VideoDecodeSession::open(
             asset.clone(),
             gpu,

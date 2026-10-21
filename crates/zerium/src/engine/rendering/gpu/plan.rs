@@ -351,7 +351,7 @@ impl RenderGraphBuilder<'_> {
             let mut source = node;
             for pass in &effect.passes {
                 let (input_bounds, source_bounds) =
-                    if matches!(pass.kind, RenderEffectPassKind::Temporal(_)) {
+                    if let RenderEffectPassKind::Temporal(_) = pass.kind {
                         (basis, basis)
                     } else {
                         (

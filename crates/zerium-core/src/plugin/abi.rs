@@ -53,7 +53,7 @@ impl PropertyLayout {
             {
                 continue;
             }
-            let field = if matches!(property.definition(), PropertyDefinition::Array { .. }) {
+            let field = if let PropertyDefinition::Array { .. } = property.definition() {
                 format!("{id}_len")
             } else {
                 id.to_owned()

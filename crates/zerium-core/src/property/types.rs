@@ -67,6 +67,11 @@ impl EnumPropertyType {
         self.values().any(|candidate| candidate == value)
     }
 
+    /// Variant order and display labels do not affect the value contract.
+    pub fn has_exact_values(&self, values: &[u32]) -> bool {
+        self.variants.len() == values.len() && self.values().all(|value| values.contains(&value))
+    }
+
     pub fn variants(&self) -> &[EnumVariant] {
         &self.variants
     }
@@ -115,6 +120,14 @@ pub enum ScalarPropertyType {
 }
 
 impl ScalarPropertyType {
+    pub fn enumeration(&self) -> Option<&EnumPropertyType> {
+        if let Self::Enum(enumeration) = self {
+            Some(enumeration)
+        } else {
+            None
+        }
+    }
+
     /// Display labels do not affect binding or common-control type compatibility.
     pub fn same_type(&self, other: &Self) -> bool {
         match (self, other) {

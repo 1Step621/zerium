@@ -2,8 +2,7 @@
 
 [Documentation](../README.md) · **Plugin API v1** · [Architecture](../architecture/README.md)
 
-A plugin is a directory containing `plugin.json`, WESL modules, and generated
-interfaces. For example:
+A plugin contains `plugin.json`, WESL sources, and generated interfaces:
 
 ```text
 com.example.plugin/
@@ -21,9 +20,7 @@ zerium plugin validate path/to/plugin
 ```
 
 Both commands default to the current directory. Distribute `generated/` with the
-plugin; do not edit generated files manually. The [JSON schema](../../plugins/plugin.schema.json)
-is the field reference, and the [bundled plugin](../../plugins/zerium.builtin/)
-provides working examples.
+plugin and regenerate it rather than editing it manually.
 
 ## Minimal plugin
 
@@ -65,24 +62,20 @@ fn fragment_main() -> @location(0) vec4<f32> {
 }
 ```
 
-This item draws six vertices covering the composition viewport. Run the generate
-and validate commands above to check the complete plugin.
+This draws a viewport-sized quad. Generate and validate the bundle with the
+commands above.
 
 ## Manifest rules
 
-`api_version` must be `1`, and a plugin must define at least one item or effect.
-Validation rejects unknown fields, invalid defaults, unresolved references, and
-shader mismatches. Examples in the detailed guides are declaration fragments.
+`api_version` must be `1`. Define at least one item or effect. Validation rejects
+unknown fields, invalid defaults, unresolved references, and shader mismatches.
+Detailed-guide examples are declaration fragments.
 
-Display labels are locale maps keyed by BCP 47 tags. Zerium selects
-the `language` override in `config.json`, the system locale, or `en-US`, in that
-order. Lookup tries a case-insensitive exact match, `en-US`, then the first
-translation ordered by locale key; region tags do not fall back to language-only
-tags.
-
-Items select `shape`, `text`, `media`, `composite`, or `other`. Effects select
-`transform`, `color`, `style`, `filter`, `composite`, or `other`.
-Categories are host-defined and group entries across plugins.
+Labels are BCP 47 locale maps. Lookup uses a case-insensitive exact match,
+`en-US`, then the first translation by locale key; regional tags do not fall back
+to language-only tags. Categories are host-defined and group entries across
+plugins. Use the [JSON schema](../../plugins/plugin.schema.json) for allowed
+categories and field definitions.
 
 ## Authoring guides
 
@@ -92,6 +85,5 @@ Categories are host-defined and group entries across plugins.
 | [Rendering and shaders](rendering.md) | Generated WESL API, image coordinates, output bounds, and effect passes |
 | [Visual and audio inputs](inputs.md) | Media readers, playback, text, numbers, render results, and camera views |
 
-Use the JSON schema for field definitions and the guides for how those fields
-work together. For runtime implementation and ownership, see
-[Plugin loading and compilation](../architecture/runtime.md#plugin-loading-and-compilation).
+The [bundled plugin](../../plugins/zerium.builtin/) provides complete examples.
+For runtime ownership, see [Plugin loading and compilation](../architecture/runtime.md#plugin-loading-and-compilation).

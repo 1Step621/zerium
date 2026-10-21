@@ -1,3 +1,5 @@
+use std::rc::Rc;
+
 use rust_i18n::t;
 
 use super::*;
@@ -59,7 +61,7 @@ impl PropertyInspector {
                         }
                         let result = this.editor.update(cx, |editor, cx| {
                             let result = editor.paste_effects(item_id, &copy.effects, &copy.hidden);
-                            if matches!(result, Ok(true)) {
+                            if let Ok(true) = result {
                                 editor.import_media_cache(&copy.media_cache);
                                 cx.notify();
                             }

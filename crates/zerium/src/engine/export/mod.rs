@@ -39,6 +39,8 @@ use zerium_core::{
 pub(crate) enum ExportError {
     #[error("Export cancelled")]
     Cancelled,
+    #[error("Export input closed before rendering completed")]
+    InputClosed,
     #[error("{0}")]
     InvalidTimeline(String),
     #[error(transparent)]
@@ -223,20 +225,18 @@ pub(crate) fn export_timeline(
                 "Video encoding thread terminated unexpectedly",
             ))
         });
-        // Cancellation also closes pipeline channels; report its cause rather
-        // than the resulting disconnect errors from the other workers.
-        if let Err(ExportError::Cancelled) = encoding_result {
-            return Err(ExportError::Cancelled);
+        match encoding_result {
+            // A closed input can follow an upstream failure. Preserve that
+            // failure, while writer errors and cancellation take precedence.
+            Ok(()) | Err(ExportError::InputClosed) => {
+                render_result?;
+                decode_result.map_err(|_| {
+                    ExportError::encoding("Video decoding thread terminated unexpectedly")
+                })?;
+                encoding_result
+            }
+            Err(error) => Err(error),
         }
-        if let Err(error) = &encoding_result
-            && !matches!(error, ExportError::Encoding(message) if message == "Export input closed before rendering completed")
-        {
-            return encoding_result;
-        }
-        render_result?;
-        decode_result
-            .map_err(|_| ExportError::encoding("Video decoding thread terminated unexpectedly"))?;
-        encoding_result
     })
 }
 
@@ -343,7 +343,5 @@ fn write_output(
     if cancelled.load(Ordering::Relaxed) {
         return Err(ExportError::Cancelled);
     }
-    Err(ExportError::encoding(
-        "Export input closed before rendering completed",
-    ))
+    Err(ExportError::InputClosed)
 }

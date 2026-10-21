@@ -3,7 +3,7 @@
 use std::collections::HashSet;
 
 use crate::localized_text::LocalizedText;
-use crate::property::{PropertyDefinition, PropertySchema, ScalarPropertyType, ValueSchema};
+use crate::property::{PropertySchema, ScalarPropertyType, ValueSchema};
 
 use super::PluginError;
 
@@ -157,25 +157,41 @@ impl<'a> PropertyReferences<'a> {
     }
 
     pub(super) fn pair(&self, id: &str) -> Result<&'a PropertySchema, PluginError> {
-        self.check(
-            id,
-            "a tuple of two f32 values",
-            |property| matches!(property.definition(), PropertyDefinition::Value(value) if is_f32_pair(value)),
-        )
+        self.check(id, "a tuple of two f32 values", |property| {
+            property.single_value_schema().is_some_and(is_f32_pair)
+        })
     }
 
     /// Two placement axes, each selecting start (0), center (1), or end (2).
     pub(super) fn origin(&self, id: &str) -> Result<&'a PropertySchema, PluginError> {
-        self.check(id, "a tuple of two enums each containing exactly 0..=2", |property| {
-            matches!(property.definition(), PropertyDefinition::Value(ValueSchema::Tuple(tuple))
-                if tuple.len() == 2 && tuple.iter().all(|scalar| {
-                    matches!(&scalar.ty, ScalarPropertyType::Enum(enumeration)
-                        if enumeration.values().len() == 3 && (0..=2).all(|value| enumeration.contains(value)))
-                }))
-        })
+        self.check(
+            id,
+            "a tuple of two enums each containing exactly 0..=2",
+            |property| {
+                property
+                    .single_value_schema()
+                    .and_then(ValueSchema::tuple)
+                    .is_some_and(|tuple| {
+                        tuple.len() == 2
+                            && tuple
+                                .iter()
+                                .all(|scalar| has_enum_values(&scalar.ty, &[0, 1, 2]))
+                    })
+            },
+        )
     }
 }
 
 pub(super) fn is_f32_pair(schema: &ValueSchema) -> bool {
-    matches!(schema, ValueSchema::Tuple(tuple) if tuple.len() == 2 && tuple.iter().all(|scalar| scalar.ty == ScalarPropertyType::F32))
+    schema.tuple().is_some_and(|tuple| {
+        tuple.len() == 2
+            && tuple
+                .iter()
+                .all(|scalar| scalar.ty == ScalarPropertyType::F32)
+    })
+}
+
+pub(super) fn has_enum_values(ty: &ScalarPropertyType, values: &[u32]) -> bool {
+    ty.enumeration()
+        .is_some_and(|enumeration| enumeration.has_exact_values(values))
 }

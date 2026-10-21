@@ -286,7 +286,7 @@ impl AnimationCurveEditor {
         position: gpui::Point<Pixels>,
         cx: &mut Context<Self>,
     ) {
-        if matches!(self.graph_interaction, GraphInteraction::SuppressClick) {
+        if let GraphInteraction::SuppressClick = self.graph_interaction {
             self.graph_interaction = GraphInteraction::Idle;
             return;
         }

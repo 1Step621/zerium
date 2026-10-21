@@ -133,7 +133,7 @@ impl TransportController {
     }
 
     fn stop_in_place(&mut self, cx: &mut Context<Self>) -> bool {
-        if matches!(self.mode, TransportMode::Stopped) {
+        if let TransportMode::Stopped = self.mode {
             return false;
         }
         self.stop_audio(cx);

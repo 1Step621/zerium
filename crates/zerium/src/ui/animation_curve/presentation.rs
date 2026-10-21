@@ -27,7 +27,7 @@ impl AnimationPresentation {
                 .element_index(id)
         });
         let label = animation_label(property, address, element_index);
-        if matches!(scalar_type, ScalarPropertyType::Color) {
+        if let ScalarPropertyType::Color = scalar_type {
             return Some(Self {
                 label,
                 suffix: String::new(),

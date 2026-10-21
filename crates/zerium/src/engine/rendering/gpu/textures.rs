@@ -114,9 +114,9 @@ impl RenderSession {
     }
 
     pub(crate) fn prepare_video_frame(&self, frame: &VisualFrame) -> Result<(), RenderError> {
-        if !matches!(frame.data, FrameData::Video(_)) {
+        let FrameData::Video(_) = frame.data else {
             return Ok(());
-        }
+        };
         let mut cache = self
             .texture_resources
             .lock()

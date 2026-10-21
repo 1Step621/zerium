@@ -2,334 +2,218 @@
 
 [Plugin API v1](README.md) · [Properties](properties.md) · **Rendering** · [Inputs](inputs.md)
 
-The manifest declares what an item or effect produces. Generated WESL modules
-provide its properties, image access, and host operations. This page covers the
-contract shared by item rendering and all effect pass kinds.
-
-- [Generated WESL API](#generated-wesl-api)
-- [Render surfaces and bounds](#render-surfaces-and-bounds)
-- [Image sampling](#image-sampling)
-- [Effects and passes](#effects-and-passes)
-
 ## Visual property contract
 
-Each item's `render.properties` lists the IDs consumed by its shaders, bounds
-script, and visual input capabilities, in shader ABI order. Use `[]` when the
-item needs no properties. The referenced properties are declared in the item's
-ordinary `properties` array. Missing or duplicate IDs and visual input references
-outside this list are rejected when loading the manifest.
+Each item's `render.properties` lists the property IDs used by its shaders,
+bounds, and visual inputs, in shader ABI order. Use `[]` for none. Missing or
+duplicate IDs and visual input references outside the list are rejected.
 
-Only this set is evaluated for visual rendering and exposed in the generated
-property interface. Keep audio-only controls such as volume outside the list so
-visual temporal samples never execute their calculations. A property deliberately
-shared by audio and visuals belongs in the list and is evaluated independently
-at each consumer's times. Effect passes consume their owner's property contract.
+Only these properties are evaluated for visuals and exposed to shaders. Keep
+purely audio controls outside the list; shared audio/visual properties are
+evaluated independently at each consumer's sample times. Effect passes consume the
+effect's full property list.
 
 ## Generated WESL API
 
-Shader sources import the host and entity interfaces explicitly. For an item
-with shader-visible properties:
+Generate interfaces with `zerium plugin generate path/to/plugin`. Sources import
+host functions and owner interfaces explicitly:
 
 ```wesl
 import package::generated::host::item::{context, quad_corner};
 import package::generated::shape::{ZeriumProps, props};
 ```
 
-`package::generated::host` contains five modules. Import the parts used by a pass:
-
-| Module | Purpose |
+| Host module | Purpose |
 | --- | --- |
-| `item` | Item context, placement, and quad geometry |
-| `effect` | Shared effect context, coordinates, input images, and color helpers |
-| `render` | Fullscreen vertex type and vertex helper |
-| `compute` | Storage texture output via `store` |
-| `temporal` | Time sample information via `info` |
+| `package::generated::host::item` | Item context, placement, and quad geometry |
+| `package::generated::host::effect` | Effect context, coordinates, images, and color helpers |
+| `package::generated::host::render` | Fullscreen vertex type and helper |
+| `package::generated::host::compute` | Storage texture output via `store` |
+| `package::generated::host::temporal` | Sample information via `info` |
 
-For example, a fullscreen effect imports `render` and `effect`; a compute pass
-imports `compute` and `effect`. Temporal reduction also imports `temporal`.
-Common math and color utilities live in `package::generated::support::util`.
-`package::generated::_internal` contains implementation details and is not an
-authoring interface.
+Common math and color helpers live in `package::generated::support::util`.
+The `_internal` namespace is private. Each owner has one property module at
+`package::generated::<entity_id>` and an image module per named input at
+`package::generated::<entity_id>::inputs::<input_id>`.
 
-Shader modules use relative WESL paths: `filters::blur` resolves to
-`filters/blur.wesl`, and a helper at `math/color.wesl` is imported as
-`package::math::color`. Authors choose the directory layout; the top-level
-`generated` namespace is reserved for the host.
+Module paths follow the source directory: `filters::blur` resolves to
+`filters/blur.wesl`; imports within the bundle start with `package::`.
+The top-level `generated` namespace is reserved. Item and effect IDs must be
+distinct across both kinds; entity IDs, input IDs, and module components must be
+non-reserved WGSL identifiers.
 
-Generated interfaces are ordinary WESL files with explicit imports:
-
-| Interface | Generated file | Import module |
-| --- | --- | --- |
-| Owner properties (all pass kinds) | `generated/<entity_id>.wesl` | `package::generated::<entity_id>` |
-| Named image | `generated/<entity_id>/inputs/<input_id>.wesl` | `package::generated::<entity_id>::inputs::<input_id>` |
-| Previous pass image | `generated/host/effect.wesl` | `package::generated::host::effect::{sample_input, input_info, ...}` |
-| Original source image | `generated/host/effect.wesl` | `package::generated::host::effect::{sample_source, source_info, ...}` |
-
-Each visual item or effect has one property interface shared by all of its passes.
-Each named input has its own image module, independent of the property module.
-For example:
-
-```wesl
-import package::generated::image::props;
-import package::generated::image::inputs::source::sample_uv;
-```
-
-Entry modules import their owner's interface explicitly; shared helpers receive
-owner-specific values as arguments. Item and effect IDs must be distinct across
-both kinds. Module path components, entity IDs, and input IDs must be WGSL
-identifiers; WGSL reserved words cannot be used.
-
-Regenerate after changing entity IDs, property IDs/types, `render.properties`
-order or membership, input IDs/order,
-item/effect ownership, or the host API. Labels, defaults, enum choices, and array
-length limits do not require regeneration.
+Regenerate after changing IDs, property types, the order or membership of
+`render.properties`, input order, owner kind, or the host API. Labels, defaults,
+enum choices, and array length limits do not require regeneration.
 
 ### Property access
 
-See [Properties](properties.md#properties) for manifest declarations.
-
-A shader with no shader-visible properties has no `ZeriumProps` or `props`.
-Property loaders use these signatures:
-
 ```wesl
-let properties = props(instance_index); // item shader
-let properties = props();               // effect pass
+let properties = props(instance_index); // item
+let properties = props();               // effect
 ```
 
-Tuple fields are structs with `v0`, `v1`, and subsequent scalar fields. Arrays
-use `properties.<id>_len` and `get_<id>(properties, index)`. Import these accessors
-from the entity interface.
+A shader without shader-visible properties has no `ZeriumProps` or `props`.
+Tuples use fields `v0`, `v1`, and so on. Arrays use `properties.<id>_len` and
+`get_<id>(properties, index)`, imported from the owner's module.
 
-Strings and files are CPU-only values and have no shader fields. Mixed tuples
-retain their other scalars' original `vN` indices; properties and arrays containing
-only CPU values are omitted. Text and media capabilities expose rendered text
-and decoded file content as textures instead.
+Files and strings have no shader fields; input capabilities turn their content
+into textures. Mixed tuples preserve the other scalars' original `vN` indices.
+Properties and arrays containing only CPU values are omitted.
 
 ### Context and coordinates
 
-`context()` provides `ZeriumContext`: physical `output_size`, fixed
-`composition_size`, logical `surface_size`, and pixel density `composition_scale`.
-Item shaders import `context()` from `host::item`; effect passes import it from
-`host::effect`. Both describe the current render surface. Item property loaders
-continue to use an instance index. Composition coordinates are centered, with
-positive X right and positive Y down.
+`context()` returns physical `output_size`, fixed `composition_size`, logical
+`surface_size`, and pixel density `composition_scale`. Import it from `host::item`
+or `host::effect` for the current pass. Composition coordinates are centered:
+positive X points right and positive Y down.
 
-Item helpers include `placement_center`, `quad_corner`, and `quad_position`.
+Item geometry helpers are `placement_center`, `quad_corner`, and `quad_position`.
 Rotation and color helpers (`rotate`, `srgb`, `scene_color`) live in
-`package::generated::support::util`. Image access uses the generated sampling
-functions in [Image sampling](#image-sampling); plugin code does not bind textures
-or samplers.
+`support::util`. Use generated sampling functions for images; plugin code does
+not bind textures or samplers.
 
 ## Render surfaces and bounds
 
-Items declare `render.shader` and `render.bounds`; effects provide an ordered
-`render.passes` array, with independent `bounds` for every pass. Both can declare
-named `render.inputs`. Items may omit `render` when they only provide audio or
-editor behavior. Item `vertex_count` defaults to six; effect `render.scale`
-defaults to one.
+Items declare `render.shader` and `render.bounds`; effects declare ordered
+`render.passes` with bounds per pass. Both may declare `render.inputs`. Items
+without visual output can omit `render`. Item `vertex_count` defaults to six;
+effect `render.scale` defaults to one.
 
-`bounds` declares logical content bounds in composition pixels, independent
-of texture resolution. A scene's bounds are the union of its children's bounds;
-empty scenes have empty bounds. Each pass evaluates its output bounds from the
-previous image's logical bounds, the original source, and its named images.
-The final pass defines the effect's output. Item and scene effects use the same
-rules; scene boundaries do not clip content.
-
-Shader nodes render their full logical bounds before being composited into a
-parent. Each pass receives complete input images and renders its own output
-extent; input texel indices need not match output texel indices. Composition and
-camera nodes select the children needed for their destination, and camera views
-map sampling density back into the source scene. Final output and explicit
-camera views clip to their own viewports. A plain render-result input retains
-the composition's logical bounds, including content outside the viewport.
-
-Complete intermediate images must fit the GPU texture limit at their sampling
-density. In particular, applying an effect to a group with widely separated
-children requires an image covering the space between them.
+Bounds describe logical content in composition pixels, independently of texture
+resolution. Scene bounds are the union of children; scene boundaries do not clip
+content. Shader passes receive complete images and render their declared output
+extent. Camera views and final output clip to their viewports; plain render
+results keep offscreen content. Each intermediate image must fit the GPU texture
+limit at its sampling density, including effects on widely separated children.
 
 ```json
 {
   "type": "render",
-  "shader": {
-    "module": "expand"
-  },
+  "shader": { "module": "expand" },
   "bounds": {
     "script": "#{ min: [input.min.x - p.radius, input.min.y - p.radius], max: [input.max.x + p.radius, input.max.y + p.radius] }"
   }
 }
 ```
 
-For an item, `input` starts as the viewport; for an effect, it is the incoming
-image rectangle. Use `viewport` edges for a full-frame item and `input` to
-preserve an effect's input. Invalid, reversed, or non-finite results fail rendering.
-The shader is responsible for drawing within its declared bounds. Runtime script
-failures retain their Rhai diagnostic and item/pass identity through render-graph
-construction; they are not converted to non-finite rectangles.
-
 `bounds.script` is a Rhai script returning `#{ min: [x, y], max: [x, y] }`.
-It supports local `let` bindings, conditionals, arrays, maps, loops, and functions.
-Use `abs`, `sin`, `cos`, `min`, `max`, `exp2`, `pow`, `lerp`, and `clamp` for
-numeric operations. Bounds and scene calculations share the same bounded runtime:
-50,000 operations, 32 call levels, and no module imports or dynamic `eval`.
+An item's initial `input` is the viewport; an effect's is the incoming image.
+The shader must draw within its bounds. Invalid, reversed, non-finite, or failed
+results stop rendering with a diagnostic identifying the owner/pass.
 
-Rectangle inputs use `input.min.x`, `source.size.y`, and equivalent members of
-`viewport`; each rectangle has `min`, `max`, `center`, and `size` points with `x`
-and `y` members. Properties use `p.<id>`; tuples and arrays use zero-based indices,
-for example `p.position[0]`. Values retain their types: booleans are `true`/`false`,
-integer and enum values are integers, colors are four-component arrays, and text
-is a string. Named images use `images.<id>.min.x`; `o.<id>` provides numeric pass
-overrides. Map index syntax handles IDs that are not Rhai identifiers, such as
-`o["0"]`. Inputs are read-only, and each evaluation starts with a fresh scope.
+| Script input | Contents |
+| --- | --- |
+| `input`, `source`, `viewport` | Rectangles with `min`, `max`, `center`, and `size`; each point has `x` and `y` |
+| `p.<id>` | Property value; tuple and array components use zero-based indices |
+| `images.<id>` | Named image rectangle |
+| `o.<id>` | Numeric pass override; use `o["0"]` for a numeric ID |
 
-For ordinary effect passes, `source` describes the image entering the current
-effect. After a temporal pass, it describes the reduced image. For the
-temporal pass's bounds program, both `input` and `source` describe the union
-of available sample bounds. The reducer's sampled `source` is its accumulation;
-see [Temporal passes](#temporal-passes).
+Booleans remain booleans, integers and enums remain integers, colors are
+four-component arrays, and text is a string. Inputs are read-only and every
+execution starts with a fresh scope. Scripts support local bindings, functions,
+conditionals, arrays, maps, and loops, plus math such as `abs`, `sin`, `cos`,
+`min`, `max`, `exp2`, `pow`, `lerp`, and `clamp`. Execution is bounded to 50,000
+operations and 32 call levels, with no imports or dynamic `eval`.
+
+For ordinary passes, `source` is the image entering the current effect. A temporal
+pass uses the union of available samples for its bounds inputs; later passes use
+the reduced image as `source`. See [Temporal passes](#temporal-passes).
 
 ### Placement and projection
 
-`placement_center(position, size, origin)` converts an origin coordinate to its
-center on one axis, matching WESL's `item::placement_center`. Use the unpadded
-local size and an origin of `0` (start), `1` (center), or `2` (end):
+`placement_center(position, size, origin)` matches the WESL item helper. It uses
+unpadded size and origin `0` (start), `1` (center), or `2` (end):
 
 ```text
 placement_center(p.position[0], p.size[0], p.origin[0]) - abs(p.size[0]) / 2.0
 ```
 
-Use index `[1]` for the vertical axis. Arguments may be integers or floating-point
-numbers; origin must be an integer in the declared range.
+Use `[1]` for the vertical axis. Numbers may be integers or floats; origin must
+be an integer in range.
 
-`projected_rect(min, max, rotation, center, focal, near_ratio)` returns the
-complete `#{ min: [x, y], max: [x, y] }` rectangle from one projection. Pass arrays
-for the minimum corner, maximum corner, XYZ rotation in degrees, and rotation
-center, followed by focal length and near clip ratio. Its result can be returned
-directly from a bounds program. Match the shader's projection and near depth; see the bundled
-[rotation declaration](../../plugins/zerium.builtin/plugin.json) and
-[3D rotation shader](../../plugins/zerium.builtin/effects/rotate_3d/render.wesl).
+`projected_rect(min, max, rotation, center, focal, near_ratio)` returns the same
+bounds map. Pass arrays for the corners, XYZ rotation in degrees, and rotation
+center, then focal length and near clip ratio. Match the shader's projection and
+near depth; see the bundled [3D rotation shader](../../plugins/zerium.builtin/effects/rotate_3d/render.wesl)
+and its [declaration](../../plugins/zerium.builtin/plugin.json).
 
 ## Image sampling
 
-Every image has its own paired texture and metadata. The generated functions use
-that pair directly; shaders do not supply image indices or binding numbers.
+Images pair a texture with metadata: logical `bounds_min`/`bounds_size`, raster
+coverage `raster_min`/`raster_size`, and pixels per composition unit in `density`.
+Outside pixels are transparent, including bilinear filtering at raster edges.
 
-Every image carries logical `bounds_min`/`bounds_size`, raster coverage
-`raster_min`/`raster_size`, and physical pixels per composition unit in `density`.
-Logical bounds are independent of camera position and sampling density. Pixels
-outside an image sample as transparent, with transparent bilinear filtering at
-raster edges.
-
-Effect passes access the previous pass and original source through
-`package::generated::host::effect`:
+Named image modules expose:
 
 ```wesl
-import package::generated::host::effect::{
-    sample_input,
-    load_input,
-    input_position,
-    input_info,
-    sample_source
-};
-
-let color = sample_input(position); // composition coordinates, bilinear
-let exact = load_input(position);   // composition coordinates, nearest texel
-let original = sample_source(position);
-let center = input_position(vec2(0.5)); // normalized logical input coordinates
-let image = input_info();
-```
-
-Named inputs expose the same functions from their own modules:
-
-```wesl
-import package::generated::image::inputs::source::{
-    info,
-    position as image_position,
-    sample,
-    sample_uv,
-    load
-};
+import package::generated::image::inputs::source::{info, position, sample, sample_uv, load};
 
 let descriptor = info();
-let center = image_position(vec2(0.5));
-let color = sample(position); // composition coordinates
-let normalized = sample_uv(uv); // logical image UVs
-let exact = load(position);
+let center = position(vec2(0.5)); // normalized logical image coordinates
+let color = sample(center);     // composition coordinates, bilinear
+let normalized = sample_uv(uv); // logical image UVs, bilinear
+let exact = load(center);        // composition coordinates, nearest texel
 ```
 
-Decoded media and text use their centered native pixel bounds, so normalized
-sampling is convenient for item quads. Render results already use scene
-coordinates. Imports can use aliases when accessing several inputs:
+Effect passes access the previous pass as `input` and the original image entering
+the effect as `source`, through `package::generated::host::effect`:
 
-```wesl
-import package::generated::my_effect::inputs::foo::{sample as sample_foo};
-import package::generated::my_effect::inputs::foo_uv::{sample as sample_foo_uv};
-```
+| Named-image function | Previous pass | Original source |
+| --- | --- | --- |
+| `info` | `input_info` | `source_info` |
+| `position` | `input_position` | `source_position` |
+| `sample` | `sample_input` | `sample_source` |
+| `sample_uv` | `sample_input_uv` | `sample_source_uv` |
+| `load` | `load_input` | `load_source` |
+
+Named inputs have separate modules, so they can also be called `input` or
+`source`. WESL import aliases distinguish multiple images. Media and text use
+centered native pixel bounds; render results already use scene coordinates.
 
 ### Output coordinates
 
-The shared `package::generated::host::effect` module provides `context`,
-`uv_to_position`, `pixel_position`, and `reference_uv` for all effect pass kinds.
-`package::generated::host::render` provides `ZeriumVertex` and `vertex` for
-fullscreen render and temporal passes.
-`uv_to_position(uv)` and `pixel_position(pixel)` map output UVs or integer pixel
-indices to composition coordinates. Item shaders use
-`item::pixel_position(fragment_position.xy)` instead.
-`reference_uv(position)` maps positions into the full logical output bounds for
-procedural patterns. Compute passes import `store(pixel, color)` from
-`package::generated::host::compute`; color helpers such as `straight`, `over`,
-and `premul` remain in `package::generated::host::effect`.
+`host::effect` provides `uv_to_position`, `pixel_position`, and `reference_uv`.
+The first two map output UVs or integer pixels to composition coordinates;
+`reference_uv` maps a position into the full logical output bounds. Item shaders
+use `item::pixel_position(fragment_position.xy)`.
 
-Effect passes receive `input` (the previous pass) and `source` (the image entering
-the current effect), plus any named images. Named inputs use separate
-modules, so their IDs may also be `input` or `source`. All input images are supplied
-in their own complete bounds.
+`host::render` provides `ZeriumVertex` and `vertex` for fullscreen passes.
+Compute passes write through `host::compute::store(pixel, color)`.
+Color helpers `straight`, `over`, and `premul` live in `host::effect`.
 
 ## Effects and passes
 
-Effects declare an ordered, non-empty `render.passes` array:
+Effects declare a non-empty `render.passes` array:
 
 ```json
 {
   "render": {
-    "passes": [
-      {
-        "type": "compute",
-        "shader": {
-          "module": "blur"
-        },
-        "dispatch": [
-          "width",
-          "height",
-          "one"
-        ],
-        "bounds": {
-          "script": "#{ min: [input.min.x - 10, input.min.y], max: [input.max.x + 10, input.max.y] }"
-        },
-        "overrides": {
-          "direction_x": 1,
-          "direction_y": 0
-        }
-      }
-    ]
+    "passes": [{
+      "type": "compute",
+      "shader": { "module": "blur" },
+      "dispatch": ["width", "height", "one"],
+      "bounds": {
+        "script": "#{ min: [input.min.x - 10, input.min.y], max: [input.max.x + 10, input.max.y] }"
+      },
+      "overrides": { "direction_x": 1, "direction_y": 0 }
+    }]
   }
 }
 ```
 
 Render entry points default to `vertex_main` and `fragment_main`; compute defaults
-to `compute_main`. Compute workgroup size comes from `@workgroup_size`; the
-manifest controls dispatch dimensions. Declare pipeline-overridable values with
-standard WGSL `override` declarations in the entry module:
+to `compute_main`. Workgroup size comes from `@workgroup_size`. Dispatch dimensions
+are `width`, `height`, `max_dimension`, or `one`, rounded up to workgroups.
+
+Pass `overrides` set WGSL `override` declarations by name or the decimal string
+of an explicit `@id`. Values convert to the declared scalar type; booleans use
+`0` or `1`. Omitted values use shader defaults:
 
 ```wesl
 override direction_x: f32 = 1.0;
 override direction_y: f32 = 0.0;
 ```
-
-The optional `overrides` object sets declarations by name or by the decimal
-string of an explicit `@id`. Values convert to the declaration's scalar type;
-booleans use `0` or `1`. Omitted overrides use shader defaults. Dispatch dimensions
-are `width`, `height`, `max_dimension`, or `one`; the host rounds each extent up
-to a whole number of specialized workgroups.
 
 ### Temporal passes
 
@@ -344,26 +228,24 @@ A temporal pass must be first and can occur only once:
     "start_offset": "start_offset",
     "end_offset": "end_offset"
   },
-  "reducer": {
-    "module": "motion_blur_accumulate"
-  },
+  "reducer": { "module": "motion_blur_accumulate" },
   "bounds": {
     "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
   }
 }
 ```
 
-`range` samples evenly between `f32` start and end offsets measured in frames.
-The `u32` sample-count property must have constraints within `1..=32`.
-Alternatively, `{"type":"offsets","offsets":"sample_offsets"}` reads an array
-of 1–32 `f32` frame offsets. Negative offsets sample the past, positive offsets
-the future, and zero the current frame.
+`range` samples evenly between `f32` frame offsets; its `u32` count property must
+have constraints within `1..=32`. Alternatively,
+`{"type":"offsets","offsets":"sample_offsets"}` reads an array of 1–32 `f32`
+frame offsets. Negative samples look backward, positive forward, and zero at the
+current frame. Samples evaluate the image before the current effect.
 
-The temporal pass's output bounds use the union of all available samples as
-`input`; every reduction step uses that same logical output extent.
-Each reduction step is a pass node: `input` is the current temporal sample and
-`source` is the previous accumulation, initially transparent.
-`package::generated::host::temporal` provides `info() -> ZeriumTemporalInfo`, with
-`sample_index`, `sample_count`, `frame_offset`, and `sample_progress` (0–1);
-surface dimensions come from `context()`. Later render or compute passes consume
-the reduced image, which also becomes their original `source`.
+Bounds use the union of available samples, and all reduction steps share that
+output extent. Each step's `input` is its sample and `source` is the previous
+accumulation, initially transparent. Later render or compute passes consume the
+reduced image, which also becomes their `source`.
+
+`host::temporal::info()` returns `sample_index`, `sample_count`, `frame_offset`,
+and `sample_progress` (0–1) in `ZeriumTemporalInfo`. Surface dimensions come from
+`context()`.

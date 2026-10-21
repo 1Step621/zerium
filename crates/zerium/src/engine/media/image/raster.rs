@@ -25,13 +25,11 @@ impl MediaReader for ImageReader {
         }
         let mut decoder = open_decoder(path)?;
         let (mut width, mut height) = decoder.dimensions();
-        if matches!(
-            decoder.orientation().map_err(MediaError::external)?,
-            Orientation::Rotate90
-                | Orientation::Rotate270
-                | Orientation::Rotate90FlipH
-                | Orientation::Rotate270FlipH
-        ) {
+        if let Orientation::Rotate90
+        | Orientation::Rotate270
+        | Orientation::Rotate90FlipH
+        | Orientation::Rotate270FlipH = decoder.orientation().map_err(MediaError::external)?
+        {
             std::mem::swap(&mut width, &mut height);
         }
         Ok(Some(MediaMetadata {

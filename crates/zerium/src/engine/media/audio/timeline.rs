@@ -427,7 +427,7 @@ fn gain_segments(
                 .get(id)
                 .filter(|_| interpolated.contains(id))
                 .unwrap_or(gain);
-            if matches!(policy, AudioCalculationPolicy::Report)
+            if let AudioCalculationPolicy::Report = policy
                 && let Some(error) = gain.diagnostic.as_ref().or(next_gain.diagnostic.as_ref())
             {
                 return Err(AudioTimelineError::Calculation(error.clone()));

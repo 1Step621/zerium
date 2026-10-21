@@ -4,69 +4,47 @@
 
 ## Startup and composition
 
-[`app/bootstrap.rs`](../../crates/zerium/src/app/bootstrap.rs) loads application
-configuration and state, selects the locale, and starts GPUI. It compiles bundled
-plugin shaders and creates shared editor, project session, media, rendering, and
-transport entities before wiring the workspace panes and controllers.
+[`app/bootstrap.rs`](../../crates/zerium/src/app/bootstrap.rs) loads configuration
+and state, selects the locale, compiles bundled plugin shaders, and starts GPUI.
+It wires the editor, project session, media, rendering, transport, and UI.
 
 ## Application state and configuration
 
-[`app::state`](../../crates/zerium/src/app/state.rs) defines automatically recorded
-`AppState` in `state.json`, such as support reminder history.
-[`app::config`](../../crates/zerium/src/app/config.rs) defines user-selected settings
-as `AppConfig` in `config.json`, including language and support reminder preferences.
-Both files live in the user config directory and are created with defaults when
-missing. Unspecified configuration options follow application defaults.
+The user config directory contains two files:
 
-[`app::persistence`](../../crates/zerium/src/app/persistence.rs) provides the shared
-`JsonStore<T>` implementation. `StateStore` and `ConfigStore` are GPUI globals
-accessed through `read(cx)` and `update(cx, |value| { ... })`. Updates atomically
-save the file before replacing the in-memory value. Load errors are logged;
-invalid files are left intact and the corresponding store remains unavailable.
+| File | Contents | Owner |
+| --- | --- | --- |
+| `config.json` | User preferences, including language | [`app::config`](../../crates/zerium/src/app/config.rs) |
+| `state.json` | Automatically recorded application state | [`app::state`](../../crates/zerium/src/app/state.rs) |
 
-Both stores load together before GPUI startup and are registered when the
-application context becomes available. Language selection happens before UI and
-font initialization, using the configured override, system locale, or `en-US`.
-Language changes take effect on the next launch.
+Missing files are created with defaults. The shared
+[`JsonStore`](../../crates/zerium/src/app/persistence.rs) saves updates atomically
+before replacing the in-memory value. Invalid files remain intact; load errors
+are logged and leave the affected store unavailable.
 
-The [settings dialog](../../crates/zerium/src/ui/config.rs) edits a draft of
-`AppConfig`. Save commits it through `ConfigStore`; Cancel discards the draft.
+The settings dialog edits a draft and saves through the configuration store.
+Locale selection uses the configured override, system locale, then `en-US`, before
+UI initialization. Language changes take effect on the next launch.
 
 ## Plugin loading and compilation
 
-Core owns manifest validation and the editing registry. Shader owns WESL source
-resolution, interface generation, and compilation. Each declared module is linked
-and structurally validated once, then checked against its pass entry points and
-overrides. The application embeds bundled plugins; the plugin CLI uses the same
-shader tooling.
+Core validates manifests and owns the editing registry. Shader tooling resolves
+WESL, generates interfaces, and compiles and validates entry points and overrides.
+The application embeds bundled sources; the CLI loads filesystem plugins through
+the same tooling. Generated interfaces are checked against their source contract.
 
-After validation, item and effect schemas compile `PlaybackBindings`. Shared
-property references identify one source mapping; independent references retain
-separate mappings. Media, audio, timeline editing, and value validation resolve
-typed playback settings through these bindings rather than interpreting the
-capability declarations independently.
-`TimeMappingProperties` reads and writes the declared property references;
-`TimeMapping` handles numeric time conversion without knowing plugin declarations.
+Validated schemas compile typed playback bindings shared by media, editing, and
+value validation. Sharing property references shares a source mapping; independent
+references preserve separate playback settings.
 
-`ValidatedShader` retains its WGSL source alongside the parsed module and
-validation information. Compiled pipeline descriptors share that same source.
-
-Generated sources retain WESL module paths through fingerprinting and loading.
-The writer converts those paths to filesystem paths when publishing `generated/`.
-The application registers embedded WESL assets in a `VirtualResolver`; filesystem
-plugins use WESL's `FileResolver`.
-
-See [Plugin API v1](../plugin/README.md) for bundle layout and the generate/validate
-workflow, and [Rendering and shaders](../plugin/rendering.md) for the WESL contract.
-The [JSON schema](../../plugins/plugin.schema.json) is the field reference.
+See [Plugin API v1](../plugin/README.md) for the generate/validate workflow and
+[Rendering and shaders](../plugin/rendering.md) for the shader interface.
 
 ## Localization, logging, and updates
 
-- [Localization](../../crates/zerium/src/i18n.rs) selects a shared `rust-i18n` locale
-  for core and UI labels. User-authored names remain plain text.
-- [Logging](../../crates/zerium/src/logging.rs) writes process logs to the application's
-  state directory and stderr. `RUST_LOG` controls verbosity; the Help menu reveals
-  the current log. Panic reports include backtraces.
-- The [update service](../../crates/zerium/src/app/update/) checks GitHub Releases in the
-  background and uses Velopack to apply updates on relaunch. Nix builds disable
-  the `self-update` feature.
+- [Localization](../../crates/zerium/src/i18n.rs) shares one locale across core and
+  UI labels. User-authored names remain plain text.
+- [Logging](../../crates/zerium/src/logging.rs) writes to the state directory and
+  stderr. `RUST_LOG` controls verbosity; the Help menu reveals the log.
+- The [update service](../../crates/zerium/src/app/update/) checks GitHub Releases
+  and uses Velopack to apply updates on relaunch. Nix builds disable `self-update`.
