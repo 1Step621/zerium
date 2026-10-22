@@ -47,6 +47,8 @@ jobs:
 
       - name: Cache Rust dependencies
         uses: Swatinem/rust-cache@v2
+        with:
+          prefix-key: ${{ runner.os == 'macOS' && 'v1-rust' || 'v0-rust' }}
 
       - name: Install Linux dependencies
         if: runner.os == 'Linux'

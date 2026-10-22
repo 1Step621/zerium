@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+tools_dir="${RUNNER_TEMP:?RUNNER_TEMP is required}/zerium-macos-tools"
 app_dir="target/package/Zerium.app"
 stage_dir="target/package/macos-staging"
 plugin_dir="$stage_dir/Contents/PlugIns/gstreamer"
@@ -31,7 +32,7 @@ cp "$gst_root/libexec/gstreamer-1.0/gst-plugin-scanner" \
 # Copied plugins/scanner can no longer resolve their SDK-relative rpaths.
 # Supply the SDK search path only while collecting and relocating dependencies.
 DYLD_LIBRARY_PATH="$gst_root/lib" \
-target/tools/delocate/bin/delocate-path \
+"$tools_dir/delocate/bin/delocate-path" \
   --lib-path Contents/Frameworks \
   --executable-path "$PWD/$stage_dir/Contents/MacOS" \
   "$stage_dir"
