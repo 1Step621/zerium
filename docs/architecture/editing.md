@@ -169,8 +169,11 @@ behavior.
 
 Project files store overrides relative to plugin defaults, authored animation
 data, and scene variable definitions. Core validates project and clipboard data;
-pasted items receive fresh IDs. The format can change without migration during
-development. Filesystem access and atomic replacement belong to
+pasted items receive fresh IDs. Projects are saved with `format_version: 2`.
+Loading converts supported file versions to the current representation in memory
+before validating the project. Saving writes the current format.
+Unsupported versions are rejected before decoding their contents.
+Filesystem access and atomic replacement belong to
 [`engine::project_io`](../../crates/zerium/src/engine/project_io.rs).
 
 [`ProjectSession`](../../crates/zerium/src/project_session.rs) identifies project

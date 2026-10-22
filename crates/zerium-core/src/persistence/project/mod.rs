@@ -1,4 +1,6 @@
 //! Project file representation, capture, and checked reconstruction.
+mod v1;
+
 use super::{
     ProjectError,
     items::{ProjectItem, capture_items, load_items},
@@ -19,7 +21,7 @@ use crate::timeline::{
 };
 
 pub const PROJECT_EXTENSION: &str = "zero";
-const FORMAT_VERSION: u32 = 1;
+const FORMAT_VERSION: u32 = 2;
 
 pub struct LoadedProject {
     project_id: ProjectId,
@@ -57,15 +59,33 @@ pub fn decode(
     project_path: &Path,
     plugins: &PluginRegistry,
 ) -> Result<LoadedProject, ProjectError> {
-    let file = serde_json::from_str::<ProjectFile>(source).map_err(|error| {
-        ProjectError::invalid_format(format!("Invalid project file format: {error}"), error)
-    })?;
+    let header: ProjectHeader = deserialize(source)?;
+    let file = match header.format_version {
+        1 => v1::migrate(deserialize(source)?)?,
+        FORMAT_VERSION => deserialize(source)?,
+        version => {
+            return Err(ProjectError::unsupported_format(format!(
+                "Unsupported project format (version {version})"
+            )));
+        }
+    };
     file.into_loaded(project_path, plugins)
+}
+
+fn deserialize<'de, T: Deserialize<'de>>(source: &'de str) -> Result<T, ProjectError> {
+    serde_json::from_str(source).map_err(|error| {
+        ProjectError::invalid_format(format!("Invalid project file format: {error}"), error)
+    })
+}
+
+#[derive(Deserialize)]
+struct ProjectHeader {
+    format_version: u32,
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct ProjectFile {
+struct ProjectFile<S = ProjectScene> {
     format_version: u32,
     project_high: u64,
     project_low: u64,
@@ -74,7 +94,7 @@ struct ProjectFile {
     beat_guide: BeatGuide,
     playhead: u64,
     items: Vec<ProjectItem>,
-    scenes: Vec<ProjectScene>,
+    scenes: Vec<S>,
     media_cache: crate::media::MediaMetadataCache,
 }
 
@@ -136,12 +156,6 @@ impl ProjectFile {
         project_path: &Path,
         plugins: &PluginRegistry,
     ) -> Result<LoadedProject, ProjectError> {
-        if self.format_version != FORMAT_VERSION {
-            return Err(ProjectError::unsupported_format(format!(
-                "Unsupported project format (version {})",
-                self.format_version
-            )));
-        }
         let project_id = ProjectId::from_parts(self.project_high, self.project_low)
             .ok_or_else(|| ProjectError::invalid_data("Invalid project ID"))?;
         let frame_rate = FrameRate::new(self.frame_rate[0], self.frame_rate[1])
