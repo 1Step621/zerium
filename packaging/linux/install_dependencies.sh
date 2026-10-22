@@ -22,6 +22,7 @@ sudo apt-get install --no-install-recommends -y \
   libxcb1-dev \
   libxkbcommon-dev \
   libxkbcommon-x11-dev \
+  mold \
   pkg-config \
   squashfs-tools
 

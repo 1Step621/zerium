@@ -53,6 +53,7 @@
           pkgs.pkg-config
           pkgs.makeWrapper
         ]
+        ++ lib.optionals pkgs.stdenv.hostPlatform.isLinux [ pkgs.mold ]
         ++ lib.optionals pkgs.stdenv.hostPlatform.isDarwin [
           pkgs.rustPlatform.bindgenHook
           pkgs.swift
