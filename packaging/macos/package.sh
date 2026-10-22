@@ -31,8 +31,11 @@ cp "$gst_root/libexec/gstreamer-1.0/gst-plugin-scanner" \
 # into duplicate LC_RPATH commands, and ad-hoc signs modified binaries.
 # Copied plugins/scanner can no longer resolve their SDK-relative rpaths.
 # Supply the SDK search path only while collecting and relocating dependencies.
+# Dependencies use @loader_path after relocation; keep existing LC_RPATH entries
+# to avoid delocate's per-dependency RPATH cleanup and repeated signing.
 DYLD_LIBRARY_PATH="$gst_root/lib" \
 "$tools_dir/delocate/bin/delocate-path" \
+  --no-sanitize-rpaths \
   --lib-path Contents/Frameworks \
   --executable-path "$PWD/$stage_dir/Contents/MacOS" \
   "$stage_dir"
