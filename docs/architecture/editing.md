@@ -112,6 +112,13 @@ Each field retains its own commit timing and model synchronization policy.
 Numeric controls display authored values and show the applied value when
 argument limits change the result.
 
+Color inputs can sample the composited preview image, including alpha, through
+the eyedropper button. Sampling pauses playback and excludes editor overlays and
+UI backgrounds. The GPU pixel is converted from premultiplied scene-linear color
+to straight sRGB and applied through the input's existing edit and Undo path.
+Escape, right-click, clicking outside the preview, or changing the target or
+editor state cancels sampling.
+
 ## Selection and editor targets
 
 Selection stores explicit item IDs. Seeking and playback do not change it.

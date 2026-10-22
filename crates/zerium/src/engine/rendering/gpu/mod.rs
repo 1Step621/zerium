@@ -7,6 +7,7 @@ mod execution;
 mod passes;
 mod pipelines;
 mod plan;
+mod readback;
 mod resources;
 mod shaders;
 mod surfaces;

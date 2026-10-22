@@ -294,3 +294,8 @@ _version: 1
 "calc.output_type": "Output type: %{ty}"
 "calc.result": "Result: %{value}"
 "calc.edit_failed": "Cannot connect input: %{error}"
+
+"color.pick_from_preview": "Pick color from preview"
+"color.pick_instruction": "Click to pick a color · Esc / right-click to cancel"
+"color.preview_unavailable": "No preview is available to pick a color from"
+"color.sample_failed": "Cannot pick color: %{error}"

@@ -9450,6 +9450,7 @@ dependencies = [
  "gstreamer-audio",
  "gstreamer-pbutils",
  "gstreamer-video",
+ "half",
  "image",
  "log",
  "mp4",

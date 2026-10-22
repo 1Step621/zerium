@@ -2,15 +2,12 @@ use crate::ui::property_inspector::rows::{
     animation_property_label, animation_scalar_label, animation_stop_inputs, keyframe_base,
     scene_binding_button,
 };
-use ::ui::{
-    Sizable as _,
-    button::Button,
-    color_picker::{ColorPicker, ColorPickerState},
-};
+use ::ui::{button::Button, color_picker::ColorPickerState};
 use gpui::{Entity, MouseButton, SharedString, div, prelude::*, px};
 
 use zerium_core::timeline::PropertyAddress;
 
+use crate::ui::preview::color_input;
 use crate::ui::property_inspector::control::ValueControl;
 use crate::ui::property_inspector::rows::{PropertyRow, RenderCtx};
 use crate::ui::property_inspector::{PropertyInspector, SceneFieldBinding};
@@ -146,12 +143,7 @@ fn color_editor(
         .iter()
         .filter_map(|stop| {
             let picker = ctx.store.inputs.color(&stop.id)?;
-            Some(
-                ColorPicker::new(&picker)
-                    .small()
-                    .w_full()
-                    .into_any_element(),
-            )
+            Some(color_input(&picker).into_any_element())
         })
         .collect::<Vec<_>>();
     if stop_inputs.len() == 1 {
@@ -162,7 +154,7 @@ fn color_editor(
         let start = stop_inputs.pop().expect("two stop inputs");
         return animation_stop_inputs(start, end, ctx.colors.muted_foreground).into_any_element();
     }
-    ColorPicker::new(picker).small().w_full().into_any_element()
+    color_input(picker).into_any_element()
 }
 
 fn color_animation_toggle(

@@ -559,7 +559,7 @@ fn scene_color_row(picker: Entity<ColorPickerState>) -> Div {
                 .w_0()
                 .min_w_0()
                 .flex_1()
-                .child(ColorPicker::new(&picker).small().w_full()),
+                .child(crate::ui::preview::color_input(&picker)),
         )
 }
 

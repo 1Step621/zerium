@@ -127,6 +127,7 @@ impl Render for Preview {
             });
             window.request_animation_frame();
         }
+        self.validate_color_pick(window, cx);
         self.render_latest_frame(cx);
 
         let colors = cx.theme().colors;
@@ -149,7 +150,7 @@ impl Render for Preview {
             .map(SharedString::from)
             .or_else(|| self.error.clone())
             .or_else(|| self.frame_error.clone());
-        let overlay = if self.editor_overlay_hidden {
+        let overlay = if self.editor_overlay_hidden || self.color_pick.is_some() {
             None
         } else {
             self.selected_editor_overlay(frame, cx)
@@ -212,6 +213,9 @@ impl Render for Preview {
                                                 colors.primary,
                                                 cx,
                                             ))
+                                        })
+                                        .when(self.color_pick.is_some(), |this| {
+                                            this.child(self.color_pick_overlay(cx))
                                         }),
                                 )
                             })

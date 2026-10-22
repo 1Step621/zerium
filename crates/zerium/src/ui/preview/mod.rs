@@ -11,10 +11,12 @@ use gpui::{
     App, Context, Entity, SharedString, Subscription, Task, WgpuSurfaceHandle, Window, prelude::*,
 };
 
+mod color_pick;
 mod editor_overlay;
 mod frame;
 mod render;
 
+pub(in crate::ui) use color_pick::color_input;
 use editor_overlay::PreviewEditorDrag;
 
 use crate::{
@@ -62,6 +64,7 @@ pub(crate) struct Preview {
     rendered_frame: Option<RenderedFrame>,
     editor_drag: Option<PreviewEditorDrag>,
     editor_overlay_hidden: bool,
+    color_pick: Option<color_pick::ColorPick>,
     _subscriptions: Vec<Subscription>,
     _frame_task: Task<()>,
 }
@@ -77,6 +80,7 @@ impl Preview {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Self {
+        color_pick::register(window, cx);
         let PreviewDependencies {
             editor,
             transport,
@@ -104,13 +108,15 @@ impl Preview {
         let activation_subscription = cx.observe_window_activation(window, |this, window, cx| {
             if !window.is_window_active() {
                 this.set_editor_overlay_hidden(false, cx);
+                this.cancel_color_pick(window, cx);
             }
         });
-        let session_subscription = cx.observe(&session, |this, _, cx| {
+        let session_subscription = cx.observe_in(&session, window, |this, _, window, cx| {
             let session_id = this.session.read(cx).id();
             if session_id == this.session_id {
                 return;
             }
+            this.cancel_color_pick(window, cx);
             this.session_id = session_id;
             this.scene_evaluator = SceneEvaluator::new();
             this.error = None;
@@ -192,6 +198,7 @@ impl Preview {
             rendered_frame: None,
             editor_drag: None,
             editor_overlay_hidden: false,
+            color_pick: None,
             _subscriptions: vec![
                 editor_subscription,
                 transport_subscription,

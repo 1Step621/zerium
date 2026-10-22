@@ -14,7 +14,7 @@ use super::{
 use ::ui::{
     ActiveTheme as _, Disableable as _, IconName, Sizable as _, ThemeColor,
     button::{Button, ButtonVariants as _},
-    color_picker::{ColorPicker, ColorPickerEvent, ColorPickerState},
+    color_picker::{ColorPickerEvent, ColorPickerState},
     input::{Input, InputEvent, InputState, NumberInput, NumberInputEvent, StepAction},
     menu::{PopupMenuItem, popup_menu::PopupMenuExt as _},
     switch::Switch,

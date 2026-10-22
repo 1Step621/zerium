@@ -294,3 +294,8 @@ _version: 1
 "calc.output_type": "出力の型: %{ty}"
 "calc.result": "結果: %{value}"
 "calc.edit_failed": "入力を設定できません: %{error}"
+
+"color.pick_from_preview": "プレビューから色を取得"
+"color.pick_instruction": "クリックで色を取得・Esc / 右クリックでキャンセル"
+"color.preview_unavailable": "色を取得できるプレビューがありません"
+"color.sample_failed": "色を取得できません: %{error}"

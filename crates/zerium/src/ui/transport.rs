@@ -156,7 +156,7 @@ impl TransportController {
         stopped
     }
 
-    fn stop_in_place(&mut self, cx: &mut Context<Self>) -> bool {
+    pub(crate) fn stop_in_place(&mut self, cx: &mut Context<Self>) -> bool {
         if let TransportMode::Stopped = self.mode {
             return false;
         }
