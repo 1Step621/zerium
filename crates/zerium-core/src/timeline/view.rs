@@ -3,13 +3,11 @@ use std::sync::Arc;
 use super::{
     EvaluatedItem,
     editor::TimelineEditor,
-    evaluation::{
-        EvaluatedSceneNode, SceneRenderStage, evaluated_items_at_time,
-        evaluated_scene_graph_at_time,
-    },
+    evaluation::evaluated_items_at_time,
     ids::{ItemId, LayerId, ProjectId},
     item::TimelineItem,
     project::TimelineProject,
+    render::RenderEvaluation,
     scene::SceneDefinition,
     settings::{BeatGuide, ProjectResolution},
     time::{Frame, FrameRate, TimelineTime},
@@ -42,17 +40,8 @@ pub trait TimelineView {
 
     fn active_items_at_time(&self, time: TimelineTime) -> Vec<(LayerId, EvaluatedItem)>;
 
-    fn active_scene_graph_at_time(&self, time: TimelineTime) -> Vec<EvaluatedSceneNode> {
-        self.scene_graph_at_time(time, &[])
-    }
-
-    /// Evaluate the edited composition for a consumer's effect-stage limits.
-    /// Omitted effects never resolve properties or execute scene calculations.
-    fn scene_graph_at_time(
-        &self,
-        time: TimelineTime,
-        stages: &[SceneRenderStage],
-    ) -> Vec<EvaluatedSceneNode>;
+    /// Placement lookup and stage properties share the same scene clocks.
+    fn render_evaluation(&self) -> RenderEvaluation<'_>;
 
     fn active_items_at(&self, frame: Frame) -> Vec<(LayerId, EvaluatedItem)> {
         self.active_items_at_time(TimelineTime::from_frame(frame))
@@ -136,19 +125,8 @@ impl TimelineView for TimelineSnapshot {
         )
     }
 
-    fn scene_graph_at_time(
-        &self,
-        time: TimelineTime,
-        stages: &[SceneRenderStage],
-    ) -> Vec<EvaluatedSceneNode> {
-        evaluated_scene_graph_at_time(
-            self.project.document.active_source_items_at_time(time),
-            &self.project.scenes,
-            time,
-            None,
-            None,
-            stages,
-        )
+    fn render_evaluation(&self) -> RenderEvaluation<'_> {
+        RenderEvaluation::new(&self.project.document, &self.project.scenes, None, None)
     }
 
     fn end_frame_exclusive(&self) -> Frame {
@@ -177,18 +155,12 @@ impl TimelineView for TimelineEditor {
         TimelineEditor::active_items_at_time(self, time)
     }
 
-    fn scene_graph_at_time(
-        &self,
-        time: TimelineTime,
-        stages: &[SceneRenderStage],
-    ) -> Vec<EvaluatedSceneNode> {
-        evaluated_scene_graph_at_time(
-            self.active_document().active_source_items_at_time(time),
+    fn render_evaluation(&self) -> RenderEvaluation<'_> {
+        RenderEvaluation::new(
+            self.active_document(),
             &self.project().scenes,
-            time,
             Some(&self.visibility),
             self.active_scene_id().and_then(|id| self.scene(id)),
-            stages,
         )
     }
 

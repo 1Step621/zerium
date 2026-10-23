@@ -1,6 +1,11 @@
 //! Shared decoder contracts, media input IDs, and errors.
 use crate::engine::gpu::GpuContext;
-use std::{fmt, path::Path, sync::atomic::AtomicBool, time::Duration};
+use std::{
+    fmt,
+    path::Path,
+    sync::{Arc, atomic::AtomicBool},
+    time::Duration,
+};
 
 use thiserror::Error;
 
@@ -19,6 +24,19 @@ pub(crate) struct MediaInputId {
     pub(crate) item_id: ItemId,
     pub(crate) effect_id: Option<EffectInstanceId>,
     pub(crate) input_id: String,
+}
+
+/// Decoder affinity belongs to a consumer clock, not to the source's identity.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct DecodeStreamKey {
+    pub(crate) input: MediaInputId,
+    pub(crate) branch: Vec<SamplingBranch>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct SamplingBranch {
+    pub(crate) path: Vec<ItemId>,
+    pub(crate) effect: EffectInstanceId,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
@@ -59,18 +77,17 @@ impl RasterSize {
 pub(crate) struct DecodedFrame {
     pub presentation_time: Duration,
     pub duration: Duration,
-    pub frame: VisualFrame,
-}
-
-pub(crate) fn frame_covers(start: Duration, duration: Duration, time: Duration) -> bool {
-    let rounded = time.saturating_add(Duration::from_nanos(1));
-    (start <= rounded && rounded < start.saturating_add(duration))
-        || (duration.is_zero() && time == start)
+    /// Preserve the decoded image's identity through selection, preview and export.
+    pub frame: Arc<VisualFrame>,
 }
 
 impl DecodedFrame {
     pub(crate) fn covers(&self, time: Duration) -> bool {
-        frame_covers(self.presentation_time, self.duration, time)
+        let start = self.presentation_time;
+        let duration = self.duration;
+        let rounded = time.saturating_add(Duration::from_nanos(1));
+        (start <= rounded && rounded < start.saturating_add(duration))
+            || (duration.is_zero() && time == start)
     }
 }
 
@@ -89,7 +106,7 @@ pub(crate) trait ImageDecoder: Send {
         &mut self,
         size: RasterSize,
         cancelled: &AtomicBool,
-    ) -> Result<VisualFrame, MediaError>;
+    ) -> Result<Arc<VisualFrame>, MediaError>;
 }
 
 pub(crate) trait AudioDecoder: Send {

@@ -506,6 +506,7 @@ impl RenderSession {
         let RenderState {
             frame,
             local_resources,
+            textures,
             ..
         } = &mut *state;
         let cached = frame.as_ref().filter(|frame| frame.matches_scene(scene));
@@ -516,7 +517,7 @@ impl RenderSession {
             |key| cached.and_then(|frame| frame.surfaces.size_bytes(key)),
         )?;
         let frame = self.prepare_frame_resources(frame, scene, &execution.data)?;
-        let mut frame_images = self.create_frame_images(&execution.data.frames)?;
+        let mut frame_images = textures.prepare(&self.shared, &execution.data.frames)?;
 
         if !execution.data.items.is_empty() {
             self.shared.gpu.queue.write_buffer(
@@ -552,8 +553,8 @@ impl RenderSession {
         let submission = self.shared.gpu.queue.submit([encoder.finish()]);
         frame.surfaces = scene_encoding.surfaces;
         frame.backdrops = scene_encoding.backdrops;
+        textures.recycle(frame_images);
         state.trim_local_resources();
-        self.recycle_frame_images(frame_images)?;
         Ok(submission)
     }
 }

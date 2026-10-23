@@ -1,5 +1,7 @@
+mod cache;
 mod video;
 
+pub(crate) use cache::{FrameCache, RASTER_CACHE_BYTES};
 pub(crate) use video::{VideoFrame, yuv_format};
 
 use std::sync::Arc;

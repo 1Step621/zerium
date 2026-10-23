@@ -422,20 +422,12 @@ impl RenderSession {
                             item.shader
                         )));
                     }
-                    &item.effects
+                    &[]
                 }
-                RenderNodeContent::Scene { effects, .. } => effects,
+                RenderNodeContent::Scene { .. } => &[],
+                RenderNodeContent::Effect { effect, .. } => std::slice::from_ref(effect),
                 RenderNodeContent::Frame(frame) => {
-                    if frame.width == 0
-                        || frame.height == 0
-                        || frame.width > limits.max_texture_dimension_2d
-                        || frame.height > limits.max_texture_dimension_2d
-                    {
-                        return Err(RenderError::backend(format!(
-                            "video frame size {}x{} exceeds GPU limits",
-                            frame.width, frame.height
-                        )));
-                    }
+                    self.shared.frame_extent(frame)?;
                     &[]
                 }
                 RenderNodeContent::View { .. } => &[],

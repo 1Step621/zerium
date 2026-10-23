@@ -5,33 +5,31 @@ use std::{
     time::Duration,
 };
 
-use zerium_core::{
-    media::{MediaAsset, MediaKind, MediaMetadataCache},
-    timeline::EvaluatedItem,
-};
+use zerium_core::media::{MediaAsset, MediaKind, MediaPlayback};
 
 use super::reader::{
-    DecodedFrame, ImageDecoder, MediaError, MediaInputId, MediaReaderRegistry, RasterSize,
+    DecodeStreamKey, DecodedFrame, ImageDecoder, MediaError, MediaReaderRegistry, RasterSize,
     VideoDecoder,
 };
 
-#[derive(Clone, PartialEq, Eq)]
-pub(crate) struct MediaFrameRequest {
-    pub(crate) input: MediaInputId,
+/// Planning identifies a source by `MediaInputId`; demand traversal attaches
+/// consumer affinity as `DecodeStreamKey` before preview/export resolves it.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+pub(crate) struct MediaFrameRequest<S = DecodeStreamKey> {
+    pub(crate) stream: S,
     pub(crate) asset: MediaAsset,
     pub(crate) presentation_time: Duration,
     pub(crate) size: RasterSize,
 }
 
-impl MediaFrameRequest {
-    pub(crate) fn from_input(
-        item: &EvaluatedItem,
-        input: MediaInputId,
+impl<S> MediaFrameRequest<S> {
+    pub(crate) fn new(
+        stream: S,
+        asset: MediaAsset,
+        playback: MediaPlayback,
         local_seconds: f64,
-        cache: &MediaMetadataCache,
         size: RasterSize,
     ) -> Option<Self> {
-        let (asset, playback) = item.media_input(input.effect_id, &input.input_id, cache)?;
         let presentation_time = if asset.kind.is_temporal() {
             playback.sample(local_seconds, asset.duration)?.time
         } else {
@@ -45,7 +43,7 @@ impl MediaFrameRequest {
             _ => size,
         };
         Some(Self {
-            input,
+            stream,
             asset,
             presentation_time,
             size,

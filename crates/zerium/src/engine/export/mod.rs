@@ -20,8 +20,9 @@ use crate::engine::{
     atomic_file::AtomicFileTransaction,
     gstreamer::encoding::Mp4Writer,
     media::{
-        AudioCalculationPolicy, AudioFormat, AudioTimelineGraph, MediaInputId, MediaReaderRegistry,
-        VisualDecodeSession, dependency_readings, refresh_files, sample_boundary,
+        AudioCalculationPolicy, AudioFormat, AudioTimelineGraph, DecodeStreamKey,
+        MediaReaderRegistry, VisualDecodeSession, dependency_readings, refresh_files,
+        sample_boundary,
     },
     rendering::{RenderScene, RenderSession, RenderSize, SceneEvaluator},
 };
@@ -250,7 +251,7 @@ fn decode_scenes(
     scenes: mpsc::SyncSender<Result<(u64, RenderScene), ExportError>>,
     cancelled: &AtomicBool,
 ) {
-    let mut decoders = HashMap::<MediaInputId, VisualDecodeSession>::new();
+    let mut decoders = HashMap::<DecodeStreamKey, VisualDecodeSession>::new();
     let mut evaluator = SceneEvaluator::for_export();
     for frame_index in 0..frame_count {
         if cancelled.load(Ordering::Relaxed) {
@@ -258,13 +259,16 @@ fn decode_scenes(
         }
         let frame = Frame::new(frame_index);
         let render_time = TimelineTime::from_frame(frame);
+        let mut active_streams = std::collections::HashSet::new();
         let result = evaluator
             .evaluate(&timeline, render_time, size, |request| {
-                let decoder = decoders.entry(request.input.clone()).or_default();
+                active_streams.insert(request.stream.clone());
+                let decoder = decoders.entry(request.stream.clone()).or_default();
                 let decoded = decoder.decode(&media_readers, &request, Some(gpu), cancelled)?;
-                Ok::<_, ExportError>(Some(Arc::new(decoded.frame)))
+                Ok::<_, ExportError>(Some(decoded.frame))
             })
             .map(|scene| (frame_index, scene));
+        decoders.retain(|stream, _| active_streams.contains(stream));
         let failed = result.is_err();
         if scenes.send(result).is_err() || failed {
             break;

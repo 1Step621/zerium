@@ -97,7 +97,7 @@ impl PluginManifest {
                 .render()
                 .passes
                 .iter()
-                .map(|pass| pass.shader_module())
+                .filter_map(|pass| pass.shader_module())
         });
         item_modules.chain(effect_modules)
     }

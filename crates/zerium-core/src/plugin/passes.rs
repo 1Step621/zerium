@@ -4,6 +4,7 @@ use super::shader::validate_shader_module;
 use super::validation::validate_wgsl_identifier;
 use super::{PluginError, ShaderSchema};
 use crate::property::{PropertySchema, PropertyValue, PropertyValues, ScalarPropertyType};
+use crate::timeline::FrameDuration;
 use serde::Deserialize;
 use std::collections::BTreeMap;
 
@@ -26,6 +27,8 @@ pub enum EffectPassSchema {
         #[serde(default)]
         overrides: BTreeMap<String, f64>,
     },
+    /// Forward one upstream image without a shader or an intermediate texture.
+    Sample { sampling: SampleTimeSchema },
     Temporal {
         sampling: TemporalSamplingSchema,
         reducer: ShaderSchema,
@@ -36,27 +39,30 @@ pub enum EffectPassSchema {
 }
 
 impl EffectPassSchema {
-    pub fn bounds(&self) -> &super::OutputBoundsSchema {
+    pub fn bounds(&self) -> Option<&super::OutputBoundsSchema> {
         match self {
             Self::Render { bounds, .. }
             | Self::Compute { bounds, .. }
-            | Self::Temporal { bounds, .. } => bounds,
+            | Self::Temporal { bounds, .. } => Some(bounds),
+            Self::Sample { .. } => None,
         }
     }
 
-    pub fn overrides(&self) -> &BTreeMap<String, f64> {
+    pub fn overrides(&self) -> Option<&BTreeMap<String, f64>> {
         match self {
             Self::Render { overrides, .. }
             | Self::Compute { overrides, .. }
-            | Self::Temporal { overrides, .. } => overrides,
+            | Self::Temporal { overrides, .. } => Some(overrides),
+            Self::Sample { .. } => None,
         }
     }
 
-    pub fn shader_module(&self) -> &str {
+    pub fn shader_module(&self) -> Option<&str> {
         match self {
-            Self::Render { shader, .. } => shader.module(),
-            Self::Compute { shader, .. } => &shader.module,
-            Self::Temporal { reducer, .. } => reducer.module(),
+            Self::Render { shader, .. } => Some(shader.module()),
+            Self::Compute { shader, .. } => Some(&shader.module),
+            Self::Temporal { reducer, .. } => Some(reducer.module()),
+            Self::Sample { .. } => None,
         }
     }
 
@@ -67,27 +73,28 @@ impl EffectPassSchema {
         inputs: &[super::TextureInput],
         pass_index: usize,
     ) -> Result<(), PluginError> {
-        self.bounds().validate(
-            "effect pass",
-            effect_id,
-            properties,
-            inputs,
-            self.overrides(),
-        )?;
-
-        for (key, value) in self.overrides() {
-            if key.parse::<u16>().is_err() {
-                validate_wgsl_identifier("pipeline override", key)?;
+        if let Some(bounds) = self.bounds() {
+            let overrides = self.overrides().expect("shader pass overrides");
+            bounds.validate("effect pass", effect_id, properties, inputs, overrides)?;
+            for (key, value) in overrides {
+                if key.parse::<u16>().is_err() {
+                    validate_wgsl_identifier("pipeline override", key)?;
+                }
+                if !value.is_finite() {
+                    return Err(PluginError::invalid_definition(format!(
+                        "effect '{effect_id}' pass {pass_index} override '{key}' must be finite"
+                    )));
+                }
             }
-
-            if !value.is_finite() {
-                return Err(PluginError::invalid_definition(format!(
-                    "effect '{effect_id}' pass {pass_index} override '{key}' must be finite"
-                )));
-            }
+        }
+        if matches!(self, Self::Sample { .. } | Self::Temporal { .. }) && pass_index != 0 {
+            return Err(PluginError::invalid_definition(format!(
+                "effect '{effect_id}' sampling pass must be first"
+            )));
         }
 
         match self {
+            Self::Sample { sampling, .. } => sampling.validate(effect_id, properties)?,
             Self::Render { shader, .. } => {
                 shader.validate("render effect pass", effect_id)?;
             }
@@ -98,13 +105,6 @@ impl EffectPassSchema {
             Self::Temporal {
                 sampling, reducer, ..
             } => {
-                if pass_index != 0 {
-                    return Err(PluginError::invalid_definition(format!(
-                        "effect '{}' temporal pass must be first",
-                        effect_id
-                    )));
-                }
-
                 sampling.validate(effect_id, properties)?;
                 reducer.validate("temporal effect pass", effect_id)?;
             }
@@ -126,6 +126,54 @@ pub enum TemporalSamplingSchema {
     Offsets {
         offsets: String,
     },
+}
+
+/// A single source time in the owner's local clock.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
+pub enum SampleTimeSchema {
+    Offset { offset: String },
+    Progress { progress: String },
+}
+
+impl SampleTimeSchema {
+    fn validate(&self, effect_id: &str, properties: &[PropertySchema]) -> Result<(), PluginError> {
+        let id = match self {
+            Self::Offset { offset } => offset,
+            Self::Progress { progress } => progress,
+        };
+        if !properties
+            .iter()
+            .any(|p| p.id() == id && p.scalar_type(None, None) == Some(&ScalarPropertyType::F32))
+        {
+            return Err(PluginError::invalid_definition(format!(
+                "effect '{effect_id}' sample property '{id}' must be f32"
+            )));
+        }
+        Ok(())
+    }
+
+    pub fn sample_time(
+        &self,
+        values: &PropertyValues,
+        local_frame: f64,
+        duration: FrameDuration,
+    ) -> Option<f64> {
+        let id = match self {
+            Self::Offset { offset } => offset,
+            Self::Progress { progress } => progress,
+        };
+        let value = values.property(id)?.as_f32()?;
+        if !value.is_finite() {
+            return None;
+        }
+        Some(match self {
+            Self::Offset { .. } => local_frame + f64::from(value),
+            Self::Progress { .. } => {
+                f64::from(value.clamp(0., 1.)) * duration.get().saturating_sub(1) as f64
+            }
+        })
+    }
 }
 
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
@@ -225,7 +273,8 @@ impl TemporalSamplingSchema {
         Ok(())
     }
 
-    pub fn sample_offsets(&self, values: &PropertyValues) -> Option<Vec<f64>> {
+    /// Resolve absolute item-local source times at the consuming effect's clock.
+    pub fn sample_times(&self, values: &PropertyValues, local_frame: f64) -> Option<Vec<f64>> {
         match self {
             Self::Range {
                 sample_count,
@@ -242,12 +291,11 @@ impl TemporalSamplingSchema {
                 let count = count.clamp(1, MAX_TEMPORAL_SAMPLES);
                 let start = f64::from(start);
                 let span = f64::from(end) - start;
-                if span == 0. {
-                    return Some(vec![start]);
-                }
                 Some(
                     (0..count)
-                        .map(|index| start + (f64::from(index) + 0.5) * span / f64::from(count))
+                        .map(|index| {
+                            local_frame + start + (f64::from(index) + 0.5) * span / f64::from(count)
+                        })
                         .collect(),
                 )
             }
@@ -257,7 +305,9 @@ impl TemporalSamplingSchema {
                 elements
                     .iter()
                     .map(|element| match element.value() {
-                        PropertyValue::F32(value) if value.is_finite() => Some(f64::from(*value)),
+                        PropertyValue::F32(value) if value.is_finite() => {
+                            Some(local_frame + f64::from(*value))
+                        }
                         _ => None,
                     })
                     .collect()

@@ -57,15 +57,7 @@ impl EvaluatedClip {
     }
 }
 
-/// A temporal consumer requests the image before a particular effect. Limits
-/// refer to source paths and count effects after preview visibility is applied.
-#[derive(Clone, Debug, PartialEq, Eq, Hash)]
-pub struct SceneRenderStage {
-    pub path: Vec<ItemId>,
-    pub effect_count: usize,
-}
-
-/// Hierarchical timeline evaluation consumed by the renderer graph adapter.
+/// Hierarchical timeline read model used to flatten evaluated editor items.
 /// `path` contains stable source IDs from the outermost scene instance to this
 /// node; placement-specific runtime IDs remain available on `item`, including
 /// scene instances that own effect inputs.
@@ -87,14 +79,12 @@ pub(crate) fn evaluated_scene_graph_at_time(
     time: TimelineTime,
     visibility: Option<&PreviewVisibility>,
     scene: Option<&SceneDefinition>,
-    stages: &[SceneRenderStage],
 ) -> Vec<EvaluatedSceneNode> {
     use super::placement::{PlacedItem, SceneVisitor, SceneWalker, WalkMode};
 
     struct RenderVisitor<'a> {
         scenes: &'a HashMap<SceneId, SceneDefinition>,
         visibility: Option<&'a PreviewVisibility>,
-        stages: &'a [SceneRenderStage],
         used_ids: HashSet<ItemId>,
     }
 
@@ -102,12 +92,9 @@ pub(crate) fn evaluated_scene_graph_at_time(
         type State = super::properties::ResolvedItem;
         type Output = EvaluatedSceneNode;
 
-        fn prepare(&mut self, source: &mut TimelineItem, path: &[ItemId]) {
+        fn prepare(&mut self, source: &mut TimelineItem, _path: &[ItemId]) {
             if let Some(visibility) = self.visibility {
                 visibility.retain_visible_effects(source);
-            }
-            for stage in self.stages.iter().filter(|stage| stage.path == path) {
-                source.effects.truncate(stage.effect_count);
             }
         }
 
@@ -154,7 +141,6 @@ pub(crate) fn evaluated_scene_graph_at_time(
         &mut RenderVisitor {
             scenes,
             visibility,
-            stages,
             used_ids: HashSet::new(),
         },
     )
@@ -177,7 +163,7 @@ pub(crate) fn evaluated_items_at_time(
         }
     }
 
-    let graph = evaluated_scene_graph_at_time(items, scenes, time, visibility, scene, &[]);
+    let graph = evaluated_scene_graph_at_time(items, scenes, time, visibility, scene);
     let mut output = Vec::new();
     flatten(graph, &mut output);
     output

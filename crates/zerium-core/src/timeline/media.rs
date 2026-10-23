@@ -1,7 +1,7 @@
 //! File dependencies are resolved independently of rendering and audio controls.
 use std::collections::{HashMap, HashSet};
 
-use crate::media::{MediaDependency, MediaSource};
+use crate::media::{MediaDependency, MediaSource, MediaTarget};
 
 use super::{
     EffectInstanceId, SceneDefinition, SceneId, TimelineItem, TimelineSnapshot,
@@ -12,6 +12,7 @@ use super::{
 struct Dependencies<'a> {
     scenes: &'a HashMap<SceneId, SceneDefinition>,
     files: HashSet<MediaDependency>,
+    target: Option<MediaTarget>,
 }
 
 impl Dependencies<'_> {
@@ -23,6 +24,12 @@ impl Dependencies<'_> {
         bindings: Option<&SceneBindings<'_>>,
     ) {
         for source in sources {
+            if self
+                .target
+                .is_some_and(|target| target != source.input.target())
+            {
+                continue;
+            }
             let property = resolve_property_schema(self.scenes, item, effect, source.file)
                 .expect("validated media file property");
             let value = resolve_property(bindings, item, effect, property, None)
@@ -69,18 +76,27 @@ impl super::placement::SceneVisitor for Dependencies<'_> {
 }
 
 impl TimelineSnapshot {
-    /// Files used by occupied placements in the root export timeline, including
-    /// effects attached to scene instances. No visual or gain values are read.
+    /// Visual sources reachable through root instances, and audio sources in
+    /// their occupied intervals. Visual sampling can reach beyond an ancestor's
+    /// output clip. No visual or gain values are read during file discovery.
     pub fn media_dependencies(&self) -> HashSet<MediaDependency> {
         let mut dependencies = Dependencies {
             scenes: &self.project.scenes,
             files: HashSet::new(),
+            target: Some(MediaTarget::Visual),
         };
-        super::placement::SceneWalker {
+        let walker = super::placement::SceneWalker {
             scenes: &self.project.scenes,
             visibility: None,
-        }
-        .walk(
+        };
+        walker.walk(
+            self.project.document.source_items(),
+            super::placement::WalkMode::Definitions,
+            None,
+            &mut dependencies,
+        );
+        dependencies.target = Some(MediaTarget::Audio);
+        walker.walk(
             self.project.document.source_items(),
             super::placement::WalkMode::Occupied,
             None,
@@ -95,6 +111,7 @@ impl TimelineSnapshot {
         let mut dependencies = Dependencies {
             scenes: &self.project.scenes,
             files: HashSet::new(),
+            target: None,
         };
         let walker = super::placement::SceneWalker {
             scenes: &self.project.scenes,

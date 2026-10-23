@@ -116,9 +116,7 @@ impl SceneWalker<'_> {
                 WalkMode::Sample(time) => {
                     let local =
                         TimelineTime::from_frames(time.frames() - source.start.get() as f64);
-                    if scene.is_some()
-                        && (local.frames() < 0. || local.frames() >= source.duration.get() as f64)
-                    {
+                    if local.frames() < 0. || local.frames() >= source.duration.get() as f64 {
                         continue;
                     }
                     WalkMode::Sample(local)

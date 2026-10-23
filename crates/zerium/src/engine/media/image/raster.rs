@@ -1,7 +1,10 @@
 //! Still raster images, independent of video pipelines and seeking.
 use std::{
     path::{Path, PathBuf},
-    sync::atomic::{AtomicBool, Ordering},
+    sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 
@@ -12,7 +15,7 @@ use image::{
 use zerium_core::media::{MediaAsset, MediaKind, MediaMetadata, MediaTarget};
 
 use super::super::reader::{ImageDecoder, MediaError, MediaReader, RasterSize};
-use crate::engine::frame::VisualFrame;
+use crate::engine::frame::{FrameCache, RASTER_CACHE_BYTES, VisualFrame};
 
 pub(in crate::engine::media) const READER_ID: &str = "zerium.image";
 
@@ -48,7 +51,7 @@ impl MediaReader for ImageReader {
             path: asset.path.clone(),
             source_size: (width, height),
             source: None,
-            cached: None,
+            cached: FrameCache::new(RASTER_CACHE_BYTES),
         }))
     }
 }
@@ -65,7 +68,7 @@ struct RasterDecodeSession {
     path: PathBuf,
     source_size: (u32, u32),
     source: Option<DynamicImage>,
-    cached: Option<VisualFrame>,
+    cached: FrameCache<(u32, u32)>,
 }
 
 impl ImageDecoder for RasterDecodeSession {
@@ -73,17 +76,15 @@ impl ImageDecoder for RasterDecodeSession {
         &mut self,
         size: RasterSize,
         cancelled: &AtomicBool,
-    ) -> Result<VisualFrame, MediaError> {
+    ) -> Result<Arc<VisualFrame>, MediaError> {
         if cancelled.load(Ordering::Relaxed) {
             return Err(MediaError::Cancelled);
         }
         let (width, height) = size
             .fit(self.source_size)
             .ok_or_else(|| MediaError::invalid_input("Invalid image dimensions"))?;
-        if let Some(frame) = &self.cached
-            && (frame.width, frame.height) == (width, height)
-        {
-            return Ok(frame.clone());
+        if let Some(frame) = self.cached.get(&(width, height)) {
+            return Ok(frame);
         }
         if self.source.is_none() {
             let mut decoder = open_decoder(&self.path)?;
@@ -109,8 +110,8 @@ impl ImageDecoder for RasterDecodeSession {
         if cancelled.load(Ordering::Relaxed) {
             return Err(MediaError::Cancelled);
         }
-        let frame = VisualFrame::rgba(width, height, rgba.into_raw());
-        self.cached = Some(frame.clone());
+        let frame = Arc::new(VisualFrame::rgba(width, height, rgba.into_raw()));
+        self.cached.insert((width, height), frame.clone());
         Ok(frame)
     }
 }

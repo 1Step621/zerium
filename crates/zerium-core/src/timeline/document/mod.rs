@@ -190,7 +190,7 @@ impl TimelineDocument {
     fn source_items_where(
         &self,
         mut include: impl FnMut(&TimelineItem) -> bool,
-    ) -> Vec<(LayerId, TimelineItem)> {
+    ) -> Vec<(LayerId, &TimelineItem)> {
         let mut items = self
             .items
             .values()
@@ -199,7 +199,7 @@ impl TimelineDocument {
                 self.item_layers
                     .get(&item.id)
                     .copied()
-                    .map(|layer| (layer, item.as_ref().clone()))
+                    .map(|layer| (layer, item.as_ref()))
             })
             .collect::<Vec<_>>();
         items.sort_unstable_by_key(|(layer, item)| (layer.get(), item.start, item.id.get()));
@@ -208,12 +208,35 @@ impl TimelineDocument {
 
     pub(super) fn source_items(&self) -> Vec<(LayerId, TimelineItem)> {
         self.source_items_where(|_| true)
+            .into_iter()
+            .map(|(layer, item)| (layer, item.clone()))
+            .collect()
     }
 
     pub(super) fn active_source_items_at_time(
         &self,
         time: super::time::TimelineTime,
     ) -> Vec<(LayerId, TimelineItem)> {
+        self.active_source_item_refs_at_time(time)
+            .into_iter()
+            .map(|(layer, item)| (layer, item.clone()))
+            .collect()
+    }
+
+    pub(super) fn active_source_item_ids_at_time(
+        &self,
+        time: super::time::TimelineTime,
+    ) -> Vec<ItemId> {
+        self.active_source_item_refs_at_time(time)
+            .into_iter()
+            .map(|(_, item)| item.id)
+            .collect()
+    }
+
+    fn active_source_item_refs_at_time(
+        &self,
+        time: super::time::TimelineTime,
+    ) -> Vec<(LayerId, &TimelineItem)> {
         self.source_items_where(|item| {
             let start = item.start.get() as f64;
             let end = item.end_exclusive().get() as f64;

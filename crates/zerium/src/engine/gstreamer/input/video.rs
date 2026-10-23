@@ -55,8 +55,17 @@ impl VideoInput {
         let mut chain: Vec<gst::Element> = Vec::new();
         let mut caps = gst::Caps::builder("video/x-raw").features([] as [&str; 0]);
         if gpu {
+            // Encoded preroll frames are dependencies, even when their PTS is
+            // before the requested segment. Dropping them here can remove the
+            // seek's IDR and break every following reference picture. Select
+            // the visible interval only after decoding in VideoDecodeSession.
+            pipeline.sink.set_drop_out_of_segment(false);
             chain.push(
                 gst::ElementFactory::make("h264parse")
+                    // A new GPU decoder can start at a seeked IDR without ever
+                    // receiving the stream's initial SPS/PPS. Make every IDR
+                    // self-contained rather than relying on prior decoding.
+                    .property("config-interval", -1i32)
                     .build()
                     .map_err(MediaError::external)?,
             );
@@ -212,7 +221,7 @@ impl VideoInput {
         Ok(DecodedFrame {
             presentation_time,
             duration,
-            frame,
+            frame: Arc::new(frame),
         })
     }
 

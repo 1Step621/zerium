@@ -4,6 +4,6 @@ mod runtime;
 mod scene;
 
 pub(in crate::engine) use gpu::OUTPUT_FORMAT;
-pub(crate) use gpu::{RenderDevice, RenderDeviceBuilder, RenderSession};
+pub(crate) use gpu::{RenderDevice, RenderDeviceBuilder, RenderSession, VideoFrameUploader};
 pub(crate) use runtime::RenderRuntime;
 pub(crate) use scene::{RenderError, RenderScene, RenderSize, SceneEvaluator};

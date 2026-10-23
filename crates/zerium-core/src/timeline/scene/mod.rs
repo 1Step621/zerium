@@ -91,12 +91,7 @@ impl SceneDefinition {
         instance: &TimelineItem,
         time: Option<TimelineTime>,
     ) -> Vec<(LayerId, TimelineItem)> {
-        let expansion = expansion::SceneExpansionPlan::new(
-            self.duration(),
-            instance.duration,
-            self.stretch_point,
-            self.document.frame_rate(),
-        );
+        let expansion = self.expansion(instance);
         let mut items = match time {
             Some(time) => self
                 .document
@@ -107,6 +102,36 @@ impl SceneDefinition {
             expansion.apply(item);
         }
         items
+    }
+
+    /// Enumerate occupied placements without cloning or expanding their contents.
+    pub(super) fn active_expanded_item_ids(
+        &self,
+        instance: &TimelineItem,
+        time: TimelineTime,
+    ) -> Vec<ItemId> {
+        self.document
+            .active_source_item_ids_at_time(self.expansion(instance).source_time(time))
+    }
+
+    fn expansion(&self, instance: &TimelineItem) -> expansion::SceneExpansionPlan {
+        expansion::SceneExpansionPlan::new(
+            self.duration(),
+            instance.duration,
+            self.stretch_point,
+            self.document.frame_rate(),
+        )
+    }
+
+    /// Expand one placement without enumerating unrelated definition items.
+    pub(super) fn expanded_item(
+        &self,
+        instance: &TimelineItem,
+        id: ItemId,
+    ) -> Option<(LayerId, TimelineItem)> {
+        let mut item = self.document.item(id)?.clone();
+        self.expansion(instance).apply(&mut item);
+        Some((self.document.item_layer(id)?, item))
     }
 
     pub fn items(&self) -> impl Iterator<Item = &TimelineItem> {

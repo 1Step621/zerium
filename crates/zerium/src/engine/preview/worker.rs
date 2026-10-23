@@ -1,9 +1,8 @@
-//! One persistent media decode worker per input, driven by latest scene demand.
+//! One persistent media decode worker per consumer stream, driven by scene demand.
 use super::PreviewFrameEvent;
 use crate::engine::{
-    frame::{FrameData, VisualFrame},
     media::{MediaError, MediaFrameRequest, MediaReaderRegistry, VisualDecodeSession},
-    rendering::RenderSession,
+    rendering::VideoFrameUploader,
 };
 use futures::channel::mpsc::UnboundedSender;
 use std::sync::{
@@ -11,10 +10,11 @@ use std::sync::{
     atomic::{AtomicBool, Ordering},
 };
 
-pub(super) struct DecodeRequest {
-    pub(super) generation: u64,
-    pub(super) frame: MediaFrameRequest,
-    pub(super) cancel: Arc<AtomicBool>,
+#[derive(Clone)]
+struct DecodeRequest {
+    generation: u64,
+    frame: MediaFrameRequest,
+    cancel: Arc<AtomicBool>,
 }
 
 pub(super) struct DecodeWorker {
@@ -24,28 +24,37 @@ pub(super) struct DecodeWorker {
 }
 
 impl DecodeWorker {
-    pub(super) fn new(
-        requests: std::sync::mpsc::SyncSender<DecodeRequest>,
-        handle: std::thread::JoinHandle<()>,
-    ) -> Self {
-        Self {
+    pub(super) fn spawn(
+        media_readers: Arc<MediaReaderRegistry>,
+        uploader: Option<Arc<VideoFrameUploader>>,
+        events: UnboundedSender<PreviewFrameEvent>,
+    ) -> Result<Self, MediaError> {
+        let (requests, receiver) = std::sync::mpsc::sync_channel(1);
+        let handle = std::thread::Builder::new()
+            .name("zerium-video-worker".to_owned())
+            .spawn(move || run_decode_worker(media_readers, uploader, receiver, events))
+            .map_err(|error| {
+                MediaError::external(format!("Failed to start video decoder: {error}"))
+            })?;
+        Ok(Self {
             requests,
             active: None,
             handle: Some(handle),
-        }
+        })
     }
 
     pub(super) fn is_pending(&self) -> bool {
         self.active.is_some()
     }
 
-    pub(super) fn decode(&mut self, request: DecodeRequest) -> bool {
+    pub(super) fn decode(&mut self, generation: u64, frame: MediaFrameRequest) -> bool {
         debug_assert!(self.active.is_none());
-        self.active = Some(DecodeRequest {
-            generation: request.generation,
-            frame: request.frame.clone(),
-            cancel: request.cancel.clone(),
-        });
+        let request = DecodeRequest {
+            generation,
+            frame,
+            cancel: Arc::new(AtomicBool::new(false)),
+        };
+        self.active = Some(request.clone());
         self.requests.try_send(request).is_ok()
     }
 
@@ -79,6 +88,8 @@ impl DecodeWorker {
 
 impl Drop for DecodeWorker {
     fn drop(&mut self) {
+        // Closing the request channel releases the decoder on its own thread.
+        // Cancellation never joins a live worker on the UI thread.
         if let Some(active) = &self.active {
             active.cancel.store(true, Ordering::Release);
         }
@@ -88,15 +99,18 @@ impl Drop for DecodeWorker {
 /// Publish exactly once, even when a decoder panics. The terminal event wakes
 /// an unchanged preview so it cannot remain permanently marked as pending.
 struct DecodeReply<'a> {
-    pending: Option<PreviewFrameEvent>,
+    pending: Option<&'a DecodeRequest>,
     events: &'a UnboundedSender<PreviewFrameEvent>,
 }
 
 impl DecodeReply<'_> {
     fn publish(&mut self, result: Result<crate::engine::media::DecodedFrame, MediaError>) {
-        if let Some(mut event) = self.pending.take() {
-            event.result = result;
-            let _ = self.events.unbounded_send(event);
+        if let Some(request) = self.pending.take() {
+            let _ = self.events.unbounded_send(PreviewFrameEvent {
+                generation: request.generation,
+                request: request.frame.clone(),
+                result,
+            });
         }
     }
 }
@@ -107,32 +121,33 @@ impl Drop for DecodeReply<'_> {
     }
 }
 
-pub(super) fn run_decode_worker(
+fn run_decode_worker(
     media_readers: Arc<MediaReaderRegistry>,
-    renderer: Option<Arc<RenderSession>>,
+    uploader: Option<Arc<VideoFrameUploader>>,
     requests: std::sync::mpsc::Receiver<DecodeRequest>,
     events: UnboundedSender<PreviewFrameEvent>,
 ) {
     let mut decoder = VisualDecodeSession::default();
     while let Ok(request) = requests.recv() {
         let mut reply = DecodeReply {
-            pending: Some(PreviewFrameEvent {
-                generation: request.generation,
-                request: request.frame.clone(),
-                result: Err(MediaError::WorkerStopped),
-            }),
+            pending: Some(&request),
             events: &events,
         };
         let result = decoder
             .decode(
                 &media_readers,
                 &request.frame,
-                renderer.as_ref().map(|renderer| renderer.gpu()),
+                uploader.as_ref().map(|uploader| uploader.gpu()),
                 &request.cancel,
             )
             .and_then(|decoded| {
-                if let Some(renderer) = &renderer {
-                    prepare_video_frame(renderer, &decoded.frame, &request.cancel)?;
+                if request.cancel.load(Ordering::Acquire) {
+                    return Err(MediaError::Cancelled);
+                }
+                if let Some(uploader) = &uploader {
+                    uploader
+                        .prepare(&decoded.frame)
+                        .map_err(MediaError::external)?;
                 }
                 Ok(decoded)
             });
@@ -141,30 +156,4 @@ pub(super) fn run_decode_worker(
             break;
         }
     }
-}
-
-fn prepare_video_frame(
-    renderer: &RenderSession,
-    frame: &VisualFrame,
-    cancelled: &AtomicBool,
-) -> Result<(), MediaError> {
-    let FrameData::Video(_) = frame.data else {
-        return Ok(());
-    };
-    if cancelled.load(Ordering::Acquire) {
-        return Err(MediaError::Cancelled);
-    }
-    renderer
-        .prepare_video_frame(frame)
-        .map_err(MediaError::external)?;
-    let gpu = renderer.gpu();
-    let device = &gpu.device;
-    let queue = &gpu.queue;
-    // Conversion and presentation use the same queue, so its ordering makes
-    // the owned texture safe to publish before the GPU has finished writing it.
-    queue.submit([]);
-    device
-        .poll(wgpu::PollType::Poll)
-        .map_err(MediaError::external)?;
-    Ok(())
 }

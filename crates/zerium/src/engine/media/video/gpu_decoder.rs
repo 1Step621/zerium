@@ -22,14 +22,16 @@ use crate::engine::{
 };
 
 pub(super) struct GpuVideoDecoder {
-    device: wgpu::Device,
+    gpu: GpuContext,
     decoder: WgpuTexturesDecoderH264,
     frames: mpsc::Receiver<OutputFrame<VideoTexture>>,
     pending: BTreeMap<u64, SampleMetadata>,
+    next_sample_id: u64,
     finished: bool,
 }
 
 struct SampleMetadata {
+    presentation_time: gst::Signed<gst::ClockTime>,
     duration: Duration,
     color: Option<video::VideoColorimetry>,
     chroma_site: video::VideoChromaSite,
@@ -55,10 +57,11 @@ impl GpuVideoDecoder {
             )
             .map_err(MediaError::external)?;
         Ok(Self {
-            device: device.clone(),
+            gpu: gpu.clone(),
             decoder,
             frames,
             pending: BTreeMap::new(),
+            next_sample_id: 0,
             finished: false,
         })
     }
@@ -73,7 +76,12 @@ impl GpuVideoDecoder {
                 return Err(MediaError::Cancelled);
             }
             match self.frames.try_recv() {
-                Ok(frame) => return self.frame(frame).map(Some),
+                Ok(frame) => {
+                    if let Some(frame) = self.frame(frame)? {
+                        return Ok(Some(frame));
+                    }
+                    continue;
+                }
                 Err(mpsc::TryRecvError::Disconnected) => {
                     return Err(MediaError::external("GPU video decoder stopped"));
                 }
@@ -91,17 +99,18 @@ impl GpuVideoDecoder {
             let buffer = sample
                 .buffer()
                 .ok_or_else(|| MediaError::external("Encoded video has no buffer"))?;
-            let pts = buffer
-                .pts()
-                .and_then(|pts| {
-                    sample
-                        .segment()
-                        .and_then(|segment| segment.downcast_ref::<gst::ClockTime>())
-                        .and_then(|segment| segment.to_stream_time(pts))
-                })
-                .or_else(|| buffer.pts())
-                .ok_or_else(|| MediaError::external("Encoded video has no presentation timestamp"))?
-                .nseconds();
+            let pts = buffer.pts().ok_or_else(|| {
+                MediaError::external("Encoded video has no presentation timestamp")
+            })?;
+            // Preroll can precede the segment while remaining necessary for
+            // decoding. Use the same source clock on both sides of its start;
+            // to_stream_time() would reject preroll and fall back to a different
+            // clock, breaking presentation order and metadata lookup.
+            let presentation_time = sample
+                .segment()
+                .and_then(|segment| segment.downcast_ref::<gst::ClockTime>())
+                .and_then(|segment| segment.to_stream_time_full(pts))
+                .unwrap_or(gst::Signed::Positive(pts));
             let duration = buffer
                 .duration()
                 .map(|duration| Duration::from_nanos(duration.nseconds()))
@@ -119,9 +128,16 @@ impl GpuVideoDecoder {
                 .transpose()
                 .map_err(MediaError::external)?
                 .unwrap_or(video::VideoChromaSite::H_COSITED);
+            // The decoder echoes this tag. It is an identity, independent of
+            // source timestamps, which can repeat or be negative during preroll.
+            let sample_id = self.next_sample_id;
+            self.next_sample_id = sample_id
+                .checked_add(1)
+                .ok_or_else(|| MediaError::external("GPU video sample ID overflow"))?;
             self.pending.insert(
-                pts,
+                sample_id,
                 SampleMetadata {
+                    presentation_time,
                     duration,
                     color,
                     chroma_site,
@@ -136,7 +152,7 @@ impl GpuVideoDecoder {
             self.decoder
                 .decode(gpu_video::EncodedInputChunk {
                     data: bytes.as_slice(),
-                    pts: Some(pts),
+                    pts: Some(sample_id),
                 })
                 .map_err(MediaError::external)?;
             // h264parse supplies complete access units, including parameter sets after seeks.
@@ -158,16 +174,23 @@ impl GpuVideoDecoder {
             .map_err(MediaError::external)
     }
 
-    fn frame(&mut self, output: OutputFrame<VideoTexture>) -> Result<DecodedFrame, MediaError> {
-        let pts = output.metadata.pts.ok_or_else(|| {
-            MediaError::external("Decoded GPU frame has no presentation timestamp")
-        })?;
+    fn frame(
+        &mut self,
+        output: OutputFrame<VideoTexture>,
+    ) -> Result<Option<DecodedFrame>, MediaError> {
+        let sample_id = output
+            .metadata
+            .pts
+            .ok_or_else(|| MediaError::external("Decoded GPU frame has no sample ID"))?;
         let sample = self
             .pending
-            .remove(&pts)
+            .remove(&sample_id)
             .ok_or_else(|| MediaError::external("GPU frame has no input timing metadata"))?;
-        // The decoder delivers presentation order; discard metadata for dropped pictures.
-        self.pending.retain(|timestamp, _| *timestamp > pts);
+        // Frames before the media origin still supply codec references, but
+        // cannot be presented. Discard their output only after decoding.
+        let Some(presentation_time) = sample.presentation_time.positive() else {
+            return Ok(None);
+        };
         let width = output.data.width();
         let height = output.data.height();
         let mut info = video::VideoInfo::builder(video::VideoFormat::Nv12, width, height)
@@ -186,19 +209,36 @@ impl GpuVideoDecoder {
             format.full_range =
                 output.metadata.color_range == gpu_video::parameters::ColorRange::Full;
         }
-        Ok(DecodedFrame {
-            presentation_time: Duration::from_nanos(pts),
+        Ok(Some(DecodedFrame {
+            presentation_time: Duration::from_nanos(presentation_time.nseconds()),
             duration: sample.duration,
-            frame: VisualFrame {
+            frame: Arc::new(VisualFrame {
                 width,
                 height,
                 data: FrameData::Video(Arc::new(VideoFrame::from_gpu(
                     info,
-                    &self.device,
+                    &self.gpu.device,
                     output.data,
                     format,
                 ))),
-            },
-        })
+            }),
+        }))
+    }
+}
+
+impl Drop for GpuVideoDecoder {
+    fn drop(&mut self) {
+        // gpu-video stages external semaphore waits on the consumer queue.
+        // Discarded or unpresented pictures may never cause a render submission,
+        // so consume those waits before releasing the decoder's semaphores.
+        // Waiting for this submission also covers waits consumed by an earlier
+        // render submission. The decoder and its queued frames remain alive here.
+        let submission = self.gpu.queue.submit([]);
+        if let Err(error) = self.gpu.device.poll(wgpu::PollType::Wait {
+            submission_index: Some(submission),
+            timeout: None,
+        }) {
+            log::error!("Failed to finish GPU video synchronization: {error}");
+        }
     }
 }

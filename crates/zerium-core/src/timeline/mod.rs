@@ -15,6 +15,7 @@ mod placement;
 mod project;
 mod properties;
 mod property_address;
+mod render;
 mod scene;
 mod selection;
 mod settings;
@@ -34,7 +35,7 @@ pub use document::TimelineDocument;
 pub use document::{ResizeEdge, ResizeMode};
 pub use editor::TimelineEditor;
 pub use evaluated::{EvaluatedEffect, EvaluatedItem};
-pub use evaluation::{EvaluatedClip, EvaluatedSceneNode, SceneRenderStage};
+pub use evaluation::{EvaluatedClip, EvaluatedSceneNode};
 pub use ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId};
 pub use item::{EffectInstance, RenderResultSettings, TimelineItem, TimelineItemKind};
 pub use property_address::PropertyAddress;
@@ -50,3 +51,7 @@ pub use time_mapping::TimeMapping;
 pub use view::{TimelineSnapshot, TimelineView};
 
 pub use audio::{AudioClipId, AudioTimelineSnapshot, AudioTimelineSource, EvaluatedAudioGain};
+
+pub use render::{
+    RenderEvaluation, RenderPlacement, RenderPropertyTarget, ResolvedRenderProperties,
+};

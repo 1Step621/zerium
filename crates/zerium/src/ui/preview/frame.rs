@@ -24,9 +24,12 @@ impl Preview {
             .scene_evaluator
             .evaluate(editor, render_time, size, |request| {
                 Ok::<_, RenderError>(playback.request_frame(&request))
-            })?;
+            });
         let snapshot = playback.finish_frame_demand();
-        Ok((scene, snapshot))
+        // Reconcile workers and status even when image planning fails. Planning
+        // publishes no media requests until the complete image graph is valid.
+        self.handle_frame_status(&snapshot, cx);
+        Ok((scene?, snapshot))
     }
 
     pub(super) fn handle_frame_status(
@@ -76,8 +79,6 @@ impl Preview {
                 return;
             }
         };
-        self.handle_frame_status(&playback, cx);
-
         let Some(renderer) = self.render_runtime.read(cx).preview_session() else {
             return;
         };
@@ -101,10 +102,7 @@ impl Preview {
             (scene, playback)
         } else {
             match self.prepare_scene(render_time, size, cx) {
-                Ok(prepared) => {
-                    self.handle_frame_status(&prepared.1, cx);
-                    prepared
-                }
+                Ok(prepared) => prepared,
                 Err(error) => {
                     self.report_error(
                         t!("preview.rebuild_scene_failed", error = error).to_string(),

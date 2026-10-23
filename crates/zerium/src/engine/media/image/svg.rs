@@ -10,7 +10,7 @@ use std::{
 
 use resvg::{tiny_skia, usvg};
 
-use crate::engine::frame::VisualFrame;
+use crate::engine::frame::{FrameCache, RASTER_CACHE_BYTES, VisualFrame};
 use zerium_core::media::{MediaAsset, MediaKind, MediaMetadata, MediaTarget};
 
 use super::super::reader::{ImageDecoder, MediaError, MediaReader, RasterSize};
@@ -40,7 +40,7 @@ impl MediaReader for SvgMediaReader {
         };
         Ok(Box::new(SvgDecodeSession {
             tree: read_tree(&asset.path)?,
-            cached: None,
+            cached: FrameCache::new(RASTER_CACHE_BYTES),
         }))
     }
 }
@@ -77,7 +77,7 @@ fn system_fonts() -> &'static Arc<usvg::fontdb::Database> {
 
 struct SvgDecodeSession {
     tree: usvg::Tree,
-    cached: Option<VisualFrame>,
+    cached: FrameCache<RasterSize>,
 }
 
 impl ImageDecoder for SvgDecodeSession {
@@ -85,18 +85,15 @@ impl ImageDecoder for SvgDecodeSession {
         &mut self,
         size: RasterSize,
         cancelled: &AtomicBool,
-    ) -> Result<VisualFrame, MediaError> {
+    ) -> Result<Arc<VisualFrame>, MediaError> {
         if cancelled.load(Ordering::Relaxed) {
             return Err(MediaError::Cancelled);
         }
         if size.max_width == 0 || size.max_height == 0 {
             return Err(MediaError::external("Invalid SVG render size"));
         }
-        if let Some(frame) = &self.cached
-            && frame.width == size.max_width
-            && frame.height == size.max_height
-        {
-            return Ok(frame.clone());
+        if let Some(frame) = self.cached.get(&size) {
+            return Ok(frame);
         }
         let mut pixmap = tiny_skia::Pixmap::new(size.max_width, size.max_height)
             .ok_or_else(|| MediaError::external("Failed to allocate SVG render area"))?;
@@ -125,8 +122,8 @@ impl ImageDecoder for SvgDecodeSession {
                 }
             }
         }
-        let frame = VisualFrame::rgba(size.max_width, size.max_height, rgba);
-        self.cached = Some(frame.clone());
+        let frame = Arc::new(VisualFrame::rgba(size.max_width, size.max_height, rgba));
+        self.cached.insert(size, frame.clone());
         Ok(frame)
     }
 }

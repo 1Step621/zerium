@@ -1,5 +1,7 @@
 //! Persistent video decoding shared by preview and export.
 use crate::engine::gpu::GpuContext;
+mod backend;
+mod cursor;
 mod decoder;
 mod gpu_decoder;
 
@@ -32,9 +34,9 @@ impl MediaReader for VideoReader {
                 "Video reader requires video media",
             ));
         };
-        Ok(Box::new(decoder::VideoDecodeSession::open(
+        Ok(Box::new(decoder::VideoDecodeSession::new(
             asset.clone(),
             gpu,
-        )?))
+        )))
     }
 }

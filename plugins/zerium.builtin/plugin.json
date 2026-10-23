@@ -4838,6 +4838,31 @@
       ]
     },
     {
+      "id": "time_remap",
+      "label": { "ja-JP": "時間リマップ", "en-US": "Time Remap" },
+      "category": "filter",
+      "tags": ["時間", "進捗", "逆再生", "静止", "time remap", "retime", "temporal"],
+      "render": {
+        "passes": [
+          {
+            "type": "sample",
+            "sampling": { "type": "progress", "progress": "progress" }
+          }
+        ]
+      },
+      "properties": [
+        {
+          "id": "progress",
+          "label": { "ja-JP": "進捗", "en-US": "Progress" },
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 1 },
+          "ui": { "step": 0.01 }
+        }
+      ]
+    },
+    {
       "id": "pixelate",
       "label": { "ja-JP": "ピクセル化", "en-US": "Pixelate" },
       "category": "filter",

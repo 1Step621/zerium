@@ -362,6 +362,36 @@
     "dispatchDimension": {
       "enum": ["width", "height", "max_dimension", "one"]
     },
+    "samplePass": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type", "sampling"],
+      "properties": {
+        "type": { "const": "sample" },
+        "sampling": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "progress"],
+              "properties": {
+                "type": { "const": "progress" },
+                "progress": { "$ref": "#/$defs/wgslId" }
+              }
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["type", "offset"],
+              "properties": {
+                "type": { "const": "offset" },
+                "offset": { "$ref": "#/$defs/wgslId" }
+              }
+            }
+          ]
+        }
+      }
+    },
     "temporalPass": {
       "type": "object",
       "additionalProperties": false,
@@ -744,7 +774,8 @@
             "oneOf": [
               { "$ref": "#/$defs/renderPass" },
               { "$ref": "#/$defs/computePass" },
-              { "$ref": "#/$defs/temporalPass" }
+              { "$ref": "#/$defs/temporalPass" },
+              { "$ref": "#/$defs/samplePass" }
             ]
           }
         }

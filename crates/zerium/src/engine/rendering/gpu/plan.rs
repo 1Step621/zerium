@@ -308,117 +308,113 @@ impl RenderGraphBuilder<'_> {
         self.intern_node(RenderNodeKind::Transparent, bounds)
     }
 
-    fn encode_effects(
+    fn encode_effect(
         &mut self,
-        mut node: RenderNodeId,
-        effects: &[RenderEffect],
+        input: Option<RenderNodeId>,
+        effect: &RenderEffect,
     ) -> Result<RenderNodeId, RenderError> {
-        for effect in effects {
-            let mut capabilities = Vec::with_capacity(effect.inputs.len());
-            let mut image_bounds = Vec::with_capacity(effect.inputs.len());
-            for input in &effect.inputs {
-                let node = self.encode_node(input.node)?;
-                capabilities.push(node);
-                image_bounds.push((input.id.clone(), self.output.nodes[node].bounds));
+        let mut node = input.unwrap_or_else(|| self.transparent(SurfaceRect::EMPTY));
+        let mut capabilities = Vec::with_capacity(effect.inputs.len());
+        let mut image_bounds = Vec::with_capacity(effect.inputs.len());
+        for input in &effect.inputs {
+            let node = self.encode_node(input.node)?;
+            capabilities.push(node);
+            image_bounds.push((input.id.clone(), self.output.nodes[node].bounds));
+        }
+        let mut temporal_inputs = Vec::new();
+        if let Some(pass) = effect.passes.first()
+            && let RenderEffectPassKind::Temporal(samples) = &pass.kind
+        {
+            for sample in samples {
+                temporal_inputs.push((
+                    sample
+                        .input
+                        .map(|input| self.encode_node(input))
+                        .transpose()?,
+                    sample.frame_offset,
+                ));
             }
-            let mut temporal_inputs = Vec::new();
-            if let Some(pass) = effect.passes.first()
-                && let RenderEffectPassKind::Temporal(samples) = &pass.kind
+        }
+
+        let basis = temporal_inputs
+            .iter()
+            .filter_map(|(input, _)| input.map(|id| self.output.nodes[id].bounds))
+            .filter(|bounds| !bounds.is_empty())
+            .reduce(SurfaceRect::union)
+            .unwrap_or(self.output.nodes[node].bounds);
+        let viewport = SurfaceRect::viewport(self.scene.composition_size);
+        let pass_inputs = |input, source| PassInputs {
+            input,
+            source,
+            capabilities: &capabilities,
+        };
+        let mut source = node;
+        for pass in &effect.passes {
+            let (input_bounds, source_bounds) = if let RenderEffectPassKind::Temporal(_) = pass.kind
             {
-                for sample in samples {
-                    temporal_inputs.push((
-                        sample
-                            .input
-                            .map(|input| self.encode_node(input))
-                            .transpose()?,
-                        sample.frame_offset,
-                    ));
-                }
-            }
-
-            let basis = temporal_inputs
-                .iter()
-                .filter_map(|(input, _)| input.map(|id| self.output.nodes[id].bounds))
-                .filter(|bounds| !bounds.is_empty())
-                .reduce(SurfaceRect::union)
-                .unwrap_or(self.output.nodes[node].bounds);
-            let viewport = SurfaceRect::viewport(self.scene.composition_size);
-            let pass_inputs = |input, source| PassInputs {
-                input,
-                source,
-                capabilities: &capabilities,
+                (basis, basis)
+            } else {
+                (
+                    self.output.nodes[node].bounds,
+                    self.output.nodes[source].bounds,
+                )
             };
-            let mut source = node;
-            for pass in &effect.passes {
-                let (input_bounds, source_bounds) =
-                    if let RenderEffectPassKind::Temporal(_) = pass.kind {
-                        (basis, basis)
-                    } else {
-                        (
-                            self.output.nodes[node].bounds,
-                            self.output.nodes[source].bounds,
-                        )
-                    };
-                let bounds = pass
-                    .output_bounds
-                    .evaluate(&BoundsContext {
-                        input: input_bounds,
-                        source: source_bounds,
-                        viewport,
-                        images: &image_bounds,
-                    })
-                    .map_err(|error| {
-                        RenderError::backend(format!(
-                            "Effect pass {:?} bounds: {error}",
-                            pass.shader
-                        ))
-                    })?;
+            let bounds = pass
+                .output_bounds
+                .evaluate(&BoundsContext {
+                    input: input_bounds,
+                    source: source_bounds,
+                    viewport,
+                    images: &image_bounds,
+                })
+                .map_err(|error| {
+                    RenderError::backend(format!("Effect pass {:?} bounds: {error}", pass.shader))
+                })?;
 
-                match &pass.kind {
-                    RenderEffectPassKind::Temporal(_) => {
-                        let count = temporal_inputs.len() as u32;
-                        let mut accumulation = self.transparent(bounds);
-                        for (index, (input, offset)) in temporal_inputs.iter().enumerate() {
-                            let input = input.unwrap_or_else(|| self.transparent(bounds));
-                            let temporal = [
-                                index as u32,
-                                count,
-                                offset.to_bits(),
-                                ((index as f32 + 0.5) / count.max(1) as f32).to_bits(),
-                            ];
-                            accumulation = self.encode_pass(
-                                pass_inputs(input, accumulation),
-                                pass,
-                                PassKind::Temporal,
-                                temporal,
-                                bounds,
-                            );
-                        }
-
-                        node = accumulation;
-                        source = node;
-                    }
-
-                    RenderEffectPassKind::Render => {
-                        node = self.encode_pass(
-                            pass_inputs(node, source),
+            match &pass.kind {
+                RenderEffectPassKind::Temporal(_) => {
+                    let count = temporal_inputs.len() as u32;
+                    let mut accumulation = self.transparent(bounds);
+                    for (index, (input, offset)) in temporal_inputs.iter().enumerate() {
+                        let input = input.unwrap_or_else(|| self.transparent(bounds));
+                        let temporal = [
+                            index as u32,
+                            count,
+                            offset.to_bits(),
+                            ((index as f32 + 0.5) / count.max(1) as f32).to_bits(),
+                        ];
+                        accumulation = self.encode_pass(
+                            pass_inputs(input, accumulation),
                             pass,
-                            PassKind::Render,
-                            [0; 4],
+                            PassKind::Temporal,
+                            temporal,
                             bounds,
-                        )
+                        );
                     }
-                    RenderEffectPassKind::Compute(dispatch) => {
-                        node = self.encode_pass(
-                            pass_inputs(node, source),
-                            pass,
-                            PassKind::Compute {
-                                dispatch: *dispatch,
-                            },
-                            [0; 4],
-                            bounds,
-                        )
-                    }
+
+                    node = accumulation;
+                    source = node;
+                }
+
+                RenderEffectPassKind::Render => {
+                    node = self.encode_pass(
+                        pass_inputs(node, source),
+                        pass,
+                        PassKind::Render,
+                        [0; 4],
+                        bounds,
+                    )
+                }
+                RenderEffectPassKind::Compute(dispatch) => {
+                    node = self.encode_pass(
+                        pass_inputs(node, source),
+                        pass,
+                        PassKind::Compute {
+                            dispatch: *dispatch,
+                        },
+                        [0; 4],
+                        bounds,
+                    )
                 }
             }
         }
@@ -490,15 +486,11 @@ impl RenderGraphBuilder<'_> {
         let node = &self.scene.nodes[id];
         let plan = match &node.content {
             RenderNodeContent::Frame(frame) => self.encode_frame(frame),
-            RenderNodeContent::Item(item) => {
-                let source = self.encode_source(item)?;
-                self.encode_effects(source, &item.effects)?
-            }
-            RenderNodeContent::Scene {
-                children, effects, ..
-            } => {
-                let composite = self.encode_composite(children)?;
-                self.encode_effects(composite, effects)?
+            RenderNodeContent::Item(item) => self.encode_source(item)?,
+            RenderNodeContent::Scene { children, .. } => self.encode_composite(children)?,
+            RenderNodeContent::Effect { input, effect, .. } => {
+                let input = input.map(|input| self.encode_node(input)).transpose()?;
+                self.encode_effect(input, effect)?
             }
             RenderNodeContent::View { input, view } => {
                 let input = self.encode_node(*input)?;

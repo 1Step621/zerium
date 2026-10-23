@@ -26,6 +26,7 @@ use pipelines::{ComputePipeline, RasterPipeline};
 use plan::NodeIdentityCache;
 use resources::{FrameResources, NodeResources};
 use textures::TextureResources;
+pub(crate) use textures::VideoFrameUploader;
 use video_input::{VideoPlanePipeline, YuvUploadPipeline};
 use zerium_shader::{EffectShaderId, ItemShaderId};
 
@@ -72,7 +73,6 @@ pub(crate) struct RenderDevice {
 pub(crate) struct RenderSession {
     shared: Arc<RenderDevice>,
     state: Mutex<RenderState>,
-    texture_resources: Mutex<TextureResources>,
 }
 
 /// Planning and submission share one ordering, including identities and pools.
@@ -81,6 +81,7 @@ struct RenderState {
     frame: Option<FrameResources>,
     node_identities: NodeIdentityCache,
     local_resources: Vec<NodeResources>,
+    textures: TextureResources,
 }
 
 pub(crate) struct RenderDeviceBuilder {
@@ -92,7 +93,6 @@ impl RenderDevice {
         RenderSession {
             shared: self.clone(),
             state: Mutex::new(RenderState::default()),
-            texture_resources: Mutex::new(TextureResources::default()),
         }
     }
 }

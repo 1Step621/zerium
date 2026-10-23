@@ -60,23 +60,28 @@ pub fn compile_plugins(plugins: &PluginLibrary) -> Result<Arc<CompiledPluginShad
     for (plugin_id, schema) in registry.effects() {
         for (pass_index, pass) in schema.render().passes.iter().enumerate() {
             let id = EffectShaderId::plugin_pass(plugin_id, schema.id(), pass_index);
-            let module = validated_module(&modules, plugin_id, pass.shader_module());
+            let Some(module_name) = pass.shader_module() else {
+                continue;
+            };
+            let module = validated_module(&modules, plugin_id, module_name);
+            let overrides = pass.overrides().expect("shader pass overrides");
             let label = format!("{} pass {pass_index}", schema.id());
             let effect = match pass {
-                EffectPassSchema::Render { shader, .. } => CompiledEffectShader::Render(
-                    render_pass(module, id, label, shader, pass.overrides())?,
-                ),
+                EffectPassSchema::Sample { .. } => unreachable!("sample passes have no shader"),
+                EffectPassSchema::Render { shader, .. } => {
+                    CompiledEffectShader::Render(render_pass(module, id, label, shader, overrides)?)
+                }
                 EffectPassSchema::Temporal { reducer, .. } => CompiledEffectShader::Temporal(
-                    render_pass(module, id, label, reducer, pass.overrides())?,
+                    render_pass(module, id, label, reducer, overrides)?,
                 ),
                 EffectPassSchema::Compute { shader, .. } => {
-                    let workgroup_size = module.compute(&id, shader.entry(), pass.overrides())?;
+                    let workgroup_size = module.compute(&id, shader.entry(), overrides)?;
                     CompiledEffectShader::Compute(ComputeShaderDescriptor {
                         id,
                         wgsl: Arc::clone(module.source()),
                         entry: shader.entry().to_owned(),
                         workgroup_size,
-                        overrides: pass.overrides().clone(),
+                        overrides: overrides.clone(),
                     })
                 }
             };

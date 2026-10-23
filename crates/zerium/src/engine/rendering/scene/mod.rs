@@ -1,4 +1,5 @@
 mod composition;
+mod demand;
 mod evaluation;
 mod geometry;
 mod graph;
@@ -9,8 +10,11 @@ pub(crate) use evaluation::SceneEvaluator;
 pub(super) use geometry::{BoundsContext, BoundsOperation, RasterGrid, SurfaceRect};
 use std::sync::Arc;
 use thiserror::Error;
-use zerium_core::plugin::ComputeDispatchDimension;
 use zerium_core::timeline::{BlendMode, ProjectResolution};
+use zerium_core::{
+    plugin::{ComputeDispatchDimension, RenderResultView},
+    property::PropertyValues,
+};
 use zerium_shader::{EffectShaderId, ItemShaderId};
 
 pub(super) type SceneNodeId = usize;
@@ -44,7 +48,6 @@ pub(crate) struct RenderItem {
     pub shader: ItemShaderId,
     pub inputs: Vec<RenderInput>,
     pub properties: Vec<u8>,
-    pub effects: Vec<RenderEffect>,
     pub render_scale: u32,
     pub output_bounds: Box<BoundsOperation>,
 }
@@ -103,13 +106,39 @@ impl Default for RenderView {
     }
 }
 
+impl RenderView {
+    fn from_properties(view: &RenderResultView, properties: &PropertyValues) -> Self {
+        let value = |id: &str, index| {
+            properties
+                .property(id)
+                .and_then(|value| value.scalar_at(index))
+                .and_then(|value| value.as_f32())
+                .expect("validated capture view property")
+        };
+        Self {
+            position: [
+                value(&view.position, Some(0)),
+                value(&view.position, Some(1)),
+            ],
+            zoom: value(&view.zoom, None) / 100.,
+            angle: value(&view.angle, None),
+        }
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) enum RenderNodeContent {
+pub(crate) enum RenderNodeContent<F = Arc<VisualFrame>> {
     Item(RenderItem),
-    Frame(Arc<VisualFrame>),
+    Frame(F),
+    /// A shader stage depends on its requested upstream image. Temporal
+    /// reductions have sampled inputs instead; pure samples alias an existing node.
+    Effect {
+        input: Option<SceneNodeId>,
+        effect: RenderEffect,
+        render_scale: u32,
+    },
     Scene {
         children: Vec<SceneNodeId>,
-        effects: Vec<RenderEffect>,
         render_scale: u32,
     },
     /// A finite image of a composition, sampled through a view.
@@ -119,14 +148,45 @@ pub(crate) enum RenderNodeContent {
     },
 }
 
-/// A scene-linear compositing node. Scene-instance effects belong to the
-/// `Scene` node and are therefore applied once after all children are blended.
+/// A scene-linear compositing node. Scene-instance effects depend on the
+/// completed `Scene` image and run once after all children are blended.
 #[derive(Clone, Debug, PartialEq)]
-pub(crate) struct RenderNode {
-    pub content: RenderNodeContent,
+pub(crate) struct RenderNode<F = Arc<VisualFrame>> {
+    pub content: RenderNodeContent<F>,
     pub render_scale: u32,
     /// Used only when this completed node is composited into its parent scene.
     pub blend_mode: BlendMode,
+}
+
+impl<F> RenderNode<F> {
+    fn map_frame<G>(self, map: impl FnOnce(F) -> G) -> RenderNode<G> {
+        let content = match self.content {
+            RenderNodeContent::Frame(frame) => RenderNodeContent::Frame(map(frame)),
+            RenderNodeContent::Item(item) => RenderNodeContent::Item(item),
+            RenderNodeContent::Effect {
+                input,
+                effect,
+                render_scale,
+            } => RenderNodeContent::Effect {
+                input,
+                effect,
+                render_scale,
+            },
+            RenderNodeContent::Scene {
+                children,
+                render_scale,
+            } => RenderNodeContent::Scene {
+                children,
+                render_scale,
+            },
+            RenderNodeContent::View { input, view } => RenderNodeContent::View { input, view },
+        };
+        RenderNode {
+            content,
+            render_scale: self.render_scale,
+            blend_mode: self.blend_mode,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq)]

@@ -1,28 +1,19 @@
 use std::{
-    collections::{HashMap, HashSet},
+    hash::{Hash, Hasher},
     sync::Arc,
 };
 
 use cosmic_text::{FontSystem, SwashCache};
 
-use crate::engine::frame::VisualFrame;
+use crate::engine::frame::{FrameCache, RASTER_CACHE_BYTES, VisualFrame};
 use zerium_core::plugin::{MAX_DECIMAL_PLACES, TextStyle, TextureInput};
 use zerium_core::property::{PropertyValue, PropertyValues};
-use zerium_core::timeline::{EffectInstanceId, EvaluatedItem, ItemId};
 
 use super::{RenderError, RenderSize};
 
 mod raster;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub(crate) struct TextSourceId {
-    pub item_id: ItemId,
-    pub effect_id: Option<EffectInstanceId>,
-    pub capability_index: usize,
-}
-
 pub(crate) struct TextFrameRequest<'a> {
-    pub id: TextSourceId,
     pub capability: &'a TextureInput,
     pub properties: &'a PropertyValues,
     pub label: &'a str,
@@ -48,91 +39,23 @@ struct TextSignature {
     composition_size: RenderSize,
 }
 
-struct CachedTextFrame {
-    signature: TextSignature,
-    frame: Arc<VisualFrame>,
-    last_used: u64,
-}
-
 pub(super) struct TextFrameCache {
     font_system: FontSystem,
     swash_cache: SwashCache,
-    frames: HashMap<TextSourceId, CachedTextFrame>,
-    active: HashSet<TextSourceId>,
-    byte_budget: usize,
-    resident_bytes: usize,
-    clock: u64,
+    // Pixel identity is determined entirely by content, style and raster size.
+    frames: FrameCache<TextSignature>,
 }
 
 impl TextFrameCache {
-    pub(crate) const DEFAULT_BYTE_BUDGET: usize = 128 * 1024 * 1024;
-
     pub(crate) fn new() -> Self {
-        Self::with_byte_budget(Self::DEFAULT_BYTE_BUDGET)
+        Self::with_byte_budget(RASTER_CACHE_BYTES)
     }
 
     pub(crate) fn with_byte_budget(byte_budget: usize) -> Self {
         Self {
             font_system: gpui::new_font_system_with_locale(crate::i18n::locale()),
             swash_cache: SwashCache::new(),
-            frames: HashMap::new(),
-            active: HashSet::new(),
-            byte_budget,
-            resident_bytes: 0,
-            clock: 0,
-        }
-    }
-
-    /// Pins text sources on the active items and their effects.
-    /// Call once before resolving a frame; unpinned entries remain reusable LRU entries.
-    pub(crate) fn retain_active<'a>(&mut self, items: impl IntoIterator<Item = &'a EvaluatedItem>) {
-        self.active.clear();
-        for item in items {
-            let owners = item
-                .schema()
-                .map(|schema| (None, schema.inputs()))
-                .into_iter()
-                .chain(
-                    item.effects
-                        .iter()
-                        .map(|effect| (Some(effect.id), effect.schema().inputs())),
-                );
-            for (effect_id, capabilities) in owners {
-                for (capability_index, capability) in capabilities.iter().enumerate() {
-                    if capability.text_style().is_some() {
-                        self.active.insert(TextSourceId {
-                            item_id: item.runtime_id,
-                            effect_id,
-                            capability_index,
-                        });
-                    }
-                }
-            }
-        }
-        self.evict_to_budget();
-    }
-
-    fn next_tick(&mut self) -> u64 {
-        self.clock = self.clock.wrapping_add(1).max(1);
-        self.clock
-    }
-
-    fn evict_to_budget(&mut self) {
-        while self.resident_bytes > self.byte_budget {
-            let candidate = self
-                .frames
-                .iter()
-                .filter(|(id, cached)| {
-                    !self.active.contains(id) && Arc::strong_count(&cached.frame) == 1
-                })
-                .min_by_key(|(_, cached)| cached.last_used)
-                .map(|(id, _)| *id);
-            let Some(candidate) = candidate else {
-                break;
-            };
-            if let Some(evicted) = self.frames.remove(&candidate) {
-                self.resident_bytes = self.resident_bytes.saturating_sub(evicted.frame.byte_len());
-            }
+            frames: FrameCache::new(byte_budget),
         }
     }
 
@@ -142,42 +65,16 @@ impl TextFrameCache {
         composition_size: RenderSize,
     ) -> Result<Arc<VisualFrame>, RenderError> {
         let signature = TextSignature::from_request(&request, composition_size)?;
-        let tick = self.next_tick();
-        if let Some(cached) = self.frames.get_mut(&request.id)
-            && cached.signature == signature
-        {
-            cached.last_used = tick;
-            return Ok(cached.frame.clone());
+        if let Some(frame) = self.frames.get(&signature) {
+            return Ok(frame);
         }
         let frame = Arc::new(raster::rasterize(
             &mut self.font_system,
             &mut self.swash_cache,
             &signature,
-            self.byte_budget,
+            self.frames.byte_budget(),
         )?);
-        let bytes = frame.byte_len();
-        if let Some(replaced) = self.frames.remove(&request.id) {
-            self.resident_bytes = self
-                .resident_bytes
-                .saturating_sub(replaced.frame.byte_len());
-        }
-        self.resident_bytes = self.resident_bytes.saturating_add(bytes);
-        self.frames.insert(
-            request.id,
-            CachedTextFrame {
-                signature,
-                frame: frame.clone(),
-                last_used: tick,
-            },
-        );
-        self.evict_to_budget();
-        if self.resident_bytes > self.byte_budget
-            && let Some(uncached) = self.frames.remove(&request.id)
-        {
-            self.resident_bytes = self
-                .resident_bytes
-                .saturating_sub(uncached.frame.byte_len());
-        }
+        self.frames.insert(signature, frame.clone());
         Ok(frame)
     }
 }
@@ -243,7 +140,7 @@ impl TextSignature {
             }
             _ => return Err(missing()),
         };
-        Ok(Self {
+        let signature = Self {
             content,
             font_families: string_array(font_family).ok_or_else(missing)?,
             font_size: property(font_size)
@@ -279,6 +176,70 @@ impl TextSignature {
             box_size: pair(size).ok_or_else(missing)?,
             target_size: request.target_size,
             composition_size,
-        })
+        };
+        if signature
+            .scalars()
+            .into_iter()
+            .any(|value| !value.is_finite())
+        {
+            return Err(missing());
+        }
+        Ok(signature)
+    }
+
+    fn scalars(&self) -> [f32; 14] {
+        [
+            self.font_size,
+            self.letter_spacing,
+            self.line_spacing,
+            self.outline_width,
+            self.color[0],
+            self.color[1],
+            self.color[2],
+            self.color[3],
+            self.outline_color[0],
+            self.outline_color[1],
+            self.outline_color[2],
+            self.outline_color[3],
+            self.box_size[0],
+            self.box_size[1],
+        ]
+    }
+}
+
+// Construction rejects nonfinite values. Hashing canonicalizes signed zero,
+// matching the numeric equality used by the raster signature.
+impl Eq for TextSignature {}
+
+impl Hash for TextSignature {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        let Self {
+            content,
+            font_families,
+            font_size: _,
+            letter_spacing: _,
+            line_spacing: _,
+            color: _,
+            outline_width: _,
+            outline_color: _,
+            bold,
+            italic,
+            horizontal_alignment,
+            vertical_alignment,
+            box_size: _,
+            target_size,
+            composition_size,
+        } = self;
+        content.hash(state);
+        font_families.hash(state);
+        for value in self.scalars() {
+            (if value == 0. { 0 } else { value.to_bits() }).hash(state);
+        }
+        bold.hash(state);
+        italic.hash(state);
+        horizontal_alignment.hash(state);
+        vertical_alignment.hash(state);
+        target_size.hash(state);
+        composition_size.hash(state);
     }
 }

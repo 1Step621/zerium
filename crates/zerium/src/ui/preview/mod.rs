@@ -161,8 +161,12 @@ impl Preview {
             runtime.set_preview_session(renderer);
         });
         let audio_level_sampler = AudioLevelSampler::new(media_readers.clone());
+        let uploader = render_runtime
+            .read(cx)
+            .preview_session()
+            .map(|renderer| renderer.video_uploader());
         let (frame_scheduler, mut frame_events) =
-            PreviewFrameScheduler::new(media_readers, render_runtime.read(cx).preview_session());
+            PreviewFrameScheduler::new(media_readers, uploader);
         let frame_task = cx.spawn(async move |preview, cx| {
             while let Some(event) = frame_events.next().await {
                 let Some(preview) = preview.upgrade() else {
