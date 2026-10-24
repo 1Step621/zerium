@@ -1,5 +1,8 @@
 //! One animation gesture, with its matching targets fixed before any mutation.
-use std::{collections::HashMap, ops::RangeInclusive};
+use std::{
+    collections::{HashMap, hash_map::Entry},
+    ops::RangeInclusive,
+};
 
 use crate::animation::{ScalarTrack, SegmentInterpolation};
 use crate::timeline::{PropertyAddress, TimelineEditor, TimelineItem, TimelineTime};
@@ -55,7 +58,8 @@ enum AnimationEditKind {
     Segment,
 }
 
-/// Editor-local gesture state; synchronization is derived, never persisted.
+/// Fixed edit scope and Undo session, also used to preview synchronization.
+/// Creating an edit is read-only; history starts with its first mutation.
 pub struct AnimationEdit {
     targets: Vec<Target>,
     kind: AnimationEditKind,
@@ -63,12 +67,31 @@ pub struct AnimationEdit {
 }
 
 impl AnimationEdit {
+    pub fn is_current(&self, editor: &TimelineEditor) -> bool {
+        self.gesture.is_current(editor)
+    }
+
+    /// Each affected scalar property occurs exactly once.
+    pub fn properties(&self) -> impl Iterator<Item = &PropertyAddress> {
+        self.targets.iter().map(|target| &target.address)
+    }
+
     pub fn time_range(&self) -> Option<&RangeInclusive<TimelineTime>> {
         match &self.kind {
             AnimationEditKind::Stop(range) => Some(range),
             AnimationEditKind::Segment => None,
         }
     }
+}
+
+fn stop_move_range(
+    item: &TimelineItem,
+    track: &ScalarTrack,
+    index: usize,
+) -> Option<RangeInclusive<TimelineTime>> {
+    let clock = item.animation_clock(track);
+    let range = track.stop_move_range(index)?;
+    Some(clock.key_time_at(*range.start())..=clock.key_time_at(*range.end()))
 }
 
 impl TimelineEditor {
@@ -80,87 +103,75 @@ impl TimelineEditor {
     ) -> Option<AnimationEdit> {
         let source = self.item(address.item_id)?;
         let track = self.animation_track(address)?;
+        if !self
+            .property_schema(address)?
+            .is_editable(address.scalar_index)
+        {
+            return None;
+        }
         let times = part.times(source, track)?;
-        let interpolation = match part {
-            AnimationEditTarget::Stop(_) => None,
-            AnimationEditTarget::Segment(index) => Some(*track.interpolations().get(index)?),
+        let (interpolation, mut kind) = match part {
+            AnimationEditTarget::Stop(index) => (
+                None,
+                AnimationEditKind::Stop(stop_move_range(source, track, index)?),
+            ),
+            AnimationEditTarget::Segment(index) => (
+                Some(*track.interpolations().get(index)?),
+                AnimationEditKind::Segment,
+            ),
         };
-        let mut targets = Vec::new();
-        for item_id in self.selected_item_ids() {
-            let item = self.item(item_id)?;
-            for (effect_id, animations) in std::iter::once((None, &item.animations)).chain(
-                item.effects
-                    .iter()
-                    .map(|effect| (Some(effect.id), &effect.animations)),
-            ) {
-                for (path, track) in animations.tracks() {
-                    let candidate = PropertyAddress {
-                        item_id,
-                        effect_id,
-                        property_id: path.property_id().to_owned(),
-                        element_id: path.element_id(),
-                        scalar_index: path.scalar_index(),
-                    };
-                    if (!synchronize && candidate != *address)
+        let mut targets = vec![Target {
+            address: address.clone(),
+            index: part.index(),
+        }];
+        // Direct manipulation always includes the source item. Only a selected
+        // source extends the gesture to the other selected items.
+        if synchronize {
+            let include_selection = self.is_item_selected(address.item_id);
+            let item_ids = std::iter::once(address.item_id).chain(
+                self.selected_item_ids()
+                    .filter(|item_id| include_selection && *item_id != address.item_id),
+            );
+            for item_id in item_ids {
+                let item = self.item(item_id)?;
+                for (candidate, track) in item.animation_tracks() {
+                    if candidate == *address
                         || self
                             .property_schema(&candidate)
                             .is_none_or(|schema| !schema.is_editable(candidate.scalar_index))
                     {
                         continue;
                     }
-                    let indices = match part {
-                        // Fixed endpoints cannot participate in point movement.
-                        AnimationEditTarget::Stop(_) => 1..track.stops().len() - 1,
-                        AnimationEditTarget::Segment(_) => 0..track.interpolations().len(),
-                    };
-                    for index in indices {
-                        if !synchronize && index != part.index() {
-                            continue;
-                        }
-                        if part.with_index(index).times(item, track)? == times
-                            && interpolation.is_none_or(|interpolation| {
-                                track.interpolations().get(index) == Some(&interpolation)
-                            })
-                        {
-                            targets.push(Target {
-                                address: candidate.clone(),
-                                index,
-                            });
-                        }
-                    }
-                }
-            }
-        }
-        // In particular, a fixed endpoint or an uneditable source must not move
-        // other curves just because they happen to have the same timestamp.
-        if !targets
-            .iter()
-            .any(|target| target.address == *address && target.index == part.index())
-        {
-            return None;
-        }
-        let kind = match part {
-            AnimationEditTarget::Stop(_) => {
-                let mut minimum = f64::NEG_INFINITY;
-                let mut maximum = f64::INFINITY;
-                for target in &targets {
-                    let item = self.item(target.address.item_id)?;
-                    let track = self.animation_track(&target.address)?;
                     let clock = item.animation_clock(track);
-                    let frame =
-                        |index: usize| clock.key_time_at(track.stops()[index].frame()).frames();
-                    minimum = minimum.max(frame(target.index - 1) + 1.);
-                    maximum = maximum.min(frame(target.index + 1) - 1.);
+                    let Some(index) = track.stop_index_at(clock.pattern_frame_at(times.0)) else {
+                        continue;
+                    };
+                    if part.with_index(index).times(item, track) != Some(times)
+                        || interpolation.is_some_and(|interpolation| {
+                            track.interpolations().get(index) != Some(&interpolation)
+                        })
+                    {
+                        continue;
+                    }
+                    if let AnimationEditKind::Stop(range) = &mut kind {
+                        let Some(other) = stop_move_range(item, track, index) else {
+                            continue;
+                        };
+                        let minimum = range.start().frames().max(other.start().frames());
+                        let maximum = range.end().frames().min(other.end().frames());
+                        if minimum > maximum {
+                            return None;
+                        }
+                        *range =
+                            TimelineTime::from_frames(minimum)..=TimelineTime::from_frames(maximum);
+                    }
+                    targets.push(Target {
+                        address: candidate,
+                        index,
+                    });
                 }
-                if minimum > maximum {
-                    return None;
-                }
-                AnimationEditKind::Stop(
-                    TimelineTime::from_frames(minimum)..=TimelineTime::from_frames(maximum),
-                )
             }
-            AnimationEditTarget::Segment(_) => AnimationEditKind::Segment,
-        };
+        }
         Some(AnimationEdit {
             targets,
             kind,
@@ -168,12 +179,10 @@ impl TimelineEditor {
         })
     }
 
-    pub fn move_animation_stop(
-        &mut self,
-        edit: &mut AnimationEdit,
-        time: TimelineTime,
-    ) -> Option<TimelineTime> {
-        let range = edit.time_range()?;
+    pub fn move_animation_stop(&mut self, edit: &mut AnimationEdit, time: TimelineTime) -> bool {
+        let Some(range) = edit.time_range() else {
+            return false;
+        };
         let time = TimelineTime::from_frames(
             time.frames()
                 .round()
@@ -185,7 +194,6 @@ impl TimelineEditor {
             (changed || AnimationEditTarget::Stop(index).times(item, track)?.0 == time)
                 .then_some(changed)
         })
-        .then_some(time)
     }
 
     pub fn set_animation_interpolation(
@@ -206,7 +214,7 @@ impl TimelineEditor {
         edit: &mut AnimationEdit,
         update: impl Fn(&TimelineItem, usize, &mut ScalarTrack) -> Option<bool>,
     ) -> bool {
-        if !edit.gesture.is_current(self) {
+        if !edit.is_current(self) {
             return false;
         }
         let mut candidates = HashMap::new();
@@ -215,13 +223,15 @@ impl TimelineEditor {
             let Some(item) = self.item(target.address.item_id) else {
                 return false;
             };
-            if let std::collections::hash_map::Entry::Vacant(entry) = candidates.entry(item.id) {
-                let Ok(candidate) = self.active_document().prepare_item_edit(item.id) else {
-                    return false;
-                };
-                entry.insert(candidate);
-            }
-            let candidate = candidates.get_mut(&item.id).expect("prepared item");
+            let candidate = match candidates.entry(item.id) {
+                Entry::Occupied(entry) => entry.into_mut(),
+                Entry::Vacant(entry) => {
+                    let Ok(candidate) = self.active_document().prepare_item_edit(item.id) else {
+                        return false;
+                    };
+                    entry.insert(candidate)
+                }
+            };
             let Some(track) = candidate
                 .item
                 .animations_mut(target.address.effect_id)

@@ -9,16 +9,22 @@ use super::{ItemId, SceneId, TimelineEditor};
 
 /// Identifies the document state for which an edit was resolved.
 #[derive(Clone, Copy, PartialEq, Eq)]
-struct EditContext {
+pub struct EditContext {
     revision: u64,
     project_id: super::ProjectId,
     scene_id: Option<SceneId>,
 }
 
+impl EditContext {
+    pub fn is_current(self, editor: &TimelineEditor) -> bool {
+        self == editor.edit_context()
+    }
+}
+
 pub use edit_session::EditSession;
 
 impl TimelineEditor {
-    fn edit_context(&self) -> EditContext {
+    pub fn edit_context(&self) -> EditContext {
         EditContext {
             revision: self.project_revision(),
             project_id: self.project().id,

@@ -2,8 +2,8 @@ use super::numeric_property::NumericInput;
 use super::operation_hints::{Hint, OperationHintExt as _};
 use ::ui::input::{InputEvent, InputState, NumberInput, NumberInputEvent};
 use gpui::{
-    Context, Empty, Entity, EntityId, MouseButton, MouseDownEvent, Render, Subscription, Window,
-    div, prelude::*,
+    Context, Empty, Entity, EntityId, Modifiers, MouseButton, Pixels, Point, Render, Subscription,
+    Window, div, prelude::*,
 };
 use std::rc::Rc;
 
@@ -60,12 +60,17 @@ impl Render for NumberValueDrag {
     }
 }
 
+pub(super) struct NumberDragStart {
+    pub position: Point<Pixels>,
+    pub modifiers: Modifiers,
+}
+
 pub(super) fn number_input_drag<T: 'static>(
     owner: &Entity<T>,
     input: &Entity<InputState>,
     value_input: NumberInput,
     disabled: bool,
-    prepare: impl Fn(&mut T, &MouseDownEvent, &mut Context<T>) + 'static,
+    prepare: impl Fn(&mut T, &NumberDragStart, &mut Context<T>) + 'static,
 ) -> gpui::AnyElement {
     let drag = NumberValueDrag {
         owner_id: owner.entity_id(),
@@ -80,11 +85,15 @@ pub(super) fn number_input_drag<T: 'static>(
         .flex_1()
         .flex()
         .when(!disabled, |this| {
-            this.on_mouse_down(MouseButton::Left, move |event, _, cx| {
-                owner.update(cx, |this, cx| prepare(this, event, cx));
-            })
-            .on_drag(drag, move |drag, _, window, cx| {
+            this.on_drag(drag, move |drag, _, window, cx| {
                 cx.stop_propagation();
+                let start = NumberDragStart {
+                    position: window.mouse_position(),
+                    modifiers: window.modifiers(),
+                };
+                if window.pressed_mouse_button() == Some(MouseButton::Left) {
+                    owner.update(cx, |this, cx| prepare(this, &start, cx));
+                }
                 input.update(cx, |input, cx| input.unselect(window, cx));
                 cx.new(|_| drag.clone())
             })

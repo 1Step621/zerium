@@ -1,5 +1,6 @@
 //! Segment interpolation modes and their mathematical evaluation.
 use serde::{Deserialize, Serialize};
+use std::num::NonZeroU32;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BezierHandle {
@@ -115,6 +116,9 @@ pub enum SegmentInterpolation {
     #[default]
     Linear,
     Hold,
+    Steps {
+        count: NonZeroU32,
+    },
     Ease {
         family: EasingFamily,
         direction: EasingDirection,
@@ -131,8 +135,21 @@ impl SegmentInterpolation {
         match self {
             Self::Linear => progress,
             Self::Hold => 0.,
+            Self::Steps { count } => {
+                let count = count.get() as f32;
+                (progress * count).floor() / count
+            }
             Self::Ease { family, direction } => direction.apply(family, progress),
             Self::Custom(curve) => curve.evaluate(progress),
+        }
+    }
+
+    /// Equal held intervals, with jumps at their ends. Hold is a single interval.
+    pub fn step_count(self) -> Option<NonZeroU32> {
+        match self {
+            Self::Hold => Some(NonZeroU32::MIN),
+            Self::Steps { count } => Some(count),
+            _ => None,
         }
     }
 

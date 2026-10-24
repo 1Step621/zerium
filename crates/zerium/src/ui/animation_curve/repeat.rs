@@ -4,11 +4,11 @@ use crate::ui::animation_curve::format_number;
 use crate::ui::{
     TimelineEditorEntityExt as _,
     input::{InputControl, set_input_text},
-    number_input::{NumberEdit, NumberValueDrag, number_input_drag, subscribe_number_input},
+    number_input::{NumberDragStart, NumberEdit, number_input_drag, subscribe_number_input},
     numeric_property::{NumericDrag, NumericInput},
 };
 use ::ui::input::{InputState, NumberInput, NumberInputEvent, StepAction};
-use gpui::{Div, DragMoveEvent, MouseDownEvent, Stateful};
+use gpui::{Div, Stateful};
 use rust_i18n::t;
 
 #[derive(Clone, Copy)]
@@ -20,7 +20,7 @@ pub(super) enum RepeatParameter {
 impl RepeatParameter {
     const ALL: [Self; 2] = [Self::Period, Self::Phase];
 
-    fn index(self) -> usize {
+    pub(super) fn index(self) -> usize {
         self as usize
     }
 
@@ -48,11 +48,10 @@ fn repeat_mode_label(mode: RepeatMode) -> String {
 }
 
 pub(super) struct RepeatInputs {
-    address: PropertyAddress,
-    fields: [InputControl; 2],
+    pub(super) address: PropertyAddress,
+    pub(super) fields: [InputControl; 2],
     // Last displayed model; unrelated redraws must preserve unfinished text.
     model: AnimationRepeat,
-    pub(super) drag: Option<(RepeatParameter, NumericDrag)>,
 }
 
 impl AnimationCurveEditor {
@@ -78,7 +77,7 @@ impl AnimationCurveEditor {
         });
     }
 
-    fn set_repeat_number(
+    pub(super) fn set_repeat_number(
         &mut self,
         address: &PropertyAddress,
         parameter: RepeatParameter,
@@ -156,7 +155,9 @@ impl AnimationCurveEditor {
                         this.set_repeat_number(&address, parameter, value, cx);
                     }
                     NumberEdit::Commit => {
-                        this.finish_history_drag(cx);
+                        if this.number_drag.is_none() {
+                            this.finish_history_drag(cx);
+                        }
                         if let Some(repeat) = this.repeat_for(&address, cx) {
                             set_input_text(input, parameter.text(repeat), window, cx);
                         }
@@ -169,14 +170,13 @@ impl AnimationCurveEditor {
             address: selected.address.clone(),
             fields,
             model: repeat,
-            drag: None,
         });
     }
 
     fn prepare_repeat_drag(
         &mut self,
         parameter: RepeatParameter,
-        event: &MouseDownEvent,
+        event: &NumberDragStart,
         cx: &mut Context<Self>,
     ) {
         let Some(inputs) = &self.repeat_inputs else {
@@ -186,46 +186,19 @@ impl AnimationCurveEditor {
             return;
         };
         let start_value = parameter.value(repeat);
-        self.editor
-            .update(cx, |editor, _| editor.finish_history_group());
-        self.repeat_inputs.as_mut().unwrap().drag = Some((
-            parameter,
-            NumericDrag {
+        let input = inputs.fields[parameter.index()].input.clone();
+        self.end_pointer_drag(cx);
+        self.finish_history_drag(cx);
+        self.number_drag = Some(CurveNumberDrag {
+            parameter: CurveNumberParameter::Repeat(parameter),
+            input,
+            motion: NumericDrag {
                 start_x: f32::from(event.position.x),
                 start_value,
                 step: 1.,
                 sensitivity: 1.,
             },
-        ));
-    }
-
-    pub(super) fn move_repeat_number(
-        &mut self,
-        event: &DragMoveEvent<NumberValueDrag>,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        let drag = event.drag(cx);
-        let Some(inputs) = &self.repeat_inputs else {
-            return;
-        };
-        let Some((parameter, adjustment)) = &inputs.drag else {
-            return;
-        };
-        if drag.owner_id != cx.entity_id()
-            || drag.input_id != inputs.fields[parameter.index()].input.entity_id()
-        {
-            return;
-        }
-        let address = inputs.address.clone();
-        let parameter = *parameter;
-        let value = adjustment.value_at(
-            f32::from(event.event.position.x),
-            event.event.modifiers.shift,
-        );
-        self.focus_handle.focus(window, cx);
-        cx.set_active_drag_cursor_style(gpui::CursorStyle::ResizeLeftRight, window);
-        self.set_repeat_number(&address, parameter, value, cx);
+        });
     }
 
     pub(super) fn repeat_controls(

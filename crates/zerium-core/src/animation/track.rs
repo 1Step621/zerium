@@ -265,13 +265,19 @@ impl ScalarTrack {
         true
     }
 
+    pub fn stop_move_range(&self, index: usize) -> Option<std::ops::RangeInclusive<Frame>> {
+        let previous = self.stops.get(index.checked_sub(1)?)?.frame;
+        let next = self.stops.get(index.checked_add(1)?)?.frame;
+        let minimum = previous.get().checked_add(1)?;
+        let maximum = next.get().checked_sub(1)?;
+        (minimum <= maximum).then_some(Frame::new(minimum)..=Frame::new(maximum))
+    }
+
     pub fn move_stop(&mut self, index: usize, frame: Frame) -> bool {
-        if index == 0
-            || index >= self.stops.len().saturating_sub(1)
-            || frame <= self.stops[index - 1].frame
-            || frame >= self.stops[index + 1].frame
-            || self.stops[index].frame == frame
-        {
+        let Some(range) = self.stop_move_range(index) else {
+            return false;
+        };
+        if !range.contains(&frame) || self.stops[index].frame == frame {
             return false;
         }
         self.stops[index].frame = frame;

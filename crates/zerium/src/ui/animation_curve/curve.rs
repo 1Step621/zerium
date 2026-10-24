@@ -73,6 +73,36 @@ impl GraphSegment {
         start[1] + (end[1] - start[1]) * eased
     }
 
+    /// Approximate smooth curves while preserving horizontal and vertical steps.
+    pub(super) fn polyline(&self, plot_width: f32) -> impl Iterator<Item = [f32; 2]> + '_ {
+        let [start, end] = self.endpoints;
+        let visible_pixels = plot_width * (end[0] - start[0]).abs();
+        let samples = ((visible_pixels * 1.5).ceil() as u64).clamp(16, 4096);
+        let count = self
+            .interpolation
+            .step_count()
+            .map(|count| u64::from(count.get()));
+        let samples = count.map_or(samples, |count| count.min(samples));
+        std::iter::once(start).chain((1..=samples).flat_map(move |step| {
+            match count {
+                Some(count) => {
+                    // Coalesce subpixel steps while bounding work for large counts.
+                    let progress = (step * count / samples) as f32 / count as f32;
+                    let previous = ((step - 1) * count / samples) as f32 / count as f32;
+                    let x = start[0] + (end[0] - start[0]) * progress;
+                    let y = |progress| start[1] + (end[1] - start[1]) * progress;
+                    [Some([x, y(previous)]), Some([x, y(progress)])]
+                }
+                None => {
+                    let x = start[0] + (end[0] - start[0]) * step as f32 / samples as f32;
+                    [Some([x, self.evaluate(x)]), None]
+                }
+            }
+            .into_iter()
+            .flatten()
+        }))
+    }
+
     fn value_range(&self, include_handles: bool) -> [f32; 2] {
         let samples = (0..=64).map(|index| self.evaluate(index as f32 / 64.));
         let handles = [BezierHandle::Out, BezierHandle::In]
@@ -91,6 +121,17 @@ impl GraphSegment {
 }
 
 impl SelectedCurve {
+    pub(super) fn segment_identity(&self) -> SegmentIdentity {
+        SegmentIdentity {
+            address: self.address.clone(),
+            source_segment: self.source_segment,
+            source_frames: [
+                self.source_stop_frames[self.source_segment],
+                self.source_stop_frames[self.source_segment + 1],
+            ],
+        }
+    }
+
     pub(super) fn frame_at_pattern_frame(&self, frame: Frame) -> Option<Frame> {
         self.clock
             .first_occurrence(
@@ -126,14 +167,14 @@ impl SelectedCurve {
     }
 }
 
-impl HandleFitTarget {
+impl SegmentIdentity {
     pub(super) fn matches(&self, selected: &SelectedCurve) -> bool {
-        selected.curve.has_handles()
-            && self.address == selected.address
+        self.address == selected.address
             && self.source_segment == selected.source_segment
-            && self.source_frames
-                == selected.source_stop_frames
-                    [selected.source_segment..=selected.source_segment + 1]
+            && selected
+                .source_stop_frames
+                .get(selected.source_segment..=selected.source_segment + 1)
+                == Some(self.source_frames.as_slice())
     }
 }
 
@@ -158,7 +199,7 @@ impl AnimationCurveEditor {
         let include_handles = self
             .handle_fit_target
             .as_ref()
-            .is_some_and(|target| target.matches(&selected));
+            .is_some_and(|target| selected.curve.has_handles() && target.matches(&selected));
         selected.set_value_range(selected.fitted_value_range(include_handles));
         Some(selected)
     }
@@ -250,50 +291,11 @@ impl AnimationCurveEditor {
         self.handle_fit_target = if include_handles {
             self.source_curve(cx)
                 .filter(|selected| selected.curve.has_handles())
-                .map(|selected| HandleFitTarget {
-                    source_frames: [
-                        selected.source_stop_frames[selected.source_segment],
-                        selected.source_stop_frames[selected.source_segment + 1],
-                    ],
-                    address: selected.address,
-                    source_segment: selected.source_segment,
-                })
+                .map(|selected| selected.segment_identity())
         } else {
             None
         };
         cx.notify();
-    }
-
-    pub(super) fn begin_handle_drag(
-        &mut self,
-        handle: BezierHandle,
-        synchronize: bool,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(selected) = self.selected_curve(cx) else {
-            return;
-        };
-        let Some(edit) = self.editor.read(cx).begin_animation_edit(
-            &selected.address,
-            AnimationEditTarget::Segment(selected.source_segment),
-            synchronize,
-        ) else {
-            return;
-        };
-        self.graph_interaction = GraphInteraction::HandleDrag {
-            handle,
-            edit,
-            view: Box::new(selected),
-        };
-        self.finish_playhead_scrub(cx);
-        self.editor
-            .update(cx, |editor, _| editor.finish_history_group());
-        cx.notify();
-    }
-
-    pub(super) fn finish_history_drag(&mut self, cx: &mut Context<Self>) {
-        self.editor
-            .update(cx, |editor, _| editor.finish_history_group());
     }
 }
 

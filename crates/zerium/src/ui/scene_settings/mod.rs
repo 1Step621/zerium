@@ -20,9 +20,8 @@ use ::ui::{
     switch::Switch,
 };
 use gpui::{
-    App, Context, CursorStyle, Div, DragMoveEvent, Entity, FocusHandle, MouseButton,
-    MouseDownEvent, Render, Rgba, ScrollHandle, SharedString, Subscription, Window, div,
-    prelude::*, px,
+    App, Context, CursorStyle, Div, DragMoveEvent, Entity, FocusHandle, MouseButton, Render, Rgba,
+    ScrollHandle, SharedString, Subscription, Window, div, prelude::*, px,
 };
 use rust_i18n::t;
 use std::{collections::HashSet, rc::Rc};

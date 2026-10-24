@@ -65,6 +65,7 @@ pub(crate) struct Timeline {
     marquee_selection: Option<MarqueeSelection>,
     context_menu: Option<TimelineContextMenu>,
     scrubbing_playhead: bool,
+    animation_drag: Option<interaction::keyframe::AnimationStopDrag>,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -104,6 +105,7 @@ impl Timeline {
                 this.item_move_origin = None;
                 this.marquee_selection = None;
                 this.context_menu = None;
+                this.animation_drag = None;
                 cx.notify();
             }),
         ];
@@ -125,6 +127,7 @@ impl Timeline {
             marquee_selection: None,
             context_menu: None,
             scrubbing_playhead: false,
+            animation_drag: None,
             focus_handle: cx.focus_handle(),
             _subscriptions: subscriptions,
         }

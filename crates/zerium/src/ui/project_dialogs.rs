@@ -88,6 +88,10 @@ impl SettingsNumberInput {
         if target.owner_id != cx.entity_id() {
             return;
         }
+        if event.event.pressed_button != Some(MouseButton::Left) {
+            self.drag = None;
+            return;
+        }
         let Some(drag) = &self.drag else {
             return;
         };

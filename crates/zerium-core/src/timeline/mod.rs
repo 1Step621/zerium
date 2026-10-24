@@ -27,8 +27,8 @@ mod visibility;
 pub use aspect_ratio::AspectRatio;
 pub use blend_mode::BlendMode;
 pub use commands::{
-    AnimationEdit, AnimationEditTarget, AnimationValuePlan, EditSession, SceneVariableEditError,
-    TimelineEditError, ValueEdit, ValueEditTarget,
+    AnimationEdit, AnimationEditTarget, AnimationValuePlan, EditContext, EditSession,
+    SceneVariableEditError, TimelineEditError, ValueEdit, ValueEditTarget,
 };
 pub use diagnostic::{AudioCalculationDiagnostic, CalculationDiagnostic, CalculationFailure};
 pub use document::TimelineDocument;

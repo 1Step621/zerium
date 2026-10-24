@@ -1,17 +1,11 @@
 use super::*;
 
-fn curve_sample_count(plot_width: f32, curve_span: f32, minimum: usize) -> usize {
-    let visible_pixels = plot_width * curve_span.abs();
-    ((visible_pixels * 1.5).ceil() as usize)
-        .max(minimum)
-        .min(4096)
-}
-
 pub(in crate::ui::animation_curve) fn graph_canvas(
     curve: GraphSegment,
     playhead_progress: f32,
     grid: CurveGrid,
     colors: CurvePaintColors,
+    curve_width: Pixels,
     editor: Entity<AnimationCurveEditor>,
 ) -> impl IntoElement {
     canvas(
@@ -24,6 +18,7 @@ pub(in crate::ui::animation_curve) fn graph_canvas(
             });
             CurvePaintState {
                 curve: curve.clone(),
+                curve_width,
                 playhead_progress,
                 grid: grid.clone(),
                 colors,
@@ -103,13 +98,13 @@ pub(in crate::ui::animation_curve) fn graph_canvas(
                         window.paint_path(path, state.colors.handle);
                     }
 
-                    let [start, end] = state.curve.endpoints.map(|point| point[0]);
-                    let mut curve_path = PathBuilder::stroke(px(2.));
-                    curve_path.move_to(to_point([start, state.curve.evaluate(start)]));
-                    let samples = curve_sample_count(plot_width, end - start, 16);
-                    for step in 1..=samples {
-                        let progress = start + (end - start) * step as f32 / samples as f32;
-                        curve_path.line_to(to_point([progress, state.curve.evaluate(progress)]));
+                    let mut curve_path = PathBuilder::stroke(state.curve_width);
+                    let mut points = state.curve.polyline(plot_width);
+                    if let Some(start) = points.next() {
+                        curve_path.move_to(to_point(start));
+                    }
+                    for point in points {
+                        curve_path.line_to(to_point(point));
                     }
                     if let Ok(path) = curve_path.build() {
                         window.paint_path(path, state.colors.curve);

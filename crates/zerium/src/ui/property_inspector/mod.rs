@@ -23,8 +23,8 @@ use ::ui::{
 };
 use gpui::{
     App, Context, CursorStyle, DismissEvent, Div, DragMoveEvent, Entity, FocusHandle,
-    Focusable as _, MouseButton, MouseDownEvent, Render, Rgba, ScrollHandle, SharedString,
-    Subscription, Window, div, prelude::*, px,
+    Focusable as _, MouseButton, Render, Rgba, ScrollHandle, SharedString, Subscription, Window,
+    div, prelude::*, px,
 };
 
 use crate::project_session::{ProjectSession, ProjectSessionId};

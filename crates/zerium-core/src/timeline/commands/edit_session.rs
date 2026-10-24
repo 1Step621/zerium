@@ -32,7 +32,7 @@ impl EditSession {
     }
 
     pub fn is_current(&self, editor: &TimelineEditor) -> bool {
-        self.context == editor.edit_context()
+        self.context.is_current(editor)
             && (!matches!(self.policy, UndoPolicy::Gesture)
                 || !self.changed
                 || editor

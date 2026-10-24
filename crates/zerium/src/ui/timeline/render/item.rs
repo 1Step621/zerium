@@ -1,22 +1,14 @@
-use std::{
-    cell::{Cell, RefCell},
-    rc::Rc,
-};
+use std::{cell::Cell, rc::Rc};
 
 use gpui::{ClickEvent, Context, EntityId, MouseButton, div, prelude::*, px};
 
-use zerium_core::timeline::{
-    AnimationEditTarget, Frame, ResizeEdge, ResizeMode, TimelineItem, TimelineTime,
-};
+use zerium_core::timeline::{Frame, ResizeEdge, ResizeMode, TimelineItem};
 
 use crate::ui::TimelineEditorEntityExt as _;
 
 use crate::ui::timeline::{
     Timeline,
-    interaction::{
-        item::{MoveTimelineItem, ResizeTimelineItem},
-        keyframe::MoveAnimationStop,
-    },
+    interaction::item::{MoveTimelineItem, ResizeTimelineItem},
     render::{LayerRenderState, TimelineItemRenderData, navigation_hints},
 };
 
@@ -58,101 +50,9 @@ pub(in crate::ui::timeline) fn timeline_item(
         .frame_rate
         .frame_to_seconds(Frame::new(item.duration.get()))
         * state.viewport.pixels_per_second()) as f32;
-    let stop_left = move |time: TimelineTime, diameter: f32| {
-        let x = state.viewport.x_at_seconds(time.seconds(state.frame_rate)) - item_left;
-        px((x - diameter / 2.).clamp(0., (item_width - diameter).max(0.)))
-    };
     let is_selected = state.selected_item_ids.contains(&item_id);
-    let snap_frame = state.editor.read(cx).playhead();
-    let visible_start = TimelineTime::from_frames(
-        (visible_start * state.frame_rate.frames_per_second()).max(item.start.get() as f64),
-    );
-    let visible_end = TimelineTime::from_frames(
-        (visible_end * state.frame_rate.frames_per_second())
-            .min(item.end_exclusive().get().saturating_sub(1) as f64),
-    );
-    let pixels_per_frame =
-        state.viewport.pixels_per_second() / state.frame_rate.frames_per_second();
-    let mut animation_stops = Vec::new();
-    for (_, track) in item.animations.tracks().chain(
-        item.effects
-            .iter()
-            .flat_map(|effect| effect.animations.tracks()),
-    ) {
-        let clock = item.animation_clock(track);
-        let stride = (1. / (clock.span_frames() * pixels_per_frame))
-            .ceil()
-            .max(1.) as usize;
-        for stop in track.stops() {
-            let canonical = clock.key_time_at(stop.frame());
-            if canonical >= visible_start && canonical <= visible_end {
-                animation_stops.push((canonical, false));
-            }
-            animation_stops.extend(
-                clock
-                    .occurrences(stop.frame(), visible_start, visible_end)
-                    .step_by(stride)
-                    .map(|time| (time, true)),
-            );
-        }
-    }
-    animation_stops.sort_by(|left, right| {
-        left.0
-            .frames()
-            .total_cmp(&right.0.frames())
-            .then(left.1.cmp(&right.1))
-    });
-    animation_stops.dedup_by(|left, right| {
-        let same = (left.0.frames() - right.0.frames()).abs() * pixels_per_frame < 1.;
-        if same {
-            right.1 &= left.1;
-        }
-        same
-    });
-    let focused_target = state
-        .animation_address
-        .as_ref()
-        .filter(|target| target.item_id == item_id)
-        .cloned();
-    let has_focused_target = focused_target.is_some();
-    let focused_animation_stops = focused_target
-        .as_ref()
-        .and_then(|target| {
-            let track = item.animation_track(
-                target.effect_id,
-                &target.property_id,
-                target.element_id,
-                target.scalar_index,
-            )?;
-            Some((target.clone(), track))
-        })
-        .map(|(target, track)| {
-            let stop_count = track.stops().len();
-            track
-                .stops()
-                .iter()
-                .enumerate()
-                .map(|(stop, animation_stop)| {
-                    let progress = animation_stop.frame();
-                    let time = item.animation_clock(track).key_time_at(progress);
-                    let frame = time.nearest_frame();
-                    let follow_focus = (snap_frame == frame)
-                        .then_some(state.focused_animation_segment)
-                        .flatten()
-                        .filter(|segment| *segment == stop || segment.saturating_add(1) == stop);
-                    (
-                        target.clone(),
-                        stop,
-                        time,
-                        frame,
-                        follow_focus,
-                        stop > 0 && stop + 1 < stop_count,
-                    )
-                })
-                .filter(|(_, _, time, _, _, _)| *time >= visible_start && *time <= visible_end)
-                .collect::<Vec<_>>()
-        })
-        .unwrap_or_default();
+    let animation_markers =
+        super::animation::key_markers(&item, state, item_left, item_width, visible_range, cx);
 
     let move_drag = MoveTimelineItem {
         timeline_id,
@@ -327,86 +227,7 @@ pub(in crate::ui::timeline) fn timeline_item(
                             .operation_hints(navigation_hints().into_iter().chain(resize_hints())),
                     ),
             )
-            .children(animation_stops.into_iter().map(|(time, repeated)| {
-                div()
-                    .absolute()
-                    .top(px(2.))
-                    .left(stop_left(time, 5.))
-                    .size(px(5.))
-                    .rounded_full()
-                    .border_1()
-                    .border_color(state.colors.background.opacity(0.7))
-                    .bg(state.colors.primary.opacity(if repeated {
-                        0.2
-                    } else if has_focused_target {
-                        0.35
-                    } else if is_selected {
-                        0.95
-                    } else {
-                        0.65
-                    }))
-            }))
-            .children(focused_animation_stops.into_iter().map({
-                let timeline_editor = state.editor.clone();
-                let transport = state.transport.clone();
-                let colors = state.colors;
-                move |(target, stop, time, frame, follow_focus, movable)| {
-                    let drag = MoveAnimationStop {
-                        timeline_id,
-                        address: target,
-                        edit: Rc::new(RefCell::new(None)),
-                        snap_playhead: Cell::new(snap_frame),
-                        follow_focus,
-                    };
-                    let start_editor = timeline_editor.clone();
-                    let seek_transport = transport.clone();
-                    div()
-                        .id(("focused-animation-stop", stop))
-                        .absolute()
-                        .top(px(1.))
-                        .left(stop_left(time, 8.))
-                        .size(px(8.))
-                        .rounded_full()
-                        .border_2()
-                        .border_color(colors.background)
-                        .bg(colors.primary)
-                        .on_mouse_down(MouseButton::Left, |_, _, cx| {
-                            cx.stop_propagation();
-                        })
-                        .on_click(move |_, _, cx| {
-                            cx.stop_propagation();
-                            seek_transport.update(cx, |transport, cx| {
-                                transport.set_playhead(frame, cx);
-                            });
-                        })
-                        .when(movable, |marker| {
-                            marker
-                                .cursor_col_resize()
-                                .hover(move |style| style.bg(colors.primary_hover))
-                                .active(move |style| style.bg(colors.primary_active))
-                                .on_drag(drag, move |drag, _, window, cx| {
-                                    cx.stop_propagation();
-                                    // A press redraws the marker; initialize the retained
-                                    // payload only when GPUI starts the drag.
-                                    drag.snap_playhead.set(start_editor.read(cx).playhead());
-                                    *drag.edit.borrow_mut() =
-                                        start_editor.read(cx).begin_animation_edit(
-                                            &drag.address,
-                                            AnimationEditTarget::Stop(stop),
-                                            !window.modifiers().alt,
-                                        );
-                                    cx.new(|_| drag.clone())
-                                })
-                        })
-                        .operation_hints(navigation_hints().into_iter().chain(movable.then(|| {
-                            Hint::gesture(
-                                "hints.drag",
-                                "hints.independent_stop",
-                                gpui::Modifiers::alt(),
-                            )
-                        })))
-                }
-            }))
+            .children(animation_markers)
             .operation_hints(navigation_hints().into_iter().chain([
                 Hint::gesture(
                     "hints.click",

@@ -16,7 +16,7 @@ impl PropertyInspector {
         target: &PropertyAddress,
         spec: &NumericInputSpec,
         input_id: &ControlId,
-        event: &MouseDownEvent,
+        event: &crate::ui::number_input::NumberDragStart,
         cx: &mut Context<Self>,
     ) {
         if self.inspector_item_id(cx) != Some(target.item_id) {
@@ -74,6 +74,10 @@ impl PropertyInspector {
     ) {
         let drag = event.drag(cx);
         if drag.owner_id != cx.entity_id() {
+            return;
+        }
+        if event.event.pressed_button != Some(MouseButton::Left) {
+            self.finish_number_drag(cx);
             return;
         }
         let Some(input) = self

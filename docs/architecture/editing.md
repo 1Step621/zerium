@@ -151,8 +151,49 @@ Undo entry. Paste is also one undoable edit.
 ### Curve interactions
 
 The curve pane displays one segment while retaining the full track for navigation.
+`AnimationEdit` resolves the affected properties for both the synchronization
+indicator and editing. The indicator describes curve edits; each key's tooltip
+describes its movement. Creating an edit is read-only: it fixes the targets and
+captures an `EditSession`, which rejects mutations after unrelated document changes.
+Timeline and curve drags hold this edit from press through release; only drag
+movement mutates the document, and its first change begins the Undo entry.
+Menu commands also capture their original property and document context rather
+than querying the inspector's selection when they execute. Interpolation changes
+and curve paste resolve their synchronization targets when the command executes.
+The core resolves source eligibility and key movement limits;
+timeline markers use these same limits. Matching looks up a key by its canonical
+time in each track, and an edit contains each affected property once.
+Curve edits synchronize segments with matching start and end times and interpolation
+settings. Keyframe moves synchronize interior keys at the same timeline time.
+Direct manipulation includes the source item even when it is not selected;
+synchronization extends to other selected items only when the source is selected.
+Linked curves and movable keys retain the accent hue with stronger contrast,
+thicker curves, and filled key markers. Independent keys use hollow markers in the
+normal accent color.
+Tooltips list all affected properties in label order, with item labels on every row.
+The list and synchronization count both include the source property.
+The timeline shows all keys, including the endpoints, in a single row aligned to
+the item top. Dots at the same screen position are grouped, prioritizing the
+displayed property's keys.
+Repeat occurrences use the same appearance as ordinary dots and are display-only;
+authored dots support seeking. The item label stays vertically centered.
+Only keys of the inspector's displayed scalar property can be dragged, with the
+core's interior-key eligibility and movement limits. Other items and properties
+remain ordinary dots. The displayed property's timeline keys show their edit
+scope in a tooltip and use filled markers when linked
+and hollow markers when independent; the active key reflects its fixed edit scope.
+Moving a key leaves the playhead in place in both the timeline and curve pane.
 `GraphInteraction` owns the active edit and freezes the interval and value range
 for a handle drag. Ending the gesture releases that state.
+Curve gestures and step-count input discard their edit state when an unrelated
+document change makes it stale. Step-count text and drag edits share one edit;
+numeric pointer motion is owned by the curve pane for both step and repeat inputs.
+Interval controls use the same authored interval identity as view fitting.
+
+Steps interpolation divides a segment into a positive number of equal intervals,
+holding `floor(t * count) / count` of the value transition within each interval.
+The endpoint retains its authored value; a count of one matches Hold. Step counts
+are segment settings and use the same synchronized editing and Undo as curves.
 
 ### Resizing and scene expansion
 
@@ -164,13 +205,11 @@ for a handle drag. Ending the gesture releases that state.
   collisions.
 
 Scene expansion inserts time at the definition's stretch point by shifting keys.
-Visual, audio, and media dependency consumers use the same `SceneWalker` for
-placement, inherited clips, nested binding scopes, and scene expansion. Its modes
-select continuous visual samples, static audio planning, occupied export sources,
-or complete definitions for discovery. Property evaluation remains local to each
-consumer. Source-interval lookup is
-separate from playback clocks: expansion preserves media speed and repeat
-behavior.
+Expansion preserves media speed and repeat behavior. `RenderEvaluation` resolves
+visual placements on demand using the same scene expansion and binding rules as
+the `SceneWalker` used for editor read models, audio, and metadata discovery.
+See [Rendering](rendering.md#scene-evaluation-and-render-planning) for visual
+source intervals and [Media and export](media.md) for audio and discovery scopes.
 
 ## Project files and asynchronous operations
 

@@ -15,7 +15,7 @@ impl SceneSettings {
         scene_id: SceneId,
         argument_id: &str,
         setting: NumericSetting,
-        event: &MouseDownEvent,
+        event: &crate::ui::number_input::NumberDragStart,
         cx: &mut Context<Self>,
     ) {
         let Some(argument) = self.read_numeric_argument(scene_id, argument_id, cx) else {
@@ -51,6 +51,10 @@ impl SceneSettings {
     ) {
         let drag = event.drag(cx);
         if drag.owner_id != cx.entity_id() {
+            return;
+        }
+        if event.event.pressed_button != Some(MouseButton::Left) {
+            self.finish_number_drag(cx);
             return;
         }
         let Some(origin) = self

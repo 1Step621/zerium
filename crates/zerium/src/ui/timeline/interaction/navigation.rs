@@ -51,7 +51,7 @@ impl Timeline {
     }
 
     pub(in crate::ui::timeline) fn scroll_layers(
-        &self,
+        &mut self,
         event: &ScrollWheelEvent,
         window: &Window,
         cx: &mut Context<Self>,

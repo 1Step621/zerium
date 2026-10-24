@@ -25,74 +25,37 @@ flowchart LR
 An image request names a stable scene-instance path, an output or a boundary
 before an `EffectInstanceId`, an absolute item-local time, and a raster scale.
 Ordinary effects request their upstream image at the same time. Sampling effects
-evaluate their controls at the consuming time and request
-the upstream stage at the selected source times. Unused current-time upstream
-images and their properties never enter the graph.
+evaluate their controls at the consuming time and request the upstream stage at
+the selected source times. Unused current-time upstream images and their
+properties never enter the graph.
 
-Core `RenderEvaluation` separates placement lookup from property evaluation.
-Paths resolve directly by ID, expanding only the instances along that path;
-composition enumeration visits only the requested scope. Item and effect values
-resolve independently as `ResolvedRenderProperties`: values and diagnostics for
-one owner and purpose, without reconstructing a partial `EvaluatedItem`. Visual
-items evaluate only `render.properties`; audio-only controls do not run at visual
-sample times. Capture ranges and hide-original flags resolve separately because
-they determine normal-output visibility and layer dependencies. Camera position,
-zoom and angle are image properties: they resolve only at the time of a consumed
-capture, never during composition topology enumeration. Composition planning consumes
-explicit capture definitions alongside placements. Property evaluations are
-shared across equal time and owner requests. Core owns one canonical expanded
-placement per instance path, including its parent and runtime ID. Composition
-enumeration selects source IDs and uses the same placement pool as direct lookup
-and property evaluation; it never independently clones and expands those items.
+Core `RenderEvaluation` resolves placements by scene-instance path and evaluates
+item and effect properties independently. Visual items evaluate only
+`render.properties`. Capture ranges and hide-original flags determine composition
+topology; camera transforms are evaluated at the time of the consumed image.
+Placements and property evaluations are shared within an evaluation.
 
-Every image request uses the target item's full expanded interval. Ancestor
-output intervals do not restrict upstream samples, including nested sampling and
-render-result captures. Requests outside the target's own interval return no
-image. Normal output is still limited by each composition boundary: a scene's
-image exists only during its own interval, and its children are composed only
-when that image is requested. Enumerating a scope's contents for a capture does
-not request the scope's output, so it can reach a child beyond the scope's output
-interval. Core maps the target's local time through its owning scene scopes,
-including animated instance arguments. Progress only converts 0–1 to
-`p * (duration - 1)`; it does not choose a clipping or decoder policy.
+Image requests use the target item's full duration after scene expansion.
+Requests outside that interval return no image. Ancestor output intervals limit
+normal composition, but do not restrict sampled child sources. This also applies
+to render-result captures: a capture can reach a child outside its parent's
+output interval. Sampling the parent scene's image still respects that scene's
+own interval. Instance bindings resolve at the requested source time.
 
-A shaderless `sample` pass requests one image directly. A `temporal` pass reduces
-multiple images with a shader. Both use the same stage-request path and retain ancestor
-stage boundaries, identified by effect instance IDs. Logical source, composition,
-and effect nodes have explicit dependencies. A pure single sample aliases its
-upstream node without a logical effect node, shader property packing or copy pass,
-so a fixed source time has a stable image identity even while the playhead moves.
-Reducers retain their temporal metadata
-in cache keys because their shaders can read it.
+A shaderless `sample` pass selects one upstream image; a `temporal` pass combines
+several images with a shader. Both retain ancestor effect-stage boundaries during
+nested sampling. An effect containing only a `sample` pass aliases its upstream
+node. Temporal reductions include their sample metadata in image identity because
+shaders can read it.
+Texture inputs and captured children inherit the consumer's requested raster scale.
+See [Sampling one image](../plugin/rendering.md#sampling-one-image) for time mapping.
 
-Texture inputs inherit their consumer's requested raster scale, including
-render-result captures and the children composed into them. Sampling one image
-and reducing multiple images share stage boundaries, decoder branch creation and
-resource limits without constructing reduction metadata for a single sample.
-
-Image planning does not invoke decoders. Its cache keys contain only image
-semantics, and frame leaves contain unresolved source requests. A separate demand
-DAG records consumer edges, including sampling edges of pure aliases. Traversing
-that DAG attaches stable decoder branches to source requests, including every
-branch that reaches an already shared image. Complete requests are deduplicated
-before calling preview/export; returned frames then bind the planned leaves.
-Each image builds an owned `ImageDemand` and returns a `PlannedImage` containing
-both its image and demand identity. Parents explicitly record ordinary or sampled
-inputs; recursion never swaps a global current consumer. Media slots have their
-own typed IDs, independent of render-node indices. Demand traversal therefore
-does not inspect render-node variants to recover media requests. Image memoization
-has explicit resolving and completed states for cycle detection and reuse.
-Temporal depth and sample limits also apply to this traversal, so sharing an
-image cannot bypass consumer-path limits. Missing inputs share a stable transparent
-frame rather than invalidating rendered-image caches on every evaluation.
-
-Text frames are keyed by their full content, style and raster dimensions, with
-hash lookup and a separate ordered recency index under one byte budget. Identical
-signatures share pixels across sources as well as sampling times. Render graphs
-pin the exact versions they consume; unreferenced versions are evicted in
-least-recently-used order. If live versions fill the budget, a new frame is
-returned without entering the cache. Nonfinite style values are rejected and
-signed zero hashes consistently with numeric equality.
+Image planning builds a separate demand DAG for decoder scheduling. Image keys
+describe pixel dependencies; demand edges retain each sampling consumer's decoder
+branch, even when consumers share an image. Planning validates temporal depth and
+sample limits before invoking decoders. Traversing demand produces deduplicated
+source requests; preview or export supplies frames to bind the image graph.
+See [Media and export](media.md#preview) for stream identity and scheduling.
 
 Placed items and scene instances receive placement-specific runtime IDs, keeping
 media inputs independent across repeated scene placements. Composition planning
@@ -128,15 +91,12 @@ coordinates and sampling functions.
 
 ## GPU resources
 
-`RenderDevice` shares pipelines. Each `RenderSession` owns reusable buffers,
-targets, uploaded media, and rendered-image caches in one `RenderState`. Planning,
-input preparation, submission and recycling use the same session lock. Texture
-resources receive exclusive mutable access and have no separate lock or fallible
-post-submission recycling step. Preview and export use separate sessions.
-Background video preparation uses a `VideoFrameUploader` with its own conversion
-scratch and lock. It shares immutable pipelines with the rendering device, owns
-queue submission before publication, and has no scene targets or planning state.
-Both paths use the same input validation and texture-upload implementation.
+`RenderDevice` shares pipelines. Each `RenderSession` owns its mutable resources
+in one `RenderState`; planning, input preparation, submission and recycling use
+the same session lock. Preview and export use separate sessions.
+Background video preparation uses a `VideoFrameUploader` with independent
+conversion scratch. It shares pipelines and upload code with rendering, and
+submits converted frames before workers publish them.
 
 Output or composition-size changes invalidate rendered images. The execution
 plan controls uploads, surface lifetimes, and cache retention within a byte

@@ -1,35 +1,131 @@
 use super::*;
-use crate::{app::copy_buffer::CopyBuffer, ui::TimelineEditorEntityExt as _};
+use crate::{
+    app::copy_buffer::CopyBuffer,
+    ui::{TimelineEditorEntityExt as _, animation::AnimationSynchronization},
+};
 use ::ui::menu::PopupMenu;
 use rust_i18n::t;
-use std::cell::RefCell;
+use zerium_core::timeline::EditContext;
+
+/// Menu commands retain their original property and authored document state.
+#[derive(Clone)]
+pub(super) struct AnimationActionTarget {
+    address: PropertyAddress,
+    context: EditContext,
+}
+
+impl AnimationActionTarget {
+    pub(super) fn new(address: PropertyAddress, editor: &TimelineEditor) -> Self {
+        Self {
+            address,
+            context: editor.edit_context(),
+        }
+    }
+}
 
 impl AnimationCurveEditor {
-    pub(super) fn can_add_stop_at_time(&self, time: TimelineTime, cx: &App) -> bool {
-        self.selection.read(cx).address().is_some_and(|address| {
-            self.editor
-                .read(cx)
-                .animation_stop_insertion_frame(address, time)
-                .is_some()
-        })
+    pub(super) fn synchronization(
+        &self,
+        selected: &SelectedCurve,
+        part: AnimationEditTarget,
+        window: &Window,
+        cx: &App,
+    ) -> Option<AnimationSynchronization> {
+        let editor = self.editor.read(cx);
+        let active = match (&self.graph_interaction, part) {
+            (GraphInteraction::StopDrag { stop, edit, .. }, AnimationEditTarget::Stop(index))
+                if *stop == index =>
+            {
+                Some(edit.as_ref())
+            }
+            (GraphInteraction::HandleDrag { edit, .. }, AnimationEditTarget::Segment(index))
+                if index == selected.source_segment =>
+            {
+                Some(edit.as_ref())
+            }
+            (_, AnimationEditTarget::Segment(index)) if index == selected.source_segment => self
+                .step_input
+                .as_ref()
+                .and_then(|input| input.edit_for(selected)),
+            _ => None,
+        };
+        let preview;
+        let edit = if let Some(edit) = active {
+            if !edit.is_current(editor) {
+                return None;
+            }
+            edit
+        } else {
+            preview =
+                editor.begin_animation_edit(&selected.address, part, !window.modifiers().alt)?;
+            &preview
+        };
+        Some(AnimationSynchronization::from_edit(&self.editor, edit))
     }
 
-    pub(super) fn add_stop_at_time(&mut self, time: TimelineTime, cx: &mut Context<Self>) {
-        let Some(selected) = self.selected_curve(cx) else {
+    pub(super) fn discard_stale_edits(&mut self, cx: &mut Context<Self>) {
+        let editor = self.editor.read(cx);
+        match &self.graph_interaction {
+            GraphInteraction::HandleDrag { edit, .. } | GraphInteraction::StopDrag { edit, .. }
+                if !edit.is_current(editor) =>
+            {
+                self.graph_interaction = GraphInteraction::Idle;
+            }
+            _ => {}
+        }
+        if self
+            .step_input
+            .as_mut()
+            .is_some_and(|input| input.discard_stale_edit(editor))
+        {
+            self.number_drag = None;
+        }
+    }
+
+    pub(super) fn can_add_stop_at_time(
+        &self,
+        target: &AnimationActionTarget,
+        time: TimelineTime,
+        cx: &App,
+    ) -> bool {
+        let editor = self.editor.read(cx);
+        target.context.is_current(editor)
+            && editor
+                .animation_stop_insertion_frame(&target.address, time)
+                .is_some()
+    }
+
+    pub(super) fn add_stop_at_time(
+        &mut self,
+        target: &AnimationActionTarget,
+        time: TimelineTime,
+        cx: &mut Context<Self>,
+    ) {
+        let editor = self.editor.read(cx);
+        if !target.context.is_current(editor) {
             return;
-        };
-        let Some(pattern_frame) = self
-            .editor
-            .read(cx)
-            .animation_stop_insertion_frame(&selected.address, time)
+        }
+        let Some(pattern_frame) = editor.animation_stop_insertion_frame(&target.address, time)
         else {
             return;
         };
-        let frame = selected.frame_at_pattern_frame(pattern_frame);
-        let target = selected.address;
+        let Some(item) = editor.item(target.address.item_id) else {
+            return;
+        };
+        let Some(track) = editor.animation_track(&target.address) else {
+            return;
+        };
+        let frame = item
+            .animation_clock(track)
+            .first_occurrence(
+                pattern_frame,
+                TimelineTime::from_frame(item.start),
+                TimelineTime::from_frame(Frame::new(item.end_exclusive().get().saturating_sub(1))),
+            )
+            .map(TimelineTime::nearest_frame);
         let changed = self.editor.update_if_changed(cx, |editor| {
             editor
-                .insert_animation_stop_at_time(&target, time)
+                .insert_animation_stop_at_time(&target.address, time)
                 .is_some()
         });
         if !changed {
@@ -42,16 +138,13 @@ impl AnimationCurveEditor {
         cx.notify();
     }
 
-    pub(super) fn begin_stop_drag(
+    pub(super) fn prepare_stop_drag(
         &mut self,
         stop: usize,
         synchronize: bool,
         cx: &mut Context<Self>,
     ) {
         let Some(selected) = self.selected_curve(cx) else {
-            return;
-        };
-        let Some(frame) = selected.source_stop_frames.get(stop).copied() else {
             return;
         };
         let Some(edit) = self.editor.read(cx).begin_animation_edit(
@@ -61,20 +154,14 @@ impl AnimationCurveEditor {
         ) else {
             return;
         };
-        let time = selected.clock.key_time_at(frame);
         let snap_playhead = self.editor.read(cx).playhead();
-        let follow_focus = (TimelineTime::from_frame(snap_playhead) == time)
-            .then(|| self.selection.read(cx).focused_segment())
-            .flatten()
-            .filter(|segment| *segment == stop || segment.saturating_add(1) == stop);
+        self.end_pointer_drag(cx);
         self.editor
             .update(cx, |editor, _| editor.finish_history_group());
         self.graph_interaction = GraphInteraction::StopDrag {
             stop,
-            time,
             snap_playhead,
-            follow_focus,
-            edit,
+            edit: Box::new(edit),
         };
         cx.notify();
     }
@@ -86,14 +173,13 @@ impl AnimationCurveEditor {
         snap_disabled: bool,
         cx: &mut Context<Self>,
     ) {
-        let (snap_playhead, follow_focus, range) = match &self.graph_interaction {
+        let (snap_playhead, range) = match &self.graph_interaction {
             GraphInteraction::StopDrag {
                 stop,
                 snap_playhead,
-                follow_focus,
                 edit,
                 ..
-            } if *stop == drag.stop => (*snap_playhead, *follow_focus, edit.time_range()),
+            } if *stop == drag.stop => (*snap_playhead, edit.time_range()),
             _ => return,
         };
         let Some(range) = range else {
@@ -139,38 +225,110 @@ impl AnimationCurveEditor {
                     .clamp(minimum, maximum),
             );
         }
-        let GraphInteraction::StopDrag {
-            edit,
-            time: drag_time,
-            ..
-        } = &mut self.graph_interaction
-        else {
+        let GraphInteraction::StopDrag { edit, .. } = &mut self.graph_interaction else {
             return;
         };
-        let changed = self.editor.update_if_changed(cx, |editor| {
-            editor.move_animation_stop(edit, time).is_some()
-        });
-        *drag_time = time;
-        if changed {
-            if let Some(segment) = follow_focus {
-                self.selection.read(cx).focus_segment(segment);
-                self.transport.update(cx, |transport, cx| {
-                    transport.set_playhead(time.nearest_frame(), cx);
-                });
-            }
+        self.editor
+            .update_if_changed(cx, |editor| editor.move_animation_stop(edit, time));
+    }
+
+    pub(super) fn prepare_handle_drag(
+        &mut self,
+        handle: BezierHandle,
+        synchronize: bool,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(selected) = self.selected_curve(cx) else {
+            return;
+        };
+        let Some(edit) = self.editor.read(cx).begin_animation_edit(
+            &selected.address,
+            AnimationEditTarget::Segment(selected.source_segment),
+            synchronize,
+        ) else {
+            return;
+        };
+        self.end_pointer_drag(cx);
+        self.graph_interaction = GraphInteraction::HandleDrag {
+            handle,
+            edit: Box::new(edit),
+            view: Box::new(selected),
+        };
+        self.finish_playhead_scrub(cx);
+        self.editor
+            .update(cx, |editor, _| editor.finish_history_group());
+        cx.notify();
+    }
+
+    pub(super) fn finish_history_drag(&mut self, cx: &mut Context<Self>) {
+        if self
+            .step_input
+            .as_mut()
+            .is_some_and(|input| input.finish_edit())
+        {
             cx.notify();
         }
+        self.editor
+            .update(cx, |editor, _| editor.finish_history_group());
     }
 
     pub(super) fn end_pointer_drag(&mut self, cx: &mut Context<Self>) {
-        if let Some(inputs) = &mut self.repeat_inputs {
-            inputs.drag = None;
+        if let Some(drag) = self.number_drag.take() {
+            if matches!(drag.parameter, CurveNumberParameter::StepCount)
+                && let Some(input) = &mut self.step_input
+            {
+                input.finish_edit();
+            }
+            cx.notify();
         }
         if let GraphInteraction::HandleDrag { .. } | GraphInteraction::StopDrag { .. } =
             self.graph_interaction
         {
             self.graph_interaction = GraphInteraction::Idle;
             cx.notify();
+        }
+    }
+
+    pub(super) fn move_number(
+        &mut self,
+        event: &gpui::DragMoveEvent<crate::ui::number_input::NumberValueDrag>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let target = event.drag(cx);
+        let Some(drag) = &self.number_drag else {
+            return;
+        };
+        if target.owner_id != cx.entity_id() || target.input_id != drag.input.entity_id() {
+            return;
+        }
+        if event.event.pressed_button != Some(MouseButton::Left) {
+            self.end_pointer_drag(cx);
+            return;
+        }
+        let parameter = drag.parameter;
+        let input = drag.input.clone();
+        let value = drag.motion.value_at(
+            f32::from(event.event.position.x),
+            event.event.modifiers.shift,
+        );
+        self.focus_handle.focus(window, cx);
+        cx.set_active_drag_cursor_style(gpui::CursorStyle::ResizeLeftRight, window);
+        match parameter {
+            CurveNumberParameter::StepCount => {
+                self.set_step_count(&input, value, !event.event.modifiers.alt, cx);
+                self.sync_step_text(&input, window, cx);
+            }
+            CurveNumberParameter::Repeat(parameter) => {
+                if let Some(inputs) = self
+                    .repeat_inputs
+                    .as_ref()
+                    .filter(|inputs| inputs.fields[parameter.index()].input == input)
+                {
+                    let address = inputs.address.clone();
+                    self.set_repeat_number(&address, parameter, value, cx);
+                }
+            }
         }
     }
 
@@ -215,28 +373,32 @@ impl AnimationCurveEditor {
         });
     }
 
-    pub(super) fn remove_source_stop(&mut self, source_stop: usize, cx: &mut Context<Self>) {
-        let Some(selected) = self.selected_curve(cx) else {
-            return;
-        };
-        let target = selected.address;
+    pub(super) fn remove_source_stop(
+        &mut self,
+        target: &AnimationActionTarget,
+        source_stop: usize,
+        cx: &mut Context<Self>,
+    ) {
         self.editor.update_if_changed(cx, |editor| {
-            editor.remove_animation_stop(&target, source_stop)
+            target.context.is_current(editor)
+                && editor.remove_animation_stop(&target.address, source_stop)
         });
     }
 
     pub(super) fn set_interpolation(
         &mut self,
+        target: &AnimationActionTarget,
+        segment: usize,
         interpolation: SegmentInterpolation,
         synchronize: bool,
         cx: &mut Context<Self>,
     ) {
-        let Some(selected) = self.selected_curve(cx) else {
+        if !target.context.is_current(self.editor.read(cx)) {
             return;
-        };
+        }
         let Some(mut edit) = self.editor.read(cx).begin_animation_edit(
-            &selected.address,
-            AnimationEditTarget::Segment(selected.source_segment),
+            &target.address,
+            AnimationEditTarget::Segment(segment),
             synchronize,
         ) else {
             return;
@@ -257,12 +419,18 @@ impl AnimationCurveEditor {
             .and_then(|buffer| buffer.curve);
         let paste = copied.and_then(|interpolation| {
             let selected = selected.as_ref()?;
-            let edit = self.editor.read(cx).begin_animation_edit(
-                &selected.address,
-                AnimationEditTarget::Segment(selected.source_segment),
-                true,
-            )?;
-            Some((interpolation, RefCell::new(edit)))
+            let editor = self.editor.read(cx);
+            if !editor
+                .property_schema(&selected.address)?
+                .is_editable(selected.address.scalar_index)
+            {
+                return None;
+            }
+            Some((
+                AnimationActionTarget::new(selected.address.clone(), editor),
+                selected.source_segment,
+                interpolation,
+            ))
         });
         let paste_editor = cx.entity();
         menu.action_context(action_context)
@@ -281,14 +449,9 @@ impl AnimationCurveEditor {
                 IconName::PasteClipboard,
                 paste.is_none(),
                 move |_, cx| {
-                    if let Some((interpolation, edit)) = &paste {
+                    if let Some((target, segment, interpolation)) = &paste {
                         paste_editor.update(cx, |view, cx| {
-                            view.editor.update_if_changed(cx, |editor| {
-                                editor.set_animation_interpolation(
-                                    &mut edit.borrow_mut(),
-                                    *interpolation,
-                                )
-                            });
+                            view.set_interpolation(target, *segment, *interpolation, true, cx);
                         });
                     }
                 },

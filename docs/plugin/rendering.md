@@ -218,8 +218,8 @@ override direction_y: f32 = 0.0;
 ### Sampling one image
 
 A `sample` pass selects the image before the consuming effect and forwards it
-without a shader, bounds script, copy, or intermediate texture. It must be the
-first pass; later render or compute passes can process the selected image.
+without a shader or bounds declaration. It must be the first pass; later render
+or compute passes can process the selected image.
 
 ```json
 {
@@ -237,13 +237,14 @@ default progress is zero (a freeze frame); animate 0–1 for forward playback or
 `{"type":"offset","offset":"frame_offset"}` reads one `f32` frame offset
 relative to the consuming time.
 
-Both sampling pass types always evaluate the owner's full duration after scene
+`sample` and `temporal` requests use the owner's full duration after scene
 expansion, including source times outside an ancestor's visible interval. Samples
 outside the owner's own interval are transparent. Parent visibility limits the
 normal composition output, not the source times available to an effect. This
 also applies to nested sampling and render-result captures. Sampling a scene's
 image still respects that scene's own interval; sampling one of its children does
-not inherit that interval. There is no per-pass clipping option.
+not inherit that interval.
+
 Earlier effects, media, text, scene children and instance bindings use the selected
 source time; the sampling control and later effects use the consuming time.
 Sampling changes visual output only, not audio.
@@ -273,8 +274,8 @@ have constraints within `1..=32`. Alternatively,
 `{"type":"offsets","offsets":"sample_offsets"}` reads an array of 1–32 `f32`
 frame offsets. Negative samples look backward, positive forward, and zero at the
 current frame. Samples evaluate the image before the current effect.
-Coincident sample times still preserve the declared sample count and each
-reduction step's metadata; only upstream image evaluation is shared.
+Coincident sample times preserve the declared sample count and each
+reduction step's metadata.
 
 Bounds use the union of available samples, and all reduction steps share that
 output extent. Each step's `input` is its sample and `source` is the previous

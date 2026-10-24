@@ -6,6 +6,7 @@ mod presentation;
 mod render;
 mod repeat;
 mod selection;
+mod steps;
 mod viewport;
 
 use canvas::graph_canvas;
@@ -16,8 +17,11 @@ use viewport::{point_layout, screen_position_is_visible};
 use presentation::AnimationPresentation;
 pub(crate) use selection::AnimationSelection;
 
-use repeat::RepeatInputs;
+use crate::ui::numeric_property::NumericDrag;
+use ::ui::input::InputState;
+use repeat::{RepeatInputs, RepeatParameter};
 use std::cell::Cell;
+use steps::StepInput;
 
 use ::ui::{
     ActiveTheme as _, Colorize as _, Icon, IconName, Sizable as _,
@@ -47,33 +51,35 @@ use super::{
     transport::{ScrubSource, TransportController},
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum GraphPressMode {
-    EmptySpace,
-    Curve,
-}
-
 enum GraphInteraction {
     Idle,
     Background {
         origin: gpui::Point<Pixels>,
-        mode: GraphPressMode,
         dragged: bool,
     },
     HandleDrag {
         handle: BezierHandle,
-        edit: AnimationEdit,
+        edit: Box<AnimationEdit>,
         // Freeze the interval and value range throughout this drag.
         view: Box<SelectedCurve>,
     },
     StopDrag {
         stop: usize,
-        time: TimelineTime,
         snap_playhead: Frame,
-        follow_focus: Option<usize>,
-        edit: AnimationEdit,
+        edit: Box<AnimationEdit>,
     },
-    SuppressClick,
+}
+
+#[derive(Clone, Copy)]
+enum CurveNumberParameter {
+    StepCount,
+    Repeat(RepeatParameter),
+}
+
+struct CurveNumberDrag {
+    parameter: CurveNumberParameter,
+    input: Entity<InputState>,
+    motion: NumericDrag,
 }
 
 #[derive(Clone)]
@@ -101,6 +107,7 @@ impl Render for StopPositionDrag {
 #[derive(Clone)]
 struct CurvePaintState {
     curve: GraphSegment,
+    curve_width: Pixels,
     playhead_progress: f32,
     grid: CurveGrid,
     colors: CurvePaintColors,
@@ -151,8 +158,8 @@ struct GraphSegment {
     interpolation: SegmentInterpolation,
 }
 
-/// Include handles when fitting this interval.
-struct HandleFitTarget {
+/// Identity of an authored interval, independent of its interpolation settings.
+struct SegmentIdentity {
     address: PropertyAddress,
     source_segment: usize,
     source_frames: [Frame; 2],
@@ -166,8 +173,10 @@ pub(crate) struct AnimationCurveEditor {
     graph_bounds: Option<Bounds<Pixels>>,
     scrubbing_playhead: bool,
     graph_interaction: GraphInteraction,
-    handle_fit_target: Option<HandleFitTarget>,
+    handle_fit_target: Option<SegmentIdentity>,
     repeat_inputs: Option<RepeatInputs>,
+    step_input: Option<StepInput>,
+    number_drag: Option<CurveNumberDrag>,
     _subscriptions: Vec<Subscription>,
 }
 
@@ -177,7 +186,7 @@ impl AnimationCurveEditor {
     const GRAPH_INSET_TOP: f32 = 24.;
     const GRAPH_INSET_BOTTOM: f32 = 28.;
     const SCREEN_EDGE_EPSILON: f32 = 0.001;
-    const OVERVIEW_STOP_HANDLE_WIDTH: f32 = 12.;
+    const OVERVIEW_STOP_HANDLE_WIDTH: f32 = 16.;
     /// Pointer travel that promotes a graph press from "possible click" to a
     /// playhead scrub.
     const PRESS_DRAG_THRESHOLD_PX: f32 = 4.;
@@ -189,11 +198,15 @@ impl AnimationCurveEditor {
         cx: &mut Context<Self>,
     ) -> Self {
         let subscriptions = vec![
-            cx.observe(&editor, |_, _, cx| cx.notify()),
+            cx.observe(&editor, |this, _, cx| {
+                this.discard_stale_edits(cx);
+                cx.notify();
+            }),
             cx.observe(&selection, |this, _, cx| {
                 this.end_pointer_drag(cx);
                 this.handle_fit_target = None;
                 this.repeat_inputs = None;
+                this.step_input = None;
                 cx.notify();
             }),
             cx.observe(&transport, |_, _, cx| cx.notify()),
@@ -208,6 +221,8 @@ impl AnimationCurveEditor {
             graph_interaction: GraphInteraction::Idle,
             handle_fit_target: None,
             repeat_inputs: None,
+            step_input: None,
+            number_drag: None,
             _subscriptions: subscriptions,
         }
     }

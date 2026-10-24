@@ -1,8 +1,10 @@
 //! Timeline pane composition and per-frame render state.
+use crate::ui::animation::AnimationSynchronization;
 use crate::ui::timeline::timeline_grid;
 use crate::ui::timeline::track_viewport_width;
 pub(in crate::ui::timeline) use item::timeline_item;
 pub(in crate::ui::timeline) use layer::layer_row;
+mod animation;
 mod item;
 mod layer;
 
@@ -51,7 +53,9 @@ pub(in crate::ui::timeline) struct LayerRenderState {
     pub(in crate::ui::timeline) editor: Entity<TimelineEditor>,
     pub(in crate::ui::timeline) transport: Entity<TransportController>,
     pub(in crate::ui::timeline) animation_address: Option<PropertyAddress>,
-    pub(in crate::ui::timeline) focused_animation_segment: Option<usize>,
+    pub(in crate::ui::timeline) synchronize_animation_keys: bool,
+    pub(in crate::ui::timeline) animation_drag_synchronization:
+        Option<(MoveAnimationStop, AnimationSynchronization)>,
     pub(in crate::ui::timeline) colors: ThemeColor,
     pub(in crate::ui::timeline) layer_height: f32,
     pub(in crate::ui::timeline) viewport: TimelineViewport,
@@ -171,7 +175,17 @@ impl Render for Timeline {
             editor: self.editor.clone(),
             transport: self.transport.clone(),
             animation_address: animation_selection.address().cloned(),
-            focused_animation_segment: animation_selection.focused_segment(),
+            synchronize_animation_keys: !window.modifiers().alt,
+            animation_drag_synchronization: self
+                .animation_drag
+                .as_ref()
+                .and_then(|drag| drag.current_edit(self.editor.read(cx)))
+                .map(|(source, edit)| {
+                    (
+                        source.clone(),
+                        AnimationSynchronization::from_edit(&self.editor, edit),
+                    )
+                }),
             colors,
             layer_height,
             viewport: self.viewport,
@@ -195,6 +209,7 @@ impl Render for Timeline {
             .id("timeline-root")
             .relative()
             .track_focus(&self.focus_handle)
+            .on_modifiers_changed(cx.listener(|_, _, _, cx| cx.notify()))
             .capture_any_mouse_down(move |_, window, cx| {
                 focus_handle.focus(window, cx);
             })
@@ -202,10 +217,17 @@ impl Render for Timeline {
             .flex()
             .flex_col()
             .overflow_hidden()
-            .on_mouse_move(cx.listener(|this, event, window, cx| {
-                this.update_playhead_scrub(event, window, cx);
-                this.update_marquee_selection(event, window, cx);
-            }))
+            .on_mouse_move(
+                cx.listener(|this, event: &gpui::MouseMoveEvent, window, cx| {
+                    if event.pressed_button != Some(MouseButton::Left)
+                        && this.animation_drag.take().is_some()
+                    {
+                        cx.notify();
+                    }
+                    this.update_playhead_scrub(event, window, cx);
+                    this.update_marquee_selection(event, window, cx);
+                }),
+            )
             .on_mouse_leave(move |_, cx| {
                 timeline_for_mouse_leave.update(cx, |timeline, cx| {
                     if timeline.marquee_selection.take().is_some() {
@@ -216,6 +238,9 @@ impl Render for Timeline {
             .on_click(cx.listener(Self::clear_selection_on_double_click))
             .capture_any_mouse_up(cx.listener(|this, event: &MouseUpEvent, window, cx| {
                 if event.button == MouseButton::Left {
+                    if this.animation_drag.take().is_some() {
+                        cx.notify();
+                    }
                     this.finish_playhead_scrub(cx);
                     this.finish_item_move(cx);
                     this.finish_marquee_selection(event, window, cx);

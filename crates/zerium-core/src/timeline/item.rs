@@ -8,7 +8,7 @@ use crate::property::{
 };
 
 use super::{
-    BlendMode, FrameRate, ResizeMode, TimeMapping,
+    BlendMode, FrameRate, PropertyAddress, ResizeMode, TimeMapping,
     aspect_ratio::AspectRatio,
     ids::{EffectInstanceId, ItemId, LayerId, SceneId},
     properties::resolve_property,
@@ -530,6 +530,30 @@ impl TimelineItem {
     ) -> Option<&ScalarTrack> {
         let address = PropertyPath::new(property_id, element_id, scalar_index);
         self.animations(effect_id)?.track(&address)
+    }
+
+    /// Authored scalar tracks of this item and its effects, with stable addresses.
+    pub fn animation_tracks(&self) -> impl Iterator<Item = (PropertyAddress, &ScalarTrack)> {
+        std::iter::once((None, &self.animations))
+            .chain(
+                self.effects
+                    .iter()
+                    .map(|effect| (Some(effect.id), &effect.animations)),
+            )
+            .flat_map(move |(effect_id, animations)| {
+                animations.tracks().map(move |(path, track)| {
+                    (
+                        PropertyAddress {
+                            item_id: self.id,
+                            effect_id,
+                            property_id: path.property_id().to_owned(),
+                            element_id: path.element_id(),
+                            scalar_index: path.scalar_index(),
+                        },
+                        track,
+                    )
+                })
+            })
     }
 
     pub fn property_values(&self, effect_id: Option<EffectInstanceId>) -> Option<&PropertyValues> {
