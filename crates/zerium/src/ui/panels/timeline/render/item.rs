@@ -171,7 +171,9 @@ pub(in crate::ui::panels::timeline) fn timeline_item(
                             .flex()
                             .items_center()
                             .gap_1()
+                            .ml(px((-item_left).max(0.)))
                             .pl_1()
+                            .whitespace_nowrap()
                             .overflow_hidden()
                             .when(scene_id.is_none(), |this| {
                                 this.child(
