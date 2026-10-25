@@ -282,6 +282,8 @@ _version: 1
 "hints.stop_return": "停止して開始位置へ戻る"
 "hints.stop_here": "現在位置で停止"
 "hints.no_snap": "スナップ解除"
+"hints.duplicate_move": "複製して移動"
+"hints.constrain_axis": "横・縦方向に固定"
 "hints.independent_stop": "同期・スナップせず移動"
 "hints.independent_curve": "同期せず編集"
 "hints.hide_preview_overlay": "押している間オーバーレイを非表示"

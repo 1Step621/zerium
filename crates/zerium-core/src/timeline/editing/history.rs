@@ -27,7 +27,6 @@ pub(in crate::timeline) enum HistoryKey {
     AnimationRepeat(PropertyAddress),
     Gesture(u64),
     ItemsResize(Vec<ItemId>, ResizeEdge, ResizeMode),
-    ItemsMove(Vec<ItemId>),
     SceneName(SceneId),
     SceneStretchPoint(SceneId),
     SceneVariableLabel(SceneId, String),

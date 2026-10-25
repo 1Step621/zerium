@@ -38,8 +38,8 @@ mod session;
 
 pub use self::{
     commands::{
-        AnimationEdit, AnimationEditTarget, AnimationValuePlan, SceneVariableEditError, ValueEdit,
-        ValueEditTarget,
+        AnimationEdit, AnimationEditTarget, AnimationValuePlan, ItemMoveEdit,
+        SceneVariableEditError, ValueEdit, ValueEditTarget,
     },
     gesture::{EditContext, EditSession},
 };

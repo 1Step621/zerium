@@ -146,15 +146,19 @@ impl TimelineEditor {
         let scene_id = self.active_scene_id();
         self.edit_project_option(EditImpact::Values, None, |editor| {
             let scene = editor.project_mut().scenes_mut().get_mut(&scene_id)?;
-            let label = (1_u64..)
+            let max_number = u64::try_from(scene.variables().len())
+                .ok()?
+                .checked_add(1)?;
+            let label = (1..=max_number)
                 .map(label)
+                .map(|candidate| candidate.trim().to_owned())
                 .find(|candidate| {
-                    !scene
-                        .variables()
-                        .iter()
-                        .any(|variable| variable.label() == candidate)
-                })
-                .expect("a variable name is available");
+                    !candidate.is_empty()
+                        && !scene
+                            .variables()
+                            .iter()
+                            .any(|variable| variable.label() == candidate)
+                })?;
             let identity = ProjectId::generate();
             let argument_id = format!("variable_{:016x}{:016x}", identity.high(), identity.low());
             let variable = if let Some(program) = calculation {

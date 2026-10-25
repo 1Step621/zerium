@@ -31,5 +31,6 @@ mod scene;
 
 pub use self::{
     animation::{AnimationEdit, AnimationEditTarget},
+    item::ItemMoveEdit,
     property::{AnimationValuePlan, ValueEdit, ValueEditTarget},
 };

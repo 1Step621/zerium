@@ -203,15 +203,15 @@ struct DisplayedHint {
 }
 
 pub(crate) struct OperationHintBar {
-    global_hints: HintsProvider,
+    fallback_hints: HintsProvider,
     pressed_hints: Option<Rc<[Hint]>>,
     displayed: Vec<DisplayedHint>,
 }
 
 impl OperationHintBar {
-    pub(crate) fn new(global_hints: impl Fn(&Window, &App) -> Vec<Hint> + 'static) -> Self {
+    pub(crate) fn new(fallback_hints: impl Fn(&Window, &App) -> Vec<Hint> + 'static) -> Self {
         Self {
-            global_hints: Box::new(global_hints),
+            fallback_hints: Box::new(fallback_hints),
             pressed_hints: None,
             displayed: Vec::new(),
         }
@@ -278,12 +278,16 @@ impl OperationHintBar {
             .as_deref()
             .or_else(|| hover.map(|region| region.hints.as_ref()))
             .unwrap_or_default();
-        let global = (self.global_hints)(window, cx);
-        let displayed = global
+        let mut displayed = contextual
             .iter()
-            .chain(contextual)
             .filter_map(|hint| hint.display(window, cx))
             .collect::<Vec<_>>();
+        if displayed.is_empty() {
+            displayed = (self.fallback_hints)(window, cx)
+                .iter()
+                .filter_map(|hint| hint.display(window, cx))
+                .collect();
+        }
         if displayed != self.displayed {
             self.displayed = displayed;
             cx.notify();

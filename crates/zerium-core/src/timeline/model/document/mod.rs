@@ -5,7 +5,7 @@ mod placement;
 mod transaction;
 
 pub use self::placement::{ResizeEdge, ResizeMode};
-pub(in crate::timeline) use self::transaction::ItemEdit;
+pub(in crate::timeline) use self::{placement::CopyPlacement, transaction::ItemEdit};
 
 use std::{
     collections::{HashMap, HashSet},

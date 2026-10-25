@@ -3,14 +3,74 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     media::ImportedFile,
     timeline::{
-        BlendMode, EffectInstanceId, Frame, ItemId, LayerId, ResizeEdge, ResizeMode,
+        BlendMode, EffectInstanceId, Frame, FrameRate, ItemId, LayerId, ResizeEdge, ResizeMode,
         SceneBindingOwner, SceneBindingTarget, SceneId, TimelineEditError, TimelineEditor,
         TimelineItem,
-        editing::history::{EditImpact, HistoryKey},
+        editing::{
+            gesture::EditSession,
+            history::{EditImpact, HistoryKey},
+        },
+        model::document::CopyPlacement,
     },
 };
 
 use super::scene::remove_bindings_for_items;
+
+/// A move gesture owns its original placements and any copies until release.
+pub struct ItemMoveEdit {
+    origins: Vec<(LayerId, TimelineItem)>,
+    copies: Option<HashMap<ItemId, ItemId>>,
+    session: EditSession,
+}
+
+impl ItemMoveEdit {
+    pub fn is_current(&self, editor: &TimelineEditor) -> bool {
+        self.session.is_current(editor)
+    }
+
+    pub fn origins(&self) -> &[(LayerId, TimelineItem)] {
+        &self.origins
+    }
+
+    pub fn clamp_delta(
+        &self,
+        frame_delta: i64,
+        layer_delta: i64,
+        frame_rate: FrameRate,
+    ) -> (i64, i64) {
+        let (min_start, max_end, min_layer, max_layer) = self
+            .origins
+            .iter()
+            .map(|(layer, item)| {
+                (
+                    item.start().get(),
+                    item.end_exclusive(frame_rate).get(),
+                    layer.get(),
+                    layer.get(),
+                )
+            })
+            .reduce(|a, b| (a.0.min(b.0), a.1.max(b.1), a.2.min(b.2), a.3.max(b.3)))
+            .unwrap_or((0, 0, 0, 0));
+        let clamp = |delta: i64, minimum: u64, maximum: u64| {
+            i128::from(delta).clamp(-i128::from(minimum), i128::from(u64::MAX - maximum)) as i64
+        };
+        (
+            clamp(frame_delta, min_start, max_end),
+            clamp(layer_delta, min_layer, max_layer),
+        )
+    }
+
+    pub fn snap_excluded_items(&self, duplicate: bool) -> impl Iterator<Item = ItemId> + '_ {
+        self.origins
+            .iter()
+            .filter_map(move |(_, item)| (!duplicate || self.copies.is_none()).then_some(item.id))
+            .chain(
+                self.copies
+                    .iter()
+                    .flat_map(|copies| copies.values().copied()),
+            )
+    }
+}
 
 // Item, effect, animation, and layout commands.
 impl TimelineEditor {
@@ -136,100 +196,122 @@ impl TimelineEditor {
         }
 
         self.edit_project_option(EditImpact::MediaDependencies, None, |editor| {
-            let active_scene = editor.active_scene_id();
-            let mut copies = sources.to_vec();
-            let mut next_effect_id = editor.next_effect_id;
-            let mut effect_ids = HashMap::new();
-            for (_, item) in &mut copies {
-                for effect in &mut item.effects {
-                    let old_id = effect.id;
-                    let raw_id = next_effect_id?;
-                    if raw_id == u64::MAX {
-                        return None;
-                    }
-                    let new_id = EffectInstanceId::new(raw_id);
-                    next_effect_id = raw_id.checked_add(1).filter(|id| *id != u64::MAX);
-                    effect.id = new_id;
-                    effect_ids.insert(old_id, new_id);
-                }
-            }
+            editor
+                .insert_item_copies(
+                    sources,
+                    source_scene,
+                    source_bindings,
+                    source_hidden_effects,
+                    (target_layer, target_start),
+                    CopyPlacement::FindSpace,
+                )
+                .map(|copies| {
+                    let mut ids = copies.into_values().collect::<Vec<_>>();
+                    ids.sort_unstable_by_key(|id| id.get());
+                    ids
+                })
+        })
+    }
 
-            let document = editor.active_document_mut();
-            let item_ids = document.insert_item_copies(&copies, target_layer, target_start)?;
-            let item_id_map = item_ids.iter().copied().collect::<HashMap<_, _>>();
-
-            if source_scene == Some(active_scene) {
-                let scene = editor.active_scene_mut();
-                for (argument_id, binding) in source_bindings {
-                    let item_id = item_id_map.get(&binding.item_id()).copied()?;
-                    let effect_id = match binding.owner() {
-                        SceneBindingOwner::Item => None,
-                        SceneBindingOwner::Effect(effect_id) => Some(*effect_ids.get(&effect_id)?),
-                    };
-                    let remapped = SceneBindingTarget::new(
-                        item_id,
-                        SceneBindingOwner::from_effect(effect_id),
-                        binding.property_id(),
-                        binding.element_id(),
-                        binding.scalar_index(),
-                    );
-                    let argument = scene
-                        .variables_mut()
-                        .iter_mut()
-                        .find(|argument| argument.id() == argument_id)?;
-                    if argument.bindings.contains(&remapped) {
-                        return None;
-                    }
-                    argument.bindings.push(remapped);
-                }
-                let mut targets = HashSet::new();
-                if scene
-                    .variables()
-                    .iter()
-                    .flat_map(|argument| &argument.bindings)
-                    .any(|binding| !targets.insert(binding.clone()))
-                {
+    fn insert_item_copies(
+        &mut self,
+        sources: &[(LayerId, TimelineItem)],
+        source_scene: Option<SceneId>,
+        source_bindings: &[(String, SceneBindingTarget)],
+        source_hidden_effects: &[EffectInstanceId],
+        (target_layer, target_start): (LayerId, Frame),
+        placement: CopyPlacement,
+    ) -> Option<HashMap<ItemId, ItemId>> {
+        let active_scene = self.active_scene_id();
+        let mut copies = sources.to_vec();
+        let mut next_effect_id = self.next_effect_id;
+        let mut effect_ids = HashMap::new();
+        for (_, item) in &mut copies {
+            for effect in &mut item.effects {
+                let old_id = effect.id;
+                let raw_id = next_effect_id?;
+                if raw_id == u64::MAX {
                     return None;
                 }
+                let new_id = EffectInstanceId::new(raw_id);
+                next_effect_id = raw_id.checked_add(1).filter(|id| *id != u64::MAX);
+                effect.id = new_id;
+                effect_ids.insert(old_id, new_id);
             }
+        }
 
-            // Clipboard references are untrusted and may outlive schema edits.
-            // Validate connections against the copied items before committing.
+        let document = self.active_document_mut();
+        let item_ids =
+            document.insert_item_copies(&copies, target_layer, target_start, placement)?;
+        let item_id_map = item_ids.into_iter().collect::<HashMap<_, _>>();
+
+        if source_scene == Some(active_scene) {
+            let scene = self.active_scene_mut();
+            for (argument_id, binding) in source_bindings {
+                let item_id = item_id_map.get(&binding.item_id()).copied()?;
+                let effect_id = match binding.owner() {
+                    SceneBindingOwner::Item => None,
+                    SceneBindingOwner::Effect(effect_id) => Some(*effect_ids.get(&effect_id)?),
+                };
+                let remapped = SceneBindingTarget::new(
+                    item_id,
+                    SceneBindingOwner::from_effect(effect_id),
+                    binding.property_id(),
+                    binding.element_id(),
+                    binding.scalar_index(),
+                );
+                let argument = scene
+                    .variables_mut()
+                    .iter_mut()
+                    .find(|argument| argument.id() == argument_id)?;
+                if argument.bindings.contains(&remapped) {
+                    return None;
+                }
+                argument.bindings.push(remapped);
+            }
+            let mut targets = HashSet::new();
+            if scene
+                .variables()
+                .iter()
+                .flat_map(|argument| &argument.bindings)
+                .any(|binding| !targets.insert(binding.clone()))
             {
-                let scene = editor.active_scene();
-                for variable in scene.variables() {
-                    for binding in &variable.bindings {
-                        let resolved = crate::timeline::resolve_scene_binding(
-                            &editor.project().scenes,
-                            scene,
-                            binding,
-                        )?;
-                        if resolved.animated
-                            || !resolved.schema.is_scene_bindable(None)
-                            || !resolved
-                                .schema
-                                .scalar_type(None, None)
-                                .is_some_and(|ty| ty.same_type(variable.ty()))
-                        {
-                            return None;
-                        }
+                return None;
+            }
+        }
+
+        // Clipboard references are untrusted and may outlive schema edits.
+        // Validate connections against the copied items before committing.
+        {
+            let scene = self.active_scene();
+            for variable in scene.variables() {
+                for binding in &variable.bindings {
+                    let resolved = crate::timeline::resolve_scene_binding(
+                        &self.project().scenes,
+                        scene,
+                        binding,
+                    )?;
+                    if resolved.animated
+                        || !resolved.schema.is_scene_bindable(None)
+                        || !resolved
+                            .schema
+                            .scalar_type(None, None)
+                            .is_some_and(|ty| ty.same_type(variable.ty()))
+                    {
+                        return None;
                     }
                 }
             }
+        }
 
-            let pasted = item_ids
-                .into_iter()
-                .map(|(_, new_id)| new_id)
-                .collect::<Vec<_>>();
-            editor.next_effect_id = next_effect_id;
-            editor.visibility.toggle_effects(
-                source_hidden_effects
-                    .iter()
-                    .filter_map(|id| effect_ids.get(id).copied()),
-            );
-            editor.selection.set(pasted.iter().copied().collect());
-            Some(pasted)
-        })
+        self.next_effect_id = next_effect_id;
+        self.visibility.toggle_effects(
+            source_hidden_effects
+                .iter()
+                .filter_map(|id| effect_ids.get(id).copied()),
+        );
+        self.selection.set(item_id_map.values().copied().collect());
+        Some(item_id_map)
     }
 
     /// Resize the selected intervals from their gesture origins.
@@ -261,25 +343,177 @@ impl TimelineEditor {
         self.commit_item_edits(Some(key), edits).unwrap_or(false)
     }
 
-    pub fn move_items_from(
+    pub fn begin_item_move(&self, item_id: ItemId) -> Option<ItemMoveEdit> {
+        let items = if self.is_item_selected(item_id) {
+            self.selected_items()
+        } else {
+            vec![self.item(item_id)?.clone()]
+        };
+        let origins = items
+            .into_iter()
+            .map(|item| Some((self.item_layer(item.id)?, item)))
+            .collect::<Option<Vec<_>>>()?;
+        Some(ItemMoveEdit {
+            origins,
+            copies: None,
+            session: self.begin_edit_gesture(),
+        })
+    }
+
+    pub fn move_items(
         &mut self,
-        origins: &[(ItemId, Frame, LayerId)],
+        edit: &mut ItemMoveEdit,
         frame_delta: i64,
         layer_delta: i64,
+        duplicate: bool,
     ) -> bool {
-        let mut ids = origins.iter().map(|(id, _, _)| *id).collect::<Vec<_>>();
-        ids.sort_unstable_by_key(|id| id.get());
-        ids.dedup();
-        if ids.len() != origins.len() {
-            return false;
+        let (frame_delta, layer_delta) =
+            edit.clamp_delta(frame_delta, layer_delta, self.frame_rate());
+        let ItemMoveEdit {
+            origins,
+            copies,
+            session,
+        } = edit;
+        self.update_edit_session(session, |editor| match (duplicate, copies.as_ref()) {
+            (true, None) => {
+                let Some(created) =
+                    editor.edit_project_option(EditImpact::MediaDependencies, None, |editor| {
+                        editor.start_item_copy_move(origins, frame_delta, layer_delta)
+                    })
+                else {
+                    return false;
+                };
+                *copies = Some(created);
+                true
+            }
+            (false, Some(created)) => {
+                let changed = editor
+                    .edit_project_option(EditImpact::MediaDependencies, None, |editor| {
+                        editor.stop_item_copy_move(origins, created, frame_delta, layer_delta)
+                    })
+                    .is_some();
+                if changed {
+                    *copies = None;
+                }
+                changed
+            }
+            _ => {
+                let positions = origins
+                    .iter()
+                    .map(|(layer, item)| {
+                        let id = copies.as_ref().map_or(item.id, |copies| copies[&item.id]);
+                        (id, item.start(), *layer)
+                    })
+                    .collect::<Vec<_>>();
+                let Some(edits) = editor.active_document().prepare_move_items_from(
+                    &positions,
+                    frame_delta,
+                    layer_delta,
+                ) else {
+                    return false;
+                };
+                let changed = editor.commit_item_edits(None, edits).unwrap_or(false);
+                if changed {
+                    editor
+                        .selection
+                        .set(positions.iter().map(|(id, _, _)| *id).collect());
+                }
+                changed
+            }
+        })
+    }
+
+    fn start_item_copy_move(
+        &mut self,
+        origins: &[(LayerId, TimelineItem)],
+        frame_delta: i64,
+        layer_delta: i64,
+    ) -> Option<HashMap<ItemId, ItemId>> {
+        let positions = origins
+            .iter()
+            .map(|(layer, item)| (item.id, item.start(), *layer))
+            .collect::<Vec<_>>();
+        let document = self.active_document_mut();
+        let edits = document.prepare_move_items_from(&positions, 0, 0)?;
+        let edits = document.prepare_item_edits(edits).ok()?;
+        document.publish_item_edits(edits);
+
+        let source_ids = positions
+            .iter()
+            .map(|(id, _, _)| *id)
+            .collect::<HashSet<_>>();
+        let bindings = self
+            .active_scene()
+            .variables()
+            .iter()
+            .flat_map(|variable| {
+                variable
+                    .bindings
+                    .iter()
+                    .filter(|binding| source_ids.contains(&binding.item_id()))
+                    .map(|binding| (variable.id().to_owned(), binding.clone()))
+            })
+            .collect::<Vec<_>>();
+        let hidden_effects = origins
+            .iter()
+            .flat_map(|(_, item)| &item.effects)
+            .filter(|effect| self.visibility.is_effect_hidden(effect.id))
+            .map(|effect| effect.id)
+            .collect::<Vec<_>>();
+        let target_layer = origins
+            .iter()
+            .map(|(layer, _)| layer.get())
+            .min()?
+            .checked_add_signed(layer_delta)?;
+        let target_start = origins
+            .iter()
+            .map(|(_, item)| item.start().get())
+            .min()?
+            .checked_add_signed(frame_delta)?;
+        let copies = self.insert_item_copies(
+            origins,
+            Some(self.active_scene_id()),
+            &bindings,
+            &hidden_effects,
+            (LayerId::new(target_layer), Frame::new(target_start)),
+            CopyPlacement::Exact,
+        )?;
+        let hidden_copies = origins
+            .iter()
+            .filter(|(_, item)| self.visibility.is_item_hidden(item.id))
+            .map(|(_, item)| copies[&item.id])
+            .collect::<Vec<_>>();
+        self.visibility.toggle_items(hidden_copies);
+        Some(copies)
+    }
+
+    fn stop_item_copy_move(
+        &mut self,
+        origins: &[(LayerId, TimelineItem)],
+        copies: &HashMap<ItemId, ItemId>,
+        frame_delta: i64,
+        layer_delta: i64,
+    ) -> Option<()> {
+        for id in copies.values() {
+            if !self.active_document_mut().remove_item(*id) {
+                return None;
+            }
         }
-        let key = HistoryKey::ItemsMove(ids);
-        let Some(edits) =
-            self.active_document()
-                .prepare_move_items_from(origins, frame_delta, layer_delta)
-        else {
-            return false;
-        };
-        self.commit_item_edits(Some(key), edits).unwrap_or(false)
+        self.remove_active_scene_bindings_for(&copies.values().copied().collect());
+        let positions = origins
+            .iter()
+            .map(|(layer, item)| (item.id, item.start(), *layer))
+            .collect::<Vec<_>>();
+        let document = self.active_document_mut();
+        // Releasing Ctrl still removes copies if the requested move is blocked.
+        if let Some(edits) = document
+            .prepare_move_items_from(&positions, frame_delta, layer_delta)
+            .and_then(|edits| document.prepare_item_edits(edits).ok())
+        {
+            document.publish_item_edits(edits);
+        }
+        self.selection
+            .set(positions.iter().map(|(id, _, _)| *id).collect());
+        Some(())
     }
 }

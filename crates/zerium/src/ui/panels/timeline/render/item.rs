@@ -13,7 +13,7 @@ use crate::ui::{
     workspace::operation_hints::{Hint, OperationHintExt as _},
 };
 
-use super::{LayerRenderState, TimelineItemRenderData, navigation_hints};
+use super::{LayerRenderState, TimelineItemRenderData};
 
 fn resize_hints() -> Vec<Hint> {
     vec![
@@ -101,12 +101,15 @@ pub(in crate::ui::panels::timeline) fn timeline_item(
             .cursor_pointer()
             .on_mouse_down(
                 MouseButton::Left,
-                cx.listener(move |this, event, _, cx| {
-                    this.begin_item_interaction(item_id, event, cx);
+                cx.listener(move |this, event, window, cx| {
+                    this.begin_item_interaction(item_id, event, window, cx);
                 }),
             )
             .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
-                if !event.modifiers().shift {
+                if event.modifiers().shift {
+                    this.editor
+                        .update_if_changed(cx, |editor| editor.toggle_item_selection(item_id));
+                } else {
                     this.editor
                         .update_if_changed(cx, |editor| editor.select(item_id));
                 }
@@ -209,7 +212,7 @@ pub(in crate::ui::panels::timeline) fn timeline_item(
                                 });
                                 cx.new(|_| drag.clone())
                             })
-                            .operation_hints(navigation_hints().into_iter().chain(resize_hints())),
+                            .operation_hints(resize_hints()),
                     )
                     .child(
                         div()
@@ -236,18 +239,28 @@ pub(in crate::ui::panels::timeline) fn timeline_item(
                                 });
                                 cx.new(|_| drag.clone())
                             })
-                            .operation_hints(navigation_hints().into_iter().chain(resize_hints())),
+                            .operation_hints(resize_hints()),
                     ),
             )
             .children(animation_markers)
-            .operation_hints(navigation_hints().into_iter().chain([
+            .operation_hints([
                 Hint::gesture(
                     "hints.click",
                     "hints.toggle_selection",
                     gpui::Modifiers::shift(),
                 ),
+                Hint::gesture(
+                    "hints.drag",
+                    "hints.duplicate_move",
+                    gpui::Modifiers::control(),
+                ),
+                Hint::gesture(
+                    "hints.drag",
+                    "hints.constrain_axis",
+                    gpui::Modifiers::shift(),
+                ),
                 Hint::gesture("hints.drag", "hints.no_snap", gpui::Modifiers::alt()),
-            ]))
+            ])
             .into_any_element(),
     )
 }

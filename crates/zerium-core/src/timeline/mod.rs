@@ -6,7 +6,7 @@ mod evaluation;
 mod model;
 
 pub use editing::{
-    AnimationEdit, AnimationEditTarget, AnimationValuePlan, EditContext, EditSession,
+    AnimationEdit, AnimationEditTarget, AnimationValuePlan, EditContext, EditSession, ItemMoveEdit,
     SceneVariableEditError, TimelineEditor, ValueEdit, ValueEditTarget,
 };
 pub use evaluation::{

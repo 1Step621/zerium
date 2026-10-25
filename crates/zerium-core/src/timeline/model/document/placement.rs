@@ -19,6 +19,12 @@ pub enum ResizeMode {
     Stretch,
 }
 
+#[derive(Clone, Copy)]
+pub(in crate::timeline) enum CopyPlacement {
+    Exact,
+    FindSpace,
+}
+
 impl ResizeEdge {
     pub(in crate::timeline) fn item_frame(self, item: &TimelineItem, frame_rate: FrameRate) -> u64 {
         match self {
@@ -153,6 +159,7 @@ impl TimelineDocument {
         sources: &[(LayerId, TimelineItem)],
         target_layer: LayerId,
         target_start: Frame,
+        placement: CopyPlacement,
     ) -> Option<Vec<(ItemId, ItemId)>> {
         let minimum_layer = sources.iter().map(|(layer, _)| layer.get()).min()?;
         let minimum_start = sources.iter().map(|(_, item)| item.start().get()).min()?;
@@ -195,6 +202,9 @@ impl TimelineDocument {
             }
             if next_group_start == group_start {
                 break;
+            }
+            if matches!(placement, CopyPlacement::Exact) {
+                return None;
             }
             group_start = next_group_start;
         }

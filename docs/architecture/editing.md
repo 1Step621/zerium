@@ -175,6 +175,16 @@ Undo group until they end. They read back committed values and stop accepting
 updates after an intervening edit. Pausing within an operation does not split its
 Undo entry. Paste is also one undoable edit.
 
+`ItemMoveEdit` keeps the original items, placements, and source-to-copy ID mapping
+for one drag. It constrains frame and layer deltas for both snapping and commits;
+the UI supplies pointer movement and axis choice. Holding Ctrl
+switches between moving originals and moving copies, including their scene
+bindings and effects; releasing it removes the copies and resumes the move.
+Mode changes commit atomically and share the gesture's Undo entry. While Shift is
+held, movement follows the dominant displacement axis from the drag origin,
+recomputed as the pointer moves. Layer-only moves preserve
+the original frame exactly, including when snapping is enabled.
+
 The editor's edit revision advances on mutations, Undo/Redo, and document
 navigation. Edit contexts use it so returning to an earlier project state cannot
 revive an old operation. The project revision separately identifies saved

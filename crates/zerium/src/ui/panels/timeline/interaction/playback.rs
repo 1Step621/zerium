@@ -49,7 +49,7 @@ impl Timeline {
     pub(crate) fn undo(&mut self, cx: &mut Context<Self>) {
         self.stop_playback(cx);
         self.finish_playhead_scrub(cx);
-        self.item_move_origin = None;
+        self.item_drag = None;
         self.editor.update_if_changed(cx, TimelineEditor::undo);
     }
 
@@ -60,7 +60,7 @@ impl Timeline {
     pub(crate) fn redo(&mut self, cx: &mut Context<Self>) {
         self.stop_playback(cx);
         self.finish_playhead_scrub(cx);
-        self.item_move_origin = None;
+        self.item_drag = None;
         self.editor.update_if_changed(cx, TimelineEditor::redo);
     }
 

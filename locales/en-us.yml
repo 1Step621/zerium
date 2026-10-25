@@ -282,6 +282,8 @@ _version: 1
 "hints.stop_return": "Stop and return"
 "hints.stop_here": "Stop here"
 "hints.no_snap": "Disable snapping"
+"hints.duplicate_move": "Duplicate and move"
+"hints.constrain_axis": "Constrain to one axis"
 "hints.independent_stop": "Move without synchronization or snapping"
 "hints.independent_curve": "Edit without synchronization"
 "hints.hide_preview_overlay": "Hide overlay while held"

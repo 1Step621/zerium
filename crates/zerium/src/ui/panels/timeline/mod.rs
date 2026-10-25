@@ -7,7 +7,7 @@ use self::{
     interaction::{
         context_menu::{ContextTarget, TimelineContextMenu},
         drop::FileDropTarget,
-        item::ItemMoveOrigin,
+        item::ItemMoveDrag,
         selection::MarqueeSelection,
         stretch::stretch_indicator,
     },
@@ -58,7 +58,7 @@ pub(crate) struct Timeline {
     cursor_layer: Option<LayerId>,
     file_drop_target: Option<FileDropTarget>,
     file_drop_error: Option<SharedString>,
-    item_move_origin: Option<ItemMoveOrigin>,
+    item_drag: Option<ItemMoveDrag>,
     marquee_selection: Option<MarqueeSelection>,
     context_menu: Option<TimelineContextMenu>,
     animation_drag: Option<interaction::keyframe::AnimationStopDrag>,
@@ -119,7 +119,7 @@ impl Timeline {
             cursor_layer: None,
             file_drop_target: None,
             file_drop_error: None,
-            item_move_origin: None,
+            item_drag: None,
             marquee_selection: None,
             context_menu: None,
             animation_drag: None,
@@ -135,7 +135,7 @@ impl Timeline {
         self.context_target = None;
         self.cursor_layer = None;
         self.file_drop_target = None;
-        self.item_move_origin = None;
+        self.item_drag = None;
         self.marquee_selection = None;
         self.context_menu = None;
         self.animation_drag = None;

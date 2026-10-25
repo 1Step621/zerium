@@ -204,7 +204,10 @@ impl Render for Timeline {
             .id("timeline-root")
             .relative()
             .track_focus(&self.focus_handle)
-            .on_modifiers_changed(cx.listener(|_, _, _, cx| cx.notify()))
+            .on_modifiers_changed(cx.listener(|this, _, window, cx| {
+                this.refresh_item_move(window, cx);
+                cx.notify();
+            }))
             .capture_any_mouse_down(move |_, window, cx| {
                 focus_handle.focus(window, cx);
             })
@@ -251,8 +254,7 @@ impl Render for Timeline {
                         &drag,
                         f32::from(event.event.position.x),
                         f32::from(event.event.position.y),
-                        event.event.modifiers.alt,
-                        window,
+                        event.event.modifiers,
                         cx,
                     );
                 },

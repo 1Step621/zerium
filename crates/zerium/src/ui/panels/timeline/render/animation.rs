@@ -2,7 +2,7 @@
 use gpui::{Context, MouseButton, div, prelude::*, px};
 use zerium_core::timeline::{AnimationEditTarget, PropertyAddress, TimelineItem, TimelineTime};
 
-use super::{LayerRenderState, navigation_hints};
+use super::LayerRenderState;
 use crate::ui::{
     components::animation::AnimationSynchronization,
     panels::timeline::{
@@ -207,13 +207,13 @@ pub(super) fn key_markers(
                             cx.new(|_| source.clone())
                         })
                 })
-                .operation_hints(navigation_hints().into_iter().chain(movable.then(|| {
+                .operation_hints(movable.then(|| {
                     Hint::gesture(
                         "hints.drag",
                         "hints.independent_stop",
                         gpui::Modifiers::alt(),
                     )
-                })))
+                }))
                 .into_any_element()
         })
         .collect()
