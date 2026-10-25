@@ -1,4 +1,4 @@
-use crate::property::{PropertyConfiguration, PropertySchema, PropertyValue};
+use crate::property::PropertyValue;
 use crate::timeline::commands::SceneVariableEditError;
 use crate::timeline::history::{EditImpact, HistoryKey};
 use crate::timeline::scene::{
@@ -163,30 +163,7 @@ impl TimelineEditor {
             let variable = if let Some(program) = calculation {
                 SceneVariable::calculated(argument_id.clone(), label, preset.ty(), program)
             } else {
-                let default = match preset {
-                    SceneVariablePreset::Number => PropertyValue::F32(0.),
-                    SceneVariablePreset::SignedInteger => PropertyValue::I32(0),
-                    SceneVariablePreset::UnsignedInteger => PropertyValue::U32(0),
-                    SceneVariablePreset::Boolean => PropertyValue::Bool(false),
-                    SceneVariablePreset::Color => PropertyValue::Color([0., 0., 0., 1.]),
-                    SceneVariablePreset::Text => PropertyValue::String(String::new()),
-                    SceneVariablePreset::File => PropertyValue::File(None),
-                };
-                let ty = preset.ty();
-                let animatable = ty.is_interpolatable();
-                let schema = PropertySchema::new_scalar(
-                    argument_id.clone(),
-                    label.into(),
-                    ty,
-                    default,
-                    PropertyConfiguration {
-                        scene_bindable: true,
-                        editable: true,
-                        animatable,
-                        ..Default::default()
-                    },
-                );
-                SceneVariable::argument(schema, Vec::new()).expect("supported argument contract")
+                preset.argument(argument_id.clone(), label)
             };
             scene.variables_mut().push(variable);
             Some(argument_id)

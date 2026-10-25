@@ -33,7 +33,7 @@ impl SceneSettings {
         {
             let variable_id = variable_id.clone();
             let input_name = input_name.clone();
-            self.store.inputs.drafts.remove(key);
+            self.store.inputs.set_draft(key, false);
             let accepted = self.edit_calculation_inputs(
                 &variable_id,
                 move |inputs| {
@@ -44,7 +44,7 @@ impl SceneSettings {
                 cx,
             );
             if !accepted {
-                self.store.inputs.drafts.insert(key.clone());
+                self.store.inputs.set_draft(key, true);
             }
             self.sync_inputs(window, cx);
             return;

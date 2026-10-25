@@ -2,7 +2,9 @@
 use serde::{Deserialize, Serialize};
 
 use super::{SceneBindingTarget, SceneCalculation};
-use crate::property::{PropertyConstraints, PropertySchema, PropertyValue, ScalarPropertyType};
+use crate::property::{
+    PropertyConfiguration, PropertyConstraints, PropertySchema, PropertyValue, ScalarPropertyType,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SceneVariablePreset {
@@ -26,6 +28,31 @@ impl SceneVariablePreset {
             Self::Text => ScalarPropertyType::String,
             Self::File => ScalarPropertyType::File,
         }
+    }
+
+    pub(in crate::timeline) fn argument(self, id: String, label: String) -> SceneVariable {
+        let default = match self {
+            Self::Number => PropertyValue::F32(0.),
+            Self::SignedInteger => PropertyValue::I32(0),
+            Self::UnsignedInteger => PropertyValue::U32(0),
+            Self::Boolean => PropertyValue::Bool(false),
+            Self::Color => PropertyValue::Color([0., 0., 0., 1.]),
+            Self::Text => PropertyValue::String(String::new()),
+            Self::File => PropertyValue::File(None),
+        };
+        let ty = self.ty();
+        let animatable = ty.is_interpolatable();
+        let schema = PropertySchema::new_scalar(
+            id,
+            label.into(),
+            ty,
+            default,
+            PropertyConfiguration {
+                animatable,
+                ..Default::default()
+            },
+        );
+        SceneVariable::argument(schema, Vec::new()).expect("supported argument contract")
     }
 }
 

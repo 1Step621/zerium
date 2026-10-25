@@ -1,10 +1,9 @@
 //! Project file representation, capture, and checked reconstruction.
-mod v1;
+mod migration;
 
 use super::{
     ProjectError,
     items::{ProjectItem, capture_items, load_items},
-    paths::{item_files, make_relative, resolve_path},
     scenes::{ProjectScene, validate_scenes},
 };
 use std::{
@@ -21,7 +20,7 @@ use crate::timeline::{
 };
 
 pub const PROJECT_EXTENSION: &str = "zero";
-const FORMAT_VERSION: u32 = 2;
+const FORMAT_VERSION: u32 = 5;
 
 pub struct LoadedProject {
     project_id: ProjectId,
@@ -30,7 +29,6 @@ pub struct LoadedProject {
     resolution: ProjectResolution,
     beat_guide: BeatGuide,
     playhead: Frame,
-    media_cache: crate::media::MediaMetadataCache,
 }
 
 impl LoadedProject {
@@ -43,7 +41,6 @@ impl LoadedProject {
             self.beat_guide,
             self.playhead,
         );
-        editor.replace_media_cache(self.media_cache);
     }
 }
 
@@ -59,33 +56,12 @@ pub fn decode(
     project_path: &Path,
     plugins: &PluginRegistry,
 ) -> Result<LoadedProject, ProjectError> {
-    let header: ProjectHeader = deserialize(source)?;
-    let file = match header.format_version {
-        1 => v1::migrate(deserialize(source)?)?,
-        FORMAT_VERSION => deserialize(source)?,
-        version => {
-            return Err(ProjectError::unsupported_format(format!(
-                "Unsupported project format (version {version})"
-            )));
-        }
-    };
-    file.into_loaded(project_path, plugins)
-}
-
-fn deserialize<'de, T: Deserialize<'de>>(source: &'de str) -> Result<T, ProjectError> {
-    serde_json::from_str(source).map_err(|error| {
-        ProjectError::invalid_format(format!("Invalid project file format: {error}"), error)
-    })
-}
-
-#[derive(Deserialize)]
-struct ProjectHeader {
-    format_version: u32,
+    migration::decode(source, plugins)?.into_loaded(project_path, plugins)
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct ProjectFile<S = ProjectScene> {
+struct ProjectFile {
     format_version: u32,
     project_high: u64,
     project_low: u64,
@@ -94,8 +70,7 @@ struct ProjectFile<S = ProjectScene> {
     beat_guide: BeatGuide,
     playhead: u64,
     items: Vec<ProjectItem>,
-    scenes: Vec<S>,
-    media_cache: crate::media::MediaMetadataCache,
+    scenes: Vec<ProjectScene>,
 }
 
 impl ProjectFile {
@@ -113,15 +88,6 @@ impl ProjectFile {
             })
             .collect::<Result<Vec<_>, _>>()?;
         scenes.sort_by_key(|scene| scene.id);
-        let argument_files: Vec<_> = snapshot
-            .scenes()
-            .flat_map(|scene| {
-                scene.variables().iter().filter_map(|arg| {
-                    arg.argument_schema()
-                        .and_then(|schema| schema.default_value().file().map(Path::to_path_buf))
-                })
-            })
-            .collect();
         Ok(Self {
             format_version: FORMAT_VERSION,
             project_high: snapshot.project_id().high(),
@@ -138,16 +104,6 @@ impl ProjectFile {
             playhead: snapshot.playhead().get(),
             items,
             scenes,
-            media_cache: snapshot
-                .media_cache()
-                .retained_paths(
-                    snapshot
-                        .items()
-                        .chain(snapshot.scenes().flat_map(|scene| scene.items()))
-                        .flat_map(item_files)
-                        .chain(argument_files.iter().map(|path| path.as_path())),
-                )
-                .mapped_paths(|path| make_relative(path, project_path)),
         })
     }
 
@@ -184,6 +140,7 @@ impl ProjectFile {
             &scene_schemas,
             &mut effect_ids,
             plugins,
+            frame_rate,
         )?;
         let mut scenes = HashMap::new();
         for scene in self.scenes {
@@ -194,6 +151,7 @@ impl ProjectFile {
                 &scene_schemas,
                 &mut effect_ids,
                 plugins,
+                frame_rate,
             )?;
             let variables = scene.variables;
             let mut definition = SceneDefinition::from_project(
@@ -218,9 +176,6 @@ impl ProjectFile {
             resolution,
             beat_guide: self.beat_guide,
             playhead: Frame::new(self.playhead),
-            media_cache: self
-                .media_cache
-                .mapped_paths(|path| resolve_path(path, project_path)),
         })
     }
 }

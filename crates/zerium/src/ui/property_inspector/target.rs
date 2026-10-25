@@ -13,7 +13,7 @@ impl PropertyInspector {
                     "inspector.item_option",
                     name = editor.item_label(id).unwrap_or_default(),
                     layer = editor.item_layer(id)?.get() + 1,
-                    frame = item.start.get(),
+                    frame = item.start().get(),
                 )
                 .to_string();
                 Some((id, label))

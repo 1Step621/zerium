@@ -103,6 +103,9 @@ colors share one curve across RGBA.
 
 Files are optional paths saved relative to the project when possible.
 `ui.extensions` suggests selection/import extensions without restricting values.
+`ui.directory: true` uses a folder picker instead; it cannot be combined with
+`ui.extensions`. Directory properties retain the same optional path value,
+project-relative persistence, scene bindings, and Undo behavior as files.
 Unset or unavailable files are allowed. Files may occur in collections, but
 media and audio inputs reference standalone file properties and declare their
 own readers.
@@ -110,11 +113,10 @@ own readers.
 ## Editor features
 
 Items and effects declare features in `editor`. Each kind can occur once;
-`timeline` and `label` are item-only.
+`label` is item-only.
 
 | Type | References | Behavior |
 | --- | --- | --- |
-| `timeline` | `source_start`, `source_duration`, `playback_speed` | Source trim/stretch |
 | `position` | `property` | Preview position handle |
 | `size` | `property`, `position` | Preview size handles |
 | `aspect_lock` | `property` | Ratio-lock toggle; optional `default` is false |
@@ -134,8 +136,9 @@ means center. Position identifies that origin and stays fixed when origin or
 size changes. Use `item::placement_center(position, size, origin)` in shaders and
 the matching [bounds helper](rendering.md#placement-and-projection).
 
-A `timeline` feature uses the [time-mapping references](inputs.md#playback-and-audio)
-to derive clip duration from source duration and speed. Changing duration retains
-speed; changing speed retains the source interval. Trim/stretch validates these
-properties and clip placement. Without this feature, source edits do not change
-clip length; trim/stretch affects placement and animation timing only.
+Playback is declared once on the item; see [Playback and audio](inputs.md#playback-and-audio).
+Its source-start, source-duration, speed, and EOF fields reference ordinary item
+properties. They appear in the Inspector through their property declarations.
+Playback items derive their frame duration from these values. Trimming changes
+the source range; stretching changes speed. Items without playback retain a fixed
+frame duration. Editor tools do not declare or own playback settings.

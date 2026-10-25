@@ -35,6 +35,7 @@ impl VideoInput {
         initialize().map_err(MediaError::external)?;
         let gpu = mode == VideoInputMode::H264;
         let pipeline = SinkPipeline::new();
+        configure_decoders(&pipeline.pipeline);
         let uri = pipeline::file_uri(&asset.path)?;
         let source = gst::ElementFactory::make("uridecodebin")
             .property("uri", uri.as_str())
@@ -261,5 +262,19 @@ fn configure_source(source: &gst::Element, gpu: bool) {
             klass.contains("Decoder/Video") && (gpu || klass.contains("Hardware"))
         });
         result.to_value_by_nick(if skip { "skip" } else { "try" })
+    });
+}
+
+/// Decoder concurrency is an input policy, independent of pipeline lifetime.
+fn configure_decoders(pipeline: &gst::Pipeline) {
+    pipeline.connect_deep_element_added(|_, _, element| {
+        if element.factory().is_some_and(|factory| {
+            factory
+                .metadata("klass")
+                .is_some_and(|klass| klass.contains("Decoder/Video"))
+        }) && element.find_property("max-threads").is_some()
+        {
+            element.set_property("max-threads", 4i32);
+        }
     });
 }

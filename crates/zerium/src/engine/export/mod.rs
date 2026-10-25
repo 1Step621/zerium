@@ -103,16 +103,16 @@ pub(crate) fn export_timeline(
             "There are no items to export on the timeline".to_owned(),
         ));
     }
-    let (files, errors) = refresh_files(
+    let refresh = refresh_files(
         &mut dependency_readings(timeline.media_dependencies()),
         timeline.media_cache(),
         &media_readers,
     );
-    if let Some(error) = errors.into_iter().next() {
+    if let Some((_, error)) = refresh.errors.into_iter().next() {
         return Err(error.into());
     }
     let mut cache = timeline.media_cache().clone();
-    for file in files {
+    for file in refresh.files {
         cache.record(&file);
     }
     let timeline = timeline.with_media_cache(cache);
@@ -146,7 +146,7 @@ pub(crate) fn export_timeline(
     };
     let decode_gpu = renderer.gpu().clone();
     let (mut frames, encoding) =
-        ExportVideoPipeline::new(renderer, size, EXPORT_PIPELINE_DEPTH, video_settings)?;
+        ExportVideoPipeline::new(renderer, EXPORT_PIPELINE_DEPTH, video_settings)?;
     thread::scope(|scope| {
         let (frames_to_write, video_frames) = mpsc::sync_channel(EXPORT_PIPELINE_DEPTH);
         let writer_failed = frames.failure_signal();

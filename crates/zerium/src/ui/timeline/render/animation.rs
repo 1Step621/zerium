@@ -86,11 +86,11 @@ pub(super) fn key_markers(
         .as_ref()
         .filter(|address| address.item_id == item.id);
     let visible_start = TimelineTime::from_frames(
-        (visible_range.0 * state.frame_rate.frames_per_second()).max(item.start.get() as f64),
+        (visible_range.0 * state.frame_rate.frames_per_second()).max(item.start().get() as f64),
     );
     let visible_end = TimelineTime::from_frames(
         (visible_range.1 * state.frame_rate.frames_per_second())
-            .min(item.end_exclusive().get().saturating_sub(1) as f64),
+            .min(item.end_exclusive(state.frame_rate).get().saturating_sub(1) as f64),
     );
     let pixels_per_frame =
         state.viewport.pixels_per_second() / state.frame_rate.frames_per_second();

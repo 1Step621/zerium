@@ -16,7 +16,6 @@ use zerium_core::media::{MediaAsset, MediaKind, MediaMetadata, MediaTarget};
 use super::super::reader::{ImageDecoder, MediaError, MediaReader, RasterSize};
 
 pub(in crate::engine::media) const READER_ID: &str = "zerium.svg";
-const IMAGE_DURATION: Duration = Duration::from_secs(5);
 
 pub(in crate::engine::media) struct SvgMediaReader;
 
@@ -29,7 +28,7 @@ impl MediaReader for SvgMediaReader {
         let width = dimension(tree.size().width())?;
         let height = dimension(tree.size().height())?;
         Ok(Some(MediaMetadata {
-            duration: IMAGE_DURATION,
+            duration: Duration::ZERO,
             kind: MediaKind::Image { width, height },
         }))
     }

@@ -20,10 +20,10 @@ pub enum ResizeMode {
 }
 
 impl ResizeEdge {
-    pub(in crate::timeline) fn item_frame(self, item: &TimelineItem) -> u64 {
+    pub(in crate::timeline) fn item_frame(self, item: &TimelineItem, frame_rate: FrameRate) -> u64 {
         match self {
-            Self::Left => item.start.get(),
-            Self::Right => item.end_exclusive().get(),
+            Self::Left => item.start().get(),
+            Self::Right => item.end_exclusive(frame_rate).get(),
         }
     }
 
@@ -35,8 +35,8 @@ impl ResizeEdge {
         frame_rate: FrameRate,
         mode: ResizeMode,
     ) -> (i128, i128) {
-        let start = item.start.get();
-        let end = item.end_exclusive().get();
+        let start = item.start().get();
+        let end = item.end_exclusive(frame_rate).get();
         let (mut lower, mut upper) = match self {
             Self::Left => (
                 i128::from(previous_end) - i128::from(start),
@@ -47,32 +47,19 @@ impl ResizeEdge {
                 i128::from(next_start) - i128::from(end),
             ),
         };
-        if let Some(mapping) = item.timeline_mapping() {
-            match mode {
-                ResizeMode::Trim => match self {
-                    Self::Left => {
-                        let available = i128::from(mapping.extend_left_frames(frame_rate));
-                        lower = lower.max(-available);
-                    }
-                    Self::Right => {}
-                },
-                ResizeMode::Stretch => {
-                    let (min_speed, max_speed) = item.timeline_speed_bounds();
-                    let minimum = i128::from(
-                        mapping
-                            .with_speed(max_speed)
-                            .expect("validated speed bounds")
-                            .timeline_duration(frame_rate)
-                            .get(),
-                    );
-                    let maximum = i128::from(
-                        mapping
-                            .with_speed(min_speed)
-                            .expect("validated speed bounds")
-                            .timeline_duration(frame_rate)
-                            .get(),
-                    );
-                    let duration = i128::from(item.duration.get());
+        match mode {
+            ResizeMode::Trim => {
+                if self == Self::Left
+                    && let Some(available) = item.left_extension(frame_rate)
+                {
+                    lower = lower.max(-i128::from(available));
+                }
+            }
+            ResizeMode::Stretch => {
+                if let Some((minimum, maximum)) = item.stretch_duration_bounds(frame_rate) {
+                    let minimum = i128::from(minimum);
+                    let maximum = i128::from(maximum);
+                    let duration = i128::from(item.duration(frame_rate).get());
                     let (min_delta, max_delta) = match self {
                         Self::Left => (duration - maximum, duration - minimum),
                         Self::Right => (minimum - duration, maximum - duration),
@@ -95,8 +82,8 @@ impl ResizeEdge {
         if delta == 0 {
             return Some(());
         }
-        let start = item.start.get();
-        let end = item.end_exclusive().get();
+        let start = item.start().get();
+        let end = item.end_exclusive(frame_rate).get();
         let (new_start, new_end) = match self {
             Self::Left => ((i128::from(start) + delta) as u64, end),
             Self::Right => (start, (i128::from(end) + delta) as u64),
@@ -124,7 +111,12 @@ impl TimelineDocument {
             .flatten()
             .filter(|id| Some(**id) != excluded_item)
             .filter_map(|id| self.items.get(id))
-            .map(|item| (item.start.get(), item.end_exclusive().get()))
+            .map(|item| {
+                (
+                    item.start().get(),
+                    item.end_exclusive(self.frame_rate).get(),
+                )
+            })
             .collect::<Vec<_>>();
         intervals.sort_unstable_by_key(|&(start, end)| (start, end));
 
@@ -163,12 +155,12 @@ impl TimelineDocument {
         target_start: Frame,
     ) -> Option<Vec<(ItemId, ItemId)>> {
         let minimum_layer = sources.iter().map(|(layer, _)| layer.get()).min()?;
-        let minimum_start = sources.iter().map(|(_, item)| item.start.get()).min()?;
+        let minimum_start = sources.iter().map(|(_, item)| item.start().get()).min()?;
         let mut copies = sources
             .iter()
             .map(|(layer, item)| {
                 let layer_offset = layer.get().checked_sub(minimum_layer)?;
-                let start_offset = item.start.get().checked_sub(minimum_start)?;
+                let start_offset = item.start().get().checked_sub(minimum_start)?;
                 let layer = LayerId::new(target_layer.get().checked_add(layer_offset)?);
                 Some((layer, start_offset, item.clone()))
             })
@@ -182,7 +174,7 @@ impl TimelineDocument {
             let mut next_group_start = group_start;
             for (layer, start_offset, item) in &copies {
                 let start = group_start.checked_add(*start_offset)?;
-                let end = start.checked_add(item.duration.get())?;
+                let end = start.checked_add(item.duration(self.frame_rate).get())?;
                 for existing in self
                     .layer_items
                     .get(layer)
@@ -190,8 +182,13 @@ impl TimelineDocument {
                     .flatten()
                     .filter_map(|id| self.items.get(id))
                 {
-                    if start < existing.end_exclusive().get() && existing.start.get() < end {
-                        let required = existing.end_exclusive().get().checked_sub(*start_offset)?;
+                    if start < existing.end_exclusive(self.frame_rate).get()
+                        && existing.start().get() < end
+                    {
+                        let required = existing
+                            .end_exclusive(self.frame_rate)
+                            .get()
+                            .checked_sub(*start_offset)?;
                         next_group_start = next_group_start.max(required);
                     }
                 }
@@ -223,11 +220,11 @@ impl TimelineDocument {
                     .expect("last copied item ID was already checked"),
             );
             item.id = new_id;
-            item.start = Frame::new(
+            item.move_to(Frame::new(
                 group_start
                     .checked_add(start_offset)
                     .expect("copied item end was already checked"),
-            );
+            ));
             self.items.insert(new_id, Arc::new(item));
             self.item_layers.insert(new_id, layer);
             self.layer_items.entry(layer).or_default().push(new_id);
@@ -239,7 +236,7 @@ impl TimelineDocument {
                 ids.sort_unstable_by_key(|id| {
                     self.items
                         .get(id)
-                        .map_or((Frame::new(0), id.get()), |item| (item.start, id.get()))
+                        .map_or((Frame::new(0), id.get()), |item| (item.start(), id.get()))
                 });
             }
         }
@@ -270,15 +267,15 @@ impl TimelineDocument {
             return None;
         }
         let anchor = origins.iter().find(|item| item.id == anchor_id)?;
-        let anchor_edge = edge.item_frame(anchor);
+        let anchor_edge = edge.item_frame(anchor, self.frame_rate);
         let requested_delta = i128::from(pointer.get()) - i128::from(anchor_edge);
         let mut minimum_delta = i128::MIN;
         let mut maximum_delta = i128::MAX;
 
         for origin in origins {
             let layer = self.item_layers[&origin.id];
-            let start = origin.start.get();
-            let end = origin.end_exclusive().get();
+            let start = origin.start().get();
+            let end = origin.end_exclusive(self.frame_rate).get();
             let mut previous_end = 0;
             let mut next_start = u64::MAX;
             for candidate in self
@@ -288,11 +285,11 @@ impl TimelineDocument {
                 .flatten()
                 .filter_map(|candidate| self.items.get(candidate))
             {
-                if candidate.end_exclusive().get() <= start {
-                    previous_end = previous_end.max(candidate.end_exclusive().get());
+                if candidate.end_exclusive(self.frame_rate).get() <= start {
+                    previous_end = previous_end.max(candidate.end_exclusive(self.frame_rate).get());
                 }
-                if candidate.start.get() >= end {
-                    next_start = next_start.min(candidate.start.get());
+                if candidate.start().get() >= end {
+                    next_start = next_start.min(candidate.start().get());
                 }
             }
 
@@ -333,7 +330,8 @@ impl TimelineDocument {
             .iter()
             .map(|(id, start, layer)| {
                 let mut edit = super::ItemEdit::new(self.item(*id)?.clone());
-                edit.item.start = Frame::new(start.get().checked_add_signed(frame_delta)?);
+                edit.item
+                    .move_to(Frame::new(start.get().checked_add_signed(frame_delta)?));
                 edit.layer = Some(LayerId::new(layer.get().checked_add_signed(layer_delta)?));
                 Some(edit)
             })

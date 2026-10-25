@@ -5,8 +5,22 @@ use ::ui::{
 };
 use gpui::{Entity, SharedString, prelude::*};
 
+use super::{super::control::ControlMeta, RenderCtx};
 use crate::ui::property_inspector::{PropertyInspector, SceneFieldBinding};
 use rust_i18n::t;
+
+pub(in crate::ui::property_inspector) fn control_binding_button(
+    common: &ControlMeta,
+    ctx: &RenderCtx,
+) -> Option<gpui::AnyElement> {
+    common.binding.clone().map(|binding| {
+        scene_binding_button(
+            binding,
+            &ctx.inspector,
+            format!("bind-{:?}", common.target).into(),
+        )
+    })
+}
 
 pub(in crate::ui::property_inspector) fn scene_binding_button(
     binding: SceneFieldBinding,

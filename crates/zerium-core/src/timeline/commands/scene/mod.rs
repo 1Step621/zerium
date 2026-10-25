@@ -116,13 +116,13 @@ impl TimelineEditor {
                 .iter()
                 .filter_map(|id| Some((document.item_layer(*id)?, document.item(*id)?)));
             let (first_layer, first) = selected_items.next()?;
-            let mut start = first.start;
-            let mut end = first.end_exclusive();
+            let mut start = first.start();
+            let mut end = first.end_exclusive(self.frame_rate());
             let mut min_layer = first_layer;
             let mut target_layer = first_layer;
             for (layer, item) in selected_items {
-                start = start.min(item.start);
-                end = end.max(item.end_exclusive());
+                start = start.min(item.start());
+                end = end.max(item.end_exclusive(self.frame_rate()));
                 min_layer = LayerId::new(min_layer.get().min(layer.get()));
                 target_layer = LayerId::new(target_layer.get().max(layer.get()));
             }
@@ -140,7 +140,7 @@ impl TimelineEditor {
             let mut items = editor.active_document_mut().take_items(&selected);
             for (layer, item) in &mut items {
                 *layer = LayerId::new(layer.get().saturating_sub(min_layer.get()));
-                item.start = Frame::new(item.start.get().saturating_sub(start.get()));
+                item.move_to(Frame::new(item.start().get().saturating_sub(start.get())));
             }
             let scene_id = SceneId::new(editor.project().id, raw_scene_id);
             let name = if editor
@@ -266,9 +266,10 @@ impl TimelineEditor {
 
             if let Some(path_index) = editor.scene_path.iter().position(|id| *id == scene_id) {
                 editor.scene_path.truncate(path_index);
-                editor.playhead = Frame::new(0);
+                editor.reset_scene_session();
             }
             editor.selection.clear();
+            editor.active_edit_target = None;
             editor.visibility.clear();
             true
         })

@@ -12,7 +12,7 @@ license = "GPL-3.0-or-later"
 rhai = { version = "1.25", features = ["sync", "no_module", "no_time"] }
 naga = { version = "30", features = ["wgsl-in"] }
 rust-i18n = "4.2.2"
-serde = { version = "1", features = ["derive"] }
+serde = { version = "1", features = ["derive", "rc"] }
 serde_json = "1"
 thiserror = "2"
 zerium-core = { path = "crates/zerium-core" }

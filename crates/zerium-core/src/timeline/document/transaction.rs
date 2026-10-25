@@ -1,10 +1,10 @@
-//! Detached item edits. Resolve dependent timing and validate the whole batch before publication.
+//! Detached item edits. Validate the whole batch before publication.
 
 use std::{collections::HashSet, sync::Arc};
 
 use crate::property::{PropertySchema, PropertyValue};
 use crate::timeline::{
-    EffectInstanceId, FrameRate, ItemId, LayerId, TimeMapping, TimelineEditError, TimelineItem,
+    EffectInstanceId, FrameRate, ItemId, LayerId, TimelineEditError, TimelineItem,
 };
 
 use super::TimelineDocument;
@@ -12,18 +12,11 @@ use super::TimelineDocument;
 pub(in crate::timeline) struct ItemEdit {
     pub item: TimelineItem,
     pub layer: Option<LayerId>,
-    previous_mapping: Option<TimeMapping>,
-    synchronize_timeline: bool,
 }
 
 impl ItemEdit {
     pub(in crate::timeline) fn new(item: TimelineItem) -> Self {
-        Self {
-            previous_mapping: item.timeline_mapping(),
-            layer: None,
-            item,
-            synchronize_timeline: false,
-        }
+        Self { layer: None, item }
     }
 
     pub(in crate::timeline) fn set_property(
@@ -31,36 +24,52 @@ impl ItemEdit {
         effect: Option<EffectInstanceId>,
         schema: &PropertySchema,
         value: Option<PropertyValue>,
-    ) {
-        if let Some(value) = value {
-            let owner = self
+        frame_rate: FrameRate,
+    ) -> bool {
+        let previous_start = self.item.start();
+        let previous_duration = self.item.duration(frame_rate);
+        let stretch = effect.is_none()
+            && self
                 .item
-                .property_owner_mut(effect)
-                .expect("prepared owner must exist");
-            let (properties, animations) = (owner.values, owner.animations);
-            if properties
+                .schema()
+                .and_then(|schema| schema.playback())
+                .is_some_and(|playback| playback.playback_speed == schema.id());
+        let owner = self
+            .item
+            .property_owner_mut(effect)
+            .expect("prepared owner must exist");
+        let changed = match value {
+            Some(value) => owner
+                .values
                 .set(schema, value)
-                .expect("prepared value must satisfy its schema")
-            {
-                animations.retain_valid_for_property(schema.id(), properties.property(schema.id()));
-            }
-        } else {
-            self.item.properties.remove(schema.id());
+                .expect("prepared value must satisfy its schema"),
+            None => owner.values.remove(schema.id()).is_some(),
+        };
+        if changed {
+            let value = owner.values.resolve(schema);
+            owner
+                .animations
+                .retain_valid_for_property(schema.id(), Some(&value));
         }
-        self.synchronize_timeline = true;
+        if self.item.validate_playback(frame_rate).is_err() {
+            return false;
+        }
+        let duration = self.item.duration(frame_rate);
+        self.item.resize_animations(
+            previous_start,
+            previous_duration,
+            duration,
+            if stretch {
+                crate::timeline::ResizeMode::Stretch
+            } else {
+                crate::timeline::ResizeMode::Trim
+            },
+        );
+        true
     }
 
-    fn finish(mut self, frame_rate: FrameRate) -> Result<TimelineItem, TimelineEditError> {
-        if self.synchronize_timeline {
-            self.item
-                .synchronize_timeline(self.previous_mapping, frame_rate)?;
-        }
-        self.item.validate_playback()?;
-        self.item
-            .start
-            .get()
-            .checked_add(self.item.duration.get())
-            .ok_or(TimelineEditError::PlacementUnavailable)?;
+    fn finish(self, frame_rate: FrameRate) -> Result<TimelineItem, TimelineEditError> {
+        self.item.validate_playback(frame_rate)?;
         Ok(self.item)
     }
 }
@@ -133,15 +142,20 @@ impl TimelineDocument {
             let original = self
                 .item(item.id)
                 .ok_or(TimelineEditError::ItemNotFound(item.id))?;
-            let placement_changed = original.start != item.start
-                || original.duration != item.duration
+            let placement_changed = original.start() != item.start()
+                || original.duration(self.frame_rate) != item.duration(self.frame_rate)
                 || self.item_layers.get(&item.id) != Some(layer);
             if placement_changed
-                && self.overlaps_on_layer_excluding(*layer, item.start, item.end_exclusive(), &ids)
+                && self.overlaps_on_layer_excluding(
+                    *layer,
+                    item.start(),
+                    item.end_exclusive(self.frame_rate),
+                    &ids,
+                )
                 || items[index + 1..].iter().any(|(other_layer, other)| {
                     other_layer == layer
-                        && item.start < other.end_exclusive()
-                        && other.start < item.end_exclusive()
+                        && item.start() < other.end_exclusive(self.frame_rate)
+                        && other.start() < item.end_exclusive(self.frame_rate)
                 })
             {
                 return Err(TimelineEditError::PlacementUnavailable);
@@ -169,7 +183,7 @@ impl TimelineDocument {
         let mut affected = HashSet::new();
         for (layer, item) in edits.items {
             let previous_layer = self.item_layers[&item.id];
-            let moved = previous_layer != layer || self.items[&item.id].start != item.start;
+            let moved = previous_layer != layer || self.items[&item.id].start() != item.start();
             if moved {
                 affected.insert(previous_layer);
                 affected.insert(layer);
@@ -186,7 +200,7 @@ impl TimelineDocument {
         }
         for layer in affected {
             if let Some(ids) = self.layer_items.get_mut(&layer) {
-                ids.sort_unstable_by_key(|id| (self.items[id].start, id.get()));
+                ids.sort_unstable_by_key(|id| (self.items[id].start(), id.get()));
                 if ids.is_empty() {
                     self.layer_items.remove(&layer);
                 }

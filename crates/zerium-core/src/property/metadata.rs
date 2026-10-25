@@ -45,6 +45,8 @@ pub struct PropertyUi {
     editor: Option<PropertyEditor>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     extensions: Vec<String>,
+    #[serde(skip_serializing_if = "is_false")]
+    directory: bool,
 }
 
 impl Default for PropertyUi {
@@ -58,6 +60,7 @@ impl Default for PropertyUi {
             multiline: false,
             editor: None,
             extensions: Vec::new(),
+            directory: false,
         }
     }
 }
@@ -73,15 +76,20 @@ impl PropertyUi {
     }
 
     pub fn matches_file(&self, path: &Path) -> bool {
-        self.extensions.is_empty()
-            || path
-                .extension()
-                .and_then(|extension| extension.to_str())
-                .is_some_and(|extension| {
-                    self.extensions
-                        .iter()
-                        .any(|allowed| allowed.eq_ignore_ascii_case(extension))
-                })
+        !self.directory
+            && (self.extensions.is_empty()
+                || path
+                    .extension()
+                    .and_then(|extension| extension.to_str())
+                    .is_some_and(|extension| {
+                        self.extensions
+                            .iter()
+                            .any(|allowed| allowed.eq_ignore_ascii_case(extension))
+                    }))
+    }
+
+    pub const fn selects_directory(&self) -> bool {
+        self.directory
     }
 
     pub fn label(&self) -> Option<&str> {
@@ -148,6 +156,11 @@ impl PropertyUi {
         }
 
         let mut seen = HashSet::new();
+        if self.directory && (*ty != ScalarPropertyType::File || !self.extensions.is_empty()) {
+            return Err(invalid(
+                "ui.directory requires a file type without extensions",
+            ));
+        }
         if !self.extensions.is_empty()
             && (*ty != ScalarPropertyType::File
                 || !self.extensions.iter().all(|extension| {

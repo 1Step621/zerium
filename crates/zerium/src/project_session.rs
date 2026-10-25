@@ -19,13 +19,11 @@ pub(crate) enum ProjectActivity {
 pub(crate) struct ProjectOperation {
     session: ProjectSessionId,
     serial: u64,
-    activity: ProjectActivity,
 }
 
 pub(crate) struct ProjectSession {
     id: ProjectSessionId,
     path: Option<PathBuf>,
-    next_session: u64,
     next_operation: u64,
     operations: HashMap<u64, ProjectActivity>,
 }
@@ -35,7 +33,6 @@ impl Default for ProjectSession {
         Self {
             id: ProjectSessionId(1),
             path: None,
-            next_session: 2,
             next_operation: 1,
             operations: HashMap::new(),
         }
@@ -61,8 +58,7 @@ impl ProjectSession {
 
     pub(crate) fn advance(&mut self, path: Option<PathBuf>) -> ProjectSessionId {
         self.set_path(path);
-        self.id = ProjectSessionId(self.next_session);
-        self.next_session = self.next_session.saturating_add(1);
+        self.id = ProjectSessionId(self.id.0.saturating_add(1));
         self.operations.clear();
         self.id
     }
@@ -74,13 +70,11 @@ impl ProjectSession {
         ProjectOperation {
             session: self.id,
             serial,
-            activity,
         }
     }
 
     pub(crate) fn operation_is_current(&self, operation: ProjectOperation) -> bool {
-        self.is_current(operation.session)
-            && self.operations.get(&operation.serial) == Some(&operation.activity)
+        self.is_current(operation.session) && self.operations.contains_key(&operation.serial)
     }
 
     pub(crate) fn finish(&mut self, operation: ProjectOperation) -> bool {
@@ -89,10 +83,6 @@ impl ProjectSession {
         }
         self.operations.remove(&operation.serial);
         true
-    }
-
-    pub(crate) fn is_busy(&self) -> bool {
-        !self.operations.is_empty()
     }
 
     pub(crate) fn busy_activities(&self) -> Vec<ProjectActivity> {

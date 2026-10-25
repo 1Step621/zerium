@@ -1,21 +1,22 @@
-//! Version 1 used both the original arguments and the later variables layout.
+//! Version 1 → 2: normalize scene arguments into scene variables.
 use serde::Deserialize;
+use serde_json::{Map, Value};
 
-use super::{FORMAT_VERSION, ProjectFile, ProjectScene};
+use super::{super::ProjectScene, invalid_format};
 use crate::persistence::{ProjectError, items::ProjectItem};
 use crate::property::PropertySchema;
 use crate::timeline::{SceneBindingTarget, SceneVariable};
 
 #[derive(Deserialize)]
 #[serde(untagged)]
-pub(super) enum Scene {
+enum Scene {
     Arguments(ArgumentScene),
     Variables(ProjectScene),
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct ArgumentScene {
+struct ArgumentScene {
     id: u64,
     name: String,
     stretch_point: u64,
@@ -30,27 +31,26 @@ struct Argument {
     bindings: Vec<SceneBindingTarget>,
 }
 
-pub(super) fn migrate(file: ProjectFile<Scene>) -> Result<ProjectFile, ProjectError> {
+pub(super) fn migrate(file: &mut Map<String, Value>) -> Result<(), ProjectError> {
     let scenes = file
-        .scenes
+        .remove("scenes")
+        .ok_or_else(|| ProjectError::invalid_data("Project scenes are missing"))?;
+    // Keep unrelated fields, including the old media cache, opaque until their
+    // own migration has run. Validate scene contracts before converting them.
+    let scenes: Vec<Scene> = serde_json::from_value(scenes).map_err(invalid_format)?;
+    let scenes = scenes
         .into_iter()
         .map(|scene| match scene {
             Scene::Variables(scene) => Ok(scene),
             Scene::Arguments(scene) => migrate_scene(scene),
         })
-        .collect::<Result<_, _>>()?;
-    Ok(ProjectFile {
-        format_version: FORMAT_VERSION,
-        project_high: file.project_high,
-        project_low: file.project_low,
-        resolution: file.resolution,
-        frame_rate: file.frame_rate,
-        beat_guide: file.beat_guide,
-        playhead: file.playhead,
-        items: file.items,
-        scenes,
-        media_cache: file.media_cache,
-    })
+        .collect::<Result<Vec<_>, _>>()?;
+    file.insert(
+        "scenes".to_owned(),
+        serde_json::to_value(scenes).map_err(invalid_format)?,
+    );
+    file.insert("format_version".to_owned(), Value::from(2));
+    Ok(())
 }
 
 fn migrate_scene(scene: ArgumentScene) -> Result<ProjectScene, ProjectError> {

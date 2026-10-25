@@ -1,6 +1,5 @@
 use crate::ui::property_inspector::rows::{
-    animation_property_label, animation_scalar_label, animation_stop_inputs, keyframe_base,
-    scene_binding_button,
+    animation_stop_inputs, control_binding_button, keyframe_base,
 };
 use ::ui::{button::Button, color_picker::ColorPickerState};
 use gpui::{Entity, MouseButton, SharedString, div, prelude::*, px};
@@ -8,36 +7,27 @@ use gpui::{Entity, MouseButton, SharedString, div, prelude::*, px};
 use zerium_core::timeline::PropertyAddress;
 
 use crate::ui::preview::color_input;
+use crate::ui::property_inspector::PropertyInspector;
 use crate::ui::property_inspector::control::ValueControl;
 use crate::ui::property_inspector::rows::{PropertyRow, RenderCtx};
-use crate::ui::property_inspector::{PropertyInspector, SceneFieldBinding};
 use rust_i18n::t;
 
-pub(in crate::ui::property_inspector) fn color_full_row(
+pub(in crate::ui::property_inspector) fn color_row(
     color: &ValueControl<[f32; 4]>,
     picker: &Entity<ColorPickerState>,
-    animation_enabled: bool,
-    binding: Option<SceneFieldBinding>,
+    label: Option<gpui::AnyElement>,
     ctx: &RenderCtx,
 ) -> PropertyRow {
     let common = &color.common;
-    let is_bound = binding
-        .as_ref()
-        .is_some_and(|binding| binding.connected.is_some());
-    let binding_button = binding.map(|binding| {
-        scene_binding_button(
-            binding,
-            &ctx.inspector,
-            SharedString::from(format!("bind-scene-argument-{:?}", common.target)),
-        )
-    });
+    let is_bound = common.is_bound();
+    let binding_button = control_binding_button(common, ctx);
     let animation_button = (common.animatable && !is_bound)
-        .then(|| color_animation_toggle(&common.target, animation_enabled, &ctx.inspector));
+        .then(|| color_animation_toggle(&common.target, common.animation_enabled, &ctx.inspector));
     let value = color_editor(color, picker, ctx);
     let select_inspector = ctx.inspector.clone();
     let select_target = common.target.clone();
     PropertyRow::new(
-        animation_property_label(common.label.clone(), common, ctx),
+        label,
         div()
             .min_w_0()
             .flex()
@@ -61,57 +51,6 @@ pub(in crate::ui::property_inspector) fn color_full_row(
             .when_some(animation_button, |this, button| this.child(button))
             .when_some(binding_button, |this, button| this.child(button)),
     )
-}
-
-pub(in crate::ui::property_inspector) fn color_compact_row(
-    color: &ValueControl<[f32; 4]>,
-    picker: &Entity<ColorPickerState>,
-    animation_enabled: bool,
-    binding: Option<SceneFieldBinding>,
-    ctx: &RenderCtx,
-) -> (PropertyRow, bool) {
-    let common = &color.common;
-    let is_bound = binding
-        .as_ref()
-        .is_some_and(|binding| binding.connected.is_some());
-    let binding_button = binding.map(|binding| {
-        scene_binding_button(
-            binding,
-            &ctx.inspector,
-            SharedString::from(format!("bind-scene-argument-{:?}", common.target)),
-        )
-    });
-    let animation_button = (common.animatable && !is_bound)
-        .then(|| color_animation_toggle(&common.target, animation_enabled, &ctx.inspector));
-    let value = color_editor(color, picker, ctx);
-    let select_inspector = ctx.inspector.clone();
-    let select_target = common.target.clone();
-    let row = PropertyRow::new(
-        animation_scalar_label(common, ctx),
-        div()
-            .min_w_0()
-            .flex()
-            .items_center()
-            .gap_1()
-            .when(!is_bound, |this| {
-                this.child(
-                    div()
-                        .min_w_0()
-                        .flex_1()
-                        .when(!common.read_only, |this| {
-                            this.on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                                select_inspector.update(cx, |inspector, cx| {
-                                    inspector.select_animation(&select_target, cx);
-                                });
-                            })
-                        })
-                        .child(value),
-                )
-            })
-            .when_some(animation_button, |this, button| this.child(button))
-            .when_some(binding_button, |this, button| this.child(button)),
-    );
-    (row, is_bound)
 }
 
 fn color_editor(

@@ -6,15 +6,13 @@ mod playback;
 pub use metadata::{
     FileMediaMetadata, MediaKind, MediaMetadata, MediaMetadataError, VideoFrameRate,
 };
-pub use metadata_cache::{FileRevision, MediaMetadataCache, ProbedFile};
+pub use metadata_cache::{MediaMetadataCache, MediaRevision, ProbedFile};
 pub use playback::{MediaEndBehavior, MediaPlayback, MediaSample};
 
 use crate::property::PropertyValues;
-use serde::{Deserialize, Serialize};
 use std::{path::PathBuf, time::Duration};
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Deserialize, Serialize)]
-#[serde(rename_all = "snake_case")]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum MediaTarget {
     Visual,
     Audio,
@@ -24,7 +22,7 @@ pub enum MediaTarget {
 pub struct MediaAsset {
     pub reader_id: String,
     pub path: PathBuf,
-    pub revision: Option<FileRevision>,
+    pub revision: MediaRevision,
     pub duration: Duration,
     pub kind: MediaKind,
 }
@@ -38,7 +36,7 @@ pub struct MediaDependency {
 }
 
 /// Identifies an interpreted input, independently of its file property.
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Debug, serde::Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash)]
 #[serde(
     tag = "type",
     content = "id",
@@ -65,6 +63,7 @@ pub struct MediaSource<'a> {
     pub input: MediaInputReference,
     pub file: &'a str,
     pub reader: &'a str,
+    pub frame_rate: Option<&'a str>,
 }
 
 impl MediaSource<'_> {
@@ -73,11 +72,34 @@ impl MediaSource<'_> {
         properties: &PropertyValues,
         cache: &MediaMetadataCache,
     ) -> Option<MediaAsset> {
-        cache.asset(
+        let mut asset = cache.asset(
             properties.property(self.file)?.file()?,
             self.reader,
             self.input.target(),
-        )
+        )?;
+        self.apply_frame_rate(&mut asset, properties)?;
+        Some(asset)
+    }
+
+    pub(crate) fn apply_frame_rate(
+        &self,
+        asset: &mut MediaAsset,
+        properties: &PropertyValues,
+    ) -> Option<()> {
+        if let Some(property) = self.frame_rate
+            && let MediaKind::ImageSequence {
+                frame_rate, frames, ..
+            } = &mut asset.kind
+        {
+            let fps = properties.property(property)?.as_f32()?;
+            if !fps.is_finite() || !(0.001..=1000.).contains(&fps) {
+                return None;
+            }
+            *frame_rate = VideoFrameRate::from_fps(fps)?;
+            asset.duration =
+                Duration::from_secs_f64(frame_rate.frame_to_seconds(frames.len() as u64));
+        }
+        Some(())
     }
 }
 

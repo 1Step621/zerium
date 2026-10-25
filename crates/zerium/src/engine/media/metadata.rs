@@ -1,14 +1,14 @@
 //! Project reading dependencies and refresh state, independent of file input UI.
 
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, HashMap, HashSet},
     path::{Path, PathBuf},
 };
 
 use zerium_core::{
     media::{
-        FileMediaMetadata, FileRevision, ImportedFile, MediaDependency, MediaMetadataCache,
-        MediaTarget, ProbedFile,
+        FileMediaMetadata, ImportedFile, MediaDependency, MediaMetadataCache, MediaRevision,
+        ProbedFile,
     },
     plugin::PluginRegistry,
     timeline::{ProjectId, TimelineSnapshot, TimelineView},
@@ -16,9 +16,8 @@ use zerium_core::{
 
 use super::{MediaError, MediaReaderRegistry};
 
-/// Filesystem observation belongs to the media runtime; FileRevision itself is
-/// a value shared with the project cache and persistence.
-pub(in crate::engine) fn read_file_revision(path: &Path) -> std::io::Result<FileRevision> {
+/// Default observation for readers backed by a single regular file.
+pub(in crate::engine) fn read_file_revision(path: &Path) -> std::io::Result<MediaRevision> {
     let metadata = std::fs::metadata(path)?;
     if !metadata.is_file() {
         return Err(std::io::Error::new(
@@ -26,72 +25,66 @@ pub(in crate::engine) fn read_file_revision(path: &Path) -> std::io::Result<File
             "Not a regular file",
         ));
     }
-    Ok(FileRevision {
+    Ok(MediaRevision::File {
         size: metadata.len(),
         modified: metadata.modified()?,
     })
 }
 
-type Reading = (String, MediaTarget);
-
-type Readings = HashMap<PathBuf, FileReadings>;
-
 #[derive(Default)]
-pub(crate) struct FileReadings {
-    sources: HashSet<Reading>,
-    revision: Option<FileRevision>,
-    failed: HashSet<Reading>,
+pub(crate) struct MediaReadings {
+    sources: HashSet<MediaDependency>,
+    /// Suppress repeated failures until the source changes or is explicitly retried.
+    failures: HashMap<MediaDependency, Option<MediaRevision>>,
+    retries: HashSet<PathBuf>,
 }
 
-impl FileReadings {
-    pub(super) fn new(sources: impl IntoIterator<Item = Reading>) -> Self {
-        Self {
-            sources: sources.into_iter().collect(),
-            ..Default::default()
-        }
-    }
+#[derive(Default)]
+pub(crate) struct MediaRefresh {
+    pub(crate) files: Vec<ProbedFile>,
+    pub(crate) invalidated: Vec<MediaDependency>,
+    pub(crate) errors: Vec<(MediaDependency, MediaError)>,
 }
 
 #[derive(Default)]
 pub(crate) struct MediaMetadataUpdater {
     revision: Option<(ProjectId, u64)>,
-    readings: Readings,
+    readings: MediaReadings,
 }
 
 impl MediaMetadataUpdater {
     pub(crate) fn retry(&mut self, path: &Path) {
-        if let Some(file) = self.readings.get_mut(path) {
-            file.failed.clear();
-        }
+        self.readings.retries.insert(path.to_owned());
     }
 
     pub(crate) fn refresh(
         &mut self,
         snapshot: &TimelineSnapshot,
         readers: &MediaReaderRegistry,
-    ) -> (Vec<ProbedFile>, Vec<MediaError>) {
+    ) -> MediaRefresh {
         let revision = (
             snapshot.project_id(),
             snapshot.media_dependencies_revision(),
         );
         if self.revision != Some(revision) {
-            let mut readings = dependency_readings(snapshot.project_media_dependencies());
-            for (path, file) in &mut readings {
-                if let Some(previous) = self.readings.remove(path) {
-                    file.revision = previous.revision;
-                    file.failed = previous.failed;
-                    file.failed.retain(|reading| file.sources.contains(reading));
-                }
+            if self
+                .revision
+                .is_some_and(|previous| previous.0 != revision.0)
+            {
+                self.readings = MediaReadings::default();
             }
-            self.readings = readings;
+            self.readings.sources = snapshot.project_media_dependencies();
+            self.readings
+                .failures
+                .retain(|source, _| self.readings.sources.contains(source));
             self.revision = Some(revision);
         }
         refresh_files(&mut self.readings, snapshot.media_cache(), readers)
     }
 }
 
-/// Initialize placement from available readings. The background refresher
-/// retries and reports missing readings after the file property is committed.
+/// Discover every interpretation before committing an imported source. Import
+/// errors have the same semantics regardless of the property's picker UI.
 pub(crate) fn prepare_import(
     path: impl AsRef<Path>,
     plugins: &PluginRegistry,
@@ -109,17 +102,27 @@ pub(crate) fn prepare_import(
             "File property '{property_id}' was not found"
         )));
     }
-    let mut sources = FileReadings::new(
+    let mut readings = dependency_readings(
         item.media_sources()
             .filter(|source| source.file == property_id)
-            .map(|source| (source.reader.to_owned(), source.input.target())),
+            .map(|source| MediaDependency {
+                path: path.to_owned(),
+                reader_id: source.reader.to_owned(),
+                target: source.input.target(),
+            }),
     );
-    let (file, _) = refresh_file(path, &mut sources, &MediaMetadataCache::default(), readers);
-    let file = file.unwrap_or_else(|| ProbedFile {
-        path: path.to_owned(),
-        revision: None,
-        media: Vec::new(),
-    });
+    let refresh = refresh_files(&mut readings, &MediaMetadataCache::default(), readers);
+    if let Some((_, error)) = refresh.errors.into_iter().next() {
+        return Err(error);
+    }
+    let file = refresh
+        .files
+        .into_iter()
+        .next()
+        .unwrap_or_else(|| ProbedFile {
+            path: path.to_owned(),
+            media: Vec::new(),
+        });
     Ok(ImportedFile {
         plugin_id: plugin_id.to_owned(),
         source_id: item_id.to_owned(),
@@ -129,113 +132,93 @@ pub(crate) fn prepare_import(
 }
 
 pub(crate) fn refresh_files(
-    readings: &mut Readings,
+    readings: &mut MediaReadings,
     cache: &MediaMetadataCache,
     readers: &MediaReaderRegistry,
-) -> (Vec<ProbedFile>, Vec<MediaError>) {
-    let mut files = Vec::new();
-    let mut errors = Vec::new();
-    for (path, sources) in readings {
-        let (file, failures) = refresh_file(path, sources, cache, readers);
-        files.extend(file);
-        errors.extend(failures);
-    }
-    (files, errors)
-}
-
-pub(super) fn refresh_file(
-    path: &Path,
-    sources: &mut FileReadings,
-    cache: &MediaMetadataCache,
-    readers: &MediaReaderRegistry,
-) -> (Option<ProbedFile>, Vec<MediaError>) {
-    let previous = cache.file(path);
-    let revision = read_file_revision(path);
-    let observed = revision.as_ref().ok().copied();
-    if sources.revision != observed {
-        sources.revision = observed;
-        sources.failed.clear();
-    }
-    let pending = sources
-        .sources
-        .difference(&sources.failed)
-        .cloned()
-        .collect::<Vec<_>>();
-    let mut errors = Vec::new();
-    let revision = match revision {
-        Ok(revision) => revision,
-        Err(error) => {
-            if !pending.is_empty() {
-                errors.push(MediaError::external(format!(
-                    "'{}': {error}",
-                    path.display()
-                )));
-            }
-            sources.failed.extend(pending);
-            return (None, errors);
-        }
-    };
-    let mut file = previous
-        .filter(|file| file.revision == Some(revision))
-        .cloned()
-        .unwrap_or_else(|| ProbedFile {
-            path: path.to_owned(),
-            revision: Some(revision),
-            media: Vec::new(),
-        });
-    let mut probed = false;
-    for (reader, target) in pending {
-        if file.reading(&reader, target).is_some() {
+) -> MediaRefresh {
+    let retries = std::mem::take(&mut readings.retries);
+    let mut files: BTreeMap<PathBuf, ProbedFile> = BTreeMap::new();
+    let mut refresh = MediaRefresh::default();
+    for source in &readings.sources {
+        let forced = retries.contains(&source.path);
+        let previous = cache.reading(source);
+        let reader = readers.reader_for(&source.reader_id);
+        let revision = reader
+            .as_ref()
+            .map_err(|error| (*error).clone())
+            .and_then(|reader| {
+                reader.revision(&source.path).map_err(|error| {
+                    MediaError::external(format!("'{}': {error}", source.path.display()))
+                })
+            });
+        let observed = revision.as_ref().ok().copied();
+        if !forced
+            && (readings.failures.get(source) == Some(&observed)
+                || observed.is_some()
+                    && previous.is_some_and(|reading| Some(reading.revision) == observed))
+        {
             continue;
         }
-        probed = true;
-        match readers.probe(path, &reader, target) {
-            Ok(metadata) => {
-                file.media.push(FileMediaMetadata {
-                    reader,
-                    target,
-                    metadata,
-                });
+        let result = revision.and_then(|revision| {
+            let metadata = readers.probe(&source.path, &source.reader_id, source.target)?;
+            let after = reader
+                .as_ref()
+                .expect("revision requires an available reader")
+                .revision(&source.path)
+                .ok();
+            if after != Some(revision) {
+                return Err(MediaError::external(format!(
+                    "'{}' changed while it was being read",
+                    source.path.display()
+                )));
+            }
+            Ok(FileMediaMetadata {
+                reader: source.reader_id.clone(),
+                target: source.target,
+                revision,
+                metadata,
+            })
+        });
+        match result {
+            Ok(reading) => {
+                readings.failures.remove(source);
+                if previous != Some(&reading) {
+                    files
+                        .entry(source.path.clone())
+                        .or_insert_with(|| ProbedFile {
+                            path: source.path.clone(),
+                            media: Vec::new(),
+                        })
+                        .media
+                        .push(reading);
+                }
             }
             Err(error) => {
-                sources.failed.insert((reader, target));
-                errors.push(error);
+                readings.failures.insert(source.clone(), observed);
+                // An observed replacement that cannot be interpreted must not
+                // keep displaying decoded pixels from the previous revision.
+                // Missing files retain their observation until they reappear.
+                if observed.is_some()
+                    && previous.is_some()
+                    && reader
+                        .as_ref()
+                        .is_ok_and(|reader| reader.revision(&source.path).is_ok())
+                {
+                    refresh.invalidated.push(source.clone());
+                }
+                refresh.errors.push((source.clone(), error));
             }
         }
     }
-    let after = if probed {
-        read_file_revision(path).ok()
-    } else {
-        Some(revision)
-    };
-    if after != Some(revision) {
-        // Publish no results from a file that changed during the batch. Existing
-        // cache entries remain available if it disappeared while being read.
-        file.revision = after.or(Some(revision));
-        file.media.clear();
-        if after.is_none()
-            && let Some(previous) = previous.filter(|file| file.revision == Some(revision))
-        {
-            file = previous.clone();
-        }
-        errors.push(MediaError::external(format!(
-            "'{}' changed while it was being read",
-            path.display()
-        )));
-    }
-    ((previous != Some(&file)).then_some(file), errors)
+    refresh.files = files.into_values().collect();
+    refresh
 }
 
 pub(crate) fn dependency_readings(
     dependencies: impl IntoIterator<Item = MediaDependency>,
-) -> Readings {
-    let mut readings = Readings::new();
-    for dependency in dependencies {
-        readings
-            .entry(dependency.path)
-            .or_default()
-            .sources
-            .insert((dependency.reader_id, dependency.target));
+) -> MediaReadings {
+    MediaReadings {
+        sources: dependencies.into_iter().collect(),
+        ..Default::default()
     }
-    readings
 }

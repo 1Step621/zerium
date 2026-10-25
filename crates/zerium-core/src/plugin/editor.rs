@@ -3,19 +3,14 @@ use std::collections::HashSet;
 
 use serde::Deserialize;
 
+use super::PluginError;
 use super::validation::{PropertyReferences, is_f32_pair};
-use super::{PluginError, TimeMappingProperties};
 use crate::property::{PropertySchema, ScalarPropertyType};
 
 /// One editor feature; each declaration owns all references it consumes.
 #[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum EditorCapability {
-    Timeline {
-        source_start: String,
-        source_duration: String,
-        playback_speed: String,
-    },
     Position {
         property: String,
     },
@@ -51,28 +46,12 @@ pub enum EditorCapability {
 impl EditorCapability {
     fn kind(&self) -> &'static str {
         match self {
-            Self::Timeline { .. } => "timeline",
             Self::Position { .. } => "position",
             Self::Size { .. } => "size",
             Self::AspectLock { .. } => "aspect_lock",
             Self::Points { .. } => "points",
             Self::Spline { .. } => "spline",
             Self::Label { .. } => "label",
-        }
-    }
-
-    pub(super) fn timeline_properties(&self) -> Option<TimeMappingProperties<'_>> {
-        match self {
-            Self::Timeline {
-                source_start,
-                source_duration,
-                playback_speed,
-            } => Some(TimeMappingProperties {
-                source_start,
-                source_duration,
-                playback_speed,
-            }),
-            _ => None,
         }
     }
 
@@ -89,7 +68,7 @@ impl EditorCapability {
         id: &str,
         properties: &[PropertySchema],
     ) -> Result<(), PluginError> {
-        if owner != "item" && matches!(self, Self::Timeline { .. } | Self::Label { .. }) {
+        if owner != "item" && matches!(self, Self::Label { .. }) {
             return Err(PluginError::invalid_definition(format!(
                 "{} editor is only supported for items",
                 self.kind()
@@ -111,16 +90,6 @@ impl EditorCapability {
             references.pair(size).map(|_| ())
         };
         match self {
-            Self::Timeline {
-                source_start,
-                source_duration,
-                playback_speed,
-            } => TimeMappingProperties {
-                source_start,
-                source_duration,
-                playback_speed,
-            }
-            .validate(owner, id, properties),
             Self::Position { property } | Self::AspectLock { property, .. } => {
                 references.pair(property).map(|_| ())
             }

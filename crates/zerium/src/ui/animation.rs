@@ -111,8 +111,8 @@ pub(crate) fn animation_property_label(
 ) -> Option<String> {
     let property = editor.property_schema(address)?;
     let element_index = address.element_id.and_then(|id| {
-        item.property_values(address.effect_id)?
-            .property(&address.property_id)?
+        item.property_overrides(address.effect_id)?
+            .resolve(property)
             .element_index(id)
     });
     let label = element_index.map_or_else(
@@ -147,7 +147,7 @@ fn synchronized_property_label(editor: &TimelineEditor, address: &PropertyAddres
         layer = editor
             .item_layer(item.id)
             .map_or(0, |layer| layer.get() + 1),
-        frame = item.start.get(),
+        frame = item.start().get(),
     );
     format!("{item_label} › {property}")
 }

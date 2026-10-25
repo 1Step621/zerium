@@ -56,6 +56,7 @@ struct Scope {
 }
 
 pub(super) struct SceneWalker<'a> {
+    pub frame_rate: super::FrameRate,
     pub scenes: &'a HashMap<SceneId, SceneDefinition>,
     pub visibility: Option<&'a PreviewVisibility>,
 }
@@ -94,18 +95,18 @@ impl SceneWalker<'_> {
             // Complete definitions are independent of placed offsets and clips.
             // Large instance positions must not hide authored file references.
             let start = if matches!(mode, WalkMode::Definitions) {
-                source.start.get()
+                source.start().get()
             } else {
-                scope.offset.saturating_add(source.start.get())
+                scope.offset.saturating_add(source.start().get())
             };
-            let end = start.saturating_add(source.duration.get());
+            let end = start.saturating_add(source.duration(self.frame_rate).get());
             let end = scope.end.map_or(end, |clip| clip.min(end));
             let Some(clip) = EvaluatedClip::from_bounds(start, end) else {
                 continue;
             };
             let time = match mode {
                 WalkMode::Sample(time) => Some(time),
-                WalkMode::AudioPlan => Some(TimelineTime::from_frame(source.start)),
+                WalkMode::AudioPlan => Some(TimelineTime::from_frame(source.start())),
                 WalkMode::Occupied | WalkMode::Definitions => None,
             };
             let scene = source.scene_id().and_then(|id| self.scenes.get(&id));
@@ -115,8 +116,10 @@ impl SceneWalker<'_> {
             let child_mode = match mode {
                 WalkMode::Sample(time) => {
                     let local =
-                        TimelineTime::from_frames(time.frames() - source.start.get() as f64);
-                    if local.frames() < 0. || local.frames() >= source.duration.get() as f64 {
+                        TimelineTime::from_frames(time.frames() - source.start().get() as f64);
+                    if local.frames() < 0.
+                        || local.frames() >= source.duration(self.frame_rate).get() as f64
+                    {
                         continue;
                     }
                     WalkMode::Sample(local)

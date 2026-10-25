@@ -1,14 +1,8 @@
 use super::*;
 
-#[derive(Clone)]
-pub(super) struct SceneVariableOption {
+pub(super) struct SceneVariableRow {
     pub(super) scene_id: SceneId,
-    pub(super) id: String,
-    pub(super) schema: Option<PropertySchema>,
-    pub(super) label: String,
-    pub(super) output_type: zerium_core::property::ScalarPropertyType,
-    pub(super) binding_count: usize,
-    pub(super) calculation: Option<SceneCalculation>,
+    pub(super) variable: zerium_core::timeline::SceneVariable,
     pub(super) result: Option<Result<PropertyValue, String>>,
 }
 
@@ -30,18 +24,13 @@ impl Render for SceneSettings {
             .active_scene_id()
             .and_then(|id| {
                 self.editor.read(cx).scene(id).map(|scene| {
-                    let evaluation = scene.evaluate_variables(None);
+                    let evaluation = scene.evaluate_default_variables();
                     scene
                         .variables()
                         .iter()
-                        .map(|arg| SceneVariableOption {
+                        .map(|arg| SceneVariableRow {
                             scene_id: id,
-                            id: arg.id().to_owned(),
-                            schema: arg.argument_schema().cloned(),
-                            label: arg.label().to_owned(),
-                            output_type: arg.ty().clone(),
-                            binding_count: arg.bindings.len(),
-                            calculation: arg.calculation().cloned(),
+                            variable: arg.clone(),
                             result: evaluation
                                 .values
                                 .get(arg.id())
@@ -56,19 +45,20 @@ impl Render for SceneSettings {
             colors: cx.theme().colors,
             sources: args
                 .iter()
-                .map(|variable| (variable.id.clone(), variable.label.clone()))
+                .map(|row| {
+                    (
+                        row.variable.id().to_owned(),
+                        row.variable.label().to_owned(),
+                    )
+                })
                 .collect(),
             editor: &self.editor,
             settings: cx.entity(),
             file_input: self.file_input.clone(),
             selecting_file: self.file_input.read(cx).is_selecting(),
-            active_scene_name_input: self.scene_id.and_then(|id| {
-                self.store
-                    .inputs
-                    .text_inputs
-                    .get(&ControlId::scene_name(id))
-                    .map(|state| state.input.clone())
-            }),
+            active_scene_name_input: self
+                .scene_id
+                .and_then(|id| self.store.inputs.text(&ControlId::scene_name(id))),
         };
         div()
             .id("scene-settings")
@@ -117,23 +107,15 @@ impl Render for SceneSettings {
 impl SceneSettings {
     fn scene_settings_elements(
         &self,
-        arguments: &[SceneVariableOption],
+        arguments: &[SceneVariableRow],
         render: &SceneSettingsRenderCtx<'_>,
     ) -> Vec<gpui::AnyElement> {
         let active_scene_name_input = render.active_scene_name_input.clone();
-        let input_arguments = arguments
+        let (input_arguments, calculations): (Vec<_>, Vec<_>) = arguments
             .iter()
-            .filter(|variable| variable.calculation.is_none())
-            .cloned()
-            .collect::<Vec<_>>();
-        let calculations = arguments
-            .iter()
-            .filter(|variable| variable.calculation.is_some())
-            .cloned()
-            .collect::<Vec<_>>();
+            .partition(|row| row.variable.calculation().is_none());
         let rows = input_arguments
             .iter()
-            .cloned()
             .enumerate()
             .map(|(index, argument)| {
                 self.scene_argument_element(index, input_arguments.len(), argument, render)
@@ -159,15 +141,9 @@ impl SceneSettings {
                 .flex_none()
                 .into_any_element(),
         );
-        elements.extend(
-            calculations
-                .iter()
-                .cloned()
-                .enumerate()
-                .map(|(index, variable)| {
-                    self.scene_argument_element(index, calculations.len(), variable, render)
-                }),
-        );
+        elements.extend(calculations.iter().enumerate().map(|(index, variable)| {
+            self.scene_argument_element(index, calculations.len(), variable, render)
+        }));
         elements
     }
 
@@ -175,18 +151,13 @@ impl SceneSettings {
         &self,
         index: usize,
         count: usize,
-        argument: SceneVariableOption,
+        argument: &SceneVariableRow,
         render: &SceneSettingsRenderCtx<'_>,
     ) -> gpui::AnyElement {
-        let name_input = self
-            .store
-            .inputs
-            .text_inputs
-            .get(&ControlId::scene_argument_name(
-                argument.scene_id,
-                &argument.id,
-            ))
-            .map(|state| state.input.clone());
+        let name_input = self.store.inputs.text(&ControlId::scene_argument_name(
+            argument.scene_id,
+            argument.variable.id(),
+        ));
 
         div()
             .w_full()
@@ -196,23 +167,25 @@ impl SceneSettings {
             .flex_none()
             .gap_2()
             .child(scene_argument_header(
-                index, count, &argument, name_input, render,
+                index, count, argument, name_input, render,
             ))
-            .child(self.scene_argument_details(&argument, render))
+            .child(self.scene_argument_details(argument, render))
             .into_any_element()
     }
 
     fn scene_argument_details(
         &self,
-        argument: &SceneVariableOption,
+        argument: &SceneVariableRow,
         render: &SceneSettingsRenderCtx<'_>,
     ) -> gpui::AnyElement {
-        if argument.calculation.is_some() {
-            return self
-                .calculation_details(argument, render)
-                .into_any_element();
-        }
-        let schema = argument.schema.as_ref().expect("argument row");
+        let schema = match &argument.variable.source {
+            zerium_core::timeline::SceneVariableSource::Argument { schema, .. } => schema,
+            zerium_core::timeline::SceneVariableSource::Calculation { program, .. } => {
+                return self
+                    .calculation_details(argument, program, render)
+                    .into_any_element();
+            }
+        };
         let mut details = div().w_full().flex().flex_col().gap_2();
         if let Some(settings) = self.numeric_scene_argument_settings(argument, render) {
             details = details.child(settings);
@@ -228,45 +201,39 @@ impl SceneSettings {
                 );
             }
         }
-        if let Some(input) = self
-            .store
-            .inputs
-            .text_inputs
-            .get(&ControlId::scene_argument_default(
-                argument.scene_id,
-                &argument.id,
-            ))
-        {
-            details = details.child(scene_text_input_row(
-                t!("args.default").to_string(),
-                input.input.clone(),
-            ));
+        if let Some(input) = self.store.inputs.text(&ControlId::scene_argument_default(
+            argument.scene_id,
+            argument.variable.id(),
+        )) {
+            details = details.child(scene_text_input_row(t!("args.default").to_string(), input));
         }
-        if let Some(picker) = self
-            .store
-            .inputs
-            .color_pickers
-            .get(&ControlId::scene_argument_color(
-                argument.scene_id,
-                &argument.id,
-            ))
-        {
-            details = details.child(scene_color_row(picker.picker.clone()));
+        if let Some(picker) = self.store.inputs.color(&ControlId::scene_argument_color(
+            argument.scene_id,
+            argument.variable.id(),
+        )) {
+            details = details.child(scene_color_row(picker));
         }
         if let PropertyValue::Bool(checked) = schema.default_value() {
-            details = details.child(scene_bool_row(argument.id.clone(), checked, render.editor));
+            details = details.child(scene_bool_row(
+                argument.variable.id().to_owned(),
+                checked,
+                render.editor,
+            ));
         }
         if let PropertyValue::File(file) = schema.default_value() {
             details = details.child(crate::ui::file_input::file_picker(
                 &render.file_input,
-                SharedString::from(format!("argument-file-{}", argument.id)),
+                SharedString::from(format!("argument-file-{}", argument.variable.id())),
                 FileTarget::Argument {
                     scene_id: argument.scene_id,
-                    argument_id: argument.id.clone(),
+                    argument_id: argument.variable.id().to_owned(),
                 },
-                file.as_deref(),
-                render.selecting_file,
-                false,
+                crate::ui::file_input::FilePickerOptions {
+                    path: file.as_deref(),
+                    directory: schema.configuration_ui(None).selects_directory(),
+                    selecting: render.selecting_file,
+                    disabled: false,
+                },
             ));
         }
         details.into_any_element()
@@ -274,7 +241,7 @@ impl SceneSettings {
 
     fn numeric_scene_argument_settings(
         &self,
-        argument: &SceneVariableOption,
+        argument: &SceneVariableRow,
         render: &SceneSettingsRenderCtx<'_>,
     ) -> Option<gpui::AnyElement> {
         let rows = [
@@ -286,14 +253,14 @@ impl SceneSettings {
         .map(|(setting, label)| {
             let input = self.store.inputs.text(&ControlId::scene_argument_setting(
                 argument.scene_id,
-                &argument.id,
+                argument.variable.id(),
                 setting,
             ))?;
             Some(scene_argument_setting_row(
                 label.to_string(),
                 &input,
                 argument.scene_id,
-                &argument.id,
+                argument.variable.id(),
                 setting,
                 &render.settings,
             ))
@@ -397,16 +364,16 @@ fn scene_variables_header(editor: &Entity<TimelineEditor>, calculation: bool) ->
 fn scene_argument_header(
     index: usize,
     count: usize,
-    argument: &SceneVariableOption,
+    argument: &SceneVariableRow,
     name_input: Option<Entity<InputState>>,
     render: &SceneSettingsRenderCtx<'_>,
 ) -> Div {
     let move_up_editor = render.editor.clone();
-    let move_up_id = argument.id.clone();
+    let move_up_id = argument.variable.id().to_owned();
     let move_down_editor = render.editor.clone();
-    let move_down_id = argument.id.clone();
+    let move_down_id = argument.variable.id().to_owned();
     let remove_settings = render.settings.clone();
-    let remove_id = argument.id.clone();
+    let remove_id = argument.variable.id().to_owned();
 
     div()
         .w_full()
@@ -430,12 +397,18 @@ fn scene_argument_header(
                 .whitespace_nowrap()
                 .text_sm()
                 .text_color(render.colors.muted_foreground)
-                .child(t!("args.binding_count", count = argument.binding_count).to_string()),
+                .child(
+                    t!(
+                        "args.binding_count",
+                        count = argument.variable.bindings.len()
+                    )
+                    .to_string(),
+                ),
         )
         .child(
             Button::new(SharedString::from(format!(
                 "move-scene-argument-up-{}",
-                argument.id
+                argument.variable.id()
             )))
             .small()
             .compact()
@@ -455,7 +428,7 @@ fn scene_argument_header(
         .child(
             Button::new(SharedString::from(format!(
                 "move-scene-argument-down-{}",
-                argument.id
+                argument.variable.id()
             )))
             .small()
             .compact()
@@ -475,7 +448,7 @@ fn scene_argument_header(
         .child(
             Button::new(SharedString::from(format!(
                 "remove-scene-argument-{}",
-                argument.id
+                argument.variable.id()
             )))
             .small()
             .compact()

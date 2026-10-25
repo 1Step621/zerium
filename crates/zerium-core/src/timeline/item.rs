@@ -1,112 +1,20 @@
 use std::sync::Arc;
 
 use crate::animation::{AnimationClock, ScalarAnimations, ScalarTrack};
-use crate::media::{MediaAsset, MediaMetadataCache, MediaPlayback};
-use crate::plugin::{EffectSchema, ItemSchema, TextureInput};
+use crate::plugin::{EffectSchema, ItemSchema};
 use crate::property::{
-    PropertyElementId, PropertyPath, PropertySchema, PropertyValue, PropertyValues,
+    PropertyElementId, PropertyOverrides, PropertyPath, PropertySchema, PropertyValue,
+    PropertyValues,
 };
 
 use super::{
     BlendMode, FrameRate, PropertyAddress, ResizeMode, TimeMapping,
     aspect_ratio::AspectRatio,
-    ids::{EffectInstanceId, ItemId, LayerId, SceneId},
-    properties::resolve_property,
-    time::{Frame, FrameDuration, TimelineTime},
+    ids::{EffectInstanceId, ItemId, SceneId},
+    time::{Frame, FrameDuration},
 };
 
-/// Resolve media from sampled values without materializing an editable item.
-pub(super) fn media_input_for(
-    inputs: &[TextureInput],
-    playback: &crate::plugin::PlaybackBindings,
-    properties: &PropertyValues,
-    input_id: &str,
-    cache: &MediaMetadataCache,
-) -> Option<(MediaAsset, MediaPlayback)> {
-    let capability = inputs
-        .iter()
-        .find(|capability| capability.id() == input_id)?;
-    let asset = capability.media_source()?.asset(properties, cache)?;
-    let clock = playback
-        .media(input_id, properties)
-        .expect("validated media playback properties");
-    Some((asset, clock))
-}
-
-pub(super) fn audio_input_for(
-    schema: &ItemSchema,
-    input_id: &str,
-    properties: &PropertyValues,
-    cache: &MediaMetadataCache,
-) -> Option<(MediaAsset, MediaPlayback, bool)> {
-    let input = schema.audio_input(input_id)?;
-    let asset = input.media_source().asset(properties, cache)?;
-    let playback = schema
-        .playback()
-        .audio(input_id, properties)?
-        .expect("validated audio playback properties");
-    let preserve_pitch = properties
-        .property(input.preserve_pitch_property())?
-        .as_bool()
-        .expect("validated preserve-pitch property");
-    Some((asset, playback, preserve_pitch))
-}
-
 const MAX_ITEM_LABEL_CHARS: usize = 40;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct RenderResultSettings {
-    pub start_offset: u64,
-    pub end_offset: u64,
-    pub hide_original: bool,
-}
-
-impl RenderResultSettings {
-    pub fn from_properties(
-        properties: &PropertyValues,
-        start_offset: &str,
-        end_offset: &str,
-        hide_original: &str,
-    ) -> Option<Self> {
-        let start = u64::from(properties.property(start_offset)?.as_u32()?);
-        let end = u64::from(properties.property(end_offset)?.as_u32()?);
-        let hide_original = properties.property(hide_original)?.as_bool()?;
-        Some(Self {
-            start_offset: start.min(end),
-            end_offset: start.max(end),
-            hide_original,
-        })
-    }
-
-    pub fn includes(self, source: LayerId, candidate: LayerId) -> bool {
-        let Some(offset) = source.get().checked_sub(candidate.get()) else {
-            return false;
-        };
-        (self.start_offset..=self.end_offset).contains(&offset)
-    }
-
-    pub fn layer_bounds(self, source: LayerId) -> Option<(LayerId, LayerId)> {
-        let top = source.get().saturating_sub(self.end_offset);
-        let bottom = source.get().checked_sub(self.start_offset)?;
-        Some((LayerId::new(top), LayerId::new(bottom)))
-    }
-}
-
-fn render_result_settings_for(
-    capability: &TextureInput,
-    properties: &PropertyValues,
-) -> Option<RenderResultSettings> {
-    let TextureInput::RenderResult {
-        start_offset,
-        end_offset,
-        hide_original,
-        ..
-    } = capability
-    else {
-        return None;
-    };
-    RenderResultSettings::from_properties(properties, start_offset, end_offset, hide_original)
-}
 
 fn concise_label(value: &str) -> Option<String> {
     let first_line = value.lines().map(str::trim).find(|line| !line.is_empty())?;
@@ -126,9 +34,9 @@ fn concise_label(value: &str) -> Option<String> {
     Some(shortened)
 }
 
-pub(super) fn size_values(values: &PropertyValues, schema: &ItemSchema) -> Option<[f32; 2]> {
+pub(super) fn size_values(values: &PropertyOverrides, schema: &ItemSchema) -> Option<[f32; 2]> {
     let property = schema.size_property()?;
-    let value = values.property(&property.id)?;
+    let value = values.resolve(property);
     Some([
         value.scalar_at(Some(0))?.numeric_scalar()? as f32,
         value.scalar_at(Some(1))?.numeric_scalar()? as f32,
@@ -136,7 +44,7 @@ pub(super) fn size_values(values: &PropertyValues, schema: &ItemSchema) -> Optio
 }
 
 pub(super) fn set_size_values(
-    values: &mut PropertyValues,
+    values: &mut PropertyOverrides,
     schema: &ItemSchema,
     size: [f32; 2],
 ) -> bool {
@@ -153,7 +61,7 @@ pub struct EffectInstance {
     pub id: EffectInstanceId,
     pub plugin_id: String,
     pub effect_id: String,
-    pub properties: PropertyValues,
+    pub properties: PropertyOverrides,
     pub animations: ScalarAnimations,
     pub aspect_ratio: Option<AspectRatio>,
     pub schema: Arc<EffectSchema>,
@@ -162,13 +70,6 @@ pub struct EffectInstance {
 impl EffectInstance {
     pub fn schema(&self) -> &EffectSchema {
         &self.schema
-    }
-
-    pub fn render_result_settings(&self) -> impl Iterator<Item = RenderResultSettings> + '_ {
-        self.schema()
-            .inputs()
-            .iter()
-            .filter_map(|capability| render_result_settings_for(capability, &self.properties))
     }
 }
 
@@ -187,11 +88,11 @@ pub enum TimelineItemKind {
 #[derive(Clone, Debug, PartialEq)]
 pub struct TimelineItem {
     pub id: ItemId,
-    pub start: Frame,
-    pub duration: FrameDuration,
+    pub(crate) start: Frame,
+    pub(crate) fixed_duration: Option<FrameDuration>,
     pub blend_mode: BlendMode,
     pub kind: TimelineItemKind,
-    pub properties: PropertyValues,
+    pub properties: PropertyOverrides,
     pub animations: ScalarAnimations,
     pub aspect_ratio: Option<AspectRatio>,
     pub effects: Vec<EffectInstance>,
@@ -199,13 +100,13 @@ pub struct TimelineItem {
 
 /// One resolved property owner, shared by schema lookup, evaluation and editing.
 pub(super) struct PropertyOwnerRef<'a> {
-    pub values: &'a PropertyValues,
+    pub values: &'a PropertyOverrides,
     pub animations: &'a ScalarAnimations,
     pub schemas: &'a [PropertySchema],
 }
 
 pub(super) struct PropertyOwnerMut<'a> {
-    pub values: &'a mut PropertyValues,
+    pub values: &'a mut PropertyOverrides,
     pub animations: &'a mut ScalarAnimations,
 }
 
@@ -219,10 +120,10 @@ impl TimelineItem {
         Self {
             id,
             start,
-            duration,
+            fixed_duration: Some(duration),
             blend_mode: BlendMode::Normal,
             kind: TimelineItemKind::Scene { scene_id },
-            properties: PropertyValues::default(),
+            properties: PropertyOverrides::default(),
             animations: ScalarAnimations::default(),
             aspect_ratio: None,
             effects: Vec::new(),
@@ -329,9 +230,9 @@ impl TimelineItem {
         let schema = self.schema()?;
         if let Some(label) = schema
             .label_property()
-            .and_then(|property| self.properties.property(&property.id))
+            .map(|property| self.properties.resolve(property))
             .and_then(|value| match value {
-                PropertyValue::String(value) => concise_label(value),
+                PropertyValue::String(value) => concise_label(&value),
                 _ => None,
             })
         {
@@ -340,8 +241,10 @@ impl TimelineItem {
 
         let asset_labels = schema
             .file_properties()
-            .filter_map(|property| self.properties.property(property.id())?.file())
-            .filter_map(|path| path.file_stem()?.to_str().and_then(concise_label))
+            .filter_map(|property| {
+                let value = self.properties.resolve(property);
+                value.file()?.file_stem()?.to_str().and_then(concise_label)
+            })
             .collect::<Vec<_>>();
         if !asset_labels.is_empty()
             && let Some(label) = concise_label(&asset_labels.join(" + "))
@@ -359,18 +262,6 @@ impl TimelineItem {
         self.schema()
             .expect("timeline item has a registered schema")
             .symbol()
-    }
-
-    pub fn render_result_ranges(&self) -> impl Iterator<Item = RenderResultSettings> + '_ {
-        self.schema()
-            .into_iter()
-            .flat_map(|schema| schema.inputs())
-            .filter_map(|capability| render_result_settings_for(capability, &self.properties))
-            .chain(
-                self.effects
-                    .iter()
-                    .flat_map(EffectInstance::render_result_settings),
-            )
     }
 
     pub fn aspect_lock_property(
@@ -391,40 +282,77 @@ impl TimelineItem {
     }
 
     pub fn animation_clock(&self, track: &ScalarTrack) -> AnimationClock {
-        AnimationClock::new(self.start, track)
+        AnimationClock::new(self.start(), track)
     }
 
-    pub(super) fn timeline_mapping(&self) -> Option<TimeMapping> {
-        self.schema()?
-            .playback()
-            .timeline(&self.properties)
-            .expect("validated timeline time mapping")
+    pub fn start(&self) -> Frame {
+        self.start
     }
 
-    pub(crate) fn validate_playback(&self) -> Result<(), super::TimelineEditError> {
-        if let Some(schema) = self.schema() {
-            schema.playback().validate(&self.properties)?;
+    pub fn duration(&self, rate: FrameRate) -> FrameDuration {
+        self.fixed_duration.unwrap_or_else(|| {
+            self.source_mapping()
+                .expect("playback clip")
+                .timeline_duration(rate)
+        })
+    }
+
+    pub(crate) fn try_playback(
+        &self,
+    ) -> Result<crate::media::MediaPlayback, super::TimelineEditError> {
+        let Some(schema) = self.schema() else {
+            return Ok(crate::media::MediaPlayback::default());
+        };
+        let Some(playback) = schema.playback() else {
+            return Ok(crate::media::MediaPlayback::default());
+        };
+        let mut values = PropertyValues::default();
+        for id in playback.property_ids() {
+            let property = schema.property(id).expect("validated playback property");
+            values
+                .set(property, self.properties.resolve(property))
+                .expect("authored property contract");
         }
-        for effect in &self.effects {
-            effect.schema().playback().validate(&effect.properties)?;
+        playback.resolve(&values)
+    }
+
+    pub fn playback(&self) -> crate::media::MediaPlayback {
+        self.try_playback().expect("validated item playback")
+    }
+
+    fn source_mapping(&self) -> Option<TimeMapping> {
+        self.schema()?.playback()?;
+        Some(self.playback().mapping())
+    }
+
+    pub(super) fn authored_property(
+        &self,
+        effect: Option<EffectInstanceId>,
+        property: &PropertySchema,
+    ) -> Option<PropertyValue> {
+        Some(self.property_overrides(effect)?.resolve(property))
+    }
+
+    pub(crate) fn validate_playback(
+        &self,
+        rate: FrameRate,
+    ) -> Result<(), super::TimelineEditError> {
+        self.try_playback()?;
+        let derived = self.schema().and_then(|schema| schema.playback()).is_some();
+        if derived == self.fixed_duration.is_some() {
+            return Err(super::TimelineEditError::InvalidSourceRange);
         }
+        self.start
+            .get()
+            .checked_add(self.duration(rate).get())
+            .ok_or(super::TimelineEditError::PlacementUnavailable)?;
         Ok(())
     }
 
-    /// Update a candidate item; callers validate it before committing to the document.
-    pub(super) fn store_timeline_mapping(&mut self, mapping: TimeMapping) -> Option<TimeMapping> {
-        let schema = self.schema_arc()?.clone();
-        let ids = schema.timeline()?;
-        for (id, value) in ids.values_for(mapping) {
-            self.properties.set(schema.property(id)?, value).ok()?;
-        }
-        schema.playback().timeline(&self.properties).ok().flatten()
-    }
-
-    pub(super) fn timeline_speed_bounds(&self) -> (f64, f64) {
+    pub(super) fn source_speed_bounds(&self) -> (f64, f64) {
         let (min, max) = self
             .schema()
-            .and_then(|schema| schema.property(schema.timeline()?.playback_speed))
+            .and_then(|schema| schema.property(&schema.playback()?.playback_speed))
             .and_then(|property| {
                 property
                     .configuration_constraints(None)
@@ -437,88 +365,148 @@ impl TimelineItem {
         )
     }
 
-    /// Resize a timeline interval and its declared source clock together.
+    pub(super) fn left_extension(&self, rate: FrameRate) -> Option<u64> {
+        Some(self.source_mapping()?.left_extension(rate))
+    }
+
+    pub(super) fn stretch_duration_bounds(&self, rate: FrameRate) -> Option<(u64, u64)> {
+        Some(
+            self.source_mapping()?
+                .stretch_duration_bounds(self.source_speed_bounds(), rate),
+        )
+    }
+
+    pub(super) fn move_to(&mut self, start: Frame) {
+        self.start = start;
+    }
+
+    fn write_source_mapping(&mut self, mapping: TimeMapping) -> Option<()> {
+        let schema = self.schema_arc()?.clone();
+        let playback = schema.playback()?;
+        for (id, value) in [
+            (&playback.source_start, mapping.source_offset()),
+            (&playback.source_duration, mapping.source_span()),
+            (&playback.playback_speed, mapping.speed()),
+        ] {
+            let property = schema.property(id)?;
+            let value = PropertyValue::F32(value as f32);
+            if self.properties.resolve(property) != value {
+                self.properties.set(property, value).ok()?;
+            }
+        }
+        Some(())
+    }
+
+    pub(super) fn initialize_source(
+        &mut self,
+        span: std::time::Duration,
+        rate: FrameRate,
+    ) -> Option<()> {
+        let old_duration = self.duration(rate);
+        let mapping = self.source_mapping()?;
+        TimeMapping::new(0., span.as_secs_f32(), mapping.speed() as f32).ok()?;
+        let schema = self.schema_arc()?.clone();
+        let playback = schema.playback()?;
+        for (id, value) in [
+            (&playback.source_start, 0.),
+            (&playback.source_duration, span.as_secs_f32()),
+        ] {
+            self.properties
+                .set(schema.property(id)?, PropertyValue::F32(value))
+                .ok()?;
+        }
+        self.resize_animations(
+            self.start,
+            old_duration,
+            self.duration(rate),
+            ResizeMode::Trim,
+        );
+        Some(())
+    }
+
+    pub(super) fn expand_at(&mut self, point: Frame, extra: u64, rate: FrameRate) {
+        if extra == 0 {
+            return;
+        }
+        if !self.contains(point, rate) {
+            if self.start > point {
+                self.move_to(Frame::new(self.start.get().saturating_add(extra)));
+            }
+            return;
+        }
+        let duration =
+            FrameDuration::new_saturating(self.duration(rate).get().saturating_add(extra));
+        let local_frame = Frame::new(point.get().saturating_sub(self.start.get()));
+        for animations in std::iter::once(&mut self.animations)
+            .chain(self.effects.iter_mut().map(|effect| &mut effect.animations))
+        {
+            animations.extend_at(local_frame, duration);
+        }
+        if let Some(mapping) = self.source_mapping() {
+            self.write_source_mapping(
+                mapping
+                    .with_duration(duration, rate)
+                    .expect("expanded source range"),
+            )
+            .expect("expanded source properties");
+        } else {
+            self.fixed_duration = Some(duration);
+        }
+    }
+
     pub(super) fn resize_to(
         &mut self,
         start: Frame,
         duration: FrameDuration,
         mode: ResizeMode,
-        frame_rate: FrameRate,
+        rate: FrameRate,
     ) -> Option<()> {
-        if let Some(mapping) = self.timeline_mapping() {
-            let mapping = match mode {
-                ResizeMode::Trim if start != self.start => {
-                    let delta = start.get() as f64 - self.start.get() as f64;
-                    mapping.trim_start(delta / frame_rate.frames_per_second())
-                }
-                ResizeMode::Trim => mapping.with_timeline_duration(duration, frame_rate),
-                ResizeMode::Stretch => {
-                    let (min_speed, max_speed) = self.timeline_speed_bounds();
-                    mapping.with_speed(
-                        (mapping.source_span() * frame_rate.frames_per_second()
-                            / duration.get() as f64)
-                            .clamp(min_speed, max_speed),
-                    )?
-                }
-            };
-            self.store_timeline_mapping(mapping)?;
+        let old_start = self.start;
+        let old_duration = self.duration(rate);
+        if let Some(mapping) = self.source_mapping() {
+            let delta = (i128::from(start.get()) - i128::from(old_start.get())) as f64;
+            self.write_source_mapping(mapping.resized(delta, duration, mode, rate)?)?;
+        } else {
+            self.fixed_duration = Some(duration);
         }
-        self.set_interval(start, duration, mode);
-        Some(())
+        self.start = start;
+        self.resize_animations(old_start, old_duration, self.duration(rate), mode);
+        self.validate_playback(rate).ok()
     }
 
-    /// Commit the interval. Trimming preserves retained key positions, adopts
-    /// crossed keys at the bounds, and moves constant endpoints when extending.
-    /// Nonconstant endpoints are retained with a new constant endpoint added.
-    /// Stretching rescales integer keys within the new span.
-    pub(super) fn set_interval(&mut self, start: Frame, duration: FrameDuration, mode: ResizeMode) {
-        let offset = i128::from(start.get()) - i128::from(self.start.get());
+    pub(super) fn retime_to(
+        &mut self,
+        start: Frame,
+        duration: FrameDuration,
+        previous_duration: FrameDuration,
+    ) {
+        let old_start = self.start;
+        self.start = start;
+        if self.fixed_duration.is_some() {
+            self.fixed_duration = Some(duration);
+        }
+        self.resize_animations(old_start, previous_duration, duration, ResizeMode::Stretch);
+    }
+
+    pub(super) fn resize_animations(
+        &mut self,
+        previous_start: Frame,
+        previous_duration: FrameDuration,
+        duration: FrameDuration,
+        mode: ResizeMode,
+    ) {
+        let offset = i128::from(self.start.get()) - i128::from(previous_start.get());
+        if offset == 0 && previous_duration == duration {
+            return;
+        }
         for animations in std::iter::once(&mut self.animations)
             .chain(self.effects.iter_mut().map(|effect| &mut effect.animations))
         {
             match mode {
                 ResizeMode::Trim => animations.trim(offset, duration),
-                ResizeMode::Stretch => animations.stretch(self.duration, duration),
+                ResizeMode::Stretch => animations.stretch(previous_duration, duration),
             }
         }
-        self.start = start;
-        self.duration = duration;
-    }
-
-    /// Synchronize the interval after editing ordinary source-clock properties.
-    pub(super) fn synchronize_timeline(
-        &mut self,
-        previous: Option<TimeMapping>,
-        frame_rate: FrameRate,
-    ) -> Result<(), super::TimelineEditError> {
-        let Some(previous) = previous else {
-            return Ok(());
-        };
-        let mapping = self
-            .schema()
-            .expect("timeline capability belongs to a plugin item")
-            .playback()
-            .timeline(&self.properties)?
-            .expect("timeline capability is unchanged during property edits");
-        if previous.source_span() != mapping.source_span() || previous.speed() != mapping.speed() {
-            let mode = if previous.speed() == mapping.speed() {
-                ResizeMode::Trim
-            } else {
-                ResizeMode::Stretch
-            };
-            self.set_interval(self.start, mapping.timeline_duration(frame_rate), mode);
-        }
-        Ok(())
-    }
-
-    /// Evaluate one property with the same defaults, clock and constraints as playback.
-    pub fn evaluated_property_at(
-        &self,
-        time: TimelineTime,
-        effect_id: Option<EffectInstanceId>,
-        property: &PropertySchema,
-    ) -> Option<PropertyValue> {
-        resolve_property(None, self, effect_id, property, Some(time)).map(|resolved| resolved.value)
     }
 
     pub fn animation_track(
@@ -556,24 +544,27 @@ impl TimelineItem {
             })
     }
 
-    pub fn property_values(&self, effect_id: Option<EffectInstanceId>) -> Option<&PropertyValues> {
+    pub fn property_overrides(
+        &self,
+        effect_id: Option<EffectInstanceId>,
+    ) -> Option<&PropertyOverrides> {
         Some(self.property_owner(effect_id)?.values)
     }
 
-    pub(super) fn property_values_mut(
+    pub(super) fn property_overrides_mut(
         &mut self,
         effect_id: Option<EffectInstanceId>,
-    ) -> Option<&mut PropertyValues> {
+    ) -> Option<&mut PropertyOverrides> {
         Some(self.property_owner_mut(effect_id)?.values)
     }
 
     /// First frame after the item.
-    pub fn end_exclusive(&self) -> Frame {
-        Frame(self.start.0.saturating_add(self.duration.get()))
+    pub fn end_exclusive(&self, rate: FrameRate) -> Frame {
+        Frame(self.start().get().saturating_add(self.duration(rate).get()))
     }
 
-    pub fn contains(&self, frame: Frame) -> bool {
-        frame >= self.start && frame < self.end_exclusive()
+    pub fn contains(&self, frame: Frame, rate: FrameRate) -> bool {
+        frame >= self.start() && frame < self.end_exclusive(rate)
     }
 }
 
@@ -605,14 +596,21 @@ impl TimelineItem {
         plugin_id: &str,
         effect_id: &str,
         schema: Arc<EffectSchema>,
+        frame_rate: FrameRate,
     ) -> bool {
-        let properties = PropertyValues::from_properties(schema.properties());
+        let mut properties = PropertyOverrides::default();
+        crate::plugin::initialize_frame_rates(
+            schema.inputs(),
+            schema.properties(),
+            &mut properties,
+            frame_rate,
+        );
         let aspect_ratio = schema
             .aspect_lock_default()
             .then(|| {
-                schema.aspect_lock_property().and_then(|property| {
-                    AspectRatio::from_value(properties.property(property.id())?)
-                })
+                schema
+                    .aspect_lock_property()
+                    .and_then(|property| AspectRatio::from_value(&properties.resolve(property)))
             })
             .flatten();
         if self.scene_id().is_none() {

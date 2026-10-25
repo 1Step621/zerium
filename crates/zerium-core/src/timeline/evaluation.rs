@@ -79,13 +79,14 @@ pub(crate) fn evaluated_scene_graph_at_time(
     time: TimelineTime,
     visibility: Option<&PreviewVisibility>,
     scene: Option<&SceneDefinition>,
+    frame_rate: super::FrameRate,
 ) -> Vec<EvaluatedSceneNode> {
     use super::placement::{PlacedItem, SceneVisitor, SceneWalker, WalkMode};
 
     struct RenderVisitor<'a> {
-        scenes: &'a HashMap<SceneId, SceneDefinition>,
         visibility: Option<&'a PreviewVisibility>,
         used_ids: HashSet<ItemId>,
+        frame_rate: super::FrameRate,
     }
 
     impl SceneVisitor for RenderVisitor<'_> {
@@ -105,10 +106,10 @@ pub(crate) fn evaluated_scene_graph_at_time(
             bindings: Option<&SceneBindings<'_>>,
         ) -> Self::State {
             let mut resolved = resolve_render_item(
-                self.scenes,
                 bindings,
                 &placed.source,
                 time.expect("render sample"),
+                self.frame_rate,
             );
             resolved.value.runtime_id =
                 unique_runtime_id(placed.seed, placed.source.id, &mut self.used_ids);
@@ -134,14 +135,19 @@ pub(crate) fn evaluated_scene_graph_at_time(
     }
 
     let bindings = scene.map(|scene| SceneBindings::new(scenes, scene, None));
-    SceneWalker { scenes, visibility }.walk(
+    SceneWalker {
+        scenes,
+        visibility,
+        frame_rate,
+    }
+    .walk(
         items,
         WalkMode::Sample(time),
         bindings.as_ref(),
         &mut RenderVisitor {
-            scenes,
             visibility,
             used_ids: HashSet::new(),
+            frame_rate,
         },
     )
 }
@@ -152,6 +158,7 @@ pub(crate) fn evaluated_items_at_time(
     time: TimelineTime,
     visibility: Option<&PreviewVisibility>,
     scene: Option<&SceneDefinition>,
+    frame_rate: super::FrameRate,
 ) -> Vec<(LayerId, super::EvaluatedItem)> {
     fn flatten(nodes: Vec<EvaluatedSceneNode>, output: &mut Vec<(LayerId, super::EvaluatedItem)>) {
         for node in nodes {
@@ -163,7 +170,7 @@ pub(crate) fn evaluated_items_at_time(
         }
     }
 
-    let graph = evaluated_scene_graph_at_time(items, scenes, time, visibility, scene);
+    let graph = evaluated_scene_graph_at_time(items, scenes, time, visibility, scene, frame_rate);
     let mut output = Vec::new();
     flatten(graph, &mut output);
     output

@@ -122,6 +122,7 @@ impl TimelineView for TimelineSnapshot {
             time,
             None,
             None,
+            self.frame_rate(),
         )
     }
 

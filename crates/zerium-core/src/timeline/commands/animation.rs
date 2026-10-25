@@ -49,7 +49,9 @@ impl TimelineEditor {
                 else {
                     return false;
                 };
-                let Some(track) = ScalarTrack::from_value(value, ty, item.duration) else {
+                let Some(track) =
+                    ScalarTrack::from_value(value, ty, item.duration(editor.frame_rate()))
+                else {
                     return false;
                 };
                 editor
@@ -129,7 +131,10 @@ impl TimelineEditor {
         }
         let key = HistoryKey::AnimationRepeat(address.clone());
         self.edit_project_if_changed(EditImpact::Values, Some(key), |editor| {
-            let Some(duration) = editor.item(address.item_id).map(|item| item.duration) else {
+            let Some(duration) = editor
+                .item(address.item_id)
+                .map(|item| item.duration(editor.frame_rate()))
+            else {
                 return false;
             };
             editor

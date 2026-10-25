@@ -1,155 +1,103 @@
-//! Normalize validated capability declarations into shared, typed source clocks.
+//! One item-wide playback declaration, shared by its visual and audio inputs.
+use super::{
+    ItemSchema, PluginError, TextureInput,
+    validation::{PropertyReferences, has_enum_values},
+};
+use crate::{
+    media::{MediaEndBehavior, MediaInputReference, MediaPlayback},
+    property::{PropertyValue, PropertyValues, ScalarPropertyType},
+    timeline::{TimeMapping, TimelineEditError},
+};
+use serde::Deserialize;
+use std::collections::HashSet;
 
-use std::collections::BTreeMap;
-
-use crate::media::{MediaEndBehavior, MediaPlayback};
-use crate::property::PropertyValues;
-use crate::timeline::{TimeMapping, TimelineEditError};
-
-use super::{AudioCapability, PlaybackProperties, TextureInput, TimeMappingProperties};
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct MappingBinding {
-    source_start: String,
-    source_duration: String,
-    playback_speed: String,
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct ItemPlaybackSchema {
+    pub source: MediaInputReference,
+    pub source_start: String,
+    pub source_duration: String,
+    pub playback_speed: String,
+    pub end_behavior: String,
 }
 
-impl MappingBinding {
-    fn properties(&self) -> TimeMappingProperties<'_> {
-        TimeMappingProperties {
-            source_start: &self.source_start,
-            source_duration: &self.source_duration,
-            playback_speed: &self.playback_speed,
-        }
+impl ItemPlaybackSchema {
+    pub fn property_ids(&self) -> [&str; 4] {
+        [
+            &self.source_start,
+            &self.source_duration,
+            &self.playback_speed,
+            &self.end_behavior,
+        ]
     }
 
-    fn resolve(&self, values: &PropertyValues) -> Result<TimeMapping, TimelineEditError> {
-        self.properties().resolve(values)
-    }
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-struct PlaybackBinding {
-    mapping: usize,
-    end_behavior: String,
-}
-
-impl PlaybackBinding {
-    fn end_behavior(&self, values: &PropertyValues) -> Result<MediaEndBehavior, TimelineEditError> {
-        match values
-            .property(&self.end_behavior)
-            .and_then(|value| value.as_enum())
-        {
-            Some(0) => Ok(MediaEndBehavior::Stop),
-            Some(1) => Ok(MediaEndBehavior::Loop),
-            Some(2) => Ok(MediaEndBehavior::Hold),
-            _ => Err(TimelineEditError::InvalidSourceRange),
-        }
-    }
-
-    fn resolve(
-        &self,
-        mappings: &[MappingBinding],
-        values: &PropertyValues,
-    ) -> Result<MediaPlayback, TimelineEditError> {
-        Ok(MediaPlayback::new(
-            mappings[self.mapping].resolve(values)?,
-            self.end_behavior(values)?,
-        ))
-    }
-}
-
-/// Derived once after manifest validation. Inputs may share a mapping or retain
-/// independent clocks; runtime consumers no longer walk capability declarations.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct PlaybackBindings {
-    mappings: Vec<MappingBinding>,
-    media: BTreeMap<String, PlaybackBinding>,
-    audio: BTreeMap<String, PlaybackBinding>,
-    timeline: Option<usize>,
-}
-
-impl PlaybackBindings {
-    pub(super) fn compile(
-        inputs: &[TextureInput],
-        audio: &[AudioCapability],
-        timeline: Option<TimeMappingProperties<'_>>,
-    ) -> Self {
-        let mut bindings = Self::default();
-        for input in inputs {
-            if let Some(properties) = input.playback_properties() {
-                let binding = bindings.bind(properties);
-                bindings.media.insert(input.id().to_owned(), binding);
-            }
-        }
-        for input in audio {
-            let binding = bindings.bind(input.playback_properties());
-            bindings.audio.insert(input.id().to_owned(), binding);
-        }
-        bindings.timeline = timeline.map(|properties| bindings.intern(properties));
-        bindings
-    }
-
-    fn intern(&mut self, properties: TimeMappingProperties<'_>) -> usize {
-        let mapping = MappingBinding {
-            source_start: properties.source_start.to_owned(),
-            source_duration: properties.source_duration.to_owned(),
-            playback_speed: properties.playback_speed.to_owned(),
-        };
-        if let Some(index) = self.mappings.iter().position(|current| *current == mapping) {
-            index
-        } else {
-            let index = self.mappings.len();
-            self.mappings.push(mapping);
-            index
-        }
-    }
-
-    fn bind(&mut self, properties: PlaybackProperties<'_>) -> PlaybackBinding {
-        PlaybackBinding {
-            mapping: self.intern(properties.time_mapping()),
-            end_behavior: properties.end_behavior.to_owned(),
-        }
-    }
-
-    pub fn media(
-        &self,
-        id: &str,
-        values: &PropertyValues,
-    ) -> Result<MediaPlayback, TimelineEditError> {
-        self.media.get(id).map_or_else(
-            || Ok(MediaPlayback::default()),
-            |binding| binding.resolve(&self.mappings, values),
+    pub fn mapping(&self, values: &PropertyValues) -> Result<TimeMapping, TimelineEditError> {
+        let number = |id: &str| values.property(id).and_then(PropertyValue::as_f32);
+        TimeMapping::new(
+            number(&self.source_start).ok_or(TimelineEditError::InvalidSourceRange)?,
+            number(&self.source_duration).ok_or(TimelineEditError::InvalidSourceRange)?,
+            number(&self.playback_speed).ok_or(TimelineEditError::InvalidPlaybackSpeed)?,
         )
     }
 
-    pub fn audio(
-        &self,
-        id: &str,
-        values: &PropertyValues,
-    ) -> Option<Result<MediaPlayback, TimelineEditError>> {
-        self.audio
-            .get(id)
-            .map(|binding| binding.resolve(&self.mappings, values))
+    pub fn resolve(&self, values: &PropertyValues) -> Result<MediaPlayback, TimelineEditError> {
+        let end = match values
+            .property(&self.end_behavior)
+            .and_then(PropertyValue::as_enum)
+        {
+            Some(0) => MediaEndBehavior::Stop,
+            Some(1) => MediaEndBehavior::Loop,
+            Some(2) => MediaEndBehavior::Hold,
+            _ => return Err(TimelineEditError::InvalidSourceRange),
+        };
+        Ok(MediaPlayback::new(self.mapping(values)?, end))
     }
 
-    pub fn timeline(
-        &self,
-        values: &PropertyValues,
-    ) -> Result<Option<TimeMapping>, TimelineEditError> {
-        self.timeline
-            .map(|index| self.mappings[index].resolve(values))
-            .transpose()
-    }
-
-    pub fn validate(&self, values: &PropertyValues) -> Result<(), TimelineEditError> {
-        for mapping in &self.mappings {
-            mapping.resolve(values)?;
+    pub(super) fn validate(&self, item: &ItemSchema) -> Result<(), PluginError> {
+        let found = match &self.source {
+            MediaInputReference::Media(id) => item.inputs().iter().any(
+                |input| matches!(input, TextureInput::Media { id: input_id, .. } if input_id == id),
+            ),
+            MediaInputReference::Audio(id) => item.audio_input(id).is_some(),
+        };
+        if !found {
+            return Err(PluginError::invalid_definition(format!(
+                "item '{}' playback source was not found",
+                item.id()
+            )));
         }
-        for binding in self.media.values().chain(self.audio.values()) {
-            binding.end_behavior(values)?;
+        let context = format!("item '{}' playback", item.id());
+        let references = PropertyReferences::new(&context, item.properties());
+        let mut ids = HashSet::new();
+        for id in [
+            &self.source_start,
+            &self.source_duration,
+            &self.playback_speed,
+        ] {
+            references.check(
+                id,
+                "a distinct f32 without animation or scene bindings",
+                |property| {
+                    ids.insert(id)
+                        && property.scalar_type(None, None) == Some(&ScalarPropertyType::F32)
+                        && !property.is_animatable(None)
+                        && !property.is_scene_bindable(None)
+                },
+            )?;
         }
+        references.check(
+            &self.end_behavior,
+            "an enum [0, 1, 2] without animation or scene bindings",
+            |property| {
+                property
+                    .scalar_type(None, None)
+                    .is_some_and(|ty| has_enum_values(ty, &[0, 1, 2]))
+                    && !property.is_animatable(None)
+                    && !property.is_scene_bindable(None)
+            },
+        )?;
+        self.resolve(&PropertyValues::from_properties(item.properties()))
+            .map_err(|error| PluginError::invalid_definition(format!("{context}: {error}")))?;
         Ok(())
     }
 }

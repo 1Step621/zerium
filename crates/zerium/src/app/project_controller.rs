@@ -384,35 +384,20 @@ impl ProjectController {
         });
     }
 
-    pub(crate) fn should_close(
-        &mut self,
-        export_busy: bool,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) -> bool {
-        if self.operation.is_some() || export_busy || self.session.read(cx).is_busy() {
-            let activities = self.session.read(cx).busy_activities();
-            let activity = if activities.is_empty() {
-                if export_busy {
-                    t!("project.export_activity").to_string()
-                } else {
-                    t!("project.idle_activity").to_string()
-                }
-            } else {
-                activities
-                    .iter()
-                    .map(|activity| match activity {
-                        ProjectActivity::Import => t!("project.import_activity").to_string(),
-                        ProjectActivity::SelectFile => {
-                            t!("project.select_file_activity").to_string()
-                        }
-                        ProjectActivity::Save => t!("project.save_activity").to_string(),
-                        ProjectActivity::Load => t!("project.load_activity").to_string(),
-                        ProjectActivity::Export => t!("project.export_activity").to_string(),
-                    })
-                    .collect::<Vec<_>>()
-                    .join("・")
-            };
+    pub(crate) fn should_close(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        let activities = self.session.read(cx).busy_activities();
+        if !activities.is_empty() {
+            let activity = activities
+                .iter()
+                .map(|activity| match activity {
+                    ProjectActivity::Import => t!("project.import_activity").to_string(),
+                    ProjectActivity::SelectFile => t!("project.select_file_activity").to_string(),
+                    ProjectActivity::Save => t!("project.save_activity").to_string(),
+                    ProjectActivity::Load => t!("project.load_activity").to_string(),
+                    ProjectActivity::Export => t!("project.export_activity").to_string(),
+                })
+                .collect::<Vec<_>>()
+                .join("・");
             self.notifications.update(cx, |notifications, cx| {
                 notifications.push(
                     t!("project.wait_activity", activity = activity).to_string(),

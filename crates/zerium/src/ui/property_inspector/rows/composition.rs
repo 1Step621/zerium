@@ -1,8 +1,8 @@
 //! Compose scalar and grouped properties from their value-specific rows.
 use crate::ui::property_inspector::rows::{
-    animation_container_label, color_compact_row, color_full_row, dropdown_compact_row,
-    dropdown_full_row, file_row, number_compact_row, number_full_row, property_grid,
-    text_compact_row, text_full_row, toggle_compact_row, toggle_full_row,
+    animation_container_label, animation_property_label, animation_scalar_label, color_row,
+    dropdown_row, file_row, number_compact_row, number_full_row, property_grid, text_row,
+    toggle_row,
 };
 use ::ui::{
     Disableable as _, IconName, Sizable as _,
@@ -22,75 +22,7 @@ pub(in crate::ui::property_inspector) fn scalar_full_row(
     control: &Control,
     ctx: &RenderCtx,
 ) -> Option<PropertyRow> {
-    let mut row = match control {
-        Control::Number(number) => {
-            let common = &number.common;
-            let input = ctx.store.inputs.text(&common.id)?;
-            let mut row = number_full_row(
-                common,
-                &number.spec,
-                &input,
-                common.animation_enabled,
-                common.binding.clone(),
-                ctx,
-            );
-            if let Some(value) = &number.applied_value {
-                row.content = div()
-                    .min_w_0()
-                    .flex()
-                    .flex_col()
-                    .gap_1()
-                    .child(row.content)
-                    .child(
-                        div()
-                            .text_sm()
-                            .text_color(ctx.colors.muted_foreground)
-                            .child(t!("args.applied_value", value = value).to_string()),
-                    );
-            }
-            Some(row)
-        }
-        Control::Text(text) => {
-            let common = &text.common;
-            let input = ctx.store.inputs.text(&common.id)?;
-            Some(text_full_row(
-                common,
-                text.multiline,
-                &input,
-                common.binding.clone(),
-                ctx,
-            ))
-        }
-        Control::Bool(boolean) => {
-            let common = &boolean.common;
-            let value = boolean.value;
-            Some(toggle_full_row(common, value, common.binding.clone(), ctx))
-        }
-        Control::Choice(choice) => {
-            let common = &choice.common;
-            let current = choice.value;
-            Some(dropdown_full_row(
-                common,
-                current,
-                &choice.options,
-                common.binding.clone(),
-                ctx,
-            ))
-        }
-        Control::Color(color) => {
-            let common = &color.common;
-            let picker = ctx.store.inputs.color(&common.id)?;
-            Some(color_full_row(
-                color,
-                &picker,
-                common.animation_enabled,
-                common.binding.clone(),
-                ctx,
-            ))
-        }
-        Control::File(file) => Some(file_row(file, ctx, false)),
-        Control::Tuple(_) | Control::Array(_) | Control::Effect(_) => None,
-    }?;
+    let mut row = scalar_row(control, ctx, false)?;
     let common = control.common()?;
     if common.target.effect_id.is_some()
         || !ctx.scene_overrides.contains(&common.target.property_id)
@@ -99,11 +31,7 @@ pub(in crate::ui::property_inspector) fn scalar_full_row(
     }
     let inspector = ctx.inspector.clone();
     let address = common.target.clone();
-    let disabled = common.read_only
-        || common
-            .binding
-            .as_ref()
-            .is_some_and(|binding| binding.connected.is_some());
+    let disabled = common.read_only || common.is_bound();
     row.content = div()
         .w_full()
         .flex()
@@ -133,64 +61,55 @@ pub(in crate::ui::property_inspector) fn scalar_compact_row(
     control: &Control,
     ctx: &RenderCtx,
 ) -> Option<(PropertyRow, bool)> {
-    match control {
-        Control::Number(number) => {
-            let common = &number.common;
-            let input = ctx.store.inputs.text(&common.id)?;
-            Some(number_compact_row(common, &number.spec, &input, ctx))
+    Some((
+        scalar_row(control, ctx, true)?,
+        control.common()?.is_bound(),
+    ))
+}
+
+fn scalar_row(control: &Control, ctx: &RenderCtx, compact: bool) -> Option<PropertyRow> {
+    let common = control.common()?;
+    if let Control::Number(number) = control {
+        let input = ctx.store.inputs.text(&common.id())?;
+        if compact {
+            return Some(number_compact_row(common, &number.spec, &input, ctx).0);
         }
-        Control::Text(text) => {
-            let common = &text.common;
-            let input = ctx.store.inputs.text(&common.id)?;
-            Some(text_compact_row(
-                common,
-                text.multiline,
-                &input,
-                common.binding.clone(),
-                ctx,
-            ))
+        let mut row = number_full_row(common, &number.spec, &input, ctx);
+        if let Some(value) = &number.applied_value {
+            row.content = div()
+                .min_w_0()
+                .flex()
+                .flex_col()
+                .gap_1()
+                .child(row.content)
+                .child(
+                    div()
+                        .text_sm()
+                        .text_color(ctx.colors.muted_foreground)
+                        .child(t!("args.applied_value", value = value).to_string()),
+                );
         }
-        Control::Bool(boolean) => {
-            let common = &boolean.common;
-            let value = boolean.value;
-            Some(toggle_compact_row(
-                common,
-                value,
-                common.binding.clone(),
-                ctx,
-            ))
-        }
-        Control::Choice(choice) => {
-            let common = &choice.common;
-            let current = choice.value;
-            Some(dropdown_compact_row(
-                common,
-                current,
-                &choice.options,
-                common.binding.clone(),
-                ctx,
-            ))
-        }
-        Control::Color(color) => {
-            let common = &color.common;
-            let picker = ctx.store.inputs.color(&common.id)?;
-            Some(color_compact_row(
-                color,
-                &picker,
-                common.animation_enabled,
-                common.binding.clone(),
-                ctx,
-            ))
-        }
-        Control::File(file) => Some((
-            file_row(file, ctx, true),
-            file.common
-                .binding
-                .as_ref()
-                .is_some_and(|binding| binding.connected.is_some()),
-        )),
-        Control::Tuple(_) | Control::Array(_) | Control::Effect(_) => None,
+        return Some(row);
     }
+    let label = if compact {
+        animation_scalar_label(common, ctx)
+    } else {
+        Some(animation_property_label(common.label.clone(), common, ctx))
+    };
+    Some(match control {
+        Control::Text(text) => {
+            let input = ctx.store.inputs.text(&common.id())?;
+            text_row(common, text.multiline, &input, label, ctx)
+        }
+        Control::Bool(boolean) => toggle_row(common, boolean.value, label, ctx),
+        Control::Choice(choice) => dropdown_row(common, choice.value, &choice.options, label, ctx),
+        Control::Color(color) => {
+            let picker = ctx.store.inputs.color(&common.id())?;
+            color_row(color, &picker, label, ctx)
+        }
+        Control::File(file) => file_row(file, ctx, label),
+        _ => return None,
+    })
 }
 
 /// Grouped tuple rendering: one property label with per-scalar rows.

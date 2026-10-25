@@ -68,13 +68,15 @@ impl MediaMetadataController {
                     updater = MediaMetadataUpdater::default();
                     previous_session = Some(current_session);
                 }
-                let snapshot = editor.read_with(cx, |editor, _| editor.snapshot());
+                let (snapshot, baseline) = editor.read_with(cx, |editor, _| {
+                    (editor.snapshot(), editor.media_cache().clone())
+                });
                 let project_id = snapshot.project_id();
                 let readers = readers.clone();
-                let (next_updater, files, errors) = cx
+                let (next_updater, refresh) = cx
                     .background_spawn(async move {
-                        let (files, errors) = updater.refresh(&snapshot, &readers);
-                        (updater, files, errors)
+                        let refresh = updater.refresh(&snapshot, &readers);
+                        (updater, refresh)
                     })
                     .await;
                 updater = next_updater;
@@ -83,14 +85,35 @@ impl MediaMetadataController {
                         if editor.project_id() != project_id {
                             return;
                         }
+                        // Imports can publish while discovery is running. Apply
+                        // only observations whose baseline is still current.
+                        let current = editor.media_cache().clone();
                         let mut changed = false;
-                        for file in files {
-                            changed |= editor.cache_media_file(&file);
+                        for source in refresh.invalidated {
+                            if current.reading(&source) == baseline.reading(&source) {
+                                changed |= editor.invalidate_media(&source);
+                            }
                         }
-                        for error in errors {
-                            notifications.update(cx, |notifications, cx| {
-                                notifications.push(error.to_string(), cx)
+                        for mut file in refresh.files {
+                            file.media.retain(|reading| {
+                                let before = baseline
+                                    .file(&file.path)
+                                    .and_then(|file| file.reading(&reading.reader, reading.target));
+                                let now = current
+                                    .file(&file.path)
+                                    .and_then(|file| file.reading(&reading.reader, reading.target));
+                                before == now
                             });
+                            if !file.media.is_empty() {
+                                changed |= editor.cache_media_file(&file);
+                            }
+                        }
+                        for (source, error) in refresh.errors {
+                            if current.reading(&source) == baseline.reading(&source) {
+                                notifications.update(cx, |notifications, cx| {
+                                    notifications.push(error.to_string(), cx)
+                                });
+                            }
                         }
                         if changed {
                             cx.notify();

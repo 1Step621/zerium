@@ -2,7 +2,6 @@ use super::*;
 
 #[derive(Clone)]
 pub(super) struct ControlMeta {
-    pub id: ControlId,
     pub target: PropertyAddress,
     pub label: String,
     pub scalar_label: Option<String>,
@@ -11,6 +10,18 @@ pub(super) struct ControlMeta {
     pub animation_enabled: bool,
     pub animation_stops: Vec<AnimationStopControl>,
     pub binding: Option<SceneFieldBinding>,
+}
+
+impl ControlMeta {
+    pub(super) fn is_bound(&self) -> bool {
+        self.binding
+            .as_ref()
+            .is_some_and(|binding| binding.connected.is_some())
+    }
+
+    pub(super) fn id(&self) -> ControlId {
+        ControlId::Property(self.target.clone())
+    }
 }
 
 #[derive(Clone)]
@@ -23,6 +34,14 @@ pub(super) struct AnimationStopControl {
 pub(super) struct ValueControl<T> {
     pub common: ControlMeta,
     pub value: T,
+}
+
+#[derive(Clone)]
+pub(super) struct FileControl {
+    pub common: ControlMeta,
+    pub value: Option<std::path::PathBuf>,
+    pub directory: bool,
+    pub description: Option<String>,
 }
 
 #[derive(Clone)]
@@ -95,7 +114,7 @@ pub(super) struct AspectRatioControl {
 
 #[derive(Clone)]
 pub(super) enum Control {
-    File(ValueControl<Option<std::path::PathBuf>>),
+    File(FileControl),
     Number(NumberControl),
     Text(TextControl),
     Bool(ValueControl<bool>),
@@ -112,12 +131,12 @@ impl Control {
             Self::Tuple(tuple) => ControlId::Group(tuple.target.clone()),
             Self::Array(array) => ControlId::Group(array.target.clone()),
             Self::Effect(effect) => ControlId::EffectGroup(effect.id),
-            Self::File(control) => control.common.id.clone(),
-            Self::Number(control) => control.common.id.clone(),
-            Self::Text(control) => control.common.id.clone(),
-            Self::Bool(control) => control.common.id.clone(),
-            Self::Choice(control) => control.common.id.clone(),
-            Self::Color(control) => control.common.id.clone(),
+            Self::File(control) => control.common.id(),
+            Self::Number(control) => control.common.id(),
+            Self::Text(control) => control.common.id(),
+            Self::Bool(control) => control.common.id(),
+            Self::Choice(control) => control.common.id(),
+            Self::Color(control) => control.common.id(),
         }
     }
 
@@ -235,7 +254,6 @@ impl ControlResolution<'_> {
             ty,
         );
         ControlMeta {
-            id: ControlId::Property(address.clone()),
             target: address,
             label,
             scalar_label: property.configuration_label(scalar_index),
@@ -326,7 +344,36 @@ impl ControlResolution<'_> {
                         })
                     }
                     (ScalarPropertyType::File, PropertyValue::File(value)) => {
-                        Control::File(ValueControl { common, value })
+                        let description = value
+                            .as_deref()
+                            .and_then(|path| self.editor.media_cache().file(path))
+                            .and_then(|file| {
+                                file.media.iter().find_map(|reading| {
+                                    match &reading.metadata.as_ref()?.kind {
+                                        zerium_core::media::MediaKind::ImageSequence {
+                                            width,
+                                            height,
+                                            frames,
+                                            ..
+                                        } => Some(
+                                            rust_i18n::t!(
+                                                "inspector.sequence_info",
+                                                count = frames.len(),
+                                                width = width,
+                                                height = height
+                                            )
+                                            .to_string(),
+                                        ),
+                                        _ => None,
+                                    }
+                                })
+                            });
+                        Control::File(FileControl {
+                            common,
+                            value,
+                            directory: scalar_ui.selects_directory(),
+                            description,
+                        })
                     }
                     (ScalarPropertyType::Color, PropertyValue::Color(value)) => {
                         Control::Color(ValueControl { common, value })

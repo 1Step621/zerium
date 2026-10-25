@@ -286,26 +286,6 @@ impl PropertyValues {
         self.values.get(id)
     }
 
-    pub fn files(&self) -> impl Iterator<Item = (PropertyPath, &std::path::Path)> {
-        self.iter().flat_map(|(id, value)| {
-            value
-                .scalars()
-                .filter_map(move |(element_id, scalar_index, value)| {
-                    value
-                        .file()
-                        .map(|path| (PropertyPath::new(id, element_id, scalar_index), path))
-                })
-        })
-    }
-
-    pub fn property_mut(&mut self, id: &str) -> Option<&mut PropertyValue> {
-        self.values.get_mut(id)
-    }
-
-    pub fn remove(&mut self, id: &str) -> Option<PropertyValue> {
-        self.values.remove(id)
-    }
-
     pub fn iter(&self) -> impl Iterator<Item = (&str, &PropertyValue)> {
         self.values.iter().map(|(id, value)| (id.as_str(), value))
     }
@@ -357,16 +337,69 @@ impl PropertyValues {
     }
 }
 
-pub fn materialized_property_values<'a>(
-    overrides: &PropertyValues,
-    schema: impl IntoIterator<Item = &'a PropertySchema>,
-) -> PropertyValues {
-    let mut values = PropertyValues::default();
-    for property in schema {
-        let value = property.resolve_value(overrides.property(property.id()));
-        values
-            .set(property, value)
-            .expect("constrained values preserve the property type");
+/// Authored changes only. Absence means inheritance from the current schema.
+#[derive(Clone, Debug, Default, PartialEq)]
+pub struct PropertyOverrides {
+    values: HashMap<String, PropertyValue>,
+}
+
+impl PropertyOverrides {
+    pub fn get(&self, id: &str) -> Option<&PropertyValue> {
+        self.values.get(id)
     }
-    values
+
+    pub fn resolve(&self, schema: &PropertySchema) -> PropertyValue {
+        schema.resolve_value(self.get(schema.id()))
+    }
+
+    pub fn materialize<'a>(
+        &self,
+        schema: impl IntoIterator<Item = &'a PropertySchema>,
+    ) -> PropertyValues {
+        let mut values = PropertyValues::default();
+        for property in schema {
+            values
+                .set(property, self.resolve(property))
+                .expect("resolved property contract");
+        }
+        values
+    }
+
+    pub fn set(
+        &mut self,
+        schema: &PropertySchema,
+        value: PropertyValue,
+    ) -> Result<bool, PropertyError> {
+        if !schema.accepts_value(&value) {
+            return Err(PropertyError::invalid_definition(format!(
+                "property '{}' value violates its schema contract",
+                schema.id()
+            )));
+        }
+        if self.get(schema.id()) == Some(&value) {
+            return Ok(false);
+        }
+        self.values.insert(schema.id().to_owned(), value);
+        Ok(true)
+    }
+
+    pub fn remove(&mut self, id: &str) -> Option<PropertyValue> {
+        self.values.remove(id)
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = (&str, &PropertyValue)> {
+        self.values.iter().map(|(id, value)| (id.as_str(), value))
+    }
+
+    pub fn files(&self) -> impl Iterator<Item = (PropertyPath, &std::path::Path)> {
+        self.iter().flat_map(|(id, value)| {
+            value
+                .scalars()
+                .filter_map(move |(element_id, scalar_index, value)| {
+                    value
+                        .file()
+                        .map(|path| (PropertyPath::new(id, element_id, scalar_index), path))
+                })
+        })
+    }
 }

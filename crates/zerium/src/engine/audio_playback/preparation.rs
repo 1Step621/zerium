@@ -1,5 +1,5 @@
 //! Device discovery, decoder opening and prebuffering, outside the UI thread.
-use super::{AUDIO_BUFFER_MILLIS, AudioPlaybackError, MIX_BLOCK_SAMPLE_FRAMES, PREBUFFER_MILLIS};
+use super::{AudioPlaybackError, MIX_BLOCK_SAMPLE_FRAMES};
 use crate::engine::media::{
     AudioCalculationPolicy, AudioFormat, AudioTimelineGraph, MediaReaderRegistry,
 };
@@ -12,6 +12,8 @@ use std::{
     thread,
 };
 use zerium_core::timeline::{AudioTimelineSnapshot, Frame, FrameRate};
+
+const AUDIO_BUFFER_MILLIS: u64 = 200;
 
 /// Initial playback starts at an exact video-frame boundary. Starts after edits
 /// use the continuous timeline position, rounded down to a sample.
@@ -30,15 +32,14 @@ impl PlaybackPosition {
 }
 
 pub(super) struct AudioPreparation {
-    pub(super) timeline: AudioTimelineSnapshot,
-    pub(super) handle: thread::JoinHandle<Result<Option<PreparedAudio>, AudioPlaybackError>>,
-    pub(super) stop: Arc<AtomicBool>,
+    timeline: AudioTimelineSnapshot,
+    handle: thread::JoinHandle<Result<Option<PreparedAudio>, AudioPlaybackError>>,
+    stop: Arc<AtomicBool>,
 }
 
 pub(super) struct PreparedAudio {
     pub(super) device: cpal::Device,
     pub(super) supported: cpal::SupportedStreamConfig,
-    pub(super) format: AudioFormat,
     pub(super) graph: AudioTimelineGraph,
     pub(super) producer: rtrb::Producer<f32>,
     pub(super) consumer: rtrb::Consumer<f32>,
@@ -93,11 +94,8 @@ fn prepare_audio(
     let start_sample_frame = position.sample_frame(timeline.frame_rate(), format.sample_rate);
     let mut render_cursor = start_sample_frame;
     let mut prebuffered_frames = 0u64;
-    let prebuffer_target = u64::from(format.sample_rate).saturating_mul(PREBUFFER_MILLIS) / 1000;
     let capacity_frames = (capacity / channels.max(1)) as u64;
-    while prebuffered_frames < prebuffer_target
-        && prebuffered_frames.saturating_add(MIX_BLOCK_SAMPLE_FRAMES as u64) <= capacity_frames
-    {
+    while prebuffered_frames.saturating_add(MIX_BLOCK_SAMPLE_FRAMES as u64) <= capacity_frames {
         if stop.load(Ordering::Acquire) {
             return Ok(None);
         }
@@ -122,7 +120,6 @@ fn prepare_audio(
     Ok(Some(PreparedAudio {
         device,
         supported,
-        format,
         graph,
         producer,
         consumer,
@@ -132,6 +129,27 @@ fn prepare_audio(
 }
 
 impl AudioPreparation {
+    pub(super) fn is_finished(&self) -> bool {
+        self.handle.is_finished()
+    }
+
+    pub(super) fn matches_timeline(&self, timeline: &AudioTimelineSnapshot) -> bool {
+        self.timeline.same_content(timeline)
+    }
+
+    pub(super) fn finish(self) -> Result<Option<PreparedAudio>, AudioPlaybackError> {
+        self.handle.join().unwrap_or_else(|_| {
+            Err(AudioPlaybackError::Worker(
+                "Audio preparation panicked".to_owned(),
+            ))
+        })
+    }
+
+    pub(super) fn cancel(self) {
+        // The detached task owns its resources; its result can no longer be installed.
+        self.stop.store(true, Ordering::Release);
+    }
+
     pub(super) fn spawn(
         timeline: AudioTimelineSnapshot,
         position: PlaybackPosition,

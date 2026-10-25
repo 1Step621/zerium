@@ -15,12 +15,13 @@ impl PropertyInspector {
     ) -> PopupMenu {
         let editor = self.editor.read(cx);
         let mut menu = menu.action_context(self.focus_handle.clone());
-        let Some(item) = self
+        let Some(mut item) = self
             .inspector_item_id(cx)
-            .and_then(|id| editor.resolved_item(id))
+            .and_then(|id| editor.item(id).cloned())
         else {
             return menu;
         };
+        editor.bake_active_scene_bindings(std::iter::once(&mut item));
         if let Some(index) =
             effect_id.and_then(|id| item.effects.iter().position(|effect| effect.id == id))
         {
@@ -62,7 +63,6 @@ impl PropertyInspector {
                         let result = this.editor.update(cx, |editor, cx| {
                             let result = editor.paste_effects(item_id, &copy.effects, &copy.hidden);
                             if let Ok(true) = result {
-                                editor.import_media_cache(&copy.media_cache);
                                 cx.notify();
                             }
                             result

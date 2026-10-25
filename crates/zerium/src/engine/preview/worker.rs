@@ -31,10 +31,10 @@ impl DecodeWorker {
     ) -> Result<Self, MediaError> {
         let (requests, receiver) = std::sync::mpsc::sync_channel(1);
         let handle = std::thread::Builder::new()
-            .name("zerium-video-worker".to_owned())
+            .name("zerium-media-worker".to_owned())
             .spawn(move || run_decode_worker(media_readers, uploader, receiver, events))
             .map_err(|error| {
-                MediaError::external(format!("Failed to start video decoder: {error}"))
+                MediaError::external(format!("Failed to start media decoder: {error}"))
             })?;
         Ok(Self {
             requests,

@@ -6,12 +6,10 @@ use super::{
 use crate::{
     animation::{ScalarAnimations, ScalarTrack},
     plugin::PluginRegistry,
-    property::{
-        PropertyPath, PropertySchema, PropertyValue, PropertyValues, materialized_property_values,
-    },
+    property::{PropertyOverrides, PropertyPath, PropertySchema, PropertyValue, PropertyValues},
     timeline::{
-        BlendMode, EffectInstance, EffectInstanceId, Frame, FrameDuration, ItemId, LayerId,
-        ProjectId, SceneId, TimelineItem, TimelineItemKind,
+        BlendMode, EffectInstance, EffectInstanceId, Frame, FrameDuration, FrameRate, ItemId,
+        LayerId, ProjectId, SceneId, TimelineItem, TimelineItemKind,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -46,6 +44,7 @@ pub(super) fn load_items(
     scene_schemas: &HashMap<SceneId, Vec<PropertySchema>>,
     effect_ids: &mut HashSet<u64>,
     plugins: &PluginRegistry,
+    frame_rate: FrameRate,
 ) -> Result<Vec<(LayerId, TimelineItem)>, ProjectError> {
     let mut item_ids = HashSet::new();
     let items = items
@@ -57,25 +56,19 @@ pub(super) fn load_items(
                     item.id
                 )));
             }
-            item.into_timeline(project_path, effect_ids, scene_schemas, plugins)
+            item.into_timeline(project_path, effect_ids, scene_schemas, plugins, frame_rate)
         })
         .collect::<Result<Vec<_>, _>>()?;
-    validate_no_overlaps(&items)?;
+    validate_no_overlaps(&items, frame_rate)?;
     Ok(items)
 }
 
 fn capture_property_overrides(
-    values: &PropertyValues,
-    schema: Option<&[PropertySchema]>,
+    values: &PropertyOverrides,
     project_path: &Path,
 ) -> BTreeMap<String, PropertyValue> {
     values
         .iter()
-        .filter(|(id, value)| {
-            schema
-                .and_then(|schema| schema.iter().find(|property| property.id() == *id))
-                .is_none_or(|property| property.default_value() != **value)
-        })
         .map(|(id, value)| {
             let mut value = value.clone();
             value.map_file_paths(&mut |path| make_relative(path, project_path));
@@ -89,8 +82,9 @@ fn capture_property_overrides(
 pub(super) struct ProjectItem {
     id: u64,
     layer: u64,
-    start: u64,
-    duration: u64,
+    start: Frame,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    duration: Option<FrameDuration>,
     blend_mode: BlendMode,
     kind: ProjectItemKind,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -143,8 +137,8 @@ impl ProjectItem {
         Self {
             id: item.id.get(),
             layer: layer.get(),
-            start: item.start.get(),
-            duration: item.duration.get(),
+            start: item.start(),
+            duration: item.fixed_duration,
             blend_mode: item.blend_mode,
             kind: match &item.kind {
                 TimelineItemKind::Scene { scene_id } => ProjectItemKind::Scene {
@@ -159,11 +153,7 @@ impl ProjectItem {
                     item_id: item_id.clone(),
                 },
             },
-            properties: capture_property_overrides(
-                &item.properties,
-                item.schema().map(|schema| schema.properties()),
-                project_path,
-            ),
+            properties: capture_property_overrides(&item.properties, project_path),
             animations: capture_animations(&item.animations),
             aspect_ratio: item.aspect_ratio,
             effects: item
@@ -180,13 +170,8 @@ impl ProjectItem {
         effect_ids: &mut HashSet<u64>,
         scene_schemas: &HashMap<SceneId, Vec<PropertySchema>>,
         plugins: &PluginRegistry,
+        frame_rate: FrameRate,
     ) -> Result<(LayerId, TimelineItem), ProjectError> {
-        let duration = FrameDuration::new(self.duration).ok_or_else(|| {
-            ProjectError::invalid_data("Item duration must be at least one frame")
-        })?;
-        self.start
-            .checked_add(self.duration)
-            .ok_or_else(|| ProjectError::invalid_data("Item timestamp is too large"))?;
         let kind = match self.kind {
             ProjectItemKind::Plugin { plugin_id, item_id } => {
                 let schema = plugins.item(&plugin_id, &item_id).ok_or_else(|| {
@@ -215,12 +200,8 @@ impl ProjectItem {
                 }
             }
         };
-        let (property_schema, initial, owner) = match &kind {
-            TimelineItemKind::Plugin { schema, .. } => (
-                schema.properties(),
-                PropertyValues::from_properties(schema.properties()),
-                "item",
-            ),
+        let (property_schema, owner) = match &kind {
+            TimelineItemKind::Plugin { schema, .. } => (schema.properties(), "item"),
             TimelineItemKind::Scene { scene_id } => (
                 scene_schemas
                     .get(scene_id)
@@ -231,18 +212,22 @@ impl ProjectItem {
                         ))
                     })?
                     .as_slice(),
-                PropertyValues::default(),
                 "scene instance",
             ),
         };
-        let properties = load_properties(
-            property_schema,
-            self.properties,
-            owner,
-            initial,
-            project_path,
-        )?;
-        let animation_base = materialized_property_values(&properties, property_schema);
+        let properties = load_properties(property_schema, self.properties, owner, project_path)?;
+        let duration = match &kind {
+            TimelineItemKind::Plugin { schema, .. } if schema.playback().is_some() => schema
+                .playback()
+                .expect("playback")
+                .mapping(&properties.materialize(property_schema))
+                .map_err(|error| ProjectError::invalid_data(error.to_string()))?
+                .timeline_duration(frame_rate),
+            _ => self
+                .duration
+                .ok_or_else(|| ProjectError::invalid_data("Fixed item duration is missing"))?,
+        };
+        let animation_base = properties.materialize(property_schema);
         let animations =
             load_animations(property_schema, &animation_base, self.animations, duration)?;
 
@@ -274,8 +259,8 @@ impl ProjectItem {
 
         let item = TimelineItem {
             id: ItemId(self.id),
-            start: Frame::new(self.start),
-            duration,
+            start: self.start,
+            fixed_duration: self.duration,
             blend_mode: self.blend_mode,
             kind,
             properties,
@@ -283,7 +268,7 @@ impl ProjectItem {
             aspect_ratio: self.aspect_ratio,
             effects,
         };
-        item.validate_playback()
+        item.validate_playback(frame_rate)
             .map_err(|error| ProjectError::invalid_data(error.to_string()))?;
         Ok((LayerId::new(self.layer), item))
     }
@@ -307,11 +292,7 @@ impl ProjectEffect {
             id: effect.id.get(),
             plugin_id: effect.plugin_id.clone(),
             effect_id: effect.effect_id.clone(),
-            properties: capture_property_overrides(
-                &effect.properties,
-                Some(effect.schema().properties()),
-                project_path,
-            ),
+            properties: capture_property_overrides(&effect.properties, project_path),
             animations: capture_animations(&effect.animations),
             aspect_ratio: effect.aspect_ratio,
         }
@@ -336,15 +317,14 @@ impl ProjectEffect {
                 "Aspect ratio is stored for an effect without an aspect lock property",
             ));
         }
-        let properties = load_properties(
+        let properties =
+            load_properties(schema.properties(), self.properties, "effect", project_path)?;
+        let animations = load_animations(
             schema.properties(),
-            self.properties,
-            "effect",
-            PropertyValues::from_properties(schema.properties()),
-            project_path,
+            &properties.materialize(schema.properties()),
+            self.animations,
+            duration,
         )?;
-        let animations =
-            load_animations(schema.properties(), &properties, self.animations, duration)?;
         Ok(EffectInstance {
             id: EffectInstanceId::new(self.id),
             plugin_id: self.plugin_id,
@@ -359,12 +339,14 @@ impl ProjectEffect {
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-struct ProjectScalarAnimation {
+pub(in crate::persistence) struct ProjectScalarAnimation {
     path: PropertyPath,
     track: ScalarTrack,
 }
 
-fn capture_animations(animations: &ScalarAnimations) -> Vec<ProjectScalarAnimation> {
+pub(in crate::persistence) fn capture_animations(
+    animations: &ScalarAnimations,
+) -> Vec<ProjectScalarAnimation> {
     animations
         .tracks()
         .map(|(address, track)| ProjectScalarAnimation {
@@ -374,7 +356,7 @@ fn capture_animations(animations: &ScalarAnimations) -> Vec<ProjectScalarAnimati
         .collect()
 }
 
-fn load_animations(
+pub(in crate::persistence) fn load_animations(
     schema: &[PropertySchema],
     properties: &PropertyValues,
     animations: Vec<ProjectScalarAnimation>,
@@ -422,9 +404,9 @@ fn load_properties(
     schema: &[PropertySchema],
     values: BTreeMap<String, PropertyValue>,
     owner: &str,
-    mut loaded: PropertyValues,
     project_path: &Path,
-) -> Result<PropertyValues, ProjectError> {
+) -> Result<PropertyOverrides, ProjectError> {
+    let mut loaded = PropertyOverrides::default();
     for (id, mut value) in values {
         value.map_file_paths(&mut |path| resolve_path(path, project_path));
         let property = schema
@@ -440,10 +422,19 @@ fn load_properties(
     Ok(loaded)
 }
 
-fn validate_no_overlaps(items: &[(LayerId, TimelineItem)]) -> Result<(), ProjectError> {
+fn validate_no_overlaps(
+    items: &[(LayerId, TimelineItem)],
+    frame_rate: FrameRate,
+) -> Result<(), ProjectError> {
     let mut ranges = items
         .iter()
-        .map(|(layer, item)| (layer.get(), item.start.get(), item.end_exclusive().get()))
+        .map(|(layer, item)| {
+            (
+                layer.get(),
+                item.start().get(),
+                item.end_exclusive(frame_rate).get(),
+            )
+        })
         .collect::<Vec<_>>();
     ranges.sort_unstable();
     for pair in ranges.windows(2) {

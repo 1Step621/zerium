@@ -1,4 +1,4 @@
-use crate::property::{PropertyElementId, PropertyPath, PropertyValue};
+use crate::property::{PropertyElementId, PropertyPath};
 
 use std::collections::HashMap;
 
@@ -59,12 +59,16 @@ pub struct PropertyAddress {
 impl PropertyAddress {
     /// Resolve the corresponding property on another item. Effects and array
     /// elements match by their position, while retaining each item's own IDs.
-    pub fn on_item(&self, source: &TimelineItem, item: &TimelineItem) -> Option<Self> {
-        if source.id == item.id {
+    pub fn on_item(
+        &self,
+        source: &super::EvaluatedItem,
+        item: &super::EvaluatedItem,
+    ) -> Option<Self> {
+        if source.source_id == item.source_id {
             return Some(self.clone());
         }
         let mut address = self.clone();
-        address.item_id = item.id;
+        address.item_id = item.source_id;
         if let Some(id) = self.effect_id {
             let index = source.effects.iter().position(|effect| effect.id == id)?;
             let source_effect = source.effects.get(index)?;
@@ -92,11 +96,5 @@ impl PropertyAddress {
 
     pub fn path(&self) -> PropertyPath {
         PropertyPath::new(&self.property_id, self.element_id, self.scalar_index)
-    }
-
-    pub fn value<'a>(&self, item: &'a super::TimelineItem) -> Option<&'a PropertyValue> {
-        item.property_values(self.effect_id)?
-            .property(&self.property_id)?
-            .scalar(self.element_id, self.scalar_index)
     }
 }

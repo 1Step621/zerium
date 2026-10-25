@@ -1,4 +1,4 @@
-use super::render::{SceneSettingsRenderCtx, SceneVariableOption};
+use super::render::{SceneSettingsRenderCtx, SceneVariableRow};
 use super::*;
 
 impl SceneSettings {
@@ -36,18 +36,18 @@ impl SceneSettings {
 
     pub(super) fn calculation_details(
         &self,
-        variable: &SceneVariableOption,
+        row: &SceneVariableRow,
+        calculation: &zerium_core::timeline::SceneCalculation,
         render: &SceneSettingsRenderCtx<'_>,
     ) -> Div {
-        let calculation = variable.calculation.as_ref().expect("calculation row");
         let sources = render
             .sources
             .iter()
-            .filter(|(id, _)| id != &variable.id)
+            .filter(|(id, _)| id != row.variable.id())
             .cloned()
             .collect::<Vec<_>>();
         let mut details = div().w_full().min_w_0().flex().flex_col().gap_2();
-        let ty = match &variable.output_type {
+        let ty = match row.variable.ty() {
             zerium_core::property::ScalarPropertyType::F32 => t!("args.number"),
             zerium_core::property::ScalarPropertyType::I32 => t!("args.integer"),
             zerium_core::property::ScalarPropertyType::U32 => t!("args.unsigned_integer"),
@@ -63,14 +63,14 @@ impl SceneSettings {
         );
         for (index, input) in calculation.inputs.iter().enumerate() {
             let Some(name_input) = self.store.inputs.text(&ControlId::CalculationInputName {
-                scene_id: variable.scene_id,
-                variable_id: variable.id.clone(),
+                scene_id: row.scene_id,
+                variable_id: row.variable.id().to_owned(),
                 input_name: input.name.clone(),
             }) else {
                 continue;
             };
             let settings = render.settings.clone();
-            let id = variable.id.clone();
+            let id = row.variable.id().to_owned();
             let choices = sources.clone();
             let label = sources
                 .iter()
@@ -78,7 +78,7 @@ impl SceneSettings {
                 .map(|(_, label)| label.clone())
                 .unwrap_or_else(|| t!("calc.missing_input").to_string());
             let remove_settings = render.settings.clone();
-            let remove_id = variable.id.clone();
+            let remove_id = row.variable.id().to_owned();
             details = details.child(
                 div()
                     .w_full()
@@ -96,7 +96,7 @@ impl SceneSettings {
                     .child(
                         Button::new(SharedString::from(format!(
                             "calculation-source-{}-{index}",
-                            variable.id
+                            row.variable.id()
                         )))
                         .small()
                         .compact()
@@ -128,7 +128,7 @@ impl SceneSettings {
                     .child(
                         Button::new(SharedString::from(format!(
                             "calculation-remove-input-{}-{index}",
-                            variable.id
+                            row.variable.id()
                         )))
                         .small()
                         .compact()
@@ -152,11 +152,11 @@ impl SceneSettings {
             );
         }
         let settings = render.settings.clone();
-        let id = variable.id.clone();
+        let id = row.variable.id().to_owned();
         details = details.child(
             Button::new(SharedString::from(format!(
                 "calculation-add-input-{}",
-                variable.id
+                row.variable.id()
             )))
             .small()
             .compact()
@@ -193,12 +193,12 @@ impl SceneSettings {
             }),
         );
         if let Some(code) = self.store.inputs.text(&ControlId::CalculationScript {
-            scene_id: variable.scene_id,
-            variable_id: variable.id.clone(),
+            scene_id: row.scene_id,
+            variable_id: row.variable.id().to_owned(),
         }) {
             details = details.child(Input::new(&code).small().w_full().min_h(px(96.)));
         }
-        if let Some(result) = &variable.result {
+        if let Some(result) = &row.result {
             let (text, color) = match result {
                 Ok(value) => {
                     let text = match value {

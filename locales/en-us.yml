@@ -136,6 +136,8 @@ _version: 1
 "inspector.clear_file": "Clear"
 "inspector.use_default": "Use default"
 "inspector.choose_file": "Choose file"
+"inspector.choose_folder": "Choose folder"
+"inspector.sequence_info": "%{count} images · %{width}×%{height}"
 "inspector.suggested_files": "Suggested files"
 "inspector.all_files": "All files"
 "curve.select_property": "Select an animated property"

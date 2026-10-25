@@ -26,10 +26,8 @@ use gpui::{
 use rust_i18n::t;
 use std::{collections::HashSet, rc::Rc};
 use zerium_core::{
-    property::{PropertySchema, PropertyValue},
-    timeline::{
-        SceneCalculation, SceneCalculationInput, SceneId, SceneVariablePreset, TimelineEditor,
-    },
+    property::PropertyValue,
+    timeline::{SceneCalculationInput, SceneId, SceneVariablePreset, TimelineEditor},
 };
 
 use crate::ui::file_input::{FileInputController, FileTarget};

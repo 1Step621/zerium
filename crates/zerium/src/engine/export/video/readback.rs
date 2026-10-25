@@ -1,13 +1,14 @@
 use std::{collections::VecDeque, sync::mpsc};
 
+use super::super::encoding::VideoDimensions;
 use super::{
-    Cancellation, ColorConversion, EncodingError, EncodingSettings, PendingFrame,
-    VideoEncoderFrame, texture, wait_for_submission,
+    Cancellation, ColorConversion, EncodingError, PendingFrame, VideoEncoderFrame, texture,
+    wait_for_submission,
 };
 use crate::engine::rendering::{RenderScene, RenderSession, RenderSize};
 
 pub(super) struct Nv12Readback {
-    dimensions: super::super::encoding::VideoDimensions,
+    dimensions: VideoDimensions,
     frame_stride: usize,
     stride: u32,
     free: Vec<wgpu::Buffer>,
@@ -23,13 +24,14 @@ struct PendingReadback {
 impl Nv12Readback {
     pub(super) fn new(
         device: &wgpu::Device,
-        settings: EncodingSettings,
-        size: RenderSize,
+        dimensions: VideoDimensions,
     ) -> Result<Self, EncodingError> {
-        let dimensions = settings.output;
+        let size = RenderSize {
+            width: dimensions.width,
+            height: dimensions.height,
+        };
         let frame_stride = dimensions.width.next_multiple_of(4) as usize;
-        let stride = settings
-            .output
+        let stride = dimensions
             .width
             .next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
         if u64::from(stride) * u64::from(dimensions.height) * 3 / 2

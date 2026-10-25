@@ -8,13 +8,11 @@ use serde::{Deserialize, Deserializer, de::Error as _};
 use super::ItemCategory;
 use super::OutputBoundsSchema;
 use super::abi::PropertyLayout;
-use super::capability::{
-    AudioCapability, TextureInput, TimeMappingProperties, validate_texture_inputs,
-};
+use super::capability::{AudioCapability, TextureInput, validate_texture_inputs};
 use super::editor::{EditorCapability, validate_editors};
 use super::shader::ShaderSchema;
 use super::validation::{validate_catalog_entry, validate_property_schemas};
-use super::{PlaybackBindings, PluginError};
+use super::{ItemPlaybackSchema, PluginError};
 use crate::property::PropertySchema;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -26,9 +24,9 @@ pub struct ItemSchema {
     symbol: String,
     render: Option<ItemRenderSchema>,
     audio: Vec<AudioCapability>,
+    playback: Option<ItemPlaybackSchema>,
     editor: Vec<EditorCapability>,
     properties: Vec<PropertySchema>,
-    playback: PlaybackBindings,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -108,6 +106,8 @@ struct ItemSchemaDefinition {
     #[serde(default)]
     audio: Vec<AudioCapability>,
     #[serde(default)]
+    playback: Option<ItemPlaybackSchema>,
+    #[serde(default)]
     editor: Vec<EditorCapability>,
     #[serde(default)]
     properties: Vec<PropertySchema>,
@@ -124,7 +124,7 @@ impl<'de> Deserialize<'de> for ItemSchema {
             .map(|render| render.compile(&definition.id, &definition.properties))
             .transpose()
             .map_err(D::Error::custom)?;
-        let mut schema = Self {
+        let schema = Self {
             id: definition.id,
             label: definition.label,
             category: definition.category,
@@ -132,13 +132,11 @@ impl<'de> Deserialize<'de> for ItemSchema {
             symbol: definition.symbol,
             render,
             audio: definition.audio,
+            playback: definition.playback,
             editor: definition.editor,
             properties: definition.properties,
-            playback: PlaybackBindings::default(),
         };
         schema.validate().map_err(D::Error::custom)?;
-        schema.playback =
-            PlaybackBindings::compile(schema.inputs(), schema.audio(), schema.timeline());
         Ok(schema)
     }
 }
@@ -178,8 +176,8 @@ impl ItemSchema {
         &self.properties
     }
 
-    pub fn playback(&self) -> &PlaybackBindings {
-        &self.playback
+    pub fn playback(&self) -> Option<&ItemPlaybackSchema> {
+        self.playback.as_ref()
     }
 
     pub fn file_properties(&self) -> impl Iterator<Item = &PropertySchema> {
@@ -194,12 +192,6 @@ impl ItemSchema {
 
     pub fn audio_input(&self, id: &str) -> Option<&AudioCapability> {
         self.audio.iter().find(|input| input.id() == id)
-    }
-
-    pub fn timeline(&self) -> Option<TimeMappingProperties<'_>> {
-        self.editor
-            .iter()
-            .find_map(EditorCapability::timeline_properties)
     }
 
     pub fn file_property(&self, id: &str) -> Option<&PropertySchema> {
@@ -237,6 +229,9 @@ impl ItemSchema {
         }
 
         validate_editors("item", &self.id, self.properties(), &self.editor)?;
+        if let Some(playback) = self.playback() {
+            playback.validate(self)?;
+        }
 
         if self.symbol.trim().is_empty() {
             return Err(PluginError::invalid_definition(format!(

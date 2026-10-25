@@ -1,7 +1,10 @@
-//! Import routing shared by the explorer and operating-system file drops.
+//! Import routing shared by file pickers, the explorer, and file drops.
 use std::path::{Path, PathBuf};
 
-use zerium_core::plugin::PluginRegistry;
+use zerium_core::{
+    plugin::PluginRegistry,
+    timeline::{PropertyAddress, TimelineEditor},
+};
 
 #[derive(Clone)]
 pub(crate) struct FileImportTarget {
@@ -11,6 +14,32 @@ pub(crate) struct FileImportTarget {
 }
 
 impl FileImportTarget {
+    /// The first media selection initializes an item's dimensions and duration.
+    /// Effects and compound fields only replace their property value.
+    pub(crate) fn for_property(address: &PropertyAddress, editor: &TimelineEditor) -> Option<Self> {
+        if address.effect_id.is_some()
+            || address.element_id.is_some()
+            || address.scalar_index.is_some()
+        {
+            return None;
+        }
+        let item = editor.item(address.item_id)?;
+        if editor.property_value(address)?.file().is_some() {
+            return None;
+        }
+        let plugin_id = item.plugin_id()?;
+        let item_id = item.item_id()?;
+        let schema = editor.plugin_registry().item(plugin_id, item_id)?;
+        schema
+            .media_sources()
+            .any(|source| source.file == address.property_id)
+            .then(|| Self {
+                plugin_id: plugin_id.to_owned(),
+                item_id: item_id.to_owned(),
+                property_id: address.property_id.clone(),
+            })
+    }
+
     pub(crate) fn for_path(path: &Path, plugins: &PluginRegistry) -> Option<Self> {
         plugins.items().find_map(|(plugin_id, item)| {
             item.file_properties().find_map(|input| {

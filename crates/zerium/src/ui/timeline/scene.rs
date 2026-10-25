@@ -22,7 +22,6 @@ impl Timeline {
             self.editor
                 .update_if_changed(cx, |editor| editor.open_scene(scene_id));
         }
-        self.reset_viewport();
     }
 
     pub(super) fn group_selected_as_scene(&mut self, cx: &mut Context<Self>) {
@@ -57,7 +56,6 @@ impl Timeline {
         self.stop_playback(cx);
         self.editor
             .update_if_changed(cx, |editor| editor.open_scene(scene_id));
-        self.reset_viewport();
     }
 
     pub(super) fn delete_empty_scene(
@@ -67,7 +65,7 @@ impl Timeline {
         cx: &mut Context<Self>,
     ) {
         self.stop_playback(cx);
-        let deleted = self.editor.update_if_changed(cx, |editor| {
+        self.editor.update_if_changed(cx, |editor| {
             let Some(scene_id) = editor.active_scene_id() else {
                 return false;
             };
@@ -76,8 +74,5 @@ impl Timeline {
             }
             editor.delete_scene(scene_id)
         });
-        if deleted {
-            self.reset_viewport();
-        }
     }
 }

@@ -60,7 +60,7 @@ impl PropertyInspector {
         let spec = control.spec.clone();
         let target = control.common.target.clone();
         self.ensure_text(
-            control.common.id.clone(),
+            control.common.id(),
             text,
             false,
             |input, window, cx| {
@@ -143,7 +143,7 @@ impl PropertyInspector {
     ) {
         let target = control.common.target.clone();
         self.ensure_text(
-            control.common.id.clone(),
+            control.common.id(),
             text,
             control.multiline,
             |input, window, cx| {
@@ -168,7 +168,7 @@ impl PropertyInspector {
         let color = color_to_hsla(control.value);
         let target = common.target.clone();
         self.store.inputs.ensure_color(
-            common.id.clone(),
+            common.id(),
             color,
             |picker, window, cx| {
                 cx.subscribe_in(picker, window, move |this, _, event, _, cx| {

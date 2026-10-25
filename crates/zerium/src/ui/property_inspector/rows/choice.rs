@@ -1,6 +1,4 @@
-use crate::ui::property_inspector::rows::{
-    animation_property_label, animation_scalar_label, scene_binding_button,
-};
+use crate::ui::property_inspector::rows::control_binding_button;
 use ::ui::{
     Disableable as _, Sizable as _,
     button::Button,
@@ -12,30 +10,22 @@ use gpui::{Entity, SharedString, div, prelude::*};
 use zerium_core::property::PropertyValue;
 use zerium_core::timeline::PropertyAddress;
 
+use crate::ui::property_inspector::PropertyInspector;
 use crate::ui::property_inspector::control::ControlMeta;
 use crate::ui::property_inspector::rows::{PropertyRow, RenderCtx};
-use crate::ui::property_inspector::{PropertyInspector, SceneFieldBinding};
 use rust_i18n::t;
 
-pub(in crate::ui::property_inspector) fn toggle_full_row(
+pub(in crate::ui::property_inspector) fn toggle_row(
     common: &ControlMeta,
     value: bool,
-    binding: Option<SceneFieldBinding>,
+    label: Option<gpui::AnyElement>,
     ctx: &RenderCtx,
 ) -> PropertyRow {
-    let is_bound = binding
-        .as_ref()
-        .is_some_and(|binding| binding.connected.is_some());
-    let binding_button = binding.map(|binding| {
-        scene_binding_button(
-            binding,
-            &ctx.inspector,
-            SharedString::from(format!("bind-scene-argument-{:?}", common.target)),
-        )
-    });
+    let is_bound = common.is_bound();
+    let binding_button = control_binding_button(common, ctx);
     let switch = bool_switch(&common.target, value, common.read_only, &ctx.inspector);
     PropertyRow::new(
-        animation_property_label(common.label.clone(), common, ctx),
+        label,
         div()
             .min_w_0()
             .flex()
@@ -44,36 +34,6 @@ pub(in crate::ui::property_inspector) fn toggle_full_row(
             .when(!is_bound, |this| this.child(switch))
             .when_some(binding_button, |this, button| this.child(button)),
     )
-}
-
-pub(in crate::ui::property_inspector) fn toggle_compact_row(
-    common: &ControlMeta,
-    value: bool,
-    binding: Option<SceneFieldBinding>,
-    ctx: &RenderCtx,
-) -> (PropertyRow, bool) {
-    let is_bound = binding
-        .as_ref()
-        .is_some_and(|binding| binding.connected.is_some());
-    let binding_button = binding.map(|binding| {
-        scene_binding_button(
-            binding,
-            &ctx.inspector,
-            SharedString::from(format!("bind-scene-argument-{:?}", common.target)),
-        )
-    });
-    let switch = bool_switch(&common.target, value, common.read_only, &ctx.inspector);
-    let row = PropertyRow::new(
-        animation_scalar_label(common, ctx),
-        div()
-            .min_w_0()
-            .flex()
-            .items_center()
-            .gap_2()
-            .when(!is_bound, |this| this.child(switch))
-            .when_some(binding_button, |this, button| this.child(button)),
-    );
-    (row, is_bound)
 }
 
 fn bool_switch(
@@ -104,25 +64,17 @@ fn bool_switch(
         })
 }
 
-pub(in crate::ui::property_inspector) fn dropdown_full_row(
+pub(in crate::ui::property_inspector) fn dropdown_row(
     common: &ControlMeta,
     current: u32,
     options: &[(String, u32)],
-    binding: Option<SceneFieldBinding>,
+    label: Option<gpui::AnyElement>,
     ctx: &RenderCtx,
 ) -> PropertyRow {
-    let bound = binding
-        .as_ref()
-        .is_some_and(|binding| binding.connected.is_some());
-    let binding_button = binding.map(|binding| {
-        scene_binding_button(
-            binding,
-            &ctx.inspector,
-            SharedString::from(format!("bind-{:?}", common.target)),
-        )
-    });
+    let bound = common.is_bound();
+    let binding_button = control_binding_button(common, ctx);
     PropertyRow::new(
-        animation_property_label(common.label.clone(), common, ctx),
+        label,
         div()
             .min_w_0()
             .flex()
@@ -139,44 +91,6 @@ pub(in crate::ui::property_inspector) fn dropdown_full_row(
             })
             .when_some(binding_button, |row, button| row.child(button)),
     )
-}
-
-pub(in crate::ui::property_inspector) fn dropdown_compact_row(
-    common: &ControlMeta,
-    current: u32,
-    options: &[(String, u32)],
-    binding: Option<SceneFieldBinding>,
-    ctx: &RenderCtx,
-) -> (PropertyRow, bool) {
-    let bound = binding
-        .as_ref()
-        .is_some_and(|binding| binding.connected.is_some());
-    let binding_button = binding.map(|binding| {
-        scene_binding_button(
-            binding,
-            &ctx.inspector,
-            SharedString::from(format!("bind-{:?}", common.target)),
-        )
-    });
-    let row = PropertyRow::new(
-        animation_scalar_label(common, ctx),
-        div()
-            .min_w_0()
-            .flex()
-            .items_center()
-            .gap_1()
-            .when(!bound, |this| {
-                this.child(choice_dropdown(
-                    &common.target,
-                    current,
-                    options,
-                    common.read_only,
-                    &ctx.inspector,
-                ))
-            })
-            .when_some(binding_button, |this, button| this.child(button)),
-    );
-    (row, bound)
 }
 
 fn choice_dropdown(

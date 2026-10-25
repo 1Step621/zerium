@@ -13,7 +13,7 @@ use crate::engine::{
 };
 use std::{collections::HashMap, sync::Arc};
 use zerium_core::media::MediaMetadataCache;
-use zerium_core::plugin::{EffectPassSchema, PlaybackBindings, TextureInput};
+use zerium_core::plugin::{EffectPassSchema, TextureInput};
 use zerium_core::property::PropertyValues;
 use zerium_core::timeline::{
     BlendMode, CalculationDiagnostic, EffectInstance, EffectInstanceId, ItemId, ProjectResolution,
@@ -103,7 +103,7 @@ struct InputSource<'a> {
     effect_id: Option<EffectInstanceId>,
     inputs: &'a [TextureInput],
     properties: &'a PropertyValues,
-    playback: &'a PlaybackBindings,
+    playback: zerium_core::media::MediaPlayback,
     label: &'a str,
 }
 
@@ -118,19 +118,24 @@ impl<'a> InputSource<'a> {
             effect_id: None,
             inputs: schema.inputs(),
             properties,
-            playback: schema.playback(),
+            playback: placement.source.playback(),
             label: schema.label(),
         }
     }
 
-    fn effect(item_id: ItemId, effect: &'a EffectInstance, properties: &'a PropertyValues) -> Self {
+    fn effect(
+        item_id: ItemId,
+        effect: &'a EffectInstance,
+        properties: &'a PropertyValues,
+        playback: zerium_core::media::MediaPlayback,
+    ) -> Self {
         let schema = effect.schema();
         Self {
             item_id,
             effect_id: Some(effect.id),
             inputs: schema.inputs(),
             properties,
-            playback: schema.playback(),
+            playback,
             label: schema.label(),
         }
     }
@@ -144,10 +149,7 @@ impl<'a> InputSource<'a> {
         size: RasterSize,
     ) -> Option<MediaFrameRequest<MediaInputId>> {
         let asset = input.media_source()?.asset(self.properties, metadata)?;
-        let playback = self
-            .playback
-            .media(input.id(), self.properties)
-            .expect("validated media playback properties");
+        let playback = self.playback;
         MediaFrameRequest::new(stream, asset, playback, local_seconds, size)
     }
 
@@ -451,11 +453,7 @@ where
             let input = match first {
                 Some(EffectPassSchema::Sample { sampling }) => {
                     let sample_time = sampling
-                        .sample_time(
-                            &resolved.values,
-                            request.time.frames(),
-                            placement.source.duration,
-                        )
+                        .sample_time(&resolved.values, request.time.frames(), placement.duration)
                         .ok_or_else(|| RenderError::backend("invalid source sample time"))?;
                     let sampled_context = context.for_sampling(&request.path, effect.id)?;
                     let input = self.sample_image(
@@ -510,7 +508,12 @@ where
                 });
             }
             let inputs = self.render_inputs(
-                InputSource::effect(placement.runtime_id, effect, &resolved.values),
+                InputSource::effect(
+                    placement.runtime_id,
+                    effect,
+                    &resolved.values,
+                    placement.source.playback(),
+                ),
                 &placement,
                 time,
                 context,
@@ -521,8 +524,8 @@ where
                 RenderNodeContent::Effect {
                     input,
                     effect: RenderEffect { passes, inputs },
-                    render_scale: scale,
                 },
+                scale,
                 placement.source.blend_mode,
             );
             return Ok(Some(id));
@@ -552,7 +555,6 @@ where
                         .property_layout()
                         .pack("item", schema.id(), &resolved.values)
                         .expect("item property contract"),
-                    render_scale: request.scale,
                     output_bounds: BoundsOperation::from_schema(
                         &render.bounds,
                         &resolved.values,
@@ -566,13 +568,14 @@ where
                     .expect("scene composition exists");
                 let children =
                     self.render_scope(&composition, time, request.scale, context, demand)?;
-                RenderNodeContent::Scene {
-                    children,
-                    render_scale: request.scale,
-                }
+                RenderNodeContent::Scene { children }
             }
         };
-        Ok(Some(self.push_node(content, placement.source.blend_mode)))
+        Ok(Some(self.push_node(
+            content,
+            request.scale,
+            placement.source.blend_mode,
+        )))
     }
 
     fn sample_images(
@@ -631,20 +634,11 @@ where
                 .inputs
                 .iter()
                 .map(|input| scale_for(input.node))
-                .fold(item.render_scale, u32::max),
-            RenderNodeContent::Scene {
-                children,
-                render_scale,
-            } => children
-                .iter()
-                .copied()
-                .map(scale_for)
-                .fold(*render_scale, u32::max),
-            RenderNodeContent::Effect {
-                input,
-                effect,
-                render_scale,
-            } => input
+                .fold(1, u32::max),
+            RenderNodeContent::Scene { children } => {
+                children.iter().copied().map(scale_for).fold(1, u32::max)
+            }
+            RenderNodeContent::Effect { input, effect } => input
                 .iter()
                 .copied()
                 .chain(effect.inputs.iter().map(|input| input.node))
@@ -660,7 +654,7 @@ where
                         .filter_map(|sample| sample.input),
                 )
                 .map(scale_for)
-                .fold(*render_scale, u32::max),
+                .fold(1, u32::max),
             RenderNodeContent::Frame(_) => 1,
             RenderNodeContent::View { input, .. } => scale_for(*input).max(1),
         }
@@ -669,9 +663,10 @@ where
     fn push_node(
         &mut self,
         content: RenderNodeContent<SourceFrame>,
+        minimum_scale: u32,
         blend_mode: BlendMode,
     ) -> SceneNodeId {
-        let render_scale = self.content_scale(&content);
+        let render_scale = minimum_scale.max(self.content_scale(&content));
         let id = self.nodes.len();
         self.nodes.push(RenderNode {
             content,
@@ -720,7 +715,7 @@ where
                         Some(request) => self.demands.media(demand, request),
                         None => SourceFrame::Empty,
                     };
-                    self.push_node(RenderNodeContent::Frame(frame), BlendMode::Normal)
+                    self.push_node(RenderNodeContent::Frame(frame), 1, BlendMode::Normal)
                 }
                 TextureInput::Text { .. } | TextureInput::Number { .. } => {
                     let frame = (self.text_frame)(TextFrameRequest {
@@ -751,15 +746,17 @@ where
                         }
                     }
                     let input = self.push_node(
-                        RenderNodeContent::Scene {
-                            children,
-                            render_scale: scale,
-                        },
+                        RenderNodeContent::Scene { children },
+                        scale,
                         BlendMode::Normal,
                     );
                     view.as_ref().map_or(input, |view| {
                         let view = RenderView::from_properties(view, source.properties);
-                        self.push_node(RenderNodeContent::View { input, view }, BlendMode::Normal)
+                        self.push_node(
+                            RenderNodeContent::View { input, view },
+                            1,
+                            BlendMode::Normal,
+                        )
                     })
                 }
             };
@@ -774,6 +771,7 @@ where
     fn frame_node(&mut self, frame: Arc<VisualFrame>) -> SceneNodeId {
         self.push_node(
             RenderNodeContent::Frame(SourceFrame::Ready(frame)),
+            1,
             BlendMode::Normal,
         )
     }

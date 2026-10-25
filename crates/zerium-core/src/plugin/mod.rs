@@ -18,9 +18,10 @@ mod validation;
 
 pub use abi::{PropertyLayout, abi_size, scalar_abi_size};
 pub use bounds::{OutputBoundsSchema, program_context};
+pub(crate) use capability::initialize_frame_rates;
 pub use capability::{
-    AudioCapability, MAX_DECIMAL_PLACES, MAX_TEXTURE_INPUTS, MediaPlaybackSchema,
-    PlaybackProperties, RenderResultView, TextStyle, TextureInput, TimeMappingProperties,
+    AudioCapability, MAX_DECIMAL_PLACES, MAX_TEXTURE_INPUTS, RenderResultView, TextStyle,
+    TextureInput,
 };
 pub use category::{EffectCategory, ItemCategory};
 pub use editor::EditorCapability;
@@ -29,7 +30,7 @@ pub use error::PluginError;
 pub use item::{ItemRenderSchema, ItemSchema};
 pub use manifest::PluginManifest;
 pub use passes::{ComputeDispatchDimension, EffectPassSchema};
-pub use playback::PlaybackBindings;
+pub use playback::ItemPlaybackSchema;
 pub use registry::PluginRegistry;
 pub use shader::ShaderSchema;
 pub use validation::validate_wgsl_identifier;

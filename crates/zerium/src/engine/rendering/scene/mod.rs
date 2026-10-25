@@ -48,7 +48,6 @@ pub(crate) struct RenderItem {
     pub shader: ItemShaderId,
     pub inputs: Vec<RenderInput>,
     pub properties: Vec<u8>,
-    pub render_scale: u32,
     pub output_bounds: Box<BoundsOperation>,
 }
 
@@ -135,11 +134,9 @@ pub(crate) enum RenderNodeContent<F = Arc<VisualFrame>> {
     Effect {
         input: Option<SceneNodeId>,
         effect: RenderEffect,
-        render_scale: u32,
     },
     Scene {
         children: Vec<SceneNodeId>,
-        render_scale: u32,
     },
     /// A finite image of a composition, sampled through a view.
     View {
@@ -153,6 +150,7 @@ pub(crate) enum RenderNodeContent<F = Arc<VisualFrame>> {
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct RenderNode<F = Arc<VisualFrame>> {
     pub content: RenderNodeContent<F>,
+    /// Resolved once from this node and all of its input requirements.
     pub render_scale: u32,
     /// Used only when this completed node is composited into its parent scene.
     pub blend_mode: BlendMode,
@@ -163,22 +161,10 @@ impl<F> RenderNode<F> {
         let content = match self.content {
             RenderNodeContent::Frame(frame) => RenderNodeContent::Frame(map(frame)),
             RenderNodeContent::Item(item) => RenderNodeContent::Item(item),
-            RenderNodeContent::Effect {
-                input,
-                effect,
-                render_scale,
-            } => RenderNodeContent::Effect {
-                input,
-                effect,
-                render_scale,
-            },
-            RenderNodeContent::Scene {
-                children,
-                render_scale,
-            } => RenderNodeContent::Scene {
-                children,
-                render_scale,
-            },
+            RenderNodeContent::Effect { input, effect } => {
+                RenderNodeContent::Effect { input, effect }
+            }
+            RenderNodeContent::Scene { children } => RenderNodeContent::Scene { children },
             RenderNodeContent::View { input, view } => RenderNodeContent::View { input, view },
         };
         RenderNode {

@@ -2110,7 +2110,7 @@
       "tags": ["映像", "movie", "clip"],
       "symbol": "▶",
       "render": {
-        "properties": ["position", "origin", "size", "source_start", "source_duration", "playback_speed", "end_behavior", "source"],
+        "properties": ["position", "origin", "size", "source"],
         "shader": { "module": "items::video::render" },
         "bounds": {
           "script": "#{ min: [placement_center(p.position[0], p.size[0], p.origin[0]) - (abs(p.size[0]) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) - (abs(p.size[1]) / 2)], max: [placement_center(p.position[0], p.size[0], p.origin[0]) + (abs(p.size[0]) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) + (abs(p.size[1]) / 2)] }"
@@ -2121,12 +2121,6 @@
             "id": "source",
             "file": "source",
             "reader": "zerium.video",
-            "playback": {
-              "source_start": "source_start",
-              "source_duration": "source_duration",
-              "playback_speed": "playback_speed",
-              "end_behavior": "end_behavior"
-            },
             "placement": {
               "position": "position",
               "size": "size",
@@ -2141,22 +2135,10 @@
           "file": "source",
           "reader": "zerium.audio",
           "volume": "volume",
-          "preserve_pitch": "preserve_pitch",
-          "playback": {
-            "source_start": "source_start",
-            "source_duration": "source_duration",
-            "playback_speed": "playback_speed",
-            "end_behavior": "end_behavior"
-          }
+          "preserve_pitch": "preserve_pitch"
         }
       ],
       "editor": [
-        {
-          "type": "timeline",
-          "source_start": "source_start",
-          "source_duration": "source_duration",
-          "playback_speed": "playback_speed"
-        },
         { "type": "position", "property": "position" },
         {
           "type": "size",
@@ -2306,7 +2288,199 @@
             "extensions": ["mp4", "mov", "mkv", "webm", "avi", "m4v", "gif"]
           }
         }
-      ]
+      ],
+      "playback": {
+        "source": {
+          "type": "media",
+          "id": "source"
+        },
+        "source_start": "source_start",
+        "source_duration": "source_duration",
+        "playback_speed": "playback_speed",
+        "end_behavior": "end_behavior"
+      }
+    },
+    {
+      "id": "image_sequence",
+      "label": { "ja-JP": "画像シーケンス", "en-US": "Image Sequence" },
+      "category": "media",
+      "tags": ["連番画像", "フォルダー", "sequence", "folder"],
+      "symbol": "▶",
+      "render": {
+        "properties": ["position", "origin", "size", "frame_rate", "source"],
+        "shader": { "module": "items::image_sequence::render" },
+        "bounds": {
+          "script": "#{ min: [placement_center(p.position[0], p.size[0], p.origin[0]) - (abs(p.size[0]) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) - (abs(p.size[1]) / 2)], max: [placement_center(p.position[0], p.size[0], p.origin[0]) + (abs(p.size[0]) / 2), placement_center(p.position[1], p.size[1], p.origin[1]) + (abs(p.size[1]) / 2)] }"
+        },
+        "inputs": [
+          {
+            "type": "media",
+            "id": "source",
+            "file": "source",
+            "reader": "zerium.image_sequence",
+            "frame_rate": "frame_rate",
+            "placement": {
+              "position": "position",
+              "size": "size",
+              "origin": "origin"
+            }
+          }
+        ]
+      },
+      "editor": [
+        { "type": "position", "property": "position" },
+        {
+          "type": "size",
+          "property": "size",
+          "position": "position",
+          "origin": "origin"
+        },
+        { "type": "aspect_lock", "property": "size" }
+      ],
+      "properties": [
+        {
+          "id": "position",
+          "label": { "ja-JP": "位置", "en-US": "Position" },
+          "type": "tuple",
+          "elements": [
+            {
+              "type": "f32",
+              "default": 0,
+              "animatable": true,
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": { "ja-JP": "X", "en-US": "X" }, "unit": "px" }
+            },
+            {
+              "type": "f32",
+              "default": 0,
+              "animatable": true,
+              "constraints": { "min": -1000000, "max": 1000000 },
+              "ui": { "label": { "ja-JP": "Y", "en-US": "Y" }, "unit": "px" }
+            }
+          ]
+        },
+        {
+          "id": "origin",
+          "label": { "ja-JP": "原点", "en-US": "Origin" },
+          "type": "tuple",
+          "elements": [
+            {
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "左", "en-US": "Left" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "右", "en-US": "Right" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "X", "en-US": "X" } }
+            },
+            {
+              "type": "enum",
+              "variants": [
+                { "value": 0, "label": { "ja-JP": "上", "en-US": "Top" } },
+                { "value": 1, "label": { "ja-JP": "中央", "en-US": "Center" } },
+                { "value": 2, "label": { "ja-JP": "下", "en-US": "Bottom" } }
+              ],
+              "default": 1,
+              "ui": { "label": { "ja-JP": "Y", "en-US": "Y" } }
+            }
+          ]
+        },
+        {
+          "id": "size",
+          "label": { "ja-JP": "サイズ", "en-US": "Size" },
+          "type": "tuple",
+          "elements": [
+            {
+              "type": "f32",
+              "default": 960,
+              "animatable": true,
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": {
+                "label": { "ja-JP": "幅", "en-US": "Width" },
+                "unit": "px"
+              }
+            },
+            {
+              "type": "f32",
+              "default": 540,
+              "animatable": true,
+              "constraints": { "min": 1, "max": 10000 },
+              "ui": {
+                "label": { "ja-JP": "高さ", "en-US": "Height" },
+                "unit": "px"
+              }
+            }
+          ]
+        },
+        {
+          "id": "source_start",
+          "label": { "ja-JP": "ソース開始", "en-US": "Source start" },
+          "type": "f32",
+          "default": 0,
+          "scene_bindable": false,
+          "constraints": { "min": 0 },
+          "ui": { "unit": "s", "step": 0.1, "drag_step": 0.01 }
+        },
+        {
+          "id": "source_duration",
+          "label": { "ja-JP": "ソース長", "en-US": "Source duration" },
+          "type": "f32",
+          "default": 5,
+          "scene_bindable": false,
+          "constraints": { "min": 0 },
+          "ui": { "unit": "s", "step": 0.1, "drag_step": 0.01 }
+        },
+        {
+          "id": "playback_speed",
+          "label": { "ja-JP": "再生速度", "en-US": "Playback speed" },
+          "type": "f32",
+          "default": 1,
+          "scene_bindable": false,
+          "constraints": { "min": 0.25, "max": 4 },
+          "ui": { "unit": "×", "step": 0.01, "drag_step": 0.01 }
+        },
+        {
+          "id": "end_behavior",
+          "label": { "ja-JP": "終端動作", "en-US": "End behavior" },
+          "type": "enum",
+          "variants": [
+            { "value": 0, "label": { "ja-JP": "停止", "en-US": "Stop" } },
+            { "value": 1, "label": { "ja-JP": "ループ", "en-US": "Loop" } },
+            { "value": 2, "label": { "ja-JP": "保持", "en-US": "Hold" } }
+          ],
+          "default": 0,
+          "scene_bindable": false
+        },
+        {
+          "id": "frame_rate",
+          "label": { "ja-JP": "素材FPS", "en-US": "Source FPS" },
+          "type": "f32",
+          "default": 30,
+          "scene_bindable": false,
+          "constraints": { "min": 0.001, "max": 1000 },
+          "ui": { "unit": "fps", "step": 1, "drag_step": 0.1 }
+        },
+        {
+          "id": "source",
+          "label": { "ja-JP": "フォルダー", "en-US": "Folder" },
+          "type": "file",
+          "default": null,
+          "ui": {
+            "directory": true
+          }
+        }
+      ],
+      "playback": {
+        "source": {
+          "type": "media",
+          "id": "source"
+        },
+        "source_start": "source_start",
+        "source_duration": "source_duration",
+        "playback_speed": "playback_speed",
+        "end_behavior": "end_behavior"
+      }
     },
     {
       "id": "image",
@@ -2564,21 +2738,7 @@
           "file": "source",
           "reader": "zerium.audio",
           "volume": "volume",
-          "preserve_pitch": "preserve_pitch",
-          "playback": {
-            "source_start": "source_start",
-            "source_duration": "source_duration",
-            "playback_speed": "playback_speed",
-            "end_behavior": "end_behavior"
-          }
-        }
-      ],
-      "editor": [
-        {
-          "type": "timeline",
-          "source_start": "source_start",
-          "source_duration": "source_duration",
-          "playback_speed": "playback_speed"
+          "preserve_pitch": "preserve_pitch"
         }
       ],
       "properties": [
@@ -2646,7 +2806,17 @@
             "extensions": ["wav", "mp3", "m4a", "aac", "flac", "ogg", "opus"]
           }
         }
-      ]
+      ],
+      "playback": {
+        "source": {
+          "type": "audio",
+          "id": "source"
+        },
+        "source_start": "source_start",
+        "source_duration": "source_duration",
+        "playback_speed": "playback_speed",
+        "end_behavior": "end_behavior"
+      }
     },
     {
       "id": "render_result",

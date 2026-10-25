@@ -61,7 +61,10 @@ impl Timeline {
                 .items_on_layer(layer)
                 .into_iter()
                 .rev()
-                .find(|item| item.start <= raw_start && raw_start < item.end_exclusive())
+                .find(|item| {
+                    item.start() <= raw_start
+                        && raw_start < item.end_exclusive(self.editor.read(cx).frame_rate())
+                })
                 .map(|item| item.id)
         } else {
             None

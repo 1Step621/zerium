@@ -1,7 +1,7 @@
-use super::{FrameDuration, FrameRate, TimelineEditError};
+use super::TimelineEditError;
 
 /// A source interval and its rate, independent of media readers and EOF policy.
-/// Stored settings are f32; time conversion uses f64 intermediates.
+/// Resolved source values are f32; sampling uses f64 intermediates.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TimeMapping {
     source_offset: f32,
@@ -57,63 +57,95 @@ impl TimeMapping {
         f64::from(self.source_span)
     }
 
-    fn source_end(self) -> f64 {
-        self.source_offset() + self.source_span()
+    pub fn source_seconds(self, local_seconds: f64) -> f64 {
+        self.source_offset() + local_seconds * self.speed()
     }
+}
 
-    pub(super) fn with_span(self, source_span: f64) -> Self {
-        Self {
-            source_span: source_span.max(0.) as f32,
-            ..self
-        }
-    }
-
-    pub(super) fn with_timeline_duration(
-        self,
-        duration: FrameDuration,
-        frame_rate: FrameRate,
-    ) -> Self {
-        self.with_span(duration.get() as f64 / frame_rate.frames_per_second() * self.speed())
-    }
-
-    pub(super) fn with_speed(self, speed: f64) -> Option<Self> {
-        Self::new(self.source_offset, self.source_span, speed as f32).ok()
-    }
-
-    fn timeline_frames_for_span(self, source_span: f32, frame_rate: FrameRate) -> f64 {
-        let frames = f64::from(source_span) / self.speed() * frame_rate.frames_per_second();
+impl TimeMapping {
+    fn frames_for_span(self, span: f32, rate: super::FrameRate) -> f64 {
+        let frames = f64::from(span) / self.speed() * rate.frames_per_second();
         let nearest = frames.round();
-        // Compare a stored frame boundary at source precision, without an epsilon.
-        let boundary_span = nearest / frame_rate.frames_per_second() * self.speed();
-        if boundary_span as f32 == source_span {
+        if (nearest / rate.frames_per_second() * self.speed()) as f32 == span {
             nearest
         } else {
             frames
         }
     }
 
-    pub(super) fn timeline_duration(self, frame_rate: FrameRate) -> FrameDuration {
-        FrameDuration::new_saturating(
-            self.timeline_frames_for_span(self.source_span, frame_rate)
-                .ceil() as u64,
+    pub(crate) fn timeline_duration(self, rate: super::FrameRate) -> super::FrameDuration {
+        super::FrameDuration::new_saturating(
+            self.frames_for_span(self.source_span, rate).ceil() as u64
         )
     }
 
-    pub(super) fn extend_left_frames(self, frame_rate: FrameRate) -> u64 {
-        self.timeline_frames_for_span(self.source_offset, frame_rate)
-            .floor() as u64
+    pub(crate) fn left_extension(self, rate: super::FrameRate) -> u64 {
+        self.frames_for_span(self.source_offset, rate).floor() as u64
     }
 
-    pub(super) fn trim_start(self, seconds: f64) -> Self {
-        let source_offset = (self.source_offset + (seconds * self.speed()) as f32).max(0.);
-        Self {
-            source_offset,
-            source_span: (self.source_end() - f64::from(source_offset)).max(0.) as f32,
-            ..self
+    pub(crate) fn stretch_duration_bounds(
+        self,
+        bounds: (f64, f64),
+        rate: super::FrameRate,
+    ) -> (u64, u64) {
+        let frames = |speed: f64| {
+            Self {
+                speed: speed as f32,
+                ..self
+            }
+            .frames_for_span(self.source_span, rate)
+        };
+        (
+            frames(bounds.1).ceil() as u64,
+            frames(bounds.0).floor() as u64,
+        )
+    }
+
+    pub(crate) fn with_duration(
+        self,
+        duration: super::FrameDuration,
+        rate: super::FrameRate,
+    ) -> Option<Self> {
+        Self::new(
+            self.source_offset,
+            (duration.get() as f64 / rate.frames_per_second() * self.speed()) as f32,
+            self.speed,
+        )
+        .ok()
+    }
+
+    pub(crate) fn resized(
+        self,
+        delta: f64,
+        duration: super::FrameDuration,
+        mode: super::ResizeMode,
+        rate: super::FrameRate,
+    ) -> Option<Self> {
+        match mode {
+            super::ResizeMode::Stretch => Self::new(
+                self.source_offset,
+                self.source_span,
+                (self.source_span() * rate.frames_per_second() / duration.get() as f64) as f32,
+            )
+            .ok(),
+            super::ResizeMode::Trim => {
+                let shift = delta / rate.frames_per_second() * self.speed();
+                let offset = self.source_offset() + shift;
+                let offset = if offset < 0. {
+                    if (-shift) as f32 != self.source_offset {
+                        return None;
+                    }
+                    0.
+                } else {
+                    offset as f32
+                };
+                Self::new(
+                    offset,
+                    (duration.get() as f64 / rate.frames_per_second() * self.speed()) as f32,
+                    self.speed,
+                )
+                .ok()
+            }
         }
-    }
-
-    pub fn source_seconds(self, local_seconds: f64) -> f64 {
-        self.source_offset() + local_seconds * self.speed()
     }
 }

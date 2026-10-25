@@ -8,7 +8,7 @@ use std::{
 
 use gstreamer as gst;
 use gstreamer_pbutils::{Discoverer, DiscovererInfo, DiscovererResult};
-use zerium_core::media::{FileRevision, MediaKind, MediaMetadata, MediaTarget, VideoFrameRate};
+use zerium_core::media::{MediaKind, MediaMetadata, MediaRevision, MediaTarget, VideoFrameRate};
 
 use super::super::{initialize, pipeline::file_uri};
 use crate::engine::media::{MediaError, read_file_revision};
@@ -66,7 +66,7 @@ type Discovery = Arc<OnceLock<Result<DiscovererInfo, String>>>;
 
 struct CachedDiscovery {
     path: PathBuf,
-    revision: FileRevision,
+    revision: MediaRevision,
     discovery: Discovery,
 }
 

@@ -8,6 +8,34 @@
 and state, selects the locale, compiles bundled plugin shaders, and starts GPUI.
 It wires the editor, project session, media, rendering, transport, and UI.
 
+## Project and UI lifetimes
+
+[`ProjectSession`](../../crates/zerium/src/project_session.rs) owns the current
+project session and the registry of pending imports, file selections, saves,
+loads, and exports. Operation tokens contain session and operation identities;
+their activity is stored in the registry. The project controller consults that
+registry when deciding whether the window can close, rather than collecting
+separate busy flags from each controller.
+
+Transport owns playback and scrubbing state, including which pane started a
+scrub. Timeline and curve views query it instead of maintaining parallel scrub
+flags. A change of project or active scene resets the timeline's viewport and
+transient interaction state through its editor subscription.
+
+The inspector and scene settings share
+[`InputStore`](../../crates/zerium/src/ui/input.rs). Each keyed control owns its
+input entity, subscriptions, and any unfinished text draft. A change in input
+kind or text configuration replaces that control. Inspector control identities
+derive from property addresses; scene-settings rows keep the domain variable
+and its evaluated result instead of copying its type and fields into another
+model.
+
+File selections retain their property target and editor edit context together
+with the pending task. Editing, undo, scene navigation, or deselecting that target
+cancels the selection, so a delayed probe cannot overwrite a newer edit. File
+drops also retain their destination scene and discard results after navigating
+to another scene.
+
 ## Application state and configuration
 
 The user config directory contains two files:
@@ -33,8 +61,8 @@ WESL, generates interfaces, and compiles and validates entry points and override
 The application embeds bundled sources; the CLI loads filesystem plugins through
 the same tooling. Generated interfaces are checked against their source contract.
 
-Validated schemas compile typed playback bindings shared by media, editing, and
-value validation. Sharing property references shares a source mapping; independent
+Media, editing, and value validation read the same validated playback declarations.
+Sharing property references shares a source mapping; independent
 references preserve separate playback settings.
 
 See [Plugin API v1](../plugin/README.md) for the generate/validate workflow and

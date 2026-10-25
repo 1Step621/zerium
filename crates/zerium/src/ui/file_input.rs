@@ -1,6 +1,7 @@
 //! Shared file selection for property and scene argument controls.
 
-use super::notifications::UiNotifications;
+use super::{file_import::FileImportTarget, notifications::UiNotifications};
+use crate::engine::media::{MediaError, MediaReaderRegistry, prepare_import};
 use crate::{
     app::media_metadata::MediaMetadataController,
     project_session::{ProjectActivity, ProjectOperation, ProjectSession},
@@ -11,10 +12,14 @@ use ::ui::{
 };
 use gpui::{Context, Div, Entity, SharedString, Subscription, Task, Window, div, prelude::*};
 use rust_i18n::t;
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use zerium_core::{
+    media::ImportedFile,
     property::{PropertyUi, PropertyValue, ScalarPropertyType},
-    timeline::{PropertyAddress, SceneId, TimelineEditor},
+    timeline::{EditContext, PropertyAddress, SceneId, TimelineEditor},
 };
 
 #[derive(Clone)]
@@ -32,19 +37,29 @@ impl FileTarget {
             Self::Argument {
                 scene_id,
                 argument_id,
-            } => (
-                editor
-                    .scene(*scene_id)?
-                    .argument(argument_id)?
-                    .argument_schema()?,
-                None,
-                None,
-            ),
-            Self::Property(address) => (
-                editor.property_schema(address)?,
-                address.element_id,
-                address.scalar_index,
-            ),
+            } => {
+                if editor.active_scene_id() != Some(*scene_id) {
+                    return None;
+                }
+                (
+                    editor
+                        .scene(*scene_id)?
+                        .argument(argument_id)?
+                        .argument_schema()?,
+                    None,
+                    None,
+                )
+            }
+            Self::Property(address) => {
+                if !editor.is_item_selected(address.item_id) {
+                    return None;
+                }
+                (
+                    editor.property_schema(address)?,
+                    address.element_id,
+                    address.scalar_index,
+                )
+            }
         };
         (schema.scalar_type(element_id, scalar_index) == Some(&ScalarPropertyType::File)
             && schema.is_editable(scalar_index))
@@ -52,21 +67,38 @@ impl FileTarget {
     }
 }
 
+pub(crate) struct FilePickerOptions<'a> {
+    pub(crate) path: Option<&'a Path>,
+    pub(crate) directory: bool,
+    pub(crate) selecting: bool,
+    pub(crate) disabled: bool,
+}
+
 pub(crate) fn file_picker(
     input: &Entity<FileInputController>,
     key: SharedString,
     target: FileTarget,
-    path: Option<&Path>,
-    selecting: bool,
-    disabled: bool,
+    options: FilePickerOptions<'_>,
 ) -> Div {
+    let FilePickerOptions {
+        path,
+        directory,
+        selecting,
+        disabled,
+    } = options;
+    let choose_label = if directory {
+        t!("inspector.choose_folder")
+    } else {
+        t!("inspector.choose_file")
+    }
+    .to_string();
     let label = if let Some(path) = path {
         path.file_name()
             .unwrap_or(path.as_os_str())
             .to_string_lossy()
             .into_owned()
     } else {
-        t!("inspector.choose_file").to_string()
+        choose_label.clone()
     };
     let choose_input = input.clone();
     let choose_target = target.clone();
@@ -88,7 +120,7 @@ pub(crate) fn file_picker(
                     .overflow_hidden()
                     .child(div().min_w_0().truncate().child(label))
                     .disabled(disabled || selecting)
-                    .tooltip(t!("inspector.choose_file").to_string())
+                    .tooltip(choose_label)
                     .when_some(path, |button, path| {
                         button.tooltip(path.display().to_string())
                     })
@@ -118,49 +150,78 @@ pub(crate) fn file_picker(
         })
 }
 
+enum SelectedFile {
+    Property(PathBuf),
+    Import(ImportedFile),
+}
+
 struct FileSelection {
     operation: ProjectOperation,
+    target: FileTarget,
+    context: EditContext,
     _task: Task<()>,
 }
 
 pub(crate) struct FileInputController {
     editor: Entity<TimelineEditor>,
     metadata: Entity<MediaMetadataController>,
+    readers: Arc<MediaReaderRegistry>,
     session: Entity<ProjectSession>,
     notifications: Entity<UiNotifications>,
     selection: Option<FileSelection>,
-    _session_subscription: Subscription,
+    _subscriptions: Vec<Subscription>,
 }
 
 impl FileInputController {
     pub(crate) fn new(
         editor: Entity<TimelineEditor>,
         metadata: Entity<MediaMetadataController>,
+        readers: Arc<MediaReaderRegistry>,
         session: Entity<ProjectSession>,
         notifications: Entity<UiNotifications>,
         cx: &mut Context<Self>,
     ) -> Self {
         let mut session_id = session.read(cx).id();
-        let subscription = cx.observe(&session, move |this, session, cx| {
+        let session_subscription = cx.observe(&session, move |this, session, cx| {
             let next = session.read(cx).id();
             if next != session_id {
                 session_id = next;
-                this.selection = None;
-                cx.notify();
+                this.cancel_selection(cx);
+            }
+        });
+        let editor_subscription = cx.observe(&editor, |this, editor, cx| {
+            if this.selection.as_ref().is_some_and(|selection| {
+                !selection.context.is_current(editor.read(cx))
+                    || selection.target.ui(editor.read(cx)).is_none()
+            }) {
+                this.cancel_selection(cx);
             }
         });
         Self {
             editor,
             metadata,
+            readers,
             session,
             notifications,
             selection: None,
-            _session_subscription: subscription,
+            _subscriptions: vec![session_subscription, editor_subscription],
         }
     }
 
     pub(crate) fn is_selecting(&self) -> bool {
         self.selection.is_some()
+    }
+
+    fn cancel_selection(&mut self, cx: &mut Context<Self>) {
+        let Some(selection) = self.selection.take() else {
+            return;
+        };
+        self.session.update(cx, |session, cx| {
+            if session.finish(selection.operation) {
+                cx.notify();
+            }
+        });
+        cx.notify();
     }
 
     pub(crate) fn choose(
@@ -176,17 +237,35 @@ impl FileInputController {
         let Some(ui) = target.ui(editor) else {
             return;
         };
-        let scene_id = editor.active_scene_id();
-        let mut dialog = rfd::AsyncFileDialog::new()
-            .set_parent(window)
-            .set_title(t!("edit.choose_file").to_string());
+        let context = editor.edit_context();
+        let directory = ui.selects_directory();
+        let import = match &target {
+            FileTarget::Property(address) => FileImportTarget::for_property(address, editor),
+            FileTarget::Argument { .. } => None,
+        };
+        let plugins = editor.plugin_registry_arc();
+        let readers = self.readers.clone();
+        let mut dialog = rfd::AsyncFileDialog::new().set_parent(window).set_title(
+            if directory {
+                t!("inspector.choose_folder")
+            } else {
+                t!("edit.choose_file")
+            }
+            .to_string(),
+        );
         // macOS merges filters instead of offering an unrestricted alternative.
         if cfg!(not(target_os = "macos")) && !ui.extensions().is_empty() {
             dialog = dialog
                 .add_filter(t!("inspector.suggested_files").to_string(), ui.extensions())
                 .add_filter(t!("inspector.all_files").to_string(), &["*"]);
         }
-        let selection = dialog.pick_file();
+        let selection = async move {
+            if directory {
+                dialog.pick_folder().await
+            } else {
+                dialog.pick_file().await
+            }
+        };
         let session = self.session.clone();
         let operation = session.update(cx, |session, cx| {
             let operation = session.begin(ProjectActivity::SelectFile);
@@ -194,13 +273,36 @@ impl FileInputController {
             operation
         });
         let task = cx.spawn(async move |controller, cx| {
-            let selected = selection.await.map(|file| file.path().to_path_buf());
+            let result = match selection.await {
+                Some(file) => {
+                    let path = file.path().to_path_buf();
+                    if let Some(import) = import {
+                        cx.background_spawn(async move {
+                            prepare_import(
+                                path,
+                                &plugins,
+                                &import.plugin_id,
+                                &import.item_id,
+                                &import.property_id,
+                                &readers,
+                            )
+                            .map(|file| Some(SelectedFile::Import(file)))
+                        })
+                        .await
+                    } else {
+                        Ok(Some(SelectedFile::Property(path)))
+                    }
+                }
+                None => Ok(None),
+            };
             let _ = controller.update(cx, |this, cx| {
-                this.finish_selection(operation, scene_id, target, selected, cx);
+                this.finish_selection(operation, result, cx);
             });
         });
         self.selection = Some(FileSelection {
             operation,
+            target,
+            context,
             _task: task,
         });
         cx.notify();
@@ -209,19 +311,15 @@ impl FileInputController {
     fn finish_selection(
         &mut self,
         operation: ProjectOperation,
-        scene_id: Option<SceneId>,
-        target: FileTarget,
-        selected: Option<PathBuf>,
+        result: Result<Option<SelectedFile>, MediaError>,
         cx: &mut Context<Self>,
     ) {
-        if self
+        let Some(selection) = self
             .selection
-            .as_ref()
-            .is_none_or(|selection| selection.operation != operation)
-        {
+            .take_if(|selection| selection.operation == operation)
+        else {
             return;
-        }
-        self.selection = None;
+        };
         let current = self.session.update(cx, |session, cx| {
             let current = session.finish(operation);
             if current {
@@ -230,12 +328,35 @@ impl FileInputController {
             current
         });
         if current
-            && self.editor.read(cx).active_scene_id() == scene_id
-            && target.ui(self.editor.read(cx)).is_some()
-            && let Some(path) = selected
+            && selection.context.is_current(self.editor.read(cx))
+            && selection.target.ui(self.editor.read(cx)).is_some()
         {
-            self.metadata.read(cx).retry(path.clone());
-            self.set_value(target, Some(path), cx);
+            match result {
+                Ok(Some(SelectedFile::Import(imported))) => {
+                    if let FileTarget::Property(address) = selection.target {
+                        let result = self.editor.update(cx, |editor, cx| {
+                            let result = editor.import_item_file(address.item_id, imported);
+                            if result.is_ok() {
+                                cx.notify();
+                            }
+                            result
+                        });
+                        if let Err(error) = result {
+                            self.notifications.update(cx, |notifications, cx| {
+                                notifications.push(error.to_string(), cx)
+                            });
+                        }
+                    }
+                }
+                Ok(Some(SelectedFile::Property(path))) => {
+                    self.metadata.read(cx).retry(path.clone());
+                    self.set_value(selection.target, Some(path), cx);
+                }
+                Ok(None) => {}
+                Err(error) => self.notifications.update(cx, |notifications, cx| {
+                    notifications.push(error.to_string(), cx)
+                }),
+            }
         }
         cx.notify();
     }
@@ -257,27 +378,17 @@ impl FileInputController {
 
 impl FileTarget {
     fn apply(self, editor: &mut TimelineEditor, path: Option<PathBuf>) -> Result<bool, String> {
+        if self.ui(editor).is_none() {
+            return Ok(false);
+        }
         let value = PropertyValue::File(path);
         match self {
-            FileTarget::Argument {
-                scene_id,
-                argument_id,
-            } => {
-                if editor.active_scene_id() != Some(scene_id) {
-                    return Err("Scene changed".into());
-                }
-                editor
-                    .update_scene_argument_default(&argument_id, value)
-                    .map_err(|error| error.to_string())
-            }
-            FileTarget::Property(address) => {
-                if !editor.is_item_selected(address.item_id) {
-                    return Err("Selection changed".into());
-                }
-                editor
-                    .edit_property(&address, value)
-                    .map_err(|error| error.to_string())
-            }
+            FileTarget::Argument { argument_id, .. } => editor
+                .update_scene_argument_default(&argument_id, value)
+                .map_err(|error| error.to_string()),
+            FileTarget::Property(address) => editor
+                .edit_property(&address, value)
+                .map_err(|error| error.to_string()),
         }
     }
 }

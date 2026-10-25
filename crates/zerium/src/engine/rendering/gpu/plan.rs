@@ -487,8 +487,8 @@ impl RenderGraphBuilder<'_> {
         let plan = match &node.content {
             RenderNodeContent::Frame(frame) => self.encode_frame(frame),
             RenderNodeContent::Item(item) => self.encode_source(item)?,
-            RenderNodeContent::Scene { children, .. } => self.encode_composite(children)?,
-            RenderNodeContent::Effect { input, effect, .. } => {
+            RenderNodeContent::Scene { children } => self.encode_composite(children)?,
+            RenderNodeContent::Effect { input, effect } => {
                 let input = input.map(|input| self.encode_node(input)).transpose()?;
                 self.encode_effect(input, effect)?
             }

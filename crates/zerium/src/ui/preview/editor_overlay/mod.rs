@@ -204,13 +204,23 @@ pub(in crate::ui::preview) fn item_center(
 }
 
 pub(in crate::ui::preview) fn position_at_time(
+    editor: &zerium_core::timeline::TimelineEditor,
     item: &TimelineItem,
     effect_id: Option<EffectInstanceId>,
     property: &PropertySchema,
     time: TimelineTime,
 ) -> Option<[f32; 2]> {
-    f32_pair(&item.evaluated_property_at(time, effect_id, property)?)
-        .filter(|value| value.iter().all(|value| value.is_finite()))
+    f32_pair(&editor.evaluated_property_value(
+        &PropertyAddress {
+            item_id: item.id,
+            effect_id,
+            property_id: property.id().to_owned(),
+            element_id: None,
+            scalar_index: None,
+        },
+        time,
+    )?)
+    .filter(|value| value.iter().all(|value| value.is_finite()))
 }
 
 pub(in crate::ui::preview) fn item_size(

@@ -1,4 +1,4 @@
-use std::{cell::RefCell, path::PathBuf, rc::Rc};
+use std::{cell::RefCell, path::PathBuf, rc::Rc, sync::Arc};
 
 use ::ui::Root;
 use gpui::{
@@ -138,8 +138,7 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             .expect("bundled plugin shaders must compile");
                     let render_runtime =
                         cx.new(|_| crate::engine::rendering::RenderRuntime::new(plugin_shaders));
-                    let media_readers = crate::engine::media::bundled_media_readers()
-                        .expect("bundled media readers must be valid");
+                    let media_readers = Arc::new(crate::engine::media::MediaReaderRegistry);
                     let editor = cx.new(|_| {
                         zerium_core::timeline::TimelineEditor::new(
                             zerium_core::timeline::FrameRate::FPS_30,
@@ -218,6 +217,7 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                         crate::ui::file_input::FileInputController::new(
                             editor.clone(),
                             media_metadata.clone(),
+                            media_readers.clone(),
                             session.clone(),
                             notifications.clone(),
                             cx,
@@ -285,7 +285,6 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                         }
                     }));
                     let close_project_controller = project_controller.clone();
-                    let close_export_controller = export_controller.clone();
                     let close_window_lifetime_guard = preview.read(cx).window_lifetime_guard();
                     let operation_hints = cx.new({
                         let transport = transport.clone();
@@ -350,10 +349,8 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                     });
                     window.on_window_should_close(cx, move |window, cx| {
                         let _keep_native_window_alive = &close_window_lifetime_guard;
-                        let export_busy = close_export_controller.read(cx).is_exporting();
-                        close_project_controller.update(cx, |project, cx| {
-                            project.should_close(export_busy, window, cx)
-                        })
+                        close_project_controller
+                            .update(cx, |project, cx| project.should_close(window, cx))
                     });
                     let workspace_focus = workspace.read(cx).focus_handle.clone();
                     window.focus(&workspace_focus, cx);

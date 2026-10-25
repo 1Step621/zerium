@@ -2,7 +2,6 @@
 use super::{
     ProjectError,
     items::{ProjectItem, load_items},
-    paths::item_files,
 };
 use crate::property::PropertyValue;
 use crate::timeline::{
@@ -16,11 +15,10 @@ use std::{
 };
 
 const TIMELINE_CLIPBOARD_FORMAT: &str = "zerium/timeline-items";
-const TIMELINE_CLIPBOARD_FORMAT_VERSION: u32 = 1;
+const TIMELINE_CLIPBOARD_FORMAT_VERSION: u32 = 4;
 
 #[derive(Debug)]
 pub struct DecodedTimelineClipboard {
-    pub media_cache: crate::media::MediaMetadataCache,
     pub source_scene: Option<SceneId>,
     pub items: Vec<(LayerId, TimelineItem)>,
     pub scene_bindings: Vec<(String, SceneBindingTarget)>,
@@ -51,7 +49,7 @@ pub fn encode_timeline_clipboard(
     // Preserve authored fallbacks for copies that retain their connections.
     // Detached copies use the connected properties' values at copy time.
     let mut resolved = items.to_vec();
-    editor.resolve_active_scene_variables(resolved.iter_mut().map(|(_, item)| item));
+    editor.bake_active_scene_bindings(resolved.iter_mut().map(|(_, item)| item));
     let mut properties = HashSet::new();
     let resolved_properties = scene_bindings
         .iter()
@@ -68,8 +66,8 @@ pub fn encode_timeline_clipboard(
                 .iter()
                 .find(|(_, item)| item.id == binding.item_id())?;
             let value = item
-                .property_values(binding.owner().effect_id())?
-                .property(binding.property_id())?
+                .property_overrides(binding.owner().effect_id())?
+                .get(binding.property_id())?
                 .clone();
             Some(ClipboardProperty {
                 item_id: key.0,
@@ -88,6 +86,10 @@ pub fn encode_timeline_clipboard(
             .collect(),
         format: TIMELINE_CLIPBOARD_FORMAT.to_owned(),
         format_version: TIMELINE_CLIPBOARD_FORMAT_VERSION,
+        frame_rate: [
+            editor.frame_rate().numerator(),
+            editor.frame_rate().denominator(),
+        ],
         source_scene: source_scene
             .map(|scene| [scene.project().high(), scene.project().low(), scene.get()]),
         items: items
@@ -96,12 +98,6 @@ pub fn encode_timeline_clipboard(
             .collect(),
         scene_bindings,
         resolved_properties,
-        media_cache: editor.media_cache().retained_paths(
-            items
-                .iter()
-                .chain(&resolved)
-                .flat_map(|(_, item)| item_files(item)),
-        ),
     };
     serde_json::to_string(&file).map_err(|error| {
         ProjectError::encode(
@@ -173,6 +169,8 @@ pub fn decode_timeline_clipboard(
             }
         }
     }
+    let source_rate = crate::timeline::FrameRate::new(file.frame_rate[0], file.frame_rate[1])
+        .ok_or_else(|| ProjectError::invalid_data("Invalid clipboard frame rate"))?;
     let mut effect_ids = HashSet::new();
     let items = load_items(
         file.items,
@@ -180,7 +178,16 @@ pub fn decode_timeline_clipboard(
         &scene_schemas,
         &mut effect_ids,
         editor.plugin_registry(),
+        source_rate,
     )?;
+    let items = if source_rate != editor.frame_rate() {
+        crate::timeline::TimelineDocument::from_items(source_rate, items)
+            .retimed(editor.frame_rate())
+            .map_err(|error| ProjectError::invalid_data(error.to_string()))?
+            .source_items()
+    } else {
+        items
+    };
     let item_ids = items
         .iter()
         .map(|(_, item)| item.id)
@@ -200,7 +207,6 @@ pub fn decode_timeline_clipboard(
         return Err(ProjectError::invalid_data("Invalid clipboard visibility"));
     }
     Ok(DecodedTimelineClipboard {
-        media_cache: file.media_cache,
         source_scene: preserve_bindings.then_some(source_scene).flatten(),
         items,
         scene_bindings: if preserve_bindings {
@@ -216,9 +222,9 @@ pub fn decode_timeline_clipboard(
 #[serde(deny_unknown_fields)]
 struct TimelineClipboardFile {
     hidden_effects: Vec<EffectInstanceId>,
-    media_cache: crate::media::MediaMetadataCache,
     format: String,
     format_version: u32,
+    frame_rate: [u32; 2],
     source_scene: Option<[u64; 3]>,
     items: Vec<ProjectItem>,
     scene_bindings: Vec<(String, SceneBindingTarget)>,

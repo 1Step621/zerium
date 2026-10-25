@@ -80,60 +80,50 @@
         "entry": { "$ref": "#/$defs/wgslId" }
       }
     },
-    "mediaPlayback": {
+    "itemPlayback": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "source_start",
-        "source_duration",
-        "playback_speed",
-        "end_behavior"
-      ],
+      "required": ["source", "source_start", "source_duration", "playback_speed", "end_behavior"],
       "properties": {
         "source_start": { "$ref": "#/$defs/wgslId" },
         "source_duration": { "$ref": "#/$defs/wgslId" },
         "playback_speed": { "$ref": "#/$defs/wgslId" },
-        "end_behavior": { "$ref": "#/$defs/wgslId" }
+        "end_behavior": { "$ref": "#/$defs/wgslId" },
+        "source": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "type",
+            "id"
+          ],
+          "properties": {
+            "type": {
+              "enum": [
+                "media",
+                "audio"
+              ]
+            },
+            "id": {
+              "$ref": "#/$defs/logicalId"
+            }
+          }
+        }
       }
     },
     "audioCapability": {
       "type": "object",
       "additionalProperties": false,
-      "required": [
-        "id",
-        "file",
-        "reader",
-        "volume",
-        "preserve_pitch",
-        "playback"
-      ],
+      "required": ["id", "file", "reader", "volume", "preserve_pitch"],
       "properties": {
         "id": { "$ref": "#/$defs/logicalId" },
         "file": { "$ref": "#/$defs/wgslId" },
         "reader": { "$ref": "#/$defs/logicalId" },
         "volume": { "$ref": "#/$defs/wgslId" },
-        "preserve_pitch": { "$ref": "#/$defs/wgslId" },
-        "playback": { "$ref": "#/$defs/mediaPlayback" }
+        "preserve_pitch": { "$ref": "#/$defs/wgslId" }
       }
     },
     "editorCapability": {
       "oneOf": [
-        {
-          "type": "object",
-          "additionalProperties": false,
-          "required": [
-            "type",
-            "source_start",
-            "source_duration",
-            "playback_speed"
-          ],
-          "properties": {
-            "type": { "const": "timeline" },
-            "source_start": { "$ref": "#/$defs/wgslId" },
-            "source_duration": { "$ref": "#/$defs/wgslId" },
-            "playback_speed": { "$ref": "#/$defs/wgslId" }
-          }
-        },
         {
           "type": "object",
           "additionalProperties": false,
@@ -212,14 +202,6 @@
       "type": "array",
       "items": { "$ref": "#/$defs/editorCapability" },
       "allOf": [
-        {
-          "contains": {
-            "properties": { "type": { "const": "timeline" } },
-            "required": ["type"]
-          },
-          "minContains": 0,
-          "maxContains": 1
-        },
         {
           "contains": {
             "properties": { "type": { "const": "position" } },
@@ -316,7 +298,10 @@
           "type": "array",
           "items": { "$ref": "#/$defs/property" }
         },
-        "render": { "$ref": "#/$defs/itemRender" }
+        "render": { "$ref": "#/$defs/itemRender" },
+        "playback": {
+          "$ref": "#/$defs/itemPlayback"
+        }
       }
     },
     "pipelineOverrides": {
@@ -481,6 +466,7 @@
         "visible": { "type": "boolean" },
         "multiline": { "type": "boolean" },
         "editor": { "enum": ["font_family"] },
+        "directory": { "type": "boolean" },
         "extensions": {
           "type": "array",
           "uniqueItems": true,
@@ -660,7 +646,7 @@
           "properties": {
             "type": { "const": "media" },
             "id": { "$ref": "#/$defs/wgslId" },
-            "playback": { "$ref": "#/$defs/mediaPlayback" },
+            "frame_rate": { "$ref": "#/$defs/wgslId" },
             "placement": {
               "type": "object",
               "additionalProperties": false,

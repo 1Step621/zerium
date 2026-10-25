@@ -1,12 +1,5 @@
-//! File references shared by project capture and timeline clipboard capture.
-use crate::timeline::TimelineItem;
+//! Relative authored file paths in projects and clipboard data.
 use std::path::{Path, PathBuf};
-
-pub(super) fn item_files(item: &TimelineItem) -> impl Iterator<Item = &Path> {
-    std::iter::once(&item.properties)
-        .chain(item.effects.iter().map(|effect| &effect.properties))
-        .flat_map(|properties| properties.files().map(|(_, path)| path))
-}
 
 pub(super) fn make_relative(path: &Path, project_path: &Path) -> PathBuf {
     let Some(directory) = project_path.parent() else {

@@ -32,6 +32,10 @@ impl MediaPlayback {
         }
     }
 
+    pub fn mapping(self) -> TimeMapping {
+        self.mapping
+    }
+
     pub fn source_span(self) -> f64 {
         self.mapping.source_span()
     }

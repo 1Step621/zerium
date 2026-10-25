@@ -138,7 +138,6 @@ impl Timeline {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.scrubbing_playhead = true;
         self.transport.update(cx, |transport, cx| {
             transport.begin_scrub(ScrubSource::Timeline, cx);
         });
@@ -151,7 +150,7 @@ impl Timeline {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !self.scrubbing_playhead {
+        if !self.transport.read(cx).is_scrubbing(ScrubSource::Timeline) {
             return;
         }
         if !event.dragging() {
@@ -163,10 +162,6 @@ impl Timeline {
     }
 
     pub(in crate::ui::timeline) fn finish_playhead_scrub(&mut self, cx: &mut Context<Self>) {
-        if !self.scrubbing_playhead {
-            return;
-        }
-        self.scrubbing_playhead = false;
         self.transport.update(cx, |transport, cx| {
             transport.end_scrub(ScrubSource::Timeline, cx);
         });

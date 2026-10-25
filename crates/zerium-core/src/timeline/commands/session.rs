@@ -1,5 +1,6 @@
 use std::collections::HashSet;
 
+use crate::timeline::editor::PlayheadPosition;
 use crate::timeline::{
     EffectInstanceId, Frame, FrameRate, ItemId, LayerId, ProjectResolution, SceneId,
     TimelineDocument, TimelineEditor, TimelineTime,
@@ -33,18 +34,27 @@ impl TimelineEditor {
         self.replace_document(TimelineDocument::new(frame_rate), resolution, playhead);
     }
 
+    /// Scope-local state must be reset together whenever navigation changes documents.
+    pub(in crate::timeline) fn reset_scene_session(&mut self) {
+        self.selection.clear();
+        self.active_edit_target = None;
+        self.visibility.clear();
+        self.position = PlayheadPosition::Stopped(Frame::new(0));
+    }
+
+    fn finish_scene_navigation(&mut self) {
+        self.reset_scene_session();
+        self.history.finish_group();
+        self.advance_edit_revision();
+        self.advance_render_revision();
+    }
+
     pub fn open_scene(&mut self, id: SceneId) -> bool {
         if !self.project().scenes.contains_key(&id) || self.scene_path.last() == Some(&id) {
             return false;
         }
         self.scene_path.push(id);
-        self.history.finish_group();
-        self.selection.clear();
-        self.active_edit_target = None;
-        self.visibility.clear();
-        self.playhead = Frame::new(0);
-        self.playback_time = None;
-        self.advance_render_revision();
+        self.finish_scene_navigation();
         true
     }
 
@@ -52,22 +62,12 @@ impl TimelineEditor {
         if self.scene_path.pop().is_none() {
             return false;
         }
-        self.history.finish_group();
-        self.selection.clear();
-        self.active_edit_target = None;
-        self.visibility.clear();
-        self.playhead = Frame::new(0);
-        self.playback_time = None;
-        self.advance_render_revision();
+        self.finish_scene_navigation();
         true
     }
 
     pub fn clear_playback_time(&mut self) -> bool {
-        if self.playback_time.take().is_none() {
-            return false;
-        }
-        self.advance_render_revision();
-        true
+        self.set_playhead(self.playhead())
     }
 
     pub fn set_playback_position(&mut self, seconds: f64, frame: Frame) -> bool {
@@ -77,11 +77,11 @@ impl TimelineEditor {
         if time.nearest_frame() != frame {
             return false;
         }
-        if self.playback_time == Some(time) && self.playhead == frame {
+        let position = PlayheadPosition::Playing(time);
+        if self.position == position {
             return false;
         }
-        self.playback_time = Some(time);
-        self.playhead = frame;
+        self.position = position;
         self.advance_render_revision();
         true
     }
@@ -141,21 +141,21 @@ impl TimelineEditor {
     }
 
     pub fn set_playhead(&mut self, frame: Frame) -> bool {
-        let playback_changed = self.playback_time.take().is_some();
-        if self.playhead == frame && !playback_changed {
+        let position = PlayheadPosition::Stopped(frame);
+        if self.position == position {
             return false;
         }
-        self.playhead = frame;
+        self.position = position;
         self.advance_render_revision();
         true
     }
 
     pub fn step_playhead(&mut self, delta: i64) -> bool {
         let next = if delta < 0 {
-            self.playhead.0.saturating_sub(delta.unsigned_abs())
+            self.playhead().get().saturating_sub(delta.unsigned_abs())
         } else {
-            self.playhead.0.saturating_add(delta as u64)
+            self.playhead().get().saturating_add(delta as u64)
         };
-        self.set_playhead(Frame(next))
+        self.set_playhead(Frame::new(next))
     }
 }

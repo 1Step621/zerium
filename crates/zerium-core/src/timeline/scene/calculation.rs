@@ -52,13 +52,7 @@ pub(super) struct SceneRuntime {
     plan: OnceLock<Result<VariablePlan, String>>,
     pub(super) bindings: OnceLock<super::binding::BindingIndex>,
     defaults: OnceLock<Arc<SceneEvaluation>>,
-    inputs: Mutex<VecDeque<SuppliedEvaluation>>,
     calculations: Mutex<HashMap<String, VecDeque<CalculationResult>>>,
-}
-
-struct SuppliedEvaluation {
-    arguments: PropertyValues,
-    result: Arc<SceneEvaluation>,
 }
 
 struct VariablePlan {
@@ -81,15 +75,6 @@ fn same_value(left: &PropertyValue, right: &PropertyValue) -> bool {
             .all(|(left, right)| left.to_bits() == right.to_bits()),
         _ => left == right,
     }
-}
-
-fn same_arguments(left: &PropertyValues, right: &PropertyValues) -> bool {
-    left.iter().count() == right.iter().count()
-        && left.iter().all(|(id, value)| {
-            right
-                .property(id)
-                .is_some_and(|other| same_value(value, other))
-        })
 }
 
 /// One demand-driven evaluation scope. Cross-scene arguments are resolved only
@@ -350,45 +335,17 @@ impl SceneDefinition {
         })
     }
 
-    pub fn evaluate_variables(&self, inputs: Option<&PropertyValues>) -> Arc<SceneEvaluation> {
-        let Some(inputs) = inputs else {
-            return self
-                .runtime
-                .defaults
-                .get_or_init(|| Arc::new(self.evaluate_all_variables(None)))
-                .clone();
-        };
-        {
-            let cached = self
-                .runtime
-                .inputs
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            if let Some(previous) = cached
-                .iter()
-                .find(|previous| same_arguments(&previous.arguments, inputs))
-            {
-                return previous.result.clone();
-            }
-        }
-        let result = Arc::new(self.evaluate_all_variables(Some(inputs)));
-        let mut cached = self
-            .runtime
-            .inputs
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        if cached.len() == 8 {
-            cached.pop_front();
-        }
-        cached.push_back(SuppliedEvaluation {
-            arguments: inputs.clone(),
-            result: result.clone(),
-        });
-        result
+    /// Scene settings display every output using the definition's defaults.
+    /// Placed instances use demand-driven evaluation and per-calculation caches.
+    pub fn evaluate_default_variables(&self) -> Arc<SceneEvaluation> {
+        self.runtime
+            .defaults
+            .get_or_init(|| Arc::new(self.evaluate_all_default_variables()))
+            .clone()
     }
 
-    fn evaluate_all_variables(&self, inputs: Option<&PropertyValues>) -> SceneEvaluation {
-        let evaluation = self.variable_evaluator(inputs);
+    fn evaluate_all_default_variables(&self) -> SceneEvaluation {
+        let evaluation = self.variable_evaluator(None);
         // Visiting in dependency order keeps the explicit "evaluate all" UI path
         // iterative for long chains. Ordinary property readers request one output.
         let order = match self.variable_plan() {

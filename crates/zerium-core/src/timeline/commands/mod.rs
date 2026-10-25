@@ -7,7 +7,8 @@ use thiserror::Error;
 
 use super::{ItemId, SceneId, TimelineEditor};
 
-/// Identifies the document state for which an edit was resolved.
+/// Identifies the editor lifetime in which an edit was resolved. Undo and scene
+/// navigation invalidate old targets even when they return to the same document.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct EditContext {
     revision: u64,
@@ -26,7 +27,7 @@ pub use edit_session::EditSession;
 impl TimelineEditor {
     pub fn edit_context(&self) -> EditContext {
         EditContext {
-            revision: self.project_revision(),
+            revision: self.edit_revision(),
             project_id: self.project().id,
             scene_id: self.active_scene_id(),
         }

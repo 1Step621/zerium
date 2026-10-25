@@ -171,7 +171,6 @@ pub(crate) struct AnimationCurveEditor {
     selection: Entity<AnimationSelection>,
     focus_handle: FocusHandle,
     graph_bounds: Option<Bounds<Pixels>>,
-    scrubbing_playhead: bool,
     graph_interaction: GraphInteraction,
     handle_fit_target: Option<SegmentIdentity>,
     repeat_inputs: Option<RepeatInputs>,
@@ -204,6 +203,7 @@ impl AnimationCurveEditor {
             }),
             cx.observe(&selection, |this, _, cx| {
                 this.end_pointer_drag(cx);
+                this.end_graph_press(cx);
                 this.handle_fit_target = None;
                 this.repeat_inputs = None;
                 this.step_input = None;
@@ -217,7 +217,6 @@ impl AnimationCurveEditor {
             selection,
             focus_handle: cx.focus_handle(),
             graph_bounds: None,
-            scrubbing_playhead: false,
             graph_interaction: GraphInteraction::Idle,
             handle_fit_target: None,
             repeat_inputs: None,

@@ -119,8 +119,12 @@ impl AnimationCurveEditor {
             .animation_clock(track)
             .first_occurrence(
                 pattern_frame,
-                TimelineTime::from_frame(item.start),
-                TimelineTime::from_frame(Frame::new(item.end_exclusive().get().saturating_sub(1))),
+                TimelineTime::from_frame(item.start()),
+                TimelineTime::from_frame(Frame::new(
+                    item.end_exclusive(editor.frame_rate())
+                        .get()
+                        .saturating_sub(1),
+                )),
             )
             .map(TimelineTime::nearest_frame);
         let changed = self.editor.update_if_changed(cx, |editor| {

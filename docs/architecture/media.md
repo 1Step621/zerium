@@ -6,12 +6,22 @@
 
 [`engine/media`](../../crates/zerium/src/engine/media/) owns readers and timeline
 mixing. Scene evaluation requests media by asset, source time, and raster size.
+Reader IDs resolve to the bundled implementations through a fixed registry;
+there is no runtime reader registration or mutable lookup table.
 Preview and export own separate evaluators and decode sessions. Video selection
 uses presentation timestamps; images are rasterized at the requested size.
 Decoded frames retain the same `Arc<VisualFrame>` identity when reusing a
 presentation interval. Raster images, SVG, and text share a byte-budgeted cache
 implementation; keys include raster size and, for text, content and style.
 Live consumers retain their pixel versions, while unused entries can be evicted.
+
+Image sequences are temporal sources backed by the current, naturally sorted
+contents of a directory. Background refreshes update cached metadata when image
+names, sizes, or modification times change. Metadata is discovered again after
+loading a project. Changes to the folder leave authored item intervals and trims
+unchanged. Frames share raster decoding with still images and use a bounded
+frame cache. Source FPS is an authored media-input reference, independent of the
+project cadence; source frame selection uses rational presentation intervals.
 
 H.264 uses `gpu-video` when available, with a GStreamer software fallback.
 `VideoDecodeSession` owns decoder lifetime and the fallback policy;
@@ -28,8 +38,22 @@ definitions reachable from root instances, including child sources beyond a
 parent's output clip that a remapped capture can consume. Audio discovery follows
 occupied, intersected clips because visual sampling does not retime audio.
 Neither evaluates unrelated visual or gain calculations.
-Filesystem revision reads belong to the runtime; core stores their observed
-metadata.
+Each reader observes its source revision; metadata refreshes when that revision
+changes. Revisions belong to each reader/target observation,
+so one interpretation cannot invalidate another interpretation of the same path.
+An unreadable replacement invalidates only its failed interpretation; missing
+sources retain their previous observation. Failures are retried when the source
+changes or its file property is selected again. Background results are committed
+only while their baseline observation is current, so they cannot overwrite a
+newer import. Core stores observations without filesystem access.
+Observations and revisions exist only in runtime snapshots and caches. Project
+files and clipboard payloads carry file references and authored timing without
+metadata; loading and pasting trigger discovery through the same dependency path.
+
+Import discovery has the same failure policy for every source. The first media
+selection on an item initializes its size and temporal range through the same
+document operation as a file drop. Picker presentation does not determine import
+semantics.
 
 ## Audio
 
@@ -60,6 +84,14 @@ switches to the audio clock or anchors the wall clock there. Cancellation remove
 the preparation handle and signals its worker, so late results cannot start a
 stream after stop or project replacement. An unchanged failed snapshot is not
 retried on each UI tick. CPAL streams remain on their owning UI thread.
+Output callbacks fill temporary buffer shortages with silence; only decoder,
+device, and worker failures produce playback notifications.
+
+The playback engine owns transitions between idle, preparation, and playback.
+A session owns its device stream and mixer worker; device callbacks and the
+worker share one output state for clock, levels, cancellation, and events.
+Retired workers keep their completion state until they can be joined without
+blocking the UI.
 
 ## Preview
 

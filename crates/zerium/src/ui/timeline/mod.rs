@@ -64,7 +64,6 @@ pub(crate) struct Timeline {
     item_move_origin: Option<ItemMoveOrigin>,
     marquee_selection: Option<MarqueeSelection>,
     context_menu: Option<TimelineContextMenu>,
-    scrubbing_playhead: bool,
     animation_drag: Option<interaction::keyframe::AnimationStopDrag>,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
@@ -81,6 +80,10 @@ impl Timeline {
         cx: &mut Context<Self>,
     ) -> Self {
         let session_id = session.read(cx).id();
+        let mut document = (
+            editor.read(cx).project_id(),
+            editor.read(cx).active_scene_id(),
+        );
         let layer_scroll = UniformListScrollHandle::new();
         layer_scroll
             .0
@@ -88,7 +91,17 @@ impl Timeline {
             .smooth_scroll
             .set_mode(SmoothScrollMode::Disabled);
         let subscriptions = vec![
-            cx.observe(&editor, |_, _, cx| cx.notify()),
+            cx.observe(&editor, move |this, editor, cx| {
+                let next = (
+                    editor.read(cx).project_id(),
+                    editor.read(cx).active_scene_id(),
+                );
+                if document != next {
+                    document = next;
+                    this.reset_document_state(cx);
+                }
+                cx.notify();
+            }),
             cx.observe(&transport, |_, _, cx| cx.notify()),
             cx.observe(&animation_selection, |_, _, cx| cx.notify()),
             cx.observe(&session, |this, _, cx| {
@@ -97,15 +110,7 @@ impl Timeline {
                     return;
                 }
                 this.session_id = session_id;
-                this.file_drop_error = None;
-                this.reset_viewport();
-                this.context_target = None;
-                this.cursor_layer = None;
-                this.file_drop_target = None;
-                this.item_move_origin = None;
-                this.marquee_selection = None;
-                this.context_menu = None;
-                this.animation_drag = None;
+                this.reset_document_state(cx);
                 cx.notify();
             }),
         ];
@@ -126,10 +131,22 @@ impl Timeline {
             item_move_origin: None,
             marquee_selection: None,
             context_menu: None,
-            scrubbing_playhead: false,
             animation_drag: None,
             focus_handle: cx.focus_handle(),
             _subscriptions: subscriptions,
         }
+    }
+
+    fn reset_document_state(&mut self, cx: &mut Context<Self>) {
+        self.finish_playhead_scrub(cx);
+        self.reset_viewport();
+        self.file_drop_error = None;
+        self.context_target = None;
+        self.cursor_layer = None;
+        self.file_drop_target = None;
+        self.item_move_origin = None;
+        self.marquee_selection = None;
+        self.context_menu = None;
+        self.animation_drag = None;
     }
 }

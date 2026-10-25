@@ -13,9 +13,11 @@ pub(in crate::timeline) use variable::unique_scene_variable_name;
 pub use variable::{SceneVariable, SceneVariablePreset, SceneVariableSource};
 
 use super::{
-    Frame, FrameDuration, ItemId, LayerId, SceneId, TimelineDocument, TimelineItem, TimelineTime,
-    properties::{SceneBindings, resolve_item},
+    Frame, FrameDuration, FrameRate, ItemId, LayerId, SceneId, TimelineDocument, TimelineItem,
+    TimelineTime,
+    properties::{SceneBindings, resolve_property},
     property_address::resolve_property_schema,
+    settings::ProjectSettingsError,
 };
 use std::{collections::HashMap, sync::Arc};
 
@@ -39,30 +41,35 @@ impl SceneDefinition {
         instance: Option<&TimelineItem>,
         items: impl IntoIterator<Item = &'a mut TimelineItem>,
     ) {
-        let arguments = SceneBindings::new(scenes, self, instance.map(|item| &item.properties));
+        let values = instance.map(|item| {
+            item.properties.materialize(
+                self.arguments()
+                    .filter_map(|argument| argument.argument_schema()),
+            )
+        });
+        let arguments = SceneBindings::new(scenes, self, values.as_ref());
         for item in items {
-            let resolved = resolve_item(scenes, Some(&arguments), item, None);
+            let id = item.id;
             // Only connected inputs become stored values. Other scene inputs
             // must keep inheriting defaults when this detached item is copied.
             for binding in self
                 .variables
                 .iter()
                 .flat_map(|argument| &argument.bindings)
-                .filter(|binding| binding.item_id() == resolved.id)
+                .filter(|binding| binding.item_id() == id)
             {
                 let effect = binding.owner().effect_id();
                 let Some(property) =
-                    resolve_property_schema(scenes, &resolved, effect, binding.property_id())
+                    resolve_property_schema(scenes, item, effect, binding.property_id()).cloned()
                 else {
                     continue;
                 };
-                let value = resolved
-                    .property_values(effect)
-                    .and_then(|values| values.property(property.id()))
-                    .expect("resolved property owner must exist");
-                item.property_values_mut(effect)
+                let value = resolve_property(Some(&arguments), item, effect, &property, None)
+                    .expect("property owner")
+                    .value;
+                item.property_overrides_mut(effect)
                     .expect("resolved property owner must exist")
-                    .set(property, value.clone())
+                    .set(&property, value)
                     .expect("resolved values preserve the property contract");
             }
         }
@@ -117,7 +124,7 @@ impl SceneDefinition {
     fn expansion(&self, instance: &TimelineItem) -> expansion::SceneExpansionPlan {
         expansion::SceneExpansionPlan::new(
             self.duration(),
-            instance.duration,
+            instance.duration(self.document.frame_rate()),
             self.stretch_point,
             self.document.frame_rate(),
         )
@@ -179,8 +186,18 @@ impl SceneDefinition {
         &self.document
     }
 
-    pub(super) fn replace_document(&mut self, document: TimelineDocument) {
-        self.document = Arc::new(document);
+    pub(super) fn retimed(&self, frame_rate: FrameRate) -> Result<Self, ProjectSettingsError> {
+        let mut scene = self.clone();
+        if self.document.frame_rate() != frame_rate {
+            let stretch_point = super::document::retime_frame(
+                self.stretch_point(),
+                self.document.frame_rate(),
+                frame_rate,
+            )?;
+            scene.document = Arc::new(self.document.retimed(frame_rate)?);
+            scene.set_stretch_point(stretch_point);
+        }
+        Ok(scene)
     }
 
     pub(super) fn document_mut(&mut self) -> &mut TimelineDocument {

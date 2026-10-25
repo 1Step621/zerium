@@ -129,14 +129,16 @@ impl Render for Timeline {
                     let Some(source_layer) = editor.item_layer(item.id) else {
                         return Vec::new();
                     };
-                    item.render_result_ranges()
+                    editor
+                        .resolved_item(item)
+                        .render_result_ranges()
                         .filter_map(|settings| {
                             let (top_layer, bottom_layer) = settings.layer_bounds(source_layer)?;
                             Some(RenderResultHighlight {
                                 top_layer,
                                 bottom_layer,
-                                start: item.start,
-                                end: item.end_exclusive(),
+                                start: item.start(),
+                                end: item.end_exclusive(editor.frame_rate()),
                             })
                         })
                         .collect::<Vec<_>>()

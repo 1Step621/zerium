@@ -47,9 +47,8 @@ impl PropertyInspector {
         let start_value = self
             .store
             .inputs
-            .text_inputs
-            .get(input_id)
-            .and_then(|state| spec.parse_number(&state.input.read(cx).value()))
+            .text(input_id)
+            .and_then(|input| spec.parse_number(&input.read(cx).value()))
             .or_else(|| edit.value(self.editor.read(cx), 0)?.numeric_scalar())
             .unwrap_or(spec.min);
         self.store.number_drag = Some(PropertyValueDrag {
@@ -84,8 +83,7 @@ impl PropertyInspector {
             .store
             .number_drag
             .as_ref()
-            .and_then(|drag| self.store.inputs.text_inputs.get(&drag.input_id))
-            .map(|state| state.input.clone())
+            .and_then(|drag| self.store.inputs.text(&drag.input_id))
             .filter(|input| input.entity_id() == drag.input_id)
         else {
             return;

@@ -41,7 +41,7 @@ impl Timeline {
                 .filter_map(|id| Some((editor.item_layer(*id)?, editor.item(*id)?.clone())))
                 .collect::<Vec<_>>();
             items.sort_unstable_by_key(|(layer, item)| {
-                (layer.get(), item.start.get(), item.id.get())
+                (layer.get(), item.start().get(), item.id.get())
             });
             let data = match encode_timeline_clipboard(&items, editor) {
                 Ok(data) => data,
@@ -137,7 +137,6 @@ impl Timeline {
                 target_start,
             );
             if pasted.is_some() {
-                editor.import_media_cache(&clipboard.media_cache);
                 cx.notify();
             }
             pasted.is_some()

@@ -125,7 +125,7 @@ pub(super) fn resolve_property(
     time: Option<TimelineTime>,
 ) -> Option<ResolvedProperty> {
     let mut resolved = ResolvedProperty {
-        value: property.resolve_value(item.property_values(effect)?.property(property.id())),
+        value: item.authored_property(effect, property)?,
         diagnostics: Vec::new(),
     };
     if let Some(arguments) = arguments {
@@ -150,75 +150,68 @@ pub(super) fn resolve_property(
     Some(resolved)
 }
 
-pub(super) fn resolve_item(
-    scenes: &HashMap<SceneId, SceneDefinition>,
-    arguments: Option<&SceneBindings<'_>>,
-    source: &TimelineItem,
-    time: Option<TimelineTime>,
-) -> TimelineItem {
-    let evaluated = evaluate_item(scenes, arguments, source, time);
-    let mut materialized = source.clone();
-    materialized.properties = evaluated.properties;
-    for (effect, values) in materialized.effects.iter_mut().zip(evaluated.effects) {
-        effect.properties = values.properties;
-    }
-    materialized
-}
-
 pub(super) fn evaluate_item(
     scenes: &HashMap<SceneId, SceneDefinition>,
     arguments: Option<&SceneBindings<'_>>,
     source: &TimelineItem,
     time: Option<TimelineTime>,
+    frame_rate: super::FrameRate,
 ) -> super::EvaluatedItem {
-    resolve_item_properties(scenes, arguments, source, time, true).value
+    resolve_item_properties(
+        arguments,
+        source,
+        property_schemas(scenes, source, None),
+        time,
+        frame_rate,
+    )
+    .value
 }
 
 /// Scene arguments belong to child evaluation, not to the renderer's item ABI.
 pub(super) fn resolve_render_item(
-    scenes: &HashMap<SceneId, SceneDefinition>,
     arguments: Option<&SceneBindings<'_>>,
     source: &TimelineItem,
     time: TimelineTime,
+    frame_rate: super::FrameRate,
 ) -> ResolvedItem {
-    resolve_item_properties(scenes, arguments, source, Some(time), false)
+    let properties = source
+        .schema()
+        .and_then(|schema| schema.render())
+        .into_iter()
+        .flat_map(|render| render.properties());
+    resolve_item_properties(arguments, source, properties, Some(time), frame_rate)
 }
 
-fn resolve_item_properties(
-    scenes: &HashMap<SceneId, SceneDefinition>,
+fn resolve_properties<'a>(
     arguments: Option<&SceneBindings<'_>>,
     source: &TimelineItem,
+    effect: Option<EffectInstanceId>,
+    properties: impl IntoIterator<Item = &'a PropertySchema>,
     time: Option<TimelineTime>,
-    instance_arguments: bool,
-) -> ResolvedItem {
-    let values = |effect, diagnostics: &mut Vec<CalculationDiagnostic>| {
-        let mut values = PropertyValues::default();
-        let render = source.schema().and_then(|schema| schema.render());
-        for property in property_schemas(scenes, source, effect).filter(|property| {
-            instance_arguments
-                || effect.is_some()
-                || render.is_some_and(|render| {
-                    render
-                        .properties()
-                        .iter()
-                        .any(|used| used.id() == property.id())
-                })
-        }) {
-            let resolved = resolve_property(arguments, source, effect, property, time)
-                .expect("property owner comes from this item");
-            diagnostics.extend(resolved.diagnostics);
-            values
-                .set(property, resolved.value)
-                .expect("resolved values preserve the property contract");
-        }
+    diagnostics: &mut Vec<CalculationDiagnostic>,
+) -> PropertyValues {
+    let mut values = PropertyValues::default();
+    for property in properties {
+        let resolved = resolve_property(arguments, source, effect, property, time)
+            .expect("property owner comes from this item");
+        diagnostics.extend(resolved.diagnostics);
         values
-    };
+            .set(property, resolved.value)
+            .expect("resolved values preserve the property contract");
+    }
+    values
+}
+
+fn resolve_item_properties<'a>(
+    arguments: Option<&SceneBindings<'_>>,
+    source: &TimelineItem,
+    properties: impl IntoIterator<Item = &'a PropertySchema>,
+    time: Option<TimelineTime>,
+    frame_rate: super::FrameRate,
+) -> ResolvedItem {
     let mut diagnostics = Vec::new();
-    let properties = if instance_arguments || source.scene_id().is_none() {
-        values(None, &mut diagnostics)
-    } else {
-        source.properties.clone()
-    };
+    let properties =
+        resolve_properties(arguments, source, None, properties, time, &mut diagnostics);
     let effects = source
         .effects
         .iter()
@@ -226,7 +219,14 @@ fn resolve_item_properties(
             id: effect.id,
             plugin_id: effect.plugin_id.clone(),
             effect_id: effect.effect_id.clone(),
-            properties: values(Some(effect.id), &mut diagnostics),
+            properties: resolve_properties(
+                arguments,
+                source,
+                Some(effect.id),
+                effect.schema().properties(),
+                time,
+                &mut diagnostics,
+            ),
             schema: effect.schema.clone(),
             aspect_ratio: effect.aspect_ratio,
         })
@@ -236,12 +236,13 @@ fn resolve_item_properties(
             runtime_id: source.id,
             source_id: source.id,
             placement: super::EvaluatedClip {
-                start: source.start,
-                duration: source.duration,
+                start: source.start(),
+                duration: source.duration(frame_rate),
             },
             blend_mode: source.blend_mode,
             kind: source.kind.clone(),
             properties,
+            playback: source.playback(),
             effects,
             aspect_ratio: source.aspect_ratio,
         },

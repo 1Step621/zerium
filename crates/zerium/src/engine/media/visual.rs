@@ -36,7 +36,8 @@ impl<S> MediaFrameRequest<S> {
             Duration::ZERO
         };
         let size = match asset.kind {
-            MediaKind::Video { width, height, .. } => RasterSize {
+            MediaKind::Video { width, height, .. }
+            | MediaKind::ImageSequence { width, height, .. } => RasterSize {
                 max_width: width,
                 max_height: height,
             },
@@ -81,7 +82,9 @@ impl VisualDecodeSession {
             let asset = &request.asset;
             let reader = readers.reader_for(&asset.reader_id)?;
             let decoder = match asset.kind {
-                MediaKind::Video { .. } => Decoder::Video(reader.open_video_decoder(asset, gpu)?),
+                MediaKind::Video { .. } | MediaKind::ImageSequence { .. } => {
+                    Decoder::Video(reader.open_video_decoder(asset, gpu)?)
+                }
                 MediaKind::Image { .. } => Decoder::Image(reader.open_image_decoder(asset)?),
                 MediaKind::Audio { .. } => {
                     return Err(MediaError::unsupported(

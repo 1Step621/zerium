@@ -1,28 +1,23 @@
 //! Derived reader results, separate from file property values and edit history.
 
-use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashSet, btree_map::Entry},
     path::{Path, PathBuf},
-    time::{Duration, SystemTime},
+    time::SystemTime,
 };
 
-use super::{FileMediaMetadata, MediaAsset, MediaTarget};
+use super::{FileMediaMetadata, MediaAsset, MediaDependency, MediaTarget};
 
 /// Identifies the on-disk contents used by readers and decoded media caches.
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Hash)]
-#[serde(deny_unknown_fields)]
-pub struct FileRevision {
-    pub size: u64,
-    pub modified: SystemTime,
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub enum MediaRevision {
+    File { size: u64, modified: SystemTime },
+    Directory { fingerprint: u64 },
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProbedFile {
     pub path: PathBuf,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub revision: Option<FileRevision>,
     pub media: Vec<FileMediaMetadata>,
 }
 
@@ -48,28 +43,19 @@ impl ProbedFile {
     }
 
     pub fn asset(&self, reader: &str, target: MediaTarget) -> Option<MediaAsset> {
-        let metadata = self.reading(reader, target)?.metadata.as_ref()?;
+        let reading = self.reading(reader, target)?;
+        let metadata = reading.metadata.as_ref()?;
         Some(MediaAsset {
             path: self.path.clone(),
-            revision: self.revision,
+            revision: reading.revision,
             reader_id: reader.to_owned(),
             duration: metadata.duration,
             kind: metadata.kind.clone(),
         })
     }
-
-    pub fn initial_duration(&self) -> Option<Duration> {
-        self.media
-            .iter()
-            .filter_map(|reading| reading.metadata.as_ref())
-            .filter(|metadata| metadata.kind.is_temporal())
-            .map(|metadata| metadata.duration)
-            .max()
-    }
 }
 
-#[derive(Clone, Debug, Default, PartialEq, Eq, Deserialize, Serialize)]
-#[serde(try_from = "Vec<ProbedFile>", into = "Vec<ProbedFile>")]
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct MediaMetadataCache(BTreeMap<PathBuf, ProbedFile>);
 
 impl MediaMetadataCache {
@@ -79,6 +65,26 @@ impl MediaMetadataCache {
 
     pub fn asset(&self, path: &Path, reader: &str, target: MediaTarget) -> Option<MediaAsset> {
         self.0.get(path)?.asset(reader, target)
+    }
+
+    pub fn reading(&self, source: &MediaDependency) -> Option<&FileMediaMetadata> {
+        self.file(&source.path)?
+            .reading(&source.reader_id, source.target)
+    }
+
+    pub fn invalidate(&mut self, source: &MediaDependency) -> bool {
+        let Some(file) = self.0.get_mut(&source.path) else {
+            return false;
+        };
+        let count = file.media.len();
+        file.media.retain(|reading| {
+            reading.reader != source.reader_id || reading.target != source.target
+        });
+        let changed = file.media.len() != count;
+        if file.media.is_empty() {
+            self.0.remove(&source.path);
+        }
+        changed
     }
 
     pub fn record(&mut self, file: &ProbedFile) -> bool {
@@ -92,10 +98,6 @@ impl MediaMetadataCache {
             }
             Entry::Occupied(entry) => entry.into_mut(),
         };
-        if current.revision != file.revision {
-            *current = file.clone();
-            return true;
-        }
         let mut changed = false;
         for reading in &file.media {
             if let Some(previous) = current.media.iter_mut().find(|previous| {
@@ -111,75 +113,5 @@ impl MediaMetadataCache {
             }
         }
         changed
-    }
-
-    pub fn files(&self) -> impl Iterator<Item = &ProbedFile> {
-        self.0.values()
-    }
-
-    pub fn record_missing(&mut self, file: &ProbedFile) -> bool {
-        if !file.is_valid() {
-            return false;
-        }
-        let Some(current) = self.0.get_mut(&file.path) else {
-            self.0.insert(file.path.clone(), file.clone());
-            return true;
-        };
-        // Clipboard metadata cannot replace a newer observation from this project.
-        if current.revision != file.revision {
-            return false;
-        }
-        let previous = current.media.len();
-        for reading in &file.media {
-            if current.reading(&reading.reader, reading.target).is_none() {
-                current.media.push(reading.clone());
-            }
-        }
-        previous != current.media.len()
-    }
-
-    pub fn retained_paths<'a>(&self, paths: impl Iterator<Item = &'a Path>) -> Self {
-        Self(
-            paths
-                .filter_map(|path| {
-                    self.0
-                        .get(path)
-                        .map(|file| (file.path.clone(), file.clone()))
-                })
-                .collect(),
-        )
-    }
-
-    pub(crate) fn mapped_paths(&self, mut map: impl FnMut(&Path) -> PathBuf) -> Self {
-        let mut result = Self::default();
-        for file in self.0.values() {
-            let mut file = file.clone();
-            file.path = map(&file.path);
-            result.record(&file);
-        }
-        result
-    }
-}
-
-impl TryFrom<Vec<ProbedFile>> for MediaMetadataCache {
-    type Error = &'static str;
-
-    fn try_from(files: Vec<ProbedFile>) -> Result<Self, Self::Error> {
-        let mut result = Self::default();
-        for file in files {
-            if !file.is_valid() {
-                return Err("Invalid cached media metadata");
-            }
-            if result.0.insert(file.path.clone(), file).is_some() {
-                return Err("Duplicate cached file");
-            }
-        }
-        Ok(result)
-    }
-}
-
-impl From<MediaMetadataCache> for Vec<ProbedFile> {
-    fn from(cache: MediaMetadataCache) -> Self {
-        cache.0.into_values().collect()
     }
 }

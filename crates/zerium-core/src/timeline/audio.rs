@@ -99,19 +99,11 @@ impl PlanBuilder<'_> {
         let runtime_id = unique_runtime_id(seed, source.id, &mut self.used_ids);
         // Source clocks and preserve-pitch are static by schema. Resolve only
         // decoder inputs; gain and visual properties do not belong here.
-        let mut properties = source.properties.clone();
+        let mut properties = crate::property::PropertyValues::default();
         let mut resolved = HashSet::new();
         let mut inputs = Vec::new();
         for input in schema.audio() {
-            let playback = input.playback_properties();
-            for id in [
-                input.media_source().file,
-                input.preserve_pitch_property(),
-                playback.source_start,
-                playback.source_duration,
-                playback.playback_speed,
-                playback.end_behavior,
-            ] {
+            for id in [input.media_source().file, input.preserve_pitch_property()] {
                 if !resolved.insert(id) {
                     continue;
                 }
@@ -125,10 +117,11 @@ impl PlanBuilder<'_> {
                     .set(property, value)
                     .expect("resolved audio source property");
             }
-            let Some((asset, playback, preserve_pitch)) = super::item::audio_input_for(
+            let Some((asset, playback, preserve_pitch)) = super::evaluated::audio_input_for(
                 schema,
                 input.id(),
                 &properties,
+                source.playback(),
                 &self.snapshot.media_cache,
             ) else {
                 continue;
@@ -247,6 +240,7 @@ impl AudioTimelineSnapshot {
                 sources: Vec::new(),
             };
             let nodes = super::placement::SceneWalker {
+                frame_rate: self.frame_rate(),
                 scenes: &self.project.scenes,
                 visibility: self.visibility.as_ref(),
             }

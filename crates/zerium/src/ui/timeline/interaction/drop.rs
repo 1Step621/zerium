@@ -118,6 +118,7 @@ impl Timeline {
             })
             .collect::<Vec<_>>();
         let editor = self.editor.clone();
+        let scene_id = self.editor.read(cx).active_scene_id();
         let media_readers = self.media_readers.clone();
         let plugins = self.editor.read(cx).plugin_registry_arc();
         let session = self.session.clone();
@@ -152,6 +153,14 @@ impl Timeline {
             if !session.update(cx, |session, _| session.operation_is_current(operation)) {
                 return;
             }
+            if editor.read_with(cx, |editor, _| editor.active_scene_id()) != scene_id {
+                session.update(cx, |session, cx| {
+                    if session.finish(operation) {
+                        cx.notify();
+                    }
+                });
+                return;
+            }
             let mut errors = Vec::new();
             let changed = editor.update(cx, |editor, cx| {
                 let mut next_start = start;
@@ -179,7 +188,7 @@ impl Timeline {
                     }
                     next_start = editor
                         .item(item_id)
-                        .map(|item| item.end_exclusive())
+                        .map(|item| item.end_exclusive(editor.frame_rate()))
                         .unwrap_or(next_start);
                     added.push(item_id);
                 }

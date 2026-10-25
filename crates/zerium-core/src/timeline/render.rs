@@ -22,6 +22,7 @@ pub struct RenderPlacement {
     pub runtime_id: ItemId,
     pub start: Frame,
     pub source: Arc<TimelineItem>,
+    pub duration: super::FrameDuration,
 }
 
 impl RenderPlacement {
@@ -37,7 +38,7 @@ impl RenderPlacement {
     /// intervals are enforced when their images are composed, not here.
     pub fn contains(&self, time: TimelineTime) -> bool {
         let local = self.local_time(time).frames();
-        local >= 0. && local < self.source.duration.get() as f64
+        local >= 0. && local < self.duration.get() as f64
     }
 }
 
@@ -119,7 +120,7 @@ impl<'a> RenderEvaluation<'a> {
             parent
                 .as_ref()
                 .map_or(0, |parent| parent.placement.start.get())
-                .saturating_add(source.start.get()),
+                .saturating_add(source.start().get()),
         );
         let runtime_id = unique_runtime_id(seed, source.id, &mut self.used_ids.borrow_mut());
         let entry = Arc::new(PlacementEntry {
@@ -128,6 +129,7 @@ impl<'a> RenderEvaluation<'a> {
                 local_layer: layer,
                 runtime_id,
                 start,
+                duration: source.duration(self.document.frame_rate()),
                 source: Arc::new(source),
             },
             parent,
@@ -196,7 +198,10 @@ impl<'a> RenderEvaluation<'a> {
         target: RenderPropertyTarget,
     ) -> Option<ResolvedRenderProperties> {
         let placed = &chain[index];
-        let parent_start = placed.start.get().saturating_sub(placed.source.start.get());
+        let parent_start = placed
+            .start
+            .get()
+            .saturating_sub(placed.source.start().get());
         let scoped_time = TimelineTime::from_frames(time.frames() - parent_start as f64);
         if index + 1 < chain.len() {
             let scene = &self.scenes[&placed.source.scene_id().expect("ancestor is a scene")];

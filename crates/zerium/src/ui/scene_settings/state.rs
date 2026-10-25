@@ -116,7 +116,7 @@ impl SceneSettings {
                             let commit = if let ControlId::CalculationInputName { .. } = &edited_key
                             {
                                 if let InputEvent::Change = event {
-                                    this.store.inputs.drafts.insert(edited_key.clone());
+                                    this.store.inputs.set_draft(&edited_key, true);
                                 }
                                 matches!(event, InputEvent::Blur | InputEvent::PressEnter { .. })
                             } else {

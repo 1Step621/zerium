@@ -8,7 +8,7 @@ use super::PluginError;
 use super::validation::{
     PropertyReferences, has_enum_values, validate_logical_id, validate_wgsl_identifier,
 };
-use crate::property::{PropertySchema, PropertyValue, PropertyValues, ScalarPropertyType};
+use crate::property::{PropertyOverrides, PropertySchema, PropertyValue, ScalarPropertyType};
 
 pub(super) const MAX_RENDER_RESULT_OFFSET: u32 = 30;
 
@@ -98,7 +98,7 @@ pub enum TextureInput {
         reader: String,
         #[serde(default)]
         placement: Option<MediaPlacement>,
-        playback: Option<MediaPlaybackSchema>,
+        frame_rate: Option<String>,
     },
     Text {
         id: String,
@@ -140,22 +140,17 @@ impl TextureInput {
     pub fn media_source(&self) -> Option<crate::media::MediaSource<'_>> {
         match self {
             Self::Media {
-                id, file, reader, ..
+                id,
+                file,
+                reader,
+                frame_rate,
+                ..
             } => Some(crate::media::MediaSource {
                 input: crate::media::MediaInputReference::Media(id.clone()),
                 file,
                 reader,
+                frame_rate: frame_rate.as_deref(),
             }),
-            _ => None,
-        }
-    }
-
-    pub fn playback_properties(&self) -> Option<PlaybackProperties<'_>> {
-        match self {
-            Self::Media {
-                playback: Some(playback),
-                ..
-            } => Some(playback.playback_properties()),
             _ => None,
         }
     }
@@ -234,16 +229,24 @@ impl TextureInput {
                 file,
                 reader,
                 placement,
-                playback,
+                frame_rate,
                 ..
             } => {
                 validate_logical_id("media reader", reader)?;
                 references.check(file, "a file property", |property| property.is_file())?;
-
-                if let Some(playback) = playback {
-                    playback
-                        .playback_properties()
-                        .validate(owner_kind, owner_id, properties)?;
+                if let Some(frame_rate) = frame_rate {
+                    references.check(
+                        frame_rate,
+                        "an f32 constrained to 0.001..=1000 without animation or scene bindings",
+                        |property| {
+                            let constraints = property.configuration_constraints(None);
+                            property.scalar_type(None, None) == Some(&ScalarPropertyType::F32)
+                                && !property.is_animatable(None)
+                                && !property.is_scene_bindable(None)
+                                && constraints.min.is_some_and(|min| min >= 0.001)
+                                && constraints.max.is_some_and(|max| max <= 1000.)
+                        },
+                    )?;
                 }
 
                 if let Some(MediaPlacement {
@@ -310,7 +313,6 @@ pub struct AudioCapability {
     file: String,
     reader: String,
     volume: String,
-    playback: MediaPlaybackSchema,
     preserve_pitch: String,
 }
 
@@ -324,11 +326,8 @@ impl AudioCapability {
             input: crate::media::MediaInputReference::Audio(self.id.clone()),
             file: &self.file,
             reader: &self.reader,
+            frame_rate: None,
         }
-    }
-
-    pub fn playback_properties(&self) -> PlaybackProperties<'_> {
-        self.playback.playback_properties()
     }
 
     pub fn preserve_pitch_property(&self) -> &str {
@@ -352,8 +351,6 @@ impl AudioCapability {
         references.check(&self.volume, "an f32 value", |property| {
             property.scalar_type(None, None) == Some(&ScalarPropertyType::F32)
         })?;
-        self.playback_properties()
-            .validate("item", id, properties)?;
         references.check(
             &self.preserve_pitch,
             "a bool value without animation or scene bindings",
@@ -364,155 +361,6 @@ impl AudioCapability {
             },
         )?;
         Ok(())
-    }
-}
-
-/// Property references for one visual media input's source clock.
-#[derive(Clone, Debug, Deserialize, PartialEq, Eq)]
-#[serde(deny_unknown_fields)]
-pub struct MediaPlaybackSchema {
-    source_start: String,
-    source_duration: String,
-    playback_speed: String,
-    end_behavior: String,
-}
-
-impl MediaPlaybackSchema {
-    pub fn playback_properties(&self) -> PlaybackProperties<'_> {
-        PlaybackProperties {
-            source_start: &self.source_start,
-            source_duration: &self.source_duration,
-            playback_speed: &self.playback_speed,
-            end_behavior: &self.end_behavior,
-        }
-    }
-}
-
-/// Ordinary property IDs read independently by each source clock.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PlaybackProperties<'a> {
-    pub source_start: &'a str,
-    pub source_duration: &'a str,
-    pub playback_speed: &'a str,
-    pub end_behavior: &'a str,
-}
-
-/// Property references for a time mapping, with no input or EOF policy.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TimeMappingProperties<'a> {
-    pub source_start: &'a str,
-    pub source_duration: &'a str,
-    pub playback_speed: &'a str,
-}
-
-impl<'a> TimeMappingProperties<'a> {
-    pub fn resolve(
-        self,
-        values: &PropertyValues,
-    ) -> Result<crate::timeline::TimeMapping, crate::timeline::TimelineEditError> {
-        use crate::timeline::{TimeMapping, TimelineEditError};
-        let number = |id| values.property(id).and_then(PropertyValue::as_f32);
-        TimeMapping::new(
-            number(self.source_start).ok_or(TimelineEditError::InvalidSourceRange)?,
-            number(self.source_duration).ok_or(TimelineEditError::InvalidSourceRange)?,
-            number(self.playback_speed).ok_or(TimelineEditError::InvalidPlaybackSpeed)?,
-        )
-    }
-
-    pub(crate) fn values_for(
-        self,
-        mapping: crate::timeline::TimeMapping,
-    ) -> [(&'a str, PropertyValue); 3] {
-        [
-            (
-                self.source_start,
-                PropertyValue::F32(mapping.source_offset() as f32),
-            ),
-            (
-                self.source_duration,
-                PropertyValue::F32(mapping.source_span() as f32),
-            ),
-            (
-                self.playback_speed,
-                PropertyValue::F32(mapping.speed() as f32),
-            ),
-        ]
-    }
-
-    pub(super) fn validate(
-        self,
-        owner: &str,
-        id: &str,
-        properties: &[PropertySchema],
-    ) -> Result<(), PluginError> {
-        let mut ids = HashSet::new();
-        let mut defaults = [0.; 3];
-        let invalid_defaults = || {
-            PluginError::invalid_definition(format!(
-                "{owner} '{id}' has invalid default time mapping values"
-            ))
-        };
-
-        for ((role, property_id), default) in [
-            ("source_start", self.source_start),
-            ("source_duration", self.source_duration),
-            ("playback_speed", self.playback_speed),
-        ]
-        .into_iter()
-        .zip(&mut defaults)
-        {
-            let context = format!("{owner} '{id}' time mapping role '{role}'");
-            let property = PropertyReferences::new(&context, properties).check(
-                property_id,
-                "a distinct f32 property without animation or scene bindings",
-                |property| {
-                    ids.insert(property_id)
-                        && property.scalar_type(None, None) == Some(&ScalarPropertyType::F32)
-                        && !property.is_animatable(None)
-                        && !property.is_scene_bindable(None)
-                },
-            )?;
-            let crate::property::PropertyValue::F32(value) = property.default_value() else {
-                return Err(invalid_defaults());
-            };
-            *default = value;
-        }
-
-        crate::timeline::TimeMapping::new(defaults[0], defaults[1], defaults[2])
-            .map_err(|_| invalid_defaults())?;
-        Ok(())
-    }
-}
-
-impl<'a> PlaybackProperties<'a> {
-    pub fn time_mapping(self) -> TimeMappingProperties<'a> {
-        TimeMappingProperties {
-            source_start: self.source_start,
-            source_duration: self.source_duration,
-            playback_speed: self.playback_speed,
-        }
-    }
-
-    pub(super) fn validate(
-        self,
-        owner: &str,
-        id: &str,
-        properties: &[PropertySchema],
-    ) -> Result<(), PluginError> {
-        self.time_mapping().validate(owner, id, properties)?;
-        PropertyReferences::new(&format!("{owner} '{id}' playback"), properties)
-            .check(
-                self.end_behavior,
-                "an enum [0, 1, 2] property without animation or scene bindings",
-                |property| {
-                    property
-                        .scalar_type(None, None)
-                        .is_some_and(|ty| has_enum_values(ty, &[0, 1, 2]))
-                        && !property.is_animatable(None)
-                        && !property.is_scene_bindable(None)
-                },
-            )
-            .map(|_| ())
     }
 }
 
@@ -543,4 +391,31 @@ pub(super) fn validate_texture_inputs(
     }
 
     Ok(())
+}
+
+/// Sources without embedded timing inherit project FPS only when created.
+pub(crate) fn initialize_frame_rates(
+    inputs: &[TextureInput],
+    schemas: &[PropertySchema],
+    values: &mut PropertyOverrides,
+    rate: crate::timeline::FrameRate,
+) {
+    let rate = PropertyValue::F32(rate.frames_per_second() as f32);
+    for input in inputs {
+        if let TextureInput::Media {
+            frame_rate: Some(id),
+            ..
+        } = input
+        {
+            let property = schemas
+                .iter()
+                .find(|property| property.id() == id)
+                .expect("validated frame-rate property");
+            if property.accepts_value(&rate) {
+                values
+                    .set(property, rate.clone())
+                    .expect("valid source FPS");
+            }
+        }
+    }
 }

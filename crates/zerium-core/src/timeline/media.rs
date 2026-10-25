@@ -86,6 +86,7 @@ impl TimelineSnapshot {
             target: Some(MediaTarget::Visual),
         };
         let walker = super::placement::SceneWalker {
+            frame_rate: self.project.document.frame_rate(),
             scenes: &self.project.scenes,
             visibility: None,
         };
@@ -114,6 +115,7 @@ impl TimelineSnapshot {
             target: None,
         };
         let walker = super::placement::SceneWalker {
+            frame_rate: self.project.document.frame_rate(),
             scenes: &self.project.scenes,
             visibility: None,
         };

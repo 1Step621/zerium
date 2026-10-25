@@ -21,6 +21,10 @@ display changes preserve the media revision. Undo restores the revision with its
 project, while fresh edits allocate new revisions across history branches.
 
 Selection, preview visibility, playhead, and history are session state.
+The playhead stores either an exact stopped frame or a continuous playback time;
+its displayed frame is derived from that state. Document navigation resets all
+scope-local preview state together. Project frame-rate changes are prepared by
+the project and each scene, including the scene's expansion anchor.
 Rendering reads a `TimelineView`; background work receives immutable
 `TimelineSnapshot`s. Project roots, scene collections and individual scene
 documents share storage until mutation. Editing a scene or its metadata does not
@@ -32,11 +36,18 @@ sampled values and cannot be passed to editing or persistence APIs. Evaluated
 items retain their source identity separately from their placement-specific ID;
 their interval describes the visible placement. They retain only sampled values
 and display/render metadata; authored curves remain in the document and are
-looked up by source address. Clipboard materialization explicitly applies resolved
-values to a detached authored copy at the property-resolution boundary.
+looked up by source address. Reading or selecting items never materializes values
+back into authored items. Copying or detaching connected properties explicitly
+bakes just their resolved fallbacks into a detached authored copy.
 Single-item effect ordering and aspect-ratio mutations belong to `TimelineItem`;
 `TimelineDocument` locates items and maintains document structure, while
 `TimelineEditor` coordinates project validation, bindings, IDs and Undo.
+
+An item declares playback once, using ordinary property references. All its
+visual, audio, and effect media inputs share the resolved clock. Sequence inputs
+inherit project FPS only when created, then preserve their authored source rate.
+Changing that rate leaves source start and duration in seconds unchanged, so the
+selected images can change.
 
 ## Property contracts
 
@@ -45,6 +56,13 @@ element, or tuple. Editing, animation, bindings, and persistence share its
 `PropertyPath`. Array elements have stable IDs, so reordering preserves their
 animations and bindings. Property schemas define types, defaults, constraints,
 and editing metadata; see [Properties](../plugin/properties.md).
+
+All authored item, effect, and scene-instance values use `PropertyOverrides`.
+A missing entry inherits the schema default. Setting a value explicitly preserves
+that override even when it equals the current default; resetting a whole property
+removes it. Evaluation materializes a separate `PropertyValues` read model,
+including defaults, bindings, and animation. Playback properties use the same
+Inspector and authored override storage as other properties.
 
 Item and effect access share a resolved property owner. Scene bindings use
 `PropertyAddress` internally, with a separate serialized representation preserving
@@ -72,7 +90,10 @@ Evaluation requests only the outputs a consumer needs. Calculation results are
 cached by their connected input values within an immutable scene revision;
 script execution happens outside cache locks. `SceneRuntime` owns calculation
 execution and its caches; `SceneDefinition` owns authored variables and exposes
-scene-level evaluation. Each evaluation has a fresh scope.
+scene-level evaluation. Each evaluation has a fresh scope. Scene settings can
+request all default outputs, cached once per immutable scene revision. Instance
+evaluation shares the per-calculation cache without storing another full result
+cache for every set of instance arguments.
 The shared [script runtime](../../crates/zerium-core/src/script.rs) limits execution
 and exposes no imports, dynamic evaluation, time, or randomness. Projects store
 script source. Supported outputs are numbers, integers, booleans, text, and
@@ -148,6 +169,11 @@ Undo group until they end. They read back committed values and stop accepting
 updates after an intervening edit. Pausing within an operation does not split its
 Undo entry. Paste is also one undoable edit.
 
+The editor's edit revision advances on mutations, Undo/Redo, and document
+navigation. Edit contexts use it so returning to an earlier project state cannot
+revive an old operation. The project revision separately identifies saved
+content and is restored by Undo, preserving dirty-state comparisons.
+
 ### Curve interactions
 
 The curve pane displays one segment while retaining the full track for navigation.
@@ -173,6 +199,23 @@ are segment settings and use the same synchronized editing and Undo as curves.
 
 ### Resizing and scene expansion
 
+Items with a `playback` declaration store source start, source span, speed, and
+EOF behavior only as ordinary property overrides. Their frame duration is derived
+from source span, speed, and the document FPS. The source interval retains its
+authored precision; only the occupied timeline duration rounds up to whole frames.
+Items without playback store an explicit fixed frame duration. Each item's start
+is always stored in frames. Placement reads receive the document FPS explicitly;
+there is no second authored clock or cached duration in source items.
+
+`TimeMapping` is the resolved source interval. It performs source/frame conversion,
+trim/stretch calculations, and duration-limit calculations. Property edits update
+overrides and adjust animation intervals immediately, then validate placement as
+one detached edit. Trimming retains speed; stretching retains the source interval
+and changes speed. FPS changes retain playback properties and derive new frame
+durations, while fixed clips retime their stored duration. Scene expansion extends
+source span while preserving speed. Imports initialize timing only from the named
+primary source; later metadata refreshes leave authored ranges unchanged.
+
 - Trimming keeps interior keys. A shrinking boundary adopts keys it crosses
   without interpolation. Extending moves the endpoint when it equals its
   neighbor; otherwise it adds a new endpoint with the same value.
@@ -189,11 +232,24 @@ source intervals and [Media and export](media.md) for audio and discovery scopes
 
 ## Project files and asynchronous operations
 
-Project files store overrides relative to plugin defaults, authored animation
-data, and scene variable definitions. Core validates project and clipboard data;
-pasted items receive fresh IDs. Projects are saved with `format_version: 2`.
+Project files store explicit property overrides, frame placement, authored animation
+data, and scene variable definitions. Metadata observations and their revisions
+are runtime data and are excluded from both project files and clipboard data.
+Core validates project and clipboard data; pasted items receive fresh IDs.
+Projects are saved with `format_version: 5`; timeline clipboard data uses version 4.
+Clipboard payloads include their source FPS so placement and animation keys can be
+retimed when pasted into a project with another frame rate. Playback properties
+retain their source interval and speed.
 Loading converts supported file versions to the current representation in memory
 before validating the project. Saving writes the current format.
+Version-specific transformations live in
+[`project/migration`](../../crates/zerium-core/src/persistence/project/migration/):
+`v1.rs` converts scene arguments to variables; `v2.rs` discards old path-wide
+media observations. `v3.rs` migrates version 3 directly to version 5, retaining
+authored source ranges without rounding and dropping derived clip durations.
+`v4.rs` converts version 4's separate source-clock representation into ordinary
+property overrides. Both routes retain explicit duration only for fixed clips.
+Media observations are rediscovered after loading.
 Unsupported versions are rejected before decoding their contents.
 Filesystem access and atomic replacement belong to
 [`engine::project_io`](../../crates/zerium/src/engine/project_io.rs).

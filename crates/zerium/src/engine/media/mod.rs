@@ -16,6 +16,6 @@ pub(crate) use metadata::{
 pub(super) use reader::{AudioDecoder, DecodedAudioBlock, VideoDecoder};
 pub(crate) use reader::{
     AudioFormat, DecodeStreamKey, DecodedFrame, MediaError, MediaInputId, MediaReaderRegistry,
-    RasterSize, SamplingBranch, bundled_media_readers,
+    RasterSize, SamplingBranch,
 };
 pub(crate) use visual::{MediaFrameRequest, VisualDecodeSession};

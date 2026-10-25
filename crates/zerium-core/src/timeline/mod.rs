@@ -34,10 +34,10 @@ pub use diagnostic::{AudioCalculationDiagnostic, CalculationDiagnostic, Calculat
 pub use document::TimelineDocument;
 pub use document::{ResizeEdge, ResizeMode};
 pub use editor::TimelineEditor;
-pub use evaluated::{EvaluatedEffect, EvaluatedItem};
+pub use evaluated::{EvaluatedEffect, EvaluatedItem, RenderResultSettings};
 pub use evaluation::{EvaluatedClip, EvaluatedSceneNode};
 pub use ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId};
-pub use item::{EffectInstance, RenderResultSettings, TimelineItem, TimelineItemKind};
+pub use item::{EffectInstance, TimelineItem, TimelineItemKind};
 pub use property_address::PropertyAddress;
 pub use scene::SceneDefinition;
 pub use scene::{

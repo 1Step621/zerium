@@ -36,7 +36,7 @@ impl TimelineEditor {
                 });
             }
         }
-        let duration = item.duration;
+        let duration = item.duration(self.frame_rate());
         let mut next_id = self.next_effect_id;
         let mut hidden_copies = Vec::new();
         let effects = sources
@@ -105,10 +105,13 @@ impl TimelineEditor {
             .ok_or(TimelineEditError::IdentifierExhausted)?;
         let instance_id = EffectInstanceId::new(raw_effect_id);
         self.try_edit_project(EditImpact::MediaDependencies, None, |editor| {
+            let frame_rate = editor.frame_rate();
             if !editor
                 .active_document_mut()
                 .item_mut(id)
-                .is_some_and(|item| item.add_effect(instance_id, plugin_id, effect_id, schema))
+                .is_some_and(|item| {
+                    item.add_effect(instance_id, plugin_id, effect_id, schema, frame_rate)
+                })
             {
                 return Err(TimelineEditError::ItemNotFound(id));
             }

@@ -151,14 +151,7 @@ pub fn resolve_scene_binding(
     let property_id = target.property_id();
     let schema = resolve_property_schema(scenes, item, target.owner().effect_id(), property_id)?;
     let owner = item.property_owner(target.owner().effect_id())?;
-    let value = owner.values.property(property_id).cloned().or_else(|| {
-        target.owner().effect_id().is_none().then_some(())?;
-        scenes
-            .get(&item.scene_id()?)?
-            .argument(property_id)?
-            .argument_schema()
-            .map(|schema| schema.default_value())
-    })?;
+    let value = owner.values.resolve(schema);
     let animations = owner.animations;
     let animated = animations.track(&target.address.path()).is_some();
     let schema = schema.scalar_projection(&value, target.element_id(), target.scalar_index())?;
@@ -177,7 +170,7 @@ pub(crate) fn apply_scene_binding_to_item(
         SceneBindingOwner::Effect(effect_id) => item.effect_mut(effect_id).and_then(|effect| {
             let effect_schema = effect.schema.clone();
             let target_schema = effect_schema.property(property_id)?;
-            let current = effect.properties.property(property_id)?;
+            let current = effect.properties.resolve(target_schema);
             let value = current.replaced_at(target.element_id(), target.scalar_index(), value)?;
             effect.properties.set(target_schema, value).ok()
         }),
@@ -187,11 +180,7 @@ pub(crate) fn apply_scene_binding_to_item(
                 .as_deref()
                 .and_then(|schema| schema.property(property_id))
                 .unwrap_or(binding_schema);
-            let current = item
-                .properties
-                .property(property_id)
-                .cloned()
-                .unwrap_or_else(|| binding_schema.default_value());
+            let current = item.properties.resolve(target_schema);
             let value = current.replaced_at(target.element_id(), target.scalar_index(), value)?;
             item.properties.set(target_schema, value).ok()
         }

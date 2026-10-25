@@ -136,6 +136,8 @@ _version: 1
 "inspector.clear_file": "未指定に戻す"
 "inspector.use_default": "デフォルトに戻す"
 "inspector.choose_file": "ファイルを選択"
+"inspector.choose_folder": "フォルダーを選択"
+"inspector.sequence_info": "%{count}枚 · %{width}×%{height}"
 "inspector.suggested_files": "推奨ファイル"
 "inspector.all_files": "すべてのファイル"
 "curve.select_property": "アニメーションするプロパティを選択"

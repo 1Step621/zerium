@@ -28,10 +28,6 @@ pub(super) struct ExportJob {
 }
 
 impl ExportController {
-    pub(crate) fn is_exporting(&self) -> bool {
-        matches!(self.state, ExportState::Running { .. })
-    }
-
     /// Completed and total frame counts while an export is running.
     pub(crate) fn export_progress(&self) -> Option<(u64, u64)> {
         match &self.state {

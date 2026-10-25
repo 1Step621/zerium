@@ -25,16 +25,6 @@ pub(super) struct Pipeline(gst::Pipeline);
 
 impl Pipeline {
     pub(super) fn new(pipeline: gst::Pipeline) -> Self {
-        pipeline.connect_deep_element_added(|_, _, element| {
-            if element.factory().is_some_and(|factory| {
-                factory
-                    .metadata("klass")
-                    .is_some_and(|klass| klass.contains("Decoder/Video"))
-            }) && element.find_property("max-threads").is_some()
-            {
-                element.set_property("max-threads", 4i32);
-            }
-        });
         Self(pipeline)
     }
 }

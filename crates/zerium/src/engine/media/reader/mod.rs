@@ -11,13 +11,13 @@ use thiserror::Error;
 
 use crate::engine::frame::VisualFrame;
 use zerium_core::{
-    media::{MediaAsset, MediaMetadata, MediaTarget},
+    media::{MediaAsset, MediaMetadata, MediaRevision, MediaTarget},
     timeline::{EffectInstanceId, ItemId},
 };
 
 mod registry;
 
-pub(crate) use registry::{MediaReaderRegistry, bundled_media_readers};
+pub(crate) use registry::MediaReaderRegistry;
 
 #[derive(Clone, Debug, PartialEq, Eq, Hash)]
 pub(crate) struct MediaInputId {
@@ -85,9 +85,13 @@ impl DecodedFrame {
     pub(crate) fn covers(&self, time: Duration) -> bool {
         let start = self.presentation_time;
         let duration = self.duration;
+        if duration.is_zero() {
+            return time == start;
+        }
         let rounded = time.saturating_add(Duration::from_nanos(1));
-        (start <= rounded && rounded < start.saturating_add(duration))
-            || (duration.is_zero() && time == start)
+        // Allow a rounded source time just below the interval's start without
+        // excluding its final nanosecond (used by EOF frame holding).
+        start <= rounded && time < start.saturating_add(duration)
     }
 }
 
@@ -127,6 +131,11 @@ pub(crate) trait AudioDecoder: Send {
 }
 
 pub(crate) trait MediaReader: Send + Sync {
+    /// Readers observe changes to their source format.
+    fn revision(&self, path: &Path) -> std::io::Result<MediaRevision> {
+        super::metadata::read_file_revision(path)
+    }
+
     fn probe(&self, path: &Path, target: MediaTarget) -> Result<Option<MediaMetadata>, MediaError>;
 
     /// GPU decoding uses the consumer's device and queue. Without them, or when

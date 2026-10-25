@@ -1,7 +1,7 @@
 use crate::ui::property_inspector::edit_array;
 use crate::ui::property_inspector::push_element;
 use crate::ui::property_inspector::rows::{
-    animation_container_label, animation_label_base, color_full_row,
+    animation_container_label, animation_label_base, animation_property_label, color_row,
     control_contains_focused_animation, element_number, number_compact_row, property_grid,
     scalar_compact_row, scalar_full_row, scene_binding_button,
 };
@@ -302,23 +302,19 @@ pub(in crate::ui::property_inspector) fn elements_section(
 fn element_scalar(control: &Control, ctx: &RenderCtx) -> Option<(gpui::AnyElement, bool)> {
     match control {
         Control::Number(number) if number.common.target.scalar_index.is_some() => {
-            let input = ctx.store.inputs.text(&number.common.id)?;
+            let input = ctx.store.inputs.text(&number.common.id())?;
             let (row, bound) = number_compact_row(&number.common, &number.spec, &input, ctx);
             Some((row.into_any_element(), bound))
         }
         Control::Number(number) => element_number(number, ctx),
         Control::Color(color) => {
             let common = &color.common;
-            let picker = ctx.store.inputs.color(&common.id)?;
-            let bound = common
-                .binding
-                .as_ref()
-                .is_some_and(|binding| binding.connected.is_some());
-            let row = color_full_row(
+            let picker = ctx.store.inputs.color(&common.id())?;
+            let bound = common.is_bound();
+            let row = color_row(
                 color,
                 &picker,
-                common.animation_enabled,
-                common.binding.clone(),
+                Some(animation_property_label(common.label.clone(), common, ctx)),
                 ctx,
             );
             Some((row.into_any_element(), bound))

@@ -39,7 +39,8 @@ impl TimelineTime {
         if !seconds.is_finite() || seconds < 0. {
             return None;
         }
-        Some(Self::from_frames(seconds * frame_rate.frames_per_second()))
+        let frames = seconds * frame_rate.frames_per_second();
+        frames.is_finite().then_some(Self(frames))
     }
 
     pub fn frames(self) -> f64 {

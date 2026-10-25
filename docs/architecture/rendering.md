@@ -48,6 +48,8 @@ nested sampling. An effect containing only a `sample` pass aliases its upstream
 node. Temporal reductions include their sample metadata in image identity because
 shaders can read it.
 Texture inputs and captured children inherit the consumer's requested raster scale.
+Each scene node stores the resolved scale once, including its input requirements;
+item, effect, and composition contents do not retain separate copies.
 See [Sampling one image](../plugin/rendering.md#sampling-one-image) for time mapping.
 
 Image planning builds a separate demand DAG for decoder scheduling. Image keys

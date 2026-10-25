@@ -81,6 +81,10 @@ impl TransportController {
         matches!(self.mode, TransportMode::Playing(_))
     }
 
+    pub(crate) fn is_scrubbing(&self, source: ScrubSource) -> bool {
+        matches!(self.mode, TransportMode::Scrubbing(current) if current == source)
+    }
+
     pub(crate) fn audio_levels(&self, cx: &App) -> [f32; 2] {
         self.audio.read(cx).levels()
     }
@@ -184,7 +188,7 @@ impl TransportController {
     }
 
     pub(crate) fn end_scrub(&mut self, source: ScrubSource, cx: &mut Context<Self>) {
-        if !matches!(self.mode, TransportMode::Scrubbing(current) if current == source) {
+        if !self.is_scrubbing(source) {
             return;
         }
         self.mode = TransportMode::Stopped;
@@ -264,12 +268,6 @@ impl TransportController {
         let events = self.audio.update(cx, |audio, _| audio.take_events());
         for event in events {
             let message = match event {
-                AudioPlaybackEvent::Underrun {
-                    missing_sample_frames,
-                } => {
-                    format!("Audio buffer underrun ({missing_sample_frames} sample frames missing)")
-                }
-                AudioPlaybackEvent::Recovered => "Audio playback recovered".to_owned(),
                 AudioPlaybackEvent::DecodeFailed(error) => {
                     t!("transport.audio_decode_failed", error = error).to_string()
                 }

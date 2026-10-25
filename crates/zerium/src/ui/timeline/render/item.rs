@@ -34,8 +34,10 @@ pub(in crate::ui::timeline) fn timeline_item(
         item,
         label: item_label,
     } = render_item;
-    let item_start = state.frame_rate.frame_to_seconds(item.start);
-    let item_end = state.frame_rate.frame_to_seconds(item.end_exclusive());
+    let item_start = state.frame_rate.frame_to_seconds(item.start());
+    let item_end = state
+        .frame_rate
+        .frame_to_seconds(item.end_exclusive(state.frame_rate));
     let (visible_start, visible_end) = visible_range;
 
     if item_end <= visible_start || item_start >= visible_end {
@@ -48,7 +50,7 @@ pub(in crate::ui::timeline) fn timeline_item(
     let item_left = state.viewport.x_at_seconds(item_start);
     let item_width = (state
         .frame_rate
-        .frame_to_seconds(Frame::new(item.duration.get()))
+        .frame_to_seconds(Frame::new(item.duration(state.frame_rate).get()))
         * state.viewport.pixels_per_second()) as f32;
     let is_selected = state.selected_item_ids.contains(&item_id);
     let animation_markers =
@@ -106,9 +108,10 @@ pub(in crate::ui::timeline) fn timeline_item(
                     editor
                         .item(item_id)
                         .filter(|item| {
-                            editor.is_item_selected(item_id) && !item.contains(editor.playhead())
+                            editor.is_item_selected(item_id)
+                                && !item.contains(editor.playhead(), editor.frame_rate())
                         })
-                        .map(|item| item.start)
+                        .map(|item| item.start())
                 };
                 if let Some(frame) = seek_frame {
                     this.transport

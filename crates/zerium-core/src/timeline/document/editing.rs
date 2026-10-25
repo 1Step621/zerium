@@ -4,10 +4,10 @@ use std::sync::Arc;
 
 use crate::media::ImportedFile;
 use crate::property::PropertyValue;
+use crate::timeline::ItemId;
 use crate::timeline::item::{set_size_values, size_values};
-use crate::timeline::{ItemId, TimeMapping};
 
-use super::{ResizeMode, TimelineDocument};
+use super::TimelineDocument;
 
 impl TimelineDocument {
     pub fn import_item_file(&mut self, id: ItemId, imported: ImportedFile) -> bool {
@@ -26,7 +26,6 @@ impl TimelineDocument {
             return false;
         };
         let schema = item.schema_arc().expect("plugin item").clone();
-        let initial_duration = imported.file.initial_duration();
         let mut item = item.as_ref().clone();
         if item
             .properties
@@ -38,37 +37,43 @@ impl TimelineDocument {
         {
             return false;
         }
-        let dimensions = schema
+        let assets = schema
             .media_sources()
             .filter(|source| source.file == imported.property_id)
-            .filter_map(|source| imported.file.asset(source.reader, source.input.target()))
-            .find_map(|asset| asset.kind.dimensions());
+            .filter_map(|source| {
+                let mut asset = imported.file.asset(source.reader, source.input.target())?;
+                source.apply_frame_rate(
+                    &mut asset,
+                    &item.properties.materialize(schema.properties()),
+                )?;
+                Some((source.input, asset))
+            })
+            .collect::<Vec<_>>();
+        let primary = schema.playback().map(|playback| &playback.source);
+        let dimensions = assets
+            .iter()
+            .filter(|(input, _)| primary.is_none_or(|primary| primary == input))
+            .find_map(|(_, asset)| asset.kind.dimensions());
+        let initial_duration = assets
+            .iter()
+            .find(|(input, asset)| primary == Some(input) && asset.kind.is_temporal())
+            .map(|(_, asset)| asset.duration);
         if let Some(source_duration) = initial_duration
-            && let Some(mapping) = item.timeline_mapping()
+            && item
+                .initialize_source(source_duration, self.frame_rate)
+                .is_none()
         {
-            let Ok(mapping) =
-                TimeMapping::new(0., source_duration.as_secs_f32(), mapping.speed() as f32)
-            else {
-                return false;
-            };
-            let Some(mapping) = item.store_timeline_mapping(mapping) else {
-                return false;
-            };
-            item.set_interval(
-                item.start,
-                mapping.timeline_duration(self.frame_rate),
-                ResizeMode::Trim,
-            );
+            return false;
         }
-        let duration = item.duration;
+        let duration = item.duration(self.frame_rate);
         let Some(layer) = self.item_layers.get(&id).copied() else {
             return false;
         };
-        let Some(start) = self.nearest_available_start(layer, item.start, duration, Some(id))
+        let Some(start) = self.nearest_available_start(layer, item.start(), duration, Some(id))
         else {
             return false;
         };
-        item.start = start;
+        item.move_to(start);
         let dimensions = dimensions.map(|[width, height]| [width as f32, height as f32]);
         if let Some(source_size) = dimensions
             && let Some(schema) = item.schema_arc().cloned()
@@ -81,7 +86,7 @@ impl TimelineDocument {
                 [source_size[0] * scale, source_size[1] * scale],
             );
         }
-        if item.validate_playback().is_err() {
+        if item.validate_playback(self.frame_rate).is_err() {
             return false;
         }
         self.items.insert(id, Arc::new(item));

@@ -17,13 +17,11 @@ pub(super) use animation::{
 
 pub(super) use array::elements_section;
 
-pub(super) use binding::scene_binding_button;
+pub(super) use binding::{control_binding_button, scene_binding_button};
 
-pub(super) use choice::{
-    dropdown_compact_row, dropdown_full_row, toggle_compact_row, toggle_full_row,
-};
+pub(super) use choice::{dropdown_row, toggle_row};
 
-pub(super) use color::{color_compact_row, color_full_row};
+pub(super) use color::color_row;
 
 pub(super) use composition::{group_box, scalar_compact_row, scalar_full_row};
 
@@ -31,7 +29,7 @@ pub(super) use file::file_row;
 
 pub(super) use number::{element_number, number_compact_row, number_full_row};
 
-pub(super) use text::{text_compact_row, text_full_row};
+pub(super) use text::text_row;
 
 use ::ui::ThemeColor;
 use gpui::{Div, Entity, div, prelude::*};

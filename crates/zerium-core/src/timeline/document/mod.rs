@@ -14,7 +14,7 @@ use std::{
 
 use crate::animation::ScalarAnimations;
 use crate::plugin::ItemSchema;
-use crate::property::PropertyValues;
+use crate::property::PropertyOverrides;
 
 use super::{
     aspect_ratio::AspectRatio,
@@ -78,7 +78,7 @@ impl TimelineDocument {
                 document
                     .items
                     .get(id)
-                    .map_or((Frame::new(0), id.get()), |item| (item.start, id.get()))
+                    .map_or((Frame::new(0), id.get()), |item| (item.start(), id.get()))
             });
         }
         #[cfg(debug_assertions)]
@@ -90,7 +90,7 @@ impl TimelineDocument {
         self.frame_rate
     }
 
-    pub(super) fn retimed(&self, frame_rate: FrameRate) -> Result<Self, ProjectSettingsError> {
+    pub(crate) fn retimed(&self, frame_rate: FrameRate) -> Result<Self, ProjectSettingsError> {
         if self.frame_rate == frame_rate {
             return Ok(self.clone());
         }
@@ -99,34 +99,47 @@ impl TimelineDocument {
             .values()
             .map(|item| {
                 let layer = self.item_layer(item.id).expect("every item has a layer");
-                let start = retime_frame(item.start, self.frame_rate, frame_rate)?;
-                let end = retime_frame(item.end_exclusive(), self.frame_rate, frame_rate)?;
-                let duration = end
-                    .get()
-                    .checked_sub(start.get())
-                    .and_then(FrameDuration::new)
-                    .ok_or_else(|| {
-                        ProjectSettingsError::out_of_range(format!(
-                            "Item {} would be shorter than one frame at the new frame rate",
-                            item.id.get()
-                        ))
-                    })?;
+                let start = retime_frame(item.start(), self.frame_rate, frame_rate)?;
+                let previous_duration = item.duration(self.frame_rate);
+                let duration = if item.fixed_duration.is_none() {
+                    item.duration(frame_rate)
+                } else {
+                    let end = retime_frame(
+                        item.end_exclusive(self.frame_rate),
+                        self.frame_rate,
+                        frame_rate,
+                    )?;
+                    end.get()
+                        .checked_sub(start.get())
+                        .and_then(FrameDuration::new)
+                        .ok_or_else(|| {
+                            ProjectSettingsError::out_of_range(format!(
+                                "Item {} would be shorter than one frame at the new frame rate",
+                                item.id.get()
+                            ))
+                        })?
+                };
                 let mut item = item.as_ref().clone();
-                item.set_interval(start, duration, ResizeMode::Stretch);
+                item.retime_to(start, duration, previous_duration);
+                item.validate_playback(frame_rate)
+                    .map_err(|error| ProjectSettingsError::out_of_range(error.to_string()))?;
                 Ok((layer, item))
             })
             .collect::<Result<Vec<_>, ProjectSettingsError>>()?;
-        let document = Self::from_items(frame_rate, items);
-        if document.layer_items.values().any(|ids| {
-            ids.windows(2).any(|pair| {
-                document.items[&pair[0]].end_exclusive() > document.items[&pair[1]].start
-            })
-        }) {
+        let mut placements = items
+            .iter()
+            .map(|(layer, item)| (layer.get(), item.start(), item.end_exclusive(frame_rate)))
+            .collect::<Vec<_>>();
+        placements.sort_unstable();
+        if placements
+            .windows(2)
+            .any(|pair| pair[0].0 == pair[1].0 && pair[0].2 > pair[1].1)
+        {
             return Err(ProjectSettingsError::out_of_range(
                 "Items would overlap at the new frame rate",
             ));
         }
-        Ok(document)
+        Ok(Self::from_items(frame_rate, items))
     }
 
     pub fn item(&self, id: ItemId) -> Option<&TimelineItem> {
@@ -147,7 +160,7 @@ impl TimelineDocument {
 
     pub(super) fn end_frame_exclusive(&self) -> Frame {
         self.items()
-            .map(TimelineItem::end_exclusive)
+            .map(|item| item.end_exclusive(self.frame_rate))
             .max()
             .unwrap_or(Frame::new(0))
     }
@@ -157,7 +170,12 @@ impl TimelineDocument {
     ) -> impl Iterator<Item = (ItemId, LayerId, Frame, Frame)> + '_ {
         self.items.values().filter_map(|item| {
             let layer = self.item_layers.get(&item.id).copied()?;
-            Some((item.id, layer, item.start, item.end_exclusive()))
+            Some((
+                item.id,
+                layer,
+                item.start(),
+                item.end_exclusive(self.frame_rate),
+            ))
         })
     }
 
@@ -174,7 +192,7 @@ impl TimelineDocument {
             .flatten()
             .filter(|id| !excluded.contains(id))
             .filter_map(|id| self.items.get(id))
-            .any(|item| start < item.end_exclusive() && item.start < end)
+            .any(|item| start < item.end_exclusive(self.frame_rate) && item.start() < end)
     }
 
     pub fn items_on_layer(&self, layer: LayerId) -> Vec<TimelineItem> {
@@ -202,11 +220,11 @@ impl TimelineDocument {
                     .map(|layer| (layer, item.as_ref()))
             })
             .collect::<Vec<_>>();
-        items.sort_unstable_by_key(|(layer, item)| (layer.get(), item.start, item.id.get()));
+        items.sort_unstable_by_key(|(layer, item)| (layer.get(), item.start(), item.id.get()));
         items
     }
 
-    pub(super) fn source_items(&self) -> Vec<(LayerId, TimelineItem)> {
+    pub(crate) fn source_items(&self) -> Vec<(LayerId, TimelineItem)> {
         self.source_items_where(|_| true)
             .into_iter()
             .map(|(layer, item)| (layer, item.clone()))
@@ -238,8 +256,8 @@ impl TimelineDocument {
         time: super::time::TimelineTime,
     ) -> Vec<(LayerId, &TimelineItem)> {
         self.source_items_where(|item| {
-            let start = item.start.get() as f64;
-            let end = item.end_exclusive().get() as f64;
+            let start = item.start().get() as f64;
+            let end = item.end_exclusive(self.frame_rate).get() as f64;
             time.frames() >= start && time.frames() < end
         })
     }
@@ -269,9 +287,9 @@ impl TimelineDocument {
                 .iter()
                 .filter_map(|id| self.items.get(id))
                 .collect::<Vec<_>>();
-            items.sort_unstable_by_key(|item| item.start);
+            items.sort_unstable_by_key(|item| item.start());
             for pair in items.windows(2) {
-                debug_assert!(pair[0].end_exclusive() <= pair[1].start);
+                debug_assert!(pair[0].end_exclusive(self.frame_rate) <= pair[1].start());
             }
         }
     }
@@ -286,10 +304,8 @@ impl TimelineDocument {
         let raw_id = self.next_item_id?;
         let id = ItemId(raw_id);
         let start = self.nearest_available_start(layer, requested_start, duration, None)?;
-        let mut item = create(id, start, duration);
-        item.id = id;
-        item.start = start;
-        item.duration = duration;
+        let item = create(id, start, duration);
+        item.validate_playback(self.frame_rate).ok()?;
 
         self.items.insert(id, Arc::new(item));
         self.item_layers.insert(id, layer);
@@ -308,42 +324,49 @@ impl TimelineDocument {
         item_id: &str,
         schema: Arc<ItemSchema>,
     ) -> Option<ItemId> {
-        let properties = PropertyValues::from_properties(schema.properties());
+        let mut properties = PropertyOverrides::default();
+        crate::plugin::initialize_frame_rates(
+            schema.inputs(),
+            schema.properties(),
+            &mut properties,
+            self.frame_rate,
+        );
         let aspect_ratio = schema
             .aspect_lock_default()
             .then(|| {
-                schema.aspect_lock_property().and_then(|property| {
-                    AspectRatio::from_value(properties.property(property.id())?)
-                })
+                schema
+                    .aspect_lock_property()
+                    .and_then(|property| AspectRatio::from_value(&properties.resolve(property)))
             })
             .flatten();
-        let duration = schema
+        let fixed_duration = schema
             .playback()
-            .timeline(&properties)
-            .ok()
-            .flatten()
-            .map_or_else(
-                || self.frame_rate.seconds_to_duration(DEFAULT_ITEM_SECONDS),
-                |mapping| mapping.timeline_duration(self.frame_rate),
-            );
+            .is_none()
+            .then(|| self.frame_rate.seconds_to_duration(DEFAULT_ITEM_SECONDS));
+        let duration = if let Some(playback) = schema.playback() {
+            playback
+                .mapping(&properties.materialize(schema.properties()))
+                .ok()?
+                .timeline_duration(self.frame_rate)
+        } else {
+            fixed_duration.expect("fixed clip")
+        };
         let plugin_id = plugin_id.to_owned();
         let item_id = item_id.to_owned();
-        self.insert_item(layer, start, duration, move |id, start, duration| {
-            TimelineItem {
-                id,
-                start,
-                duration,
-                blend_mode: super::BlendMode::Normal,
-                kind: TimelineItemKind::Plugin {
-                    plugin_id,
-                    item_id,
-                    schema,
-                },
-                properties,
-                animations: ScalarAnimations::default(),
-                aspect_ratio,
-                effects: Vec::new(),
-            }
+        self.insert_item(layer, start, duration, move |id, start, _| TimelineItem {
+            id,
+            start,
+            fixed_duration,
+            blend_mode: super::BlendMode::Normal,
+            kind: TimelineItemKind::Plugin {
+                plugin_id,
+                item_id,
+                schema,
+            },
+            properties,
+            animations: ScalarAnimations::default(),
+            aspect_ratio,
+            effects: Vec::new(),
         })
     }
 

@@ -44,10 +44,4 @@ impl PropertyPath {
             .property(self.property_id())?
             .scalar(self.element_id, self.scalar_index)
     }
-
-    pub fn value_mut<'a>(&self, values: &'a mut PropertyValues) -> Option<&'a mut PropertyValue> {
-        values
-            .property_mut(self.property_id())?
-            .scalar_mut(self.element_id, self.scalar_index)
-    }
 }

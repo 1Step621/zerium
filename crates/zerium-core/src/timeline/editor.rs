@@ -12,7 +12,7 @@ use super::{
     ids::{EffectInstanceId, ItemId, LayerId, ProjectId, SceneId},
     item::TimelineItem,
     project::TimelineProject,
-    properties::{SceneBindings, resolve_item, resolve_property},
+    properties::{SceneBindings, resolve_property},
     property_address::{property_schemas, resolve_property_schema},
     scene::SceneDefinition,
     selection::SelectionState,
@@ -23,6 +23,30 @@ use super::{
 };
 
 const HISTORY_LIMIT: usize = 100;
+
+/// A stopped cursor is frame-exact; playback keeps its continuous sample time.
+/// The displayed frame is derived so these positions cannot drift apart.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(super) enum PlayheadPosition {
+    Stopped(Frame),
+    Playing(TimelineTime),
+}
+
+impl PlayheadPosition {
+    fn frame(self) -> Frame {
+        match self {
+            Self::Stopped(frame) => frame,
+            Self::Playing(time) => time.nearest_frame(),
+        }
+    }
+
+    fn playback_time(self) -> Option<TimelineTime> {
+        match self {
+            Self::Stopped(_) => None,
+            Self::Playing(time) => Some(time),
+        }
+    }
+}
 
 /// Coordinates timeline documents, editor session state, history, and commands.
 ///
@@ -35,15 +59,15 @@ pub struct TimelineEditor {
     pub(super) scene_path: Vec<SceneId>,
     pub(super) next_scene_id: Option<u64>,
     pub(super) next_effect_id: Option<u64>,
-    pub(super) playhead: Frame,
-    pub(super) playback_time: Option<TimelineTime>,
+    pub(super) position: PlayheadPosition,
     pub(super) selection: SelectionState,
     /// None edits the selected item's source; Some edits an effect on that item.
     pub(super) active_edit_target: Option<(ItemId, EffectInstanceId)>,
     pub(super) visibility: PreviewVisibility,
     render_revision: u64,
     project_revision: u64,
-    next_project_revision: u64,
+    /// Monotonic edit lifetime; unlike project_revision, Undo never restores it.
+    edit_revision: u64,
     next_media_dependencies_revision: u64,
     pub(super) history: EditHistory<HistorySnapshot, ScopedHistoryKey>,
     /// Override individual command keys while applying a gesture update.
@@ -58,8 +82,7 @@ pub(super) struct ProjectEditState {
     scene_path: Vec<SceneId>,
     next_scene_id: Option<u64>,
     next_effect_id: Option<u64>,
-    playhead: Frame,
-    playback_time: Option<TimelineTime>,
+    position: PlayheadPosition,
     selection: SelectionState,
     active_edit_target: Option<(ItemId, EffectInstanceId)>,
     visibility: PreviewVisibility,
@@ -74,8 +97,7 @@ impl TimelineEditor {
             scene_path: self.scene_path.clone(),
             next_scene_id: self.next_scene_id,
             next_effect_id: self.next_effect_id,
-            playhead: self.playhead,
-            playback_time: self.playback_time,
+            position: self.position,
             selection: self.selection.clone(),
             active_edit_target: self.active_edit_target,
             visibility: self.visibility.clone(),
@@ -89,8 +111,7 @@ impl TimelineEditor {
         self.scene_path = state.scene_path;
         self.next_scene_id = state.next_scene_id;
         self.next_effect_id = state.next_effect_id;
-        self.playhead = state.playhead;
-        self.playback_time = state.playback_time;
+        self.position = state.position;
         self.selection = state.selection;
         self.active_edit_target = state.active_edit_target;
         self.visibility = state.visibility;
@@ -133,14 +154,13 @@ impl TimelineEditor {
             scene_path: Vec::new(),
             next_scene_id: Some(1),
             next_effect_id,
-            playhead: Frame::new(0),
-            playback_time: None,
+            position: PlayheadPosition::Stopped(Frame::new(0)),
             selection: SelectionState::default(),
             active_edit_target: None,
             visibility: PreviewVisibility::default(),
             render_revision: 0,
             project_revision: 0,
-            next_project_revision: 1,
+            edit_revision: 0,
             next_media_dependencies_revision: 1,
             history: EditHistory::new(HISTORY_LIMIT),
             history_group: None,
@@ -167,9 +187,20 @@ impl TimelineEditor {
     }
 
     pub(super) fn advance_project_revision(&mut self) {
-        self.project_revision = self.next_project_revision;
-        self.next_project_revision = self.next_project_revision.saturating_add(1);
+        self.advance_edit_revision();
+        self.project_revision = self.edit_revision;
         self.advance_render_revision();
+    }
+
+    pub(super) fn advance_edit_revision(&mut self) {
+        self.edit_revision = self
+            .edit_revision
+            .checked_add(1)
+            .expect("edit revision exhausted");
+    }
+
+    pub(super) fn edit_revision(&self) -> u64 {
+        self.edit_revision
     }
 
     pub(super) fn advance_media_dependencies_revision(&mut self) {
@@ -202,7 +233,7 @@ impl TimelineEditor {
         TimelineSnapshot {
             project: self.project.clone(),
             media_cache: self.media_cache.clone(),
-            playhead: self.playhead,
+            playhead: self.playhead(),
             project_revision: self.project_revision,
         }
     }
@@ -221,7 +252,7 @@ impl TimelineEditor {
         HistorySnapshot {
             project: self.project.clone(),
             scene_path: self.scene_path.clone(),
-            playhead: self.playhead,
+            playhead: self.playhead(),
             selection: self.selection.clone(),
             project_revision: self.project_revision,
         }
@@ -236,15 +267,19 @@ impl TimelineEditor {
             .into_iter()
             .take_while(|id| self.project().scenes.contains_key(id))
             .collect();
-        if location_changed || frame_rate_changed {
-            self.playhead = snapshot.playhead;
-        }
+        let playhead = if location_changed || frame_rate_changed {
+            snapshot.playhead
+        } else {
+            self.playhead()
+        };
         if location_changed {
             self.visibility.clear();
+            self.active_edit_target = None;
         }
         self.selection = snapshot.selection;
         self.project_revision = snapshot.project_revision;
-        self.playback_time = None;
+        self.position = PlayheadPosition::Stopped(playhead);
+        self.advance_edit_revision();
         self.advance_render_revision();
     }
 
@@ -299,11 +334,8 @@ impl TimelineEditor {
         });
         self.media_cache = Arc::default();
         self.scene_path.clear();
-        self.playhead = playhead;
-        self.playback_time = None;
-        self.selection.clear();
-        self.active_edit_target = None;
-        self.visibility.clear();
+        self.reset_scene_session();
+        self.position = PlayheadPosition::Stopped(playhead);
         self.history.clear();
         // Reopening the same project must invalidate outstanding edit targets.
         self.advance_project_revision();
@@ -321,19 +353,12 @@ impl TimelineEditor {
         changed
     }
 
-    pub fn import_media_cache(&mut self, cache: &crate::media::MediaMetadataCache) {
-        let mut changed = false;
-        for file in cache.files() {
-            changed |= Arc::make_mut(&mut self.media_cache).record_missing(file);
-        }
+    pub fn invalidate_media(&mut self, source: &crate::media::MediaDependency) -> bool {
+        let changed = Arc::make_mut(&mut self.media_cache).invalidate(source);
         if changed {
             self.advance_render_revision();
         }
-    }
-
-    pub(crate) fn replace_media_cache(&mut self, cache: crate::media::MediaMetadataCache) {
-        self.media_cache = Arc::new(cache);
-        self.advance_render_revision();
+        changed
     }
 
     pub fn render_revision(&self) -> u64 {
@@ -364,38 +389,15 @@ impl TimelineEditor {
         {
             return Ok(false);
         }
-        let (document, scenes) = if self.frame_rate() == frame_rate {
-            (
-                self.project().document.clone(),
-                self.project().scenes.clone(),
-            )
-        } else {
-            let document = Arc::new(self.project().document.retimed(frame_rate)?);
-            let scenes = self
-                .project()
-                .scenes
-                .iter()
-                .map(|(id, scene)| {
-                    let document = scene.document().retimed(frame_rate)?;
-                    let mut scene = scene.clone();
-                    scene.replace_document(document);
-                    Ok((*id, scene))
-                })
-                .collect::<Result<HashMap<_, _>, ProjectSettingsError>>()?;
-            (document, Arc::new(scenes))
-        };
-        let playhead = super::document::retime_frame(self.playhead, self.frame_rate(), frame_rate)?;
+        let mut project = self.project().retimed(frame_rate)?;
+        project.resolution = resolution;
+        project.beat_guide = beat_guide;
+        let playhead =
+            super::document::retime_frame(self.playhead(), self.frame_rate(), frame_rate)?;
         Ok(
             self.edit_project_if_changed(EditImpact::Values, None, |editor| {
-                {
-                    let project = editor.project_mut();
-                    project.document = document;
-                    project.scenes = scenes;
-                    project.resolution = resolution;
-                    project.beat_guide = beat_guide;
-                }
-                editor.playhead = playhead;
-                editor.playback_time = None;
+                editor.project = Arc::new(project);
+                editor.position = PlayheadPosition::Stopped(playhead);
                 true
             }),
         )
@@ -481,6 +483,18 @@ impl TimelineEditor {
             self.active_scene_variables().as_ref(),
             item,
             Some(time),
+            self.frame_rate(),
+        )
+    }
+
+    /// Defaults and scene bindings, without sampling authored animation.
+    pub fn resolved_item(&self, item: &TimelineItem) -> super::EvaluatedItem {
+        super::properties::evaluate_item(
+            &self.project().scenes,
+            self.active_scene_variables().as_ref(),
+            item,
+            None,
+            self.frame_rate(),
         )
     }
 
@@ -503,15 +517,8 @@ impl TimelineEditor {
         address: &super::PropertyAddress,
         item_id: ItemId,
     ) -> Option<super::PropertyAddress> {
-        let scenes = &self.project().scenes;
-        let arguments = self.active_scene_variables();
-        let source = resolve_item(
-            scenes,
-            arguments.as_ref(),
-            self.item(address.item_id)?,
-            None,
-        );
-        let item = resolve_item(scenes, arguments.as_ref(), self.item(item_id)?, None);
+        let source = self.resolved_item(self.item(address.item_id)?);
+        let item = self.resolved_item(self.item(item_id)?);
         address.on_item(&source, &item)
     }
 
@@ -547,16 +554,17 @@ impl TimelineEditor {
     }
 
     pub fn playhead(&self) -> Frame {
-        self.playhead
+        self.position.frame()
     }
 
     pub fn playback_time_seconds(&self) -> Option<f64> {
-        self.playback_time
+        self.position
+            .playback_time()
             .map(|time| time.seconds(self.frame_rate()))
     }
 
     pub fn playhead_seconds(&self) -> f64 {
-        self.frame_rate().frame_to_seconds(self.playhead)
+        self.frame_rate().frame_to_seconds(self.playhead())
     }
 
     /// The user's explicit selection in stable item-ID order, independent of time.
@@ -572,7 +580,7 @@ impl TimelineEditor {
     pub fn active_selected_item_ids(&self) -> impl Iterator<Item = ItemId> + '_ {
         self.selected_item_ids().filter(|id| {
             self.item(*id)
-                .is_some_and(|item| item.contains(self.playhead))
+                .is_some_and(|item| item.contains(self.playhead(), self.frame_rate()))
         })
     }
 
@@ -580,32 +588,22 @@ impl TimelineEditor {
         self.is_item_selected(id)
             && self
                 .item(id)
-                .is_some_and(|item| item.contains(self.playhead))
+                .is_some_and(|item| item.contains(self.playhead(), self.frame_rate()))
     }
 
     pub fn selected_items(&self) -> Vec<TimelineItem> {
         self.selected_item_ids()
-            .filter_map(|id| self.resolved_item(id))
+            .filter_map(|id| self.item(id).cloned())
             .collect()
     }
 
     pub fn active_selected_items(&self) -> Vec<TimelineItem> {
         self.active_selected_item_ids()
-            .filter_map(|id| self.resolved_item(id))
+            .filter_map(|id| self.item(id).cloned())
             .collect()
     }
 
-    /// Defaults and scene arguments, before animation evaluation.
-    pub fn resolved_item(&self, id: ItemId) -> Option<TimelineItem> {
-        Some(resolve_item(
-            &self.project().scenes,
-            self.active_scene_variables().as_ref(),
-            self.item(id)?,
-            None,
-        ))
-    }
-
-    pub(crate) fn resolve_active_scene_variables<'a>(
+    pub fn bake_active_scene_bindings<'a>(
         &self,
         items: impl IntoIterator<Item = &'a mut TimelineItem>,
     ) {
@@ -684,6 +682,7 @@ impl TimelineEditor {
             time,
             Some(&self.visibility),
             self.active_scene_id().and_then(|id| self.scene(id)),
+            self.frame_rate(),
         )
     }
 
@@ -716,7 +715,7 @@ impl TimelineEditor {
     pub fn item_time_ranges(&self) -> impl Iterator<Item = (ItemId, Frame, Frame)> + '_ {
         self.active_document()
             .items()
-            .map(|item| (item.id, item.start, item.end_exclusive()))
+            .map(|item| (item.id, item.start(), item.end_exclusive(self.frame_rate())))
     }
 
     pub fn item_layouts(&self) -> impl Iterator<Item = (ItemId, LayerId, Frame, Frame)> + '_ {

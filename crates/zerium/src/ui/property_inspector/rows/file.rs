@@ -1,34 +1,17 @@
-use crate::ui::property_inspector::rows::{
-    animation_property_label, animation_scalar_label, scene_binding_button,
-};
+use crate::ui::property_inspector::rows::control_binding_button;
 use gpui::{SharedString, div, prelude::*};
 
-use crate::ui::property_inspector::control::ValueControl;
+use crate::ui::property_inspector::control::FileControl;
 use crate::ui::property_inspector::rows::{PropertyRow, RenderCtx};
 
 pub(in crate::ui::property_inspector) fn file_row(
-    file: &ValueControl<Option<std::path::PathBuf>>,
+    file: &FileControl,
     render: &RenderCtx<'_>,
-    compact: bool,
+    label: Option<gpui::AnyElement>,
 ) -> PropertyRow {
     let common = &file.common;
     let address = common.target.clone();
-    let disabled = render.selecting_file
-        || common.read_only
-        || common
-            .binding
-            .as_ref()
-            .is_some_and(|binding| binding.connected.is_some());
-
-    let label = if compact {
-        animation_scalar_label(common, render)
-    } else {
-        Some(animation_property_label(
-            common.label.clone(),
-            common,
-            render,
-        ))
-    };
+    let disabled = render.selecting_file || common.read_only || common.is_bound();
     PropertyRow::new(
         label,
         div()
@@ -40,21 +23,31 @@ pub(in crate::ui::property_inspector) fn file_row(
                 div()
                     .min_w_0()
                     .flex_1()
+                    .flex()
+                    .flex_col()
+                    .gap_1()
                     .child(crate::ui::file_input::file_picker(
                         &render.file_input,
-                        SharedString::from(format!("file-{:?}", common.id)),
+                        SharedString::from(format!("file-{:?}", common.id())),
                         crate::ui::file_input::FileTarget::Property(address),
-                        file.value.as_deref(),
-                        render.selecting_file,
-                        disabled,
-                    )),
+                        crate::ui::file_input::FilePickerOptions {
+                            path: file.value.as_deref(),
+                            directory: file.directory,
+                            selecting: render.selecting_file,
+                            disabled,
+                        },
+                    ))
+                    .when_some(file.description.clone(), |column, description| {
+                        column.child(
+                            div()
+                                .text_xs()
+                                .text_color(render.colors.muted_foreground)
+                                .child(description),
+                        )
+                    }),
             )
-            .when_some(common.binding.clone(), |row, binding| {
-                row.child(scene_binding_button(
-                    binding,
-                    &render.inspector,
-                    SharedString::from(format!("file-binding-{:?}", common.id)),
-                ))
+            .when_some(control_binding_button(common, render), |row, button| {
+                row.child(button)
             }),
     )
 }

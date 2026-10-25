@@ -53,12 +53,14 @@ struct ColorConversion {
 impl ExportVideoPipeline {
     pub(crate) fn new(
         renderer: RenderSession,
-        size: RenderSize,
         depth: usize,
         settings: EncodingSettings,
     ) -> Result<(Self, VideoEncoderInput), EncodingError> {
-        crate::engine::gstreamer::initialize().map_err(EncodingError::backend)?;
-        settings.output.validate()?;
+        let dimensions = settings.output.validate()?;
+        let size = RenderSize {
+            width: dimensions.width,
+            height: dimensions.height,
+        };
         let device = &renderer.gpu().device;
         if size.width > device.limits().max_texture_dimension_2d
             || size.height > device.limits().max_texture_dimension_2d
@@ -86,7 +88,7 @@ impl ExportVideoPipeline {
         let (backend, encoding) = match native {
             Some(backend) => (backend, VideoEncoderInput::H264),
             None => {
-                let readback = readback::Nv12Readback::new(device, settings, size)?;
+                let readback = readback::Nv12Readback::new(device, dimensions)?;
                 let encoding = VideoEncoderInput::Nv12;
                 (Backend::Readback(readback), encoding)
             }

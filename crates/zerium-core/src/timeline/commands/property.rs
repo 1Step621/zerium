@@ -70,17 +70,11 @@ impl TimelineEditor {
         let Some(schema) = self.property_schema(address) else {
             return false;
         };
-        let Some(properties) = item.property_values(effect) else {
+        let Some(current) = item.authored_property(effect, schema) else {
             return false;
         };
-        let current = properties
-            .property(&address.property_id)
-            .cloned()
-            .unwrap_or_else(|| schema.default_value());
-        // Only an explicit reset removes a scene instance's override.
+        // Reset restores schema inheritance for every authored property.
         let inherit = matches!(edit, PropertyEdit::Reset)
-            && effect.is_none()
-            && item.scene_id().is_some()
             && address.element_id.is_none()
             && address.scalar_index.is_none();
         let value = match edit {
@@ -99,7 +93,7 @@ impl TimelineEditor {
         if !schema.is_editable(address.scalar_index) {
             return false;
         }
-        if let Some(ratio) = item.aspect_ratio(effect).filter(|_| {
+        if let Some(ratio) = item.aspect_ratio(effect).filter(|_| !inherit).filter(|_| {
             item.aspect_lock_property(effect)
                 .is_some_and(|property| property.id() == address.property_id)
         }) {
@@ -116,8 +110,22 @@ impl TimelineEditor {
         {
             return false;
         }
-        candidate.set_property(effect, schema, (!inherit).then_some(next));
-        true
+        if inherit
+            && item.aspect_ratio(effect).is_some()
+            && item
+                .aspect_lock_property(effect)
+                .is_some_and(|property| property.id() == schema.id())
+        {
+            candidate
+                .item
+                .set_aspect_ratio(effect, AspectRatio::from_value(&next));
+        }
+        candidate.set_property(
+            effect,
+            schema,
+            (!inherit).then_some(next),
+            self.frame_rate(),
+        )
     }
 
     pub fn update_aspect_ratio_locked(
@@ -138,7 +146,7 @@ impl TimelineEditor {
         };
         let ratio = if locked {
             let Some(ratio) = item.aspect_ratio(effect).or_else(|| {
-                AspectRatio::from_value(item.property_values(effect)?.property(property.id())?)
+                AspectRatio::from_value(&item.property_overrides(effect)?.resolve(property))
             }) else {
                 return false;
             };

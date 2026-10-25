@@ -31,12 +31,13 @@ pub(super) fn set_input_text<T>(
 }
 
 /// Model synchronization and unfinished drafts are independent from commit timing.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub(super) enum TextSync {
     Model,
     PreserveDraft,
 }
 
+#[derive(PartialEq, Eq)]
 pub(super) struct TextOptions {
     pub multiline: Option<(usize, usize)>,
     pub placeholder: String,
@@ -53,43 +54,54 @@ impl Default for TextOptions {
     }
 }
 
-pub(super) struct ColorControl {
-    pub picker: Entity<ColorPickerState>,
-    _subscription: Subscription,
+enum StoredInput {
+    Text {
+        control: InputControl,
+        options: TextOptions,
+        draft: bool,
+    },
+    Color {
+        picker: Entity<ColorPickerState>,
+        _subscription: Subscription,
+    },
 }
 
 /// Stable keyed controls shared by the property inspector and scene settings.
 pub(super) struct InputStore<K> {
-    pub text_inputs: HashMap<K, InputControl>,
-    pub color_pickers: HashMap<K, ColorControl>,
-    pub drafts: HashSet<K>,
+    controls: HashMap<K, StoredInput>,
 }
 
 impl<K> Default for InputStore<K> {
     fn default() -> Self {
         Self {
-            text_inputs: HashMap::new(),
-            color_pickers: HashMap::new(),
-            drafts: HashSet::new(),
+            controls: HashMap::new(),
         }
     }
 }
 
 impl<K: Eq + Hash> InputStore<K> {
     pub(super) fn text(&self, key: &K) -> Option<Entity<InputState>> {
-        self.text_inputs.get(key).map(|state| state.input.clone())
+        match self.controls.get(key)? {
+            StoredInput::Text { control, .. } => Some(control.input.clone()),
+            StoredInput::Color { .. } => None,
+        }
     }
 
     pub(super) fn color(&self, key: &K) -> Option<Entity<ColorPickerState>> {
-        self.color_pickers
-            .get(key)
-            .map(|state| state.picker.clone())
+        match self.controls.get(key)? {
+            StoredInput::Color { picker, .. } => Some(picker.clone()),
+            StoredInput::Text { .. } => None,
+        }
+    }
+
+    pub(super) fn set_draft(&mut self, key: &K, pending: bool) {
+        if let Some(StoredInput::Text { draft, .. }) = self.controls.get_mut(key) {
+            *draft = pending;
+        }
     }
 
     pub(super) fn retain(&mut self, keys: &HashSet<K>) {
-        self.text_inputs.retain(|key, _| keys.contains(key));
-        self.color_pickers.retain(|key, _| keys.contains(key));
-        self.drafts.retain(|key| keys.contains(key));
+        self.controls.retain(|key, _| keys.contains(key));
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -102,11 +114,17 @@ impl<K: Eq + Hash> InputStore<K> {
         window: &mut Window,
         cx: &mut Context<T>,
     ) -> Entity<InputState> {
-        if let Some(input) = self.text(&key) {
-            if !matches!(options.sync, TextSync::PreserveDraft) || !self.drafts.contains(&key) {
-                set_input_text(&input, value, window, cx);
+        if let Some(StoredInput::Text {
+            control,
+            options: current,
+            draft,
+        }) = self.controls.get(&key)
+            && *current == options
+        {
+            if options.sync != TextSync::PreserveDraft || !draft {
+                set_input_text(&control.input, value, window, cx);
             }
-            return input;
+            return control.input.clone();
         }
         let input = cx.new(|cx| {
             let input = InputState::new(window, cx);
@@ -116,12 +134,18 @@ impl<K: Eq + Hash> InputStore<K> {
                 input
             };
             input
-                .placeholder(options.placeholder)
+                .placeholder(options.placeholder.clone())
                 .default_value(SharedString::from(value))
         });
         let subscriptions = subscribe(&input, window, cx);
-        self.text_inputs
-            .insert(key, InputControl::new(input.clone(), subscriptions));
+        self.controls.insert(
+            key,
+            StoredInput::Text {
+                control: InputControl::new(input.clone(), subscriptions),
+                options,
+                draft: false,
+            },
+        );
         input
     }
 
@@ -141,9 +165,9 @@ impl<K: Eq + Hash> InputStore<K> {
         }
         let picker = cx.new(|cx| ColorPickerState::new(window, cx).default_value(value));
         let subscription = subscribe(&picker, window, cx);
-        self.color_pickers.insert(
+        self.controls.insert(
             key,
-            ColorControl {
+            StoredInput::Color {
                 picker: picker.clone(),
                 _subscription: subscription,
             },

@@ -80,7 +80,7 @@ pub(in crate::ui::property_inspector) fn animation_property_label(
         common,
         ctx,
         AnimationLabelWidth::Content,
-        format!("property-label-{:?}", common.id).into(),
+        format!("property-label-{:?}", common.id()).into(),
     )
 }
 
@@ -94,7 +94,7 @@ pub(in crate::ui::property_inspector) fn animation_scalar_label(
             common,
             ctx,
             AnimationLabelWidth::Content,
-            format!("scalar-label-{:?}", common.id).into(),
+            format!("scalar-label-{:?}", common.id()).into(),
         )
     })
 }

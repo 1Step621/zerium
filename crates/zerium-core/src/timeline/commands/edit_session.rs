@@ -12,28 +12,26 @@ pub(super) enum UndoPolicy {
 pub struct EditSession {
     context: EditContext,
     key: HistoryKey,
-    policy: UndoPolicy,
     changed: bool,
 }
 
 impl EditSession {
     pub(super) fn new(editor: &TimelineEditor, policy: UndoPolicy) -> Self {
         let context = editor.edit_context();
-        let key = match &policy {
+        let key = match policy {
             UndoPolicy::Gesture => HistoryKey::Gesture(context.revision),
-            UndoPolicy::Coalesced(key) => key.clone(),
+            UndoPolicy::Coalesced(key) => key,
         };
         Self {
             context,
             key,
-            policy,
             changed: false,
         }
     }
 
     pub fn is_current(&self, editor: &TimelineEditor) -> bool {
         self.context.is_current(editor)
-            && (!matches!(self.policy, UndoPolicy::Gesture)
+            && (!matches!(self.key, HistoryKey::Gesture(_))
                 || !self.changed
                 || editor
                     .history
@@ -41,7 +39,7 @@ impl EditSession {
     }
 
     fn continues_group(&self, editor: &TimelineEditor) -> bool {
-        matches!(self.policy, UndoPolicy::Gesture)
+        matches!(self.key, HistoryKey::Gesture(_))
             || (self.changed
                 && editor
                     .history

@@ -137,8 +137,8 @@ impl Timeline {
                     Some(MovingItemOrigin {
                         item_id: selected_id,
                         source_layer,
-                        start: item.start,
-                        duration: item.duration,
+                        start: item.start(),
+                        duration: item.duration(editor.frame_rate()),
                     })
                 })
                 .collect::<Vec<_>>();

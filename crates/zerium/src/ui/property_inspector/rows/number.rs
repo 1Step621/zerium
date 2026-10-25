@@ -1,7 +1,7 @@
 use crate::ui::numeric_property::NumericInputSpec;
 use crate::ui::property_inspector::rows::{
-    animation_property_label, animation_scalar_label, animation_stop_inputs, keyframe_base,
-    scene_binding_button,
+    animation_property_label, animation_scalar_label, animation_stop_inputs,
+    control_binding_button, keyframe_base,
 };
 
 use ::ui::{
@@ -15,27 +15,23 @@ use zerium_core::timeline::PropertyAddress;
 
 use crate::ui::property_inspector::control::{ControlMeta, NumberControl};
 use crate::ui::property_inspector::rows::{PropertyRow, RenderCtx};
-use crate::ui::property_inspector::{ControlId, PropertyInspector, SceneFieldBinding};
+use crate::ui::property_inspector::{ControlId, PropertyInspector};
 use rust_i18n::t;
 
 pub(in crate::ui::property_inspector) fn number_full_row(
     common: &ControlMeta,
     spec: &NumericInputSpec,
     input: &Entity<InputState>,
-    animation_enabled: bool,
-    binding: Option<SceneFieldBinding>,
     ctx: &RenderCtx,
 ) -> PropertyRow {
-    let is_bound = binding
-        .as_ref()
-        .is_some_and(|binding| binding.connected.is_some());
+    let is_bound = common.is_bound();
     let select_inspector = ctx.inspector.clone();
     let select_target = common.target.clone();
     let animation_button = (common.animatable && !is_bound).then(|| {
         number_animation_toggle(
             &common.target,
-            animation_enabled,
-            if animation_enabled {
+            common.animation_enabled,
+            if common.animation_enabled {
                 t!("rows.unanimate").to_string()
             } else {
                 t!("rows.animate_axis").to_string()
@@ -43,13 +39,7 @@ pub(in crate::ui::property_inspector) fn number_full_row(
             &ctx.inspector,
         )
     });
-    let publish_button = binding.map(|binding| {
-        scene_binding_button(
-            binding,
-            &ctx.inspector,
-            SharedString::from(format!("bind-scene-argument-{:?}", common.target)),
-        )
-    });
+    let publish_button = control_binding_button(common, ctx);
     let value_input = number_editor(common, spec, input, common.read_only, ctx);
     PropertyRow::new(
         animation_property_label(common.label.clone(), common, ctx),
@@ -87,17 +77,8 @@ pub(in crate::ui::property_inspector) fn number_compact_row(
     ctx: &RenderCtx,
 ) -> (PropertyRow, bool) {
     let coordinate_animation_enabled = common.animation_enabled;
-    let binding = common.binding.clone();
-    let is_bound = binding
-        .as_ref()
-        .is_some_and(|binding| binding.connected.is_some());
-    let binding_button = binding.map(|binding| {
-        scene_binding_button(
-            binding,
-            &ctx.inspector,
-            SharedString::from(format!("bind-scene-argument-{:?}", common.target)),
-        )
-    });
+    let is_bound = common.is_bound();
+    let binding_button = control_binding_button(common, ctx);
     let disabled = common.read_only;
     let animation_visible = coordinate_animation_enabled;
     let animation_button = (common.animatable && !is_bound).then(|| {
@@ -194,7 +175,7 @@ fn number_editor(
         let start = stop_inputs.pop().expect("two stop inputs");
         return animation_stop_inputs(start, end, ctx.colors.muted_foreground).into_any_element();
     }
-    draggable_number_input(&common.target, spec, input, &common.id, disabled, ctx)
+    draggable_number_input(&common.target, spec, input, &common.id(), disabled, ctx)
 }
 
 pub(in crate::ui::property_inspector) fn element_number(
@@ -203,19 +184,10 @@ pub(in crate::ui::property_inspector) fn element_number(
 ) -> Option<(gpui::AnyElement, bool)> {
     let common = &number.common;
     let spec = &number.spec;
-    let input = ctx.store.inputs.text(&common.id)?;
+    let input = ctx.store.inputs.text(&common.id())?;
     let animation_enabled = common.animation_enabled;
-    let binding = common.binding.clone();
-    let component_is_bound = binding
-        .as_ref()
-        .is_some_and(|binding| binding.connected.is_some());
-    let component_binding_button = binding.map(|binding| {
-        scene_binding_button(
-            binding,
-            &ctx.inspector,
-            SharedString::from(format!("bind-scene-array-{:?}", common.target)),
-        )
-    });
+    let component_is_bound = common.is_bound();
+    let component_binding_button = control_binding_button(common, ctx);
     let value_input = number_editor(common, spec, &input, common.read_only, ctx);
     let animation_button = (common.animatable && !component_is_bound).then(|| {
         number_animation_toggle(

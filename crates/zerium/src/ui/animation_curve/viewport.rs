@@ -109,7 +109,6 @@ impl AnimationCurveEditor {
             dragged: false,
         };
         if self.transport.read(cx).is_playing() {
-            self.scrubbing_playhead = true;
             self.transport.update(cx, |transport, cx| {
                 transport.begin_scrub(ScrubSource::AnimationCurve, cx);
             });
@@ -146,14 +145,21 @@ impl AnimationCurveEditor {
                 origin,
                 dragged: true,
             };
-            if !self.scrubbing_playhead {
-                self.scrubbing_playhead = true;
+            if !self
+                .transport
+                .read(cx)
+                .is_scrubbing(ScrubSource::AnimationCurve)
+            {
                 self.transport.update(cx, |transport, cx| {
                     transport.begin_scrub(ScrubSource::AnimationCurve, cx);
                 });
             }
         }
-        if self.scrubbing_playhead {
+        if self
+            .transport
+            .read(cx)
+            .is_scrubbing(ScrubSource::AnimationCurve)
+        {
             self.seek_playhead_from_graph(position, cx);
         }
     }
@@ -203,10 +209,6 @@ impl AnimationCurveEditor {
     }
 
     pub(super) fn finish_playhead_scrub(&mut self, cx: &mut Context<Self>) {
-        if !self.scrubbing_playhead {
-            return;
-        }
-        self.scrubbing_playhead = false;
         self.transport.update(cx, |transport, cx| {
             transport.end_scrub(ScrubSource::AnimationCurve, cx);
         });

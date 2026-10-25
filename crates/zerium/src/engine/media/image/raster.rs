@@ -26,17 +26,9 @@ impl MediaReader for ImageReader {
         if target != MediaTarget::Visual {
             return Ok(None);
         }
-        let mut decoder = open_decoder(path)?;
-        let (mut width, mut height) = decoder.dimensions();
-        if let Orientation::Rotate90
-        | Orientation::Rotate270
-        | Orientation::Rotate90FlipH
-        | Orientation::Rotate270FlipH = decoder.orientation().map_err(MediaError::external)?
-        {
-            std::mem::swap(&mut width, &mut height);
-        }
+        let (width, height) = image_dimensions(path)?;
         Ok(Some(MediaMetadata {
-            duration: Duration::from_secs(5),
+            duration: Duration::ZERO,
             kind: MediaKind::Image { width, height },
         }))
     }
@@ -64,6 +56,52 @@ fn open_decoder(path: &Path) -> Result<impl RasterImageDecoder, MediaError> {
         .map_err(MediaError::external)
 }
 
+/// Header inspection shared by standalone images and directory sequences.
+pub(super) fn image_dimensions(path: &Path) -> Result<(u32, u32), MediaError> {
+    let mut decoder = open_decoder(path)?;
+    let (mut width, mut height) = decoder.dimensions();
+    if let Orientation::Rotate90
+    | Orientation::Rotate270
+    | Orientation::Rotate90FlipH
+    | Orientation::Rotate270FlipH = decoder.orientation().map_err(MediaError::external)?
+    {
+        std::mem::swap(&mut width, &mut height);
+    }
+    Ok((width, height))
+}
+
+/// Decode the pixels once, with the same orientation used during discovery.
+pub(super) fn decode_image(
+    path: &Path,
+    cancelled: &AtomicBool,
+) -> Result<DynamicImage, MediaError> {
+    if cancelled.load(Ordering::Relaxed) {
+        return Err(MediaError::Cancelled);
+    }
+    let mut decoder = open_decoder(path)?;
+    let orientation = decoder.orientation().map_err(MediaError::external)?;
+    let mut image = DynamicImage::from_decoder(decoder).map_err(MediaError::external)?;
+    if cancelled.load(Ordering::Relaxed) {
+        return Err(MediaError::Cancelled);
+    }
+    image.apply_orientation(orientation);
+    Ok(image)
+}
+
+pub(super) fn rgba_frame(
+    image: image::RgbaImage,
+    cancelled: &AtomicBool,
+) -> Result<Arc<VisualFrame>, MediaError> {
+    if cancelled.load(Ordering::Relaxed) {
+        return Err(MediaError::Cancelled);
+    }
+    Ok(Arc::new(VisualFrame::rgba(
+        image.width(),
+        image.height(),
+        image.into_raw(),
+    )))
+}
+
 struct RasterDecodeSession {
     path: PathBuf,
     source_size: (u32, u32),
@@ -87,14 +125,7 @@ impl ImageDecoder for RasterDecodeSession {
             return Ok(frame);
         }
         if self.source.is_none() {
-            let mut decoder = open_decoder(&self.path)?;
-            let orientation = decoder.orientation().map_err(MediaError::external)?;
-            let mut image = DynamicImage::from_decoder(decoder).map_err(MediaError::external)?;
-            if cancelled.load(Ordering::Relaxed) {
-                return Err(MediaError::Cancelled);
-            }
-            image.apply_orientation(orientation);
-            self.source = Some(image);
+            self.source = Some(decode_image(&self.path, cancelled)?);
         }
         let source = self
             .source
@@ -107,10 +138,7 @@ impl ImageDecoder for RasterDecodeSession {
                 .resize_exact(width, height, FilterType::Triangle)
                 .into_rgba8()
         };
-        if cancelled.load(Ordering::Relaxed) {
-            return Err(MediaError::Cancelled);
-        }
-        let frame = Arc::new(VisualFrame::rgba(width, height, rgba.into_raw()));
+        let frame = rgba_frame(rgba, cancelled)?;
         self.cached.insert((width, height), frame.clone());
         Ok(frame)
     }

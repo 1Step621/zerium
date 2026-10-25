@@ -14,26 +14,44 @@ premultiplied color through generated [sampling functions](rendering.md#image-sa
   "id": "source",
   "file": "source_file",
   "reader": "zerium.video",
-  "placement": { "position": "position", "size": "size", "origin": "origin" },
-  "playback": {
-    "source_start": "source_start",
-    "source_duration": "source_duration",
-    "playback_speed": "rate",
-    "end_behavior": "end_behavior"
-  }
+  "placement": { "position": "position", "size": "size", "origin": "origin" }
 }
 ```
 
 `file` references a standalone file property. Built-in readers are `zerium.video`,
-`zerium.image` (raster images), `zerium.svg`, and `zerium.audio` (including audio in
-video files). Multiple inputs can share a file with different readers or playback
-settings. Missing visual frames produce transparency.
+`zerium.image` (raster images), `zerium.image_sequence` (a folder of still images),
+`zerium.svg`, and `zerium.audio` (including audio in video files).
+Multiple inputs can share a file with different readers. All media inputs use
+the owning item's playback settings. Missing visual frames produce transparency.
 
 Optional `placement` uses position and size pairs plus the
 [origin contract](properties.md#editor-features). It guides source resolution;
 without it, the host requests the render target size. The reader determines the
-returned resolution. Optional `playback` affects temporal media; without it,
-video starts at zero at 1× and stops at EOF. Images stay static.
+returned resolution. Inputs do not declare their own playback clocks. Without
+item playback, temporal sources start at zero at 1× and stop at EOF. Images stay static.
+
+### Image sequences
+
+An image sequence references a file property with `ui.directory: true` and uses
+`reader: "zerium.image_sequence"`. Its optional `frame_rate` references an `f32`
+property constrained to `0.001..=1000`, with animation and scene bindings disabled.
+The bundled Image Sequence item initializes this property from the project FPS
+when created, then keeps its source cadence independent of project settings.
+Changing the source FPS leaves the authored source start and duration in seconds
+unchanged; the images included in that time range can change.
+
+The reader includes PNG, JPEG, WebP, BMP, and TIFF files directly inside the
+folder. Hidden names and subdirectories are excluded. Names use ASCII
+case-insensitive natural ordering (`1.png`, `2.png`, `10.png`), with deterministic
+ties for padding and case. Every image must have the same oriented dimensions;
+empty folders, unreadable images, and dimension mismatches report errors.
+Alpha is retained. Each image occupies one source frame, with no frame blending.
+
+The reader uses the folder's current contents. Background refreshes detect added,
+removed, and edited images and update the naturally sorted file list. Metadata is
+discovered again after loading a project. These updates keep the
+item's authored interval and trim unchanged. Images decode on demand into a
+byte-budgeted cache.
 
 ## Playback and audio
 
@@ -55,9 +73,26 @@ Audio IDs are unique within the item. `volume` references an `f32` linear gain;
 a missing stream contributes silence. Gain sampling is described under
 [Audio](../architecture/media.md#audio).
 
-Audio accepts the same optional `playback` block as visual media, with the
-required `preserve_pitch` reference outside it. Visual playback, audio, and
-timeline editing use explicit references; share property IDs to synchronize them.
+Items optionally declare one top-level `playback` block:
+
+```json
+{
+  "playback": {
+    "source": { "type": "media", "id": "source" },
+    "source_start": "source_start",
+    "source_duration": "source_duration",
+    "playback_speed": "rate",
+    "end_behavior": "end_behavior"
+  }
+}
+```
+
+`source` identifies the primary input for initial duration and size discovery.
+Use `type: "media"` for a named visual media input or `type: "audio"` for a named
+audio input. Only first selection of that input initializes the source interval;
+secondary inputs and later metadata changes preserve it. Visual media, audio,
+and media inputs inside effects all use this one resolved playback setting.
+The remaining fields reference ordinary properties defined by the item:
 
 | Reference | Property type | Meaning |
 | --- | --- | --- |
@@ -74,6 +109,14 @@ Playback reads from `source_start` to `source_start + source_duration` at the
 specified speed. Intervals may exceed the stream. At EOF, stop produces
 transparent video/silent audio; loop wraps; hold retains the last video frame
 and produces silent audio. EOF behavior does not change clip length.
+
+With playback, the clip duration is `ceil(source_duration / playback_speed * FPS)`
+frames and is not stored separately. Source-range edits retain speed; speed edits
+retain the authored range. The source interval is not rounded back to frame
+boundaries. Without playback, the item stores a fixed frame duration.
+
+Time controls are ordinary declared properties, using the same Inspector and
+Undo paths as other properties.
 
 ## Text
 

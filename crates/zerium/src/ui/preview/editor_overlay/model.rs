@@ -133,7 +133,7 @@ impl Preview {
                     .animation_track(effect_id, property.id(), None, Some(axis))
                     .is_some()
             }) {
-                motion_paths = build_motion_paths(selected, effect_id, property);
+                motion_paths = build_motion_paths(editor, selected, effect_id, property);
             }
         }
 

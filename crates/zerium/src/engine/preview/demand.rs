@@ -279,7 +279,7 @@ impl FrameDemand {
                 }
                 if current {
                     self.notifications
-                        .push(format!("Failed to load video frame: {error}"));
+                        .push(format!("Failed to load media frame: {error}"));
                 }
                 self.failed_frames
                     .insert((sequence, presentation_time), FrameFailure::Decode(error));

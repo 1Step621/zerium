@@ -20,8 +20,9 @@ pub use schema::{
 };
 pub use types::{EnumPropertyType, EnumVariant, ScalarPropertyType};
 pub(crate) use value::MAX_STRING_BYTES;
-pub use value::materialized_property_values;
-pub use value::{PropertyElement, PropertyElementId, PropertyValue, PropertyValues};
+pub use value::{
+    PropertyElement, PropertyElementId, PropertyOverrides, PropertyValue, PropertyValues,
+};
 
 /// A value or schema violates its property contract.
 #[derive(Debug, Error)]
