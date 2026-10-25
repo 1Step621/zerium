@@ -1,7 +1,6 @@
 use std::mem::size_of;
 
-use super::PluginError;
-use super::validation::validate_wgsl_identifier;
+use super::{PluginError, schema::validation::validate_wgsl_identifier};
 use crate::property::{
     PropertyDefinition, PropertySchema, PropertyValue, PropertyValues, ScalarPropertyType,
     ValueSchema,

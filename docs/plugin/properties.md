@@ -136,9 +136,5 @@ means center. Position identifies that origin and stays fixed when origin or
 size changes. Use `item::placement_center(position, size, origin)` in shaders and
 the matching [bounds helper](rendering.md#placement-and-projection).
 
-Playback is declared once on the item; see [Playback and audio](inputs.md#playback-and-audio).
-Its source-start, source-duration, speed, and EOF fields reference ordinary item
-properties. They appear in the Inspector through their property declarations.
-Playback items derive their frame duration from these values. Trimming changes
-the source range; stretching changes speed. Items without playback retain a fixed
-frame duration. Editor tools do not declare or own playback settings.
+Playback uses ordinary item properties and a single item-level declaration;
+see [Playback and audio](inputs.md#playback-and-audio).

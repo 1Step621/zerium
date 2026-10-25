@@ -86,4 +86,4 @@ categories and field definitions.
 | [Visual and audio inputs](inputs.md) | Media readers, playback, text, numbers, render results, and camera views |
 
 The [bundled plugin](../../plugins/zerium.builtin/) provides complete examples.
-For runtime ownership, see [Plugin loading and compilation](../architecture/runtime.md#plugin-loading-and-compilation).
+For runtime ownership, see [Plugin loading and validation](../architecture/runtime.md#plugin-loading-and-validation).

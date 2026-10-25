@@ -50,8 +50,7 @@ Alpha is retained. Each image occupies one source frame, with no frame blending.
 The reader uses the folder's current contents. Background refreshes detect added,
 removed, and edited images and update the naturally sorted file list. Metadata is
 discovered again after loading a project. These updates keep the
-item's authored interval and trim unchanged. Images decode on demand into a
-byte-budgeted cache.
+item's authored interval and trim unchanged. Images decode on demand.
 
 ## Playback and audio
 
@@ -70,7 +69,9 @@ Items declare audio separately in their top-level `audio` array:
 ```
 
 Audio IDs are unique within the item. `volume` references an `f32` linear gain;
-a missing stream contributes silence. Gain sampling is described under
+a missing stream contributes silence. `preserve_pitch` references a bool that
+keeps pitch while playback speed changes. It must disable animation and set
+`scene_bindable: false`. Gain sampling is described under
 [Audio](../architecture/media.md#audio).
 
 Items optionally declare one top-level `playback` block:
@@ -100,7 +101,6 @@ The remaining fields reference ordinary properties defined by the item:
 | `source_duration` | `f32` | Positive source duration, seconds |
 | `playback_speed` | `f32` | Multiplier, 0.25–4 |
 | `end_behavior` | Enum `[0, 1, 2]` | Stop, loop, hold |
-| `preserve_pitch` | `bool` | Keep audio pitch while changing speed |
 
 The three time-mapping references must be distinct. All properties in this table
 must disable animation and set `scene_bindable: false`.

@@ -9,13 +9,11 @@ mod app;
 mod engine;
 mod i18n;
 mod logging;
-mod plugin_loader;
-mod project_session;
 mod ui;
 
 fn main() {
     logging::initialize();
-    engine::gstreamer::configure_bundle();
+    engine::configure_gstreamer_bundle();
     app::initialize_updates();
 
     if let Err(error) = run() {

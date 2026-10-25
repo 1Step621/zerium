@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 publish = false
-description = "Zerium shader interface generation, compilation, and validation"
+description = "Zerium shader interface generation, WESL translation, and validation"
 
 [dependencies]
 # Naga exposes pipeline override specialization only with an output backend enabled.

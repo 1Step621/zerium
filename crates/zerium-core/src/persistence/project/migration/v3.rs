@@ -11,7 +11,7 @@ pub(super) fn migrate(
     file: &mut Map<String, Value>,
     plugins: &PluginRegistry,
 ) -> Result<(), ProjectError> {
-    let rate = super::frame_rate(file)?;
+    let rate = crate::persistence::project::migration::frame_rate(file)?;
     file.remove("media_cache");
     items(file.get_mut("items"), plugins, rate)?;
     if let Some(scenes) = file.get_mut("scenes").and_then(Value::as_array_mut) {
@@ -71,7 +71,13 @@ fn items(
                     .mapping(&values)
                     .map_err(|error| ProjectError::invalid_data(error.to_string()))?
                     .timeline_duration(rate);
-                super::retime_animations(item, &schema, plugins, old_duration, duration)?;
+                crate::persistence::project::migration::retime_animations(
+                    item,
+                    &schema,
+                    plugins,
+                    old_duration,
+                    duration,
+                )?;
                 item.remove("duration");
             }
         }

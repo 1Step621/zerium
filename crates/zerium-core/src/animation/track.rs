@@ -1,6 +1,5 @@
 //! Typed scalar tracks with integer authored frames and continuous evaluation.
-use super::timing::scale_frames;
-use super::{AnimationRepeat, SegmentInterpolation, interpolate_scalar};
+use super::{AnimationRepeat, SegmentInterpolation, interpolate_scalar, timing::scale_frames};
 use crate::{
     property::{PropertyValue, ScalarPropertyType},
     timeline::{Frame, FrameDuration},
@@ -43,7 +42,11 @@ impl ScalarTrack {
     ) -> Option<Self> {
         (ty.is_interpolatable() && ty.allows(&value)).then(|| Self {
             span_frames: duration.animation_span(),
-            repeat: AnimationRepeat::new(super::RepeatMode::None, duration, Frame::new(0)),
+            repeat: AnimationRepeat::new(
+                crate::animation::RepeatMode::None,
+                duration,
+                Frame::new(0),
+            ),
             stops: vec![
                 AnimationStop {
                     frame: Frame::new(0),

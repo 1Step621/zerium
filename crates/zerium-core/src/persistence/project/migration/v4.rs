@@ -26,7 +26,7 @@ pub(super) fn migrate(
     file: &mut Map<String, Value>,
     plugins: &PluginRegistry,
 ) -> Result<(), ProjectError> {
-    let rate = super::frame_rate(file)?;
+    let rate = crate::persistence::project::migration::frame_rate(file)?;
     items(file.get_mut("items"), plugins, rate)?;
     if let Some(scenes) = file.get_mut("scenes").and_then(Value::as_array_mut) {
         for scene in scenes {
@@ -80,7 +80,13 @@ fn items(
             )
             .map_err(|error| ProjectError::invalid_data(error.to_string()))?;
             let duration = mapping.timeline_duration(rate);
-            super::retime_animations(item, &schema, plugins, timing.duration, duration)?;
+            crate::persistence::project::migration::retime_animations(
+                item,
+                &schema,
+                plugins,
+                timing.duration,
+                duration,
+            )?;
             let properties = item
                 .entry("properties")
                 .or_insert_with(|| Value::Object(Map::new()))

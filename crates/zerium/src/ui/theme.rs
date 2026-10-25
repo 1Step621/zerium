@@ -2,7 +2,7 @@ use ::ui::{Theme, ThemeMode};
 use gpui::{App, Hsla, rgb};
 use std::borrow::Cow;
 
-use crate::app::config::{AccentColor, ConfigStore};
+use crate::app::storage::config::{AccentColor, ConfigStore};
 
 pub(crate) const FONT_FAMILY: &str = "Inter";
 

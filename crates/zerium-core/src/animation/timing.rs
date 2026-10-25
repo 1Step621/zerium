@@ -114,7 +114,7 @@ pub struct AnimationClock {
 }
 
 impl AnimationClock {
-    pub(crate) fn new(start: Frame, track: &super::ScalarTrack) -> Self {
+    pub(crate) fn new(start: Frame, track: &crate::animation::ScalarTrack) -> Self {
         let span = track.span();
         let repeat = track.repeat();
         let offset = if repeat.mode == RepeatMode::None {

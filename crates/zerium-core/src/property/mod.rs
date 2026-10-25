@@ -1,24 +1,18 @@
 //! Shared property contracts, values, validation, and editor metadata.
 use thiserror::Error;
 
-mod constraints;
-mod declaration;
-mod metadata;
-mod numeric;
 mod path;
 mod schema;
-mod types;
 mod value;
 
-pub use constraints::PropertyConstraints;
-pub use metadata::PropertyUi;
-pub use numeric::NumericSettings;
 pub use path::PropertyPath;
 pub use schema::{
     ArraySchema, PropertyConfiguration, PropertyDefinition, PropertySchema, ScalarSchema,
     ValueSchema,
+    constraints::{NumericSettings, PropertyConstraints},
+    metadata::PropertyUi,
+    types::{EnumPropertyType, EnumVariant, ScalarPropertyType},
 };
-pub use types::{EnumPropertyType, EnumVariant, ScalarPropertyType};
 pub(crate) use value::MAX_STRING_BYTES;
 pub use value::{
     PropertyElement, PropertyElementId, PropertyOverrides, PropertyValue, PropertyValues,

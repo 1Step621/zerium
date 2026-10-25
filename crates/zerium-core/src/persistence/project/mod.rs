@@ -1,11 +1,9 @@
 //! Project file representation, capture, and checked reconstruction.
 mod migration;
+mod scenes;
 
-use super::{
-    ProjectError,
-    items::{ProjectItem, capture_items, load_items},
-    scenes::{ProjectScene, validate_scenes},
-};
+use super::{ProjectError, items::load_items};
+use scenes::{ProjectScene, validate_scenes};
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
@@ -13,18 +11,20 @@ use std::{
 
 use serde::{Deserialize, Serialize};
 
-use crate::plugin::PluginRegistry;
-use crate::timeline::{
-    BeatGuide, Frame, FrameRate, ProjectId, ProjectResolution, SceneDefinition, SceneId,
-    TimelineDocument, TimelineEditor, TimelineSnapshot, TimelineView,
+use crate::{
+    plugin::PluginRegistry,
+    timeline::{
+        BeatGuide, Frame, FrameRate, ProjectId, ProjectResolution, SceneDefinition, SceneId,
+        TimelineDocument, TimelineEditor, TimelineSnapshot, TimelineView,
+    },
 };
 
 pub const PROJECT_EXTENSION: &str = "zero";
-const FORMAT_VERSION: u32 = 5;
+const FORMAT_VERSION: u32 = 6;
 
 pub struct LoadedProject {
     project_id: ProjectId,
-    document: TimelineDocument,
+    main_scene: SceneId,
     scenes: HashMap<SceneId, SceneDefinition>,
     resolution: ProjectResolution,
     beat_guide: BeatGuide,
@@ -35,7 +35,7 @@ impl LoadedProject {
     pub fn apply(self, editor: &mut TimelineEditor) {
         editor.replace_project(
             self.project_id,
-            self.document,
+            self.main_scene,
             self.scenes,
             self.resolution,
             self.beat_guide,
@@ -69,13 +69,12 @@ struct ProjectFile {
     frame_rate: [u32; 2],
     beat_guide: BeatGuide,
     playhead: u64,
-    items: Vec<ProjectItem>,
+    main_scene: u64,
     scenes: Vec<ProjectScene>,
 }
 
 impl ProjectFile {
     fn capture(snapshot: &TimelineSnapshot, project_path: &Path) -> Result<Self, ProjectError> {
-        let items = capture_items(snapshot.items(), |id| snapshot.item_layer(id), project_path)?;
         let mut scenes = snapshot
             .scenes()
             .map(|scene| {
@@ -102,7 +101,7 @@ impl ProjectFile {
             ],
             beat_guide: snapshot.beat_guide(),
             playhead: snapshot.playhead().get(),
-            items,
+            main_scene: snapshot.main_scene_id().get(),
             scenes,
         })
     }
@@ -121,7 +120,7 @@ impl ProjectFile {
         let mut scene_ids = HashSet::new();
         let mut scene_schemas = HashMap::new();
         for scene in &mut self.scenes {
-            if scene.id == 0 || scene.id == u64::MAX || !scene_ids.insert(scene.id) {
+            if scene.id == u64::MAX || !scene_ids.insert(scene.id) {
                 return Err(ProjectError::invalid_data(format!(
                     "Scene ID {} is invalid or duplicated",
                     scene.id
@@ -134,14 +133,6 @@ impl ProjectFile {
         }
 
         let mut effect_ids = HashSet::new();
-        let items = load_items(
-            self.items,
-            project_path,
-            &scene_schemas,
-            &mut effect_ids,
-            plugins,
-            frame_rate,
-        )?;
         let mut scenes = HashMap::new();
         for scene in self.scenes {
             let scene_id = SceneId::new(project_id, scene.id);
@@ -168,10 +159,14 @@ impl ProjectFile {
             definition.set_stretch_point(Frame::new(scene.stretch_point));
             scenes.insert(scene_id, definition);
         }
-        validate_scenes(&items, &scenes)?;
+        let main_scene = SceneId::new(project_id, self.main_scene);
+        if !scenes.contains_key(&main_scene) {
+            return Err(ProjectError::invalid_data("Main scene was not found"));
+        }
+        validate_scenes(main_scene, &scenes)?;
         Ok(LoadedProject {
             project_id,
-            document: TimelineDocument::from_items(frame_rate, items),
+            main_scene,
             scenes,
             resolution,
             beat_guide: self.beat_guide,

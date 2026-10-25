@@ -2,7 +2,7 @@
 
 [Architecture](README.md) · [Editing](editing.md) · **Rendering** · [Media and export](media.md) · [Runtime](runtime.md)
 
-Preview and export share [`engine/rendering`](../../crates/zerium/src/engine/rendering/):
+Preview and export share [`engine/processing/visual`](../../crates/zerium/src/engine/processing/visual/):
 
 ```mermaid
 flowchart LR
@@ -16,7 +16,7 @@ flowchart LR
     Graph --> Plan[ExecutionPlan]
     Plan --> Session[RenderSession]
     Session --> Preview[Preview surface]
-    Session --> Export[ExportVideoPipeline]
+    Session --> Export[VideoOutput]
 ```
 
 ## Scene evaluation and render planning
@@ -93,9 +93,10 @@ coordinates and sampling functions.
 
 ## GPU resources
 
-`RenderDevice` shares pipelines. Each `RenderSession` owns its mutable resources
-in one `RenderState`; planning, input preparation, submission and recycling use
-the same session lock. Preview and export use separate sessions.
+[`RenderRuntime`](../../crates/zerium/src/app/rendering.rs) selects GPU devices and
+creates preview and export sessions. `RenderDevice` shares pipelines. Each
+`RenderSession` owns its mutable resources in one `RenderState`; planning, input
+preparation, submission, and recycling use the same session lock. Preview and export use separate sessions.
 Background video preparation uses a `VideoFrameUploader` with independent
 conversion scratch. It shares pipelines and upload code with rendering, and
 submits converted frames before workers publish them.

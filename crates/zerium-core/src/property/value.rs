@@ -2,9 +2,10 @@
 
 use std::collections::HashMap;
 
+use super::{PropertyError, PropertyPath, ScalarPropertyType, schema::PropertySchema};
+
 use serde::{Deserialize, Serialize};
 
-use super::{PropertyError, PropertyPath, schema::PropertySchema};
 pub(crate) const MAX_STRING_BYTES: usize = 4_096;
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize)]
@@ -401,5 +402,35 @@ impl PropertyOverrides {
                         .map(|path| (PropertyPath::new(id, element_id, scalar_index), path))
                 })
         })
+    }
+}
+
+impl PropertyValue {
+    pub fn numeric_scalar(&self) -> Option<f64> {
+        match self {
+            Self::F32(value) => Some(f64::from(*value)),
+            Self::I32(value) => Some(f64::from(*value)),
+            Self::U32(value) => Some(f64::from(*value)),
+            _ => None,
+        }
+    }
+
+    pub fn numeric_text(&self) -> Option<String> {
+        match self {
+            Self::F32(value) => Some(value.to_string()),
+            Self::I32(value) => Some(value.to_string()),
+            Self::U32(value) => Some(value.to_string()),
+            _ => None,
+        }
+    }
+
+    pub fn with_numeric_scalar(&self, value: f64) -> Option<Self> {
+        let ty = match self {
+            Self::F32(_) => ScalarPropertyType::F32,
+            Self::I32(_) => ScalarPropertyType::I32,
+            Self::U32(_) => ScalarPropertyType::U32,
+            _ => return None,
+        };
+        ty.value_from_number(value)
     }
 }

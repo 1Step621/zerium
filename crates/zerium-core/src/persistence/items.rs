@@ -1,8 +1,5 @@
 //! Shared persisted items, effects, properties, and animation tracks.
-use super::{
-    ProjectError,
-    paths::{make_relative, resolve_path},
-};
+use super::{ProjectError, make_relative, resolve_path};
 use crate::{
     animation::{ScalarAnimations, ScalarTrack},
     plugin::PluginRegistry,
@@ -339,14 +336,12 @@ impl ProjectEffect {
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(in crate::persistence) struct ProjectScalarAnimation {
+pub(super) struct ProjectScalarAnimation {
     path: PropertyPath,
     track: ScalarTrack,
 }
 
-pub(in crate::persistence) fn capture_animations(
-    animations: &ScalarAnimations,
-) -> Vec<ProjectScalarAnimation> {
+pub(super) fn capture_animations(animations: &ScalarAnimations) -> Vec<ProjectScalarAnimation> {
     animations
         .tracks()
         .map(|(address, track)| ProjectScalarAnimation {
@@ -356,7 +351,7 @@ pub(in crate::persistence) fn capture_animations(
         .collect()
 }
 
-pub(in crate::persistence) fn load_animations(
+pub(super) fn load_animations(
     schema: &[PropertySchema],
     properties: &PropertyValues,
     animations: Vec<ProjectScalarAnimation>,

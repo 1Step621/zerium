@@ -72,6 +72,9 @@ reused within an evaluation scope.
 
 ### Scene variables and calculations
 
+Main and reusable scenes share `SceneDefinition`, including their document and
+variables. Main cannot be deleted or placed as an instance.
+
 A scene owns arguments and calculations in one variable collection:
 
 - Arguments define instance inputs, defaults, and optional evaluation limits.
@@ -79,6 +82,11 @@ A scene owns arguments and calculations in one variable collection:
   Evaluation samples the curve, then applies the limits before consumers read it.
 - Calculations declare an output type, a Rhai script, and named inputs connected
   to other variable IDs. They have no instance input or default value.
+
+Main has no parent instance, so its arguments always use their authored defaults
+and act as editable constants. Main exposes the same scene settings and property
+connections as other scenes, including calculations. Variables remain local to
+their scene; values reach child scenes through explicit instance argument bindings.
 
 References use stable IDs, independent of names and display order. Bindings can
 consume either kind of variable. A connected property cannot also own an
@@ -122,14 +130,12 @@ Paste validates remapped connections before committing.
 
 ### Inspector controls
 
-`ControlResolution` resolves domain values and editing context into a
-`ControlTree`. Tuple controls carry an optional aspect-ratio control. Row
-composition lives in module functions; `PropertyInspector` owns input entities,
-unfinished drafts and callbacks that update inspector state. Model synchronization preserves invalid or
-uncommitted calculation input text; input identities survive changes to other
-rows. The inspector and scene settings share a keyed `InputStore`, which owns
-input entities, subscriptions, draft preservation, and obsolete-row cleanup.
-Each field retains its own commit timing and model synchronization policy.
+`ControlTree` describes resolved property controls, including aspect-ratio controls
+for tuples. The inspector and scene settings use keyed
+[`InputStore`](../../crates/zerium/src/ui/components/input/mod.rs) collections to
+own input entities, subscriptions, and unfinished drafts. Input identities
+survive unrelated row changes; model synchronization preserves invalid or
+uncommitted calculation text. Each field keeps its own commit timing.
 Numeric controls display authored values and show the applied value when
 argument limits change the result.
 
@@ -161,9 +167,9 @@ operation begins, so crossing another value does not recruit more keys.
 Coincident preview handles choose the key nearest the playhead for each axis.
 
 `ValueEdit` owns fixed targets; its shared `EditSession` owns revision validation
-and Undo policy. Animation and timeline gestures use the same session type directly, with an
-explicit gesture policy; timed text edits use a coalescing policy. Inspector text and
-step edits coalesce by property and authored key using the history timeout.
+and Undo policy. Animation and timeline gestures use an explicit gesture policy;
+timed text edits use a coalescing policy. Inspector text and step edits coalesce
+by property and authored key using the history timeout.
 Preview gestures and inspector numeric drags keep one operation and one explicit
 Undo group until they end. They read back committed values and stop accepting
 updates after an intervening edit. Pausing within an operation does not split its
@@ -236,29 +242,22 @@ Project files store explicit property overrides, frame placement, authored anima
 data, and scene variable definitions. Metadata observations and their revisions
 are runtime data and are excluded from both project files and clipboard data.
 Core validates project and clipboard data; pasted items receive fresh IDs.
-Projects are saved with `format_version: 5`; timeline clipboard data uses version 4.
 Clipboard payloads include their source FPS so placement and animation keys can be
 retimed when pasted into a project with another frame rate. Playback properties
 retain their source interval and speed.
 Loading converts supported file versions to the current representation in memory
 before validating the project. Saving writes the current format.
 Version-specific transformations live in
-[`project/migration`](../../crates/zerium-core/src/persistence/project/migration/):
-`v1.rs` converts scene arguments to variables; `v2.rs` discards old path-wide
-media observations. `v3.rs` migrates version 3 directly to version 5, retaining
-authored source ranges without rounding and dropping derived clip durations.
-`v4.rs` converts version 4's separate source-clock representation into ordinary
-property overrides. Both routes retain explicit duration only for fixed clips.
-Media observations are rediscovered after loading.
-Unsupported versions are rejected before decoding their contents.
-Filesystem access and atomic replacement belong to
-[`engine::project_io`](../../crates/zerium/src/engine/project_io.rs).
+[`project/migration`](../../crates/zerium-core/src/persistence/project/migration/).
+Unsupported versions are rejected. The current project representation identifies
+`main_scene` within one `scenes` collection; main and reusable scenes store items
+and variables in the same form. Media observations are rediscovered after loading.
+Project file loading and saving belong to
+[`app::project::file`](../../crates/zerium/src/app/project/file.rs), using atomic
+transactions from [`app::storage`](../../crates/zerium/src/app/storage/mod.rs).
 
-[`ProjectSession`](../../crates/zerium/src/project_session.rs) identifies project
-generations so asynchronous results from a replaced project can be ignored.
-[`ProjectController`](../../crates/zerium/src/app/project_controller.rs) owns file
-operations and resets transient state on replacement. Active file pickers and
-exports keep their operation and task together until completion or cancellation.
+Asynchronous file operations reject results from replaced projects or obsolete
+edit contexts; see [Project and UI lifetimes](runtime.md#project-and-ui-lifetimes).
 
 Application preferences are separate from project files; see
 [Runtime services](runtime.md#application-state-and-configuration).

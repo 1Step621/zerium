@@ -3,10 +3,12 @@ use super::{
     ProjectError,
     items::{ProjectItem, load_items},
 };
-use crate::property::PropertyValue;
-use crate::timeline::{
-    EffectInstanceId, ItemId, LayerId, ProjectId, SceneBindingOwner, SceneBindingTarget, SceneId,
-    TimelineEditor, TimelineItem,
+use crate::{
+    property::PropertyValue,
+    timeline::{
+        EffectInstanceId, ItemId, LayerId, ProjectId, SceneBindingOwner, SceneBindingTarget,
+        SceneId, TimelineEditor, TimelineItem,
+    },
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -15,7 +17,7 @@ use std::{
 };
 
 const TIMELINE_CLIPBOARD_FORMAT: &str = "zerium/timeline-items";
-const TIMELINE_CLIPBOARD_FORMAT_VERSION: u32 = 4;
+const TIMELINE_CLIPBOARD_FORMAT_VERSION: u32 = 5;
 
 #[derive(Debug)]
 pub struct DecodedTimelineClipboard {
@@ -30,14 +32,14 @@ pub fn encode_timeline_clipboard(
     editor: &TimelineEditor,
 ) -> Result<String, ProjectError> {
     let source_scene = editor.active_scene_id();
-    let scene = source_scene.and_then(|id| editor.scene(id));
+    let scene = editor.active_scene();
     let ids = items
         .iter()
         .map(|(_, item)| item.id)
         .collect::<HashSet<_>>();
     let scene_bindings = scene
-        .into_iter()
-        .flat_map(|scene| scene.variables())
+        .variables()
+        .iter()
         .flat_map(|argument| {
             argument
                 .bindings
@@ -90,8 +92,11 @@ pub fn encode_timeline_clipboard(
             editor.frame_rate().numerator(),
             editor.frame_rate().denominator(),
         ],
-        source_scene: source_scene
-            .map(|scene| [scene.project().high(), scene.project().low(), scene.get()]),
+        source_scene: [
+            source_scene.project().high(),
+            source_scene.project().low(),
+            source_scene.get(),
+        ],
         items: items
             .iter()
             .map(|(layer, item)| ProjectItem::capture(item, *layer, Path::new("")))
@@ -121,17 +126,13 @@ pub fn decode_timeline_clipboard(
             "Unsupported clipboard format",
         ));
     }
-    let source_scene = file
-        .source_scene
-        .map(|[high, low, scene]| {
-            let project = ProjectId::from_parts(high, low)
-                .ok_or_else(|| ProjectError::invalid_data("Invalid project ID"))?;
-            if scene == 0 || scene == u64::MAX {
-                return Err(ProjectError::invalid_data("Invalid scene ID"));
-            }
-            Ok(SceneId::new(project, scene))
-        })
-        .transpose()?;
+    let [high, low, scene] = file.source_scene;
+    let project = ProjectId::from_parts(high, low)
+        .ok_or_else(|| ProjectError::invalid_data("Invalid project ID"))?;
+    if scene == u64::MAX {
+        return Err(ProjectError::invalid_data("Invalid scene ID"));
+    }
+    let source_scene = SceneId::new(project, scene);
     let scene_schemas = editor
         .scenes()
         .map(|scene| {
@@ -144,15 +145,11 @@ pub fn decode_timeline_clipboard(
             )
         })
         .collect::<HashMap<_, _>>();
-    let preserve_bindings = source_scene.is_some()
-        && source_scene == editor.active_scene_id()
-        && source_scene
-            .and_then(|id| editor.scene(id))
-            .is_some_and(|scene| {
-                file.scene_bindings
-                    .iter()
-                    .all(|(id, _)| scene.variable(id).is_some())
-            });
+    let preserve_bindings = source_scene == editor.active_scene_id()
+        && file
+            .scene_bindings
+            .iter()
+            .all(|(id, _)| editor.active_scene().variable(id).is_some());
     if !preserve_bindings {
         for property in &file.resolved_properties {
             if !file.items.iter_mut().any(|item| {
@@ -207,7 +204,7 @@ pub fn decode_timeline_clipboard(
         return Err(ProjectError::invalid_data("Invalid clipboard visibility"));
     }
     Ok(DecodedTimelineClipboard {
-        source_scene: preserve_bindings.then_some(source_scene).flatten(),
+        source_scene: preserve_bindings.then_some(source_scene),
         items,
         scene_bindings: if preserve_bindings {
             file.scene_bindings
@@ -225,7 +222,7 @@ struct TimelineClipboardFile {
     format: String,
     format_version: u32,
     frame_rate: [u32; 2],
-    source_scene: Option<[u64; 3]>,
+    source_scene: [u64; 3],
     items: Vec<ProjectItem>,
     scene_bindings: Vec<(String, SceneBindingTarget)>,
     resolved_properties: Vec<ClipboardProperty>,

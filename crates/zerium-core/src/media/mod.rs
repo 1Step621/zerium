@@ -1,12 +1,11 @@
 //! Media assets, reader metadata, and source playback.
 mod metadata;
-mod metadata_cache;
 mod playback;
 
-pub use metadata::{
-    FileMediaMetadata, MediaKind, MediaMetadata, MediaMetadataError, VideoFrameRate,
+pub use self::metadata::{
+    FileMediaMetadata, MediaKind, MediaMetadata, MediaMetadataCache, MediaMetadataError,
+    MediaRevision, ProbedFile, VideoFrameRate,
 };
-pub use metadata_cache::{MediaMetadataCache, MediaRevision, ProbedFile};
 pub use playback::{MediaEndBehavior, MediaPlayback, MediaSample};
 
 use crate::property::PropertyValues;

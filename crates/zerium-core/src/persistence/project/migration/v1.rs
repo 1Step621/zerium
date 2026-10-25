@@ -2,10 +2,12 @@
 use serde::Deserialize;
 use serde_json::{Map, Value};
 
-use super::{super::ProjectScene, invalid_format};
-use crate::persistence::{ProjectError, items::ProjectItem};
-use crate::property::PropertySchema;
-use crate::timeline::{SceneBindingTarget, SceneVariable};
+use super::invalid_format;
+use crate::{
+    persistence::{ProjectError, items::ProjectItem, project::ProjectScene},
+    property::PropertySchema,
+    timeline::{SceneBindingTarget, SceneVariable},
+};
 
 #[derive(Deserialize)]
 #[serde(untagged)]

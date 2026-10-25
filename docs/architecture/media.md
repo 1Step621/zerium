@@ -4,8 +4,9 @@
 
 ## Reader contracts
 
-[`engine/media`](../../crates/zerium/src/engine/media/) owns readers and timeline
-mixing. Scene evaluation requests media by asset, source time, and raster size.
+[`engine/input`](../../crates/zerium/src/engine/input/) owns source discovery and
+audio/visual reader contracts. Native-library adapters live with their readers.
+Scene evaluation requests media by asset, source time, and raster size.
 Reader IDs resolve to the bundled implementations through a fixed registry;
 there is no runtime reader registration or mutable lookup table.
 Preview and export own separate evaluators and decode sessions. Video selection
@@ -15,13 +16,11 @@ presentation interval. Raster images, SVG, and text share a byte-budgeted cache
 implementation; keys include raster size and, for text, content and style.
 Live consumers retain their pixel versions, while unused entries can be evicted.
 
-Image sequences are temporal sources backed by the current, naturally sorted
-contents of a directory. Background refreshes update cached metadata when image
-names, sizes, or modification times change. Metadata is discovered again after
-loading a project. Changes to the folder leave authored item intervals and trims
-unchanged. Frames share raster decoding with still images and use a bounded
-frame cache. Source FPS is an authored media-input reference, independent of the
-project cadence; source frame selection uses rational presentation intervals.
+Image sequences share raster decoding and caching with still images. Their source
+FPS is authored independently of project cadence; frame selection uses rational
+presentation intervals. Directory revisions track image names, sizes, and
+modification times without changing authored intervals. See
+[Image sequences](../plugin/inputs.md#image-sequences) for ordering and input rules.
 
 H.264 uses `gpu-video` when available, with a GStreamer software fallback.
 `VideoDecodeSession` owns decoder lifetime and the fallback policy;
@@ -57,7 +56,10 @@ semantics.
 
 ## Audio
 
-Playback, meters, and export share `AudioTimelineSnapshot` and one timeline mixer.
+[`engine/processing/audio`](../../crates/zerium/src/engine/processing/audio/) owns
+the timeline mixer and metering; [`engine/output/audio`](../../crates/zerium/src/engine/output/audio/)
+owns live device playback. Playback, meters, and export share
+`AudioTimelineSnapshot` and one timeline mixer.
 Preview captures the edited scene and visibility; export captures the root
 timeline. The immutable plan expands placements and resolves static decoder
 inputs. Only sources with loaded audio streams request gain evaluation.
@@ -95,7 +97,7 @@ blocking the UI.
 
 ## Preview
 
-[`PreviewFrameScheduler`](../../crates/zerium/src/engine/preview/) tracks scene
+[`PreviewFrameScheduler`](../../crates/zerium/src/app/preview/) tracks scene
 demand, including temporal samples. `FrameDemand` owns frame selection, cache
 retention and failure reporting. The scheduler selects requests and reconciles
 replies by generation; `DecodeWorker` owns its thread, request channel and
@@ -122,17 +124,19 @@ associated with current demand; removing a failed source removes its error statu
 ## Export
 
 The UI owns destination selection, progress, cancellation, and the background
-task. Project replacement cancels active work. The output path persists within
-the project session.
+task. [`app/export.rs`](../../crates/zerium/src/app/export.rs) orchestrates the
+frozen timeline workflow through engine input, processing, and output stages.
+Project replacement cancels active work. The output path persists within the
+project session.
 
 Export preserves media, audio timeline and visual calculation errors as distinct
 typed causes. It freezes the timeline and processes output frames in order.
-Evaluation, decoding, rendering, and encoding overlap through bounded queues. Output is
-converted to limited-range BT.709 NV12. Encoding uses Vulkan Video on Linux and
-Windows or VideoToolbox on macOS, with GStreamer's x264 fallback if a GPU encoder
+Evaluation, decoding, rendering, and encoding overlap through bounded queues.
+Output is converted to limited-range BT.709 NV12. Encoding uses Vulkan Video on
+Linux and Windows or VideoToolbox on macOS, with GStreamer's x264 fallback if a GPU encoder
 cannot initialize. Later failures are reported.
 
-`ExportVideoPipeline` dispatches backend submission and completion; rendering and
+`VideoOutput` dispatches backend submission and completion; rendering and
 color conversion are shared. GStreamer combines H.264 video and AAC audio into
 MP4. The completed temporary file is published atomically. A typed input-closure
 result preserves the upstream failure that caused it; cancellation and writer
