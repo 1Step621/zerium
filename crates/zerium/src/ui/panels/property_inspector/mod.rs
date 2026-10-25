@@ -10,6 +10,7 @@ mod target;
 use self::{
     editing::{edit_array, push_element},
     number_drag::PropertyValueDrag,
+    state::PropertySection,
 };
 
 use crate::{
@@ -21,7 +22,6 @@ use crate::{
                 file::FileInputController,
                 number::value::{NumericInputSpec, numeric_input_spec},
             },
-            pane::pane_header,
             search_picker::{SearchPicker, SearchPickerEntry},
         },
         workspace::notifications::UiNotifications,
@@ -88,6 +88,7 @@ pub(crate) struct PropertyInspector {
     scroll_handle: ScrollHandle,
     item_id: Option<ItemId>,
     store: state::ControlStore,
+    collapsed_sections: HashSet<PropertySection>,
     pub(in crate::ui) font_names: Vec<String>,
     pub(in crate::ui) effect_picker: Option<Entity<SearchPicker<EffectPickerTarget>>>,
     _subscriptions: Vec<Subscription>,
@@ -112,6 +113,7 @@ impl PropertyInspector {
                     document = next;
                     this.item_id = None;
                     this.effect_picker = None;
+                    this.collapsed_sections.clear();
                     this.reset_input_state();
                 }
                 this.sync_from_editor(window, cx);
@@ -125,6 +127,7 @@ impl PropertyInspector {
             }
             this.session_id = session_id;
             this.item_id = None;
+            this.collapsed_sections.clear();
             this.reset_input_state();
             cx.notify();
         });
@@ -140,6 +143,7 @@ impl PropertyInspector {
             scroll_handle: ScrollHandle::new(),
             item_id: None,
             store: state::ControlStore::default(),
+            collapsed_sections: HashSet::new(),
             font_names: {
                 let mut names = cx.text_system().all_font_names();
                 names.sort_unstable();

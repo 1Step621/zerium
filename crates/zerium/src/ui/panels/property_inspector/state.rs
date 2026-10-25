@@ -22,7 +22,27 @@ pub(super) struct ControlStore {
     pub animation_value_edit: Option<ValueEdit>,
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum PropertySection {
+    Item(ItemId),
+    Effect(ItemId, EffectInstanceId),
+}
+
 impl PropertyInspector {
+    pub(super) fn toggle_section(
+        &mut self,
+        section: PropertySection,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.finish_number_drag(cx);
+        self.focus_handle.focus(window, cx);
+        if !self.collapsed_sections.remove(&section) {
+            self.collapsed_sections.insert(section);
+        }
+        cx.notify();
+    }
+
     /// Get-or-create an input state for a control, syncing its displayed text.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn ensure_text(
@@ -245,6 +265,12 @@ impl PropertyInspector {
     pub(super) fn sync_from_editor(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         {
             let editor = self.editor.read(cx);
+            self.collapsed_sections.retain(|section| match section {
+                PropertySection::Item(id) => editor.item(*id).is_some(),
+                PropertySection::Effect(item_id, effect_id) => editor
+                    .item(*item_id)
+                    .is_some_and(|item| item.effects.iter().any(|effect| effect.id == *effect_id)),
+            });
             if self.item_id.is_none_or(|id| !editor.is_item_selected(id)) {
                 self.item_id = editor.selected_item_ids().next();
                 self.effect_picker = None;

@@ -64,6 +64,12 @@ removes it. Evaluation materializes a separate `PropertyValues` read model,
 including defaults, bindings, and animation. Playback properties use the same
 Inspector and authored override storage as other properties.
 
+The property inspector folds item properties and each effect independently.
+Fold state belongs to the view, survives selection changes within a scene, and
+resets when changing scenes or projects. Folded effects retain their header
+controls. Folding preserves input drafts and does not change authored properties
+or Undo history.
+
 Item and effect access share a resolved property owner. Scene bindings use
 `PropertyAddress` internally, with a separate serialized representation preserving
 the project and clipboard format. Each immutable variable collection has an

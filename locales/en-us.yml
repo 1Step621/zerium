@@ -31,6 +31,8 @@ _version: 1
 "explorer.file_count": "%{count} files"
 "inspector.unknown_item": "Unknown item"
 "inspector.properties": "Properties"
+"inspector.expand_properties": "Expand properties"
+"inspector.collapse_properties": "Collapse properties"
 "inspector.blend_mode": "Blend mode"
 "blend_mode.normal": "Normal"
 "blend_mode.darken": "Darken"

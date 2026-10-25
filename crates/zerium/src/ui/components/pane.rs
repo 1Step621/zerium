@@ -19,3 +19,30 @@ pub(crate) fn pane_header(colors: ThemeColor) -> Div {
         .text_sm()
         .text_color(colors.accent_foreground)
 }
+
+pub(crate) fn settings_section(colors: ThemeColor) -> Div {
+    div()
+        .w_full()
+        .min_w_0()
+        .flex_none()
+        .flex()
+        .flex_col()
+        .border_1()
+        .border_color(colors.border)
+        .rounded_md()
+}
+
+pub(crate) fn settings_section_header(colors: ThemeColor) -> Div {
+    div()
+        .w_full()
+        .min_w_0()
+        .flex_none()
+        .px_3()
+        .py_2()
+        .rounded_t_md()
+        .bg(colors.list_head)
+        .border_b_1()
+        .border_color(colors.border)
+        .text_sm()
+        .font_weight(gpui::FontWeight::SEMIBOLD)
+}

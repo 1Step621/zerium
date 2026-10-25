@@ -1,5 +1,6 @@
 mod calculation;
 use super::*;
+use crate::ui::components::pane::{settings_section, settings_section_header};
 use zerium_core::property::ScalarPropertyType;
 
 pub(super) struct SceneVariableRow {
@@ -140,32 +141,13 @@ impl SceneSettings {
         calculation: bool,
         render: &SceneSettingsRenderCtx<'_>,
     ) -> Div {
-        div()
-            .w_full()
-            .min_w_0()
-            .flex_none()
-            .flex()
-            .flex_col()
-            .border_1()
-            .border_color(render.colors.border)
-            .rounded_md()
+        settings_section(render.colors)
             .child(
-                div()
-                    .w_full()
-                    .flex_none()
-                    .px_3()
-                    .py_2()
-                    .rounded_t_md()
-                    .bg(render.colors.list_head)
-                    .border_b_1()
-                    .border_color(render.colors.border)
-                    .text_sm()
-                    .font_weight(gpui::FontWeight::SEMIBOLD)
-                    .child(if calculation {
-                        t!("calc.title").to_string()
-                    } else {
-                        t!("args.scene_arguments").to_string()
-                    }),
+                settings_section_header(render.colors).child(if calculation {
+                    t!("calc.title").to_string()
+                } else {
+                    t!("args.scene_arguments").to_string()
+                }),
             )
             .children(variables.iter().enumerate().map(|(index, variable)| {
                 div()

@@ -5,6 +5,7 @@ use super::{
     rows::{RenderCtx, elements_section, group_box, property_grid, scalar_full_row},
     *,
 };
+use crate::ui::components::pane::{settings_section, settings_section_header};
 use rust_i18n::t;
 use zerium_core::timeline::BlendMode;
 
@@ -94,20 +95,27 @@ impl PropertyInspector {
     fn item_element(&self, item: &TimelineItem, cx: &mut Context<Self>) -> gpui::AnyElement {
         let selector = self.target_selector(cx);
         let render = self.render_context(item, cx);
-        let header = item_header(item, &render, selector, cx);
+        let collapsed = self
+            .collapsed_sections
+            .contains(&PropertySection::Item(item.id));
+        let header = item_header(item, collapsed, &render, selector, cx);
         let has_visual = self.can_add_effect(cx);
         let mut controls = Vec::new();
         let mut effect_controls = Vec::new();
-        for control in self.store.tree.roots.iter().cloned() {
+        for control in &self.store.tree.roots {
             match control {
                 Control::Effect(effect) => {
-                    effect_controls.push(effect_element(effect, &render, cx))
+                    let collapsed = self
+                        .collapsed_sections
+                        .contains(&PropertySection::Effect(item.id, effect.id));
+                    effect_controls.push(effect_element(effect, collapsed, &render, cx))
                 }
-                control => {
-                    if let Some(control) = control_element(control, &render) {
+                control if !collapsed => {
+                    if let Some(control) = control_element(control.clone(), &render) {
                         controls.push(control);
                     }
                 }
+                _ => {}
             }
         }
         let effects = (!effect_controls.is_empty() || has_visual).then(|| {
@@ -115,22 +123,17 @@ impl PropertyInspector {
                 .id("effect-stack")
                 .relative()
                 .w_full()
+                .min_w_0()
+                .flex_none()
                 .flex()
                 .flex_col()
-                .gap_3()
+                .gap_4()
                 .when(effect_controls.is_empty(), |this| {
                     let inspector = render.inspector.clone();
                     this.context_menu(move |menu, _, cx| {
                         inspector.update(cx, |this, cx| this.effect_menu(menu, None, cx))
                     })
                 })
-                .child(
-                    div()
-                        .w_full()
-                        .h(px(1.))
-                        .flex_none()
-                        .bg(render.colors.border),
-                )
                 .children(effect_controls)
                 .when(has_visual, |this| {
                     this.child(add_effect_picker(
@@ -142,6 +145,7 @@ impl PropertyInspector {
         let item_editor = render.editor.clone();
         let item_controls =
             property_grid()
+                .p_3()
                 .gap_y_3()
                 .on_mouse_down(MouseButton::Left, move |_, _, cx| {
                     activate_edit_target(&item_editor, None, cx);
@@ -149,26 +153,22 @@ impl PropertyInspector {
                 .children(controls.into_iter().flat_map(
                     crate::ui::panels::property_inspector::rows::PropertyRow::into_cells,
                 ));
+        let item_section = settings_section(render.colors)
+            .child(header)
+            .when(!collapsed, |this| this.child(item_controls));
         div()
+            .id("property-inspector-scroll")
+            .track_scroll(&self.scroll_handle)
             .size_full()
+            .flex_1()
+            .min_h_0()
             .flex()
             .flex_col()
-            .child(header)
-            .child(
-                div()
-                    .id("property-inspector-scroll")
-                    .track_scroll(&self.scroll_handle)
-                    .w_full()
-                    .flex_1()
-                    .min_h_0()
-                    .flex()
-                    .flex_col()
-                    .overflow_y_scroll()
-                    .gap_3()
-                    .p_3()
-                    .child(item_controls)
-                    .when_some(effects, |this, effects| this.child(effects)),
-            )
+            .overflow_y_scroll()
+            .gap_4()
+            .p_3()
+            .child(item_section)
+            .when_some(effects, |this, effects| this.child(effects))
             .into_any_element()
     }
 
@@ -283,6 +283,7 @@ fn control_element(
 
 fn item_header(
     item: &TimelineItem,
+    collapsed: bool,
     render: &RenderCtx<'_>,
     selector: gpui::AnyElement,
     cx: &App,
@@ -292,7 +293,17 @@ fn item_header(
     let item_id = item.id;
     let blend_mode = item.blend_mode;
     let item_hidden = render.editor.read(cx).is_item_hidden(item_id);
-    pane_header(render.colors)
+    settings_section_header(render.colors)
+        .flex()
+        .items_center()
+        .gap_2()
+        .py_1()
+        .when(collapsed, |this| this.rounded_b_md().border_b_0())
+        .child(section_toggle(
+            PropertySection::Item(item_id),
+            collapsed,
+            &render.inspector,
+        ))
         .child(div().min_w_0().flex_1().overflow_hidden().child(selector))
         .child(
             Button::new("selected-item-blend-mode")
@@ -358,6 +369,7 @@ fn activate_edit_target(
 
 fn effect_header(
     effect: &EffectControl,
+    collapsed: bool,
     can_move_up: bool,
     can_move_down: bool,
     focused: bool,
@@ -373,17 +385,23 @@ fn effect_header(
     let move_down_editor = render.editor.clone();
     let remove_editor = render.editor.clone();
 
-    div()
-        .w_full()
+    settings_section_header(render.colors)
         .flex()
         .items_center()
         .justify_between()
+        .py_1()
+        .when(collapsed, |this| this.rounded_b_md().border_b_0())
         .child(
             div()
                 .id(SharedString::from(format!(
                     "effect-editor-title-{}",
                     effect_id.get()
                 )))
+                .min_w_0()
+                .flex_1()
+                .flex()
+                .items_center()
+                .gap_1()
                 .text_sm()
                 .text_color(if focused {
                     render.colors.accent_foreground
@@ -396,10 +414,16 @@ fn effect_header(
                 .on_click(move |_, _, cx| {
                     activate_edit_target(&title_editor, Some(effect_id), cx);
                 })
-                .child(label),
+                .child(section_toggle(
+                    PropertySection::Effect(item_id, effect_id),
+                    collapsed,
+                    &render.inspector,
+                ))
+                .child(div().min_w_0().truncate().child(label)),
         )
         .child(
             div()
+                .flex_none()
                 .flex()
                 .items_center()
                 .gap_1()
@@ -504,7 +528,8 @@ fn add_effect_picker(
 }
 
 fn effect_element(
-    effect: EffectControl,
+    effect: &EffectControl,
+    collapsed: bool,
     render: &RenderCtx<'_>,
     cx: &Context<PropertyInspector>,
 ) -> gpui::AnyElement {
@@ -518,40 +543,73 @@ fn effect_element(
             editor.can_move_effect(render.item_id, effect_id, 1),
         )
     };
-    let header = effect_header(&effect, can_move_up, can_move_down, focused, render);
-    let controls = effect
-        .children
-        .into_iter()
-        .filter_map(|control| control_element(control, render))
-        .collect::<Vec<_>>();
+    let header = effect_header(
+        effect,
+        collapsed,
+        can_move_up,
+        can_move_down,
+        focused,
+        render,
+    );
 
     let inspector = render.inspector.clone();
-    div()
+    settings_section(render.colors)
         .id(SharedString::from(format!(
             "effect-card-{}",
             effect_id.get()
         )))
         .relative()
-        .w_full()
-        .flex()
-        .flex_col()
-        .gap_2()
-        .pb_3()
         .context_menu(move |menu, _, cx| {
             inspector.update(cx, |this, cx| this.effect_menu(menu, Some(effect_id), cx))
         })
-        .border_b_1()
-        .border_color(render.colors.border)
         .on_mouse_down(MouseButton::Left, move |_, _, cx| {
             activate_edit_target(&effect_editor, Some(effect_id), cx);
         })
         .child(header)
-        .child(
-            property_grid().gap_y_2().children(
-                controls
-                    .into_iter()
-                    .flat_map(crate::ui::panels::property_inspector::rows::PropertyRow::into_cells),
-            ),
-        )
+        .when(!collapsed, |this| {
+            this.child(
+                property_grid().p_3().gap_y_2().children(
+                    effect
+                        .children
+                        .iter()
+                        .cloned()
+                        .filter_map(|control| control_element(control, render))
+                        .flat_map(
+                            crate::ui::panels::property_inspector::rows::PropertyRow::into_cells,
+                        ),
+                ),
+            )
+        })
         .into_any_element()
+}
+
+fn section_toggle(
+    section: PropertySection,
+    collapsed: bool,
+    inspector: &Entity<PropertyInspector>,
+) -> Button {
+    let id = match section {
+        PropertySection::Item(item_id) => ("toggle-item-properties", item_id.get()),
+        PropertySection::Effect(_, effect_id) => ("toggle-effect-properties", effect_id.get()),
+    };
+    let inspector = inspector.clone();
+    Button::new(id)
+        .small()
+        .compact()
+        .ghost()
+        .flex_none()
+        .icon(if collapsed {
+            IconName::ChevronRight
+        } else {
+            IconName::ChevronDown
+        })
+        .tooltip(if collapsed {
+            t!("inspector.expand_properties").to_string()
+        } else {
+            t!("inspector.collapse_properties").to_string()
+        })
+        .on_click(move |_, window, cx| {
+            inspector.update(cx, |this, cx| this.toggle_section(section, window, cx));
+            cx.stop_propagation();
+        })
 }
