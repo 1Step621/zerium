@@ -173,7 +173,18 @@ impl Timeline {
     ) {
         let position = window.mouse_position();
         let layer = self.layer_at_cursor(position, cx);
-        let target = self.context_target_at(layer, position.x, false, window, cx);
+        let target = if layer_scroll_base(&self.layer_scroll)
+            .bounds()
+            .contains(&position)
+        {
+            self.context_target_at(layer, position.x, false, window, cx)
+        } else {
+            ContextTarget {
+                layer,
+                start: self.editor.read(cx).playhead(),
+                item: None,
+            }
+        };
         self.cursor_layer = Some(layer);
         self.context_target = Some(target);
         self.open_item_picker(position, window, cx);

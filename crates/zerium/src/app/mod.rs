@@ -307,12 +307,11 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                     let close_window_lifetime_guard = preview.read(cx).window_lifetime_guard();
                     let operation_hints = cx.new({
                         let transport = transport.clone();
-                        let inspector = property_inspector.clone();
                         move |_| {
                             use crate::ui::workspace::operation_hints::{Hint, OperationHintBar};
                             OperationHintBar::new(move |_, cx| {
                                 let playing = transport.read(cx).is_playing();
-                                let mut hints = vec![
+                                vec![
                                     Hint::action(
                                         TogglePlayback,
                                         if playing {
@@ -329,15 +328,7 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                                             "timeline.play"
                                         },
                                     ),
-                                    Hint::action(OpenItemPicker, "hints.add_item"),
-                                ];
-                                if inspector.read(cx).can_add_effect(cx) {
-                                    hints.push(Hint::action(
-                                        OpenEffectPicker,
-                                        "inspector.add_effect",
-                                    ));
-                                }
-                                hints
+                                ]
                             })
                         }
                     });

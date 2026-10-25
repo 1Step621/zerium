@@ -243,6 +243,7 @@ impl Render for Workspace {
         let export_progress = self.export_controller.read(cx).export_progress();
         let cancelling = self.export_controller.read(cx).is_cancelling();
         let edit_timeline = self.timeline.clone();
+        let edit_inspector = self.property_inspector.clone();
         window.set_window_title(&self.project_controller.read(cx).window_title(cx));
         let drawer_layer = Root::render_drawer_layer(window, cx);
         let modal_layer = Root::render_modal_layer(window, cx);
@@ -351,6 +352,8 @@ impl Render for Workspace {
                                         let can_redo = timeline.can_redo(cx);
                                         let can_copy = timeline.can_copy_items(cx);
                                         let can_paste = timeline.can_paste_items(cx);
+                                        let can_add_effect =
+                                            edit_inspector.read(cx).can_add_effect(cx);
                                         menu.menu_with_disabled(
                                             t!("menu.undo").to_string(),
                                             Box::new(Undo),
@@ -376,6 +379,16 @@ impl Render for Workspace {
                                             t!("menu.paste").to_string(),
                                             Box::new(PasteItems),
                                             !can_paste,
+                                        )
+                                        .separator()
+                                        .menu(
+                                            t!("menu.add_item").to_string(),
+                                            Box::new(OpenItemPicker),
+                                        )
+                                        .menu_with_disabled(
+                                            t!("inspector.add_effect").to_string(),
+                                            Box::new(OpenEffectPicker),
+                                            !can_add_effect,
                                         )
                                         .separator()
                                         .menu(
