@@ -121,6 +121,11 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                 KeyBinding::new("i", OpenItemPicker, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
                 KeyBinding::new("e", OpenEffectPicker, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
                 KeyBinding::new(
+                    "s",
+                    SplitSelectedItems,
+                    Some(WORKSPACE_SHORTCUT_KEY_CONTEXT),
+                ),
+                KeyBinding::new(
                     "h",
                     HidePreviewOverlay,
                     Some(WORKSPACE_SHORTCUT_KEY_CONTEXT),

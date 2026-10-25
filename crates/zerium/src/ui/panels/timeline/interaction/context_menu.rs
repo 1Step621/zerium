@@ -11,10 +11,13 @@ use gpui::{
 
 use zerium_core::timeline::{Frame, ItemId, LayerId, SceneId, TimelineEditError, TimelineTime};
 
-use crate::ui::{
-    TimelineEditorEntityExt as _,
-    components::search_picker::{SearchPicker, SearchPickerEntry},
-    panels::timeline::{Timeline, layer_scroll_base},
+use crate::{
+    app::actions::SplitSelectedItems,
+    ui::{
+        TimelineEditorEntityExt as _,
+        components::search_picker::{SearchPicker, SearchPickerEntry},
+        panels::timeline::{Timeline, layer_scroll_base},
+    },
 };
 
 impl Timeline {
@@ -213,6 +216,7 @@ impl Timeline {
         });
         let can_group = self.editor.read(cx).selected_item_ids().count() >= 1;
         let can_paste = self.can_paste_items(cx);
+        let can_split = self.can_split_selected_items(cx);
         let paste_target = self
             .context_target
             .map(|target| (target.layer, target.start));
@@ -250,6 +254,11 @@ impl Timeline {
                     )
                 })
                 .separator()
+                .menu_with_disabled(
+                    t!("menu.split_items").to_string(),
+                    Box::new(SplitSelectedItems),
+                    !can_split,
+                )
                 .menu_handler_with_icon_and_disabled(
                     t!("curve.add_stop").to_string(),
                     IconName::Plus,

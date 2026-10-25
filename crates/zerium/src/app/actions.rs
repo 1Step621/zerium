@@ -5,6 +5,7 @@ gpui::actions!(
         CopySelectedItems,
         CutSelectedItems,
         PasteItems,
+        SplitSelectedItems,
         TogglePlayback,
         TogglePlaybackInPlace,
         PreviousFrame,

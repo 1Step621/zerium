@@ -99,6 +99,16 @@ impl Workspace {
             .update(cx, |timeline, cx| timeline.remove_selected_item(cx));
     }
 
+    fn split_selected_items(
+        &mut self,
+        _: &SplitSelectedItems,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.timeline
+            .update(cx, |timeline, cx| timeline.split_selected_items(cx));
+    }
+
     fn toggle_playback(
         &mut self,
         _: &TogglePlayback,
@@ -257,6 +267,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::copy_selected_items))
             .on_action(cx.listener(Self::cut_selected_items))
             .on_action(cx.listener(Self::paste_items))
+            .on_action(cx.listener(Self::split_selected_items))
             .on_action(cx.listener(Self::delete_selected_item))
             .on_action(cx.listener(Self::toggle_playback))
             .on_action(cx.listener(Self::toggle_playback_in_place))
@@ -352,6 +363,7 @@ impl Render for Workspace {
                                         let can_redo = timeline.can_redo(cx);
                                         let can_copy = timeline.can_copy_items(cx);
                                         let can_paste = timeline.can_paste_items(cx);
+                                        let can_split = timeline.can_split_selected_items(cx);
                                         let can_add_effect =
                                             edit_inspector.read(cx).can_add_effect(cx);
                                         menu.menu_with_disabled(
@@ -379,6 +391,11 @@ impl Render for Workspace {
                                             t!("menu.paste").to_string(),
                                             Box::new(PasteItems),
                                             !can_paste,
+                                        )
+                                        .menu_with_disabled(
+                                            t!("menu.split_items").to_string(),
+                                            Box::new(SplitSelectedItems),
+                                            !can_split,
                                         )
                                         .separator()
                                         .menu(

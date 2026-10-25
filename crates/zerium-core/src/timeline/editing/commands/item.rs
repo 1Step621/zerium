@@ -3,14 +3,14 @@ use std::collections::{HashMap, HashSet};
 use crate::{
     media::ImportedFile,
     timeline::{
-        BlendMode, EffectInstanceId, Frame, FrameRate, ItemId, LayerId, ResizeEdge, ResizeMode,
-        SceneBindingOwner, SceneBindingTarget, SceneId, TimelineEditError, TimelineEditor,
-        TimelineItem,
+        BlendMode, EffectInstanceId, Frame, FrameDuration, FrameRate, ItemId, LayerId, ResizeEdge,
+        ResizeMode, SceneBindingOwner, SceneBindingTarget, SceneId, TimelineEditError,
+        TimelineEditor, TimelineItem,
         editing::{
             gesture::EditSession,
             history::{EditImpact, HistoryKey},
         },
-        model::document::CopyPlacement,
+        model::document::{CopyPlacement, ItemEdit},
     },
 };
 
@@ -314,6 +314,65 @@ impl TimelineEditor {
         Some(item_id_map)
     }
 
+    fn split_candidates(&self, at: Frame) -> impl Iterator<Item = (LayerId, &TimelineItem)> {
+        self.selected_item_ids().filter_map(move |id| {
+            let item = self.item(id)?;
+            if item.start() >= at || at >= item.end_exclusive(self.frame_rate()) {
+                return None;
+            }
+            Some((self.item_layer(id)?, item))
+        })
+    }
+
+    pub fn can_split_selected_items(&self, at: Frame) -> bool {
+        self.split_candidates(at).next().is_some()
+    }
+
+    /// Split selected intervals using the same trim behavior as edge resizing.
+    pub fn split_selected_items(&mut self, at: Frame) -> bool {
+        let sources = self
+            .split_candidates(at)
+            .map(|(layer, item)| (layer, item.clone()))
+            .collect::<Vec<_>>();
+        let Some(target_layer) = sources.iter().map(|(layer, _)| layer.get()).min() else {
+            return false;
+        };
+        self.edit_project_option(EditImpact::MediaDependencies, None, |editor| {
+            let rate = editor.frame_rate();
+            let mut selected = editor.selected_item_ids().collect::<HashSet<_>>();
+            let mut left_edits = Vec::with_capacity(sources.len());
+            let mut right_items = Vec::with_capacity(sources.len());
+            for (layer, source) in &sources {
+                let mut left = ItemEdit::new(source.clone());
+                left.item.resize_to(
+                    source.start(),
+                    FrameDuration::new(at.get() - source.start().get())?,
+                    ResizeMode::Trim,
+                    rate,
+                )?;
+                let mut right = source.clone();
+                right.resize_to(
+                    at,
+                    FrameDuration::new(source.end_exclusive(rate).get() - at.get())?,
+                    ResizeMode::Trim,
+                    rate,
+                )?;
+                left_edits.push(left);
+                right_items.push((*layer, right));
+                selected.remove(&source.id);
+            }
+            let document = editor.active_document_mut();
+            let edits = document.prepare_item_edits(left_edits).ok()?;
+            document.publish_item_edits(edits);
+            let copies =
+                editor.duplicate_items_at(&right_items, (LayerId::new(target_layer), at))?;
+            selected.extend(copies.into_values());
+            editor.selection.set(selected);
+            Some(())
+        })
+        .is_some()
+    }
+
     /// Resize the selected intervals from their gesture origins.
     pub fn resize_items(
         &mut self,
@@ -438,9 +497,30 @@ impl TimelineEditor {
         let edits = document.prepare_item_edits(edits).ok()?;
         document.publish_item_edits(edits);
 
-        let source_ids = positions
+        let target_layer = origins
             .iter()
-            .map(|(id, _, _)| *id)
+            .map(|(layer, _)| layer.get())
+            .min()?
+            .checked_add_signed(layer_delta)?;
+        let target_start = origins
+            .iter()
+            .map(|(_, item)| item.start().get())
+            .min()?
+            .checked_add_signed(frame_delta)?;
+        self.duplicate_items_at(
+            origins,
+            (LayerId::new(target_layer), Frame::new(target_start)),
+        )
+    }
+
+    fn duplicate_items_at(
+        &mut self,
+        sources: &[(LayerId, TimelineItem)],
+        target: (LayerId, Frame),
+    ) -> Option<HashMap<ItemId, ItemId>> {
+        let source_ids = sources
+            .iter()
+            .map(|(_, item)| item.id)
             .collect::<HashSet<_>>();
         let bindings = self
             .active_scene()
@@ -454,31 +534,21 @@ impl TimelineEditor {
                     .map(|binding| (variable.id().to_owned(), binding.clone()))
             })
             .collect::<Vec<_>>();
-        let hidden_effects = origins
+        let hidden_effects = sources
             .iter()
             .flat_map(|(_, item)| &item.effects)
             .filter(|effect| self.visibility.is_effect_hidden(effect.id))
             .map(|effect| effect.id)
             .collect::<Vec<_>>();
-        let target_layer = origins
-            .iter()
-            .map(|(layer, _)| layer.get())
-            .min()?
-            .checked_add_signed(layer_delta)?;
-        let target_start = origins
-            .iter()
-            .map(|(_, item)| item.start().get())
-            .min()?
-            .checked_add_signed(frame_delta)?;
         let copies = self.insert_item_copies(
-            origins,
+            sources,
             Some(self.active_scene_id()),
             &bindings,
             &hidden_effects,
-            (LayerId::new(target_layer), Frame::new(target_start)),
+            target,
             CopyPlacement::Exact,
         )?;
-        let hidden_copies = origins
+        let hidden_copies = sources
             .iter()
             .filter(|(_, item)| self.visibility.is_item_hidden(item.id))
             .map(|(_, item)| copies[&item.id])

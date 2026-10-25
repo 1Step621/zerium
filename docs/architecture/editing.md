@@ -215,6 +215,14 @@ are segment settings and use the same synchronized editing and Undo as curves.
 
 ### Resizing and scene expansion
 
+Splitting selected items at the playhead duplicates each interval crossing that
+frame and trims the two halves using the ordinary trim rules below, including
+scene instances. It does not preserve the original curves or scene timing beyond
+those rules. Left halves retain their IDs; right halves receive new item/effect
+IDs and inherit scene bindings and preview visibility. Right halves replace the
+split items in the selection. Other selected items stay selected. The batch is
+one atomic, undoable edit; interval boundaries are not split.
+
 Items with a `playback` declaration store source start, source span, speed, and
 EOF behavior only as ordinary property overrides. Their frame duration is derived
 from source span, speed, and the document FPS. The source interval retains its

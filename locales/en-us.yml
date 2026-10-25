@@ -105,6 +105,7 @@ _version: 1
 "menu.copy": "Copy"
 "menu.cut": "Cut"
 "menu.paste": "Paste"
+"menu.split_items": "Split at playhead"
 "project.settings": "Project settings"
 "project.apply": "Apply"
 "project.width": "Width"

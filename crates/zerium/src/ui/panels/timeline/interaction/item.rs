@@ -1,6 +1,6 @@
 use std::{cell::Cell, rc::Rc};
 
-use gpui::{Context, Empty, EntityId, Modifiers, MouseDownEvent, Render, Window, prelude::*};
+use gpui::{App, Context, Empty, EntityId, Modifiers, MouseDownEvent, Render, Window, prelude::*};
 
 use zerium_core::timeline::{
     Frame, FrameRate, ItemId, ItemMoveEdit, ResizeEdge, ResizeMode, TimelineEditor, TimelineItem,
@@ -292,6 +292,25 @@ impl Timeline {
         self.item_drag.take();
         self.editor
             .update(cx, |editor, _| editor.finish_history_group());
+    }
+
+    pub(crate) fn can_split_selected_items(&self, cx: &App) -> bool {
+        let editor = self.editor.read(cx);
+        editor.can_split_selected_items(editor.playhead())
+    }
+
+    pub(crate) fn split_selected_items(&mut self, cx: &mut Context<Self>) {
+        let at = self.editor.read(cx).playhead();
+        if !self.editor.read(cx).can_split_selected_items(at) {
+            return;
+        }
+        self.transport.update(cx, |transport, cx| {
+            transport.stop_in_place(cx);
+            transport.set_playhead(at, cx);
+        });
+        self.finish_item_move(cx);
+        self.editor
+            .update_if_changed(cx, |editor| editor.split_selected_items(at));
     }
 
     pub(in crate::ui::panels::timeline) fn remove_item(
