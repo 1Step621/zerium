@@ -2,10 +2,7 @@
 mod binding;
 mod calculation;
 mod variable;
-pub(in crate::timeline) use self::{
-    binding::ResolvedSceneBinding, calculation::VariableEvaluator,
-    variable::unique_scene_variable_name,
-};
+pub(in crate::timeline) use self::{binding::ResolvedSceneBinding, calculation::VariableEvaluator};
 pub use self::{
     binding::{SceneBindingOwner, SceneBindingTarget, resolve_scene_binding},
     calculation::{
@@ -32,7 +29,6 @@ pub struct SceneDefinition {
     runtime: Arc<calculation::SceneRuntime>,
     document: Arc<TimelineDocument>,
     stretch_point: Frame,
-    next_variable_ordinal: Option<u64>,
 }
 
 impl SceneDefinition {
@@ -168,25 +164,12 @@ impl SceneDefinition {
         Arc::make_mut(&mut self.document)
     }
 
-    pub(in crate::timeline) fn allocate_variable_id(&mut self) -> Option<(String, u64)> {
-        let ordinal = self.next_variable_ordinal?;
-        self.next_variable_ordinal = ordinal.checked_add(1).filter(|id| *id != u64::MAX);
-        let identity = crate::timeline::ProjectId::generate();
-        Some((
-            format!("variable_{:016x}{:016x}", identity.high(), identity.low()),
-            ordinal,
-        ))
-    }
-
     pub fn from_project(
         id: SceneId,
         name: String,
         variables: Vec<SceneVariable>,
         document: TimelineDocument,
     ) -> Self {
-        let next_variable_ordinal = u64::try_from(variables.len())
-            .ok()
-            .and_then(|n| n.checked_add(1));
         let duration = document.end_frame_exclusive();
         let stretch_point = Frame::new(duration.get() / 2);
         Self {
@@ -196,7 +179,6 @@ impl SceneDefinition {
             runtime: Arc::default(),
             document: Arc::new(document),
             stretch_point,
-            next_variable_ordinal,
         }
     }
 }

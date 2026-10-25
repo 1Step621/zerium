@@ -1,5 +1,6 @@
 mod calculation;
 use super::*;
+use zerium_core::property::ScalarPropertyType;
 
 pub(super) struct SceneVariableRow {
     pub(super) scene_id: SceneId,
@@ -9,6 +10,7 @@ pub(super) struct SceneVariableRow {
 
 pub(super) struct SceneSettingsRenderCtx<'a> {
     pub(super) colors: ThemeColor,
+    pub(super) is_main_scene: bool,
     pub(super) editor: &'a Entity<TimelineEditor>,
     pub(super) settings: Entity<SceneSettings>,
     pub(super) active_scene_name_input: Option<Entity<InputState>>,
@@ -17,9 +19,20 @@ pub(super) struct SceneSettingsRenderCtx<'a> {
     pub(super) sources: Vec<(String, String)>,
 }
 
+impl SceneSettingsRenderCtx<'_> {
+    fn argument_value_label(&self) -> String {
+        if self.is_main_scene {
+            t!("args.value").to_string()
+        } else {
+            t!("args.default").to_string()
+        }
+    }
+}
+
 impl Render for SceneSettings {
     fn render(&mut self, _: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let scene = self.editor.read(cx).active_scene();
+        let editor = self.editor.read(cx);
+        let scene = editor.active_scene();
         let evaluation = scene.evaluate_default_variables();
         let args = scene
             .variables()
@@ -36,6 +49,7 @@ impl Render for SceneSettings {
             .collect::<Vec<_>>();
         let render = SceneSettingsRenderCtx {
             colors: cx.theme().colors,
+            is_main_scene: scene.id == editor.main_scene_id(),
             sources: args
                 .iter()
                 .map(|row| {
@@ -81,7 +95,7 @@ impl Render for SceneSettings {
                     .flex_col()
                     .overflow_y_scroll()
                     .track_scroll(&self.scroll_handle)
-                    .gap_3()
+                    .gap_4()
                     .p_3()
                     .children(self.scene_settings_elements(&args, &render)),
             )
@@ -98,37 +112,79 @@ impl SceneSettings {
         let (input_arguments, calculations): (Vec<_>, Vec<_>) = arguments
             .iter()
             .partition(|row| row.variable.calculation().is_none());
-        let rows = input_arguments
-            .iter()
-            .enumerate()
-            .map(|(index, argument)| {
-                self.scene_argument_element(index, input_arguments.len(), argument, render)
-            })
-            .collect::<Vec<_>>();
-
         let mut elements = Vec::new();
         if let Some(input) = active_scene_name_input {
             elements.push(
-                scene_text_input_row(t!("args.scene_name").to_string(), input)
-                    .flex_none()
-                    .into_any_element(),
+                scene_value_row(
+                    t!("args.scene_name").to_string(),
+                    Input::new(&input).small().w_full(),
+                )
+                .flex_none()
+                .into_any_element(),
             );
         }
         elements.push(
-            scene_variables_header(render.editor, false)
-                .flex_none()
+            self.scene_variables_section(&input_arguments, false, render)
                 .into_any_element(),
         );
-        elements.extend(rows);
         elements.push(
-            scene_variables_header(render.editor, true)
-                .flex_none()
+            self.scene_variables_section(&calculations, true, render)
                 .into_any_element(),
         );
-        elements.extend(calculations.iter().enumerate().map(|(index, variable)| {
-            self.scene_argument_element(index, calculations.len(), variable, render)
-        }));
         elements
+    }
+
+    fn scene_variables_section(
+        &self,
+        variables: &[&SceneVariableRow],
+        calculation: bool,
+        render: &SceneSettingsRenderCtx<'_>,
+    ) -> Div {
+        div()
+            .w_full()
+            .min_w_0()
+            .flex_none()
+            .flex()
+            .flex_col()
+            .border_1()
+            .border_color(render.colors.border)
+            .rounded_md()
+            .child(
+                div()
+                    .w_full()
+                    .flex_none()
+                    .px_3()
+                    .py_2()
+                    .rounded_t_md()
+                    .bg(render.colors.list_head)
+                    .border_b_1()
+                    .border_color(render.colors.border)
+                    .text_sm()
+                    .font_weight(gpui::FontWeight::SEMIBOLD)
+                    .child(if calculation {
+                        t!("calc.title").to_string()
+                    } else {
+                        t!("args.scene_arguments").to_string()
+                    }),
+            )
+            .children(variables.iter().enumerate().map(|(index, variable)| {
+                div()
+                    .w_full()
+                    .min_w_0()
+                    .flex_none()
+                    .p_3()
+                    .border_b_1()
+                    .border_color(render.colors.border)
+                    .child(self.scene_argument_element(index, variables.len(), variable, render))
+            }))
+            .child(
+                div()
+                    .w_full()
+                    .flex_none()
+                    .flex()
+                    .p_3()
+                    .child(scene_variable_add_button(render.editor, calculation)),
+            )
     }
 
     fn scene_argument_element(
@@ -173,7 +229,8 @@ impl SceneSettings {
         let mut details = div().w_full().flex().flex_col().gap_2();
         if let Some(settings) = self.numeric_scene_argument_settings(argument, render) {
             details = details.child(settings);
-            if let Some(Ok(applied)) = &argument.result
+            if !render.is_main_scene
+                && let Some(Ok(applied)) = &argument.result
                 && applied != &schema.default_value()
                 && let Some(value) = applied.numeric_text()
             {
@@ -189,35 +246,43 @@ impl SceneSettings {
             argument.scene_id,
             argument.variable.id(),
         )) {
-            details = details.child(scene_text_input_row(t!("args.default").to_string(), input));
+            details = details.child(scene_value_row(
+                render.argument_value_label(),
+                Input::new(&input).small().w_full(),
+            ));
         }
         if let Some(picker) = self.store.inputs.color(&ControlId::scene_argument_color(
             argument.scene_id,
             argument.variable.id(),
         )) {
-            details = details.child(scene_color_row(picker));
+            details = details.child(scene_value_row(
+                render.argument_value_label(),
+                crate::ui::panels::preview::color_input(&picker),
+            ));
         }
         if let PropertyValue::Bool(checked) = schema.default_value() {
-            details = details.child(scene_bool_row(
-                argument.variable.id().to_owned(),
-                checked,
-                render.editor,
+            details = details.child(scene_value_row(
+                render.argument_value_label(),
+                scene_bool_input(argument.variable.id().to_owned(), checked, render.editor),
             ));
         }
         if let PropertyValue::File(file) = schema.default_value() {
-            details = details.child(crate::ui::components::input::file::file_picker(
-                &render.file_input,
-                SharedString::from(format!("argument-file-{}", argument.variable.id())),
-                FileTarget::Argument {
-                    scene_id: argument.scene_id,
-                    argument_id: argument.variable.id().to_owned(),
-                },
-                crate::ui::components::input::file::FilePickerOptions {
-                    path: file.as_deref(),
-                    directory: schema.configuration_ui(None).selects_directory(),
-                    selecting: render.selecting_file,
-                    disabled: false,
-                },
+            details = details.child(scene_value_row(
+                render.argument_value_label(),
+                crate::ui::components::input::file::file_picker(
+                    &render.file_input,
+                    SharedString::from(format!("argument-file-{}", argument.variable.id())),
+                    FileTarget::Argument {
+                        scene_id: argument.scene_id,
+                        argument_id: argument.variable.id().to_owned(),
+                    },
+                    crate::ui::components::input::file::FilePickerOptions {
+                        path: file.as_deref(),
+                        directory: schema.configuration_ui(None).selects_directory(),
+                        selecting: render.selecting_file,
+                        disabled: false,
+                    },
+                ),
             ));
         }
         details.into_any_element()
@@ -228,28 +293,30 @@ impl SceneSettings {
         argument: &SceneVariableRow,
         render: &SceneSettingsRenderCtx<'_>,
     ) -> Option<gpui::AnyElement> {
-        let rows = [
-            (NumericSetting::Default, t!("args.default")),
-            (NumericSetting::Min, t!("args.minimum")),
-            (NumericSetting::Max, t!("args.maximum")),
-        ]
-        .into_iter()
-        .map(|(setting, label)| {
-            let input = self.store.inputs.text(&ControlId::scene_argument_setting(
-                argument.scene_id,
-                argument.variable.id(),
-                setting,
-            ))?;
-            Some(scene_argument_setting_row(
-                label.to_string(),
-                &input,
-                argument.scene_id,
-                argument.variable.id(),
-                setting,
-                &render.settings,
-            ))
-        })
-        .collect::<Option<Vec<_>>>()?;
+        let rows = NumericSetting::visible(render.is_main_scene)
+            .iter()
+            .copied()
+            .map(|setting| {
+                let label = match setting {
+                    NumericSetting::Default => render.argument_value_label(),
+                    NumericSetting::Min => t!("args.minimum").to_string(),
+                    NumericSetting::Max => t!("args.maximum").to_string(),
+                };
+                let input = self.store.inputs.text(&ControlId::scene_argument_setting(
+                    argument.scene_id,
+                    argument.variable.id(),
+                    setting,
+                ))?;
+                Some(scene_argument_setting_row(
+                    label,
+                    &input,
+                    argument.scene_id,
+                    argument.variable.id(),
+                    setting,
+                    &render.settings,
+                ))
+            })
+            .collect::<Option<Vec<_>>>()?;
         Some(
             div()
                 .w_full()
@@ -278,71 +345,63 @@ fn property_label_column(label: impl Into<SharedString>) -> Div {
         )
 }
 
-fn scene_variables_header(editor: &Entity<TimelineEditor>, calculation: bool) -> Div {
+fn scene_variable_add_button(
+    editor: &Entity<TimelineEditor>,
+    calculation: bool,
+) -> impl IntoElement {
     let create_editor = editor.clone();
-    div()
-        .w_full()
-        .flex()
-        .items_center()
-        .justify_between()
-        .child(div().text_sm().child(if calculation {
-            t!("calc.title").to_string()
-        } else {
-            t!("args.scene_arguments").to_string()
-        }))
-        .child(
-            Button::new(if calculation {
-                "create-scene-calculation"
-            } else {
-                "create-scene-argument"
-            })
-            .small()
-            .compact()
-            .label(if calculation {
-                t!("calc.create").to_string()
-            } else {
-                t!("args.create").to_string()
-            })
-            .dropdown_caret(true)
-            .popup_menu(move |menu, _, _| {
-                [
-                    (t!("args.number").to_string(), SceneVariablePreset::Number),
-                    (
-                        t!("args.integer").to_string(),
-                        SceneVariablePreset::SignedInteger,
-                    ),
-                    (
-                        t!("args.unsigned_integer").to_string(),
-                        SceneVariablePreset::UnsignedInteger,
-                    ),
-                    (t!("args.boolean").to_string(), SceneVariablePreset::Boolean),
-                    (t!("args.color").to_string(), SceneVariablePreset::Color),
-                    (t!("args.string").to_string(), SceneVariablePreset::Text),
-                    (t!("args.file").to_string(), SceneVariablePreset::File),
-                ]
-                .into_iter()
-                .filter(|(_, preset)| !calculation || *preset != SceneVariablePreset::File)
-                .fold(menu, |menu, (label, ty)| {
-                    let editor = create_editor.clone();
-                    menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
-                        editor.update(cx, |editor, cx| {
-                            let created = if calculation {
-                                editor.create_scene_calculation(ty, |ordinal| {
-                                    t!("calc.new", number = ordinal).to_string()
-                                })
-                            } else {
-                                editor.create_scene_argument(ty, |ordinal| {
-                                    t!("args.new_argument", number = ordinal).to_string()
-                                })
-                            };
-                            if created.is_some() {
-                                cx.notify();
-                            }
-                        });
-                    }))
-                })
-            }),
-        )
+    Button::new(if calculation {
+        "create-scene-calculation"
+    } else {
+        "create-scene-argument"
+    })
+    .small()
+    .compact()
+    .icon(IconName::Plus)
+    .label(if calculation {
+        t!("calc.create").to_string()
+    } else {
+        t!("args.create").to_string()
+    })
+    .dropdown_caret(true)
+    .popup_menu(move |menu, _, _| {
+        [
+            (t!("args.number").to_string(), SceneVariablePreset::Number),
+            (
+                t!("args.integer").to_string(),
+                SceneVariablePreset::SignedInteger,
+            ),
+            (
+                t!("args.unsigned_integer").to_string(),
+                SceneVariablePreset::UnsignedInteger,
+            ),
+            (t!("args.boolean").to_string(), SceneVariablePreset::Boolean),
+            (t!("args.color").to_string(), SceneVariablePreset::Color),
+            (t!("args.string").to_string(), SceneVariablePreset::Text),
+            (t!("args.file").to_string(), SceneVariablePreset::File),
+        ]
+        .into_iter()
+        .filter(|(_, preset)| !calculation || *preset != SceneVariablePreset::File)
+        .fold(menu, |menu, (label, ty)| {
+            let editor = create_editor.clone();
+            menu.item(PopupMenuItem::new(label).on_click(move |_, _, cx| {
+                editor.update(cx, |editor, cx| {
+                    let created = if calculation {
+                        editor.create_scene_calculation(ty, |number| {
+                            t!("calc.new", number = number).to_string()
+                        })
+                    } else {
+                        editor.create_scene_argument(ty, |number| {
+                            t!("args.new_argument", number = number).to_string()
+                        })
+                    };
+                    if created.is_some() {
+                        cx.notify();
+                    }
+                });
+            }))
+        })
+    })
 }
 
 fn scene_argument_header(
@@ -366,6 +425,24 @@ fn scene_argument_header(
         .flex_none()
         .items_center()
         .gap_2()
+        .when(argument.variable.calculation().is_some(), |this| {
+            let label = match argument.variable.ty() {
+                ScalarPropertyType::F32 => t!("args.number"),
+                ScalarPropertyType::I32 => t!("args.integer"),
+                ScalarPropertyType::U32 => t!("args.unsigned_integer"),
+                ScalarPropertyType::Bool => t!("args.boolean"),
+                ScalarPropertyType::String => t!("args.string"),
+                _ => t!("args.color"),
+            };
+            this.child(
+                div()
+                    .flex_none()
+                    .whitespace_nowrap()
+                    .text_xs()
+                    .text_color(render.colors.muted_foreground)
+                    .child(label.to_string()),
+            )
+        })
         .child(
             div()
                 .w_0()
@@ -469,13 +546,9 @@ fn scene_argument_setting_row(
     settings: &Entity<SceneSettings>,
 ) -> gpui::AnyElement {
     let argument_id = argument_id.to_owned();
-    div()
-        .w_full()
-        .flex()
-        .items_center()
-        .gap_3()
-        .child(property_label_column(label))
-        .child(crate::ui::components::input::number::number_input_drag(
+    scene_value_row(
+        label,
+        crate::ui::components::input::number::number_input_drag(
             settings,
             input,
             NumberInput::new(input).small().w_full(),
@@ -483,11 +556,12 @@ fn scene_argument_setting_row(
             move |this, event, cx| {
                 this.prepare_scene_argument_value_drag(scene_id, &argument_id, setting, event, cx)
             },
-        ))
-        .into_any_element()
+        ),
+    )
+    .into_any_element()
 }
 
-fn scene_text_input_row(label: String, input: Entity<InputState>) -> Div {
+fn scene_value_row(label: String, input: impl IntoElement) -> Div {
     div()
         .w_full()
         .min_w_0()
@@ -495,55 +569,23 @@ fn scene_text_input_row(label: String, input: Entity<InputState>) -> Div {
         .items_center()
         .gap_3()
         .child(property_label_column(label))
-        .child(
-            div()
-                .w_0()
-                .min_w_0()
-                .flex_1()
-                .child(Input::new(&input).small().w_full()),
-        )
+        .child(div().w_0().min_w_0().flex_1().flex().child(input))
 }
 
-fn scene_color_row(picker: Entity<ColorPickerState>) -> Div {
-    div()
-        .w_full()
-        .flex()
-        .items_center()
-        .gap_3()
-        .child(property_label_column(t!("args.default").to_string()))
-        .child(
-            div()
-                .w_0()
-                .min_w_0()
-                .flex_1()
-                .child(crate::ui::panels::preview::color_input(&picker)),
-        )
-}
-
-fn scene_bool_row(argument_id: String, checked: bool, editor: &Entity<TimelineEditor>) -> Div {
+fn scene_bool_input(argument_id: String, checked: bool, editor: &Entity<TimelineEditor>) -> Switch {
     let editor = editor.clone();
-    let switch_id = argument_id.clone();
-    div()
-        .w_full()
-        .flex()
-        .items_center()
-        .gap_3()
-        .child(property_label_column(t!("args.default").to_string()))
-        .child(
-            Switch::new(SharedString::from(format!(
-                "scene-argument-default-{switch_id}"
-            )))
-            .small()
-            .checked(checked)
-            .on_click(move |checked, _, cx| {
-                editor.update(cx, |editor, cx| {
-                    if editor
-                        .update_scene_argument_default(&argument_id, PropertyValue::Bool(*checked))
-                        == Ok(true)
-                    {
-                        cx.notify();
-                    }
-                });
-            }),
-        )
+    Switch::new(SharedString::from(format!(
+        "scene-argument-default-{argument_id}"
+    )))
+    .small()
+    .checked(checked)
+    .on_click(move |checked, _, cx| {
+        editor.update(cx, |editor, cx| {
+            if editor.update_scene_argument_default(&argument_id, PropertyValue::Bool(*checked))
+                == Ok(true)
+            {
+                cx.notify();
+            }
+        });
+    })
 }

@@ -237,27 +237,3 @@ impl SceneVariable {
         true
     }
 }
-
-pub(in crate::timeline) fn unique_scene_variable_name(
-    variables: &[SceneVariable],
-    preferred: &str,
-    fallback: &str,
-) -> String {
-    let preferred = if preferred.trim().is_empty() {
-        fallback
-    } else {
-        preferred.trim()
-    };
-    let duplicate = |candidate: &str| {
-        variables
-            .iter()
-            .any(|variable| variable.label() == candidate)
-    };
-    if !duplicate(preferred) {
-        return preferred.to_owned();
-    }
-    (2_u64..)
-        .map(|suffix| format!("{preferred}_{suffix}"))
-        .find(|candidate| !duplicate(candidate))
-        .expect("a variable name is available")
-}

@@ -48,20 +48,6 @@ impl SceneSettings {
             .cloned()
             .collect::<Vec<_>>();
         let mut details = div().w_full().min_w_0().flex().flex_col().gap_2();
-        let ty = match row.variable.ty() {
-            zerium_core::property::ScalarPropertyType::F32 => t!("args.number"),
-            zerium_core::property::ScalarPropertyType::I32 => t!("args.integer"),
-            zerium_core::property::ScalarPropertyType::U32 => t!("args.unsigned_integer"),
-            zerium_core::property::ScalarPropertyType::Bool => t!("args.boolean"),
-            zerium_core::property::ScalarPropertyType::String => t!("args.string"),
-            _ => t!("args.color"),
-        };
-        details = details.child(
-            div()
-                .text_sm()
-                .text_color(render.colors.muted_foreground)
-                .child(t!("calc.output_type", ty = ty).to_string()),
-        );
         for (index, input) in calculation.inputs.iter().enumerate() {
             let Some(name_input) = self.store.inputs.text(&ControlId::CalculationInputName {
                 scene_id: row.scene_id,

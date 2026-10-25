@@ -9,7 +9,9 @@ pub(super) struct SettingsStore {
 
 impl SceneSettings {
     pub(super) fn sync_inputs(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        let scene = self.editor.read(cx).active_scene();
+        let editor = self.editor.read(cx);
+        let scene = editor.active_scene();
+        let is_main_scene = scene.id == editor.main_scene_id();
         let (scene_id, name, arguments) =
             (scene.id, scene.name.clone(), scene.variables().to_vec());
         let mut texts = vec![(ControlId::scene_name(scene_id), name)];
@@ -44,13 +46,11 @@ impl SceneSettings {
             let schema = argument.argument_schema().expect("argument row");
             if let Some(number) = NumericInput::for_schema(schema) {
                 if let Some(values) = NumericSettingDraft::for_argument(&argument) {
-                    for (setting, text) in NumericSetting::ALL
-                        .into_iter()
-                        .zip(values.formatted(&number))
-                    {
+                    let formatted = values.formatted(&number);
+                    for &setting in NumericSetting::visible(is_main_scene) {
                         texts.push((
                             ControlId::scene_argument_setting(scene_id, argument_id, setting),
-                            text,
+                            formatted[setting as usize].clone(),
                         ));
                     }
                 }
@@ -195,6 +195,14 @@ pub(super) enum NumericSetting {
 
 impl NumericSetting {
     pub(super) const ALL: [Self; 3] = [Self::Default, Self::Min, Self::Max];
+
+    pub(super) fn visible(is_main_scene: bool) -> &'static [Self] {
+        if is_main_scene {
+            &[Self::Default]
+        } else {
+            &Self::ALL
+        }
+    }
 
     pub(super) fn placeholder(self) -> String {
         match self {

@@ -171,6 +171,7 @@ _version: 1
 "args.binding_count": "%{count} bindings"
 "args.remove": "Remove variable"
 "args.default": "Default"
+"args.value": "Value"
 "args.applied_value": "Applied value: %{value}"
 "args.minimum": "Minimum"
 "args.maximum": "Maximum"
@@ -296,7 +297,6 @@ _version: 1
 "calc.add_input": "Add input variable"
 "calc.remove_input": "Remove input variable"
 "calc.missing_input": "Missing input"
-"calc.output_type": "Output type: %{ty}"
 "calc.result": "Result: %{value}"
 "calc.edit_failed": "Cannot connect input: %{error}"
 

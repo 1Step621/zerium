@@ -10,7 +10,7 @@ impl TimelineEditor {
     pub fn create_scene_calculation(
         &mut self,
         preset: SceneVariablePreset,
-        label: impl FnOnce(u64) -> String,
+        label: impl FnMut(u64) -> String,
     ) -> Option<String> {
         if preset == SceneVariablePreset::File {
             return None;

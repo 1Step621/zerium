@@ -171,6 +171,7 @@ _version: 1
 "args.binding_count": "%{count}件接続"
 "args.remove": "変数を削除"
 "args.default": "デフォルト"
+"args.value": "値"
 "args.applied_value": "適用値: %{value}"
 "args.minimum": "最小"
 "args.maximum": "最大"
@@ -296,7 +297,6 @@ _version: 1
 "calc.add_input": "入力変数を追加"
 "calc.remove_input": "入力変数を削除"
 "calc.missing_input": "参照先がありません"
-"calc.output_type": "出力の型: %{ty}"
 "calc.result": "結果: %{value}"
 "calc.edit_failed": "入力を設定できません: %{error}"
 

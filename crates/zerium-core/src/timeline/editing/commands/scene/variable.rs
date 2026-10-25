@@ -1,15 +1,13 @@
 use crate::{
     property::PropertyValue,
     timeline::{
-        EffectInstanceId, ItemId, SceneBindingOwner, SceneBindingTarget, SceneDefinition, SceneId,
-        SceneVariable, SceneVariablePreset, TimelineEditor, TimelineItem,
+        EffectInstanceId, ItemId, ProjectId, SceneBindingOwner, SceneBindingTarget,
+        SceneDefinition, SceneId, SceneVariable, SceneVariablePreset, TimelineEditor, TimelineItem,
         editing::{
             commands::SceneVariableEditError,
             history::{EditImpact, HistoryKey},
         },
-        model::scene::{
-            apply_scene_binding_to_item, resolve_scene_binding, unique_scene_variable_name,
-        },
+        model::scene::{apply_scene_binding_to_item, resolve_scene_binding},
     },
 };
 use std::collections::{HashMap, HashSet};
@@ -134,7 +132,7 @@ impl TimelineEditor {
     pub fn create_scene_argument(
         &mut self,
         preset: SceneVariablePreset,
-        label: impl FnOnce(u64) -> String,
+        label: impl FnMut(u64) -> String,
     ) -> Option<String> {
         self.create_scene_variable(preset, label, None)
     }
@@ -142,15 +140,23 @@ impl TimelineEditor {
     pub(super) fn create_scene_variable(
         &mut self,
         preset: SceneVariablePreset,
-        label: impl FnOnce(u64) -> String,
+        label: impl FnMut(u64) -> String,
         calculation: Option<crate::timeline::SceneCalculation>,
     ) -> Option<String> {
         let scene_id = self.active_scene_id();
         self.edit_project_option(EditImpact::Values, None, |editor| {
             let scene = editor.project_mut().scenes_mut().get_mut(&scene_id)?;
-            let (argument_id, ordinal) = scene.allocate_variable_id()?;
-            let label =
-                unique_scene_variable_name(scene.variables(), &label(ordinal), &argument_id);
+            let label = (1_u64..)
+                .map(label)
+                .find(|candidate| {
+                    !scene
+                        .variables()
+                        .iter()
+                        .any(|variable| variable.label() == candidate)
+                })
+                .expect("a variable name is available");
+            let identity = ProjectId::generate();
+            let argument_id = format!("variable_{:016x}{:016x}", identity.high(), identity.low());
             let variable = if let Some(program) = calculation {
                 SceneVariable::calculated(argument_id.clone(), label, preset.ty(), program)
             } else {

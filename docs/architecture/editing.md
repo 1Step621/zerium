@@ -84,8 +84,8 @@ A scene owns arguments and calculations in one variable collection:
   to other variable IDs. They have no instance input or default value.
 
 Main has no parent instance, so its arguments always use their authored defaults
-and act as editable constants. Main exposes the same scene settings and property
-connections as other scenes, including calculations. Variables remain local to
+and act as editable constants. Scene settings present them as values, without
+argument-limit controls. Main supports property connections and calculations. Variables remain local to
 their scene; values reach child scenes through explicit instance argument bindings.
 
 References use stable IDs, independent of names and display order. Bindings can

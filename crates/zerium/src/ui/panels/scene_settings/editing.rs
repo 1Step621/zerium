@@ -3,7 +3,7 @@ use crate::ui::components::input::set_input_text;
 
 pub(super) struct NumericArgument {
     pub number: NumericInput,
-    pub inputs: [Entity<InputState>; 3],
+    pub inputs: [Option<Entity<InputState>>; 3],
     pub values: NumericSettingDraft,
 }
 
@@ -80,25 +80,25 @@ impl SceneSettings {
         if editor.active_scene_id() != scene_id {
             return None;
         }
-        let schema = editor
-            .scene(scene_id)?
-            .argument(argument_id)?
-            .argument_schema()?;
-        let number = NumericInput::for_schema(schema)?;
-        let [Some(default), Some(min), Some(max)] = NumericSetting::ALL.map(|setting| {
+        let variable = editor.scene(scene_id)?.argument(argument_id)?;
+        let number = NumericInput::for_schema(variable.argument_schema()?)?;
+        let inputs = NumericSetting::ALL.map(|setting| {
             self.store.inputs.text(&ControlId::scene_argument_setting(
                 scene_id,
                 argument_id,
                 setting,
             ))
-        }) else {
-            return None;
-        };
-        let inputs = [default, min, max];
-        let values = NumericSettingDraft::parse(
-            &number,
-            &inputs.each_ref().map(|input| input.read(cx).value()),
-        )?;
+        });
+        inputs[NumericSetting::Default as usize].as_ref()?;
+        let mut text = NumericSettingDraft::for_argument(variable)?
+            .formatted(&number)
+            .map(SharedString::from);
+        for (text, input) in text.iter_mut().zip(&inputs) {
+            if let Some(input) = input {
+                *text = input.read(cx).value();
+            }
+        }
+        let values = NumericSettingDraft::parse(&number, &text)?;
         Some(NumericArgument {
             number,
             inputs,
@@ -133,7 +133,9 @@ impl SceneSettings {
                 .iter()
                 .zip(values.formatted(&argument.number))
             {
-                set_input_text(input, text, window, cx);
+                if let Some(input) = input {
+                    set_input_text(input, text, window, cx);
+                }
             }
         }
     }
@@ -202,7 +204,10 @@ impl SceneSettings {
             return;
         }
         let step = argument.number.step(1.);
-        let input_id = argument.inputs[setting as usize].entity_id();
+        let Some(input) = &argument.inputs[setting as usize] else {
+            return;
+        };
+        let input_id = input.entity_id();
         self.editor
             .update(cx, |editor, _| editor.finish_history_group());
         self.store.number_drag_origin = Some(Rc::new(NumberDragOrigin {
@@ -246,7 +251,10 @@ impl SceneSettings {
         else {
             return;
         };
-        if argument.inputs[origin.setting as usize].entity_id() != origin.input_id {
+        if argument.inputs[origin.setting as usize]
+            .as_ref()
+            .is_none_or(|input| input.entity_id() != origin.input_id)
+        {
             return;
         }
         self.focus_handle.focus(window, cx);
