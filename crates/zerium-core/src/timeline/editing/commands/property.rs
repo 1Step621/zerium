@@ -14,7 +14,7 @@ use std::{collections::HashMap, ops::RangeInclusive};
 
 enum PropertyEdit {
     Set(PropertyValue),
-    Reset,
+    Reset(Option<PropertyValue>),
 }
 
 impl TimelineEditor {
@@ -30,8 +30,12 @@ impl TimelineEditor {
         self.apply_property_edit(address, PropertyEdit::Set(value))
     }
 
-    pub fn reset_property(&mut self, address: &PropertyAddress) -> Result<bool, TimelineEditError> {
-        self.apply_property_edit(address, PropertyEdit::Reset)
+    pub fn reset_property(
+        &mut self,
+        address: &PropertyAddress,
+        default: Option<PropertyValue>,
+    ) -> Result<bool, TimelineEditError> {
+        self.apply_property_edit(address, PropertyEdit::Reset(default))
     }
 
     fn apply_property_edit(
@@ -81,16 +85,20 @@ impl TimelineEditor {
         let Some(current) = item.authored_property(effect, schema) else {
             return false;
         };
-        // Reset restores schema inheritance for every authored property.
-        let inherit = matches!(edit, PropertyEdit::Reset)
-            && address.element_id.is_none()
-            && address.scalar_index.is_none();
+        let is_root = address.element_id.is_none() && address.scalar_index.is_none();
+        let (root_reset, inherit) = match &edit {
+            PropertyEdit::Reset(default) => (is_root, is_root && default.is_none()),
+            PropertyEdit::Set(_) => (false, false),
+        };
         let value = match edit {
             PropertyEdit::Set(value) => Some(value),
-            PropertyEdit::Reset => schema
-                .default_value()
+            PropertyEdit::Reset(default) => default
+                .unwrap_or_else(|| schema.default_value())
                 .element(address.element_id)
-                .and_then(|value| value.scalar_at(address.scalar_index))
+                .and_then(|value| match address.scalar_index {
+                    Some(index) => value.scalar_at(Some(index)),
+                    None => Some(value),
+                })
                 .cloned(),
         };
         let Some(mut next) = value
@@ -101,10 +109,14 @@ impl TimelineEditor {
         if !schema.is_editable(address.scalar_index) {
             return false;
         }
-        if let Some(ratio) = item.aspect_ratio(effect).filter(|_| !inherit).filter(|_| {
-            item.aspect_lock_property(effect)
-                .is_some_and(|property| property.id() == address.property_id)
-        }) {
+        if let Some(ratio) = item
+            .aspect_ratio(effect)
+            .filter(|_| !root_reset)
+            .filter(|_| {
+                item.aspect_lock_property(effect)
+                    .is_some_and(|property| property.id() == address.property_id)
+            })
+        {
             if !schema.is_editable(None) {
                 return false;
             }
@@ -118,7 +130,7 @@ impl TimelineEditor {
         {
             return false;
         }
-        if inherit
+        if root_reset
             && item.aspect_ratio(effect).is_some()
             && item
                 .aspect_lock_property(effect)

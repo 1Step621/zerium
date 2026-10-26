@@ -3,12 +3,15 @@
 use serde::{Deserialize, Serialize};
 
 use super::JsonStore;
+use crate::app::defaults::CreationDefaults;
 
 pub(crate) type ConfigStore = JsonStore<AppConfig>;
 
 #[derive(Clone, Default, Deserialize, Serialize)]
 #[serde(default)]
 pub(crate) struct AppConfig {
+    #[serde(skip_serializing_if = "CreationDefaults::is_empty")]
+    pub(crate) creation_defaults: CreationDefaults,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub(crate) language: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]

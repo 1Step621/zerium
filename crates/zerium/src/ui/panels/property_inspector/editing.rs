@@ -19,11 +19,12 @@ impl ArrayEdit {
 
 impl PropertyInspector {
     pub(super) fn reset_property(&mut self, address: PropertyAddress, cx: &mut Context<Self>) {
+        let default = self.saved_property_default(&address, cx);
         let result = self.editor.update(cx, |editor, cx| {
             if !editor.is_item_selected(address.item_id) {
                 return Ok(false);
             }
-            let result = editor.reset_property(&address);
+            let result = editor.reset_property(&address, default);
             if result.as_ref().is_ok_and(|changed| *changed) {
                 cx.notify();
             }

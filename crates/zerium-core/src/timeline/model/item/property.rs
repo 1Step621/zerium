@@ -1,5 +1,5 @@
 use crate::{
-    property::{PropertyElementId, PropertyPath, PropertySchema},
+    property::{PropertyElementId, PropertyOverrides, PropertyPath, PropertySchema},
     timeline::{
         TimelineItem,
         model::{EffectInstanceId, ItemId, SceneId, scene::SceneDefinition},
@@ -59,4 +59,23 @@ impl PropertyAddress {
     pub fn path(&self) -> PropertyPath {
         PropertyPath::new(&self.property_id, self.element_id, self.scalar_index)
     }
+}
+
+/// Creation accepts ordinary authored values; preference storage belongs to the app.
+pub(in crate::timeline) fn validate_initial_properties(
+    values: &PropertyOverrides,
+    schemas: &[PropertySchema],
+) -> Result<(), crate::timeline::TimelineEditError> {
+    for (id, value) in values.iter() {
+        let valid = schemas
+            .iter()
+            .find(|schema| schema.id() == id)
+            .is_some_and(|schema| schema.is_editable(None) && schema.accepts_value(value));
+        if !valid {
+            return Err(
+                crate::timeline::TimelineEditError::InvalidInitialProperties(id.to_owned()),
+            );
+        }
+    }
+    Ok(())
 }

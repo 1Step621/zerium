@@ -357,7 +357,16 @@ impl Timeline {
         cx: &mut Context<Self>,
     ) -> Result<ItemId, TimelineEditError> {
         self.editor.update(cx, |editor, cx| {
-            let item = editor.add_item(layer, start, plugin_id, item_id);
+            let target = crate::app::defaults::DefaultsTarget::Item {
+                plugin_id: plugin_id.to_owned(),
+                item_id: item_id.to_owned(),
+            };
+            let properties = editor
+                .plugin_registry()
+                .item(plugin_id, item_id)
+                .map(|schema| crate::app::defaults::properties(cx, &target, schema.properties()))
+                .unwrap_or_default();
+            let item = editor.add_item(layer, start, plugin_id, item_id, properties);
             if item.is_ok() {
                 cx.notify();
             }

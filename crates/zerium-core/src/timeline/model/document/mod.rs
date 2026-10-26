@@ -320,8 +320,8 @@ impl TimelineDocument {
         plugin_id: &str,
         item_id: &str,
         schema: Arc<ItemSchema>,
+        mut properties: PropertyOverrides,
     ) -> Option<ItemId> {
-        let mut properties = PropertyOverrides::default();
         crate::plugin::initialize_frame_rates(
             schema.inputs(),
             schema.properties(),

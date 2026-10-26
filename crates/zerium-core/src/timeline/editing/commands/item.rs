@@ -2,6 +2,7 @@ use std::collections::{HashMap, HashSet};
 
 use crate::{
     media::ImportedFile,
+    property::PropertyOverrides,
     timeline::{
         BlendMode, EffectInstanceId, Frame, FrameDuration, FrameRate, ItemId, LayerId, ResizeEdge,
         ResizeMode, SceneBindingOwner, SceneBindingTarget, SceneId, TimelineEditError,
@@ -97,6 +98,7 @@ impl TimelineEditor {
         start: Frame,
         plugin_id: &str,
         item_id: &str,
+        properties: PropertyOverrides,
     ) -> Result<ItemId, TimelineEditError> {
         let schema = self.plugins.item(plugin_id, item_id).ok_or_else(|| {
             TimelineEditError::PluginItemNotFound {
@@ -104,10 +106,14 @@ impl TimelineEditor {
                 item_id: item_id.to_owned(),
             }
         })?;
+        crate::timeline::model::item::property::validate_initial_properties(
+            &properties,
+            schema.properties(),
+        )?;
         self.edit_item_creation(|editor| {
             let id = editor
                 .active_document_mut()
-                .add_item(layer, start, plugin_id, item_id, schema)
+                .add_item(layer, start, plugin_id, item_id, schema, properties)
                 .ok_or(TimelineEditError::PlacementUnavailable)?;
             editor.selection.select_only(id);
             Ok(id)

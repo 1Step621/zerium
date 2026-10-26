@@ -175,14 +175,30 @@ impl Timeline {
                             continue;
                         }
                     };
-                    let item_id =
-                        match editor.add_item(layer, next_start, &plugin_id, &schema_item_id) {
-                            Ok(item_id) => item_id,
-                            Err(error) => {
-                                errors.push(format!("{name}: {error}"));
-                                continue;
-                            }
-                        };
+                    let target = crate::app::defaults::DefaultsTarget::Item {
+                        plugin_id: plugin_id.clone(),
+                        item_id: schema_item_id.clone(),
+                    };
+                    let properties = editor
+                        .plugin_registry()
+                        .item(&plugin_id, &schema_item_id)
+                        .map(|schema| {
+                            crate::app::defaults::properties(cx, &target, schema.properties())
+                        })
+                        .unwrap_or_default();
+                    let item_id = match editor.add_item(
+                        layer,
+                        next_start,
+                        &plugin_id,
+                        &schema_item_id,
+                        properties,
+                    ) {
+                        Ok(item_id) => item_id,
+                        Err(error) => {
+                            errors.push(format!("{name}: {error}"));
+                            continue;
+                        }
+                    };
                     if let Err(error) = editor.import_item_file(item_id, imported) {
                         editor.remove_item(item_id);
                         errors.push(format!("{name}: {error}"));

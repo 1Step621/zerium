@@ -317,3 +317,6 @@ _version: 1
 "scene.import_complete": "シーンを追加しました: %{name}"
 "scene.save_complete": "シーンを保存しました: %{name}"
 "scene.expected_file": "シーンファイルを選択してください"
+"inspector.set_type_defaults": "この種類の既定設定にする"
+"inspector.defaults_saved": "既定設定を保存しました"
+"inspector.defaults_save_failed": "既定設定を保存できませんでした: %{error}"

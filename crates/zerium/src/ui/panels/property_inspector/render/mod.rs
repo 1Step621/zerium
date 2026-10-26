@@ -98,7 +98,14 @@ impl PropertyInspector {
         let collapsed = self
             .collapsed_sections
             .contains(&PropertySection::Item(item.id));
-        let header = item_header(item, collapsed, &render, selector, cx);
+        let defaults_inspector = render.inspector.clone();
+        let header = item_header(item, collapsed, &render, selector, cx)
+            .id("item-properties-header")
+            .when(item.schema().is_some(), |header| {
+                header.context_menu(move |menu, _, cx| {
+                    defaults_inspector.update(cx, |this, cx| this.defaults_menu(menu, None, cx))
+                })
+            });
         let has_visual = self.can_add_effect(cx);
         let mut controls = Vec::new();
         let mut effect_controls = Vec::new();
@@ -240,7 +247,16 @@ fn add_effect(inspector: &Entity<PropertyInspector>, target: EffectPickerTarget,
             return;
         };
         let result = inspector.editor.update(cx, |editor, cx| {
-            let result = editor.add_item_effect(item_id, &plugin_id, &effect_id);
+            let target = crate::app::defaults::DefaultsTarget::Effect {
+                plugin_id: plugin_id.clone(),
+                effect_id: effect_id.clone(),
+            };
+            let properties = editor
+                .plugin_registry()
+                .effect(&plugin_id, &effect_id)
+                .map(|schema| crate::app::defaults::properties(cx, &target, schema.properties()))
+                .unwrap_or_default();
+            let result = editor.add_item_effect(item_id, &plugin_id, &effect_id, properties);
             if let Ok(instance_id) = result.as_ref() {
                 editor.set_active_edit_effect(Some(*instance_id));
                 cx.notify();
@@ -262,7 +278,13 @@ fn control_element(
     control: Control,
     render: &RenderCtx,
 ) -> Option<crate::ui::panels::property_inspector::rows::PropertyRow> {
-    match control {
+    let address = match &control {
+        Control::Tuple(tuple) => tuple.target.clone(),
+        Control::Array(array) => array.target.clone(),
+        Control::Effect(_) => return None,
+        leaf => leaf.common()?.target.clone(),
+    };
+    let row = match control {
         Control::Tuple(tuple) => Some(group_box(
             ControlId::Group(tuple.target),
             tuple.label,
@@ -278,7 +300,8 @@ fn control_element(
         )),
         Control::Effect(_) => None,
         leaf => scalar_full_row(&leaf, render),
-    }
+    }?;
+    Some(row.with_reset_menu(address, render))
 }
 
 fn item_header(
@@ -543,6 +566,7 @@ fn effect_element(
             editor.can_move_effect(render.item_id, effect_id, 1),
         )
     };
+    let inspector = render.inspector.clone();
     let header = effect_header(
         effect,
         collapsed,
@@ -550,18 +574,21 @@ fn effect_element(
         can_move_down,
         focused,
         render,
-    );
+    )
+    .id(SharedString::from(format!(
+        "effect-header-{}",
+        effect_id.get()
+    )))
+    .context_menu(move |menu, _, cx| {
+        inspector.update(cx, |this, cx| this.effect_menu(menu, Some(effect_id), cx))
+    });
 
-    let inspector = render.inspector.clone();
     settings_section(render.colors)
         .id(SharedString::from(format!(
             "effect-card-{}",
             effect_id.get()
         )))
         .relative()
-        .context_menu(move |menu, _, cx| {
-            inspector.update(cx, |this, cx| this.effect_menu(menu, Some(effect_id), cx))
-        })
         .on_mouse_down(MouseButton::Left, move |_, _, cx| {
             activate_edit_target(&effect_editor, Some(effect_id), cx);
         })

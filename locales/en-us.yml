@@ -317,3 +317,6 @@ _version: 1
 "scene.import_complete": "Added scene: %{name}"
 "scene.save_complete": "Saved scene: %{name}"
 "scene.expected_file": "Choose a scene file"
+"inspector.set_type_defaults": "Use as Defaults for This Type"
+"inspector.defaults_saved": "Defaults saved"
+"inspector.defaults_save_failed": "Failed to save defaults: %{error}"

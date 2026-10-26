@@ -413,7 +413,7 @@ pub(crate) fn initialize_frame_rates(
                 .iter()
                 .find(|property| property.id() == id)
                 .expect("validated frame-rate property");
-            if property.accepts_value(&rate) {
+            if values.get(id).is_none() && property.accepts_value(&rate) {
                 values
                     .set(property, rate.clone())
                     .expect("valid source FPS");

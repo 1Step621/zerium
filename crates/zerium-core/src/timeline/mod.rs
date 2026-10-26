@@ -60,6 +60,8 @@ pub enum TimelineEditError {
     PlacementUnavailable,
     #[error("Item {} was not found", .0.get())]
     ItemNotFound(ItemId),
+    #[error("Invalid initial value for property '{0}'")]
+    InvalidInitialProperties(String),
     #[error("File type does not match the item input")]
     IncompatibleMedia,
     #[error("Playback speed must be between 25% and 400%")]

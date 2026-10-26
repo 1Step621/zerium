@@ -1,3 +1,4 @@
+use crate::property::PropertyOverrides;
 use crate::timeline::{
     EffectInstance, EffectInstanceId, ItemId, SceneBindingOwner, TimelineEditError, TimelineEditor,
     editing::history::EditImpact,
@@ -88,6 +89,7 @@ impl TimelineEditor {
         id: ItemId,
         plugin_id: &str,
         effect_id: &str,
+        properties: PropertyOverrides,
     ) -> Result<EffectInstanceId, TimelineEditError> {
         let schema = self.plugins.effect(plugin_id, effect_id).ok_or_else(|| {
             TimelineEditError::PluginEffectNotFound {
@@ -95,6 +97,10 @@ impl TimelineEditor {
                 effect_id: effect_id.to_owned(),
             }
         })?;
+        crate::timeline::model::item::property::validate_initial_properties(
+            &properties,
+            schema.properties(),
+        )?;
         if !self.is_item_selected(id) {
             return Err(TimelineEditError::NothingSelected);
         }
@@ -108,7 +114,14 @@ impl TimelineEditor {
                 .active_document_mut()
                 .item_mut(id)
                 .is_some_and(|item| {
-                    item.add_effect(instance_id, plugin_id, effect_id, schema, frame_rate)
+                    item.add_effect(
+                        instance_id,
+                        plugin_id,
+                        effect_id,
+                        schema,
+                        properties,
+                        frame_rate,
+                    )
                 })
             {
                 return Err(TimelineEditError::ItemNotFound(id));

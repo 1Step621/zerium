@@ -64,6 +64,21 @@ removes it. Evaluation materializes a separate `PropertyValues` read model,
 including defaults, bindings, and animation. Playback properties use the same
 Inspector and authored override storage as other properties.
 
+User creation defaults are app preferences keyed by plugin and item/effect type.
+Inspector section menus capture evaluated editable properties at the playhead;
+curves, connections, effect stacks, placement, and IDs are not preferences.
+File references in preferences use absolute paths, independent of project location.
+New items and effects receive the saved properties as authored overrides before
+timing, aspect ratio, and placement are derived. Source FPS inherits project FPS
+only when no initial value was supplied. File imports subsequently initialize
+source-specific values from the selected asset. Duplication, paste, scene import,
+and project loading preserve their authored data.
+Property reset uses the saved value for that property when available, otherwise
+restores schema inheritance. Resetting a whole aspect-locked tuple adopts the
+reset value's ratio. Registering defaults changes only preferences; item creation
+and property reset remain ordinary undoable project edits. Invalid or obsolete
+saved property values are ignored when they no longer match a plugin schema.
+
 The property inspector folds item properties and each effect independently.
 Fold state belongs to the view, survives selection changes within a scene, and
 resets when changing scenes or projects. Folded effects retain their header

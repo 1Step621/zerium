@@ -53,6 +53,25 @@ pub(super) struct PropertyRow {
 }
 
 impl PropertyRow {
+    pub(super) fn with_reset_menu(mut self, address: PropertyAddress, ctx: &RenderCtx) -> Self {
+        use ::ui::menu::context_menu::ContextMenuExt as _;
+        if let Some(label) = self.label.take() {
+            let inspector = ctx.inspector.clone();
+            self.label = Some(
+                div()
+                    .id(SharedString::from(format!("property-reset-{address:?}")))
+                    .context_menu(move |menu, _, cx| {
+                        inspector.update(cx, |this, cx| {
+                            this.property_reset_menu(menu, address.clone(), cx)
+                        })
+                    })
+                    .child(label)
+                    .into_any_element(),
+            );
+        }
+        self
+    }
+
     fn new(label: impl Into<Option<gpui::AnyElement>>, content: Div) -> Self {
         Self {
             label: label.into(),

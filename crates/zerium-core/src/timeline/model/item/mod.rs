@@ -612,9 +612,9 @@ impl TimelineItem {
         plugin_id: &str,
         effect_id: &str,
         schema: Arc<EffectSchema>,
+        mut properties: PropertyOverrides,
         frame_rate: FrameRate,
     ) -> bool {
-        let mut properties = PropertyOverrides::default();
         crate::plugin::initialize_frame_rates(
             schema.inputs(),
             schema.properties(),

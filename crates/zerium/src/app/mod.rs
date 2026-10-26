@@ -15,6 +15,7 @@ use std::{cell::RefCell, path::PathBuf, rc::Rc, sync::Arc};
 
 pub(crate) mod actions;
 pub(crate) mod copy_buffer;
+pub(crate) mod defaults;
 pub(crate) mod export;
 pub(crate) mod plugins;
 pub(crate) mod preview;

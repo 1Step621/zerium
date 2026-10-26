@@ -1,5 +1,6 @@
 mod control;
 mod copy;
+mod defaults;
 mod editing;
 mod number_drag;
 mod render;

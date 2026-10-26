@@ -15,6 +15,9 @@ impl PropertyInspector {
     ) -> PopupMenu {
         let editor = self.editor.read(cx);
         let mut menu = menu.action_context(self.focus_handle.clone());
+        if effect_id.is_some() {
+            menu = self.defaults_menu(menu, effect_id, cx).separator();
+        }
         let Some(mut item) = self
             .inspector_item_id(cx)
             .and_then(|id| editor.item(id).cloned())
