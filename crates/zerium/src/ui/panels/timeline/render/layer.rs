@@ -1,4 +1,4 @@
-use crate::app::actions::OpenTextPlacement;
+use crate::app::actions::{OpenPlacement, PlacementKind};
 use crate::ui::{
     components::input::file::import::FileImportTarget,
     panels::{
@@ -48,7 +48,17 @@ fn layer_header(
             menu.action_context(timeline.read(cx).focus_handle.clone())
                 .menu(
                     t!("text_placement.title").to_string(),
-                    Box::new(OpenTextPlacement { layer: layer.get() }),
+                    Box::new(OpenPlacement {
+                        kind: PlacementKind::Text,
+                        layer: layer.get(),
+                    }),
+                )
+                .menu(
+                    t!("audio_placement.title").to_string(),
+                    Box::new(OpenPlacement {
+                        kind: PlacementKind::Audio,
+                        layer: layer.get(),
+                    }),
                 )
         })
         .child(

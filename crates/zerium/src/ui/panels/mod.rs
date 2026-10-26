@@ -1,5 +1,6 @@
 //! Workspace panels, grouped by the feature they display.
 pub(crate) mod animation_curve;
+pub(crate) mod audio_placement;
 pub(crate) mod explorer;
 pub(crate) mod preview;
 pub(crate) mod property_inspector;

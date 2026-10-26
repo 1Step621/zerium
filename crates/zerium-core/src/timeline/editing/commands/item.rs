@@ -220,6 +220,68 @@ impl TimelineEditor {
         })
     }
 
+    /// Import media consecutively as one atomic, undoable edit.
+    pub fn import_items(
+        &mut self,
+        layer: LayerId,
+        start: Frame,
+        imports: Vec<(ImportedFile, PropertyOverrides)>,
+    ) -> Result<Vec<ItemId>, TimelineEditError> {
+        if imports.is_empty() {
+            return Ok(Vec::new());
+        }
+        let files = imports
+            .iter()
+            .map(|(imported, _)| imported.file.clone())
+            .collect::<Vec<_>>();
+        let ids = self.try_edit_project(EditImpact::MediaDependencies, None, |editor| {
+            let mut start = start;
+            let mut ids = Vec::with_capacity(imports.len());
+            for (imported, properties) in imports {
+                let schema = editor
+                    .plugins
+                    .item(&imported.plugin_id, &imported.source_id)
+                    .ok_or_else(|| TimelineEditError::PluginItemNotFound {
+                        plugin_id: imported.plugin_id.clone(),
+                        item_id: imported.source_id.clone(),
+                    })?;
+                crate::timeline::model::item::property::validate_initial_properties(
+                    &properties,
+                    schema.properties(),
+                )?;
+                let id = editor
+                    .active_document_mut()
+                    .add_item(
+                        layer,
+                        &imported.plugin_id,
+                        &imported.source_id,
+                        schema,
+                        ItemCreation {
+                            start,
+                            duration: None,
+                            properties,
+                        },
+                    )
+                    .ok_or(TimelineEditError::PlacementUnavailable)?;
+                if !editor.active_document_mut().import_item_file(id, imported) {
+                    return Err(TimelineEditError::PlacementUnavailable);
+                }
+                let item = editor.item(id).expect("imported item");
+                if item.start() != start {
+                    return Err(TimelineEditError::PlacementUnavailable);
+                }
+                start = item.end_exclusive(editor.frame_rate());
+                ids.push(id);
+            }
+            editor.selection.set(ids.iter().copied().collect());
+            Ok((ids, true))
+        })?;
+        for file in files {
+            self.cache_media_file(&file);
+        }
+        Ok(ids)
+    }
+
     /// Move items and trim their right edges together as one undoable edit.
     pub fn set_item_intervals(
         &mut self,
@@ -234,15 +296,17 @@ impl TimelineEditor {
                 .get()
                 .checked_add(interval.duration.get())
                 .ok_or(TimelineEditError::PlacementUnavailable)?;
-            candidate
-                .item
-                .resize_to(
-                    start,
-                    interval.duration,
-                    ResizeMode::Trim,
-                    self.frame_rate(),
-                )
-                .ok_or(TimelineEditError::PlacementUnavailable)?;
+            if candidate.item.duration(self.frame_rate()) != interval.duration {
+                candidate
+                    .item
+                    .resize_to(
+                        start,
+                        interval.duration,
+                        ResizeMode::Trim,
+                        self.frame_rate(),
+                    )
+                    .ok_or(TimelineEditError::PlacementUnavailable)?;
+            }
             candidate.item.move_to(interval.start);
             edits.push(candidate);
         }

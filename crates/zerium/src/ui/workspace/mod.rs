@@ -40,7 +40,9 @@ pub(crate) struct Workspace {
     pub(crate) property_inspector:
         gpui::Entity<crate::ui::panels::property_inspector::PropertyInspector>,
     pub(crate) text_placement: gpui::Entity<crate::ui::panels::text_placement::TextPlacement>,
-    pub(crate) text_placement_open: bool,
+    pub(crate) placement: Option<PlacementKind>,
+    pub(crate) audio_placement: gpui::Entity<crate::ui::panels::audio_placement::AudioPlacement>,
+    pub(crate) audio_placement_layout: gpui::Entity<ResizableState>,
     pub(crate) text_placement_layout: gpui::Entity<ResizableState>,
     pub(crate) inspector_tab: InspectorTab,
     pub(crate) animation_curve:
@@ -232,34 +234,48 @@ impl Workspace {
             .update(cx, |project, cx| project.import_scene(window, cx));
     }
 
-    fn stamp_text_placement(
-        &mut self,
-        _: &StampTextPlacement,
-        window: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if self.text_placement_open
-            && !window.has_active_modal(cx)
-            && self.text_placement.read(cx).can_stamp(cx)
-        {
-            self.text_placement.update(cx, |panel, cx| panel.stamp(cx));
-        } else {
-            cx.propagate();
+    fn can_stamp_placement(&self, cx: &gpui::App) -> bool {
+        match self.placement {
+            Some(PlacementKind::Text) => self.text_placement.read(cx).can_stamp(cx),
+            Some(PlacementKind::Audio) => self.audio_placement.read(cx).can_stamp(cx),
+            None => false,
         }
     }
 
-    fn open_text_placement(
+    fn stamp_placement(&mut self, _: &StampPlacement, window: &mut Window, cx: &mut Context<Self>) {
+        if window.has_active_modal(cx) || !self.can_stamp_placement(cx) {
+            cx.propagate();
+            return;
+        }
+        match self.placement {
+            Some(PlacementKind::Text) => {
+                self.text_placement.update(cx, |panel, cx| panel.stamp(cx))
+            }
+            Some(PlacementKind::Audio) => {
+                self.audio_placement.update(cx, |panel, cx| panel.stamp(cx))
+            }
+            None => {}
+        }
+    }
+
+    fn open_placement(
         &mut self,
-        action: &OpenTextPlacement,
+        action: &OpenPlacement,
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
         self.animation_selection
             .update(cx, |selection, cx| selection.clear(cx));
-        self.text_placement.update(cx, |panel, cx| {
-            panel.open_layer(zerium_core::timeline::LayerId::new(action.layer), cx);
-        });
-        self.text_placement_open = true;
+        let layer = zerium_core::timeline::LayerId::new(action.layer);
+        match action.kind {
+            PlacementKind::Text => self
+                .text_placement
+                .update(cx, |panel, cx| panel.open_layer(layer, cx)),
+            PlacementKind::Audio => self
+                .audio_placement
+                .update(cx, |panel, cx| panel.open_layer(layer, cx)),
+        }
+        self.placement = Some(action.kind);
         cx.notify();
     }
 
@@ -283,9 +299,7 @@ impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let background = cx.theme().background;
         let colors = cx.theme().colors;
-        let timing_enabled = self.text_placement_open
-            && !window.has_active_modal(cx)
-            && self.text_placement.read(cx).can_stamp(cx);
+        let timing_enabled = !window.has_active_modal(cx) && self.can_stamp_placement(cx);
         // Forward new messages to the toast layer. Only unseen messages are
         // pushed, so re-renders never duplicate toasts and the push itself
         // (which notifies the toast list, not this workspace) cannot loop.
@@ -312,7 +326,7 @@ impl Render for Workspace {
         div()
             .id("workspace")
             .key_context(if timing_enabled {
-                "ZeriumWorkspace TextPlacementTiming"
+                "ZeriumWorkspace PlacementTiming"
             } else {
                 WORKSPACE_KEY_CONTEXT
             })
@@ -334,7 +348,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::save_project))
             .on_action(cx.listener(Self::save_project_as))
             .on_action(cx.listener(Self::import_scene))
-            .on_action(cx.listener(Self::open_text_placement))
+            .on_action(cx.listener(Self::open_placement))
             .on_action(cx.listener(Self::save_scene_file))
             .on_action(cx.listener(Self::open_project_settings))
             .on_action(cx.listener(Self::open_settings))
@@ -348,7 +362,7 @@ impl Render for Workspace {
                     preview.set_editor_overlay_hidden(true, cx);
                 });
             }))
-            .capture_action(cx.listener(Self::stamp_text_placement))
+            .capture_action(cx.listener(Self::stamp_placement))
             .capture_key_up(cx.listener(|this, event: &KeyUpEvent, _, cx| {
                 if event.keystroke.key.eq_ignore_ascii_case("h") {
                     this.preview.update(cx, |preview, cx| {
@@ -599,14 +613,16 @@ impl Workspace {
     fn timeline_panels(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
         let show_animation = self.animation_curve.read(cx).has_visible_curve(cx);
         let max_width = (window.viewport_size().width - px(300.)).min(px(1000.));
-        let (layout, size, panel) = if self.text_placement_open {
-            (
-                &self.text_placement_layout,
+        let (layout, size, panel) = match self.placement {
+            Some(kind) => (
+                match kind {
+                    PlacementKind::Text => &self.text_placement_layout,
+                    PlacementKind::Audio => &self.audio_placement_layout,
+                },
                 px(520.),
-                self.text_placement_panel(cx).into_any_element(),
-            )
-        } else {
-            (
+                self.placement_panel(kind, cx).into_any_element(),
+            ),
+            None => (
                 &self.animation_curve_layout,
                 px(800.),
                 div()
@@ -614,7 +630,7 @@ impl Workspace {
                     .overflow_hidden()
                     .child(self.animation_curve.clone())
                     .into_any_element(),
-            )
+            ),
         };
 
         h_resizable("workspace-timeline-columns")
@@ -628,12 +644,22 @@ impl Workspace {
                 resizable_panel()
                     .size(size)
                     .size_range(px(200.)..max_width)
-                    .visible(self.text_placement_open || show_animation)
+                    .visible(self.placement.is_some() || show_animation)
                     .child(panel),
             )
     }
 
-    fn text_placement_panel(&self, cx: &mut Context<Self>) -> gpui::Div {
+    fn placement_panel(&self, kind: PlacementKind, cx: &mut Context<Self>) -> gpui::Div {
+        let (title, content) = match kind {
+            PlacementKind::Text => (
+                t!("text_placement.title"),
+                self.text_placement.clone().into_any_element(),
+            ),
+            PlacementKind::Audio => (
+                t!("audio_placement.title"),
+                self.audio_placement.clone().into_any_element(),
+            ),
+        };
         div()
             .size_full()
             .overflow_hidden()
@@ -641,22 +667,22 @@ impl Workspace {
             .flex_col()
             .child(
                 crate::ui::components::pane::pane_header(cx.theme().colors)
-                    .child(t!("text_placement.title").to_string())
+                    .child(title.to_string())
                     .child(
-                        Button::new("close-text-placement")
+                        Button::new("close-placement")
                             .small()
                             .compact()
                             .ghost()
                             .icon(IconName::Xmark)
                             .tooltip(t!("common.close").to_string())
                             .on_click(cx.listener(|this, _, window, cx| {
-                                this.text_placement_open = false;
+                                this.placement = None;
                                 this.focus_handle.focus(window, cx);
                                 cx.notify();
                             })),
                     ),
             )
-            .child(div().flex_1().min_h_0().child(self.text_placement.clone()))
+            .child(div().flex_1().min_h_0().child(content))
     }
 
     fn inspector_panel(&self, cx: &mut Context<Self>) -> gpui::Div {

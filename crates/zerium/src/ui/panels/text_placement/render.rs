@@ -1,12 +1,12 @@
 use ::ui::{
-    ActiveTheme as _, Disableable as _, IconName, Kbd, Sizable as _,
+    ActiveTheme as _, Disableable as _, IconName, Sizable as _,
     button::{Button, ButtonVariants as _},
     input::Input,
     menu::{PopupMenuItem, popup_menu::PopupMenuExt as _},
 };
 use gpui::{Render, div, px};
 
-use crate::app::actions::StampTextPlacement;
+use crate::ui::components::placement::stamp_marker;
 
 use super::*;
 
@@ -97,9 +97,7 @@ impl Render for TextPlacement {
                                                 .w(px(24.))
                                                 .label((index + 1).to_string())
                                                 .when(selected, |button| button.primary())
-                                                .tooltip(
-                                                    t!("text_placement.select_row").to_string(),
-                                                )
+                                                .tooltip(t!("placement.select_row").to_string())
                                                 .on_click(cx.listener(move |this, _, _, cx| {
                                                     this.select_row(id, cx)
                                                 })),
@@ -128,7 +126,7 @@ impl Render for TextPlacement {
                                     .py_1()
                                     .text_xs()
                                     .text_color(colors.muted_foreground)
-                                    .child(t!("text_placement.timing_done").to_string()),
+                                    .child(t!("placement.timing_done").to_string()),
                             )
                         }),
                 )
@@ -137,8 +135,8 @@ impl Render for TextPlacement {
                         Button::new("text-placement-clear")
                             .small()
                             .ghost()
-                            .label(t!("text_placement.clear").to_string())
-                            .tooltip(t!("text_placement.clear_hint").to_string())
+                            .label(t!("placement.clear").to_string())
+                            .tooltip(t!("placement.clear_hint").to_string())
                             .on_click(cx.listener(|this, _, window, cx| this.clear(window, cx))),
                     ),
                 )
@@ -186,37 +184,16 @@ impl TextPlacement {
     }
 
     fn stamp_marker(&self, end: bool, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let colors = cx.theme().colors;
-        div()
-            .flex()
-            .items_center()
-            .gap_1()
-            .child(div().w(px(32.)).h(px(1.)).bg(colors.primary))
-            .child(
-                Button::new("text-placement-stamp")
-                    .small()
-                    .compact()
-                    .ghost()
-                    .child(
-                        div().text_color(colors.primary).child(
-                            if end {
-                                t!("text_placement.stamp_end")
-                            } else {
-                                t!("text_placement.stamp_start")
-                            }
-                            .to_string(),
-                        ),
-                    )
-                    .when_some(
-                        Kbd::binding_for_action(
-                            &StampTextPlacement,
-                            Some("ZeriumWorkspace TextPlacementTiming"),
-                            window,
-                        ),
-                        |button, shortcut| button.child(shortcut.appearance(false)),
-                    )
-                    .on_click(cx.listener(|this, _, _, cx| this.stamp(cx))),
-            )
-            .child(div().flex_1().h(px(1.)).bg(colors.primary))
+        stamp_marker(
+            if end {
+                t!("text_placement.stamp_end")
+            } else {
+                t!("text_placement.stamp_start")
+            }
+            .to_string()
+            .into(),
+            window,
+            cx,
+        )
     }
 }

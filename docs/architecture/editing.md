@@ -85,9 +85,9 @@ string property determine the displayed rows and import destination. Opening a
 populated layer automatically finds a matching type. Row selection selects the
 actual item and seeks to its start. Existing items are editable again after
 loading a project; the panel stores no copy of their text or timing.
-Text placement and curve editing share the auxiliary pane, retaining separate
-widths. Opening text placement clears the curve selection; selecting a curve closes
-text placement.
+Text placement, audio placement, and curve editing use the auxiliary pane one at a
+time, retaining separate widths. Opening a placement tool clears the curve selection;
+selecting a curve closes the placement tool.
 Selection stores source and property IDs. Menus and schemas come from the current
 project; a removed target requires reselection rather than falling back to another
 source. File import keeps the selected IDs across the asynchronous file read.
@@ -112,6 +112,18 @@ separate commands.
 Unrelated items, properties and effects are preserved. Timeline edits and Undo/Redo
 appear directly in the panel, without a separate Apply step or import metadata in
 project files.
+
+Audio placement opens from a layer header and projects the layer's audio-only
+playback items. Folder import reads supported files directly inside the folder in
+filename order and appends ordinary audio items using their native durations and
+creation defaults. The import is one atomic Undo operation. Timing stamps move
+the current start and push overlapping following audio items forward, preserving
+source ranges, playback properties, and effects. Earlier or unrelated items are
+not trimmed to make room. Selecting a row seeks to its start; the last start stamp
+completes timing without an end stamp. Clear removes only the listed audio items.
+No folder membership or separate import model is stored in the project.
+Folder reading is a cancellable project import operation; changing scenes or the
+target layer cancels it and releases its operation registration.
 
 The property inspector folds item properties and each effect independently.
 Fold state belongs to the view, survives selection changes within a scene, and

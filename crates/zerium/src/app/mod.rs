@@ -123,8 +123,8 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                 KeyBinding::new("e", OpenEffectPicker, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
                 KeyBinding::new(
                     "secondary-enter",
-                    StampTextPlacement,
-                    Some("TextPlacementTiming || (TextPlacementTiming > Input)"),
+                    StampPlacement,
+                    Some("PlacementTiming || (PlacementTiming > Input)"),
                 ),
                 KeyBinding::new(
                     "s",
@@ -282,6 +282,15 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             cx,
                         )
                     });
+                    let audio_placement = cx.new(|cx| {
+                        crate::ui::panels::audio_placement::AudioPlacement::new(
+                            editor.clone(),
+                            transport.clone(),
+                            session.clone(),
+                            media_readers.clone(),
+                            cx,
+                        )
+                    });
                     let export_controller = cx.new(|cx| {
                         crate::ui::dialogs::export::ExportController::new(
                             editor.clone(),
@@ -356,7 +365,7 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                         let subscriptions = vec![
                             cx.observe(&animation_selection, |this, selection, cx| {
                                 if selection.read(cx).address().is_some() {
-                                    this.text_placement_open = false;
+                                    this.placement = None;
                                 }
                                 cx.notify();
                             }),
@@ -372,7 +381,9 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             property_inspector,
                             scene_settings,
                             text_placement,
-                            text_placement_open: false,
+                            placement: None,
+                            audio_placement,
+                            audio_placement_layout: ::ui::resizable::ResizableState::new(cx),
                             text_placement_layout: ::ui::resizable::ResizableState::new(cx),
                             inspector_tab: Default::default(),
                             animation_curve,

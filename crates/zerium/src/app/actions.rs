@@ -6,7 +6,7 @@ gpui::actions!(
         CutSelectedItems,
         PasteItems,
         SplitSelectedItems,
-        StampTextPlacement,
+        StampPlacement,
         TogglePlayback,
         TogglePlaybackInPlace,
         PreviousFrame,
@@ -32,6 +32,13 @@ gpui::actions!(
 
 #[derive(Clone, gpui::Action, PartialEq, Eq, serde::Deserialize)]
 #[action(namespace = zerium, no_json)]
-pub(crate) struct OpenTextPlacement {
+pub(crate) struct OpenPlacement {
+    pub(crate) kind: PlacementKind,
     pub(crate) layer: u64,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, serde::Deserialize)]
+pub(crate) enum PlacementKind {
+    Text,
+    Audio,
 }
