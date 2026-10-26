@@ -9,7 +9,7 @@ use ::ui::{
     button::{Button, ButtonVariants as _},
     menu::popup_menu::PopupMenuExt as _,
     notification::Notification,
-    resizable::{h_resizable, resizable_panel, v_resizable},
+    resizable::{ResizableState, h_resizable, resizable_panel, v_resizable},
     tab::Tab,
 };
 use gpui::{Context, FocusHandle, KeyUpEvent, Render, Subscription, Window, div, prelude::*, px};
@@ -41,9 +41,13 @@ pub(crate) struct Workspace {
         gpui::Entity<crate::ui::panels::property_inspector::PropertyInspector>,
     pub(crate) text_placement: gpui::Entity<crate::ui::panels::text_placement::TextPlacement>,
     pub(crate) text_placement_open: bool,
+    pub(crate) text_placement_layout: gpui::Entity<ResizableState>,
     pub(crate) inspector_tab: InspectorTab,
     pub(crate) animation_curve:
         gpui::Entity<crate::ui::panels::animation_curve::AnimationCurveEditor>,
+    pub(crate) animation_curve_layout: gpui::Entity<ResizableState>,
+    pub(crate) animation_selection:
+        gpui::Entity<crate::ui::panels::animation_curve::AnimationSelection>,
     pub(crate) project_controller: gpui::Entity<crate::app::project::ProjectController>,
     pub(crate) export_controller: gpui::Entity<crate::ui::dialogs::export::ExportController>,
     pub(crate) notifications: gpui::Entity<crate::ui::workspace::notifications::UiNotifications>,
@@ -250,6 +254,8 @@ impl Workspace {
         _window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.animation_selection
+            .update(cx, |selection, cx| selection.clear(cx));
         self.text_placement.update(cx, |panel, cx| {
             panel.open_layer(zerium_core::timeline::LayerId::new(action.layer), cx);
         });
@@ -277,7 +283,6 @@ impl Render for Workspace {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let background = cx.theme().background;
         let colors = cx.theme().colors;
-        let show_animation = self.animation_curve.read(cx).has_visible_curve(cx);
         let timing_enabled = self.text_placement_open
             && !window.has_active_modal(cx)
             && self.text_placement.read(cx).can_stamp(cx);
@@ -577,31 +582,9 @@ impl Render for Workspace {
                             ),
                         )
                         .child(
-                            resizable_panel().size(px(400.)).child(
-                                h_resizable("workspace-bottom-columns")
-                                    .child(
-                                        resizable_panel().child(
-                                            h_resizable("workspace-timeline-columns")
-                                                .child(
-                                                    resizable_panel().child(self.timeline.clone()),
-                                                )
-                                                .child(
-                                                    resizable_panel()
-                                                        .size(px(800.))
-                                                        .size_range(px(360.)..px(1000.))
-                                                        .visible(show_animation)
-                                                        .child(self.animation_curve.clone()),
-                                                ),
-                                        ),
-                                    )
-                                    .child(
-                                        resizable_panel()
-                                            .size(px(520.))
-                                            .size_range(px(420.)..px(1000.))
-                                            .visible(self.text_placement_open)
-                                            .child(self.text_placement_panel(cx)),
-                                    ),
-                            ),
+                            resizable_panel()
+                                .size(px(400.))
+                                .child(self.timeline_panels(window, cx)),
                         ),
                 ),
             )
@@ -613,9 +596,47 @@ impl Render for Workspace {
 }
 
 impl Workspace {
+    fn timeline_panels(&self, window: &Window, cx: &mut Context<Self>) -> impl IntoElement {
+        let show_animation = self.animation_curve.read(cx).has_visible_curve(cx);
+        let max_width = (window.viewport_size().width - px(300.)).min(px(1000.));
+        let (layout, size, panel) = if self.text_placement_open {
+            (
+                &self.text_placement_layout,
+                px(520.),
+                self.text_placement_panel(cx).into_any_element(),
+            )
+        } else {
+            (
+                &self.animation_curve_layout,
+                px(800.),
+                div()
+                    .size_full()
+                    .overflow_hidden()
+                    .child(self.animation_curve.clone())
+                    .into_any_element(),
+            )
+        };
+
+        h_resizable("workspace-timeline-columns")
+            .state(layout.clone())
+            .child(
+                resizable_panel()
+                    .size_range(px(300.)..gpui::Pixels::MAX)
+                    .child(self.timeline.clone()),
+            )
+            .child(
+                resizable_panel()
+                    .size(size)
+                    .size_range(px(200.)..max_width)
+                    .visible(self.text_placement_open || show_animation)
+                    .child(panel),
+            )
+    }
+
     fn text_placement_panel(&self, cx: &mut Context<Self>) -> gpui::Div {
         div()
             .size_full()
+            .overflow_hidden()
             .flex()
             .flex_col()
             .child(

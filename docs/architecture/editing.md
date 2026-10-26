@@ -85,6 +85,9 @@ string property determine the displayed rows and import destination. Opening a
 populated layer automatically finds a matching type. Row selection selects the
 actual item and seeks to its start. Existing items are editable again after
 loading a project; the panel stores no copy of their text or timing.
+Text placement and curve editing share the auxiliary pane, retaining separate
+widths. Opening text placement clears the curve selection; selecting a curve closes
+text placement.
 Selection stores source and property IDs. Menus and schemas come from the current
 project; a removed target requires reselection rather than falling back to another
 source. File import keeps the selected IDs across the asynchronous file read.

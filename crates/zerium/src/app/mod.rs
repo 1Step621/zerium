@@ -354,7 +354,12 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                     });
                     let workspace = cx.new(|cx: &mut Context<Workspace>| {
                         let subscriptions = vec![
-                            cx.observe(&animation_selection, |_, _, cx| cx.notify()),
+                            cx.observe(&animation_selection, |this, selection, cx| {
+                                if selection.read(cx).address().is_some() {
+                                    this.text_placement_open = false;
+                                }
+                                cx.notify();
+                            }),
                             cx.observe(&editor, |_, _, cx| cx.notify()),
                             cx.observe(&project_controller, |_, _, cx| cx.notify()),
                             cx.observe(&export_controller, |_, _, cx| cx.notify()),
@@ -368,8 +373,11 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             scene_settings,
                             text_placement,
                             text_placement_open: false,
+                            text_placement_layout: ::ui::resizable::ResizableState::new(cx),
                             inspector_tab: Default::default(),
                             animation_curve,
+                            animation_curve_layout: ::ui::resizable::ResizableState::new(cx),
+                            animation_selection,
                             project_controller,
                             export_controller,
                             notifications,
