@@ -126,19 +126,41 @@ associated with current demand; removing a failed source removes its error statu
 The UI owns destination selection, progress, cancellation, and the background
 task. [`app/export.rs`](../../crates/zerium/src/app/export.rs) orchestrates the
 frozen timeline workflow through engine input, processing, and output stages.
-Project replacement cancels active work. The output path persists within the
-project session.
+Project replacement cancels active work. Destination, container, codecs, color,
+bitrates, and audio format belong to the project and are saved with it.
+Project settings apply these together with resolution and frame rate as one undoable
+change. The export dialog only confirms those settings and edits a temporary
+destination draft, committed when starting export; cancellation discards it.
+Export always covers the entire root timeline, starting at frame zero.
 
 Export preserves media, audio timeline and visual calculation errors as distinct
 typed causes. It freezes the timeline and processes output frames in order.
 Evaluation, decoding, rendering, and encoding overlap through bounded queues.
-Output is converted to limited-range BT.709 NV12. Encoding uses Vulkan Video on
-Linux and Windows or VideoToolbox on macOS, with GStreamer's x264 fallback if a GPU encoder
-cannot initialize. Later failures are reported.
+Export consumes RGBA16Float scene-linear output before the display transform.
+The selected color standard, range, and precision determine conversion to NV12
+(8-bit) or P010 (10-bit). BT.709 and BT.2020 SDR use their respective transfer
+functions; BT.2100 PQ/HLG use BT.2020 primaries, a 203 cd/m² reference white, and
+for HLG a 1000 cd/m² reference display with system gamma 1.2. Colorimetry is passed
+to the encoder alongside the converted samples. HDR requires 10-bit output.
+These settings control export; the preview retains its existing sRGB presentation
+and media input decoding keeps its existing color handling.
+
+Vulkan Video on Linux/Windows and VideoToolbox on macOS support H.264/H.265
+with 8-bit BT.709 output and either range. Automatic selection falls back to
+GStreamer software encoding for other color settings or unsupported devices.
+VP9 and AV1 use software encoding. 10-bit AV1 uses SVT-AV1 (minimum 64 × 64);
+8-bit AV1 uses libaom. Encoder selection is automatic and is not stored in the
+project. Native encoder initialization failures fall back to software encoding;
+failures after encoding starts are reported.
 
 `VideoOutput` dispatches backend submission and completion; rendering and
-color conversion are shared. GStreamer combines H.264 video and AAC audio into
-MP4. The completed temporary file is published atomically. A typed input-closure
+color conversion are shared. Raw frames carry their NV12/P010 layout explicitly
+into the encoder adapter. GStreamer encodes and muxes MP4, Matroska, or WebM.
+Container compatibility is defined alongside the persisted settings; the settings
+UI offers MP4 with AAC, Matroska with Opus or FLAC, and WebM with Opus. These
+combinations preserve encoder delay and discard padding. Opus uses 48 kHz; FLAC
+has no bitrate control. The MP4/AAC timing correction applies only to that combination.
+The completed temporary file is published atomically. A typed input-closure
 result preserves the upstream failure that caused it; cancellation and writer
 failures take precedence over resulting channel errors.
 

@@ -1,7 +1,7 @@
 //! Export adapters selected by the available encoding backend.
 use crate::engine::{
     output::{
-        VideoDimensions,
+        VideoDimensions, VideoPixelFormat,
         visual::{
             Cancellation, ColorConversion, EncodingError, PendingFrame, VideoEncoderFrame, texture,
             wait_for_submission,
@@ -17,16 +17,17 @@ pub(super) mod gstreamer;
 #[cfg(target_os = "macos")]
 pub(super) mod video_toolbox;
 pub(super) enum Backend {
-    Readback(Nv12Readback),
+    Readback(YuvReadback),
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     GpuVideo(gpu_video::Encoder),
     #[cfg(target_os = "macos")]
     VideoToolbox(video_toolbox::Encoder),
 }
 
-pub(super) struct Nv12Readback {
+pub(super) struct YuvReadback {
     dimensions: VideoDimensions,
     frame_stride: usize,
+    bytes_per_sample: u32,
     stride: u32,
     free: Vec<wgpu::Buffer>,
     planes: [wgpu::Texture; 2],
@@ -38,19 +39,20 @@ struct PendingReadback {
     mapped: mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
 }
 
-impl Nv12Readback {
+impl YuvReadback {
     pub(super) fn new(
         device: &wgpu::Device,
         dimensions: VideoDimensions,
+        format: VideoPixelFormat,
     ) -> Result<Self, EncodingError> {
         let size = RenderSize {
             width: dimensions.width,
             height: dimensions.height,
         };
-        let frame_stride = dimensions.width.next_multiple_of(4) as usize;
-        let stride = dimensions
-            .width
-            .next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+        let bytes_per_sample = format.bytes_per_sample();
+        let width_bytes = dimensions.width * bytes_per_sample;
+        let frame_stride = width_bytes.next_multiple_of(4) as usize;
+        let stride = width_bytes.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
         if u64::from(stride) * u64::from(dimensions.height) * 3 / 2
             > device.limits().max_buffer_size
         {
@@ -62,6 +64,7 @@ impl Nv12Readback {
             stride,
             dimensions,
             frame_stride,
+            bytes_per_sample,
             free: Vec::new(),
             planes: std::array::from_fn(|plane| {
                 let size = if plane == 0 {
@@ -75,7 +78,7 @@ impl Nv12Readback {
                 texture(
                     device,
                     size,
-                    crate::engine::output::visual::PLANE_FORMATS[plane],
+                    crate::engine::output::visual::plane_formats(format)[plane],
                     wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
                 )
             }),
@@ -190,7 +193,7 @@ impl Nv12Readback {
                 } else {
                     self.frame_stride * self.dimensions.height as usize
                 } + row * self.frame_stride;
-                let width = self.dimensions.width as usize;
+                let width = (self.dimensions.width * self.bytes_per_sample) as usize;
                 data[destination..destination + width]
                     .copy_from_slice(&mapped[source..source + width]);
             }

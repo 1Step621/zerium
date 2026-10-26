@@ -15,6 +15,8 @@ pub use evaluation::{
     RenderEvaluation, RenderPlacement, RenderPropertyTarget, RenderResultSettings,
     ResolvedRenderProperties, TimelineView,
 };
+pub(crate) use model::project::TimelineProject;
+
 pub use model::{
     EffectInstanceId, ItemId, LayerId, ProjectId, SceneId,
     document::{ResizeEdge, ResizeMode, TimelineDocument},
@@ -22,7 +24,11 @@ pub use model::{
         AspectRatio, BlendMode, EffectInstance, ItemCreation, ItemInterval, ItemSource,
         PropertyAddress, TimelineItem, TimelineItemKind,
     },
-    project::{BeatGuide, ProjectResolution, ProjectSettingsError, TimelineSnapshot},
+    project::{
+        AudioCodec, BeatGuide, ExportBitDepth, ExportColorRange, ExportColorSettings,
+        ExportColorSpace, ExportContainer, ExportSettings, ProjectResolution, ProjectSettingsError,
+        TimelineSnapshot, VideoCodec,
+    },
     scene::{
         CalculationDiagnostic, CalculationFailure, SceneBindingOwner, SceneBindingTarget,
         SceneCalculation, SceneCalculationInput, SceneDefinition, SceneEvaluation, SceneVariable,

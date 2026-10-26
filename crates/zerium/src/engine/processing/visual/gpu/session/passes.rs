@@ -148,7 +148,12 @@ impl RenderSession {
             wgpu::LoadOp::Clear(wgpu::Color::TRANSPARENT),
             "zerium-output-transform-pass",
         );
-        pass.set_pipeline(&self.shared.output_pipeline);
+        let pipeline = if target_view.texture().format() == super::super::SCENE_FORMAT {
+            &self.shared.composite_pipeline
+        } else {
+            &self.shared.output_pipeline
+        };
+        pass.set_pipeline(pipeline);
         pass.set_bind_group(0, input, &[]);
         pass.draw(0..3, 0..1);
     }

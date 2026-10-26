@@ -5,18 +5,30 @@ use std::{
     },
     time::{Duration, Instant},
 };
+use zerium_core::timeline::{ExportBitDepth, ExportColorSettings, ExportColorSpace, VideoCodec};
 
-use super::{EncodingError, EncodingSettings, VideoEncoderFrame, VideoEncoderInput};
-use crate::engine::processing::visual::{OUTPUT_FORMAT, RenderScene, RenderSession, RenderSize};
+use super::{
+    EncodingError, EncodingSettings, VideoEncoderFrame, VideoEncoderInput, VideoPixelFormat,
+};
+use crate::engine::processing::visual::{RenderScene, RenderSession, RenderSize};
 
 mod backend;
+mod color;
 
-use self::backend::Backend;
-pub(crate) use backend::gstreamer::Mp4Writer;
+use self::{
+    backend::Backend,
+    color::{ColorConversion, plane_formats},
+};
+pub(crate) use backend::gstreamer::MediaWriter;
 
 const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
-const PLANE_FORMATS: [wgpu::TextureFormat; 2] =
-    [wgpu::TextureFormat::R8Unorm, wgpu::TextureFormat::Rg8Unorm];
+
+/// Native adapters currently accept 8-bit BT.709. Device capabilities are checked on creation.
+fn supports_gpu_encoding(codec: VideoCodec, color: ExportColorSettings) -> bool {
+    (codec == VideoCodec::H264 || codec == VideoCodec::H265)
+        && color.depth == ExportBitDepth::Eight
+        && color.space == ExportColorSpace::Bt709
+}
 
 struct PendingFrame<T> {
     index: u64,
@@ -31,14 +43,6 @@ pub(crate) struct VideoOutput {
     backend: Backend,
     conversion: ColorConversion,
     depth: usize,
-}
-
-/// Shared rendering into the two NV12 planes supplied by a backend.
-struct ColorConversion {
-    _source: wgpu::Texture,
-    view: wgpu::TextureView,
-    binding: wgpu::BindGroup,
-    pipelines: [wgpu::RenderPipeline; 2],
 }
 
 impl VideoOutput {
@@ -61,13 +65,21 @@ impl VideoOutput {
             ));
         }
         let depth = depth.max(1);
+        let use_native = supports_gpu_encoding(settings.video_codec, settings.color);
         #[cfg(any(target_os = "linux", target_os = "windows"))]
-        let native =
+        let native = if !use_native {
+            Ok(None)
+        } else {
             backend::gpu_video::Encoder::new(device, &renderer.gpu().queue, settings, depth)
-                .map(|encoder| encoder.map(Backend::GpuVideo));
+                .map(|encoder| encoder.map(Backend::GpuVideo))
+        };
         #[cfg(target_os = "macos")]
-        let native = backend::video_toolbox::Encoder::new(device, settings, depth)
-            .map(|encoder| encoder.map(Backend::VideoToolbox));
+        let native = if !use_native {
+            Ok(None)
+        } else {
+            backend::video_toolbox::Encoder::new(device, settings, depth)
+                .map(|encoder| encoder.map(Backend::VideoToolbox))
+        };
         let native = match native {
             Ok(native) => native,
             Err(error) => {
@@ -78,24 +90,25 @@ impl VideoOutput {
             }
         };
         let (backend, encoding) = match native {
-            Some(backend) => (backend, VideoEncoderInput::H264),
+            Some(backend) => (backend, VideoEncoderInput::Encoded),
             None => {
-                let readback = backend::Nv12Readback::new(device, dimensions)?;
-                let encoding = VideoEncoderInput::Nv12;
+                let format = VideoPixelFormat::from(settings.color.depth);
+                let readback = backend::YuvReadback::new(device, dimensions, format)?;
+                let encoding = VideoEncoderInput::Raw(format);
                 (Backend::Readback(readback), encoding)
             }
         };
         log::info!(
             "Video export backend: {}",
             match &backend {
-                Backend::Readback(_) => "CPU readback / x264",
+                Backend::Readback(_) => "CPU readback",
                 #[cfg(any(target_os = "linux", target_os = "windows"))]
                 Backend::GpuVideo(_) => "Vulkan Video",
                 #[cfg(target_os = "macos")]
                 Backend::VideoToolbox(_) => "VideoToolbox",
             }
         );
-        let conversion = ColorConversion::new(device, size);
+        let conversion = ColorConversion::new(device, size, settings.color);
         Ok((
             Self {
                 failed: Arc::new(AtomicBool::new(false)),
@@ -186,122 +199,6 @@ impl VideoOutput {
             encoder.flush()?;
         }
         Ok(())
-    }
-}
-
-impl ColorConversion {
-    fn new(device: &wgpu::Device, size: RenderSize) -> Self {
-        let source = texture(
-            device,
-            size,
-            OUTPUT_FORMAT,
-            wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
-        );
-        let view = source.create_view(&Default::default());
-        let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
-            label: Some("zerium-export-input"),
-            entries: &[wgpu::BindGroupLayoutEntry {
-                binding: 0,
-                visibility: wgpu::ShaderStages::FRAGMENT,
-                ty: wgpu::BindingType::Texture {
-                    sample_type: wgpu::TextureSampleType::Float { filterable: false },
-                    view_dimension: wgpu::TextureViewDimension::D2,
-                    multisampled: false,
-                },
-                count: None,
-            }],
-        });
-        let binding = device.create_bind_group(&wgpu::BindGroupDescriptor {
-            label: Some("zerium-export-input"),
-            layout: &layout,
-            entries: &[wgpu::BindGroupEntry {
-                binding: 0,
-                resource: wgpu::BindingResource::TextureView(&view),
-            }],
-        });
-        let pipeline_layout = device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
-            label: Some("zerium-export-color"),
-            bind_group_layouts: &[Some(&layout)],
-            immediate_size: 0,
-        });
-        let shader = device.create_shader_module(wgpu::ShaderModuleDescriptor {
-            label: Some("zerium-export-color"),
-            source: wgpu::ShaderSource::Wgsl(include_str!("color.wgsl").into()),
-        });
-        let pipelines = std::array::from_fn(|plane| {
-            let format = PLANE_FORMATS[plane];
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("zerium-export-color"),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vertex"),
-                    compilation_options: Default::default(),
-                    buffers: &[],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some(if plane == 0 { "luma" } else { "chroma" }),
-                    compilation_options: Default::default(),
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                primitive: Default::default(),
-                depth_stencil: None,
-                multisample: Default::default(),
-                multiview_mask: None,
-                cache: None,
-            })
-        });
-        Self {
-            _source: source,
-            view,
-            binding,
-            pipelines,
-        }
-    }
-
-    fn render(
-        &self,
-        renderer: &RenderSession,
-        scene: &RenderScene,
-        views: &[wgpu::TextureView],
-    ) -> Result<wgpu::CommandEncoder, EncodingError> {
-        renderer
-            .submit_scene(scene, &self.view)
-            .map_err(EncodingError::backend)?;
-        let mut encoder =
-            renderer
-                .gpu()
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("zerium-export-color"),
-                });
-        for (pipeline, view) in self.pipelines.iter().zip(views) {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("zerium-export-color"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_pipeline(pipeline);
-            pass.set_bind_group(0, &self.binding, &[]);
-            pass.draw(0..3, 0..1);
-        }
-        Ok(encoder)
     }
 }
 

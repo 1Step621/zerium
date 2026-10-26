@@ -1,8 +1,7 @@
 //! Version 1 → 2: normalize scene arguments into scene variables.
 use serde::Deserialize;
-use serde_json::{Map, Value};
 
-use super::invalid_format;
+use super::{Migration, invalid_format};
 use crate::{
     persistence::{ProjectError, items::ProjectItem, scene::definitions::StoredScene},
     property::PropertySchema,
@@ -33,7 +32,8 @@ struct Argument {
     bindings: Vec<SceneBindingTarget>,
 }
 
-pub(super) fn migrate(file: &mut Map<String, Value>) -> Result<(), ProjectError> {
+pub(super) fn migrate(migration: &mut Migration<'_>) -> Result<(), ProjectError> {
+    let file = &mut migration.file;
     let scenes = file
         .remove("scenes")
         .ok_or_else(|| ProjectError::invalid_data("Project scenes are missing"))?;
@@ -51,7 +51,7 @@ pub(super) fn migrate(file: &mut Map<String, Value>) -> Result<(), ProjectError>
         "scenes".to_owned(),
         serde_json::to_value(scenes).map_err(invalid_format)?,
     );
-    file.insert("format_version".to_owned(), Value::from(2));
+    migration.format_version = 2;
     Ok(())
 }
 

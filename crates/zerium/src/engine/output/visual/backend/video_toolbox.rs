@@ -1,4 +1,5 @@
 use std::collections::VecDeque;
+use zerium_core::timeline::{ExportColorRange, VideoCodec};
 
 use apple_cf::{
     cf::{CFDictionary, CFString},
@@ -15,9 +16,12 @@ use videotoolbox::{
 };
 
 use crate::engine::{
-    output::visual::{
-        Cancellation, ColorConversion, EncodingError, EncodingSettings, PendingFrame,
-        VideoEncoderFrame, wait_for_submission,
+    output::{
+        VideoPixelFormat,
+        visual::{
+            Cancellation, ColorConversion, EncodingError, EncodingSettings, PendingFrame,
+            VideoEncoderFrame, plane_formats, wait_for_submission,
+        },
     },
     processing::visual::{RenderScene, RenderSession},
 };
@@ -52,21 +56,28 @@ impl Encoder {
         let Some(hal) = (unsafe { device.as_hal::<wgpu::hal::api::Metal>() }) else {
             return Ok(None);
         };
+        let (codec, profile) = match settings.video_codec {
+            VideoCodec::H264 => (Codec::H264, ProfileLevel::H264HighAutoLevel),
+            VideoCodec::H265 => (Codec::HEVC, ProfileLevel::HEVCMainAutoLevel),
+            VideoCodec::Vp9 | VideoCodec::Av1 => return Ok(None),
+        };
         let output = settings.output;
-        let session =
-            CompressionSession::builder(output.width as i32, output.height as i32, Codec::H264)
-                .with_hardware_acceleration(HardwareAcceleration::Required)
-                .with_encoder_gpu(EncoderGpu::Required(hal.raw_device().registryID()))
-                .with_allow_frame_reordering(false)
-                .with_expected_frame_rate(
-                    f64::from(settings.frame_rate.numerator())
-                        / f64::from(settings.frame_rate.denominator()),
-                )
-                .with_max_keyframe_interval(settings.gop.min(i32::MAX as u32) as i32)
-                .with_quality(0.9)
-                .with_profile_level(ProfileLevel::H264HighAutoLevel)
-                .build()
-                .map_err(EncodingError::backend)?;
+        let builder = CompressionSession::builder(output.width as i32, output.height as i32, codec)
+            .with_hardware_acceleration(HardwareAcceleration::Required)
+            .with_encoder_gpu(EncoderGpu::Required(hal.raw_device().registryID()))
+            .with_allow_frame_reordering(false)
+            .with_expected_frame_rate(
+                f64::from(settings.frame_rate.numerator())
+                    / f64::from(settings.frame_rate.denominator()),
+            )
+            .with_max_keyframe_interval(settings.gop.min(i32::MAX as u32) as i32)
+            .with_profile_level(profile);
+        let builder = if let Some(bitrate) = settings.video_bitrate_kbps {
+            builder.with_average_bit_rate((bitrate * 1000) as i32)
+        } else {
+            builder.with_quality(0.9)
+        };
+        let session = builder.build().map_err(EncodingError::backend)?;
         let keys = [
             CFString::new("ColorPrimaries"),
             CFString::new("TransferFunction"),
@@ -83,7 +94,11 @@ impl Encoder {
         let pool = CVPixelBufferPool::create(
             output.width as usize,
             output.height as usize,
-            u32::from_be_bytes(*b"420v"),
+            u32::from_be_bytes(if settings.color.range == ExportColorRange::Full {
+                *b"420f"
+            } else {
+                *b"420v"
+            }),
             depth,
         )
         .map_err(EncodingError::backend)?;
@@ -99,10 +114,7 @@ impl Encoder {
             // owns the reference for this borrow; Metal retains it in each texture.
             let surface = unsafe { &*surface.as_ptr().cast::<IOSurfaceRef>() };
             let mut textures = Vec::with_capacity(2);
-            for (plane, format) in crate::engine::output::visual::PLANE_FORMATS
-                .iter()
-                .enumerate()
-            {
+            for (plane, format) in plane_formats(VideoPixelFormat::Nv12).iter().enumerate() {
                 let (width, height, metal_format) = if plane == 0 {
                     (output.width, output.height, MTLPixelFormat::R8Unorm)
                 } else {
@@ -236,14 +248,14 @@ impl Encoder {
         let parameters = sample
             .format_description()
             .ok_or(EncodingError::Invalid(
-                "H.264 frame has no format description",
+                "Encoded frame has no format description",
             ))?
             .video_parameter_sets()
             .map_err(EncodingError::backend)?;
         let length =
             usize::try_from(parameters.nal_unit_header_length).map_err(EncodingError::backend)?;
         if !(1..=4).contains(&length) {
-            return Err(EncodingError::Invalid("Invalid H.264 NAL length"));
+            return Err(EncodingError::Invalid("Invalid encoded NAL length"));
         }
         let keyframe = sample.is_sync_sample();
         let mut data = Vec::with_capacity(encoded.data.len() + 128);
@@ -257,14 +269,14 @@ impl Encoder {
         while !input.is_empty() {
             let prefix = input
                 .get(..length)
-                .ok_or(EncodingError::Invalid("Truncated H.264 NAL length"))?;
+                .ok_or(EncodingError::Invalid("Truncated encoded NAL length"))?;
             let size = prefix
                 .iter()
                 .fold(0usize, |size, byte| (size << 8) | usize::from(*byte));
             input = &input[length..];
             let nal = input
                 .get(..size)
-                .ok_or(EncodingError::Invalid("Truncated H.264 NAL unit"))?;
+                .ok_or(EncodingError::Invalid("Truncated encoded NAL unit"))?;
             data.extend_from_slice(&[0, 0, 0, 1]);
             data.extend_from_slice(nal);
             input = &input[size..];

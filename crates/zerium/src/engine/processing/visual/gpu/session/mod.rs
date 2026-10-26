@@ -543,6 +543,9 @@ impl RenderSession {
         scene: &RenderScene,
         target_view: &wgpu::TextureView,
     ) -> Result<wgpu::SubmissionIndex, RenderError> {
+        if ![super::OUTPUT_FORMAT, super::SCENE_FORMAT].contains(&target_view.texture().format()) {
+            return Err(RenderError::backend("Unsupported output surface format"));
+        }
         self.validate_scene(scene)?;
         let mut state = self
             .state

@@ -2,7 +2,7 @@
 mod dialog;
 mod job;
 
-use std::{path::PathBuf, sync::Arc};
+use std::sync::Arc;
 
 use gpui::{Context, Entity, Subscription, Task};
 
@@ -38,7 +38,6 @@ pub(crate) struct ExportController {
     session_id: ProjectSessionId,
     notifications: Entity<UiNotifications>,
     state: ExportState,
-    output: Option<PathBuf>,
     _session_subscription: Subscription,
 }
 
@@ -62,7 +61,6 @@ impl ExportController {
                 this.cancel(cx);
                 this.session_id = session_id;
                 this.state = ExportState::Idle;
-                this.output = None;
             }
             cx.notify();
         });
@@ -74,7 +72,6 @@ impl ExportController {
             session_id,
             notifications,
             state: ExportState::Idle,
-            output: None,
             _session_subscription: session_subscription,
         }
     }

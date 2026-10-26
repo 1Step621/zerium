@@ -1,4 +1,10 @@
 //! Project state, settings, and detached snapshots.
+mod export;
+
+pub use export::{
+    AudioCodec, ExportBitDepth, ExportColorRange, ExportColorSettings, ExportColorSpace,
+    ExportContainer, ExportSettings, VideoCodec,
+};
 
 use super::ProjectId;
 use crate::{
@@ -12,16 +18,36 @@ use thiserror::Error;
 /// Persistent state for one timeline project. Mutations are coordinated by
 /// `TimelineEditor`, which also exposes immutable snapshots to background work.
 #[derive(Clone)]
-pub(in crate::timeline) struct TimelineProject {
+pub(crate) struct TimelineProject {
     pub(in crate::timeline) id: ProjectId,
     pub(in crate::timeline) media_dependencies_revision: u64,
     pub(in crate::timeline) main_scene: SceneId,
     pub(in crate::timeline) scenes: Arc<HashMap<SceneId, SceneDefinition>>,
     pub(in crate::timeline) resolution: ProjectResolution,
     pub(in crate::timeline) beat_guide: BeatGuide,
+    pub(in crate::timeline) export_settings: ExportSettings,
 }
 
 impl TimelineProject {
+    pub(crate) fn new(
+        id: ProjectId,
+        main_scene: SceneId,
+        scenes: HashMap<SceneId, SceneDefinition>,
+        resolution: ProjectResolution,
+        beat_guide: BeatGuide,
+        export_settings: ExportSettings,
+    ) -> Self {
+        Self {
+            id,
+            media_dependencies_revision: 0,
+            main_scene,
+            scenes: Arc::new(scenes),
+            resolution,
+            beat_guide,
+            export_settings,
+        }
+    }
+
     /// Every definition owns its local clock, including its expansion anchor.
     /// Prepare the entire project before publishing a frame-rate change.
     pub(in crate::timeline) fn retimed(
@@ -86,6 +112,10 @@ impl TimelineSnapshot {
 
     pub fn beat_guide(&self) -> BeatGuide {
         self.project.beat_guide
+    }
+
+    pub fn export_settings(&self) -> &ExportSettings {
+        &self.project.export_settings
     }
 
     pub fn main_scene_id(&self) -> crate::timeline::SceneId {

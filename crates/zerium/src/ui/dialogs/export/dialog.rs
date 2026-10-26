@@ -1,4 +1,5 @@
 use rust_i18n::t;
+use zerium_core::timeline::{AudioCodec, ExportColorRange, TimelineView as _};
 
 use std::path::{Path, PathBuf};
 
@@ -8,9 +9,12 @@ use ::ui::{
     modal::{Modal, ModalButtonProps},
 };
 
-use gpui::{App, Context, SharedString, Window, div, prelude::*, px};
+use gpui::{App, Context, Entity, Window, div, prelude::*};
 
-use crate::app::project::ProjectActivity;
+use crate::{
+    app::project::ProjectActivity,
+    ui::components::form::{form_dialog, form_fields, form_row},
+};
 
 use super::{ExportController, ExportState};
 
@@ -22,26 +26,51 @@ impl ExportController {
         let editor = self.editor.read(cx);
         let frame_rate = editor.frame_rate();
         let resolution = editor.resolution();
-        let frame_count = editor.end_frame_exclusive();
+        let frame_count = editor.snapshot().end_frame_exclusive();
         let duration_label = format_duration(frame_rate.frame_to_seconds(frame_count));
         let frame_rate_label = format!("{:.2} fps", frame_rate.frames_per_second());
+        let settings = editor.export_settings().clone();
+        let output = self.output_path(cx);
+        let destination = cx.new(|_| output);
+        let video_bitrate_label = settings
+            .video_bitrate_kbps
+            .map(|bitrate| format!("{bitrate} kbps"))
+            .unwrap_or_else(|| t!("export.automatic").to_string());
+        let audio_label = if settings.audio_enabled {
+            let channels = if settings.audio_channels == 1 {
+                t!("export.mono")
+            } else {
+                t!("export.stereo")
+            };
+            let mut label = format!(
+                "{} / {} kHz / {}",
+                settings.audio_codec,
+                settings.audio_sample_rate as f32 / 1000.,
+                channels
+            );
+            if settings.audio_codec != AudioCodec::Flac {
+                label.push_str(&format!(" / {} kbps", settings.audio_bitrate_kbps));
+            }
+            label
+        } else {
+            t!("export.no_audio").to_string()
+        };
+        let color_range_label = match settings.color.range {
+            ExportColorRange::Limited => t!("export.range_limited").to_string(),
+            ExportColorRange::Full => t!("export.range_full").to_string(),
+        };
+        let format_label = format!("{} / {}", settings.container, settings.video_codec);
         let controller = cx.entity();
         let session_id = self.session.read(cx).id();
-        window.open_modal(cx, move |modal: Modal, _, cx| {
+        window.open_modal(cx, move |modal: Modal, window, cx| {
             let export = controller.read(cx);
-            let output = export.output_path(cx).display().to_string();
+            let output = destination.read(cx).display().to_string();
             let busy = export.is_busy();
             let destination_controller = controller.clone();
             let confirm_controller = controller.clone();
-            modal
-                .title(
-                    div()
-                        .font_family(crate::ui::theme::FONT_FAMILY)
-                        .font_normal()
-                        .child(t!("export.title").to_string()),
-                )
-                .width(px(560.))
-                .confirm()
+            let confirm_destination = destination.clone();
+            let destination_draft = destination.clone();
+            form_dialog(modal, t!("export.title").to_string(), window)
                 .button_props(
                     ModalButtonProps::default()
                         .ok_text(t!("export.start").to_string())
@@ -54,58 +83,105 @@ impl ExportController {
                         {
                             return false;
                         }
+                        let output = confirm_destination.read(cx).clone();
+                        let result = controller.editor.update(cx, |editor, cx| {
+                            let result = editor.update_export_destination(output);
+                            if let Ok(true) = result {
+                                cx.notify();
+                            }
+                            result
+                        });
+                        if let Err(error) = result {
+                            controller.notifications.update(cx, |notifications, cx| {
+                                notifications.push(error.to_string(), cx);
+                            });
+                            return false;
+                        }
                         controller.request_export(window, cx);
                         true
                     })
                 })
-                .child(summary_row(
-                    t!("export.destination").to_string(),
-                    div()
-                        .w_full()
-                        .flex()
-                        .items_center()
-                        .gap_2()
-                        .child(div().min_w_0().flex_1().truncate().child(output.clone()))
-                        .child(
-                            Button::new("export-destination")
-                                .small()
-                                .icon(IconName::Folder)
-                                .tooltip(format!("{}\n{output}", t!("export.choose_destination")))
-                                .disabled(busy)
-                                .on_click(move |_, _, cx| {
-                                    destination_controller.update(cx, |controller, cx| {
-                                        if controller.session.read(cx).is_current(session_id) {
-                                            controller.choose_output(cx);
-                                        }
-                                    });
-                                }),
+                .child(
+                    form_fields()
+                        .gap_1()
+                        .child(form_row(
+                            t!("export.destination").to_string(),
+                            div()
+                                .w_full()
+                                .flex()
+                                .items_center()
+                                .gap_2()
+                                .child(div().min_w_0().flex_1().truncate().child(output.clone()))
+                                .child(
+                                    Button::new("export-destination")
+                                        .small()
+                                        .icon(IconName::Folder)
+                                        .tooltip(format!(
+                                            "{}\n{output}",
+                                            t!("export.choose_destination")
+                                        ))
+                                        .disabled(busy)
+                                        .on_click(move |_, _, cx| {
+                                            destination_controller.update(cx, |controller, cx| {
+                                                if controller
+                                                    .session
+                                                    .read(cx)
+                                                    .is_current(session_id)
+                                                {
+                                                    controller.choose_output(
+                                                        destination_draft.clone(),
+                                                        cx,
+                                                    );
+                                                }
+                                            });
+                                        }),
+                                ),
+                        ))
+                        .children(
+                            [
+                                (t!("export.format").to_string(), format_label.clone()),
+                                (
+                                    t!("export.resolution").to_string(),
+                                    format!("{} × {}", resolution.width(), resolution.height()),
+                                ),
+                                (
+                                    t!("export.frame_rate").to_string(),
+                                    frame_rate_label.clone(),
+                                ),
+                                (t!("export.duration").to_string(), duration_label.clone()),
+                                (
+                                    t!("export.color_space").to_string(),
+                                    settings.color.space.to_string(),
+                                ),
+                                (
+                                    t!("export.bit_depth").to_string(),
+                                    format!("{} bit", settings.color.depth.bits()),
+                                ),
+                                (
+                                    t!("export.color_range").to_string(),
+                                    color_range_label.clone(),
+                                ),
+                                (
+                                    t!("export.video_bitrate").to_string(),
+                                    video_bitrate_label.clone(),
+                                ),
+                                (t!("export.audio").to_string(), audio_label.clone()),
+                            ]
+                            .into_iter()
+                            .map(|(label, value)| form_row(label, value).min_h_0()),
                         ),
-                ))
-                .child(summary_row(
-                    t!("export.format").to_string(),
-                    "MP4 / H.264 + AAC",
-                ))
-                .child(summary_row(
-                    t!("export.resolution").to_string(),
-                    format!("{} × {}", resolution.width(), resolution.height()),
-                ))
-                .child(summary_row(
-                    t!("export.frame_rate").to_string(),
-                    frame_rate_label.clone(),
-                ))
-                .child(summary_row(
-                    t!("export.duration").to_string(),
-                    duration_label.clone(),
-                ))
+                )
         });
     }
 
     fn output_path(&self, cx: &App) -> PathBuf {
-        if let Some(output) = &self.output {
-            return output.clone();
+        let settings = self.editor.read(cx).export_settings();
+        let extension = settings.container.extension();
+        if let Some(output) = &settings.destination {
+            return output.with_extension(extension);
         }
         if let Some(path) = self.session.read(cx).path() {
-            return path.with_extension("mp4");
+            return path.with_extension(extension);
         }
         let initial_directory = directories::UserDirs::new()
             .map(|directories| {
@@ -116,14 +192,15 @@ impl ExportController {
             })
             .or_else(|| std::env::current_dir().ok())
             .unwrap_or_else(|| PathBuf::from("."));
-        initial_directory.join("output.mp4")
+        initial_directory.join("output").with_extension(extension)
     }
 
-    fn choose_output(&mut self, cx: &mut Context<Self>) {
+    fn choose_output(&mut self, destination: Entity<PathBuf>, cx: &mut Context<Self>) {
         if self.is_busy() {
             return;
         }
-        let output = self.output_path(cx);
+        let output = destination.read(cx).clone();
+        let extension = self.editor.read(cx).export_settings().container.extension();
         let receiver = cx.prompt_for_new_path(
             output.parent().unwrap_or(Path::new(".")),
             output.file_name().and_then(|name| name.to_str()),
@@ -166,14 +243,11 @@ impl ExportController {
                 controller.state = ExportState::Idle;
                 match result {
                     Ok(Some(mut output)) => {
-                        if !output
-                            .extension()
-                            .and_then(|extension| extension.to_str())
-                            .is_some_and(|extension| extension.eq_ignore_ascii_case("mp4"))
-                        {
-                            output.set_extension("mp4");
-                        }
-                        controller.output = Some(output);
+                        output.set_extension(extension);
+                        destination.update(cx, |destination, cx| {
+                            *destination = output;
+                            cx.notify();
+                        });
                     }
                     Ok(None) => {}
                     Err(error) => controller.notifications.update(cx, |notifications, cx| {
@@ -231,26 +305,11 @@ impl ExportController {
     }
 }
 
-fn summary_row(label: impl Into<SharedString>, value: impl IntoElement) -> gpui::Div {
-    div()
-        .w_full()
-        .flex()
-        .items_center()
-        .gap_3()
-        .child(
-            div()
-                .w(px(120.))
-                .flex_none()
-                .text_color(gpui::rgb(0x888888))
-                .child(label.into()),
-        )
-        .child(div().min_w_0().flex_1().child(value))
-}
-
 fn format_duration(seconds: f64) -> String {
-    let total_seconds = seconds.max(0.).ceil() as u64;
-    let hours = total_seconds / 3_600;
-    let minutes = total_seconds % 3_600 / 60;
-    let seconds = total_seconds % 60;
-    format!("{hours:02}:{minutes:02}:{seconds:02}")
+    let total_millis = (seconds.max(0.) * 1_000.).round() as u64;
+    let hours = total_millis / 3_600_000;
+    let minutes = total_millis % 3_600_000 / 60_000;
+    let seconds = total_millis % 60_000 / 1_000;
+    let millis = total_millis % 1_000;
+    format!("{hours:02}:{minutes:02}:{seconds:02}.{millis:03}")
 }

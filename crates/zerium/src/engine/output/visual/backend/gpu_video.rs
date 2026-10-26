@@ -2,8 +2,13 @@ use std::{collections::VecDeque, num::NonZeroU32, sync::mpsc};
 
 use gpu_video::{
     VideoDeviceExt,
-    parameters::{ColorRange, ColorSpace, EncoderParametersH264, RateControl, VideoParameters},
+    parameters::{
+        ColorRange, ColorSpace, EncoderParametersH264, EncoderParametersH265, RateControl,
+        VideoParameters,
+    },
 };
+
+use zerium_core::timeline::{ExportColorRange, VideoCodec};
 
 use crate::engine::{
     output::visual::{ColorConversion, EncodingError, EncodingSettings, VideoEncoderFrame},
@@ -14,9 +19,40 @@ pub(in crate::engine::output::visual) struct Encoder {
     // Callback delivery must never block the library's shared GPU waiter thread.
     // The outer pipeline limits outstanding frames to `depth`.
     receiver: mpsc::Receiver<gpu_video::EncodedOutputChunk<Vec<u8>>>,
-    encoder: gpu_video::WgpuTexturesEncoderH264,
+    encoder: NativeEncoder,
     headers: Vec<u8>,
     pending: VecDeque<u64>,
+}
+
+enum NativeEncoder {
+    H264(gpu_video::WgpuTexturesEncoderH264),
+    H265(gpu_video::WgpuTexturesEncoderH265),
+}
+
+impl NativeEncoder {
+    fn input_texture(&mut self) -> Result<gpu_video::EncodeTexture, gpu_video::VideoEncoderError> {
+        match self {
+            Self::H264(encoder) => encoder.input_texture(),
+            Self::H265(encoder) => encoder.input_texture(),
+        }
+    }
+
+    fn encode(
+        &mut self,
+        frame: gpu_video::InputFrame<gpu_video::EncodeTexture>,
+    ) -> Result<(), gpu_video::VideoEncoderError> {
+        match self {
+            Self::H264(encoder) => encoder.encode(frame, false),
+            Self::H265(encoder) => encoder.encode(frame, false),
+        }
+    }
+
+    fn flush(&mut self) -> Result<(), gpu_video::VideoEncoderError> {
+        match self {
+            Self::H264(encoder) => encoder.flush(),
+            Self::H265(encoder) => encoder.flush(),
+        }
+    }
 }
 
 impl Encoder {
@@ -29,11 +65,13 @@ impl Encoder {
         let Ok(video) = device.video() else {
             return Ok(None);
         };
-        let Some(profile) = video
-            .encode_capabilities()
-            .h264
-            .and_then(|caps| caps.high_profile)
-        else {
+        let capabilities = video.encode_capabilities();
+        let profile = match settings.video_codec {
+            VideoCodec::H264 => capabilities.h264.and_then(|caps| caps.high_profile),
+            VideoCodec::H265 => capabilities.h265.and_then(|caps| caps.main_profile),
+            VideoCodec::Vp9 | VideoCodec::Av1 => None,
+        };
+        let Some(profile) = profile else {
             return Ok(None);
         };
         let output = settings.output;
@@ -45,11 +83,14 @@ impl Encoder {
         let rate = settings.frame_rate;
         // Allocate 0.2 bits per pixel per frame, with room for complex frames.
         // This is a bitrate target, not an equivalent of x264's CRF value.
-        let bitrate =
+        let automatic_bitrate =
             (u64::from(output.width) * u64::from(output.height) * u64::from(rate.numerator())
                 / u64::from(rate.denominator())
                 / 5)
             .max(1_000_000);
+        let bitrate = settings
+            .video_bitrate_kbps
+            .map_or(automatic_bitrate, |value| u64::from(value) * 1000);
         let control = if profile.rate_control.vbr_supported {
             RateControl::VariableBitrate {
                 average_bitrate: bitrate,
@@ -62,41 +103,79 @@ impl Encoder {
                 virtual_buffer_size: std::time::Duration::from_secs(1),
             }
         } else {
+            if settings.video_bitrate_kbps.is_some() {
+                return Ok(None);
+            }
             RateControl::Disabled
         };
-        let mut parameters = video
-            .encoder_output_parameters_h264_high_quality(control)
-            .map_err(EncodingError::backend)?;
-        parameters.idr_period = NonZeroU32::new(settings.gop);
-        parameters.color_space = Some(ColorSpace::BT709);
-        parameters.color_range = Some(ColorRange::Limited);
+        let input_parameters = VideoParameters {
+            width: NonZeroU32::new(output.width)
+                .ok_or(EncodingError::Invalid("Invalid video width"))?,
+            height: NonZeroU32::new(output.height)
+                .ok_or(EncodingError::Invalid("Invalid video height"))?,
+            target_framerate: gpu_video::parameters::Rational {
+                numerator: rate.numerator(),
+                denominator: NonZeroU32::new(rate.denominator())
+                    .ok_or(EncodingError::Invalid("Invalid frame rate"))?,
+            },
+        };
         let (sender, receiver) = mpsc::channel();
-        let encoder = video
-            .create_wgpu_textures_encoder_h264(
-                queue,
-                EncoderParametersH264 {
-                    input_parameters: VideoParameters {
-                        width: NonZeroU32::new(output.width)
-                            .ok_or(EncodingError::Invalid("Invalid video width"))?,
-                        height: NonZeroU32::new(output.height)
-                            .ok_or(EncodingError::Invalid("Invalid video height"))?,
-                        target_framerate: gpu_video::parameters::Rational {
-                            numerator: rate.numerator(),
-                            denominator: NonZeroU32::new(rate.denominator())
-                                .ok_or(EncodingError::Invalid("Invalid frame rate"))?,
+        // A cancelled export drops the receiver before pending callbacks.
+        let callback = move |chunk| {
+            let _ = sender.send(chunk);
+        };
+        let color_range = match settings.color.range {
+            ExportColorRange::Limited => ColorRange::Limited,
+            ExportColorRange::Full => ColorRange::Full,
+        };
+        let (encoder, headers) = match settings.video_codec {
+            VideoCodec::H264 => {
+                let mut parameters = video
+                    .encoder_output_parameters_h264_high_quality(control)
+                    .map_err(EncodingError::backend)?;
+                parameters.idr_period = NonZeroU32::new(settings.gop);
+                parameters.color_space = Some(ColorSpace::BT709);
+                parameters.color_range = Some(color_range);
+                let encoder = video
+                    .create_wgpu_textures_encoder_h264(
+                        queue,
+                        EncoderParametersH264 {
+                            input_parameters,
+                            output_parameters: parameters,
+                            max_in_flight_submissions: Some(depth as u32),
                         },
-                    },
-                    output_parameters: parameters,
-                    max_in_flight_submissions: Some(depth as u32),
-                },
-                move |chunk| {
-                    // A cancelled export drops the receiver before pending callbacks.
-                    let _ = sender.send(chunk);
-                },
-            )
-            .map_err(EncodingError::backend)?;
-        let mut headers = encoder.sps().map_err(EncodingError::backend)?;
-        headers.extend(encoder.pps().map_err(EncodingError::backend)?);
+                        callback,
+                    )
+                    .map_err(EncodingError::backend)?;
+                let mut headers = encoder.sps().map_err(EncodingError::backend)?;
+                headers.extend(encoder.pps().map_err(EncodingError::backend)?);
+                (NativeEncoder::H264(encoder), headers)
+            }
+            VideoCodec::H265 => {
+                let mut parameters = video
+                    .encoder_output_parameters_h265_high_quality(control)
+                    .map_err(EncodingError::backend)?;
+                parameters.idr_period = NonZeroU32::new(settings.gop);
+                parameters.color_space = Some(ColorSpace::BT709);
+                parameters.color_range = Some(color_range);
+                let encoder = video
+                    .create_wgpu_textures_encoder_h265(
+                        queue,
+                        EncoderParametersH265 {
+                            input_parameters,
+                            output_parameters: parameters,
+                            max_in_flight_submissions: Some(depth as u32),
+                        },
+                        callback,
+                    )
+                    .map_err(EncodingError::backend)?;
+                let mut headers = encoder.vps().map_err(EncodingError::backend)?;
+                headers.extend(encoder.sps().map_err(EncodingError::backend)?);
+                headers.extend(encoder.pps().map_err(EncodingError::backend)?);
+                (NativeEncoder::H265(encoder), headers)
+            }
+            VideoCodec::Vp9 | VideoCodec::Av1 => return Ok(None),
+        };
         Ok(Some(Self {
             receiver,
             encoder,
@@ -127,13 +206,10 @@ impl Encoder {
         let commands = conversion.render(renderer, scene, &views)?;
         renderer.gpu().queue.submit([commands.finish()]);
         self.encoder
-            .encode(
-                gpu_video::InputFrame {
-                    data: texture,
-                    pts: Some(index),
-                },
-                false,
-            )
+            .encode(gpu_video::InputFrame {
+                data: texture,
+                pts: Some(index),
+            })
             .map_err(EncodingError::backend)?;
         self.pending.push_back(index);
         Ok(())

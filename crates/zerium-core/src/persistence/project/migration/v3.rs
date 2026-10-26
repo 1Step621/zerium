@@ -1,16 +1,17 @@
 //! Version 3 → 5: keep authored playback properties and discard derived state.
+use super::Migration;
+
 use crate::{
     persistence::ProjectError,
     plugin::PluginRegistry,
     property::{PropertyValue, PropertyValues},
     timeline::{FrameDuration, FrameRate},
 };
-use serde_json::{Map, Value};
+use serde_json::Value;
 
-pub(super) fn migrate(
-    file: &mut Map<String, Value>,
-    plugins: &PluginRegistry,
-) -> Result<(), ProjectError> {
+pub(super) fn migrate(migration: &mut Migration<'_>) -> Result<(), ProjectError> {
+    let file = &mut migration.file;
+    let plugins = migration.plugins;
     let rate = crate::persistence::project::migration::frame_rate(file)?;
     file.remove("media_cache");
     items(file.get_mut("items"), plugins, rate)?;
@@ -19,7 +20,7 @@ pub(super) fn migrate(
             items(scene.get_mut("items"), plugins, rate)?;
         }
     }
-    file.insert("format_version".into(), Value::from(5));
+    migration.format_version = 5;
     Ok(())
 }
 

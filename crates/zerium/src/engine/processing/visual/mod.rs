@@ -3,7 +3,7 @@
 mod gpu;
 mod scene;
 
-pub(in crate::engine) use self::gpu::OUTPUT_FORMAT;
+pub(in crate::engine) use self::gpu::SCENE_FORMAT;
 pub(crate) use self::{
     gpu::{
         device::{RenderDevice, RenderDeviceBuilder},

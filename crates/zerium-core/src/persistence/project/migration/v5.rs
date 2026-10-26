@@ -1,8 +1,11 @@
 //! Version 5 → 6: store main as a scene with the same variable and item contract.
-use crate::persistence::ProjectError;
-use serde_json::{Map, Value, json};
+use super::Migration;
 
-pub(super) fn migrate(file: &mut Map<String, Value>) -> Result<(), ProjectError> {
+use crate::persistence::ProjectError;
+use serde_json::{Value, json};
+
+pub(super) fn migrate(migration: &mut Migration<'_>) -> Result<(), ProjectError> {
+    let file = &mut migration.file;
     let items = file
         .remove("items")
         .ok_or_else(|| ProjectError::invalid_data("Project items are missing"))?;
@@ -34,6 +37,6 @@ pub(super) fn migrate(file: &mut Map<String, Value>) -> Result<(), ProjectError>
         "items": items,
     }));
     file.insert("main_scene".into(), Value::from(main_scene));
-    file.insert("format_version".into(), Value::from(6));
+    migration.format_version = 6;
     Ok(())
 }

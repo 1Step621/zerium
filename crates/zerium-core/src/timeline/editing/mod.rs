@@ -170,14 +170,14 @@ impl TimelineEditor {
         let next_effect_id = Self::next_effect_id(scenes.values());
         Self {
             plugins,
-            project: Arc::new(TimelineProject {
-                id: project_id,
-                media_dependencies_revision: 0,
+            project: Arc::new(TimelineProject::new(
+                project_id,
                 main_scene,
-                scenes: Arc::new(scenes),
+                scenes,
                 resolution,
-                beat_guide: BeatGuide::default(),
-            }),
+                BeatGuide::default(),
+                Default::default(),
+            )),
             media_cache: Arc::default(),
             scene_path: Vec::new(),
             next_scene_id: Some(2),
@@ -325,43 +325,37 @@ impl TimelineEditor {
         let project_id = ProjectId::generate();
         let main_scene = SceneId::new(project_id, 1);
         self.replace_project(
-            project_id,
-            main_scene,
-            HashMap::from([(
+            TimelineProject::new(
+                project_id,
                 main_scene,
-                SceneDefinition::from_project(main_scene, "Main".to_owned(), Vec::new(), document),
-            )]),
-            resolution,
-            BeatGuide::default(),
+                HashMap::from([(
+                    main_scene,
+                    SceneDefinition::from_project(
+                        main_scene,
+                        "Main".to_owned(),
+                        Vec::new(),
+                        document,
+                    ),
+                )]),
+                resolution,
+                BeatGuide::default(),
+                Default::default(),
+            ),
             playhead,
         );
     }
 
-    pub(crate) fn replace_project(
-        &mut self,
-        project_id: ProjectId,
-        main_scene: SceneId,
-        scenes: HashMap<SceneId, SceneDefinition>,
-        resolution: ProjectResolution,
-        beat_guide: BeatGuide,
-        playhead: Frame,
-    ) {
-        self.next_scene_id = scenes
+    pub(crate) fn replace_project(&mut self, project: TimelineProject, playhead: Frame) {
+        self.next_scene_id = project
+            .scenes
             .keys()
             .map(|id| id.get())
             .max()
             .unwrap_or(0)
             .checked_add(1)
             .filter(|id| *id != u64::MAX);
-        self.next_effect_id = Self::next_effect_id(scenes.values());
-        self.project = Arc::new(TimelineProject {
-            id: project_id,
-            media_dependencies_revision: 0,
-            main_scene,
-            scenes: Arc::new(scenes),
-            resolution,
-            beat_guide,
-        });
+        self.next_effect_id = Self::next_effect_id(project.scenes.values());
+        self.project = Arc::new(project);
         self.media_cache = Arc::default();
         self.scene_path.clear();
         self.reset_scene_session();
@@ -407,21 +401,47 @@ impl TimelineEditor {
         self.project().beat_guide
     }
 
+    pub fn export_settings(&self) -> &crate::timeline::ExportSettings {
+        &self.project.export_settings
+    }
+
+    pub fn update_export_destination(
+        &mut self,
+        destination: std::path::PathBuf,
+    ) -> Result<bool, ProjectSettingsError> {
+        let mut settings = self.export_settings().clone();
+        settings.destination = Some(destination);
+        settings.validate()?;
+        if self.export_settings() == &settings {
+            return Ok(false);
+        }
+        Ok(
+            self.edit_project_if_changed(EditImpact::Values, None, |editor| {
+                editor.project_mut().export_settings = settings;
+                true
+            }),
+        )
+    }
+
     pub fn update_project_settings(
         &mut self,
         resolution: ProjectResolution,
         frame_rate: FrameRate,
         beat_guide: BeatGuide,
+        export_settings: crate::timeline::ExportSettings,
     ) -> Result<bool, ProjectSettingsError> {
+        export_settings.validate()?;
         if self.resolution() == resolution
             && self.frame_rate() == frame_rate
             && self.beat_guide() == beat_guide
+            && self.export_settings() == &export_settings
         {
             return Ok(false);
         }
         let mut project = self.project().retimed(frame_rate)?;
         project.resolution = resolution;
         project.beat_guide = beat_guide;
+        project.export_settings = export_settings;
         let playhead = crate::timeline::model::document::retime_frame(
             self.playhead(),
             self.frame_rate(),

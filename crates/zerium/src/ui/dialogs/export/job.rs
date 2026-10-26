@@ -207,5 +207,5 @@ impl ExportController {
 fn output_name(path: &std::path::Path) -> &str {
     path.file_name()
         .and_then(|name| name.to_str())
-        .unwrap_or("output.mp4")
+        .unwrap_or("output")
 }

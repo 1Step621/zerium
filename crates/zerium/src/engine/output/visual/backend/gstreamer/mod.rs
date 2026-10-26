@@ -1,4 +1,5 @@
-//! Media output: H.264/AAC encoding and MP4 muxing for rendered exports.
+//! Encoded media streams and container output for rendered exports.
+mod codecs;
 mod mp4;
 
 use crate::engine::{
@@ -15,7 +16,10 @@ use std::{
     thread,
     time::{Duration, Instant},
 };
-use zerium_core::media::VideoFrameRate;
+use zerium_core::{
+    media::VideoFrameRate,
+    timeline::{AudioCodec, ExportContainer},
+};
 
 const INPUT_QUEUE_BUFFERS: u64 = 3;
 const WAIT_TIMEOUT: Duration = Duration::from_secs(60);
@@ -26,18 +30,19 @@ struct AudioInput {
     next_sample: u64,
 }
 
-pub(crate) struct Mp4Writer<'a> {
+pub(crate) struct MediaWriter<'a> {
     pipeline: GstreamerPipeline,
     bus: gst::Bus,
     video: AppSrc,
     audio: Option<AudioInput>,
     frame_rate: VideoFrameRate,
-    encoded_video: bool,
+    encoding: VideoEncoderInput,
+    finalize_aac: bool,
     cancelled: &'a AtomicBool,
     path: PathBuf,
 }
 
-impl<'a> Mp4Writer<'a> {
+impl<'a> MediaWriter<'a> {
     pub(crate) fn create(
         path: &Path,
         settings: EncodingSettings,
@@ -46,61 +51,23 @@ impl<'a> Mp4Writer<'a> {
     ) -> Result<Self, EncodingError> {
         initialize_gstreamer().map_err(EncodingError::backend)?;
         settings.output.validate()?;
-        let fps = gst::Fraction::new(
-            i32::try_from(settings.frame_rate.numerator())
-                .map_err(|_| EncodingError::Invalid("Frame rate is too large"))?,
-            i32::try_from(settings.frame_rate.denominator())
-                .map_err(|_| EncodingError::Invalid("Frame rate is too large"))?,
-        );
-        let encoded_video = matches!(encoding, VideoEncoderInput::H264);
-        let (mut caps, video_encoder) = match encoding {
-            VideoEncoderInput::H264 => (
-                gst::Caps::builder("video/x-h264")
-                    .field("stream-format", "byte-stream")
-                    .field("alignment", "au")
-                    .field("width", settings.output.width as i32)
-                    .field("height", settings.output.height as i32)
-                    .build(),
-                None,
-            ),
-            VideoEncoderInput::Nv12 => {
-                let colorimetry = "bt709"
-                    .parse::<gstreamer_video::VideoColorimetry>()
-                    .map_err(EncodingError::backend)?;
-                let info = gstreamer_video::VideoInfo::builder(
-                    gstreamer_video::VideoFormat::Nv12,
-                    settings.output.width,
-                    settings.output.height,
-                )
-                .colorimetry(&colorimetry)
-                .build()
-                .map_err(EncodingError::backend)?;
-                let encoder = gst::ElementFactory::make("x264enc")
-                    .property_from_str("speed-preset", "medium")
-                    .property_from_str("tune", "zerolatency")
-                    .property_from_str("pass", "qual")
-                    .property("quantizer", 18u32)
-                    .property("key-int-max", settings.gop)
-                    .build()
-                    .map_err(EncodingError::backend)?;
-                (
-                    info.to_caps().map_err(EncodingError::backend)?,
-                    Some(encoder),
-                )
-            }
-        };
-        caps.make_mut()
-            .structure_mut(0)
-            .ok_or(EncodingError::Invalid("Missing video caps"))?
-            .set("framerate", fps);
+        let (caps, video_chain) = codecs::video_chain(settings, encoding)?;
         let pipeline = GstreamerPipeline::new(gst::Pipeline::new());
-        let mux = gst::ElementFactory::make("mp4mux")
-            .property("faststart", true)
-            .build()
-            .map_err(EncodingError::backend)?;
-        if let Some(audio) = settings.audio {
-            // Edit-list durations must represent each PCM sample exactly.
-            mux.set_property("movie-timescale", audio.sample_rate);
+        let mux = gst::ElementFactory::make(match settings.container {
+            ExportContainer::Mp4 => "mp4mux",
+            ExportContainer::Matroska => "matroskamux",
+            ExportContainer::Webm => "webmmux",
+        })
+        .build()
+        .map_err(EncodingError::backend)?;
+        let finalize_aac =
+            settings.container == ExportContainer::Mp4 && settings.audio_codec == AudioCodec::Aac;
+        if settings.container == ExportContainer::Mp4 {
+            mux.set_property("faststart", true);
+            if let Some(audio) = settings.audio {
+                // Edit-list durations must represent each PCM sample exactly.
+                mux.set_property("movie-timescale", audio.sample_rate);
+            }
         }
         let sink = gst::ElementFactory::make("filesink")
             .property(
@@ -117,13 +84,10 @@ impl<'a> Mp4Writer<'a> {
         mux.link(&sink).map_err(EncodingError::backend)?;
 
         let video = app_source(&caps);
-        let parse = gst::ElementFactory::make("h264parse")
-            .build()
-            .map_err(EncodingError::backend)?;
         let queue = encoded_queue()?;
         let mut elements = vec![video.clone().upcast::<gst::Element>()];
-        elements.extend(video_encoder);
-        elements.extend([parse, queue.clone()]);
+        elements.extend(video_chain);
+        elements.push(queue.clone());
         pipeline
             .add_many(&elements)
             .map_err(EncodingError::backend)?;
@@ -148,13 +112,8 @@ impl<'a> Mp4Writer<'a> {
                 let convert = gst::ElementFactory::make("audioconvert")
                     .build()
                     .map_err(EncodingError::backend)?;
-                let encoder = gst::ElementFactory::make("avenc_aac")
-                    .property("bitrate", 192_000i32)
-                    .build()
-                    .map_err(EncodingError::backend)?;
-                let parse = gst::ElementFactory::make("aacparse")
-                    .build()
-                    .map_err(EncodingError::backend)?;
+                let encoder = codecs::audio_encoder(settings)?;
+                let parse = codecs::audio_parser(settings.audio_codec)?;
                 let queue = encoded_queue()?;
                 let elements = [source.upcast_ref(), &convert, &encoder, &parse, &queue];
                 pipeline
@@ -176,7 +135,8 @@ impl<'a> Mp4Writer<'a> {
             video,
             audio,
             frame_rate: settings.frame_rate,
-            encoded_video,
+            encoding,
+            finalize_aac,
             cancelled,
             path: path.to_owned(),
         };
@@ -207,7 +167,7 @@ impl<'a> Mp4Writer<'a> {
             .get_mut()
             .ok_or(EncodingError::Invalid("New video buffer is not writable"))?;
         buffer_ref.set_pts(start);
-        if self.encoded_video {
+        if let VideoEncoderInput::Encoded = self.encoding {
             buffer_ref.set_dts(start);
             if !frame.keyframe {
                 buffer_ref.set_flags(gst::BufferFlags::DELTA_UNIT);
@@ -310,7 +270,9 @@ impl<'a> Mp4Writer<'a> {
         self.pipeline
             .set_state(gst::State::Null)
             .map_err(EncodingError::backend)?;
-        if let Some(audio) = &self.audio {
+        if let Some(audio) = &self.audio
+            && self.finalize_aac
+        {
             if self.cancelled.load(Ordering::Relaxed) {
                 return Err(EncodingError::Cancelled);
             }
@@ -337,7 +299,7 @@ fn app_source(caps: &gst::Caps) -> AppSrc {
 }
 
 fn encoded_queue() -> Result<gst::Element, EncodingError> {
-    // Buffer compressed packets so AAC's frame delay cannot stall alternating
+    // Buffer compressed packets so audio codec delay cannot stall alternating
     // raw-video/audio submission. Limits apply to packets, not raw images.
     gst::ElementFactory::make("queue")
         .property("max-size-time", 1_000_000_000u64)

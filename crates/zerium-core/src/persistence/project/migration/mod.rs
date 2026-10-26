@@ -4,6 +4,8 @@ mod v2;
 mod v3;
 mod v4;
 mod v5;
+mod v6;
+mod v7;
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -16,33 +18,57 @@ use crate::{
     timeline::FrameDuration,
 };
 
-pub(super) fn decode(
-    source: &str,
-    plugins: &crate::plugin::PluginRegistry,
-) -> Result<ProjectFile, ProjectError> {
+pub(super) fn decode(source: &str, plugins: &PluginRegistry) -> Result<ProjectFile, ProjectError> {
     let header: ProjectHeader = deserialize(source)?;
     match header.format_version {
-        1..=5 => {
+        1..=7 => {
             let mut file: Map<String, Value> = deserialize(source)?;
-            if header.format_version == 1 {
-                v1::migrate(&mut file)?;
+            file.remove("format_version");
+            let mut migration = Migration {
+                format_version: header.format_version,
+                file,
+                plugins,
+            };
+            if migration.format_version <= 1 {
+                v1::migrate(&mut migration)?;
             }
-            if header.format_version <= 2 {
-                v2::migrate(&mut file);
+            if migration.format_version <= 2 {
+                v2::migrate(&mut migration)?;
             }
-            if header.format_version <= 3 {
-                v3::migrate(&mut file, plugins)?;
-            } else if header.format_version == 4 {
-                v4::migrate(&mut file, plugins)?;
+            if migration.format_version <= 3 {
+                v3::migrate(&mut migration)?;
             }
-            v5::migrate(&mut file)?;
-            serde_json::from_value(Value::Object(file)).map_err(invalid_format)
+            if migration.format_version <= 4 {
+                v4::migrate(&mut migration)?;
+            }
+            if migration.format_version <= 5 {
+                v5::migrate(&mut migration)?;
+            }
+            if migration.format_version <= 6 {
+                v6::migrate(&mut migration)?;
+            }
+            if migration.format_version <= 7 {
+                v7::migrate(&mut migration)?;
+            }
+            migration.file.insert(
+                "format_version".into(),
+                Value::from(migration.format_version),
+            );
+            serde_json::from_value(Value::Object(migration.file)).map_err(invalid_format)
         }
         FORMAT_VERSION => deserialize(source),
         version => Err(ProjectError::unsupported_format(format!(
             "Unsupported project format (version {version})"
         ))),
     }
+}
+
+/// Migration state; the version advances with the document, including steps that
+/// skip an intermediate format. Serialize it back into the file only at the end.
+struct Migration<'a> {
+    format_version: u32,
+    file: Map<String, Value>,
+    plugins: &'a PluginRegistry,
 }
 
 #[derive(Deserialize)]

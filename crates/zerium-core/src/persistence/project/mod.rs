@@ -5,41 +5,30 @@ use super::{
     ProjectError,
     scene::definitions::{StoredScene, load_scenes},
 };
-use std::{collections::HashMap, path::Path};
+use std::path::Path;
 
 use serde::{Deserialize, Serialize};
 
 use crate::{
     plugin::PluginRegistry,
     timeline::{
-        BeatGuide, Frame, FrameRate, ProjectId, ProjectResolution, SceneDefinition, SceneId,
-        TimelineEditor, TimelineSnapshot, TimelineView,
+        BeatGuide, Frame, FrameRate, ProjectId, ProjectResolution, SceneId, TimelineEditor,
+        TimelineProject, TimelineSnapshot, TimelineView,
     },
 };
 
 pub const PROJECT_EXTENSION: &str = "zero";
-const FORMAT_VERSION: u32 = 6;
+const FORMAT_VERSION: u32 = 8;
 
 #[derive(Clone)]
 pub struct LoadedProject {
-    project_id: ProjectId,
-    main_scene: SceneId,
-    scenes: HashMap<SceneId, SceneDefinition>,
-    resolution: ProjectResolution,
-    beat_guide: BeatGuide,
+    project: TimelineProject,
     playhead: Frame,
 }
 
 impl LoadedProject {
     pub fn apply(self, editor: &mut TimelineEditor) {
-        editor.replace_project(
-            self.project_id,
-            self.main_scene,
-            self.scenes,
-            self.resolution,
-            self.beat_guide,
-            self.playhead,
-        );
+        editor.replace_project(self.project, self.playhead);
     }
 }
 
@@ -67,6 +56,7 @@ struct ProjectFile {
     resolution: [u32; 2],
     frame_rate: [u32; 2],
     beat_guide: BeatGuide,
+    export_settings: crate::timeline::ExportSettings,
     playhead: u64,
     main_scene: u64,
     scenes: Vec<StoredScene>,
@@ -99,6 +89,13 @@ impl ProjectFile {
                 snapshot.frame_rate().denominator(),
             ],
             beat_guide: snapshot.beat_guide(),
+            export_settings: {
+                let mut settings = snapshot.export_settings().clone();
+                settings.destination = settings
+                    .destination
+                    .map(|path| crate::persistence::make_relative(&path, project_path));
+                settings
+            },
             playhead: snapshot.playhead().get(),
             main_scene: snapshot.main_scene_id().get(),
             scenes,
@@ -125,12 +122,22 @@ impl ProjectFile {
             project_path,
             plugins,
         )?;
+        let mut export_settings = self.export_settings;
+        export_settings
+            .validate()
+            .map_err(|error| ProjectError::invalid_data(error.to_string()))?;
+        export_settings.destination = export_settings
+            .destination
+            .map(|path| crate::persistence::resolve_path(&path, project_path));
         Ok(LoadedProject {
-            project_id,
-            main_scene,
-            scenes,
-            resolution,
-            beat_guide: self.beat_guide,
+            project: TimelineProject::new(
+                project_id,
+                main_scene,
+                scenes,
+                resolution,
+                self.beat_guide,
+                export_settings,
+            ),
             playhead: Frame::new(self.playhead),
         })
     }

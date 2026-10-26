@@ -9,7 +9,7 @@ use crate::{
         },
         output::{
             EncodingError, EncodingSettings, VideoDimensions, VideoEncoderFrame, VideoEncoderInput,
-            visual::{Mp4Writer, VideoOutput},
+            visual::{MediaWriter, VideoOutput},
         },
         processing::{
             audio::{AudioCalculationPolicy, AudioTimelineGraph, sample_boundary},
@@ -70,10 +70,6 @@ impl From<EncodingError> for ExportError {
     }
 }
 
-const EXPORT_AUDIO_FORMAT: AudioFormat = AudioFormat {
-    sample_rate: 48_000,
-    channels: 2,
-};
 const EXPORT_PIPELINE_DEPTH: usize = 3;
 const DECODE_PREFETCH_FRAMES: usize = 3;
 
@@ -98,6 +94,10 @@ pub(crate) fn export_timeline(
     if cancelled.load(Ordering::Relaxed) {
         return Err(ExportError::Cancelled);
     }
+    let settings = timeline.export_settings().clone();
+    settings
+        .validate()
+        .map_err(|error| ExportError::InvalidTimeline(error.to_string()))?;
     let frame_count = timeline.end_frame_exclusive().get();
     if frame_count == 0 {
         return Err(ExportError::InvalidTimeline(
@@ -105,7 +105,9 @@ pub(crate) fn export_timeline(
         ));
     }
     let refresh = refresh_files(
-        &mut dependency_readings(timeline.media_dependencies()),
+        &mut dependency_readings(timeline.media_dependencies().into_iter().filter(|source| {
+            settings.audio_enabled || source.target != zerium_core::media::MediaTarget::Audio
+        })),
         timeline.media_cache(),
         &media_readers,
     );
@@ -125,25 +127,40 @@ pub(crate) fn export_timeline(
     }
     .validate()
     .map_err(ExportError::encoding)?;
-    let audio_graph = AudioTimelineGraph::new(
-        timeline.audio_snapshot(),
-        EXPORT_AUDIO_FORMAT,
-        &media_readers,
-        AudioCalculationPolicy::Report,
-    )?;
+    let audio_format = AudioFormat {
+        sample_rate: settings.audio_sample_rate,
+        channels: settings.audio_channels,
+    };
+    let audio_graph = if settings.audio_enabled {
+        Some(AudioTimelineGraph::new(
+            timeline.audio_snapshot(),
+            audio_format,
+            &media_readers,
+            AudioCalculationPolicy::Report,
+        )?)
+        .filter(|graph| !graph.is_empty())
+    } else {
+        None
+    };
     let video_frame_rate = VideoFrameRate::new(frame_rate.numerator(), frame_rate.denominator())
         .ok_or_else(|| ExportError::encoding("Invalid output frame rate"))?;
     if cancelled.load(Ordering::Relaxed) {
         return Err(ExportError::Cancelled);
     }
     let video_settings = EncodingSettings {
+        color: settings.color,
+        container: settings.container,
+        video_codec: settings.video_codec,
+        audio_codec: settings.audio_codec,
+        video_bitrate_kbps: settings.video_bitrate_kbps,
+        audio_bitrate_kbps: settings.audio_bitrate_kbps,
         output: output_spec,
         frame_rate: video_frame_rate,
         gop: frame_rate
             .frames_per_second()
             .round()
             .clamp(1., f64::from(u32::MAX)) as u32,
-        audio: (!audio_graph.is_empty()).then_some(EXPORT_AUDIO_FORMAT),
+        audio: audio_graph.as_ref().map(|_| audio_format),
     };
     let decode_gpu = renderer.gpu().clone();
     let (mut frames, encoding) = VideoOutput::new(renderer, EXPORT_PIPELINE_DEPTH, video_settings)?;
@@ -289,7 +306,7 @@ fn write_output(
     output: PathBuf,
     video_settings: EncodingSettings,
     frames: mpsc::Receiver<WriterMessage>,
-    mut audio_graph: AudioTimelineGraph,
+    mut audio_graph: Option<AudioTimelineGraph>,
     frame_rate: FrameRate,
     encoding: VideoEncoderInput,
     cancelled: &AtomicBool,
@@ -303,8 +320,7 @@ fn write_output(
             output.display()
         ))
     })?;
-    let has_audio = !audio_graph.is_empty();
-    let mut encoder = Mp4Writer::create(
+    let mut encoder = MediaWriter::create(
         transaction.temporary_path(),
         video_settings,
         encoding,
@@ -330,13 +346,10 @@ fn write_output(
         };
         let index = frame.index;
         encoder.write_video(frame).map_err(ExportError::from)?;
-        if has_audio {
-            let start = sample_boundary(index, frame_rate, EXPORT_AUDIO_FORMAT.sample_rate);
-            let end = sample_boundary(
-                index.saturating_add(1),
-                frame_rate,
-                EXPORT_AUDIO_FORMAT.sample_rate,
-            );
+        if let Some(audio_graph) = &mut audio_graph {
+            let format = video_settings.audio.expect("audio graph format");
+            let start = sample_boundary(index, frame_rate, format.sample_rate);
+            let end = sample_boundary(index.saturating_add(1), frame_rate, format.sample_rate);
             let frame_count = usize::try_from(end.saturating_sub(start)).map_err(|_| {
                 ExportError::Audio(
                     crate::engine::processing::audio::AudioTimelineError::RangeTooLarge,

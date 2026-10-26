@@ -1,4 +1,6 @@
 //! Version 4 → 5: restore source settings to ordinary authored properties.
+use super::Migration;
+
 use crate::{
     persistence::ProjectError,
     plugin::PluginRegistry,
@@ -22,10 +24,9 @@ struct SourceClock {
     speed: f32,
 }
 
-pub(super) fn migrate(
-    file: &mut Map<String, Value>,
-    plugins: &PluginRegistry,
-) -> Result<(), ProjectError> {
+pub(super) fn migrate(migration: &mut Migration<'_>) -> Result<(), ProjectError> {
+    let file = &mut migration.file;
+    let plugins = migration.plugins;
     let rate = crate::persistence::project::migration::frame_rate(file)?;
     items(file.get_mut("items"), plugins, rate)?;
     if let Some(scenes) = file.get_mut("scenes").and_then(Value::as_array_mut) {
@@ -33,7 +34,7 @@ pub(super) fn migrate(
             items(scene.get_mut("items"), plugins, rate)?;
         }
     }
-    file.insert("format_version".into(), Value::from(5));
+    migration.format_version = 5;
     Ok(())
 }
 

@@ -1,17 +1,18 @@
 use ::ui::{
-    ContextModal as _, Selectable as _, StyledExt as _, ThemeMode,
+    ContextModal as _, Selectable as _, Sizable as _, ThemeMode,
     button::Button,
-    form::{form_field, h_form},
     menu::{PopupMenuItem, popup_menu::PopupMenuExt as _},
     modal::{Modal, ModalButtonProps},
     notification::Notification,
     switch::Switch,
 };
-use gpui::{App, AppContext as _, Context, Render, Window, div, prelude::*, px};
+use gpui::{App, AppContext as _, Context, Render, Window, div, prelude::*};
 use rust_i18n::t;
-use ui::Sizable;
 
-use crate::app::storage::config::{AccentColor, AppConfig, ConfigStore};
+use crate::{
+    app::storage::config::{AccentColor, AppConfig, ConfigStore},
+    ui::components::form::{form_dialog, form_fields, form_row},
+};
 
 struct ConfigSettings {
     draft: AppConfig,
@@ -35,17 +36,9 @@ pub(in crate::ui) fn open(window: &mut Window, cx: &mut App) {
         }
     };
     let settings = cx.new(|_| ConfigSettings { draft });
-    window.open_modal(cx, move |modal: Modal, _, _| {
+    window.open_modal(cx, move |modal: Modal, window, _| {
         let confirm_settings = settings.clone();
-        modal
-            .title(
-                div()
-                    .font_family(crate::ui::theme::FONT_FAMILY)
-                    .font_normal()
-                    .child(t!("settings.title").to_string()),
-            )
-            .width(px(520.))
-            .confirm()
+        form_dialog(modal, t!("settings.title").to_string(), window)
             .button_props(
                 ModalButtonProps::default()
                     .ok_text(t!("menu.save").to_string())
@@ -137,108 +130,89 @@ impl Render for ConfigSettings {
             .position(|(choice, _)| *choice == accent)
             .unwrap_or(0);
 
-        div().font_family(crate::ui::theme::FONT_FAMILY).child(
-            h_form()
-                .label_width(px(208.))
-                .child(
-                    form_field()
-                        .label(t!("settings.theme_mode").to_string())
-                        .items_center()
-                        .child(
-                            div().flex().gap_1().children(
-                                [
-                                    (ThemeMode::Dark, t!("settings.dark")),
-                                    (ThemeMode::Light, t!("settings.light")),
-                                ]
-                                .into_iter()
-                                .enumerate()
-                                .map(|(index, (mode, label))| {
-                                    Button::new(("settings-theme", index))
-                                        .small()
-                                        .outline()
-                                        .selected(mode == theme_mode)
-                                        .label(label.to_string())
-                                        .on_click(cx.listener(move |this, _, _, cx| {
-                                            this.draft.theme_mode = Some(mode);
-                                            cx.notify();
-                                        }))
-                                }),
-                            ),
-                        ),
-                )
-                .child(
-                    form_field()
-                        .label(t!("settings.accent_color").to_string())
-                        .items_center()
-                        .child(
-                            Button::new("settings-accent")
-                                .small()
-                                .outline()
-                                .label(accents[selected_accent_index].1.clone())
-                                .dropdown_caret(true)
-                                .popup_menu(move |menu, _, _| {
-                                    accents.iter().fold(menu, |menu, (choice, label)| {
-                                        let settings = accent_settings.clone();
-                                        let choice = *choice;
-                                        menu.item(
-                                            PopupMenuItem::new(label.clone())
-                                                .checked(choice == accent)
-                                                .on_click(move |_, _, cx| {
-                                                    settings.update(cx, |this, cx| {
-                                                        this.draft.accent_color = Some(choice);
-                                                        cx.notify();
-                                                    });
-                                                }),
-                                        )
-                                    })
-                                }),
-                        ),
-                )
-                .child(
-                    form_field()
-                        .label(t!("settings.language").to_string())
-                        .items_center()
-                        .child(
-                            Button::new("settings-language")
-                                .small()
-                                .outline()
-                                .label(languages[selected_index].0.clone())
-                                .dropdown_caret(true)
-                                .popup_menu(move |menu, _, _| {
-                                    languages.iter().enumerate().fold(
-                                        menu,
-                                        |menu, (index, (label, language))| {
-                                            let settings = settings.clone();
-                                            let language = language.clone();
-                                            menu.item(
-                                                PopupMenuItem::new(label.clone())
-                                                    .checked(index == selected_index)
-                                                    .on_click(move |_, _, cx| {
-                                                        settings.update(cx, |this, cx| {
-                                                            this.draft.language = language.clone();
-                                                            cx.notify();
-                                                        });
-                                                    }),
-                                            )
-                                        },
-                                    )
-                                }),
-                        ),
-                )
-                .child(
-                    form_field()
-                        .label(t!("settings.show_support_reminder").to_string())
-                        .items_center()
-                        .child(
-                            Switch::new("settings-support-reminder")
-                                .small()
-                                .checked(self.draft.show_support_reminder.unwrap_or(true))
-                                .on_click(cx.listener(|this, checked: &bool, _, cx| {
-                                    this.draft.show_support_reminder = Some(*checked);
-                                    cx.notify();
-                                })),
-                        ),
+        form_fields()
+            .child(form_row(
+                t!("settings.theme_mode").to_string(),
+                div().flex().gap_1().children(
+                    [
+                        (ThemeMode::Dark, t!("settings.dark")),
+                        (ThemeMode::Light, t!("settings.light")),
+                    ]
+                    .into_iter()
+                    .enumerate()
+                    .map(|(index, (mode, label))| {
+                        Button::new(("settings-theme", index))
+                            .small()
+                            .outline()
+                            .selected(mode == theme_mode)
+                            .label(label.to_string())
+                            .on_click(cx.listener(move |this, _, _, cx| {
+                                this.draft.theme_mode = Some(mode);
+                                cx.notify();
+                            }))
+                    }),
                 ),
-        )
+            ))
+            .child(form_row(
+                t!("settings.accent_color").to_string(),
+                Button::new("settings-accent")
+                    .small()
+                    .outline()
+                    .label(accents[selected_accent_index].1.clone())
+                    .dropdown_caret(true)
+                    .popup_menu(move |menu, _, _| {
+                        accents.iter().fold(menu, |menu, (choice, label)| {
+                            let settings = accent_settings.clone();
+                            let choice = *choice;
+                            menu.item(
+                                PopupMenuItem::new(label.clone())
+                                    .checked(choice == accent)
+                                    .on_click(move |_, _, cx| {
+                                        settings.update(cx, |this, cx| {
+                                            this.draft.accent_color = Some(choice);
+                                            cx.notify();
+                                        });
+                                    }),
+                            )
+                        })
+                    }),
+            ))
+            .child(form_row(
+                t!("settings.language").to_string(),
+                Button::new("settings-language")
+                    .small()
+                    .outline()
+                    .label(languages[selected_index].0.clone())
+                    .dropdown_caret(true)
+                    .popup_menu(move |menu, _, _| {
+                        languages.iter().enumerate().fold(
+                            menu,
+                            |menu, (index, (label, language))| {
+                                let settings = settings.clone();
+                                let language = language.clone();
+                                menu.item(
+                                    PopupMenuItem::new(label.clone())
+                                        .checked(index == selected_index)
+                                        .on_click(move |_, _, cx| {
+                                            settings.update(cx, |this, cx| {
+                                                this.draft.language = language.clone();
+                                                cx.notify();
+                                            });
+                                        }),
+                                )
+                            },
+                        )
+                    }),
+            ))
+            .child(form_row(
+                t!("settings.show_support_reminder").to_string(),
+                Switch::new("settings-support-reminder")
+                    .small()
+                    .checked(self.draft.show_support_reminder.unwrap_or(true))
+                    .on_click(cx.listener(|this, checked: &bool, _, cx| {
+                        this.draft.show_support_reminder = Some(*checked);
+                        cx.notify();
+                    })),
+            ))
     }
 }

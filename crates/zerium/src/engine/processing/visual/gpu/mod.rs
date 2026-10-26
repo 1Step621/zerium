@@ -5,7 +5,7 @@ pub(super) mod session;
 
 /// All blending and effects operate in scene-linear light with enough headroom
 /// for grading and glow. Conversion to display encoding happens only in the final pass.
-const SCENE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
+pub(in crate::engine) const SCENE_FORMAT: wgpu::TextureFormat = wgpu::TextureFormat::Rgba16Float;
 pub(in crate::engine) const OUTPUT_FORMAT: wgpu::TextureFormat =
     wgpu::TextureFormat::Rgba8UnormSrgb;
 

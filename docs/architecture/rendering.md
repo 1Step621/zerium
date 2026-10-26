@@ -75,7 +75,8 @@ GPU encoding follows the plan's dependency and composition order.
 ## Images and bounds
 
 Effects and blending use scene-linear, premultiplied color. Intermediate surfaces
-are RGBA16Float; presentation uses RGBA8 sRGB. Item effects run before blending
+are RGBA16Float; presentation uses RGBA8 sRGB. Export requests the scene-linear
+format directly, preserving precision and highlight values for its output transform. Item effects run before blending
 into the parent; scene-instance effects run after their children are composited.
 
 Each shader pass has logical output bounds. Scene bounds are their children's

@@ -4,6 +4,9 @@ pub(crate) mod visual;
 use super::input::AudioFormat;
 use thiserror::Error;
 use zerium_core::media::VideoFrameRate;
+use zerium_core::timeline::{
+    AudioCodec, ExportBitDepth, ExportColorSettings, ExportContainer, VideoCodec,
+};
 
 #[derive(Clone, Copy, Debug)]
 pub(crate) struct VideoDimensions {
@@ -31,6 +34,12 @@ impl VideoDimensions {
 
 #[derive(Clone, Copy)]
 pub(crate) struct EncodingSettings {
+    pub(crate) color: ExportColorSettings,
+    pub(crate) container: ExportContainer,
+    pub(crate) video_codec: VideoCodec,
+    pub(crate) audio_codec: AudioCodec,
+    pub(crate) video_bitrate_kbps: Option<u32>,
+    pub(crate) audio_bitrate_kbps: u32,
     pub(crate) output: VideoDimensions,
     pub(crate) frame_rate: VideoFrameRate,
     pub(crate) gop: u32,
@@ -57,10 +66,36 @@ impl EncodingError {
     }
 }
 
-/// Pixel or bitstream input accepted by the MP4 output adapter.
-pub(crate) enum VideoEncoderInput {
+/// Semiplanar YUV420 buffer layout exchanged between rendering and encoding.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub(crate) enum VideoPixelFormat {
     Nv12,
-    H264,
+    P010,
+}
+
+impl From<ExportBitDepth> for VideoPixelFormat {
+    fn from(depth: ExportBitDepth) -> Self {
+        match depth {
+            ExportBitDepth::Eight => Self::Nv12,
+            ExportBitDepth::Ten => Self::P010,
+        }
+    }
+}
+
+impl VideoPixelFormat {
+    pub(crate) fn bytes_per_sample(self) -> u32 {
+        match self {
+            Self::Nv12 => 1,
+            Self::P010 => 2,
+        }
+    }
+}
+
+/// Pixel or bitstream input accepted by the media output adapter.
+#[derive(Clone, Copy)]
+pub(crate) enum VideoEncoderInput {
+    Raw(VideoPixelFormat),
+    Encoded,
 }
 
 pub(crate) struct VideoEncoderFrame {

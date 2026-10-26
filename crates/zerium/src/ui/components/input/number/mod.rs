@@ -1,3 +1,4 @@
+pub(crate) mod settings;
 pub(in crate::ui) mod value;
 use self::value::NumericInput;
 use crate::ui::workspace::operation_hints::{Hint, OperationHintExt as _};
