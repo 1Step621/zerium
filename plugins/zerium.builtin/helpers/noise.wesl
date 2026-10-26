@@ -39,3 +39,16 @@ fn fractal_noise(position: vec2<f32>, phase: f32, octaves: u32, seed: u32) -> f3
 
     return sum / max(weight, 0.00001);
 }
+
+fn cellular_noise(position: vec2<f32>, seed: u32) -> f32 {
+    let cell = vec2<i32>(floor(position));
+    var nearest = 2.0;
+    for(var y = -1; y <= 1; y += 1) {
+        for(var x = -1; x <= 1; x += 1) {
+            let neighbor = cell + vec2(x, y);
+            let offset = vec2(cell_hash(neighbor, seed), cell_hash(neighbor, seed + 7919u));
+            nearest = min(nearest, distance(position, vec2<f32>(neighbor) + offset));
+        }
+    }
+    return clamp(nearest, 0.0, 1.0);
+}
