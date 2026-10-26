@@ -105,7 +105,7 @@ pub(super) fn property_grid() -> Div {
         ])
         .min_w_0()
         .w_full()
-        .items_center()
+        .items_start()
         .gap_x_3()
         .gap_y_1()
 }
