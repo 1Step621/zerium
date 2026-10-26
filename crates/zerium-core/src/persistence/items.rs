@@ -228,9 +228,12 @@ impl ProjectItem {
         let animations =
             load_animations(property_schema, &animation_base, self.animations, duration)?;
 
-        if self.aspect_ratio.is_some()
-            && !matches!(&kind, TimelineItemKind::Plugin { schema, .. } if schema.aspect_lock_property().is_some())
-        {
+        let aspect_lock_property = if let TimelineItemKind::Plugin { schema, .. } = &kind {
+            schema.aspect_lock_property()
+        } else {
+            None
+        };
+        if self.aspect_ratio.is_some() && aspect_lock_property.is_none() {
             return Err(ProjectError::invalid_data(
                 "Aspect ratio is stored for an item without an aspect lock property",
             ));
@@ -246,8 +249,9 @@ impl ProjectItem {
             }
             effects.push(effect.into_effect(project_path, plugins, duration)?);
         }
-        if !effects.is_empty()
-            && matches!(&kind, TimelineItemKind::Plugin { schema, .. } if schema.render().is_none())
+        if let TimelineItemKind::Plugin { schema, .. } = &kind
+            && !effects.is_empty()
+            && schema.render().is_none()
         {
             return Err(ProjectError::invalid_data(
                 "Effects cannot be set on items without video",

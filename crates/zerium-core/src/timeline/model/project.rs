@@ -92,6 +92,10 @@ impl TimelineSnapshot {
         self.project.main_scene
     }
 
+    pub fn scene(&self, id: crate::timeline::SceneId) -> Option<&SceneDefinition> {
+        self.project.scenes.get(&id)
+    }
+
     pub fn scenes(&self) -> impl Iterator<Item = &SceneDefinition> {
         self.project.scenes.values()
     }

@@ -279,7 +279,7 @@ impl AnimationCurveEditor {
 
     pub(super) fn end_pointer_drag(&mut self, cx: &mut Context<Self>) {
         if let Some(drag) = self.number_drag.take() {
-            if matches!(drag.parameter, CurveNumberParameter::StepCount)
+            if let CurveNumberParameter::StepCount = drag.parameter
                 && let Some(input) = &mut self.step_input
             {
                 input.finish_edit();
@@ -351,8 +351,10 @@ impl AnimationCurveEditor {
         position: gpui::Point<Pixels>,
         cx: &mut Context<Self>,
     ) {
-        if !matches!(&self.graph_interaction, GraphInteraction::HandleDrag { handle: active, .. } if *active == handle)
-        {
+        let GraphInteraction::HandleDrag { handle: active, .. } = &self.graph_interaction else {
+            return;
+        };
+        if *active != handle {
             return;
         }
         let Some(selected) = self.selected_curve(cx) else {

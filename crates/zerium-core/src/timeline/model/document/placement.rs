@@ -203,7 +203,7 @@ impl TimelineDocument {
             if next_group_start == group_start {
                 break;
             }
-            if matches!(placement, CopyPlacement::Exact) {
+            if let CopyPlacement::Exact = placement {
                 return None;
             }
             group_start = next_group_start;

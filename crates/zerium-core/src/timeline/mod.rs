@@ -21,7 +21,7 @@ pub use model::{
     item::{
         AspectRatio, BlendMode, EffectInstance, PropertyAddress, TimelineItem, TimelineItemKind,
     },
-    project::{BeatGuide, ProjectResolution, TimelineSnapshot},
+    project::{BeatGuide, ProjectResolution, ProjectSettingsError, TimelineSnapshot},
     scene::{
         CalculationDiagnostic, CalculationFailure, SceneBindingOwner, SceneBindingTarget,
         SceneCalculation, SceneCalculationInput, SceneDefinition, SceneEvaluation, SceneVariable,
@@ -52,6 +52,8 @@ pub enum TimelineEditError {
     NothingSelected,
     #[error("Effects require a visual item")]
     NonVisualItem,
+    #[error(transparent)]
+    InvalidTiming(ProjectSettingsError),
     #[error("Could not allocate a new ID")]
     IdentifierExhausted,
     #[error("Cannot place item at the specified position")]

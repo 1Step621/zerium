@@ -1,5 +1,6 @@
 pub(super) mod file;
 pub(crate) mod media;
+mod scene;
 mod session;
 
 pub(crate) use session::{ProjectActivity, ProjectOperation, ProjectSession, ProjectSessionId};
@@ -16,14 +17,20 @@ use crate::ui::{
     workspace::notifications::UiNotifications,
 };
 use zerium_core::{
-    persistence::PROJECT_EXTENSION,
+    persistence::{LoadedDocument, LoadedProject, PROJECT_EXTENSION},
     timeline::{Frame, FrameRate, ProjectResolution, TimelineEditor},
 };
+
+#[derive(Clone, Copy)]
+enum OpenMode {
+    Auto,
+    SceneOnly,
+}
 
 #[derive(Clone)]
 enum PendingProjectChange {
     New,
-    Open(Option<PathBuf>),
+    Open(PathBuf, LoadedProject),
 }
 
 pub(crate) struct ProjectController {
@@ -62,7 +69,7 @@ impl ProjectController {
     }
 
     pub(crate) fn request_open(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.request_project_change(PendingProjectChange::Open(None), window, cx);
+        self.open(None, OpenMode::Auto, window, cx);
     }
 
     pub(crate) fn request_open_path(
@@ -71,11 +78,11 @@ impl ProjectController {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.request_project_change(PendingProjectChange::Open(Some(path)), window, cx);
+        self.open(Some(path), OpenMode::Auto, window, cx);
     }
 
-    pub(crate) fn open_path(&mut self, path: PathBuf, cx: &mut Context<Self>) {
-        self.open(Some(path), cx);
+    pub(crate) fn import_scene(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        self.open(None, OpenMode::SceneOnly, window, cx);
     }
 
     pub(crate) fn save(&mut self, cx: &mut Context<Self>) {
@@ -196,7 +203,22 @@ impl ProjectController {
         }
         match operation {
             PendingProjectChange::New => self.new_project(cx),
-            PendingProjectChange::Open(path) => self.open(path, cx),
+            PendingProjectChange::Open(path, project) => {
+                self.replace_project(Some(path.clone()), |editor| project.apply(editor), cx);
+                self.notifications.update(cx, |notifications, cx| {
+                    notifications.push_success(
+                        t!(
+                            "project.load_complete",
+                            name = path
+                                .file_name()
+                                .map(|name| name.to_string_lossy())
+                                .unwrap_or_default()
+                        )
+                        .to_string(),
+                        cx,
+                    );
+                });
+            }
         }
     }
 
@@ -210,25 +232,42 @@ impl ProjectController {
         );
     }
 
-    fn open(&mut self, path: Option<PathBuf>, cx: &mut Context<Self>) {
-        let Some(operation) = self.begin_operation(ProjectActivity::Load, cx) else {
+    fn open(
+        &mut self,
+        path: Option<PathBuf>,
+        mode: OpenMode,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        let (activity, prompt) = match mode {
+            OpenMode::Auto => (ProjectActivity::Load, t!("project.open_prompt").to_string()),
+            OpenMode::SceneOnly => (
+                ProjectActivity::Import,
+                t!("scene.import_prompt").to_string(),
+            ),
+        };
+        let Some(operation) = self.begin_operation(activity, cx) else {
             return;
         };
         let plugins = self.editor.read(cx).plugin_registry_arc();
         let session = self.session.clone();
-        self._task = cx.spawn(async move |controller, cx| {
+        self._task = cx.spawn_in(window, async move |controller, cx| {
             let result: Result<_, String> = async {
                 let path = match path {
                     Some(path) => Some(path),
                     None => {
-                        let receiver = cx.update(|cx| {
-                            cx.prompt_for_paths(PathPromptOptions {
-                                files: true,
-                                directories: false,
-                                multiple: false,
-                                prompt: Some(t!("project.open_prompt").to_string().into()),
+                        let receiver = cx
+                            .update(|_, cx| {
+                                cx.prompt_for_paths(PathPromptOptions {
+                                    files: true,
+                                    directories: false,
+                                    multiple: false,
+                                    prompt: Some(prompt.into()),
+                                })
                             })
-                        });
+                            .map_err(|error| {
+                                t!("project.file_picker_failed", error = error).to_string()
+                            })?;
                         receiver
                             .await
                             .map_err(|error| {
@@ -243,7 +282,7 @@ impl ProjectController {
                 let Some(path) = path else {
                     return Ok(None);
                 };
-                if !has_project_extension(&path) {
+                if !has_extension(&path, PROJECT_EXTENSION) {
                     return Err(
                         t!("project.extension_prompt", extension = PROJECT_EXTENSION).to_string(),
                     );
@@ -255,35 +294,31 @@ impl ProjectController {
                 let project = cx
                     .background_spawn(async move { project_files::load(&input, &plugins) })
                     .await
-                    .map_err(|error| t!("project.load_failed", error = error).to_string())?;
+                    .map_err(|error| match mode {
+                        OpenMode::Auto => t!("project.load_failed", error = error).to_string(),
+                        OpenMode::SceneOnly => t!("scene.import_failed", error = error).to_string(),
+                    })?;
+                if let (OpenMode::SceneOnly, LoadedDocument::Project(_)) = (mode, &project) {
+                    return Err(t!("scene.expected_file").to_string());
+                }
                 Ok(Some((path, project)))
             }
             .await;
             controller
-                .update(cx, |controller, cx| {
+                .update_in(cx, |controller, window, cx| {
                     if !controller.finish_operation(operation, cx) {
                         return;
                     }
                     match result {
-                        Ok(Some((path, project))) => {
-                            controller.replace_project(
-                                Some(path.clone()),
-                                |editor| project.apply(editor),
+                        Ok(Some((path, LoadedDocument::Project(project)))) => {
+                            controller.request_project_change(
+                                PendingProjectChange::Open(path, project),
+                                window,
                                 cx,
                             );
-                            controller.notifications.update(cx, |notifications, cx| {
-                                notifications.push_success(
-                                    t!(
-                                        "project.load_complete",
-                                        name = path
-                                            .file_name()
-                                            .map(|name| name.to_string_lossy())
-                                            .unwrap_or_default()
-                                    )
-                                    .to_string(),
-                                    cx,
-                                );
-                            });
+                        }
+                        Ok(Some((_, LoadedDocument::Scene(scene)))) => {
+                            controller.apply_scene(scene, cx);
                         }
                         Ok(None) => {}
                         Err(error) => controller
@@ -336,7 +371,7 @@ impl ProjectController {
                 let Some(mut path) = path else {
                     return Ok(None);
                 };
-                if !has_project_extension(&path) {
+                if !has_extension(&path, PROJECT_EXTENSION) {
                     path.set_extension(PROJECT_EXTENSION);
                 }
                 if !session.read_with(cx, |session, _| session.operation_is_current(operation)) {
@@ -419,8 +454,8 @@ impl ProjectController {
     }
 }
 
-fn has_project_extension(path: &Path) -> bool {
+fn has_extension(path: &Path, expected: &str) -> bool {
     path.extension()
         .and_then(|extension| extension.to_str())
-        .is_some_and(|extension| extension.eq_ignore_ascii_case(PROJECT_EXTENSION))
+        .is_some_and(|extension| extension.eq_ignore_ascii_case(expected))
 }

@@ -181,9 +181,9 @@ impl AudioPlaybackEngine {
     /// Keep the requested revision after a worker failure, so an unchanged
     /// timeline does not repeatedly restart a failed decoder or output device.
     fn stop_session(&mut self) -> bool {
-        if !matches!(self.state, AudioPlaybackState::Playing(_)) {
+        let AudioPlaybackState::Playing(_) = self.state else {
             return false;
-        }
+        };
         let AudioPlaybackState::Playing(session) =
             std::mem::replace(&mut self.state, AudioPlaybackState::Idle)
         else {

@@ -1,12 +1,16 @@
-//! Persisted scenes, argument preparation, and whole-project scene validation.
+//! Scene definitions shared by project and scene files.
 use crate::{
     persistence::{
         ProjectError,
-        items::{ProjectItem, capture_items},
+        items::{ProjectItem, capture_items, load_items},
         make_relative, resolve_path,
     },
+    plugin::PluginRegistry,
     property::PropertySchema,
-    timeline::{SceneDefinition, SceneId, SceneVariable, TimelineItem, resolve_scene_binding},
+    timeline::{
+        Frame, FrameRate, ProjectId, SceneDefinition, SceneId, SceneVariable, TimelineDocument,
+        TimelineItem, resolve_scene_binding,
+    },
 };
 use serde::{Deserialize, Serialize};
 use std::{
@@ -16,16 +20,16 @@ use std::{
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
-pub(super) struct ProjectScene {
-    pub(super) id: u64,
-    pub(super) name: String,
-    pub(super) stretch_point: u64,
-    pub(super) variables: Vec<SceneVariable>,
-    pub(super) items: Vec<ProjectItem>,
+pub(in crate::persistence) struct StoredScene {
+    pub(in crate::persistence) id: u64,
+    pub(in crate::persistence) name: String,
+    pub(in crate::persistence) stretch_point: u64,
+    pub(in crate::persistence) variables: Vec<SceneVariable>,
+    pub(in crate::persistence) items: Vec<ProjectItem>,
 }
 
-impl ProjectScene {
-    pub(super) fn capture(
+impl StoredScene {
+    pub(in crate::persistence) fn capture(
         scene: &SceneDefinition,
         project_path: &Path,
     ) -> Result<Self, ProjectError> {
@@ -51,7 +55,7 @@ impl ProjectScene {
     }
 
     /// Resolve file defaults and prepare argument contracts before loading any instances.
-    pub(super) fn prepare_variables(
+    fn prepare_variables(
         &mut self,
         project_path: &Path,
     ) -> Result<Vec<PropertySchema>, ProjectError> {
@@ -80,8 +84,8 @@ impl ProjectScene {
     }
 }
 
-pub(super) fn validate_scenes(
-    main_scene: SceneId,
+fn validate_scenes(
+    root_scene: SceneId,
     scenes: &HashMap<SceneId, SceneDefinition>,
 ) -> Result<(), ProjectError> {
     let mut names = HashSet::new();
@@ -139,9 +143,9 @@ pub(super) fn validate_scenes(
     }
 
     for item in scenes.values().flat_map(|scene| scene.items()) {
-        if item.scene_id() == Some(main_scene) {
+        if item.scene_id() == Some(root_scene) {
             return Err(ProjectError::invalid_data(
-                "Main scene cannot be placed as an instance",
+                "Root scene cannot be placed as an instance",
             ));
         }
         if let Some(scene_id) = item.scene_id()
@@ -185,4 +189,61 @@ pub(super) fn validate_scenes(
         visit(scene_id, scenes, &mut visiting, &mut visited)?;
     }
     Ok(())
+}
+
+pub(in crate::persistence) fn load_scenes(
+    mut definitions: Vec<StoredScene>,
+    project_id: ProjectId,
+    frame_rate: FrameRate,
+    root_scene: SceneId,
+    project_path: &Path,
+    plugins: &PluginRegistry,
+) -> Result<HashMap<SceneId, SceneDefinition>, ProjectError> {
+    let mut scene_ids = HashSet::new();
+    let mut scene_schemas = HashMap::new();
+    for scene in &mut definitions {
+        if scene.id == u64::MAX || !scene_ids.insert(scene.id) {
+            return Err(ProjectError::invalid_data(format!(
+                "Scene ID {} is invalid or duplicated",
+                scene.id
+            )));
+        }
+        scene_schemas.insert(
+            SceneId::new(project_id, scene.id),
+            scene.prepare_variables(project_path)?,
+        );
+    }
+
+    let mut effect_ids = HashSet::new();
+    let mut scenes = HashMap::new();
+    for scene in definitions {
+        let scene_id = SceneId::new(project_id, scene.id);
+        let scene_items = load_items(
+            scene.items,
+            project_path,
+            &scene_schemas,
+            &mut effect_ids,
+            plugins,
+            frame_rate,
+        )?;
+        let variables = scene.variables;
+        let mut definition = SceneDefinition::from_project(
+            scene_id,
+            scene.name,
+            variables,
+            TimelineDocument::from_items(frame_rate, scene_items),
+        );
+        if scene.stretch_point >= definition.duration().get() {
+            return Err(ProjectError::invalid_data(
+                "Scene stretch point is outside its duration",
+            ));
+        }
+        definition.set_stretch_point(Frame::new(scene.stretch_point));
+        scenes.insert(scene_id, definition);
+    }
+    if !scenes.contains_key(&root_scene) {
+        return Err(ProjectError::invalid_data("Root scene was not found"));
+    }
+    validate_scenes(root_scene, &scenes)?;
+    Ok(scenes)
 }

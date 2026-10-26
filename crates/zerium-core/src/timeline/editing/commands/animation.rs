@@ -389,7 +389,10 @@ impl TimelineEditor {
         edit: &mut AnimationEdit,
         interpolation: SegmentInterpolation,
     ) -> bool {
-        if !matches!(edit.kind, AnimationEditKind::Segment) || !interpolation.is_valid() {
+        let AnimationEditKind::Segment = edit.kind else {
+            return false;
+        };
+        if !interpolation.is_valid() {
             return false;
         }
         self.apply_animation_edit(edit, |_, index, track| {

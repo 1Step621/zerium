@@ -1,13 +1,11 @@
 //! Project file representation, capture, and checked reconstruction.
 mod migration;
-mod scenes;
 
-use super::{ProjectError, items::load_items};
-use scenes::{ProjectScene, validate_scenes};
-use std::{
-    collections::{HashMap, HashSet},
-    path::Path,
+use super::{
+    ProjectError,
+    scene::definitions::{StoredScene, load_scenes},
 };
+use std::{collections::HashMap, path::Path};
 
 use serde::{Deserialize, Serialize};
 
@@ -15,13 +13,14 @@ use crate::{
     plugin::PluginRegistry,
     timeline::{
         BeatGuide, Frame, FrameRate, ProjectId, ProjectResolution, SceneDefinition, SceneId,
-        TimelineDocument, TimelineEditor, TimelineSnapshot, TimelineView,
+        TimelineEditor, TimelineSnapshot, TimelineView,
     },
 };
 
 pub const PROJECT_EXTENSION: &str = "zero";
 const FORMAT_VERSION: u32 = 6;
 
+#[derive(Clone)]
 pub struct LoadedProject {
     project_id: ProjectId,
     main_scene: SceneId,
@@ -70,7 +69,7 @@ struct ProjectFile {
     beat_guide: BeatGuide,
     playhead: u64,
     main_scene: u64,
-    scenes: Vec<ProjectScene>,
+    scenes: Vec<StoredScene>,
 }
 
 impl ProjectFile {
@@ -83,7 +82,7 @@ impl ProjectFile {
                         "Cannot save a scene from another project",
                     ));
                 }
-                ProjectScene::capture(scene, project_path)
+                StoredScene::capture(scene, project_path)
             })
             .collect::<Result<Vec<_>, _>>()?;
         scenes.sort_by_key(|scene| scene.id);
@@ -107,7 +106,7 @@ impl ProjectFile {
     }
 
     fn into_loaded(
-        mut self,
+        self,
         project_path: &Path,
         plugins: &PluginRegistry,
     ) -> Result<LoadedProject, ProjectError> {
@@ -117,53 +116,15 @@ impl ProjectFile {
             .ok_or_else(|| ProjectError::invalid_data("Invalid frame rate"))?;
         let resolution = ProjectResolution::new(self.resolution[0], self.resolution[1])
             .ok_or_else(|| ProjectError::invalid_data("Invalid resolution"))?;
-        let mut scene_ids = HashSet::new();
-        let mut scene_schemas = HashMap::new();
-        for scene in &mut self.scenes {
-            if scene.id == u64::MAX || !scene_ids.insert(scene.id) {
-                return Err(ProjectError::invalid_data(format!(
-                    "Scene ID {} is invalid or duplicated",
-                    scene.id
-                )));
-            }
-            scene_schemas.insert(
-                SceneId::new(project_id, scene.id),
-                scene.prepare_variables(project_path)?,
-            );
-        }
-
-        let mut effect_ids = HashSet::new();
-        let mut scenes = HashMap::new();
-        for scene in self.scenes {
-            let scene_id = SceneId::new(project_id, scene.id);
-            let scene_items = load_items(
-                scene.items,
-                project_path,
-                &scene_schemas,
-                &mut effect_ids,
-                plugins,
-                frame_rate,
-            )?;
-            let variables = scene.variables;
-            let mut definition = SceneDefinition::from_project(
-                scene_id,
-                scene.name,
-                variables,
-                TimelineDocument::from_items(frame_rate, scene_items),
-            );
-            if scene.stretch_point >= definition.duration().get() {
-                return Err(ProjectError::invalid_data(
-                    "Scene stretch point is outside its duration",
-                ));
-            }
-            definition.set_stretch_point(Frame::new(scene.stretch_point));
-            scenes.insert(scene_id, definition);
-        }
         let main_scene = SceneId::new(project_id, self.main_scene);
-        if !scenes.contains_key(&main_scene) {
-            return Err(ProjectError::invalid_data("Main scene was not found"));
-        }
-        validate_scenes(main_scene, &scenes)?;
+        let scenes = load_scenes(
+            self.scenes,
+            project_id,
+            frame_rate,
+            main_scene,
+            project_path,
+            plugins,
+        )?;
         Ok(LoadedProject {
             project_id,
             main_scene,

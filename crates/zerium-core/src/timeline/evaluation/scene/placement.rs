@@ -92,7 +92,7 @@ impl SceneWalker<'_> {
             visitor.prepare(&mut source, &path);
             // Complete definitions are independent of placed offsets and clips.
             // Large instance positions must not hide authored file references.
-            let start = if matches!(mode, WalkMode::Definitions) {
+            let start = if let WalkMode::Definitions = mode {
                 source.start().get()
             } else {
                 scope.offset.saturating_add(source.start().get())

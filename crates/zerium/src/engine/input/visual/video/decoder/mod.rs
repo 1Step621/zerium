@@ -246,8 +246,8 @@ impl PlaybackCursor {
             self.seek(time)?;
         }
         let mut next = self.read_interval(cancelled)?;
-        if next.is_none()
-            && matches!(self.position, CursorPosition::StartedAt(_))
+        if let CursorPosition::StartedAt(_) = self.position
+            && next.is_none()
             && time > previous
         {
             // Some demuxers return EOS even for a keyframe seek in the audio

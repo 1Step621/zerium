@@ -70,7 +70,9 @@ impl EditorCapability {
         id: &str,
         properties: &[PropertySchema],
     ) -> Result<(), PluginError> {
-        if owner != "item" && matches!(self, Self::Label { .. }) {
+        if let Self::Label { .. } = self
+            && owner != "item"
+        {
             return Err(PluginError::invalid_definition(format!(
                 "{} editor is only supported for items",
                 self.kind()

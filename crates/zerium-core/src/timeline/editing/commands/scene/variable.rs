@@ -278,7 +278,7 @@ impl TimelineEditor {
     ) -> Result<bool, SceneVariableEditError> {
         let scene_id = self.active_scene_id();
         let key = HistoryKey::SceneArgumentSettings(scene_id, argument_id.to_owned());
-        let impact = if matches!(value, PropertyValue::File(_)) {
+        let impact = if let PropertyValue::File(_) = value {
             EditImpact::MediaDependencies
         } else {
             EditImpact::Values

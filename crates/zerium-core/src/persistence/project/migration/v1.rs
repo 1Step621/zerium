@@ -4,7 +4,7 @@ use serde_json::{Map, Value};
 
 use super::invalid_format;
 use crate::{
-    persistence::{ProjectError, items::ProjectItem, project::ProjectScene},
+    persistence::{ProjectError, items::ProjectItem, scene::definitions::StoredScene},
     property::PropertySchema,
     timeline::{SceneBindingTarget, SceneVariable},
 };
@@ -13,7 +13,7 @@ use crate::{
 #[serde(untagged)]
 enum Scene {
     Arguments(ArgumentScene),
-    Variables(ProjectScene),
+    Variables(StoredScene),
 }
 
 #[derive(Deserialize)]
@@ -55,7 +55,7 @@ pub(super) fn migrate(file: &mut Map<String, Value>) -> Result<(), ProjectError>
     Ok(())
 }
 
-fn migrate_scene(scene: ArgumentScene) -> Result<ProjectScene, ProjectError> {
+fn migrate_scene(scene: ArgumentScene) -> Result<StoredScene, ProjectError> {
     let variables = scene
         .arguments
         .into_iter()
@@ -77,7 +77,7 @@ fn migrate_scene(scene: ArgumentScene) -> Result<ProjectScene, ProjectError> {
             })
         })
         .collect::<Result<_, _>>()?;
-    Ok(ProjectScene {
+    Ok(StoredScene {
         id: scene.id,
         name: scene.name,
         stretch_point: scene.stretch_point,

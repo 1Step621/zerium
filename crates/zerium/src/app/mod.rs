@@ -288,7 +288,7 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                     });
                     if let Some(path) = initial_project {
                         project_controller.update(cx, |project, cx| {
-                            project.open_path(path, cx);
+                            project.request_open_path(path, window, cx);
                         });
                     }
                     let mut app = cx.to_async();

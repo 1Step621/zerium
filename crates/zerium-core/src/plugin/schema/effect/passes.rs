@@ -90,7 +90,9 @@ impl EffectPassSchema {
                 }
             }
         }
-        if matches!(self, Self::Sample { .. } | Self::Temporal { .. }) && pass_index != 0 {
+        if let Self::Sample { .. } | Self::Temporal { .. } = self
+            && pass_index != 0
+        {
             return Err(PluginError::invalid_definition(format!(
                 "effect '{effect_id}' sampling pass must be first"
             )));

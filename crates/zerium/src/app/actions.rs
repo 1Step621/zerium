@@ -16,6 +16,8 @@ gpui::actions!(
         OpenProject,
         SaveProject,
         SaveProjectAs,
+        ImportScene,
+        SaveSceneFile,
         OpenProjectSettings,
         OpenSettings,
         OpenExportDialog,

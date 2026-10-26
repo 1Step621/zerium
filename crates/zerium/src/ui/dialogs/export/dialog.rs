@@ -144,7 +144,13 @@ impl ExportController {
                     })
                 });
             let _ = controller.update(cx, |controller, cx| {
-                if !matches!(&controller.state, ExportState::ChoosingDestination { operation: active, .. } if *active == operation) {
+                let ExportState::ChoosingDestination {
+                    operation: active, ..
+                } = &controller.state
+                else {
+                    return;
+                };
+                if *active != operation {
                     return;
                 }
                 let current = controller.session.update(cx, |session, cx| {

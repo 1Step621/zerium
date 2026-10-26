@@ -175,7 +175,7 @@ impl AnimationCurveEditor {
         &mut self,
         cx: &mut Context<Self>,
     ) {
-        if matches!(self.graph_interaction, GraphInteraction::Background { .. }) {
+        if let GraphInteraction::Background { .. } = self.graph_interaction {
             self.graph_interaction = GraphInteraction::Idle;
         }
         self.finish_playhead_scrub(cx);

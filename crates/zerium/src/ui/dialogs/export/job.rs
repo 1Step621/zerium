@@ -170,7 +170,10 @@ impl ExportController {
         result: Result<String, ExportError>,
         cx: &mut Context<Self>,
     ) {
-        if !matches!(&self.state, ExportState::Running { job, .. } if job.operation == operation) {
+        let ExportState::Running { job, .. } = &self.state else {
+            return;
+        };
+        if job.operation != operation {
             return;
         }
         let current = self.session.update(cx, |session, cx| {

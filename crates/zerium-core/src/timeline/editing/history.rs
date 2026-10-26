@@ -168,7 +168,7 @@ impl TimelineEditor {
         key: Option<HistoryKey>,
         impact: EditImpact,
     ) {
-        if matches!(impact, EditImpact::MediaDependencies) {
+        if let EditImpact::MediaDependencies = impact {
             self.advance_media_dependencies_revision();
         }
         let scoped_key = self

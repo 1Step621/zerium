@@ -220,6 +220,16 @@ impl Workspace {
             .update(cx, |project, cx| project.save_as(cx));
     }
 
+    fn import_scene(&mut self, _: &ImportScene, window: &mut Window, cx: &mut Context<Self>) {
+        self.project_controller
+            .update(cx, |project, cx| project.import_scene(window, cx));
+    }
+
+    fn save_scene_file(&mut self, _: &SaveSceneFile, _window: &mut Window, cx: &mut Context<Self>) {
+        self.project_controller
+            .update(cx, |project, cx| project.save_scene_file(cx));
+    }
+
     fn open_project_settings(
         &mut self,
         _: &OpenProjectSettings,
@@ -279,6 +289,8 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::open_project))
             .on_action(cx.listener(Self::save_project))
             .on_action(cx.listener(Self::save_project_as))
+            .on_action(cx.listener(Self::import_scene))
+            .on_action(cx.listener(Self::save_scene_file))
             .on_action(cx.listener(Self::open_project_settings))
             .on_action(cx.listener(Self::open_settings))
             .on_action(cx.listener(Self::open_export_dialog))
@@ -339,6 +351,15 @@ impl Render for Workspace {
                                         .menu(
                                             t!("menu.save_as").to_string(),
                                             Box::new(SaveProjectAs),
+                                        )
+                                        .separator()
+                                        .menu(
+                                            t!("menu.import_scene").to_string(),
+                                            Box::new(ImportScene),
+                                        )
+                                        .menu(
+                                            t!("menu.save_scene_file").to_string(),
+                                            Box::new(SaveSceneFile),
                                         )
                                         .separator()
                                         .menu(

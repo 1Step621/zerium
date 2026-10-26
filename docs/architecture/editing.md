@@ -264,7 +264,7 @@ source intervals and [Media and export](media.md) for audio and discovery scopes
 
 Project files store explicit property overrides, frame placement, authored animation
 data, and scene variable definitions. Metadata observations and their revisions
-are runtime data and are excluded from both project files and clipboard data.
+are runtime data and are excluded from project files, scene files, and clipboard data.
 Core validates project and clipboard data; pasted items receive fresh IDs.
 Clipboard payloads include their source FPS so placement and animation keys can be
 retimed when pasted into a project with another frame rate. Playback properties
@@ -276,7 +276,26 @@ Version-specific transformations live in
 Unsupported versions are rejected. The current project representation identifies
 `main_scene` within one `scenes` collection; main and reusable scenes store items
 and variables in the same form. Media observations are rediscovered after loading.
-Project file loading and saving belong to
+Scene files (`.scene.zero`, format version 1) store a root scene and its reachable
+child scenes, source FPS, and the source project ID as their identity namespace.
+Scene files carry a `type: "scene"` marker. Normal Open, scene import, and system file opening
+use the file contents to distinguish scene imports from project replacement;
+existing project formats without a marker remain supported. When opening a file,
+only project replacement asks to discard unsaved changes. The compound suffix is a naming
+convention, so renaming a scene file to `.zero` does not change its behavior.
+They share scene/item serialization and validation with project files, while
+excluding resolution, guides, and playhead state. Media paths remain references,
+using the same relative-path rules as project files; assets and plugins are not
+embedded.
+Import adds independent scene definitions in one undoable edit without replacing
+the current project or placing an instance. Scene and effect IDs are reassigned,
+internal references and effect bindings are remapped, and conflicting scene names
+receive numeric suffixes. Item IDs remain local to each scene document. Frame
+placement, animation, and stretch points retime to the destination FPS, preserving
+seconds to the nearest available frame. Imported definitions can then be placed
+with the existing scene item picker.
+
+Project and scene file loading and saving belong to
 [`app::project::file`](../../crates/zerium/src/app/project/file.rs), using atomic
 transactions from [`app::storage`](../../crates/zerium/src/app/storage/mod.rs).
 
