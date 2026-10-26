@@ -79,6 +79,37 @@ reset value's ratio. Registering defaults changes only preferences; item creatio
 and property reset remain ordinary undoable project edits. Invalid or obsolete
 saved property values are ignored when they no longer match a plugin schema.
 
+The text placement panel opens from a layer header and directly projects that
+layer's text-bearing items. The chosen plugin type or reusable scene and scalar
+string property determine the displayed rows and import destination. Opening a
+populated layer automatically finds a matching type. Row selection selects the
+actual item and seeks to its start. Existing items are editable again after
+loading a project; the panel stores no copy of their text or timing.
+Selection stores source and property IDs. Menus and schemas come from the current
+project; a removed target requires reselection rather than falling back to another
+source. File import keeps the selected IDs across the asynchronous file read.
+With no matching items, the panel shows only the centered txt import button and
+target selector. Once populated, it shows the editor and a Clear button instead.
+Clear removes the listed timeline items as one undoable edit and returns to the
+import controls; other items are preserved.
+UTF-8 txt import creates one ordinary item per nonempty line, initially three
+seconds long, appended at or after the playhead. Plugin values use user creation
+defaults; scene arguments inherit their definitions. Import is one atomic Undo
+operation. String input uses the shared input store and ordinary property edit
+history, with changes applied as they are typed.
+Start Here updates a caption's start and an adjacent preceding caption's end in
+one transaction. If necessary, following captions move forward to make room.
+The next caption is selected without seeking, so playback can continue while
+stamping starts; the final stamp sets the last end. A marker above the target row
+or below the last row shows which boundary the timing shortcut will update.
+The shortcut uses a dedicated action and key context, enabled only while a timing
+target is available and no modal is open, including when a text input has focus.
+Interval edits use a timing-only batch command; creation and property edits have
+separate commands.
+Unrelated items, properties and effects are preserved. Timeline edits and Undo/Redo
+appear directly in the panel, without a separate Apply step or import metadata in
+project files.
+
 The property inspector folds item properties and each effect independently.
 Fold state belongs to the view, survives selection changes within a scene, and
 resets when changing scenes or projects. Folded effects retain their header

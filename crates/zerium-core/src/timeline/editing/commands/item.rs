@@ -4,9 +4,9 @@ use crate::{
     media::ImportedFile,
     property::PropertyOverrides,
     timeline::{
-        BlendMode, EffectInstanceId, Frame, FrameDuration, FrameRate, ItemId, LayerId, ResizeEdge,
-        ResizeMode, SceneBindingOwner, SceneBindingTarget, SceneId, TimelineEditError,
-        TimelineEditor, TimelineItem,
+        BlendMode, EffectInstanceId, Frame, FrameDuration, FrameRate, ItemCreation, ItemId,
+        ItemInterval, ItemSource, LayerId, ResizeEdge, ResizeMode, SceneBindingOwner,
+        SceneBindingTarget, SceneId, TimelineEditError, TimelineEditor, TimelineItem,
         editing::{
             gesture::EditSession,
             history::{EditImpact, HistoryKey},
@@ -113,11 +113,140 @@ impl TimelineEditor {
         self.edit_item_creation(|editor| {
             let id = editor
                 .active_document_mut()
-                .add_item(layer, start, plugin_id, item_id, schema, properties)
+                .add_item(
+                    layer,
+                    plugin_id,
+                    item_id,
+                    schema,
+                    ItemCreation {
+                        start,
+                        duration: None,
+                        properties,
+                    },
+                )
                 .ok_or(TimelineEditError::PlacementUnavailable)?;
             editor.selection.select_only(id);
             Ok(id)
         })
+    }
+
+    /// Insert a batch at exact requested positions as one atomic, undoable edit.
+    pub fn add_items(
+        &mut self,
+        layer: LayerId,
+        source: &ItemSource,
+        items: Vec<ItemCreation>,
+    ) -> Result<Vec<ItemId>, TimelineEditError> {
+        if items.is_empty() {
+            return Ok(Vec::new());
+        }
+        let plugin = match source {
+            ItemSource::Plugin { plugin_id, item_id } => {
+                Some(self.plugins.item(plugin_id, item_id).ok_or_else(|| {
+                    TimelineEditError::PluginItemNotFound {
+                        plugin_id: plugin_id.clone(),
+                        item_id: item_id.clone(),
+                    }
+                })?)
+            }
+            ItemSource::Scene(scene_id) => {
+                if self.scene(*scene_id).is_none() {
+                    return Err(TimelineEditError::SceneNotFound(*scene_id));
+                }
+                if !self.can_add_scene_instance(*scene_id) {
+                    return Err(TimelineEditError::RecursiveSceneReference);
+                }
+                None
+            }
+        };
+        let schemas = match source {
+            ItemSource::Plugin { .. } => plugin
+                .as_ref()
+                .expect("resolved plugin")
+                .properties()
+                .to_vec(),
+            ItemSource::Scene(scene_id) => self
+                .scene(*scene_id)
+                .expect("resolved scene")
+                .arguments()
+                .filter_map(|argument| argument.argument_schema().cloned())
+                .collect(),
+        };
+        for item in &items {
+            crate::timeline::model::item::property::validate_initial_properties(
+                &item.properties,
+                &schemas,
+            )?;
+        }
+        self.try_edit_project(EditImpact::MediaDependencies, None, |editor| {
+            let mut ids = Vec::with_capacity(items.len());
+            for initial in items {
+                let start = initial.start;
+                let id = match source {
+                    ItemSource::Plugin { plugin_id, item_id } => {
+                        editor.active_document_mut().add_item(
+                            layer,
+                            plugin_id,
+                            item_id,
+                            plugin.clone().expect("resolved plugin"),
+                            initial,
+                        )
+                    }
+                    ItemSource::Scene(scene_id) => {
+                        let duration = initial.duration.unwrap_or_else(|| {
+                            editor.scene(*scene_id).expect("resolved scene").duration()
+                        });
+                        editor.active_document_mut().insert_item(
+                            layer,
+                            start,
+                            duration,
+                            |id, start, duration| {
+                                let mut item =
+                                    TimelineItem::scene_instance(id, start, duration, *scene_id);
+                                item.properties = initial.properties;
+                                item
+                            },
+                        )
+                    }
+                }
+                .ok_or(TimelineEditError::PlacementUnavailable)?;
+                if editor.item(id).expect("inserted item").start() != start {
+                    return Err(TimelineEditError::PlacementUnavailable);
+                }
+                ids.push(id);
+            }
+            editor.selection.set(ids.iter().copied().collect());
+            Ok((ids, true))
+        })
+    }
+
+    /// Move items and trim their right edges together as one undoable edit.
+    pub fn set_item_intervals(
+        &mut self,
+        intervals: Vec<ItemInterval>,
+    ) -> Result<bool, TimelineEditError> {
+        let mut edits = Vec::with_capacity(intervals.len());
+        for interval in intervals {
+            let mut candidate = self.active_document().prepare_item_edit(interval.item_id)?;
+            let start = candidate.item.start();
+            interval
+                .start
+                .get()
+                .checked_add(interval.duration.get())
+                .ok_or(TimelineEditError::PlacementUnavailable)?;
+            candidate
+                .item
+                .resize_to(
+                    start,
+                    interval.duration,
+                    ResizeMode::Trim,
+                    self.frame_rate(),
+                )
+                .ok_or(TimelineEditError::PlacementUnavailable)?;
+            candidate.item.move_to(interval.start);
+            edits.push(candidate);
+        }
+        self.commit_item_edits(None, edits)
     }
 
     fn remove_active_scene_bindings_for(&mut self, item_ids: &HashSet<ItemId>) {
@@ -157,28 +286,30 @@ impl TimelineEditor {
     }
 
     pub fn remove_item(&mut self, id: ItemId) -> bool {
-        self.edit_project_if_changed(EditImpact::MediaDependencies, None, |editor| {
-            let changed = editor.active_document_mut().remove_item(id);
-            if changed {
-                editor.remove_active_scene_bindings_for(&HashSet::from([id]));
-                editor.selection.remove(id);
-            }
-            changed
-        })
+        self.remove_items([id])
     }
 
     pub fn remove_selected_item(&mut self) -> bool {
-        let selected = self.selected_item_ids().collect::<HashSet<_>>();
-        if selected.is_empty() {
+        let selected = self.selected_item_ids().collect::<Vec<_>>();
+        self.remove_items(selected)
+    }
+
+    /// Remove the requested items together as one undoable edit.
+    pub fn remove_items(&mut self, ids: impl IntoIterator<Item = ItemId>) -> bool {
+        let ids = ids
+            .into_iter()
+            .filter(|id| self.active_document().item(*id).is_some())
+            .collect::<HashSet<_>>();
+        if ids.is_empty() {
             return false;
         }
         self.edit_project_if_changed(EditImpact::MediaDependencies, None, |editor| {
             let mut changed = false;
-            for id in &selected {
+            for id in &ids {
                 changed |= editor.active_document_mut().remove_item(*id);
                 editor.selection.remove(*id);
             }
-            editor.remove_active_scene_bindings_for(&selected);
+            editor.remove_active_scene_bindings_for(&ids);
             changed
         })
     }

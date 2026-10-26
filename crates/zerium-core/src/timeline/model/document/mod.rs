@@ -12,11 +12,11 @@ use std::{
     sync::Arc,
 };
 
-use crate::{animation::ScalarAnimations, plugin::ItemSchema, property::PropertyOverrides};
+use crate::{animation::ScalarAnimations, plugin::ItemSchema};
 
 use super::{
     ItemId, LayerId,
-    item::{AspectRatio, TimelineItem, TimelineItemKind},
+    item::{AspectRatio, ItemCreation, TimelineItem, TimelineItemKind},
     project::ProjectSettingsError,
     time::{Frame, FrameDuration, FrameRate},
 };
@@ -316,12 +316,19 @@ impl TimelineDocument {
     pub fn add_item(
         &mut self,
         layer: LayerId,
-        start: Frame,
         plugin_id: &str,
         item_id: &str,
         schema: Arc<ItemSchema>,
-        mut properties: PropertyOverrides,
+        initial: ItemCreation,
     ) -> Option<ItemId> {
+        let ItemCreation {
+            start,
+            duration,
+            mut properties,
+        } = initial;
+        if duration.is_some() && schema.playback().is_some() {
+            return None;
+        }
         crate::plugin::initialize_frame_rates(
             schema.inputs(),
             schema.properties(),
@@ -336,10 +343,9 @@ impl TimelineDocument {
                     .and_then(|property| AspectRatio::from_value(&properties.resolve(property)))
             })
             .flatten();
-        let fixed_duration = schema
-            .playback()
-            .is_none()
-            .then(|| self.frame_rate.seconds_to_duration(DEFAULT_ITEM_SECONDS));
+        let fixed_duration = schema.playback().is_none().then(|| {
+            duration.unwrap_or_else(|| self.frame_rate.seconds_to_duration(DEFAULT_ITEM_SECONDS))
+        });
         let duration = if let Some(playback) = schema.playback() {
             playback
                 .mapping(&properties.materialize(schema.properties()))

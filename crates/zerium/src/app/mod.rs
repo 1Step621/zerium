@@ -122,6 +122,11 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                 KeyBinding::new("i", OpenItemPicker, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
                 KeyBinding::new("e", OpenEffectPicker, Some(WORKSPACE_SHORTCUT_KEY_CONTEXT)),
                 KeyBinding::new(
+                    "secondary-enter",
+                    StampTextPlacement,
+                    Some("TextPlacementTiming || (TextPlacementTiming > Input)"),
+                ),
+                KeyBinding::new(
                     "s",
                     SplitSelectedItems,
                     Some(WORKSPACE_SHORTCUT_KEY_CONTEXT),
@@ -268,6 +273,15 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             cx,
                         )
                     });
+                    let text_placement = cx.new(|cx| {
+                        crate::ui::panels::text_placement::TextPlacement::new(
+                            editor.clone(),
+                            transport.clone(),
+                            session.clone(),
+                            notifications.clone(),
+                            cx,
+                        )
+                    });
                     let export_controller = cx.new(|cx| {
                         crate::ui::dialogs::export::ExportController::new(
                             editor.clone(),
@@ -352,6 +366,8 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             preview,
                             property_inspector,
                             scene_settings,
+                            text_placement,
+                            text_placement_open: false,
                             inspector_tab: Default::default(),
                             animation_curve,
                             project_controller,

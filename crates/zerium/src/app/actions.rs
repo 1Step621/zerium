@@ -6,6 +6,7 @@ gpui::actions!(
         CutSelectedItems,
         PasteItems,
         SplitSelectedItems,
+        StampTextPlacement,
         TogglePlayback,
         TogglePlaybackInPlace,
         PreviousFrame,
@@ -28,3 +29,9 @@ gpui::actions!(
         HidePreviewOverlay
     ]
 );
+
+#[derive(Clone, gpui::Action, PartialEq, Eq, serde::Deserialize)]
+#[action(namespace = zerium, no_json)]
+pub(crate) struct OpenTextPlacement {
+    pub(crate) layer: u64,
+}

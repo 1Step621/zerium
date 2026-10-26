@@ -1,3 +1,4 @@
+use crate::app::actions::OpenTextPlacement;
 use crate::ui::{
     components::input::file::import::FileImportTarget,
     panels::{
@@ -11,6 +12,7 @@ use rust_i18n::t;
 use ::ui::{
     IconName, Sizable as _,
     button::{Button, ButtonVariants as _},
+    menu::context_menu::ContextMenuExt as _,
 };
 use gpui::{
     Context, Div, DragMoveEvent, ExternalPaths, MouseButton, SharedString, Stateful, div,
@@ -29,7 +31,9 @@ fn layer_header(
     let layer = LayerId::new(layer_number.saturating_sub(1) as u64);
     let hidden = state.hidden_layers.contains(&layer);
     let editor = state.editor.clone();
+    let timeline = cx.entity();
     div()
+        .id(("layer-header", layer_number))
         .w(px(LAYER_HEADER_WIDTH))
         .h_full()
         .flex_none()
@@ -40,6 +44,13 @@ fn layer_header(
         .border_r_1()
         .border_color(state.colors.border)
         .on_scroll_wheel(cx.listener(Timeline::on_label_scroll))
+        .context_menu(move |menu, _, cx| {
+            menu.action_context(timeline.read(cx).focus_handle.clone())
+                .menu(
+                    t!("text_placement.title").to_string(),
+                    Box::new(OpenTextPlacement { layer: layer.get() }),
+                )
+        })
         .child(
             div()
                 .min_w_0()

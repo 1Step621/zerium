@@ -222,8 +222,8 @@ impl Timeline {
             .map(|target| (target.layer, target.start));
         let timeline = cx.entity();
         let action_context = self.focus_handle.clone();
-        let content = if let Some(item_id) = target_item {
-            let menu = PopupMenu::build(window, cx, move |menu, _, _cx| {
+        let menu = if let Some(item_id) = target_item {
+            PopupMenu::build(window, cx, move |menu, _, _cx| {
                 let copy_timeline = timeline.clone();
                 let cut_timeline = timeline.clone();
                 let paste_timeline = timeline.clone();
@@ -295,18 +295,18 @@ impl Timeline {
                     ),
                 )
                 .action_context(action_context)
-            });
-            cx.subscribe(&menu, |this, _, _: &DismissEvent, cx| {
-                this.context_menu = None;
-                cx.notify();
             })
-            .detach();
-            menu.read(cx).focus_handle(cx).focus(window, cx);
-            TimelineContextMenuContent::Commands(menu)
         } else {
             self.open_item_picker(position, window, cx);
             return;
         };
+        cx.subscribe(&menu, |this, _, _: &DismissEvent, cx| {
+            this.context_menu = None;
+            cx.notify();
+        })
+        .detach();
+        menu.read(cx).focus_handle(cx).focus(window, cx);
+        let content = TimelineContextMenuContent::Commands(menu);
         self.context_menu = Some(TimelineContextMenu { content, position });
         cx.notify();
     }

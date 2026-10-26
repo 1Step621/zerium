@@ -4,7 +4,8 @@ pub(crate) mod operation_hints;
 use rust_i18n::t;
 
 use ::ui::{
-    ActiveTheme as _, ContextModal as _, Disableable as _, Root, Selectable as _, Sizable as _,
+    ActiveTheme as _, ContextModal as _, Disableable as _, IconName, Root, Selectable as _,
+    Sizable as _,
     button::{Button, ButtonVariants as _},
     menu::popup_menu::PopupMenuExt as _,
     notification::Notification,
@@ -38,6 +39,8 @@ pub(crate) struct Workspace {
     pub(crate) scene_settings: gpui::Entity<crate::ui::panels::scene_settings::SceneSettings>,
     pub(crate) property_inspector:
         gpui::Entity<crate::ui::panels::property_inspector::PropertyInspector>,
+    pub(crate) text_placement: gpui::Entity<crate::ui::panels::text_placement::TextPlacement>,
+    pub(crate) text_placement_open: bool,
     pub(crate) inspector_tab: InspectorTab,
     pub(crate) animation_curve:
         gpui::Entity<crate::ui::panels::animation_curve::AnimationCurveEditor>,
@@ -225,6 +228,35 @@ impl Workspace {
             .update(cx, |project, cx| project.import_scene(window, cx));
     }
 
+    fn stamp_text_placement(
+        &mut self,
+        _: &StampTextPlacement,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        if self.text_placement_open
+            && !window.has_active_modal(cx)
+            && self.text_placement.read(cx).can_stamp(cx)
+        {
+            self.text_placement.update(cx, |panel, cx| panel.stamp(cx));
+        } else {
+            cx.propagate();
+        }
+    }
+
+    fn open_text_placement(
+        &mut self,
+        action: &OpenTextPlacement,
+        _window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.text_placement.update(cx, |panel, cx| {
+            panel.open_layer(zerium_core::timeline::LayerId::new(action.layer), cx);
+        });
+        self.text_placement_open = true;
+        cx.notify();
+    }
+
     fn save_scene_file(&mut self, _: &SaveSceneFile, _window: &mut Window, cx: &mut Context<Self>) {
         self.project_controller
             .update(cx, |project, cx| project.save_scene_file(cx));
@@ -246,6 +278,9 @@ impl Render for Workspace {
         let background = cx.theme().background;
         let colors = cx.theme().colors;
         let show_animation = self.animation_curve.read(cx).has_visible_curve(cx);
+        let timing_enabled = self.text_placement_open
+            && !window.has_active_modal(cx)
+            && self.text_placement.read(cx).can_stamp(cx);
         // Forward new messages to the toast layer. Only unseen messages are
         // pushed, so re-renders never duplicate toasts and the push itself
         // (which notifies the toast list, not this workspace) cannot loop.
@@ -271,7 +306,11 @@ impl Render for Workspace {
 
         div()
             .id("workspace")
-            .key_context(WORKSPACE_KEY_CONTEXT)
+            .key_context(if timing_enabled {
+                "ZeriumWorkspace TextPlacementTiming"
+            } else {
+                WORKSPACE_KEY_CONTEXT
+            })
             .track_focus(&self.focus_handle)
             .track_operation_hints(&self.operation_hints)
             .on_action(cx.listener(Self::copy_selected_items))
@@ -290,6 +329,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::save_project))
             .on_action(cx.listener(Self::save_project_as))
             .on_action(cx.listener(Self::import_scene))
+            .on_action(cx.listener(Self::open_text_placement))
             .on_action(cx.listener(Self::save_scene_file))
             .on_action(cx.listener(Self::open_project_settings))
             .on_action(cx.listener(Self::open_settings))
@@ -303,6 +343,7 @@ impl Render for Workspace {
                     preview.set_editor_overlay_hidden(true, cx);
                 });
             }))
+            .capture_action(cx.listener(Self::stamp_text_placement))
             .capture_key_up(cx.listener(|this, event: &KeyUpEvent, _, cx| {
                 if event.keystroke.key.eq_ignore_ascii_case("h") {
                     this.preview.update(cx, |preview, cx| {
@@ -538,15 +579,28 @@ impl Render for Workspace {
                         .child(
                             resizable_panel().size(px(400.)).child(
                                 h_resizable("workspace-bottom-columns")
-                                    .child(resizable_panel().child(self.timeline.clone()))
-                                    .when(show_animation, |this| {
-                                        this.child(
-                                            resizable_panel()
-                                                .size(px(800.))
-                                                .size_range(px(360.)..px(1000.))
-                                                .child(self.animation_curve.clone()),
-                                        )
-                                    }),
+                                    .child(
+                                        resizable_panel().child(
+                                            h_resizable("workspace-timeline-columns")
+                                                .child(
+                                                    resizable_panel().child(self.timeline.clone()),
+                                                )
+                                                .child(
+                                                    resizable_panel()
+                                                        .size(px(800.))
+                                                        .size_range(px(360.)..px(1000.))
+                                                        .visible(show_animation)
+                                                        .child(self.animation_curve.clone()),
+                                                ),
+                                        ),
+                                    )
+                                    .child(
+                                        resizable_panel()
+                                            .size(px(520.))
+                                            .size_range(px(420.)..px(1000.))
+                                            .visible(self.text_placement_open)
+                                            .child(self.text_placement_panel(cx)),
+                                    ),
                             ),
                         ),
                 ),
@@ -559,6 +613,31 @@ impl Render for Workspace {
 }
 
 impl Workspace {
+    fn text_placement_panel(&self, cx: &mut Context<Self>) -> gpui::Div {
+        div()
+            .size_full()
+            .flex()
+            .flex_col()
+            .child(
+                crate::ui::components::pane::pane_header(cx.theme().colors)
+                    .child(t!("text_placement.title").to_string())
+                    .child(
+                        Button::new("close-text-placement")
+                            .small()
+                            .compact()
+                            .ghost()
+                            .icon(IconName::Xmark)
+                            .tooltip(t!("common.close").to_string())
+                            .on_click(cx.listener(|this, _, window, cx| {
+                                this.text_placement_open = false;
+                                this.focus_handle.focus(window, cx);
+                                cx.notify();
+                            })),
+                    ),
+            )
+            .child(div().flex_1().min_h_0().child(self.text_placement.clone()))
+    }
+
     fn inspector_panel(&self, cx: &mut Context<Self>) -> gpui::Div {
         let labels = [
             t!("inspector.properties").to_string(),

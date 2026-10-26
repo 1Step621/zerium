@@ -23,6 +23,28 @@ use super::{
 
 const MAX_ITEM_LABEL_CHARS: usize = 40;
 
+/// Initial authored values and placement, before an item receives its identity.
+pub struct ItemCreation {
+    pub start: Frame,
+    /// Omission uses the source's initial duration. Playback items derive it
+    /// from their playback properties and reject an explicit duration.
+    pub duration: Option<FrameDuration>,
+    pub properties: PropertyOverrides,
+}
+
+/// A new timeline interval for an existing item.
+pub struct ItemInterval {
+    pub item_id: ItemId,
+    pub start: Frame,
+    pub duration: FrameDuration,
+}
+
+#[derive(Clone, PartialEq, Eq)]
+pub enum ItemSource {
+    Plugin { plugin_id: String, item_id: String },
+    Scene(SceneId),
+}
+
 fn concise_label(value: &str) -> Option<String> {
     let first_line = value.lines().map(str::trim).find(|line| !line.is_empty())?;
     let normalized = first_line.split_whitespace().collect::<Vec<_>>().join(" ");
