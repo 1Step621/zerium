@@ -150,17 +150,17 @@ impl PropertyInspector {
                 })
         });
         let item_editor = render.editor.clone();
-        let item_controls =
-            property_grid()
-                .p_3()
-                .gap_y_3()
-                .on_mouse_down(MouseButton::Left, move |_, _, cx| {
-                    activate_edit_target(&item_editor, None, cx);
-                })
-                .children(controls.into_iter().flat_map(
-                    crate::ui::panels::property_inspector::rows::PropertyRow::into_cells,
-                ));
+        let item_controls = property_grid().p_3().gap_y_3().children(
+            controls
+                .into_iter()
+                .flat_map(crate::ui::panels::property_inspector::rows::PropertyRow::into_cells),
+        );
         let item_section = settings_section(render.colors)
+            .capture_any_mouse_down(move |event, _, cx| {
+                if event.button == MouseButton::Left {
+                    activate_edit_target(&item_editor, None, cx);
+                }
+            })
             .child(header)
             .when(!collapsed, |this| this.child(item_controls));
         div()
@@ -319,7 +319,7 @@ fn item_header(
     settings_section_header(render.colors)
         .flex()
         .items_center()
-        .gap_2()
+        .gap_1()
         .py_1()
         .when(collapsed, |this| this.rounded_b_md().border_b_0())
         .child(section_toggle(
@@ -327,7 +327,14 @@ fn item_header(
             collapsed,
             &render.inspector,
         ))
-        .child(div().min_w_0().flex_1().overflow_hidden().child(selector))
+        .child(
+            div()
+                .min_w_0()
+                .flex_1()
+                .flex()
+                .overflow_hidden()
+                .child(selector),
+        )
         .child(
             Button::new("selected-item-blend-mode")
                 .small()

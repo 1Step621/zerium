@@ -26,12 +26,23 @@ impl PropertyInspector {
             .map(|(_, label)| label.clone())
             .unwrap_or_default();
         let inspector = cx.entity();
+        let colors = cx.theme().colors;
+        let focused = editor.active_edit_effect().is_none();
         Button::new("inspector-item-selector")
             .small()
-            .compact()
-            .ghost()
-            .dropdown_caret(true)
-            .label(label)
+            .text()
+            .h_6()
+            .cursor_pointer()
+            .child(
+                div()
+                    .truncate()
+                    .text_color(if focused {
+                        colors.accent_foreground
+                    } else {
+                        colors.foreground
+                    })
+                    .child(label),
+            )
             .tooltip(t!("inspector.item_target").to_string())
             .popup_menu(move |menu, _, _| {
                 options.iter().fold(menu, |menu, (item_id, label)| {
