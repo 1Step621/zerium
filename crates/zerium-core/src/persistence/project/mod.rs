@@ -18,7 +18,7 @@ use crate::{
 };
 
 pub const PROJECT_EXTENSION: &str = "zero";
-const FORMAT_VERSION: u32 = 8;
+const FORMAT_VERSION: u32 = 9;
 
 #[derive(Clone)]
 pub struct LoadedProject {

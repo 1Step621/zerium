@@ -24,6 +24,8 @@ debug = "line-tables-only"
 incremental = true
 
 [profile.dev.package]
+gif = { opt-level = 3 }
+color_quant = { opt-level = 3 }
 gpui-ce = { opt-level = 3 }
 ui = { opt-level = 3 }
 resvg = { opt-level = 3 }

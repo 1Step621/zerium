@@ -1,5 +1,5 @@
 use rust_i18n::t;
-use zerium_core::timeline::{AudioCodec, ExportColorRange, TimelineView as _};
+use zerium_core::timeline::{AudioCodec, ExportColorRange, ExportContainer, TimelineView as _};
 
 use std::path::{Path, PathBuf};
 
@@ -36,7 +36,7 @@ impl ExportController {
             .video_bitrate_kbps
             .map(|bitrate| format!("{bitrate} kbps"))
             .unwrap_or_else(|| t!("export.automatic").to_string());
-        let audio_label = if settings.audio_enabled {
+        let audio_label = if settings.exports_audio() {
             let channels = if settings.audio_channels == 1 {
                 t!("export.mono")
             } else {
@@ -59,7 +59,44 @@ impl ExportController {
             ExportColorRange::Limited => t!("export.range_limited").to_string(),
             ExportColorRange::Full => t!("export.range_full").to_string(),
         };
-        let format_label = format!("{} / {}", settings.container, settings.video_codec);
+        let is_gif = settings.container == ExportContainer::Gif;
+        let format_label = if is_gif {
+            settings.container.to_string()
+        } else {
+            format!("{} / {}", settings.container, settings.video_codec)
+        };
+        let mut format_details = Vec::new();
+        if is_gif {
+            format_details.push((
+                t!("export.loop").to_string(),
+                if settings.gif_loop {
+                    t!("common.on")
+                } else {
+                    t!("common.off")
+                }
+                .to_string(),
+            ));
+        } else {
+            format_details.extend([
+                (
+                    t!("export.color_space").to_string(),
+                    settings.color.space.to_string(),
+                ),
+                (
+                    t!("export.bit_depth").to_string(),
+                    format!("{} bit", settings.color.depth.bits()),
+                ),
+                (
+                    t!("export.color_range").to_string(),
+                    color_range_label.clone(),
+                ),
+                (
+                    t!("export.video_bitrate").to_string(),
+                    video_bitrate_label.clone(),
+                ),
+                (t!("export.audio").to_string(), audio_label.clone()),
+            ]);
+        }
         let controller = cx.entity();
         let session_id = self.session.read(cx).id();
         window.open_modal(cx, move |modal: Modal, window, cx| {
@@ -149,25 +186,9 @@ impl ExportController {
                                     frame_rate_label.clone(),
                                 ),
                                 (t!("export.duration").to_string(), duration_label.clone()),
-                                (
-                                    t!("export.color_space").to_string(),
-                                    settings.color.space.to_string(),
-                                ),
-                                (
-                                    t!("export.bit_depth").to_string(),
-                                    format!("{} bit", settings.color.depth.bits()),
-                                ),
-                                (
-                                    t!("export.color_range").to_string(),
-                                    color_range_label.clone(),
-                                ),
-                                (
-                                    t!("export.video_bitrate").to_string(),
-                                    video_bitrate_label.clone(),
-                                ),
-                                (t!("export.audio").to_string(), audio_label.clone()),
                             ]
                             .into_iter()
+                            .chain(format_details.iter().cloned())
                             .map(|(label, value)| form_row(label, value).min_h_0()),
                         ),
                 )

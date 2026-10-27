@@ -106,7 +106,7 @@ pub(crate) fn export_timeline(
     }
     let refresh = refresh_files(
         &mut dependency_readings(timeline.media_dependencies().into_iter().filter(|source| {
-            settings.audio_enabled || source.target != zerium_core::media::MediaTarget::Audio
+            settings.exports_audio() || source.target != zerium_core::media::MediaTarget::Audio
         })),
         timeline.media_cache(),
         &media_readers,
@@ -131,7 +131,7 @@ pub(crate) fn export_timeline(
         sample_rate: settings.audio_sample_rate,
         channels: settings.audio_channels,
     };
-    let audio_graph = if settings.audio_enabled {
+    let audio_graph = if settings.exports_audio() {
         Some(AudioTimelineGraph::new(
             timeline.audio_snapshot(),
             audio_format,
@@ -150,6 +150,7 @@ pub(crate) fn export_timeline(
     let video_settings = EncodingSettings {
         color: settings.color,
         container: settings.container,
+        gif_loop: settings.gif_loop,
         video_codec: settings.video_codec,
         audio_codec: settings.audio_codec,
         video_bitrate_kbps: settings.video_bitrate_kbps,

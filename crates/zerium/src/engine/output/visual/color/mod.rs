@@ -1,4 +1,4 @@
-//! Scene-linear RGB conversion to the output's YUV planes.
+//! Scene-linear RGB conversion to the output's pixel format.
 use zerium_core::timeline::{ExportColorRange, ExportColorSettings, ExportColorSpace};
 
 use super::texture;
@@ -7,22 +7,28 @@ use crate::engine::{
     processing::visual::{RenderScene, RenderSession, RenderSize, SCENE_FORMAT},
 };
 
-pub(super) fn plane_formats(format: VideoPixelFormat) -> [wgpu::TextureFormat; 2] {
+pub(super) fn plane_formats(format: VideoPixelFormat) -> &'static [wgpu::TextureFormat] {
     match format {
-        VideoPixelFormat::Nv12 => [wgpu::TextureFormat::R8Unorm, wgpu::TextureFormat::Rg8Unorm],
-        VideoPixelFormat::P010 => [wgpu::TextureFormat::R16Uint, wgpu::TextureFormat::Rg16Uint],
+        VideoPixelFormat::Nv12 => &[wgpu::TextureFormat::R8Unorm, wgpu::TextureFormat::Rg8Unorm],
+        VideoPixelFormat::P010 => &[wgpu::TextureFormat::R16Uint, wgpu::TextureFormat::Rg16Uint],
+        VideoPixelFormat::Rgba => &[wgpu::TextureFormat::Rgba8UnormSrgb],
     }
 }
 
-/// Shared conversion from scene-linear RGB into NV12 or P010 output planes.
+/// Shared conversion from scene-linear RGB into YUV planes or straight sRGB.
 pub(super) struct ColorConversion {
     view: wgpu::TextureView,
     binding: wgpu::BindGroup,
-    pipelines: [wgpu::RenderPipeline; 2],
+    pipelines: Vec<wgpu::RenderPipeline>,
 }
 
 impl ColorConversion {
-    pub(super) fn new(device: &wgpu::Device, size: RenderSize, color: ExportColorSettings) -> Self {
+    pub(super) fn new(
+        device: &wgpu::Device,
+        size: RenderSize,
+        color: ExportColorSettings,
+        format: VideoPixelFormat,
+    ) -> Self {
         let source = texture(
             device,
             size,
@@ -60,7 +66,6 @@ impl ColorConversion {
             label: Some("zerium-export-color"),
             source: wgpu::ShaderSource::Wgsl(include_str!("color.wgsl").into()),
         });
-        let format = VideoPixelFormat::from(color.depth);
         let constants = [
             (
                 "COLOR_SPACE",
@@ -77,42 +82,46 @@ impl ColorConversion {
             ),
             ("TEN_BIT", u8::from(format == VideoPixelFormat::P010) as f64),
         ];
-        let pipelines = std::array::from_fn(|plane| {
-            let plane_format = plane_formats(format)[plane];
-            device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
-                label: Some("zerium-export-color"),
-                layout: Some(&pipeline_layout),
-                vertex: wgpu::VertexState {
-                    module: &shader,
-                    entry_point: Some("vertex"),
-                    compilation_options: Default::default(),
-                    buffers: &[],
-                },
-                fragment: Some(wgpu::FragmentState {
-                    module: &shader,
-                    entry_point: Some(match (format, plane) {
-                        (VideoPixelFormat::Nv12, 0) => "luma",
-                        (VideoPixelFormat::Nv12, _) => "chroma",
-                        (VideoPixelFormat::P010, 0) => "luma10",
-                        (VideoPixelFormat::P010, _) => "chroma10",
-                    }),
-                    compilation_options: wgpu::PipelineCompilationOptions {
-                        constants: &constants,
-                        ..Default::default()
+        let pipelines = plane_formats(format)
+            .iter()
+            .enumerate()
+            .map(|(plane, &plane_format)| {
+                device.create_render_pipeline(&wgpu::RenderPipelineDescriptor {
+                    label: Some("zerium-export-color"),
+                    layout: Some(&pipeline_layout),
+                    vertex: wgpu::VertexState {
+                        module: &shader,
+                        entry_point: Some("vertex"),
+                        compilation_options: Default::default(),
+                        buffers: &[],
                     },
-                    targets: &[Some(wgpu::ColorTargetState {
-                        format: plane_format,
-                        blend: None,
-                        write_mask: wgpu::ColorWrites::ALL,
-                    })],
-                }),
-                primitive: Default::default(),
-                depth_stencil: None,
-                multisample: Default::default(),
-                multiview_mask: None,
-                cache: None,
+                    fragment: Some(wgpu::FragmentState {
+                        module: &shader,
+                        entry_point: Some(match (format, plane) {
+                            (VideoPixelFormat::Nv12, 0) => "luma",
+                            (VideoPixelFormat::Nv12, _) => "chroma",
+                            (VideoPixelFormat::P010, 0) => "luma10",
+                            (VideoPixelFormat::P010, _) => "chroma10",
+                            (VideoPixelFormat::Rgba, _) => "rgba",
+                        }),
+                        compilation_options: wgpu::PipelineCompilationOptions {
+                            constants: &constants,
+                            ..Default::default()
+                        },
+                        targets: &[Some(wgpu::ColorTargetState {
+                            format: plane_format,
+                            blend: None,
+                            write_mask: wgpu::ColorWrites::ALL,
+                        })],
+                    }),
+                    primitive: Default::default(),
+                    depth_stencil: None,
+                    multisample: Default::default(),
+                    multiview_mask: None,
+                    cache: None,
+                })
             })
-        });
+            .collect();
         Self {
             view,
             binding,

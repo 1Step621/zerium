@@ -6,6 +6,7 @@ mod v4;
 mod v5;
 mod v6;
 mod v7;
+mod v8;
 
 use serde::Deserialize;
 use serde_json::{Map, Value};
@@ -21,7 +22,7 @@ use crate::{
 pub(super) fn decode(source: &str, plugins: &PluginRegistry) -> Result<ProjectFile, ProjectError> {
     let header: ProjectHeader = deserialize(source)?;
     match header.format_version {
-        1..=7 => {
+        1..=8 => {
             let mut file: Map<String, Value> = deserialize(source)?;
             file.remove("format_version");
             let mut migration = Migration {
@@ -49,6 +50,9 @@ pub(super) fn decode(source: &str, plugins: &PluginRegistry) -> Result<ProjectFi
             }
             if migration.format_version <= 7 {
                 v7::migrate(&mut migration)?;
+            }
+            if migration.format_version <= 8 {
+                v8::migrate(&mut migration)?;
             }
             migration.file.insert(
                 "format_version".into(),

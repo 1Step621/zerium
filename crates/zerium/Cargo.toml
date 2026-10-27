@@ -30,9 +30,11 @@ gstreamer-video = { version = "0.25", features = ["v1_24"] }
 gpui = { package = "gpui-ce", git = "https://github.com/1Step621/WGPUI", branch = "fix/input-selection-replacement" }
 half = "2.7"
 image = { version = "0.25.10", default-features = false, features = ["png", "jpeg", "webp", "bmp", "tiff", "gif"] }
+gif = "0.14.2"
 log = "0.4"
 mp4 = "0.14"
 pollster = "0.4"
+rayon = "1.12"
 resvg = "0.47"
 rfd = "0.17.2"
 rtrb = "0.3"

@@ -57,6 +57,9 @@ impl<'a> MediaWriter<'a> {
             ExportContainer::Mp4 => "mp4mux",
             ExportContainer::Matroska => "matroskamux",
             ExportContainer::Webm => "webmmux",
+            ExportContainer::Gif => {
+                return Err(EncodingError::Invalid("Unsupported video container"));
+            }
         })
         .build()
         .map_err(EncodingError::backend)?;

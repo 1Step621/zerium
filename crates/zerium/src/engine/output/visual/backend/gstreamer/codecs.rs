@@ -25,6 +25,9 @@ pub(super) fn video_chain(
             let (input_format, encoder_format) = match format {
                 VideoPixelFormat::Nv12 => (gstreamer_video::VideoFormat::Nv12, "I420"),
                 VideoPixelFormat::P010 => (gstreamer_video::VideoFormat::P01010le, "I420_10LE"),
+                VideoPixelFormat::Rgba => {
+                    return Err(EncodingError::Invalid("Unsupported video pixel format"));
+                }
             };
             let info = gstreamer_video::VideoInfo::builder(
                 input_format,

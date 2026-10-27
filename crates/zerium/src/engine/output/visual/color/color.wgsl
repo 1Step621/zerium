@@ -83,3 +83,10 @@ fn chroma_value(position: vec2<f32>) -> vec2<f32> {
 @fragment fn chroma10(@builtin(position) p: vec4<f32>) -> @location(0) vec4<u32> {
     return vec4(vec2<u32>(round(chroma_value(p.xy) * 1023.0)) << vec2(6u), 0u, 0u);
 }
+
+// The sRGB attachment applies the transfer function after unpremultiplication.
+@fragment fn rgba(@builtin(position) p: vec4<f32>) -> @location(0) vec4<f32> {
+    let color = textureLoad(image, vec2<i32>(p.xy), 0);
+    if color.a <= 0.00001 { return vec4(0.0); }
+    return vec4(clamp(color.rgb / color.a, vec3(0.0), vec3(1.0)), clamp(color.a, 0.0, 1.0));
+}

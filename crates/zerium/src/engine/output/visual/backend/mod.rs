@@ -1,7 +1,7 @@
 //! Export adapters selected by the available encoding backend.
 use crate::engine::{
     output::{
-        VideoDimensions, VideoPixelFormat,
+        EncodingSettings, VideoDimensions, VideoEncoderInput, VideoPixelFormat,
         visual::{
             Cancellation, ColorConversion, EncodingError, PendingFrame, VideoEncoderFrame, texture,
             wait_for_submission,
@@ -9,28 +9,77 @@ use crate::engine::{
     },
     processing::visual::{RenderScene, RenderSession, RenderSize},
 };
-use std::{collections::VecDeque, sync::mpsc};
+use std::{
+    collections::VecDeque,
+    path::Path,
+    sync::{atomic::AtomicBool, mpsc},
+};
+use zerium_core::timeline::ExportContainer;
 
+mod gif;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 pub(super) mod gpu_video;
 pub(super) mod gstreamer;
 #[cfg(target_os = "macos")]
 pub(super) mod video_toolbox;
+
+pub(crate) enum MediaWriter<'a> {
+    Gstreamer(gstreamer::MediaWriter<'a>),
+    Gif(gif::Writer<'a>),
+}
+
+impl<'a> MediaWriter<'a> {
+    pub(crate) fn create(
+        path: &Path,
+        settings: EncodingSettings,
+        encoding: VideoEncoderInput,
+        cancelled: &'a AtomicBool,
+    ) -> Result<Self, EncodingError> {
+        if settings.container == ExportContainer::Gif {
+            if let VideoEncoderInput::Raw(VideoPixelFormat::Rgba) = encoding {
+                return gif::Writer::create(path, settings, cancelled).map(Self::Gif);
+            }
+            return Err(EncodingError::Invalid("GIF output requires RGBA frames"));
+        }
+        gstreamer::MediaWriter::create(path, settings, encoding, cancelled).map(Self::Gstreamer)
+    }
+
+    pub(crate) fn write_video(&mut self, frame: VideoEncoderFrame) -> Result<(), EncodingError> {
+        match self {
+            Self::Gstreamer(writer) => writer.write_video(frame),
+            Self::Gif(writer) => writer.write_frame(frame),
+        }
+    }
+
+    pub(crate) fn write_audio(&mut self, samples: &[f32]) -> Result<(), EncodingError> {
+        match self {
+            Self::Gstreamer(writer) => writer.write_audio(samples),
+            Self::Gif(_) => Err(EncodingError::Invalid("GIF output has no audio stream")),
+        }
+    }
+
+    pub(crate) fn finish(self) -> Result<(), EncodingError> {
+        match self {
+            Self::Gstreamer(writer) => writer.finish(),
+            Self::Gif(writer) => writer.finish(),
+        }
+    }
+}
+
 pub(super) enum Backend {
-    Readback(YuvReadback),
+    Readback(Readback),
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     GpuVideo(gpu_video::Encoder),
     #[cfg(target_os = "macos")]
     VideoToolbox(video_toolbox::Encoder),
 }
 
-pub(super) struct YuvReadback {
-    dimensions: VideoDimensions,
+pub(super) struct Readback {
     frame_stride: usize,
-    bytes_per_sample: u32,
+    row_bytes: usize,
     stride: u32,
     free: Vec<wgpu::Buffer>,
-    planes: [wgpu::Texture; 2],
+    planes: Vec<wgpu::Texture>,
     pending: VecDeque<PendingFrame<PendingReadback>>,
 }
 
@@ -39,7 +88,7 @@ struct PendingReadback {
     mapped: mpsc::Receiver<Result<(), wgpu::BufferAsyncError>>,
 }
 
-impl YuvReadback {
+impl Readback {
     pub(super) fn new(
         device: &wgpu::Device,
         dimensions: VideoDimensions,
@@ -49,24 +98,13 @@ impl YuvReadback {
             width: dimensions.width,
             height: dimensions.height,
         };
-        let bytes_per_sample = format.bytes_per_sample();
-        let width_bytes = dimensions.width * bytes_per_sample;
-        let frame_stride = width_bytes.next_multiple_of(4) as usize;
-        let stride = width_bytes.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
-        if u64::from(stride) * u64::from(dimensions.height) * 3 / 2
-            > device.limits().max_buffer_size
-        {
-            return Err(EncodingError::Invalid(
-                "Export readback exceeds the GPU buffer size limit",
-            ));
-        }
-        Ok(Self {
-            stride,
-            dimensions,
-            frame_stride,
-            bytes_per_sample,
-            free: Vec::new(),
-            planes: std::array::from_fn(|plane| {
+        let row_bytes = format.row_bytes(dimensions.width);
+        let frame_stride = row_bytes.next_multiple_of(4) as usize;
+        let stride = row_bytes.next_multiple_of(wgpu::COPY_BYTES_PER_ROW_ALIGNMENT);
+        let planes: Vec<_> = crate::engine::output::visual::plane_formats(format)
+            .iter()
+            .enumerate()
+            .map(|(plane, &format)| {
                 let size = if plane == 0 {
                     size
                 } else {
@@ -78,10 +116,23 @@ impl YuvReadback {
                 texture(
                     device,
                     size,
-                    crate::engine::output::visual::plane_formats(format)[plane],
+                    format,
                     wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
                 )
-            }),
+            })
+            .collect();
+        let rows: u64 = planes.iter().map(|plane| u64::from(plane.height())).sum();
+        if u64::from(stride) * rows > device.limits().max_buffer_size {
+            return Err(EncodingError::Invalid(
+                "Export readback exceeds the GPU buffer size limit",
+            ));
+        }
+        Ok(Self {
+            stride,
+            frame_stride,
+            row_bytes: row_bytes as usize,
+            free: Vec::new(),
+            planes,
             pending: VecDeque::new(),
         })
     }
@@ -95,8 +146,9 @@ impl YuvReadback {
     ) -> Result<(), EncodingError> {
         let views = self
             .planes
-            .each_ref()
-            .map(|plane| plane.create_view(&Default::default()));
+            .iter()
+            .map(|plane| plane.create_view(&Default::default()))
+            .collect::<Vec<_>>();
         let mut encoder = conversion.render(renderer, scene, &views)?;
         let data = self.copy(&renderer.gpu().device, &mut encoder);
         let submission = renderer.gpu().queue.submit([encoder.finish()]);
@@ -128,6 +180,13 @@ impl YuvReadback {
         }))
     }
 
+    fn rows(&self) -> usize {
+        self.planes
+            .iter()
+            .map(|plane| plane.height() as usize)
+            .sum()
+    }
+
     fn copy(
         &mut self,
         device: &wgpu::Device,
@@ -136,28 +195,26 @@ impl YuvReadback {
         let buffer = self.free.pop().unwrap_or_else(|| {
             device.create_buffer(&wgpu::BufferDescriptor {
                 label: Some("zerium-export-readback"),
-                size: u64::from(self.stride) * u64::from(self.dimensions.height) * 3 / 2,
+                size: u64::from(self.stride) * self.rows() as u64,
                 usage: wgpu::BufferUsages::COPY_DST | wgpu::BufferUsages::MAP_READ,
                 mapped_at_creation: false,
             })
         });
-        for (plane, texture) in self.planes.iter().enumerate() {
+        let mut offset = 0;
+        for texture in &self.planes {
             encoder.copy_texture_to_buffer(
                 texture.as_image_copy(),
                 wgpu::TexelCopyBufferInfo {
                     buffer: &buffer,
                     layout: wgpu::TexelCopyBufferLayout {
-                        offset: if plane == 0 {
-                            0
-                        } else {
-                            u64::from(self.stride) * u64::from(self.dimensions.height)
-                        },
+                        offset,
                         bytes_per_row: Some(self.stride),
                         rows_per_image: None,
                     },
                 },
                 texture.size(),
             );
+            offset += u64::from(self.stride) * u64::from(texture.height());
         }
         let (sender, mapped) = mpsc::channel();
         encoder.map_buffer_on_submit(&buffer, wgpu::MapMode::Read, .., move |result| {
@@ -178,25 +235,12 @@ impl YuvReadback {
             .slice(..)
             .get_mapped_range()
             .map_err(EncodingError::backend)?;
-        let mut data = vec![0; self.frame_stride * self.dimensions.height as usize * 3 / 2];
-        for plane in 0..2 {
-            let rows = self.dimensions.height as usize / if plane == 0 { 1 } else { 2 };
-            let source_offset = if plane == 0 {
-                0
-            } else {
-                self.stride as usize * self.dimensions.height as usize
-            };
-            for row in 0..rows {
-                let source = source_offset + row * self.stride as usize;
-                let destination = if plane == 0 {
-                    0
-                } else {
-                    self.frame_stride * self.dimensions.height as usize
-                } + row * self.frame_stride;
-                let width = (self.dimensions.width * self.bytes_per_sample) as usize;
-                data[destination..destination + width]
-                    .copy_from_slice(&mapped[source..source + width]);
-            }
+        let mut data = vec![0; self.frame_stride * self.rows()];
+        for row in 0..self.rows() {
+            let source = row * self.stride as usize;
+            let destination = row * self.frame_stride;
+            data[destination..destination + self.row_bytes]
+                .copy_from_slice(&mapped[source..source + self.row_bytes]);
         }
         drop(mapped);
         frame.buffer.unmap();

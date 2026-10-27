@@ -90,16 +90,18 @@ pub enum ExportContainer {
     Mp4,
     Matroska,
     Webm,
+    Gif,
 }
 
 impl ExportContainer {
-    pub const ALL: [Self; 3] = [Self::Mp4, Self::Matroska, Self::Webm];
+    pub const ALL: [Self; 4] = [Self::Mp4, Self::Matroska, Self::Webm, Self::Gif];
 
     pub fn extension(self) -> &'static str {
         match self {
             Self::Mp4 => "mp4",
             Self::Matroska => "mkv",
             Self::Webm => "webm",
+            Self::Gif => "gif",
         }
     }
 
@@ -112,6 +114,7 @@ impl ExportContainer {
                 VideoCodec::Av1,
             ],
             Self::Webm => &[VideoCodec::Vp9, VideoCodec::Av1],
+            Self::Gif => &[],
         }
     }
 
@@ -121,6 +124,7 @@ impl ExportContainer {
             Self::Mp4 => &[AudioCodec::Aac],
             Self::Matroska => &[AudioCodec::Opus, AudioCodec::Flac],
             Self::Webm => &[AudioCodec::Opus],
+            Self::Gif => &[],
         }
     }
 }
@@ -131,6 +135,7 @@ impl std::fmt::Display for ExportContainer {
             Self::Mp4 => "MP4",
             Self::Matroska => "Matroska",
             Self::Webm => "WebM",
+            Self::Gif => "GIF",
         })
     }
 }
@@ -206,6 +211,7 @@ pub struct ExportSettings {
     pub audio_codec: AudioCodec,
     #[serde(default)]
     pub color: ExportColorSettings,
+    pub gif_loop: bool,
     /// None keeps the encoder's automatic quality policy.
     pub video_bitrate_kbps: Option<u32>,
     pub audio_enabled: bool,
@@ -222,6 +228,7 @@ impl Default for ExportSettings {
             video_codec: VideoCodec::default(),
             audio_codec: AudioCodec::default(),
             color: ExportColorSettings::default(),
+            gif_loop: true,
             video_bitrate_kbps: None,
             audio_enabled: true,
             audio_sample_rate: 48_000,
@@ -234,11 +241,15 @@ impl Default for ExportSettings {
 impl ExportSettings {
     pub fn set_container(&mut self, container: ExportContainer) {
         self.container = container;
-        if !container.video_codecs().contains(&self.video_codec) {
-            self.video_codec = container.video_codecs()[0];
+        if !container.video_codecs().contains(&self.video_codec)
+            && let Some(&codec) = container.video_codecs().first()
+        {
+            self.video_codec = codec;
         }
-        if !container.audio_codecs().contains(&self.audio_codec) {
-            self.set_audio_codec(container.audio_codecs()[0]);
+        if !container.audio_codecs().contains(&self.audio_codec)
+            && let Some(&codec) = container.audio_codecs().first()
+        {
+            self.set_audio_codec(codec);
         }
         if let Some(path) = &mut self.destination {
             path.set_extension(container.extension());
@@ -253,6 +264,18 @@ impl ExportSettings {
     }
 
     pub fn validate(&self) -> Result<(), ProjectSettingsError> {
+        if self
+            .destination
+            .as_ref()
+            .is_some_and(|path| path.as_os_str().is_empty())
+        {
+            return Err(ProjectSettingsError::out_of_range(
+                "Export destination must not be empty",
+            ));
+        }
+        if self.container == ExportContainer::Gif {
+            return Ok(());
+        }
         if !self.container.video_codecs().contains(&self.video_codec)
             || !self.container.audio_codecs().contains(&self.audio_codec)
         {
@@ -285,15 +308,10 @@ impl ExportSettings {
                 "Invalid export audio settings",
             ));
         }
-        if self
-            .destination
-            .as_ref()
-            .is_some_and(|path| path.as_os_str().is_empty())
-        {
-            return Err(ProjectSettingsError::out_of_range(
-                "Export destination must not be empty",
-            ));
-        }
         Ok(())
+    }
+
+    pub fn exports_audio(&self) -> bool {
+        self.audio_enabled && !self.container.audio_codecs().is_empty()
     }
 }

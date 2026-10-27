@@ -5,7 +5,9 @@ use std::{
     },
     time::{Duration, Instant},
 };
-use zerium_core::timeline::{ExportBitDepth, ExportColorSettings, ExportColorSpace, VideoCodec};
+use zerium_core::timeline::{
+    ExportBitDepth, ExportColorSettings, ExportColorSpace, ExportContainer, VideoCodec,
+};
 
 use super::{
     EncodingError, EncodingSettings, VideoEncoderFrame, VideoEncoderInput, VideoPixelFormat,
@@ -19,7 +21,7 @@ use self::{
     backend::Backend,
     color::{ColorConversion, plane_formats},
 };
-pub(crate) use backend::gstreamer::MediaWriter;
+pub(crate) use backend::MediaWriter;
 
 const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -52,6 +54,14 @@ impl VideoOutput {
         settings: EncodingSettings,
     ) -> Result<(Self, VideoEncoderInput), EncodingError> {
         let dimensions = settings.output.validate()?;
+        let format = settings.pixel_format();
+        if format != VideoPixelFormat::Rgba
+            && (!dimensions.width.is_multiple_of(2) || !dimensions.height.is_multiple_of(2))
+        {
+            return Err(EncodingError::Invalid(
+                "YUV420 output requires even dimensions",
+            ));
+        }
         let size = RenderSize {
             width: dimensions.width,
             height: dimensions.height,
@@ -65,7 +75,8 @@ impl VideoOutput {
             ));
         }
         let depth = depth.max(1);
-        let use_native = supports_gpu_encoding(settings.video_codec, settings.color);
+        let use_native = settings.container != ExportContainer::Gif
+            && supports_gpu_encoding(settings.video_codec, settings.color);
         #[cfg(any(target_os = "linux", target_os = "windows"))]
         let native = if !use_native {
             Ok(None)
@@ -92,8 +103,7 @@ impl VideoOutput {
         let (backend, encoding) = match native {
             Some(backend) => (backend, VideoEncoderInput::Encoded),
             None => {
-                let format = VideoPixelFormat::from(settings.color.depth);
-                let readback = backend::YuvReadback::new(device, dimensions, format)?;
+                let readback = backend::Readback::new(device, dimensions, format)?;
                 let encoding = VideoEncoderInput::Raw(format);
                 (Backend::Readback(readback), encoding)
             }
@@ -108,7 +118,7 @@ impl VideoOutput {
                 Backend::VideoToolbox(_) => "VideoToolbox",
             }
         );
-        let conversion = ColorConversion::new(device, size, settings.color);
+        let conversion = ColorConversion::new(device, size, settings.color, format);
         Ok((
             Self {
                 failed: Arc::new(AtomicBool::new(false)),

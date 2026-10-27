@@ -156,6 +156,15 @@ failures after encoding starts are reported.
 `VideoOutput` dispatches backend submission and completion; rendering and
 color conversion are shared. Raw frames carry their NV12/P010 layout explicitly
 into the encoder adapter. GStreamer encodes and muxes MP4, Matroska, or WebM.
+GIF uses the same render and readback pipeline with straight sRGB RGBA frames,
+then writes through the Rust `gif` encoder. It has no audio, video bitrate, or
+selectable color settings; video settings remain available when changing formats.
+Looping defaults to enabled. Frame boundaries are rounded to centiseconds without
+accumulating timing drift; frames shorter than that precision may be skipped.
+Transparency is reduced to GIF's binary alpha, clearing each frame before the next.
+Consecutive identical images share one frame and its combined duration. Color
+quantization and LZW compression run in bounded parallel batches; file writes
+preserve frame order. The quantizer settings are unchanged by parallel execution.
 Container compatibility is defined alongside the persisted settings; the settings
 UI offers MP4 with AAC, Matroska with Opus or FLAC, and WebM with Opus. These
 combinations preserve encoder delay and discard padding. Opus uses 48 kHz; FLAC
