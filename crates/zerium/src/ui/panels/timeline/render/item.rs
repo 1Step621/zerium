@@ -47,7 +47,7 @@ pub(in crate::ui::panels::timeline) fn timeline_item(
 
     let item_id = item.id;
     let scene_id = item.scene_id();
-    let item_hidden = state.hidden_items.contains(&item_id);
+    let item_hidden = item.hidden;
     let item_left = state.viewport.x_at_seconds(item_start);
     let item_width = (state
         .frame_rate

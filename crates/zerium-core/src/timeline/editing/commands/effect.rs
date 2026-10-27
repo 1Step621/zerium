@@ -5,12 +5,29 @@ use crate::timeline::{
 };
 
 impl TimelineEditor {
+    pub fn toggle_effect_visibility(
+        &mut self,
+        item_id: ItemId,
+        effect_id: EffectInstanceId,
+    ) -> bool {
+        if !self.is_item_selected(item_id) {
+            return false;
+        }
+        let Ok(mut edit) = self.active_document().prepare_item_edit(item_id) else {
+            return false;
+        };
+        let Some(effect) = edit.item.effect_mut(effect_id) else {
+            return false;
+        };
+        effect.hidden = !effect.hidden;
+        self.commit_item_edits(None, [edit]).unwrap_or(false)
+    }
+
     /// Append copies with fresh project-wide IDs, as a single undoable edit.
     pub fn paste_effects(
         &mut self,
         id: ItemId,
         sources: &[EffectInstance],
-        hidden: &[EffectInstanceId],
     ) -> Result<bool, TimelineEditError> {
         if !self.is_item_selected(id) {
             return Err(TimelineEditError::NothingSelected);
@@ -37,7 +54,6 @@ impl TimelineEditor {
         }
         let duration = item.duration(self.frame_rate());
         let mut next_id = self.next_effect_id;
-        let mut hidden_copies = Vec::new();
         let effects = sources
             .iter()
             .map(|source| {
@@ -46,9 +62,6 @@ impl TimelineEditor {
                 let mut effect = source.clone();
                 effect.id = EffectInstanceId::new(raw_id);
                 effect.animations.fit_duration(duration);
-                if hidden.contains(&source.id) {
-                    hidden_copies.push(effect.id);
-                }
                 Ok(effect)
             })
             .collect::<Result<Vec<_>, TimelineEditError>>()?;
@@ -61,7 +74,6 @@ impl TimelineEditor {
                     .effects
                     .extend(effects);
                 editor.next_effect_id = next_id;
-                editor.visibility.toggle_effects(hidden_copies);
                 true
             }),
         )

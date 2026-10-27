@@ -130,7 +130,6 @@ impl Timeline {
                 &clipboard.items,
                 clipboard.source_scene,
                 &clipboard.scene_bindings,
-                &clipboard.hidden_effects,
                 target_layer,
                 target_start,
             );

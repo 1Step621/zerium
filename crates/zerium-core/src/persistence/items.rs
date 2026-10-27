@@ -78,6 +78,7 @@ fn capture_property_overrides(
 #[serde(deny_unknown_fields)]
 pub(super) struct ProjectItem {
     id: u64,
+    hidden: bool,
     layer: u64,
     start: Frame,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -133,6 +134,7 @@ impl ProjectItem {
     pub(super) fn capture(item: &TimelineItem, layer: LayerId, project_path: &Path) -> Self {
         Self {
             id: item.id.get(),
+            hidden: item.hidden,
             layer: layer.get(),
             start: item.start(),
             duration: item.fixed_duration,
@@ -260,6 +262,7 @@ impl ProjectItem {
 
         let item = TimelineItem {
             id: ItemId(self.id),
+            hidden: self.hidden,
             start: self.start,
             fixed_duration: self.duration,
             blend_mode: self.blend_mode,
@@ -279,6 +282,7 @@ impl ProjectItem {
 #[serde(deny_unknown_fields)]
 struct ProjectEffect {
     id: u64,
+    hidden: bool,
     plugin_id: String,
     effect_id: String,
     #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
@@ -291,6 +295,7 @@ impl ProjectEffect {
     fn capture(effect: &EffectInstance, project_path: &Path) -> Self {
         Self {
             id: effect.id.get(),
+            hidden: effect.hidden,
             plugin_id: effect.plugin_id.clone(),
             effect_id: effect.effect_id.clone(),
             properties: capture_property_overrides(&effect.properties, project_path),
@@ -328,6 +333,7 @@ impl ProjectEffect {
         )?;
         Ok(EffectInstance {
             id: EffectInstanceId::new(self.id),
+            hidden: self.hidden,
             plugin_id: self.plugin_id,
             effect_id: self.effect_id,
             properties,

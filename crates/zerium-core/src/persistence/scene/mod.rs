@@ -6,7 +6,7 @@ use std::{collections::HashSet, path::Path};
 use serde::{Deserialize, Serialize};
 
 use self::definitions::{StoredScene, load_scenes};
-use super::{DocumentKind, ProjectError};
+use super::{DocumentKind, FORMAT_VERSION, ProjectError, project::migration};
 use crate::{
     plugin::PluginRegistry,
     timeline::{
@@ -17,7 +17,6 @@ use crate::{
 
 /// Suggested filename suffix; the OS extension is still `.zero`.
 pub const SCENE_FILE_SUFFIX: &str = ".scene.zero";
-const FORMAT_VERSION: u32 = 1;
 
 pub struct LoadedScene {
     root: SceneId,
@@ -71,19 +70,11 @@ pub fn decode_scene(
     path: &Path,
     plugins: &PluginRegistry,
 ) -> Result<LoadedScene, ProjectError> {
-    let file: SceneFile = serde_json::from_str(source).map_err(|error| {
-        ProjectError::invalid_format(format!("Invalid scene file: {error}"), error)
-    })?;
+    let file: SceneFile = migration::decode(source, plugins)?;
     if file.kind != DocumentKind::Scene {
         return Err(ProjectError::invalid_data(
             "The selected file is not a scene file",
         ));
-    }
-    if file.format_version != FORMAT_VERSION {
-        return Err(ProjectError::unsupported_format(format!(
-            "Unsupported scene format version: {}",
-            file.format_version
-        )));
     }
     let project = ProjectId::from_parts(file.project_high, file.project_low)
         .ok_or_else(|| ProjectError::invalid_data("Invalid scene project ID"))?;

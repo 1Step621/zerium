@@ -86,9 +86,17 @@ pub struct TimelineSnapshot {
     pub(in crate::timeline) media_cache: Arc<MediaMetadataCache>,
     pub(in crate::timeline) playhead: Frame,
     pub(in crate::timeline) project_revision: u64,
+    pub(in crate::timeline) scene_id: SceneId,
 }
 
 impl TimelineSnapshot {
+    pub(in crate::timeline) fn root_scene(&self) -> &SceneDefinition {
+        self.project
+            .scenes
+            .get(&self.scene_id)
+            .expect("snapshot scene exists")
+    }
+
     pub fn with_media_cache(mut self, cache: crate::media::MediaMetadataCache) -> Self {
         self.media_cache = Arc::new(cache);
         self

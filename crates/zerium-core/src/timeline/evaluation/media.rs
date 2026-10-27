@@ -87,26 +87,28 @@ impl TimelineSnapshot {
     /// their occupied intervals. Visual sampling can reach beyond an ancestor's
     /// output clip. No visual or gain values are read during file discovery.
     pub fn media_dependencies(&self) -> HashSet<MediaDependency> {
+        let scene = self.root_scene();
         let mut dependencies = Dependencies {
             scenes: &self.project.scenes,
             files: HashSet::new(),
             target: Some(MediaTarget::Visual),
         };
         let walker = crate::timeline::evaluation::scene::placement::SceneWalker {
-            frame_rate: self.project.main_scene().document().frame_rate(),
+            frame_rate: scene.document().frame_rate(),
             scenes: &self.project.scenes,
-            visibility: None,
         };
-        let bindings = SceneBindings::new(&self.project.scenes, self.project.main_scene(), None);
+        let bindings = SceneBindings::new(&self.project.scenes, scene, None);
         walker.walk(
-            self.project.main_scene().document().source_items(),
-            crate::timeline::evaluation::scene::placement::WalkMode::Definitions,
+            scene,
+            crate::timeline::evaluation::scene::placement::WalkMode::Definitions {
+                include_hidden: false,
+            },
             &bindings,
             &mut dependencies,
         );
         dependencies.target = Some(MediaTarget::Audio);
         walker.walk(
-            self.project.main_scene().document().source_items(),
+            scene,
             crate::timeline::evaluation::scene::placement::WalkMode::Occupied,
             &bindings,
             &mut dependencies,
@@ -125,13 +127,14 @@ impl TimelineSnapshot {
         let walker = crate::timeline::evaluation::scene::placement::SceneWalker {
             frame_rate: self.project.main_scene().document().frame_rate(),
             scenes: &self.project.scenes,
-            visibility: None,
         };
         for scene in self.project.scenes.values() {
             let bindings = SceneBindings::new(&self.project.scenes, scene, None);
             walker.walk(
-                scene.document().source_items(),
-                crate::timeline::evaluation::scene::placement::WalkMode::Definitions,
+                scene,
+                crate::timeline::evaluation::scene::placement::WalkMode::Definitions {
+                    include_hidden: true,
+                },
                 &bindings,
                 &mut dependencies,
             );

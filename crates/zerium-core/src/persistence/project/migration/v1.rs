@@ -1,29 +1,13 @@
 //! Version 1 → 2: normalize scene arguments into scene variables.
 use serde::Deserialize;
+use serde_json::Value;
 
 use super::{Migration, invalid_format};
 use crate::{
-    persistence::{ProjectError, items::ProjectItem, scene::definitions::StoredScene},
+    persistence::ProjectError,
     property::PropertySchema,
     timeline::{SceneBindingTarget, SceneVariable},
 };
-
-#[derive(Deserialize)]
-#[serde(untagged)]
-enum Scene {
-    Arguments(ArgumentScene),
-    Variables(StoredScene),
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct ArgumentScene {
-    id: u64,
-    name: String,
-    stretch_point: u64,
-    arguments: Vec<Argument>,
-    items: Vec<ProjectItem>,
-}
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -33,55 +17,48 @@ struct Argument {
 }
 
 pub(super) fn migrate(migration: &mut Migration<'_>) -> Result<(), ProjectError> {
-    let file = &mut migration.file;
-    let scenes = file
-        .remove("scenes")
+    let scenes = migration
+        .file
+        .get_mut("scenes")
+        .and_then(Value::as_array_mut)
         .ok_or_else(|| ProjectError::invalid_data("Project scenes are missing"))?;
-    // Keep unrelated fields, including the old media cache, opaque until their
-    // own migration has run. Validate scene contracts before converting them.
-    let scenes: Vec<Scene> = serde_json::from_value(scenes).map_err(invalid_format)?;
-    let scenes = scenes
-        .into_iter()
-        .map(|scene| match scene {
-            Scene::Variables(scene) => Ok(scene),
-            Scene::Arguments(scene) => migrate_scene(scene),
-        })
-        .collect::<Result<Vec<_>, _>>()?;
-    file.insert(
-        "scenes".to_owned(),
-        serde_json::to_value(scenes).map_err(invalid_format)?,
-    );
+    for scene in scenes {
+        let scene = scene
+            .as_object_mut()
+            .ok_or_else(|| ProjectError::invalid_data("Invalid scene"))?;
+        let Some(arguments) = scene.remove("arguments") else {
+            continue;
+        };
+        if scene.contains_key("variables") {
+            return Err(ProjectError::invalid_data(
+                "Scene cannot contain both arguments and variables",
+            ));
+        }
+        let name = scene
+            .get("name")
+            .and_then(Value::as_str)
+            .ok_or_else(|| ProjectError::invalid_data("Scene name is missing"))?;
+        let arguments: Vec<Argument> = serde_json::from_value(arguments).map_err(invalid_format)?;
+        let variables = arguments
+            .into_iter()
+            .map(|argument| {
+                // Check the old constraints before converting them to evaluation limits.
+                argument.schema.validate("scene", name).map_err(|error| {
+                    ProjectError::invalid_data(format!("Scene '{name}': {error}"))
+                })?;
+                let id = argument.schema.id().to_owned();
+                SceneVariable::argument(argument.schema, argument.bindings).ok_or_else(|| {
+                    ProjectError::invalid_data(format!(
+                        "Scene '{name}' argument '{id}' cannot be migrated"
+                    ))
+                })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        scene.insert(
+            "variables".into(),
+            serde_json::to_value(variables).map_err(invalid_format)?,
+        );
+    }
     migration.format_version = 2;
     Ok(())
-}
-
-fn migrate_scene(scene: ArgumentScene) -> Result<StoredScene, ProjectError> {
-    let variables = scene
-        .arguments
-        .into_iter()
-        .map(|argument| {
-            // Validate the old contract before its constraints become evaluation
-            // limits; migration must not make an invalid old default acceptable.
-            argument
-                .schema
-                .validate("scene", &scene.name)
-                .map_err(|error| {
-                    ProjectError::invalid_data(format!("Scene '{}': {error}", scene.name))
-                })?;
-            let id = argument.schema.id().to_owned();
-            SceneVariable::argument(argument.schema, argument.bindings).ok_or_else(|| {
-                ProjectError::invalid_data(format!(
-                    "Scene '{}' argument '{id}' cannot be migrated",
-                    scene.name
-                ))
-            })
-        })
-        .collect::<Result<_, _>>()?;
-    Ok(StoredScene {
-        id: scene.id,
-        name: scene.name,
-        stretch_point: scene.stretch_point,
-        variables,
-        items: scene.items,
-    })
 }

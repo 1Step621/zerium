@@ -3,7 +3,7 @@ use std::rc::Rc;
 use rust_i18n::t;
 
 use super::*;
-use crate::app::copy_buffer::{CopyBuffer, EffectCopy};
+use crate::app::copy_buffer::CopyBuffer;
 use ::ui::menu::PopupMenu;
 
 impl PropertyInspector {
@@ -33,7 +33,7 @@ impl PropertyInspector {
                 ("clipboard.copy_following_effects", &item.effects[index..]),
             ];
             for (label, effects) in choices {
-                let copy = Rc::new(EffectCopy::capture(editor, effects));
+                let copy = Rc::new(effects.to_vec());
                 menu = menu.menu_handler_with_icon(
                     t!(label).to_string(),
                     IconName::Copy,
@@ -64,7 +64,7 @@ impl PropertyInspector {
                             return;
                         }
                         let result = this.editor.update(cx, |editor, cx| {
-                            let result = editor.paste_effects(item_id, &copy.effects, &copy.hidden);
+                            let result = editor.paste_effects(item_id, copy);
                             if let Ok(true) = result {
                                 cx.notify();
                             }

@@ -1,8 +1,8 @@
 //! Project file representation, capture, and checked reconstruction.
-mod migration;
+pub(super) mod migration;
 
 use super::{
-    ProjectError,
+    FORMAT_VERSION, ProjectError,
     scene::definitions::{StoredScene, load_scenes},
 };
 use std::path::Path;
@@ -18,7 +18,6 @@ use crate::{
 };
 
 pub const PROJECT_EXTENSION: &str = "zero";
-const FORMAT_VERSION: u32 = 9;
 
 #[derive(Clone)]
 pub struct LoadedProject {
@@ -44,7 +43,8 @@ pub fn decode(
     project_path: &Path,
     plugins: &PluginRegistry,
 ) -> Result<LoadedProject, ProjectError> {
-    migration::decode(source, plugins)?.into_loaded(project_path, plugins)
+    let file: ProjectFile = migration::decode(source, plugins)?;
+    file.into_loaded(project_path, plugins)
 }
 
 #[derive(Deserialize, Serialize)]

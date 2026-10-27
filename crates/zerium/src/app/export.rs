@@ -9,7 +9,7 @@ use crate::{
         },
         output::{
             EncodingError, EncodingSettings, VideoDimensions, VideoEncoderFrame, VideoEncoderInput,
-            visual::{MediaWriter, VideoOutput},
+            visual::{MediaWriter, VideoOutput, render_png},
         },
         processing::{
             audio::{AudioCalculationPolicy, AudioTimelineGraph, sample_boundary},
@@ -78,9 +78,72 @@ pub(crate) enum ExportProgress {
     Finished(Result<(), ExportError>),
 }
 
+pub(crate) enum ExportedFrame {
+    Saved,
+    Png(Vec<u8>),
+}
+
 enum WriterMessage {
     Frame(VideoEncoderFrame),
     Complete,
+}
+
+/// Export the captured scope at its playhead to an atomic file or PNG bytes.
+pub(crate) fn export_frame(
+    timeline: TimelineSnapshot,
+    renderer: RenderSession,
+    media_readers: Arc<MediaReaderRegistry>,
+    output: Option<PathBuf>,
+) -> Result<ExportedFrame, ExportError> {
+    let timeline = refresh_media(timeline, &media_readers, false)?;
+    let mut decoders = HashMap::<DecodeStreamKey, VisualDecodeSession>::new();
+    let cancelled = AtomicBool::new(false);
+    let mut scene = SceneEvaluator::for_export().evaluate(
+        &timeline,
+        TimelineTime::from_frame(timeline.playhead()),
+        RenderSize::from(timeline.resolution()),
+        |request| {
+            let decoded = decoders.entry(request.stream.clone()).or_default().decode(
+                &media_readers,
+                &request,
+                Some(renderer.gpu()),
+                &cancelled,
+            )?;
+            Ok::<_, ExportError>(Some(decoded.frame))
+        },
+    )?;
+    scene.background = [0.; 4];
+    let png = render_png(&renderer, &scene)?;
+    if let Some(path) = output {
+        let transaction = AtomicFileTransaction::new(path).map_err(ExportError::encoding)?;
+        transaction.write_all(&png).map_err(ExportError::encoding)?;
+        transaction.commit().map_err(ExportError::encoding)?;
+        Ok(ExportedFrame::Saved)
+    } else {
+        Ok(ExportedFrame::Png(png))
+    }
+}
+
+fn refresh_media(
+    timeline: TimelineSnapshot,
+    media_readers: &MediaReaderRegistry,
+    include_audio: bool,
+) -> Result<TimelineSnapshot, ExportError> {
+    let refresh = refresh_files(
+        &mut dependency_readings(timeline.media_dependencies().into_iter().filter(|source| {
+            include_audio || source.target != zerium_core::media::MediaTarget::Audio
+        })),
+        timeline.media_cache(),
+        media_readers,
+    );
+    if let Some((_, error)) = refresh.errors.into_iter().next() {
+        return Err(error.into());
+    }
+    let mut cache = timeline.media_cache().clone();
+    for file in refresh.files {
+        cache.record(&file);
+    }
+    Ok(timeline.with_media_cache(cache))
 }
 
 pub(crate) fn export_timeline(
@@ -104,21 +167,7 @@ pub(crate) fn export_timeline(
             "There are no items to export on the timeline".to_owned(),
         ));
     }
-    let refresh = refresh_files(
-        &mut dependency_readings(timeline.media_dependencies().into_iter().filter(|source| {
-            settings.exports_audio() || source.target != zerium_core::media::MediaTarget::Audio
-        })),
-        timeline.media_cache(),
-        &media_readers,
-    );
-    if let Some((_, error)) = refresh.errors.into_iter().next() {
-        return Err(error.into());
-    }
-    let mut cache = timeline.media_cache().clone();
-    for file in refresh.files {
-        cache.record(&file);
-    }
-    let timeline = timeline.with_media_cache(cache);
+    let timeline = refresh_media(timeline, &media_readers, settings.exports_audio())?;
     let frame_rate = timeline.frame_rate();
     let size = RenderSize::from(timeline.resolution());
     let output_spec = VideoDimensions {

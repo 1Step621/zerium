@@ -1,3 +1,4 @@
+use image::{ExtendedColorType, ImageEncoder as _, codecs::png::PngEncoder};
 use std::{
     sync::{
         Arc,
@@ -10,7 +11,8 @@ use zerium_core::timeline::{
 };
 
 use super::{
-    EncodingError, EncodingSettings, VideoEncoderFrame, VideoEncoderInput, VideoPixelFormat,
+    EncodingError, EncodingSettings, VideoDimensions, VideoEncoderFrame, VideoEncoderInput,
+    VideoPixelFormat,
 };
 use crate::engine::processing::visual::{RenderScene, RenderSession, RenderSize};
 
@@ -24,6 +26,65 @@ use self::{
 pub(crate) use backend::MediaWriter;
 
 const WAIT_TIMEOUT: Duration = Duration::from_secs(30);
+
+/// Encode a still frame as PNG using the shared straight sRGB conversion and readback.
+pub(crate) fn render_png(
+    renderer: &RenderSession,
+    scene: &RenderScene,
+) -> Result<Vec<u8>, EncodingError> {
+    let device = &renderer.gpu().device;
+    validate_size(device, scene.size)?;
+    let dimensions = VideoDimensions {
+        width: scene.size.width,
+        height: scene.size.height,
+    };
+    let conversion = ColorConversion::new(
+        device,
+        scene.size,
+        ExportColorSettings::default(),
+        VideoPixelFormat::Rgba,
+    );
+    let mut readback = backend::Readback::new(device, dimensions, VideoPixelFormat::Rgba)?;
+    readback.submit(0, renderer, &conversion, scene)?;
+    let cancelled = AtomicBool::new(false);
+    let frame = readback
+        .finish_next(
+            device,
+            Cancellation {
+                requested: &cancelled,
+                failed: &cancelled,
+            },
+        )?
+        .expect("submitted image readback");
+    let image = image::RgbaImage::from_raw(scene.size.width, scene.size.height, frame.data)
+        .ok_or(EncodingError::Invalid("Invalid image buffer dimensions"))?;
+    let mut png = Vec::new();
+    PngEncoder::new(&mut png)
+        .write_image(
+            image.as_raw(),
+            image.width(),
+            image.height(),
+            ExtendedColorType::Rgba8,
+        )
+        .map_err(EncodingError::backend)?;
+    Ok(png)
+}
+
+fn validate_size(device: &wgpu::Device, size: RenderSize) -> Result<(), EncodingError> {
+    VideoDimensions {
+        width: size.width,
+        height: size.height,
+    }
+    .validate()?;
+    if size.width > device.limits().max_texture_dimension_2d
+        || size.height > device.limits().max_texture_dimension_2d
+    {
+        return Err(EncodingError::Invalid(
+            "Export dimensions exceed the renderer's GPU limits",
+        ));
+    }
+    Ok(())
+}
 
 /// Native adapters currently accept 8-bit BT.709. Device capabilities are checked on creation.
 fn supports_gpu_encoding(codec: VideoCodec, color: ExportColorSettings) -> bool {
@@ -53,7 +114,7 @@ impl VideoOutput {
         depth: usize,
         settings: EncodingSettings,
     ) -> Result<(Self, VideoEncoderInput), EncodingError> {
-        let dimensions = settings.output.validate()?;
+        let dimensions = settings.output;
         let format = settings.pixel_format();
         if format != VideoPixelFormat::Rgba
             && (!dimensions.width.is_multiple_of(2) || !dimensions.height.is_multiple_of(2))
@@ -67,13 +128,7 @@ impl VideoOutput {
             height: dimensions.height,
         };
         let device = &renderer.gpu().device;
-        if size.width > device.limits().max_texture_dimension_2d
-            || size.height > device.limits().max_texture_dimension_2d
-        {
-            return Err(EncodingError::Invalid(
-                "Export dimensions exceed the renderer's GPU limits",
-            ));
-        }
+        validate_size(device, size)?;
         let depth = depth.max(1);
         let use_native = settings.container != ExportContainer::Gif
             && supports_gpu_encoding(settings.video_codec, settings.color);

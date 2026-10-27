@@ -8,7 +8,6 @@ use std::{
 use super::scene::{
     properties::{SceneBindings, resolve_property},
     scene_runtime_seed, unique_runtime_id,
-    visibility::PreviewVisibility,
 };
 use crate::{
     plugin::TextureInput,
@@ -72,7 +71,6 @@ struct PlacementEntry {
 
 pub struct RenderEvaluation<'a> {
     scenes: &'a HashMap<SceneId, SceneDefinition>,
-    visibility: Option<&'a PreviewVisibility>,
     scene: &'a SceneDefinition,
     placements: RefCell<HashMap<Vec<ItemId>, Arc<PlacementEntry>>>,
     used_ids: RefCell<HashSet<ItemId>>,
@@ -82,11 +80,9 @@ impl<'a> RenderEvaluation<'a> {
     pub(in crate::timeline) fn new(
         scene: &'a SceneDefinition,
         scenes: &'a HashMap<SceneId, SceneDefinition>,
-        visibility: Option<&'a PreviewVisibility>,
     ) -> Self {
         Self {
             scenes,
-            visibility,
             scene,
             placements: RefCell::default(),
             used_ids: RefCell::default(),
@@ -99,24 +95,22 @@ impl<'a> RenderEvaluation<'a> {
         }
         let (&id, scope) = path.split_last()?;
         let (layer, mut source, parent, seed) = if scope.is_empty() {
-            let layer = self.scene.document().item_layer(id)?;
-            if self
-                .visibility
-                .is_some_and(|v| !v.is_item_visible(layer, id))
-            {
+            if !self.scene.document().is_item_visible(id) {
                 return None;
             }
+            let layer = self.scene.document().item_layer(id)?;
             (layer, self.scene.document().item(id)?.clone(), None, 0)
         } else {
             let parent = self.placement_entry(scope)?;
             let scene = self.scenes.get(&parent.placement.source.scene_id()?)?;
+            if !scene.document().is_item_visible(id) {
+                return None;
+            }
             let seed = scene_runtime_seed(parent.seed, parent.placement.source.id, scene.id);
             let (layer, source) = scene.expanded_item(&parent.placement.source, id)?;
             (layer, source, Some(parent), seed)
         };
-        if let Some(visibility) = self.visibility {
-            visibility.retain_visible_effects(&mut source);
-        }
+        source.effects.retain(|effect| !effect.hidden);
         let start = Frame::new(
             parent
                 .as_ref()

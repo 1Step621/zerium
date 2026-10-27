@@ -954,6 +954,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d1c988a897ea030e32f0668c90b0192800e0c561b3d941fc366f9ad5a1bf26ba"
 dependencies = [
  "clipboard-win",
+ "image",
  "objc2 0.6.4",
  "objc2-app-kit 0.3.2",
  "objc2-foundation 0.3.2",
@@ -2545,7 +2546,7 @@ dependencies = [
 [[package]]
 name = "gpui-ce"
 version = "1.0.0"
-source = "git+https://github.com/1Step621/WGPUI?branch=fix%2Finput-selection-replacement#c859381b81cbec8e9eb2c155ff9bf87903335511"
+source = "git+https://github.com/1Step621/WGPUI?branch=fix%2Finput-selection-replacement#36a2795d906b7cdfef121825810b9e8927a25b35"
 dependencies = [
  "anyhow",
  "arboard",

@@ -75,6 +75,24 @@ impl ItemMoveEdit {
 
 // Item, effect, animation, and layout commands.
 impl TimelineEditor {
+    pub fn toggle_layer_visibility(&mut self, layer: LayerId) -> bool {
+        self.edit_project_if_changed(EditImpact::Values, None, |editor| {
+            editor.active_document_mut().toggle_layer_visibility(layer);
+            true
+        })
+    }
+
+    pub fn toggle_item_visibility(&mut self, id: ItemId) -> bool {
+        if !self.is_item_selected(id) {
+            return false;
+        }
+        let Ok(mut edit) = self.active_document().prepare_item_edit(id) else {
+            return false;
+        };
+        edit.item.hidden = !edit.item.hidden;
+        self.commit_item_edits(None, [edit]).unwrap_or(false)
+    }
+
     pub fn set_item_blend_mode(&mut self, id: ItemId, mode: BlendMode) -> bool {
         if !self.is_item_selected(id) {
             return false;
@@ -383,7 +401,6 @@ impl TimelineEditor {
         sources: &[(LayerId, TimelineItem)],
         source_scene: Option<SceneId>,
         source_bindings: &[(String, SceneBindingTarget)],
-        source_hidden_effects: &[EffectInstanceId],
         target_layer: LayerId,
         target_start: Frame,
     ) -> Option<Vec<ItemId>> {
@@ -402,7 +419,6 @@ impl TimelineEditor {
                     sources,
                     source_scene,
                     source_bindings,
-                    source_hidden_effects,
                     (target_layer, target_start),
                     CopyPlacement::FindSpace,
                 )
@@ -419,7 +435,6 @@ impl TimelineEditor {
         sources: &[(LayerId, TimelineItem)],
         source_scene: Option<SceneId>,
         source_bindings: &[(String, SceneBindingTarget)],
-        source_hidden_effects: &[EffectInstanceId],
         (target_layer, target_start): (LayerId, Frame),
         placement: CopyPlacement,
     ) -> Option<HashMap<ItemId, ItemId>> {
@@ -506,11 +521,6 @@ impl TimelineEditor {
         }
 
         self.next_effect_id = next_effect_id;
-        self.visibility.toggle_effects(
-            source_hidden_effects
-                .iter()
-                .filter_map(|id| effect_ids.get(id).copied()),
-        );
         self.selection.set(item_id_map.values().copied().collect());
         Some(item_id_map)
     }
@@ -735,27 +745,13 @@ impl TimelineEditor {
                     .map(|binding| (variable.id().to_owned(), binding.clone()))
             })
             .collect::<Vec<_>>();
-        let hidden_effects = sources
-            .iter()
-            .flat_map(|(_, item)| &item.effects)
-            .filter(|effect| self.visibility.is_effect_hidden(effect.id))
-            .map(|effect| effect.id)
-            .collect::<Vec<_>>();
-        let copies = self.insert_item_copies(
+        self.insert_item_copies(
             sources,
             Some(self.active_scene_id()),
             &bindings,
-            &hidden_effects,
             target,
             CopyPlacement::Exact,
-        )?;
-        let hidden_copies = sources
-            .iter()
-            .filter(|(_, item)| self.visibility.is_item_hidden(item.id))
-            .map(|(_, item)| copies[&item.id])
-            .collect::<Vec<_>>();
-        self.visibility.toggle_items(hidden_copies);
-        Some(copies)
+        )
     }
 
     fn stop_item_copy_move(

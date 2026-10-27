@@ -6,8 +6,8 @@ use super::{
 use crate::{
     property::PropertyValue,
     timeline::{
-        EffectInstanceId, ItemId, LayerId, ProjectId, SceneBindingOwner, SceneBindingTarget,
-        SceneId, TimelineEditor, TimelineItem,
+        ItemId, LayerId, ProjectId, SceneBindingOwner, SceneBindingTarget, SceneId, TimelineEditor,
+        TimelineItem,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -17,14 +17,13 @@ use std::{
 };
 
 const TIMELINE_CLIPBOARD_FORMAT: &str = "zerium/timeline-items";
-const TIMELINE_CLIPBOARD_FORMAT_VERSION: u32 = 5;
+const TIMELINE_CLIPBOARD_FORMAT_VERSION: u32 = 6;
 
 #[derive(Debug)]
 pub struct DecodedTimelineClipboard {
     pub source_scene: Option<SceneId>,
     pub items: Vec<(LayerId, TimelineItem)>,
     pub scene_bindings: Vec<(String, SceneBindingTarget)>,
-    pub hidden_effects: Vec<EffectInstanceId>,
 }
 
 pub fn encode_timeline_clipboard(
@@ -80,12 +79,6 @@ pub fn encode_timeline_clipboard(
         })
         .collect();
     let file = TimelineClipboardFile {
-        hidden_effects: items
-            .iter()
-            .flat_map(|(_, item)| &item.effects)
-            .filter(|effect| editor.is_effect_hidden(effect.id))
-            .map(|effect| effect.id)
-            .collect(),
         format: TIMELINE_CLIPBOARD_FORMAT.to_owned(),
         format_version: TIMELINE_CLIPBOARD_FORMAT_VERSION,
         frame_rate: [
@@ -178,7 +171,7 @@ pub fn decode_timeline_clipboard(
         source_rate,
     )?;
     let items = if source_rate != editor.frame_rate() {
-        crate::timeline::TimelineDocument::from_items(source_rate, items)
+        crate::timeline::TimelineDocument::from_items(source_rate, items, [])
             .retimed(editor.frame_rate())
             .map_err(|error| ProjectError::invalid_data(error.to_string()))?
             .source_items()
@@ -196,13 +189,6 @@ pub fn decode_timeline_clipboard(
             ));
         }
     }
-    if file
-        .hidden_effects
-        .iter()
-        .any(|id| !effect_ids.contains(&id.get()))
-    {
-        return Err(ProjectError::invalid_data("Invalid clipboard visibility"));
-    }
     Ok(DecodedTimelineClipboard {
         source_scene: preserve_bindings.then_some(source_scene),
         items,
@@ -211,14 +197,12 @@ pub fn decode_timeline_clipboard(
         } else {
             Vec::new()
         },
-        hidden_effects: file.hidden_effects,
     })
 }
 
 #[derive(Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 struct TimelineClipboardFile {
-    hidden_effects: Vec<EffectInstanceId>,
     format: String,
     format_version: u32,
     frame_rate: [u32; 2],

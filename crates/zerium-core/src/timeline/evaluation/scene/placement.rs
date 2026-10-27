@@ -1,7 +1,5 @@
 //! Consumer-independent scene placement, clipping and traversal.
-use super::{
-    EvaluatedClip, properties::SceneBindings, scene_runtime_seed, visibility::PreviewVisibility,
-};
+use super::{EvaluatedClip, properties::SceneBindings, scene_runtime_seed};
 use crate::timeline::{ItemId, LayerId, SceneDefinition, SceneId, TimelineItem, TimelineTime};
 use std::collections::HashMap;
 
@@ -10,7 +8,7 @@ pub(in crate::timeline) enum WalkMode {
     Sample(TimelineTime),
     AudioPlan,
     Occupied,
-    Definitions,
+    Definitions { include_hidden: bool },
 }
 
 pub(in crate::timeline) struct PlacedItem {
@@ -26,8 +24,6 @@ pub(in crate::timeline) struct PlacedItem {
 pub(in crate::timeline) trait SceneVisitor {
     type State;
     type Output;
-
-    fn prepare(&mut self, _source: &mut TimelineItem, _path: &[ItemId]) {}
 
     fn enter(
         &mut self,
@@ -56,43 +52,51 @@ struct Scope {
 pub(in crate::timeline) struct SceneWalker<'a> {
     pub frame_rate: crate::timeline::FrameRate,
     pub scenes: &'a HashMap<SceneId, SceneDefinition>,
-    pub visibility: Option<&'a PreviewVisibility>,
 }
 
 impl SceneWalker<'_> {
     pub(in crate::timeline) fn walk<V: SceneVisitor>(
         &self,
-        items: Vec<(LayerId, TimelineItem)>,
+        scene: &SceneDefinition,
         mode: WalkMode,
         bindings: &SceneBindings<'_>,
         visitor: &mut V,
     ) -> Vec<V::Output> {
-        self.scope(items, mode, bindings, Scope::default(), visitor)
+        let items = if let WalkMode::Sample(time) = mode {
+            scene.document().active_source_items_at_time(time)
+        } else {
+            scene.document().source_items()
+        };
+        self.scope(scene, items, mode, bindings, Scope::default(), visitor)
     }
 
     fn scope<V: SceneVisitor>(
         &self,
+        scene: &SceneDefinition,
         items: Vec<(LayerId, TimelineItem)>,
         mode: WalkMode,
         bindings: &SceneBindings<'_>,
         scope: Scope,
         visitor: &mut V,
     ) -> Vec<V::Output> {
+        let include_hidden = if let WalkMode::Definitions { include_hidden } = mode {
+            include_hidden
+        } else {
+            false
+        };
         let mut output = Vec::new();
         for (local_layer, mut source) in items {
-            if scope.path.is_empty()
-                && self
-                    .visibility
-                    .is_some_and(|v| !v.is_item_visible(local_layer, source.id))
-            {
-                continue;
+            if !include_hidden {
+                if !scene.document().is_item_visible(source.id) {
+                    continue;
+                }
+                source.effects.retain(|effect| !effect.hidden);
             }
             let mut path = scope.path.clone();
             path.push(source.id);
-            visitor.prepare(&mut source, &path);
             // Complete definitions are independent of placed offsets and clips.
             // Large instance positions must not hide authored file references.
-            let start = if let WalkMode::Definitions = mode {
+            let start = if let WalkMode::Definitions { .. } = mode {
                 source.start().get()
             } else {
                 scope.offset.saturating_add(source.start().get())
@@ -105,7 +109,7 @@ impl SceneWalker<'_> {
             let time = match mode {
                 WalkMode::Sample(time) => Some(time),
                 WalkMode::AudioPlan => Some(TimelineTime::from_frame(source.start())),
-                WalkMode::Occupied | WalkMode::Definitions => None,
+                WalkMode::Occupied | WalkMode::Definitions { .. } => None,
             };
             let scene = source.scene_id().and_then(|id| self.scenes.get(&id));
             if source.scene_id().is_some() && scene.is_none() {
@@ -136,19 +140,24 @@ impl SceneWalker<'_> {
             let state = visitor.enter(&item, time, bindings);
             let children = if let Some(scene) = scene {
                 let children = match child_mode {
-                    WalkMode::Definitions => scene.document().source_items(),
+                    WalkMode::Definitions { .. } => scene.document().source_items(),
                     WalkMode::Sample(time) => scene.expanded_items(&item.source, Some(time)),
                     _ => scene.expanded_items(&item.source, None),
                 };
                 let child_bindings =
                     SceneBindings::for_instance(self.scenes, scene, &item.source, time, bindings);
                 self.scope(
+                    scene,
                     children,
                     child_mode,
                     &child_bindings,
                     Scope {
                         offset: start,
-                        end: (!matches!(mode, WalkMode::Definitions)).then_some(end),
+                        end: if let WalkMode::Definitions { .. } = mode {
+                            None
+                        } else {
+                            Some(end)
+                        },
                         seed: scene_runtime_seed(scope.seed, item.source.id, scene.id),
                         layer: Some(item.layer),
                         path: item.path.clone(),

@@ -91,6 +91,7 @@ pub(in crate::timeline) fn set_size_values(
 #[derive(Clone, Debug, PartialEq)]
 pub struct EffectInstance {
     pub id: EffectInstanceId,
+    pub hidden: bool,
     pub plugin_id: String,
     pub effect_id: String,
     pub properties: PropertyOverrides,
@@ -120,6 +121,7 @@ pub enum TimelineItemKind {
 #[derive(Clone, Debug, PartialEq)]
 pub struct TimelineItem {
     pub id: ItemId,
+    pub hidden: bool,
     pub(crate) start: Frame,
     pub(crate) fixed_duration: Option<FrameDuration>,
     pub blend_mode: BlendMode,
@@ -151,6 +153,7 @@ impl TimelineItem {
     ) -> Self {
         Self {
             id,
+            hidden: false,
             start,
             fixed_duration: Some(duration),
             blend_mode: BlendMode::Normal,
@@ -661,6 +664,7 @@ impl TimelineItem {
         }
         self.effects.push(EffectInstance {
             id: instance_id,
+            hidden: false,
             plugin_id: plugin_id.to_owned(),
             effect_id: effect_id.to_owned(),
             properties,

@@ -1,4 +1,4 @@
-//! Version dispatch and migration into the current project representation.
+//! Version dispatch and migration of project and scene file representations.
 mod v1;
 mod v2;
 mod v3;
@@ -7,26 +7,46 @@ mod v5;
 mod v6;
 mod v7;
 mod v8;
+mod v9;
 
-use serde::Deserialize;
+use serde::{Deserialize, de::DeserializeOwned};
 use serde_json::{Map, Value};
 
-use super::{FORMAT_VERSION, ProjectError, ProjectFile};
 use crate::{
-    persistence::items::{capture_animations, load_animations},
+    persistence::{
+        DocumentKind, FORMAT_VERSION, ProjectError,
+        items::{capture_animations, load_animations},
+    },
     plugin::{ItemSchema, PluginRegistry},
     property::{PropertySchema, PropertyValue, PropertyValues},
     timeline::FrameDuration,
 };
 
-pub(super) fn decode(source: &str, plugins: &PluginRegistry) -> Result<ProjectFile, ProjectError> {
-    let header: ProjectHeader = deserialize(source)?;
-    match header.format_version {
-        1..=8 => {
+pub(in crate::persistence) fn decode<T: DeserializeOwned>(
+    source: &str,
+    plugins: &PluginRegistry,
+) -> Result<T, ProjectError> {
+    let header: Header = deserialize(source)?;
+    // Scene files initially had their own version counter. Their definitions
+    // match project formats 9 and 10; newer files share the document version.
+    let format_version = match (header.kind, header.format_version) {
+        (DocumentKind::Scene, 1) => 9,
+        (DocumentKind::Scene, 2) => 10,
+        (DocumentKind::Project, version @ 1..=FORMAT_VERSION)
+        | (DocumentKind::Scene, version @ 10..=FORMAT_VERSION) => version,
+        (_, version) => {
+            return Err(ProjectError::unsupported_format(format!(
+                "Unsupported file format (version {version})"
+            )));
+        }
+    };
+    match format_version {
+        FORMAT_VERSION if header.format_version == FORMAT_VERSION => deserialize(source),
+        _ => {
             let mut file: Map<String, Value> = deserialize(source)?;
             file.remove("format_version");
             let mut migration = Migration {
-                format_version: header.format_version,
+                format_version,
                 file,
                 plugins,
             };
@@ -54,16 +74,15 @@ pub(super) fn decode(source: &str, plugins: &PluginRegistry) -> Result<ProjectFi
             if migration.format_version <= 8 {
                 v8::migrate(&mut migration)?;
             }
+            if migration.format_version <= 9 {
+                v9::migrate(&mut migration)?;
+            }
             migration.file.insert(
                 "format_version".into(),
                 Value::from(migration.format_version),
             );
             serde_json::from_value(Value::Object(migration.file)).map_err(invalid_format)
         }
-        FORMAT_VERSION => deserialize(source),
-        version => Err(ProjectError::unsupported_format(format!(
-            "Unsupported project format (version {version})"
-        ))),
     }
 }
 
@@ -76,7 +95,10 @@ struct Migration<'a> {
 }
 
 #[derive(Deserialize)]
-struct ProjectHeader {
+struct Header {
+    // Existing project formats have no document type marker.
+    #[serde(default, rename = "type")]
+    kind: DocumentKind,
     format_version: u32,
 }
 
@@ -85,7 +107,7 @@ fn deserialize<'de, T: Deserialize<'de>>(source: &'de str) -> Result<T, ProjectE
 }
 
 fn invalid_format(error: serde_json::Error) -> ProjectError {
-    ProjectError::invalid_format(format!("Invalid project file format: {error}"), error)
+    ProjectError::invalid_format(format!("Invalid Zerium file format: {error}"), error)
 }
 
 fn frame_rate(file: &Map<String, Value>) -> Result<crate::timeline::FrameRate, ProjectError> {

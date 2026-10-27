@@ -27,6 +27,7 @@ use rust_i18n::t;
 use std::sync::Arc;
 use zerium_core::timeline::{Frame, TimelineEditor, TimelineTime};
 
+mod image;
 mod overlays;
 mod render;
 
@@ -59,6 +60,7 @@ pub(crate) struct Preview {
     seekbar: Entity<SliderState>,
     surface: Option<WgpuSurfaceHandle>,
     render_runtime: Entity<RenderRuntime>,
+    media_readers: Arc<MediaReaderRegistry>,
     scene_evaluator: SceneEvaluator,
     error: Option<SharedString>,
     frame_error: Option<SharedString>,
@@ -66,6 +68,7 @@ pub(crate) struct Preview {
     editor_drag: Option<PreviewEditorDrag>,
     editor_overlay_hidden: bool,
     color_pick: Option<color_pick::ColorPick>,
+    image_task: Option<Task<()>>,
     _subscriptions: Vec<Subscription>,
     _frame_task: Task<()>,
 }
@@ -167,7 +170,7 @@ impl Preview {
             .preview_session()
             .map(|renderer| renderer.video_uploader());
         let (frame_scheduler, mut frame_events) =
-            PreviewFrameScheduler::new(media_readers, uploader);
+            PreviewFrameScheduler::new(media_readers.clone(), uploader);
         let frame_task = cx.spawn(async move |preview, cx| {
             while let Some(event) = frame_events.next().await {
                 let Some(preview) = preview.upgrade() else {
@@ -197,6 +200,7 @@ impl Preview {
             seekbar,
             surface,
             render_runtime,
+            media_readers,
             scene_evaluator: SceneEvaluator::new(),
             error: None,
             frame_error: None,
@@ -204,6 +208,7 @@ impl Preview {
             editor_drag: None,
             editor_overlay_hidden: false,
             color_pick: None,
+            image_task: None,
             _subscriptions: vec![
                 editor_subscription,
                 transport_subscription,

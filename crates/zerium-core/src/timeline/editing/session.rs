@@ -2,11 +2,11 @@ use std::collections::HashSet;
 
 use super::PlayheadPosition;
 use crate::timeline::{
-    EffectInstanceId, Frame, FrameRate, ItemId, LayerId, ProjectResolution, SceneId,
-    TimelineDocument, TimelineEditor, TimelineTime,
+    Frame, FrameRate, ItemId, ProjectResolution, SceneId, TimelineDocument, TimelineEditor,
+    TimelineTime,
 };
 
-// Editor session, history, selection, and preview commands.
+// Editor session, history, selection, and navigation.
 impl TimelineEditor {
     pub fn undo(&mut self) -> bool {
         let current = self.history_snapshot();
@@ -38,7 +38,6 @@ impl TimelineEditor {
     pub(in crate::timeline) fn reset_scene_session(&mut self) {
         self.selection.clear();
         self.active_edit_target = None;
-        self.visibility.clear();
         self.position = PlayheadPosition::Stopped(Frame::new(0));
     }
 
@@ -86,38 +85,6 @@ impl TimelineEditor {
             return false;
         }
         self.position = position;
-        self.advance_render_revision();
-        true
-    }
-
-    pub fn toggle_layer_visibility(&mut self, layer: LayerId) -> bool {
-        self.visibility.toggle_layer(layer);
-        self.advance_render_revision();
-        true
-    }
-
-    pub fn toggle_item_visibility(&mut self, id: ItemId) -> bool {
-        if !self.is_item_selected(id) {
-            return false;
-        }
-        self.visibility.toggle_items([id]);
-        self.advance_render_revision();
-        true
-    }
-
-    pub fn toggle_effect_visibility(
-        &mut self,
-        item_id: ItemId,
-        effect_id: EffectInstanceId,
-    ) -> bool {
-        if !self.is_item_selected(item_id)
-            || self
-                .item(item_id)
-                .is_none_or(|item| item.effect(effect_id).is_none())
-        {
-            return false;
-        }
-        self.visibility.toggle_effects([effect_id]);
         self.advance_render_revision();
         true
     }

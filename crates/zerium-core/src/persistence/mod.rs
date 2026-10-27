@@ -18,6 +18,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::plugin::PluginRegistry;
 
+const FORMAT_VERSION: u32 = 10;
+
 pub enum LoadedDocument {
     Project(LoadedProject),
     Scene(LoadedScene),

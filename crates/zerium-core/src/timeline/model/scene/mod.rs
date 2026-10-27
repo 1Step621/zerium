@@ -94,8 +94,9 @@ impl SceneDefinition {
         id: ItemId,
     ) -> Option<(LayerId, TimelineItem)> {
         let mut item = self.document.item(id)?.clone();
+        let layer = self.document.item_layer(id)?;
         self.expansion(instance).apply(&mut item);
-        Some((self.document.item_layer(id)?, item))
+        Some((layer, item))
     }
 
     pub fn items(&self) -> impl Iterator<Item = &TimelineItem> {
@@ -137,6 +138,10 @@ impl SceneDefinition {
 
     pub fn item_layer(&self, id: ItemId) -> Option<LayerId> {
         self.document.item_layer(id)
+    }
+
+    pub fn hidden_layer_ids(&self) -> impl Iterator<Item = LayerId> + '_ {
+        self.document.hidden_layer_ids()
     }
 
     pub(in crate::timeline) fn document(&self) -> &TimelineDocument {

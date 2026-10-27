@@ -199,15 +199,16 @@ impl ControlTree {
             variables: editor.active_scene().variables(),
         };
         let item_controls = resolution.property_controls(None);
-        let effect_groups: Vec<Control> = item
-            .effects
-            .iter()
+        let effect_groups: Vec<Control> = editor
+            .item(item.source_id)
+            .into_iter()
+            .flat_map(|item| &item.effects)
             .map(|effect| {
                 let controls = resolution.property_controls(Some(effect.id));
                 Control::Effect(EffectControl {
                     id: effect.id,
                     label: effect.schema().label().to_owned(),
-                    hidden: editor.is_effect_hidden(effect.id),
+                    hidden: effect.hidden,
                     children: controls,
                 })
             })

@@ -8,8 +8,8 @@ use crate::{
     plugin::PluginRegistry,
     property::PropertySchema,
     timeline::{
-        Frame, FrameRate, ProjectId, SceneDefinition, SceneId, SceneVariable, TimelineDocument,
-        TimelineItem, resolve_scene_binding,
+        Frame, FrameRate, LayerId, ProjectId, SceneDefinition, SceneId, SceneVariable,
+        TimelineDocument, TimelineItem, resolve_scene_binding,
     },
 };
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,7 @@ pub(in crate::persistence) struct StoredScene {
     pub(in crate::persistence) stretch_point: u64,
     pub(in crate::persistence) variables: Vec<SceneVariable>,
     pub(in crate::persistence) items: Vec<ProjectItem>,
+    pub(in crate::persistence) hidden_layers: Vec<u64>,
 }
 
 impl StoredScene {
@@ -51,6 +52,14 @@ impl StoredScene {
                 })
                 .collect(),
             items: capture_items(scene.items(), |id| scene.item_layer(id), project_path)?,
+            hidden_layers: {
+                let mut layers = scene
+                    .hidden_layer_ids()
+                    .map(LayerId::get)
+                    .collect::<Vec<_>>();
+                layers.sort_unstable();
+                layers
+            },
         })
     }
 
@@ -231,7 +240,11 @@ pub(in crate::persistence) fn load_scenes(
             scene_id,
             scene.name,
             variables,
-            TimelineDocument::from_items(frame_rate, scene_items),
+            TimelineDocument::from_items(
+                frame_rate,
+                scene_items,
+                scene.hidden_layers.into_iter().map(LayerId::new),
+            ),
         );
         if scene.stretch_point >= definition.duration().get() {
             return Err(ProjectError::invalid_data(

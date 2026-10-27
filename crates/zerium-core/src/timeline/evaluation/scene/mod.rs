@@ -1,11 +1,7 @@
 //! Scene clocks, bindings, traversal, and evaluated scene occurrences.
-use self::{
-    properties::{SceneBindings, resolve_render_item},
-    visibility::PreviewVisibility,
-};
+use self::properties::{SceneBindings, resolve_render_item};
 use crate::timeline::model::{
     ItemId, LayerId, SceneId,
-    item::TimelineItem,
     scene::SceneDefinition,
     time::{Frame, FrameDuration, TimelineTime},
 };
@@ -14,7 +10,6 @@ use std::collections::{HashMap, HashSet};
 pub(in crate::timeline) mod item;
 pub(in crate::timeline) mod placement;
 pub(in crate::timeline) mod properties;
-pub(in crate::timeline) mod visibility;
 
 fn mixed_runtime_id(seed: u64, item_id: ItemId) -> ItemId {
     if seed == 0 {
@@ -92,7 +87,6 @@ fn evaluated_scene_graph_at_time(
     scene: &SceneDefinition,
     scenes: &HashMap<SceneId, SceneDefinition>,
     time: TimelineTime,
-    visibility: Option<&PreviewVisibility>,
 ) -> Vec<EvaluatedSceneNode> {
     use crate::timeline::evaluation::scene::placement::{
         PlacedItem, SceneVisitor, SceneWalker, WalkMode,
@@ -100,21 +94,14 @@ fn evaluated_scene_graph_at_time(
 
     let frame_rate = scene.document().frame_rate();
 
-    struct RenderVisitor<'a> {
-        visibility: Option<&'a PreviewVisibility>,
+    struct RenderVisitor {
         used_ids: HashSet<ItemId>,
         frame_rate: crate::timeline::FrameRate,
     }
 
-    impl SceneVisitor for RenderVisitor<'_> {
+    impl SceneVisitor for RenderVisitor {
         type State = crate::timeline::evaluation::scene::properties::ResolvedItem;
         type Output = EvaluatedSceneNode;
-
-        fn prepare(&mut self, source: &mut TimelineItem, _path: &[ItemId]) {
-            if let Some(visibility) = self.visibility {
-                visibility.retain_visible_effects(source);
-            }
-        }
 
         fn enter(
             &mut self,
@@ -152,17 +139,11 @@ fn evaluated_scene_graph_at_time(
     }
 
     let bindings = SceneBindings::new(scenes, scene, None);
-    SceneWalker {
-        scenes,
-        visibility,
-        frame_rate,
-    }
-    .walk(
-        scene.document().active_source_items_at_time(time),
+    SceneWalker { scenes, frame_rate }.walk(
+        scene,
         WalkMode::Sample(time),
         &bindings,
         &mut RenderVisitor {
-            visibility,
             used_ids: HashSet::new(),
             frame_rate,
         },
@@ -173,7 +154,6 @@ pub(crate) fn evaluated_items_at_time(
     scene: &SceneDefinition,
     scenes: &HashMap<SceneId, SceneDefinition>,
     time: TimelineTime,
-    visibility: Option<&PreviewVisibility>,
 ) -> Vec<(LayerId, crate::timeline::EvaluatedItem)> {
     fn flatten(
         nodes: Vec<EvaluatedSceneNode>,
@@ -188,7 +168,7 @@ pub(crate) fn evaluated_items_at_time(
         }
     }
 
-    let graph = evaluated_scene_graph_at_time(scene, scenes, time, visibility);
+    let graph = evaluated_scene_graph_at_time(scene, scenes, time);
     let mut output = Vec::new();
     flatten(graph, &mut output);
     output

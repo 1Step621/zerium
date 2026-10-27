@@ -60,9 +60,10 @@ semantics.
 the timeline mixer and metering; [`engine/output/audio`](../../crates/zerium/src/engine/output/audio/)
 owns live device playback. Playback, meters, and export share
 `AudioTimelineSnapshot` and one timeline mixer.
-Preview captures the edited scene and visibility; export captures the root
-timeline. The immutable plan expands placements and resolves static decoder
-inputs. Only sources with loaded audio streams request gain evaluation.
+Preview captures the edited scene; video export captures Main. Both respect
+the saved visibility of every scene, including nested items and layers. The
+immutable plan expands placements and resolves static decoder inputs. Only
+sources with loaded audio streams request gain evaluation.
 
 Gain animations and calculations run at integer video frames. The mixer linearly
 interpolates adjacent results between rational, floor-rounded sample boundaries,
@@ -172,6 +173,12 @@ has no bitrate control. The MP4/AAC timing correction applies only to that combi
 The completed temporary file is published atomically. A typed input-closure
 result preserves the upstream failure that caused it; cancellation and writer
 failures take precedence over resulting channel errors.
+
+The preview context menu saves or copies its current frame at project resolution.
+It freezes the edited scene and visibility when opened, then decodes and
+renders independently in the background. PNG output shares the RGBA conversion
+and readback path, preserving transparency without editor overlays. File saves
+use the same atomic transaction as video export; copying uses GPUI's image clipboard.
 
 See [Rendering](rendering.md) for GPU ownership and
 [Visual and audio inputs](../plugin/inputs.md) for plugin declarations.

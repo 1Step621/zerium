@@ -29,6 +29,7 @@ pub struct TimelineDocument {
     items: HashMap<ItemId, Arc<TimelineItem>>,
     item_layers: HashMap<ItemId, LayerId>,
     layer_items: HashMap<LayerId, Vec<ItemId>>,
+    hidden_layers: HashSet<LayerId>,
     next_item_id: Option<u64>,
 }
 
@@ -45,11 +46,16 @@ impl TimelineDocument {
             items: HashMap::new(),
             item_layers: HashMap::new(),
             layer_items: HashMap::new(),
+            hidden_layers: HashSet::new(),
             next_item_id: Some(1),
         }
     }
 
-    pub fn from_items(frame_rate: FrameRate, items: Vec<(LayerId, TimelineItem)>) -> Self {
+    pub fn from_items(
+        frame_rate: FrameRate,
+        items: Vec<(LayerId, TimelineItem)>,
+        hidden_layers: impl IntoIterator<Item = LayerId>,
+    ) -> Self {
         let next_item_id = items
             .iter()
             .map(|(_, item)| item.id.get())
@@ -62,6 +68,7 @@ impl TimelineDocument {
             items: HashMap::with_capacity(items.len()),
             item_layers: HashMap::with_capacity(items.len()),
             layer_items: HashMap::new(),
+            hidden_layers: hidden_layers.into_iter().collect(),
             next_item_id,
         };
         for (layer, item) in items {
@@ -85,6 +92,22 @@ impl TimelineDocument {
 
     pub fn frame_rate(&self) -> FrameRate {
         self.frame_rate
+    }
+
+    pub(in crate::timeline) fn hidden_layer_ids(&self) -> impl Iterator<Item = LayerId> + '_ {
+        self.hidden_layers.iter().copied()
+    }
+
+    pub(in crate::timeline) fn is_item_visible(&self, id: ItemId) -> bool {
+        self.item(id).is_some_and(|item| {
+            !item.hidden && !self.hidden_layers.contains(&self.item_layers[&id])
+        })
+    }
+
+    pub(in crate::timeline) fn toggle_layer_visibility(&mut self, layer: LayerId) {
+        if !self.hidden_layers.remove(&layer) {
+            self.hidden_layers.insert(layer);
+        }
     }
 
     pub(crate) fn retimed(&self, frame_rate: FrameRate) -> Result<Self, ProjectSettingsError> {
@@ -136,7 +159,7 @@ impl TimelineDocument {
                 "Items would overlap at the new frame rate",
             ));
         }
-        Ok(Self::from_items(frame_rate, items))
+        Ok(Self::from_items(frame_rate, items, self.hidden_layer_ids()))
     }
 
     pub fn item(&self, id: ItemId) -> Option<&TimelineItem> {
@@ -358,6 +381,7 @@ impl TimelineDocument {
         let item_id = item_id.to_owned();
         self.insert_item(layer, start, duration, move |id, start, _| TimelineItem {
             id,
+            hidden: false,
             start,
             fixed_duration,
             blend_mode: crate::timeline::BlendMode::Normal,

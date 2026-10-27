@@ -3,7 +3,6 @@
 use super::scene::{
     properties::{SceneBindings, resolve_property},
     unique_runtime_id,
-    visibility::PreviewVisibility,
 };
 use crate::{
     media::{MediaAsset, MediaPlayback},
@@ -50,7 +49,6 @@ pub struct AudioTimelineSnapshot {
     project: Arc<TimelineProject>,
     media_cache: Arc<crate::media::MediaMetadataCache>,
     scene_id: SceneId,
-    visibility: Option<PreviewVisibility>,
     plan: Arc<OnceLock<AudioPlan>>,
 }
 
@@ -209,13 +207,11 @@ impl AudioTimelineSnapshot {
         project: Arc<TimelineProject>,
         media_cache: Arc<crate::media::MediaMetadataCache>,
         scene_id: SceneId,
-        visibility: Option<PreviewVisibility>,
     ) -> Self {
         Self {
             project,
             media_cache,
             scene_id,
-            visibility,
             plan: Arc::default(),
         }
     }
@@ -224,7 +220,6 @@ impl AudioTimelineSnapshot {
         Arc::ptr_eq(&self.project, &other.project)
             && Arc::ptr_eq(&self.media_cache, &other.media_cache)
             && self.scene_id == other.scene_id
-            && self.visibility == other.visibility
     }
 
     pub fn frame_rate(&self) -> FrameRate {
@@ -234,7 +229,6 @@ impl AudioTimelineSnapshot {
     fn plan(&self) -> &AudioPlan {
         self.plan.get_or_init(|| {
             let scene = &self.project.scenes[&self.scene_id];
-            let items = scene.document().source_items();
             let bindings = SceneBindings::new(&self.project.scenes, scene, None);
             let mut builder = PlanBuilder {
                 snapshot: self,
@@ -244,10 +238,9 @@ impl AudioTimelineSnapshot {
             let nodes = crate::timeline::evaluation::scene::placement::SceneWalker {
                 frame_rate: self.frame_rate(),
                 scenes: &self.project.scenes,
-                visibility: self.visibility.as_ref(),
             }
             .walk(
-                items,
+                scene,
                 crate::timeline::evaluation::scene::placement::WalkMode::AudioPlan,
                 &bindings,
                 &mut builder,
@@ -356,8 +349,7 @@ impl crate::timeline::TimelineSnapshot {
         crate::timeline::AudioTimelineSnapshot::new(
             self.project.clone(),
             self.media_cache.clone(),
-            self.project.main_scene,
-            None,
+            self.scene_id,
         )
     }
 }

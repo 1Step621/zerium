@@ -7,7 +7,7 @@ use crate::{
         workspace::operation_hints::{Hint, OperationHintExt as _},
     },
 };
-use ::ui::{ActiveTheme as _, slider::Slider};
+use ::ui::{ActiveTheme as _, menu::context_menu::ContextMenuExt as _, slider::Slider};
 use gpui::{
     Context, Hsla, MouseButton, MouseDownEvent, MouseUpEvent, Render, SharedString, Window, div,
     prelude::*, px, relative, wgpu_surface,
@@ -136,6 +136,7 @@ impl Render for Preview {
 
         let colors = cx.theme().colors;
         let surface = self.surface.clone();
+        let preview = cx.entity();
         let (frame, resolution) = {
             let editor = self.editor.read(cx);
             (editor.playhead(), editor.resolution())
@@ -188,6 +189,7 @@ impl Render for Preview {
                     ))
                     .child(
                         div()
+                            .id("preview-image")
                             .relative()
                             .flex_1()
                             .min_w_0()
@@ -196,6 +198,9 @@ impl Render for Preview {
                             .items_center()
                             .justify_center()
                             .overflow_hidden()
+                            .context_menu(move |menu, _, cx| {
+                                preview.update(cx, |preview, cx| preview.image_menu(menu, cx))
+                            })
                             .when_some(surface, |this, surface| {
                                 this.child(
                                     div()

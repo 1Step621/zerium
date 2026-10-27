@@ -10,8 +10,8 @@ resize commands prepare detached item candidates and publish the batch only afte
 validation. They capture a history snapshot only when beginning an Undo group;
 continuous updates do not retain a rollback snapshot that would force project
 maps to be cloned. Structural commands that update several parts of a project
-use a rollback boundary restoring documents, ID allocators, selection, visibility
-and media observations on failure or no change. History and revisions advance
+use a rollback boundary restoring documents, ID allocators, selection, and media
+observations on failure or no change. History and revisions advance
 only for committed changes.
 
 Media discovery has a separate revision in the immutable project. Validated item
@@ -20,7 +20,10 @@ declare whether they affect media dependencies. Naming, curve, numeric and proje
 display changes preserve the media revision. Undo restores the revision with its
 project, while fresh edits allocate new revisions across history branches.
 
-Selection, preview visibility, playhead, and history are session state.
+Selection, playhead, and history are session state. Item and effect visibility
+belongs to each authored item or effect; hidden layers belong to the scene's
+document. Visibility is saved and undoable, and applies inside nested scenes to
+both preview and export.
 The playhead stores either an exact stopped frame or a continuous playback time;
 its displayed frame is derived from that state. Document navigation resets all
 scope-local preview state together. Project frame-rate changes are prepared by
@@ -286,7 +289,7 @@ Splitting selected items at the playhead duplicates each interval crossing that
 frame and trims the two halves using the ordinary trim rules below, including
 scene instances. It does not preserve the original curves or scene timing beyond
 those rules. Left halves retain their IDs; right halves receive new item/effect
-IDs and inherit scene bindings and preview visibility. Right halves replace the
+IDs and inherit scene bindings and visibility. Right halves replace the
 split items in the selection. Other selected items stay selected. The batch is
 one atomic, undoable edit; interval boundaries are not split.
 
@@ -331,13 +334,16 @@ Clipboard payloads include their source FPS so placement and animation keys can 
 retimed when pasted into a project with another frame rate. Playback properties
 retain their source interval and speed.
 Loading converts supported file versions to the current representation in memory
-before validating the project. Saving writes the current format.
+before validating the project. Saving writes format version 10, which stores
+layer, item, and effect visibility. Older projects migrate with everything visible;
+visibility fields are required in the current format.
 Version-specific transformations live in
 [`project/migration`](../../crates/zerium-core/src/persistence/project/migration/).
 Unsupported versions are rejected. The current project representation identifies
 `main_scene` within one `scenes` collection; main and reusable scenes store items
 and variables in the same form. Media observations are rediscovered after loading.
-Scene files (`.scene.zero`, format version 1) store a root scene and its reachable
+Scene files (`.scene.zero`) share the project format version and migration pipeline.
+They store a root scene and its reachable
 child scenes, source FPS, and the source project ID as their identity namespace.
 Scene files carry a `type: "scene"` marker. Normal Open, scene import, and system file opening
 use the file contents to distinguish scene imports from project replacement;
@@ -345,7 +351,9 @@ existing project formats without a marker remain supported. When opening a file,
 only project replacement asks to discard unsaved changes. The compound suffix is a naming
 convention, so renaming a scene file to `.zero` does not change its behavior.
 They share scene/item serialization and validation with project files, while
-excluding resolution, guides, and playhead state. Media paths remain references,
+excluding resolution, guides, and playhead state. Legacy scene versions 1 and 2
+correspond to document versions 9 and 10; version 1 migrates with everything visible.
+Media paths remain references,
 using the same relative-path rules as project files; assets and plugins are not
 embedded.
 Import adds independent scene definitions in one undoable edit without replacing

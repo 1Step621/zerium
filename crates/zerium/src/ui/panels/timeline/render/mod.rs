@@ -63,7 +63,6 @@ pub(super) struct LayerRenderState {
     pub(super) stretch_point: Option<Frame>,
     pub(super) selected_item_ids: Rc<HashSet<ItemId>>,
     pub(super) hidden_layers: Rc<HashSet<LayerId>>,
-    pub(super) hidden_items: Rc<HashSet<ItemId>>,
     pub(super) render_result_highlights: Rc<Vec<RenderResultHighlight>>,
     pub(super) file_drop_target: Option<FileDropTarget>,
     pub(super) grid: TimelineGrid,
@@ -115,7 +114,6 @@ impl Render for Timeline {
             selected_item_ids,
             render_result_highlights,
             hidden_layers,
-            hidden_items,
             active_scene_is_empty,
             stretch_point,
         ) = {
@@ -149,7 +147,6 @@ impl Render for Timeline {
                 Rc::new(selected_items.iter().map(|item| item.id).collect()),
                 Rc::new(render_result_highlights),
                 Rc::new(editor.hidden_layer_ids().collect()),
-                Rc::new(editor.hidden_item_ids().collect()),
                 editor.active_scene_id() != editor.main_scene_id()
                     && editor.active_scene().is_empty(),
                 (editor.active_scene_id() != editor.main_scene_id())
@@ -191,7 +188,6 @@ impl Render for Timeline {
             selected_item_ids,
             render_result_highlights,
             hidden_layers,
-            hidden_items,
             file_drop_target: self.file_drop_target,
             grid,
         };

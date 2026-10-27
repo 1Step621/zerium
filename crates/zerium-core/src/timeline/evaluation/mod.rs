@@ -49,7 +49,7 @@ impl TimelineView for TimelineSnapshot {
     }
 
     fn frame_rate(&self) -> FrameRate {
-        self.project.main_scene().document().frame_rate()
+        self.root_scene().document().frame_rate()
     }
 
     fn playhead(&self) -> Frame {
@@ -57,15 +57,15 @@ impl TimelineView for TimelineSnapshot {
     }
 
     fn active_items_at_time(&self, time: TimelineTime) -> Vec<(LayerId, EvaluatedItem)> {
-        evaluated_items_at_time(self.project.main_scene(), &self.project.scenes, time, None)
+        evaluated_items_at_time(self.root_scene(), &self.project.scenes, time)
     }
 
     fn render_evaluation(&self) -> RenderEvaluation<'_> {
-        RenderEvaluation::new(self.project.main_scene(), &self.project.scenes, None)
+        RenderEvaluation::new(self.root_scene(), &self.project.scenes)
     }
 
     fn end_frame_exclusive(&self) -> Frame {
-        self.project.main_scene().document().end_frame_exclusive()
+        self.root_scene().document().end_frame_exclusive()
     }
 }
 

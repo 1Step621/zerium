@@ -79,7 +79,11 @@ impl TimelineEditor {
                     scene_ids[&source.id],
                     name,
                     variables,
-                    TimelineDocument::from_items(editor.frame_rate(), items),
+                    TimelineDocument::from_items(
+                        editor.frame_rate(),
+                        items,
+                        source.hidden_layer_ids(),
+                    ),
                 );
                 scene.set_stretch_point(source.stretch_point());
                 imported.push((scene.id, scene));

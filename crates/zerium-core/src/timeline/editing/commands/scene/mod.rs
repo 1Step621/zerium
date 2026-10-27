@@ -165,7 +165,7 @@ impl TimelineEditor {
                 scene_id,
                 name,
                 variables,
-                TimelineDocument::from_items(frame_rate, items),
+                TimelineDocument::from_items(frame_rate, items, []),
             );
             let duration = FrameDuration::new(end.get().saturating_sub(start.get()))?;
             debug_assert_eq!(scene.duration(), duration);
@@ -254,7 +254,6 @@ impl TimelineEditor {
             }
             editor.selection.clear();
             editor.active_edit_target = None;
-            editor.visibility.clear();
             true
         })
     }

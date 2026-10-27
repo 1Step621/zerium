@@ -8,7 +8,6 @@ use super::{
     evaluation::scene::{
         evaluated_items_at_time,
         properties::{SceneBindings, resolve_property},
-        visibility::PreviewVisibility,
     },
     model::{
         EffectInstanceId, ItemId, LayerId, ProjectId, SceneId,
@@ -85,7 +84,6 @@ pub struct TimelineEditor {
     pub(super) selection: SelectionState,
     /// None edits the selected item's source; Some edits an effect on that item.
     pub(super) active_edit_target: Option<(ItemId, EffectInstanceId)>,
-    pub(super) visibility: PreviewVisibility,
     render_revision: u64,
     project_revision: u64,
     /// Monotonic edit lifetime; unlike project_revision, Undo never restores it.
@@ -107,7 +105,6 @@ pub(super) struct ProjectEditState {
     position: PlayheadPosition,
     selection: SelectionState,
     active_edit_target: Option<(ItemId, EffectInstanceId)>,
-    visibility: PreviewVisibility,
     render_revision: u64,
 }
 
@@ -122,7 +119,6 @@ impl TimelineEditor {
             position: self.position,
             selection: self.selection.clone(),
             active_edit_target: self.active_edit_target,
-            visibility: self.visibility.clone(),
             render_revision: self.render_revision,
         }
     }
@@ -136,7 +132,6 @@ impl TimelineEditor {
         self.position = state.position;
         self.selection = state.selection;
         self.active_edit_target = state.active_edit_target;
-        self.visibility = state.visibility;
         self.render_revision = state.render_revision;
     }
 
@@ -185,7 +180,6 @@ impl TimelineEditor {
             position: PlayheadPosition::Stopped(Frame::new(0)),
             selection: SelectionState::default(),
             active_edit_target: None,
-            visibility: PreviewVisibility::default(),
             render_revision: 0,
             project_revision: 0,
             edit_revision: 0,
@@ -253,23 +247,28 @@ impl TimelineEditor {
         self.plugins.clone()
     }
 
+    /// Capture the whole project for persistence and Main-scene export.
     pub fn snapshot(&self) -> TimelineSnapshot {
+        TimelineSnapshot {
+            scene_id: self.project.main_scene,
+            ..self.preview_snapshot()
+        }
+    }
+
+    /// Capture the currently edited scene.
+    pub fn preview_snapshot(&self) -> TimelineSnapshot {
         TimelineSnapshot {
             project: self.project.clone(),
             media_cache: self.media_cache.clone(),
             playhead: self.playhead(),
             project_revision: self.project_revision,
+            scene_id: self.active_scene_id(),
         }
     }
 
-    /// Capture the currently edited scope and its preview visibility for audio.
+    /// Capture the currently edited scene for audio.
     pub fn audio_snapshot(&self) -> crate::timeline::AudioTimelineSnapshot {
-        crate::timeline::AudioTimelineSnapshot::new(
-            self.project.clone(),
-            self.media_cache.clone(),
-            self.active_scene_id(),
-            Some(self.visibility.clone()),
-        )
+        self.preview_snapshot().audio_snapshot()
     }
 
     pub(super) fn history_snapshot(&self) -> HistorySnapshot {
@@ -298,7 +297,6 @@ impl TimelineEditor {
             self.playhead()
         };
         if location_changed {
-            self.visibility.clear();
             self.active_edit_target = None;
         }
         self.selection = snapshot.selection;
@@ -747,28 +745,11 @@ impl TimelineEditor {
         &self,
         time: TimelineTime,
     ) -> Vec<(LayerId, crate::timeline::EvaluatedItem)> {
-        evaluated_items_at_time(
-            self.active_scene(),
-            &self.project().scenes,
-            time,
-            Some(&self.visibility),
-        )
+        evaluated_items_at_time(self.active_scene(), &self.project().scenes, time)
     }
 
     pub fn hidden_layer_ids(&self) -> impl Iterator<Item = LayerId> + '_ {
-        self.visibility.hidden_layers()
-    }
-
-    pub fn hidden_item_ids(&self) -> impl Iterator<Item = ItemId> + '_ {
-        self.visibility.hidden_items()
-    }
-
-    pub fn is_item_hidden(&self, id: ItemId) -> bool {
-        self.visibility.is_item_hidden(id)
-    }
-
-    pub fn is_effect_hidden(&self, effect_id: EffectInstanceId) -> bool {
-        self.visibility.is_effect_hidden(effect_id)
+        self.active_scene().hidden_layer_ids()
     }
 
     pub fn can_move_effect(
@@ -818,11 +799,7 @@ impl TimelineView for TimelineEditor {
     }
 
     fn render_evaluation(&self) -> RenderEvaluation<'_> {
-        RenderEvaluation::new(
-            self.active_scene(),
-            &self.project().scenes,
-            Some(&self.visibility),
-        )
+        RenderEvaluation::new(self.active_scene(), &self.project().scenes)
     }
 
     fn end_frame_exclusive(&self) -> Frame {

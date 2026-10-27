@@ -99,7 +99,7 @@ impl PropertyInspector {
             .collapsed_sections
             .contains(&PropertySection::Item(item.id));
         let defaults_inspector = render.inspector.clone();
-        let header = item_header(item, collapsed, &render, selector, cx)
+        let header = item_header(item, collapsed, &render, selector)
             .id("item-properties-header")
             .when(item.schema().is_some(), |header| {
                 header.context_menu(move |menu, _, cx| {
@@ -309,13 +309,12 @@ fn item_header(
     collapsed: bool,
     render: &RenderCtx<'_>,
     selector: gpui::AnyElement,
-    cx: &App,
 ) -> Div {
     let editor = render.editor.clone();
     let blend_editor = render.editor.clone();
     let item_id = item.id;
     let blend_mode = item.blend_mode;
-    let item_hidden = render.editor.read(cx).is_item_hidden(item_id);
+    let item_hidden = item.hidden;
     settings_section_header(render.colors)
         .flex()
         .items_center()
