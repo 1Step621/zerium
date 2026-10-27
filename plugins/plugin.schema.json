@@ -20,6 +20,11 @@
     "api_version": { "const": 1 }
   },
   "$defs": {
+    "iconId": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9_-]*$",
+      "description": "Bundled UI icon filename without the icons/ prefix or .svg extension, e.g. square. The application validates that the icon exists."
+    },
     "localizedText": {
       "type": "object",
       "minProperties": 1,
@@ -279,7 +284,7 @@
       "additionalProperties": false,
       "if": { "required": ["render"] },
       "then": { "properties": { "id": { "$ref": "#/$defs/wgslId" } } },
-      "required": ["id", "label", "category", "symbol"],
+      "required": ["id", "label", "category", "icon"],
       "properties": {
         "id": { "$ref": "#/$defs/logicalId" },
         "label": { "$ref": "#/$defs/localizedText" },
@@ -288,7 +293,7 @@
           "type": "array",
           "items": { "type": "string", "minLength": 1 }
         },
-        "symbol": { "type": "string", "minLength": 1 },
+        "icon": { "$ref": "#/$defs/iconId" },
         "audio": {
           "type": "array",
           "items": { "$ref": "#/$defs/audioCapability" }
@@ -420,7 +425,7 @@
     "effect": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["id", "label", "category", "properties", "render"],
+      "required": ["id", "label", "category", "icon", "properties", "render"],
       "properties": {
         "id": {
           "allOf": [
@@ -430,6 +435,7 @@
         },
         "label": { "$ref": "#/$defs/localizedText" },
         "category": { "$ref": "#/$defs/effectCategory" },
+        "icon": { "$ref": "#/$defs/iconId" },
         "tags": {
           "type": "array",
           "items": { "type": "string", "minLength": 1 }

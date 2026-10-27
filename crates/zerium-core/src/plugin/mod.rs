@@ -34,6 +34,8 @@ pub trait PluginCatalogEntry {
 
     fn label(&self) -> &str;
 
+    fn icon(&self) -> &str;
+
     fn category(&self) -> Self::Category;
 
     fn tags(&self) -> &[String];

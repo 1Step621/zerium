@@ -18,6 +18,7 @@ pub(in crate::plugin) mod passes;
 pub struct EffectSchema {
     id: String,
     label: LocalizedText,
+    icon: String,
     category: EffectCategory,
     tags: Vec<String>,
     render: EffectRenderSchema,
@@ -40,6 +41,7 @@ pub struct EffectRenderSchema {
 struct EffectSchemaDefinition {
     id: String,
     label: LocalizedText,
+    icon: String,
     category: EffectCategory,
     #[serde(default)]
     tags: Vec<String>,
@@ -61,6 +63,7 @@ impl<'de> Deserialize<'de> for EffectSchema {
         let schema = Self {
             id: definition.id,
             label: definition.label,
+            icon: definition.icon,
             category: definition.category,
             tags: definition.tags,
             render: definition.render,
@@ -87,6 +90,10 @@ impl EffectSchema {
 
     pub fn label(&self) -> &str {
         self.label.resolve()
+    }
+
+    pub fn icon(&self) -> &str {
+        &self.icon
     }
 
     pub fn category(&self) -> EffectCategory {
@@ -143,7 +150,7 @@ impl EffectSchema {
     }
 
     pub(in crate::plugin) fn validate(&self) -> Result<(), PluginError> {
-        validate_catalog_entry("effect", &self.id, &self.label, &self.tags)?;
+        validate_catalog_entry("effect", &self.id, &self.label, &self.icon, &self.tags)?;
         validate_property_schemas("effect", &self.id, self.properties())?;
         validate_texture_inputs("effect", &self.id, self.properties(), &self.render.inputs)?;
 
@@ -183,6 +190,10 @@ impl crate::plugin::PluginCatalogEntry for EffectSchema {
 
     fn label(&self) -> &str {
         self.label()
+    }
+
+    fn icon(&self) -> &str {
+        self.icon()
     }
 
     fn category(&self) -> EffectCategory {

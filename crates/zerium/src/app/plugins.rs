@@ -28,6 +28,25 @@ pub(crate) fn library() -> &'static PluginLibrary {
     &BUNDLED_PLUGINS
 }
 
+pub(crate) fn validate_icons(plugins: &PluginRegistry) -> Result<(), PluginError> {
+    let entries = plugins
+        .items()
+        .map(|(plugin, item)| (plugin, "item", item.id(), item.icon()))
+        .chain(
+            plugins
+                .effects()
+                .map(|(plugin, effect)| (plugin, "effect", effect.id(), effect.icon())),
+        );
+    for (plugin, kind, id, icon) in entries {
+        if !crate::ui::icon_exists(icon) {
+            return Err(PluginError::invalid_definition(format!(
+                "plugin '{plugin}' {kind} '{id}' references unknown icon '{icon}'"
+            )));
+        }
+    }
+    Ok(())
+}
+
 fn load_bundled_plugins() -> Result<PluginLibrary, PluginError> {
     let directories = BundledPluginAssets::iter()
         .filter_map(|path| path.strip_suffix("/plugin.json").map(str::to_owned))
@@ -42,7 +61,9 @@ fn load_bundled_plugins() -> Result<PluginLibrary, PluginError> {
         .into_iter()
         .map(|directory| load_bundled_plugin(&directory))
         .collect::<Result<Vec<_>, _>>()?;
-    PluginLibrary::new(bundles)
+    let library = PluginLibrary::new(bundles)?;
+    validate_icons(&library.registry())?;
+    Ok(library)
 }
 
 fn load_bundled_plugin(directory: &str) -> Result<PluginBundle, PluginError> {

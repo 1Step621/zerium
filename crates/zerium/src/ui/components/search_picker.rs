@@ -3,13 +3,15 @@ use rust_i18n::t;
 use std::rc::Rc;
 
 use ::ui::{
-    ActiveTheme as _, IndexPath,
+    ActiveTheme as _, Icon, IndexPath,
     list::{List, ListDelegate, ListEvent, ListItem},
 };
 use gpui::{
     App, Context, DismissEvent, Edges, Entity, EventEmitter, FocusHandle, Render, SharedString,
     Subscription, Task, Window, div, prelude::*, px,
 };
+
+use crate::ui::icon;
 
 use zerium_core::plugin::{EffectCategory, ItemCategory, PluginCatalogEntry};
 
@@ -46,6 +48,7 @@ impl From<EffectCategory> for SearchPickerCategory {
 #[derive(Clone)]
 pub(crate) struct SearchPickerEntry<T> {
     label: SharedString,
+    icon: Option<Icon>,
     category: SearchPickerCategory,
     searchable_text: String,
     value: T,
@@ -69,10 +72,16 @@ impl<T> SearchPickerEntry<T> {
         let searchable_text = format!("{label}\n{}", category.label()).to_lowercase();
         Self {
             label,
+            icon: None,
             category,
             searchable_text,
             value,
         }
+    }
+
+    pub(crate) fn icon(mut self, icon: impl Into<Icon>) -> Self {
+        self.icon = Some(icon.into());
+        self
     }
 
     pub(crate) fn search_terms<S>(mut self, terms: impl IntoIterator<Item = S>) -> Self
@@ -95,6 +104,7 @@ impl<T> SearchPickerEntry<T> {
         S::Category: Into<SearchPickerCategory>,
     {
         Self::with_category(schema.label().to_owned(), schema.category().into(), value)
+            .icon(icon(schema.icon()))
             .search_terms(
                 [plugin_id, schema.id()]
                     .into_iter()
@@ -209,11 +219,21 @@ impl<T: Clone + 'static> ListDelegate for SearchPickerDelegate<T> {
                 div()
                     .w_full()
                     .min_w_0()
-                    .flex_1()
-                    .overflow_hidden()
-                    .text_ellipsis()
-                    .whitespace_nowrap()
-                    .child(entry.label.clone()),
+                    .flex()
+                    .items_center()
+                    .gap_2()
+                    .when_some(entry.icon.clone(), |this, icon| {
+                        this.child(icon.size(px(16.)))
+                    })
+                    .child(
+                        div()
+                            .min_w_0()
+                            .flex_1()
+                            .overflow_hidden()
+                            .text_ellipsis()
+                            .whitespace_nowrap()
+                            .child(entry.label.clone()),
+                    ),
             ),
         )
     }

@@ -33,7 +33,7 @@ plugin and regenerate it rather than editing it manually.
     "id": "shape",
     "label": { "en-US": "Shape", "ja-JP": "図形" },
     "category": "shape",
-    "symbol": "■",
+    "icon": "square",
     "render": {
       "properties": [],
       "shader": { "module": "shape" },
@@ -76,6 +76,12 @@ Labels are BCP 47 locale maps. Lookup uses a case-insensitive exact match,
 to language-only tags. Categories are host-defined and group entries across
 plugins. Use the [JSON schema](../../plugins/plugin.schema.json) for allowed
 categories and field definitions.
+
+Items and effects require an `icon` ID from the application's bundled UI icons,
+such as `square`, `media-video`, or `color-wheel`. The ID is the SVG filename
+without `icons/` or `.svg`, and is case-sensitive. The application checks that the
+icon exists when loading plugins and through `zerium plugin validate`. The same
+icon is used in the addition picker and, for items, on the timeline.
 
 ## Authoring guides
 

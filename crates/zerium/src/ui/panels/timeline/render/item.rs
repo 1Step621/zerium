@@ -5,7 +5,7 @@ use gpui::{ClickEvent, Context, EntityId, MouseButton, div, prelude::*, px};
 use zerium_core::timeline::{Frame, ResizeEdge, ResizeMode, TimelineItem};
 
 use crate::ui::{
-    TimelineEditorEntityExt as _,
+    TimelineEditorEntityExt as _, icon,
     panels::timeline::{
         Timeline,
         interaction::item::{MoveTimelineItem, ResizeTimelineItem},
@@ -46,7 +46,6 @@ pub(in crate::ui::panels::timeline) fn timeline_item(
     }
 
     let item_id = item.id;
-    let scene_id = item.scene_id();
     let item_hidden = item.hidden;
     let item_left = state.viewport.x_at_seconds(item_start);
     let item_width = (state
@@ -178,11 +177,11 @@ pub(in crate::ui::panels::timeline) fn timeline_item(
                             .pl_1()
                             .whitespace_nowrap()
                             .overflow_hidden()
-                            .when(scene_id.is_none(), |this| {
+                            .when_some(item.schema(), |this, schema| {
                                 this.child(
-                                    div()
-                                        .text_color(state.colors.accent_foreground)
-                                        .child(item.symbol().to_owned()),
+                                    icon(schema.icon())
+                                        .size(px(14.))
+                                        .text_color(state.colors.accent_foreground),
                                 )
                             })
                             .child(item_label),

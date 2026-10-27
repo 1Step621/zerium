@@ -112,6 +112,7 @@ impl Timeline {
                     t!("context.clipboard").to_string(),
                     ItemPickerTarget::Paste,
                 )
+                .icon(IconName::PasteClipboard)
                 .search_terms(["paste"]),
             );
         }
@@ -126,6 +127,7 @@ impl Timeline {
                         t!("context.scene").to_string(),
                         ItemPickerTarget::Scene(scene.id),
                     )
+                    .icon(IconName::Frame)
                     .search_terms(["scene"])
                 }),
         );

@@ -38,7 +38,9 @@ fn run() -> Result<(), String> {
             }
             Some("validate") => {
                 let path = arguments.next().map(std::path::PathBuf::from);
-                zerium_shader::validate(path.as_deref())
+                let plugins = zerium_shader::validate(path.as_deref())
+                    .map_err(|error| format!("zerium plugin validate: {error}"))?;
+                app::plugins::validate_icons(&plugins)
                     .map_err(|error| format!("zerium plugin validate: {error}"))?;
                 println!("plugin is valid");
             }

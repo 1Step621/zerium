@@ -46,12 +46,25 @@ pub(in crate::plugin) fn validate_catalog_entry(
     kind: &str,
     id: &str,
     label: &LocalizedText,
+    icon: &str,
     tags: &[String],
 ) -> Result<(), PluginError> {
     validate_logical_id(kind, id)?;
     if label.is_empty() {
         return Err(PluginError::invalid_definition(format!(
             "{kind} '{id}' label must not be empty"
+        )));
+    }
+    if !icon
+        .as_bytes()
+        .first()
+        .is_some_and(u8::is_ascii_alphanumeric)
+        || !icon
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'-' | b'_'))
+    {
+        return Err(PluginError::invalid_definition(format!(
+            "{kind} '{id}' icon must be an icon ID containing ASCII letters, digits, '-' or '_' and starting with a letter or digit"
         )));
     }
     validate_search_tags(kind, id, tags)

@@ -293,15 +293,6 @@ impl TimelineItem {
         Some(schema.label().to_owned())
     }
 
-    pub fn symbol(&self) -> &str {
-        if self.scene_id().is_some() {
-            return "◇";
-        }
-        self.schema()
-            .expect("timeline item has a registered schema")
-            .symbol()
-    }
-
     pub fn aspect_lock_property(
         &self,
         effect_id: Option<EffectInstanceId>,

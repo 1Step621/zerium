@@ -21,7 +21,7 @@ pub struct ItemSchema {
     label: LocalizedText,
     category: ItemCategory,
     tags: Vec<String>,
-    symbol: String,
+    icon: String,
     render: Option<ItemRenderSchema>,
     audio: Vec<AudioCapability>,
     playback: Option<ItemPlaybackSchema>,
@@ -100,7 +100,7 @@ struct ItemSchemaDefinition {
     category: ItemCategory,
     #[serde(default)]
     tags: Vec<String>,
-    symbol: String,
+    icon: String,
     #[serde(default)]
     render: Option<ItemRenderDefinition>,
     #[serde(default)]
@@ -129,7 +129,7 @@ impl<'de> Deserialize<'de> for ItemSchema {
             label: definition.label,
             category: definition.category,
             tags: definition.tags,
-            symbol: definition.symbol,
+            icon: definition.icon,
             render,
             audio: definition.audio,
             playback: definition.playback,
@@ -168,8 +168,8 @@ impl ItemSchema {
         &self.tags
     }
 
-    pub fn symbol(&self) -> &str {
-        &self.symbol
+    pub fn icon(&self) -> &str {
+        &self.icon
     }
 
     pub fn properties(&self) -> &[PropertySchema] {
@@ -199,7 +199,7 @@ impl ItemSchema {
     }
 
     pub(in crate::plugin) fn validate(&self) -> Result<(), PluginError> {
-        validate_catalog_entry("item", &self.id, &self.label, &self.tags)?;
+        validate_catalog_entry("item", &self.id, &self.label, &self.icon, &self.tags)?;
         crate::plugin::schema::validation::validate_unique_ids(
             "item property",
             self.properties().iter().map(PropertySchema::id),
@@ -231,13 +231,6 @@ impl ItemSchema {
         validate_editors("item", &self.id, self.properties(), &self.editor)?;
         if let Some(playback) = self.playback() {
             playback.validate(self)?;
-        }
-
-        if self.symbol.trim().is_empty() {
-            return Err(PluginError::invalid_definition(format!(
-                "item '{}' symbol must not be empty",
-                self.id
-            )));
         }
 
         if self.render.is_none() && self.audio.is_empty() && self.editor.is_empty() {
@@ -320,6 +313,10 @@ impl crate::plugin::PluginCatalogEntry for ItemSchema {
 
     fn label(&self) -> &str {
         self.label()
+    }
+
+    fn icon(&self) -> &str {
+        self.icon()
     }
 
     fn category(&self) -> ItemCategory {

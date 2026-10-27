@@ -5,10 +5,10 @@
   "items": [
     {
       "id": "rectangle",
+      "icon": "square",
       "label": { "ja-JP": "四角形", "en-US": "Rectangle" },
       "category": "shape",
       "tags": ["矩形", "長方形", "square", "box"],
-      "symbol": "■",
       "render": {
         "properties": ["position", "origin", "size", "fill_enabled", "color", "outline_width", "outline_position", "outline_color", "corner_radius"],
         "shader": { "module": "items::rectangle::render" },
@@ -155,10 +155,10 @@
     },
     {
       "id": "triangle",
+      "icon": "triangle",
       "label": { "ja-JP": "三角形", "en-US": "Triangle" },
       "category": "shape",
       "tags": ["さんかく", "triangle"],
-      "symbol": "▲",
       "render": {
         "properties": ["position", "origin", "size", "fill_enabled", "color", "outline_width", "outline_position", "outline_color", "apex_position"],
         "shader": { "module": "items::triangle::render" },
@@ -305,10 +305,10 @@
     },
     {
       "id": "ellipse",
+      "icon": "circle",
       "label": { "ja-JP": "楕円", "en-US": "Ellipse" },
       "category": "shape",
       "tags": ["円", "丸", "circle", "oval"],
-      "symbol": "●",
       "render": {
         "properties": ["position", "origin", "diameter", "fill_enabled", "color", "outline_width", "outline_position", "outline_color"],
         "shader": { "module": "items::ellipse::render" },
@@ -446,10 +446,10 @@
     },
     {
       "id": "sector",
+      "icon": "chart-pie",
       "label": { "ja-JP": "扇形", "en-US": "Sector" },
       "category": "shape",
       "tags": ["円弧", "パイ", "arc", "pie"],
-      "symbol": "◔",
       "render": {
         "properties": ["position", "origin", "size", "start_angle", "sweep_angle", "inner_radius", "fill_enabled", "color", "outline_width", "outline_position", "outline_color"],
         "shader": { "module": "items::sector::render" },
@@ -608,10 +608,10 @@
     },
     {
       "id": "polygon",
+      "icon": "pentagon",
       "label": { "ja-JP": "多角形", "en-US": "Polygon" },
       "category": "shape",
       "tags": ["ポリゴン", "polygon"],
-      "symbol": "⬟",
       "render": {
         "properties": ["position", "origin", "size", "points", "fill_enabled", "color", "outline_width", "outline_position", "outline_color"],
         "shader": { "module": "items::polygon::render" },
@@ -795,10 +795,10 @@
     },
     {
       "id": "regular_polygon",
+      "icon": "hexagon",
       "label": { "ja-JP": "正多角形", "en-US": "Regular Polygon" },
       "category": "shape",
       "tags": ["角丸", "図形", "rounded", "polygon"],
-      "symbol": "⬡",
       "render": {
         "properties": ["position", "origin", "size", "sides", "rounding", "angle", "fill_enabled", "color", "outline_width", "outline_position", "outline_color"],
         "shader": { "module": "items::regular_polygon::render" },
@@ -956,10 +956,10 @@
     },
     {
       "id": "line",
+      "icon": "minus",
       "label": { "ja-JP": "直線", "en-US": "Line" },
       "category": "shape",
       "tags": ["線", "line"],
-      "symbol": "╱",
       "render": {
         "properties": ["position", "origin", "size", "angle", "fill_enabled", "color", "outline_width", "outline_position", "outline_color", "round_ends"],
         "shader": { "module": "items::line::render" },
@@ -1112,10 +1112,10 @@
     },
     {
       "id": "star",
+      "icon": "star",
       "label": { "ja-JP": "星", "en-US": "Star" },
       "category": "shape",
       "tags": ["スター", "star"],
-      "symbol": "★",
       "render": {
         "properties": ["position", "origin", "size", "points", "inner_radius", "rotation", "fill_enabled", "color", "outline_width", "outline_position", "outline_color"],
         "shader": { "module": "items::star::render" },
@@ -1279,10 +1279,10 @@
     },
     {
       "id": "spline_path",
+      "icon": "ease-curve-control-points",
       "label": { "ja-JP": "スプラインパス", "en-US": "Spline Path" },
       "category": "shape",
       "tags": ["曲線", "パス", "スプライン", "spline", "path"],
-      "symbol": "〰",
       "render": {
         "properties": ["position", "origin", "size", "points", "tension", "width", "color", "closed", "fill_enabled", "fill_color", "stroke_start", "stroke_end"],
         "shader": { "module": "items::spline_path::render" },
@@ -1498,10 +1498,10 @@
     },
     {
       "id": "concentration_lines",
+      "icon": "sun-light",
       "label": { "ja-JP": "集中線", "en-US": "Concentration Lines" },
       "category": "shape",
       "tags": ["漫画", "放射", "speed lines", "radial"],
-      "symbol": "✺",
       "render": {
         "properties": ["position", "origin", "size", "count", "inner_radius", "width", "variation", "seed", "color"],
         "shader": { "module": "items::concentration_lines::render" },
@@ -1644,10 +1644,10 @@
     },
     {
       "id": "text",
+      "icon": "text",
       "label": { "ja-JP": "テキスト", "en-US": "Text" },
       "category": "text",
       "tags": ["文字", "字幕", "title", "caption"],
-      "symbol": "T",
       "render": {
         "properties": ["position", "origin", "size", "text", "font_family", "font_size", "letter_spacing", "line_spacing", "color", "outline_width", "outline_color", "horizontal_alignment", "vertical_alignment", "bold", "italic"],
         "shader": { "module": "items::text::render" },
@@ -1870,10 +1870,10 @@
     },
     {
       "id": "number",
+      "icon": "hashtag",
       "label": { "ja-JP": "数値", "en-US": "Number" },
       "category": "text",
       "tags": ["数値", "カウンター", "number", "counter"],
-      "symbol": "#",
       "render": {
         "properties": ["position", "origin", "size", "value", "decimal_places", "font_family", "font_size", "letter_spacing", "line_spacing", "color", "outline_width", "outline_color", "horizontal_alignment", "vertical_alignment", "bold", "italic"],
         "shader": { "module": "items::number::render" },
@@ -2105,10 +2105,10 @@
     },
     {
       "id": "video",
+      "icon": "media-video",
       "label": { "ja-JP": "動画", "en-US": "Video" },
       "category": "media",
       "tags": ["映像", "movie", "clip"],
-      "symbol": "▶",
       "render": {
         "properties": ["position", "origin", "size", "source"],
         "shader": { "module": "items::video::render" },
@@ -2302,10 +2302,10 @@
     },
     {
       "id": "image_sequence",
+      "icon": "media-image-list",
       "label": { "ja-JP": "画像シーケンス", "en-US": "Image Sequence" },
       "category": "media",
       "tags": ["連番画像", "フォルダー", "sequence", "folder"],
-      "symbol": "▶",
       "render": {
         "properties": ["position", "origin", "size", "frame_rate", "source"],
         "shader": { "module": "items::image_sequence::render" },
@@ -2484,10 +2484,10 @@
     },
     {
       "id": "image",
+      "icon": "media-image",
       "label": { "ja-JP": "画像", "en-US": "Image" },
       "category": "media",
       "tags": ["静止画", "写真", "photo", "picture"],
-      "symbol": "▧",
       "render": {
         "properties": ["position", "origin", "size", "source"],
         "shader": { "module": "items::image::render" },
@@ -2607,10 +2607,10 @@
     },
     {
       "id": "svg",
+      "icon": "media-image",
       "label": { "ja-JP": "SVG", "en-US": "SVG" },
       "category": "media",
       "tags": ["ベクター", "vector", "svg"],
-      "symbol": "▧",
       "render": {
         "properties": ["position", "origin", "size", "source"],
         "shader": { "module": "items::svg::render" },
@@ -2728,10 +2728,10 @@
     },
     {
       "id": "audio",
+      "icon": "music-note",
       "label": { "ja-JP": "音声", "en-US": "Audio" },
       "category": "media",
       "tags": ["音楽", "サウンド", "music", "sound"],
-      "symbol": "♪",
       "audio": [
         {
           "id": "source",
@@ -2820,10 +2820,10 @@
     },
     {
       "id": "render_result",
+      "icon": "frame",
       "label": { "ja-JP": "レンダー結果", "en-US": "Render Result" },
       "category": "composite",
       "tags": ["レイヤー", "範囲", "render", "composite"],
-      "symbol": "▣",
       "render": {
         "properties": ["start_offset", "end_offset", "hide_original"],
         "shader": { "module": "items::render_result::render" },
@@ -2867,10 +2867,10 @@
     },
     {
       "id": "camera",
+      "icon": "camera",
       "label": { "ja-JP": "カメラ", "en-US": "Camera" },
       "category": "composite",
       "tags": ["撮影", "移動", "ズーム", "camera", "zoom"],
-      "symbol": "◉",
       "render": {
         "properties": ["start_offset", "end_offset", "hide_original", "position", "zoom", "angle"],
         "shader": { "module": "items::camera::render" },
@@ -2954,9 +2954,9 @@
     },
     {
       "id": "pattern",
+      "icon": "view-grid",
       "label": { "ja-JP": "パターン背景", "en-US": "Pattern" },
       "category": "shape",
-      "symbol": "▦",
       "tags": ["グリッド", "市松", "ストライプ", "ドット", "pattern"],
       "render": {
         "properties": ["position", "origin", "size", "mode", "spacing", "width", "angle", "offset", "color", "background"],
@@ -3120,6 +3120,7 @@
   "effects": [
     {
       "id": "translate",
+      "icon": "position",
       "label": { "ja-JP": "移動", "en-US": "Translate" },
       "category": "transform",
       "tags": ["位置", "ずらす", "position", "move"],
@@ -3160,6 +3161,7 @@
     },
     {
       "id": "scale",
+      "icon": "scale-frame-enlarge",
       "label": { "ja-JP": "拡縮", "en-US": "Scale" },
       "category": "transform",
       "tags": ["サイズ", "拡大", "縮小", "scale", "resize", "zoom"],
@@ -3211,6 +3213,7 @@
     },
     {
       "id": "rotate_2d",
+      "icon": "crop-rotate-tr",
       "label": { "ja-JP": "回転", "en-US": "Rotation" },
       "category": "transform",
       "tags": ["角度", "rotate", "rotation"],
@@ -3260,6 +3263,7 @@
     },
     {
       "id": "rotate_3d",
+      "icon": "arc-3d",
       "label": { "ja-JP": "3D回転", "en-US": "3D Rotation" },
       "category": "transform",
       "tags": ["立体", "遠近", "perspective", "rotation"],
@@ -3350,6 +3354,7 @@
     },
     {
       "id": "shear",
+      "icon": "perspective-view",
       "label": { "ja-JP": "スキュー", "en-US": "Skew" },
       "category": "transform",
       "tags": ["スキュー", "skew", "せん断", "Shear", "シアー", "歪み"],
@@ -3412,6 +3417,7 @@
     },
     {
       "id": "flip",
+      "icon": "flip",
       "label": { "ja-JP": "反転", "en-US": "Flip" },
       "category": "transform",
       "tags": [],
@@ -3443,6 +3449,7 @@
     },
     {
       "id": "polar_coordinates",
+      "icon": "polar-sh",
       "label": { "ja-JP": "極座標", "en-US": "Polar Coordinates" },
       "category": "transform",
       "tags": [],
@@ -3502,6 +3509,7 @@
     },
     {
       "id": "follow_spline",
+      "icon": "path-arrow",
       "label": { "ja-JP": "スプライン追従", "en-US": "Follow Spline" },
       "category": "transform",
       "tags": ["経路", "パス", "移動", "spline", "path", "motion"],
@@ -3652,6 +3660,7 @@
     },
     {
       "id": "turbulent",
+      "icon": "sea-waves",
       "label": {
         "ja-JP": "タービュレントディスプレイス",
         "en-US": "Turbulent Displace"
@@ -3724,6 +3733,7 @@
     },
     {
       "id": "fisheye",
+      "icon": "lens",
       "label": { "ja-JP": "魚眼レンズ", "en-US": "Fisheye" },
       "category": "transform",
       "tags": ["レンズ", "歪み", "lens", "distortion"],
@@ -3783,6 +3793,7 @@
     },
     {
       "id": "wave_warp",
+      "icon": "sine-wave",
       "label": { "ja-JP": "波形ワープ", "en-US": "Wave Warp" },
       "category": "transform",
       "tags": ["波", "歪み", "wave", "distortion"],
@@ -3863,6 +3874,7 @@
     },
     {
       "id": "color_adjustment",
+      "icon": "palette",
       "label": { "ja-JP": "色調補正", "en-US": "Color Adjustment" },
       "category": "color",
       "tags": ["明るさ", "コントラスト", "彩度", "color correction", "grading"],
@@ -3936,6 +3948,7 @@
     },
     {
       "id": "hue_saturation",
+      "icon": "color-wheel",
       "label": { "ja-JP": "色相・彩度", "en-US": "Hue/Saturation" },
       "category": "color",
       "tags": ["HSL", "色相シフト", "hue shift", "lightness"],
@@ -3982,6 +3995,7 @@
     },
     {
       "id": "exposure",
+      "icon": "brightness",
       "label": { "ja-JP": "露光量", "en-US": "Exposure" },
       "category": "color",
       "tags": ["露出", "EV", "明るさ", "brightness"],
@@ -4010,6 +4024,7 @@
     },
     {
       "id": "levels",
+      "icon": "filter",
       "label": { "ja-JP": "レベル補正", "en-US": "Levels" },
       "category": "color",
       "tags": [
@@ -4082,6 +4097,7 @@
     },
     {
       "id": "gradient_map",
+      "icon": "color-filter",
       "label": { "ja-JP": "グラデーションマップ", "en-US": "Gradient Map" },
       "category": "color",
       "tags": ["デュオトーン", "duotone", "階調", "色付け"],
@@ -4143,6 +4159,7 @@
     },
     {
       "id": "invert_colors",
+      "icon": "half-moon",
       "label": { "ja-JP": "色反転", "en-US": "Invert Colors" },
       "category": "color",
       "tags": ["ネガポジ反転", "negative", "invert"],
@@ -4171,6 +4188,7 @@
     },
     {
       "id": "color_temperature",
+      "icon": "temperature-high",
       "label": { "ja-JP": "色温度", "en-US": "Color Temperature" },
       "category": "color",
       "tags": ["ホワイトバランス", "white balance", "kelvin"],
@@ -4208,6 +4226,7 @@
     },
     {
       "id": "monochrome",
+      "icon": "fill-color",
       "label": { "ja-JP": "カラーオーバーレイ", "en-US": "Color Overlay" },
       "category": "color",
       "tags": ["単色化", "Monochrome"],
@@ -4240,6 +4259,7 @@
     },
     {
       "id": "opacity",
+      "icon": "droplet-half",
       "label": { "ja-JP": "不透明度", "en-US": "Opacity" },
       "category": "color",
       "tags": ["透明", "透過", "alpha", "transparency"],
@@ -4268,6 +4288,7 @@
     },
     {
       "id": "posterize",
+      "icon": "color-filter",
       "label": { "ja-JP": "ポスタリゼーション", "en-US": "Posterize" },
       "category": "color",
       "tags": [
@@ -4314,6 +4335,7 @@
     },
     {
       "id": "binarize",
+      "icon": "half-moon",
       "label": { "ja-JP": "2階調化", "en-US": "Threshold" },
       "category": "color",
       "tags": [
@@ -4385,6 +4407,7 @@
     },
     {
       "id": "linear_gradient",
+      "icon": "linear",
       "label": { "ja-JP": "線形グラデーション", "en-US": "Linear Gradient" },
       "category": "color",
       "tags": ["グラデ", "gradient", "fill"],
@@ -4446,6 +4469,7 @@
     },
     {
       "id": "noise_gradient",
+      "icon": "dots-grid-3x3",
       "label": { "ja-JP": "ノイズグラデーション", "en-US": "Noise Gradient" },
       "category": "color",
       "tags": [
@@ -4568,6 +4592,7 @@
     },
     {
       "id": "glow",
+      "icon": "spark",
       "label": { "ja-JP": "光彩", "en-US": "Glow" },
       "category": "style",
       "tags": ["発光", "ネオン", "bloom", "neon"],
@@ -4670,6 +4695,7 @@
     },
     {
       "id": "bloom",
+      "icon": "sun-light",
       "label": { "ja-JP": "ブルーム", "en-US": "Bloom" },
       "category": "style",
       "tags": ["ブルーム", "明部", "light", "発光"],
@@ -4774,6 +4800,7 @@
     },
     {
       "id": "outline",
+      "icon": "border-out",
       "label": { "ja-JP": "枠線", "en-US": "Outline" },
       "category": "style",
       "tags": ["縁取り", "ストローク", "border", "stroke"],
@@ -4845,6 +4872,7 @@
     },
     {
       "id": "vignette",
+      "icon": "circle",
       "label": { "ja-JP": "ビネット", "en-US": "Vignette" },
       "category": "style",
       "tags": ["周辺減光", "vignette"],
@@ -4891,6 +4919,7 @@
     },
     {
       "id": "drop_shadow",
+      "icon": "square",
       "label": { "ja-JP": "ドロップシャドウ", "en-US": "Drop Shadow" },
       "category": "style",
       "tags": ["影", "shadow"],
@@ -4995,6 +5024,7 @@
     },
     {
       "id": "long_shadow",
+      "icon": "square-3d-from-center",
       "label": { "ja-JP": "ロングシャドウ", "en-US": "Long Shadow" },
       "category": "style",
       "tags": ["影", "shadow"],
@@ -5053,6 +5083,7 @@
     },
     {
       "id": "gaussian_blur",
+      "icon": "droplet",
       "label": { "ja-JP": "ガウスぼかし", "en-US": "Gaussian Blur" },
       "category": "filter",
       "tags": ["ぼかし", "ブラー", "soft focus", "blur"],
@@ -5122,6 +5153,7 @@
     },
     {
       "id": "motion_blur",
+      "icon": "expand-lines",
       "label": { "ja-JP": "モーションブラー", "en-US": "Motion Blur" },
       "category": "filter",
       "tags": ["残像", "動き", "速度", "motion blur", "temporal"],
@@ -5173,6 +5205,7 @@
     },
     {
       "id": "time_remap",
+      "icon": "timer",
       "label": { "ja-JP": "時間リマップ", "en-US": "Time Remap" },
       "category": "filter",
       "tags": ["時間", "進捗", "逆再生", "静止", "time remap", "retime", "temporal"],
@@ -5198,6 +5231,7 @@
     },
     {
       "id": "pixelate",
+      "icon": "view-grid",
       "label": { "ja-JP": "ピクセル化", "en-US": "Pixelate" },
       "category": "filter",
       "tags": ["モザイク", "ドット", "mosaic", "pixel"],
@@ -5226,6 +5260,7 @@
     },
     {
       "id": "chromatic_aberration",
+      "icon": "color-filter",
       "label": { "ja-JP": "色収差", "en-US": "Chromatic Aberration" },
       "category": "filter",
       "tags": ["色ずれ", "RGBずれ", "chromatic", "fringing"],
@@ -5263,6 +5298,7 @@
     },
     {
       "id": "dither",
+      "icon": "dots-grid-3x3",
       "label": { "ja-JP": "ディザリング", "en-US": "Dithering" },
       "category": "filter",
       "tags": ["減色", "ハーフトーン", "halftone", "ディザ", "Dither"],
@@ -5330,6 +5366,7 @@
     },
     {
       "id": "pixel_sort",
+      "icon": "sort",
       "label": { "ja-JP": "ピクセルソート", "en-US": "Pixel Sort" },
       "category": "filter",
       "tags": ["グリッチ", "並べ替え", "glitch", "sort"],
@@ -5371,6 +5408,7 @@
     },
     {
       "id": "ntsc_noise",
+      "icon": "media-video",
       "label": { "ja-JP": "NTSC風ノイズ", "en-US": "NTSC Noise" },
       "category": "filter",
       "tags": ["VHS", "アナログ", "テレビ", "analog", "television"],
@@ -5443,6 +5481,7 @@
     },
     {
       "id": "emboss",
+      "icon": "square-3d-corner-to-corner",
       "label": { "ja-JP": "エンボス", "en-US": "Emboss" },
       "category": "filter",
       "tags": ["浮き彫り", "relief"],
@@ -5495,6 +5534,7 @@
     },
     {
       "id": "layer_mask",
+      "icon": "mask-square",
       "label": { "ja-JP": "レイヤーマスク", "en-US": "Layer Mask" },
       "category": "composite",
       "tags": ["切り抜き", "アルファ", "範囲", "mask", "layers"],
@@ -5551,6 +5591,7 @@
     },
     {
       "id": "tile_layers",
+      "icon": "view-grid",
       "label": { "ja-JP": "タイル配置", "en-US": "Tile Repeat" },
       "category": "transform",
       "tags": [
@@ -5707,6 +5748,7 @@
     },
     {
       "id": "light_sweep",
+      "icon": "flash",
       "label": { "ja-JP": "ライトスイープ", "en-US": "Light Sweep" },
       "category": "style",
       "tags": ["反射", "光", "艶", "shine", "light sweep"],
@@ -5789,6 +5831,7 @@
     },
     {
       "id": "starburst",
+      "icon": "bright-star",
       "label": { "ja-JP": "光条", "en-US": "Starburst" },
       "category": "style",
       "tags": ["クロスフィルター", "きらめき", "回折", "starburst", "cross filter"],
@@ -5855,6 +5898,7 @@
     },
     {
       "id": "light_rays",
+      "icon": "sun-light",
       "label": { "ja-JP": "光芒", "en-US": "Light Rays" },
       "category": "style",
       "tags": ["ライトレイ", "ゴッドレイ", "光線", "light rays"],
@@ -5923,6 +5967,7 @@
     },
     {
       "id": "lens_blur",
+      "icon": "lens",
       "label": { "ja-JP": "レンズぼかし", "en-US": "Lens Blur" },
       "category": "filter",
       "tags": ["玉ボケ", "絞り", "bokeh", "lens blur"],
@@ -5986,6 +6031,7 @@
     },
     {
       "id": "halation",
+      "icon": "circle-spark",
       "label": { "ja-JP": "ハレーション", "en-US": "Halation" },
       "category": "style",
       "tags": ["フィルム", "にじみ", "halation"],
@@ -6039,6 +6085,7 @@
     },
     {
       "id": "wipe",
+      "icon": "erase",
       "label": { "ja-JP": "ワイプ", "en-US": "Wipe" },
       "category": "composite",
       "tags": ["登場", "退場", "放射", "wipe"],
@@ -6095,6 +6142,7 @@
     },
     {
       "id": "noise_dissolve",
+      "icon": "dots-grid-3x3",
       "label": { "ja-JP": "ノイズディゾルブ", "en-US": "Noise Dissolve" },
       "category": "composite",
       "tags": ["消失", "出現", "ノイズ", "noise dissolve"],
@@ -6165,6 +6213,7 @@
     },
     {
       "id": "corner_pin",
+      "icon": "square-3d-corner-to-corner",
       "label": { "ja-JP": "コーナーピン", "en-US": "Corner Pin" },
       "category": "transform",
       "tags": ["四隅", "遠近変形", "perspective", "corner pin"],
@@ -6268,6 +6317,7 @@
     },
     {
       "id": "bend",
+      "icon": "ease-curve-control-points",
       "label": { "ja-JP": "ベンド", "en-US": "Bend" },
       "category": "transform",
       "tags": ["湾曲", "曲げ", "bend"],
@@ -6306,6 +6356,7 @@
     },
     {
       "id": "displacement_map",
+      "icon": "position-align",
       "label": { "ja-JP": "ディスプレイスメントマップ", "en-US": "Displacement Map" },
       "category": "transform",
       "tags": ["変位", "歪み", "マップ", "displacement map"],
@@ -6411,6 +6462,7 @@
     },
     {
       "id": "chroma_key",
+      "icon": "color-picker",
       "label": { "ja-JP": "クロマキー", "en-US": "Chroma Key" },
       "category": "composite",
       "tags": ["色抜き", "背景抜き", "グリーンバック", "chroma key"],
@@ -6462,6 +6514,7 @@
     },
     {
       "id": "alpha_morphology",
+      "icon": "expand",
       "label": { "ja-JP": "アルファ拡張・収縮", "en-US": "Alpha Expand / Contract" },
       "category": "filter",
       "tags": ["膨張", "収縮", "太さ", "dilate", "erode"],
@@ -6499,6 +6552,7 @@
     },
     {
       "id": "edge_detect",
+      "icon": "border-out",
       "label": { "ja-JP": "エッジ抽出", "en-US": "Edge Detect" },
       "category": "filter",
       "tags": ["輪郭", "線画", "sobel", "edge detect"],
@@ -6550,6 +6604,7 @@
     },
     {
       "id": "halftone",
+      "icon": "dots-grid-3x3",
       "label": { "ja-JP": "ハーフトーン", "en-US": "Halftone" },
       "category": "style",
       "tags": ["網点", "漫画", "印刷", "halftone"],
@@ -6618,6 +6673,7 @@
     },
     {
       "id": "glitch",
+      "icon": "square-wave",
       "label": { "ja-JP": "グリッチ", "en-US": "Glitch" },
       "category": "style",
       "tags": ["デジタルノイズ", "RGB", "glitch"],
@@ -6690,6 +6746,7 @@
     },
     {
       "id": "sharpen",
+      "icon": "design-pencil",
       "label": { "ja-JP": "シャープ", "en-US": "Sharpen" },
       "category": "filter",
       "tags": ["輪郭強調", "鮮明", "sharpen"],
@@ -6725,6 +6782,7 @@
     },
     {
       "id": "noise_fill",
+      "icon": "dots-grid-3x3",
       "label": { "ja-JP": "ノイズ", "en-US": "Noise Fill" },
       "category": "color",
       "tags": ["フラクタル", "雲", "粒", "セル", "noise"],
@@ -6820,6 +6878,7 @@
     },
     {
       "id": "grunge",
+      "icon": "sparks",
       "label": { "ja-JP": "グランジ", "en-US": "Grunge" },
       "category": "style",
       "tags": ["汚れ", "傷", "かすれ", "grunge"],

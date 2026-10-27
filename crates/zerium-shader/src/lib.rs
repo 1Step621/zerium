@@ -4,10 +4,13 @@
 
 use self::compile::source::{read_manifest, require_shader_modules};
 use generate::contract::shader_contracts;
-use std::path::{Path, PathBuf};
+use std::{
+    path::{Path, PathBuf},
+    sync::Arc,
+};
 use thiserror::Error;
 use wesl::resolver::FileResolver;
-use zerium_core::plugin::PluginError;
+use zerium_core::plugin::{PluginError, PluginRegistry};
 
 mod compile;
 mod generate;
@@ -38,11 +41,12 @@ pub fn generate(path: Option<&Path>) -> Result<PathBuf, ShaderError> {
     generate::install(&root, &modules)
 }
 
-/// Validate a plugin with the same translation and pipeline checks used by the application.
-pub fn validate(path: Option<&Path>) -> Result<(), ShaderError> {
+/// Validate a plugin's shaders and return its editing catalog for host-specific checks.
+pub fn validate(path: Option<&Path>) -> Result<Arc<PluginRegistry>, ShaderError> {
     let root = plugin_directory(path)?;
     let plugins = PluginLibrary::new([load_filesystem_plugin(&root)?])?;
-    validate_plugins(&plugins).map(|_| ())
+    validate_plugins(&plugins)?;
+    Ok(plugins.registry())
 }
 
 fn plugin_directory(path: Option<&Path>) -> Result<PathBuf, ShaderError> {
