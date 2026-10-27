@@ -15,7 +15,7 @@ use ::ui::{
 use gpui::{Context, FocusHandle, KeyUpEvent, Render, Subscription, Window, div, prelude::*, px};
 
 use self::operation_hints::OperationHintExt as _;
-use crate::app::actions::*;
+use crate::{app::actions::*, ui::components::scene_menu::scene_library_menu};
 
 pub(crate) const WORKSPACE_KEY_CONTEXT: &str = "ZeriumWorkspace";
 pub(crate) const WORKSPACE_SHORTCUT_KEY_CONTEXT: &str = "ZeriumWorkspace && !Input";
@@ -186,6 +186,15 @@ impl Workspace {
         crate::ui::dialogs::config::open(window, cx);
     }
 
+    fn open_scene_library(
+        &mut self,
+        _: &OpenSceneLibrary,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        crate::ui::dialogs::scene_library::open(window, cx);
+    }
+
     fn open_item_picker(
         &mut self,
         _: &OpenItemPicker,
@@ -229,9 +238,10 @@ impl Workspace {
             .update(cx, |project, cx| project.save_as(cx));
     }
 
-    fn import_scene(&mut self, _: &ImportScene, window: &mut Window, cx: &mut Context<Self>) {
-        self.project_controller
-            .update(cx, |project, cx| project.import_scene(window, cx));
+    fn import_scene(&mut self, action: &ImportScene, window: &mut Window, cx: &mut Context<Self>) {
+        self.project_controller.update(cx, |project, cx| {
+            project.import_scene(action.path.clone(), window, cx);
+        });
     }
 
     fn can_stamp_placement(&self, cx: &gpui::App) -> bool {
@@ -318,6 +328,7 @@ impl Render for Workspace {
         let cancelling = self.export_controller.read(cx).is_cancelling();
         let edit_timeline = self.timeline.clone();
         let edit_inspector = self.property_inspector.clone();
+        let scene_focus = self.focus_handle.clone();
         window.set_window_title(&self.project_controller.read(cx).window_title(cx));
         let drawer_layer = Root::render_drawer_layer(window, cx);
         let modal_layer = Root::render_modal_layer(window, cx);
@@ -352,6 +363,7 @@ impl Render for Workspace {
             .on_action(cx.listener(Self::save_scene_file))
             .on_action(cx.listener(Self::open_project_settings))
             .on_action(cx.listener(Self::open_settings))
+            .on_action(cx.listener(Self::open_scene_library))
             .on_action(cx.listener(Self::open_export_dialog))
             .on_action(cx.listener(Self::open_log_folder))
             .on_action(cx.listener(Self::open_about_dialog))
@@ -414,21 +426,25 @@ impl Render for Workspace {
                                         )
                                         .separator()
                                         .menu(
-                                            t!("menu.import_scene").to_string(),
-                                            Box::new(ImportScene),
+                                            t!("menu.export").to_string(),
+                                            Box::new(OpenExportDialog),
                                         )
-                                        .menu(
-                                            t!("menu.save_scene_file").to_string(),
-                                            Box::new(SaveSceneFile),
-                                        )
-                                        .separator()
-                                        .menu(
+                                    }),
+                            )
+                            .child(
+                                Button::new("settings-menu")
+                                    .small()
+                                    .compact()
+                                    .ghost()
+                                    .label(t!("menu.settings").to_string())
+                                    .popup_menu(|menu, _, _| {
+                                        menu.menu(
                                             t!("menu.project_settings").to_string(),
                                             Box::new(OpenProjectSettings),
                                         )
                                         .menu(
-                                            t!("menu.export").to_string(),
-                                            Box::new(OpenExportDialog),
+                                            t!("menu.preferences").to_string(),
+                                            Box::new(OpenSettings),
                                         )
                                     }),
                             )
@@ -459,13 +475,13 @@ impl Render for Workspace {
                                         )
                                         .separator()
                                         .menu_with_disabled(
-                                            t!("menu.copy").to_string(),
-                                            Box::new(CopySelectedItems),
+                                            t!("menu.cut").to_string(),
+                                            Box::new(CutSelectedItems),
                                             !can_copy,
                                         )
                                         .menu_with_disabled(
-                                            t!("menu.cut").to_string(),
-                                            Box::new(CutSelectedItems),
+                                            t!("menu.copy").to_string(),
+                                            Box::new(CopySelectedItems),
                                             !can_copy,
                                         )
                                         .menu_with_disabled(
@@ -473,6 +489,7 @@ impl Render for Workspace {
                                             Box::new(PasteItems),
                                             !can_paste,
                                         )
+                                        .separator()
                                         .menu_with_disabled(
                                             t!("menu.split_items").to_string(),
                                             Box::new(SplitSelectedItems),
@@ -488,11 +505,37 @@ impl Render for Workspace {
                                             Box::new(OpenEffectPicker),
                                             !can_add_effect,
                                         )
-                                        .separator()
-                                        .menu(
-                                            t!("menu.settings").to_string(),
-                                            Box::new(OpenSettings),
-                                        )
+                                    }),
+                            )
+                            .child(
+                                Button::new("scene-menu")
+                                    .small()
+                                    .compact()
+                                    .ghost()
+                                    .label(t!("menu.scene").to_string())
+                                    .popup_menu(move |menu, window, cx| {
+                                        menu.action_context(scene_focus.clone())
+                                            .menu(
+                                                t!("menu.save_scene_file").to_string(),
+                                                Box::new(SaveSceneFile),
+                                            )
+                                            .menu(
+                                                t!("menu.import_scene").to_string(),
+                                                Box::new(ImportScene::default()),
+                                            )
+                                            .separator()
+                                            .menu(
+                                                t!("menu.scene_library").to_string(),
+                                                Box::new(OpenSceneLibrary),
+                                            )
+                                            .map(|menu| {
+                                                scene_library_menu(
+                                                    menu,
+                                                    scene_focus.clone(),
+                                                    window,
+                                                    cx,
+                                                )
+                                            })
                                     }),
                             )
                             .child(

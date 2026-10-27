@@ -364,6 +364,15 @@ placement, animation, and stretch points retime to the destination FPS, preservi
 seconds to the nearest available frame. Imported definitions can then be placed
 with the existing scene item picker.
 
+The scene library stores absolute file references in `config.json`, independently
+of projects. The Scene menu opens a dedicated library dialog for registration and
+removal, saved independently of preferences to the same configuration file.
+Registration validates scene contents and deduplicates normalized paths. The Scene
+menu and the timeline scene switcher import registered scenes through the ordinary
+scene import flow, reading the current file. The switcher also offers file import.
+Removing an entry changes only the library; scene files and their media are not
+copied or deleted.
+
 Project and scene file loading and saving belong to
 [`app::project::file`](../../crates/zerium/src/app/project/file.rs), using atomic
 transactions from [`app::storage`](../../crates/zerium/src/app/storage/mod.rs).

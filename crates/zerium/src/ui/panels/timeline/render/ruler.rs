@@ -1,7 +1,10 @@
-use crate::ui::{
-    components::{pane::PANE_HEADER_HEIGHT, time_grid},
-    panels::timeline::{LAYER_HEADER_WIDTH, Timeline, viewport::TimelineViewport},
-    workspace::operation_hints::{Hint, OperationHintExt as _},
+use crate::{
+    app::actions::ImportScene,
+    ui::{
+        components::{pane::PANE_HEADER_HEIGHT, scene_menu::scene_library_menu, time_grid},
+        panels::timeline::{LAYER_HEADER_WIDTH, Timeline, viewport::TimelineViewport},
+        workspace::operation_hints::{Hint, OperationHintExt as _},
+    },
 };
 use rust_i18n::t;
 use std::rc::Rc;
@@ -133,17 +136,25 @@ impl Timeline {
                             .tooltip(active_scene_name)
                             .popup_menu({
                                 let timeline = cx.entity();
-                                move |menu, _, _| {
-                                    scenes.iter().cloned().fold(menu, |menu, (id, name)| {
-                                        let timeline = timeline.clone();
-                                        menu.item(PopupMenuItem::new(name).on_click(
-                                            move |_, _, cx| {
-                                                timeline.update(cx, |timeline, cx| {
-                                                    timeline.switch_scene(id, cx);
-                                                });
-                                            },
-                                        ))
-                                    })
+                                let action_context = self.focus_handle.clone();
+                                move |menu, window, cx| {
+                                    let menu = menu.action_context(action_context.clone());
+                                    let menu =
+                                        scenes.iter().cloned().fold(menu, |menu, (id, name)| {
+                                            let timeline = timeline.clone();
+                                            menu.item(PopupMenuItem::new(name).on_click(
+                                                move |_, _, cx| {
+                                                    timeline.update(cx, |timeline, cx| {
+                                                        timeline.switch_scene(id, cx);
+                                                    });
+                                                },
+                                            ))
+                                        });
+                                    let menu = menu.separator().menu(
+                                        t!("menu.import_scene").to_string(),
+                                        Box::new(ImportScene::default()),
+                                    );
+                                    scene_library_menu(menu, action_context.clone(), window, cx)
                                 }
                             }),
                     ),

@@ -3,6 +3,7 @@ pub(crate) mod media;
 mod scene;
 mod session;
 
+pub(crate) use file::validate_scene_file;
 pub(crate) use session::{ProjectActivity, ProjectOperation, ProjectSession, ProjectSessionId};
 
 use rust_i18n::t;
@@ -81,8 +82,13 @@ impl ProjectController {
         self.open(Some(path), OpenMode::Auto, window, cx);
     }
 
-    pub(crate) fn import_scene(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        self.open(None, OpenMode::SceneOnly, window, cx);
+    pub(crate) fn import_scene(
+        &mut self,
+        path: Option<PathBuf>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.open(path, OpenMode::SceneOnly, window, cx);
     }
 
     pub(crate) fn save(&mut self, cx: &mut Context<Self>) {

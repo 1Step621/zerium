@@ -48,7 +48,10 @@ pub(in crate::ui) fn open(window: &mut Window, cx: &mut App) {
                 let draft = confirm_settings.read(cx).draft.clone();
                 match ConfigStore::update(cx, |config| {
                     let language_changed = config.language != draft.language;
-                    *config = draft;
+                    config.language = draft.language;
+                    config.theme_mode = draft.theme_mode;
+                    config.accent_color = draft.accent_color;
+                    config.show_support_reminder = draft.show_support_reminder;
                     language_changed
                 }) {
                     Ok(language_changed) => {

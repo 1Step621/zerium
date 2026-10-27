@@ -17,10 +17,10 @@ gpui::actions!(
         OpenProject,
         SaveProject,
         SaveProjectAs,
-        ImportScene,
         SaveSceneFile,
         OpenProjectSettings,
         OpenSettings,
+        OpenSceneLibrary,
         OpenExportDialog,
         OpenLogFolder,
         OpenAboutDialog,
@@ -29,6 +29,12 @@ gpui::actions!(
         HidePreviewOverlay
     ]
 );
+
+#[derive(Clone, Default, gpui::Action, PartialEq, Eq, serde::Deserialize)]
+#[action(namespace = zerium, no_json)]
+pub(crate) struct ImportScene {
+    pub(crate) path: Option<std::path::PathBuf>,
+}
 
 #[derive(Clone, gpui::Action, PartialEq, Eq, serde::Deserialize)]
 #[action(namespace = zerium, no_json)]
