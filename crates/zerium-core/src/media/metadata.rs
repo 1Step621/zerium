@@ -14,6 +14,8 @@ pub enum MediaKind {
     Video {
         width: u32,
         height: u32,
+        /// Encoded media type, such as `video/x-h264`, when reported by the reader.
+        codec: Option<String>,
         /// Nominal cadence, if reported by the stream. Variable-rate streams
         /// may omit it; decoded timestamps define their frame intervals.
         frame_rate: Option<VideoFrameRate>,

@@ -2,7 +2,8 @@
 use crate::engine::{
     initialize_gstreamer,
     input::{
-        DecodePipeline, DecodedFrame, FrameData, MediaError, VideoFrame, VisualFrame, file_uri,
+        DecodePipeline, DecodedFrame, FrameData, MediaError, VideoFrame, VisualFrame,
+        configure_decode_source, configure_video_decoders, file_uri,
     },
 };
 use gst::prelude::*;
@@ -33,7 +34,7 @@ impl VideoInput {
         initialize_gstreamer().map_err(MediaError::external)?;
         let gpu = mode == VideoInputMode::H264;
         let pipeline = DecodePipeline::new();
-        configure_decoders(&pipeline.pipeline);
+        configure_video_decoders(pipeline.pipeline.upcast_ref());
         let uri = file_uri(&asset.path)?;
         let source = gst::ElementFactory::make("uridecodebin")
             .property("uri", uri.as_str())
@@ -46,7 +47,7 @@ impl VideoInput {
             )
             .build()
             .map_err(MediaError::external)?;
-        configure_source(&source, gpu);
+        configure_decode_source(&source, gpu);
         let (width, height) = match asset.kind {
             MediaKind::Video { width, height, .. } if width > 0 && height > 0 => (width, height),
             _ => return Err(MediaError::invalid_input("Invalid video dimensions")),
@@ -244,35 +245,4 @@ impl VideoInput {
             return Self::frame(sample).map(Some);
         }
     }
-}
-
-/// Keep demuxing and parsing in GStreamer; only the CPU route opens video decoders.
-fn configure_source(source: &gst::Element, gpu: bool) {
-    let signal = gst::glib::subclass::SignalId::lookup("autoplug-select", source.type_())
-        .expect("uridecodebin provides autoplug-select");
-    let result = gst::glib::EnumClass::with_type(signal.query().return_type().type_())
-        .expect("autoplug-select returns an enum");
-    source.connect("autoplug-select", false, move |values| {
-        let factory = values[3]
-            .get::<gst::ElementFactory>()
-            .expect("decoder factory");
-        let skip = factory.metadata("klass").is_some_and(|klass| {
-            klass.contains("Decoder/Video") && (gpu || klass.contains("Hardware"))
-        });
-        result.to_value_by_nick(if skip { "skip" } else { "try" })
-    });
-}
-
-/// Decoder concurrency is an input policy, independent of pipeline lifetime.
-fn configure_decoders(pipeline: &gst::Pipeline) {
-    pipeline.connect_deep_element_added(|_, _, element| {
-        if element.factory().is_some_and(|factory| {
-            factory
-                .metadata("klass")
-                .is_some_and(|klass| klass.contains("Decoder/Video"))
-        }) && element.find_property("max-threads").is_some()
-        {
-            element.set_property("max-threads", 4i32);
-        }
-    });
 }

@@ -3,7 +3,7 @@ use std::{
     sync::atomic::{AtomicBool, Ordering},
     time::Duration,
 };
-use zerium_core::media::MediaAsset;
+use zerium_core::media::{MediaAsset, MediaKind};
 use {
     self::{
         gpu_video::GpuVideoDecoder,
@@ -39,9 +39,17 @@ impl DecoderState {
 
 impl VideoDecodeSession {
     pub(super) fn new(asset: MediaAsset, gpu: Option<&GpuContext>) -> Self {
+        // The native GPU backend only supports H.264. Select the CPU backend
+        // directly for other formats instead of opening a pipeline that must fail.
+        let gpu = match &asset.kind {
+            MediaKind::Video { codec, .. } if codec.as_deref() == Some("video/x-h264") => {
+                gpu.cloned()
+            }
+            _ => None,
+        };
         Self {
             asset,
-            state: DecoderState::Unopened { gpu: gpu.cloned() },
+            state: DecoderState::Unopened { gpu },
         }
     }
 

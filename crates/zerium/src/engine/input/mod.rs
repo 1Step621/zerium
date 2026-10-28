@@ -11,7 +11,9 @@ use super::{GpuContext, GstreamerPipeline, initialize_gstreamer};
 use gst::prelude::*;
 use gstreamer as gst;
 use gstreamer_app::AppSink;
-use gstreamer_pbutils::{Discoverer, DiscovererInfo, DiscovererResult};
+use gstreamer_pbutils::{
+    Discoverer, DiscovererInfo, DiscovererResult, prelude::DiscovererStreamInfoExt,
+};
 use std::{
     collections::{BTreeMap, HashMap, HashSet, VecDeque},
     fmt,
@@ -357,6 +359,10 @@ fn probe_streams(path: &Path, target: MediaTarget) -> Result<Option<MediaMetadat
             MediaKind::Video {
                 width: video.width(),
                 height: video.height(),
+                codec: video.caps().and_then(|caps| {
+                    caps.structure(0)
+                        .map(|structure| structure.name().to_string())
+                }),
                 frame_rate,
                 // Discoverer can report 0/1 for variable-rate video and has no
                 // exact frame count. Preserve unknown cadence instead of failing
@@ -421,8 +427,20 @@ fn discover(path: &Path) -> Result<DiscovererInfo, MediaError> {
     // Concurrent audio/video requests share one discovery without holding the
     // cache lock while GStreamer opens and prerolls the file.
     let result = discovery.get_or_init(|| {
+        let started = Instant::now();
         let discoverer =
             Discoverer::new(gst::ClockTime::from_seconds(10)).map_err(|error| error.to_string())?;
+        discoverer.connect_source_setup(|_, source| {
+            // Discoverer owns the uridecodebin containing this URI source.
+            // Metadata probing must not initialize a separate hardware decoder.
+            if let Some(bin) = source
+                .parent()
+                .and_then(|parent| parent.downcast::<gst::Bin>().ok())
+            {
+                configure_decode_source(bin.upcast_ref(), false);
+                configure_video_decoders(&bin);
+            }
+        });
         let info = discoverer
             .discover_uri(file_uri(&path).map_err(|error| error.to_string())?.as_str())
             .map_err(|error| error.to_string())?;
@@ -433,6 +451,11 @@ fn discover(path: &Path) -> Result<DiscovererInfo, MediaError> {
                 info.result()
             ));
         }
+        log::info!(
+            "Media discovery completed in {:?}: {}",
+            started.elapsed(),
+            path.display()
+        );
         Ok(info)
     });
     match result {
@@ -446,6 +469,38 @@ fn discover(path: &Path) -> Result<DiscovererInfo, MediaError> {
             Err(MediaError::external(error.clone()))
         }
     }
+}
+
+/// Keep demuxing and parsing in GStreamer; only the CPU route opens video decoders.
+fn configure_decode_source(source: &gst::Element, gpu: bool) {
+    let Some(signal) = gst::glib::subclass::SignalId::lookup("autoplug-select", source.type_())
+    else {
+        return;
+    };
+    let result = gst::glib::EnumClass::with_type(signal.query().return_type().type_())
+        .expect("autoplug-select returns an enum");
+    source.connect("autoplug-select", false, move |values| {
+        let factory = values[3]
+            .get::<gst::ElementFactory>()
+            .expect("decoder factory");
+        let video_decoder = factory
+            .has_type(gst::ElementFactoryType::DECODER | gst::ElementFactoryType::MEDIA_VIDEO);
+        let skip = video_decoder && (gpu || factory.has_type(gst::ElementFactoryType::HARDWARE));
+        result.to_value_by_nick(if skip { "skip" } else { "try" })
+    });
+}
+
+/// Bound decoder concurrency during both metadata discovery and frame decoding.
+fn configure_video_decoders(bin: &gst::Bin) {
+    bin.connect_deep_element_added(|_, _, element| {
+        if element.factory().is_some_and(|factory| {
+            factory
+                .has_type(gst::ElementFactoryType::DECODER | gst::ElementFactoryType::MEDIA_VIDEO)
+        }) && element.find_property("max-threads").is_some()
+        {
+            element.set_property("max-threads", 4i32);
+        }
+    });
 }
 
 fn duration(info: &gstreamer_pbutils::DiscovererInfo) -> Result<Duration, MediaError> {

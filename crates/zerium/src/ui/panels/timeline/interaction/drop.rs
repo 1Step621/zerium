@@ -1,6 +1,7 @@
 use rust_i18n::t;
 
 use gpui::{Context, DragMoveEvent, ExternalPaths, SharedString, Window, prelude::*};
+use rayon::{ThreadPoolBuilder, prelude::*};
 
 use crate::{
     app::project::ProjectActivity,
@@ -108,17 +109,6 @@ impl Timeline {
         window.focus(&self.focus_handle, cx);
         self.file_drop_error = None;
 
-        let imports = files
-            .into_iter()
-            .map(|file| {
-                (
-                    file.path,
-                    file.target.plugin_id,
-                    file.target.item_id,
-                    file.target.property_id,
-                )
-            })
-            .collect::<Vec<_>>();
         let editor = self.editor.clone();
         let scene_id = self.editor.read(cx).active_scene_id();
         let plugins = self.editor.read(cx).plugin_registry_arc();
@@ -131,18 +121,33 @@ impl Timeline {
         cx.spawn(async move |timeline, cx| {
             let results = cx
                 .background_spawn(async move {
-                    imports
-                        .into_iter()
-                        .map(|(path, plugin_id, item_id, property_id)| {
-                            let name = path
-                                .file_name()
-                                .map(|name| name.to_string_lossy().into_owned())
-                                .unwrap_or_else(|| path.display().to_string());
-                            let result =
-                                prepare_import(path, &plugins, &plugin_id, &item_id, &property_id);
-                            (name, plugin_id, item_id, result)
+                    let pool = (files.len() > 1)
+                        .then(|| {
+                            ThreadPoolBuilder::new()
+                                .num_threads(files.len().min(4))
+                                .build()
                         })
-                        .collect::<Vec<_>>()
+                        .and_then(Result::ok);
+                    let prepare = |file: FileImport| {
+                        let name = file
+                            .path
+                            .file_name()
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| file.path.display().to_string());
+                        let result = prepare_import(
+                            file.path,
+                            &plugins,
+                            &file.target.plugin_id,
+                            &file.target.item_id,
+                            &file.target.property_id,
+                        );
+                        (name, file.target.plugin_id, file.target.item_id, result)
+                    };
+                    match pool {
+                        // Indexed parallel collection preserves the drop order.
+                        Some(pool) => pool.install(|| files.into_par_iter().map(prepare).collect()),
+                        None => files.into_iter().map(prepare).collect::<Vec<_>>(),
+                    }
                 })
                 .await;
             if !session.update(cx, |session, _| session.operation_is_current(operation)) {
