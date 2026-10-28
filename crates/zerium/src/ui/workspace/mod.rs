@@ -316,12 +316,31 @@ impl Render for Workspace {
         let seen = self.forwarded_notifications;
         let (unseen, next) = self.notifications.read(cx).unseen_since(seen);
         self.forwarded_notifications = next;
-        for (message, success) in unseen {
-            let notification = if success {
-                Notification::success(message)
+        for queued in unseen {
+            let notification = if queued.success {
+                Notification::success(queued.message)
             } else {
-                Notification::error(message)
-            };
+                Notification::error(queued.message)
+            }
+            .when_some(queued.file_path, |notification, path| {
+                notification.autohide(false).content(move |_, cx| {
+                    let path = path.clone();
+                    div()
+                        .flex()
+                        .mt_2()
+                        .child(
+                            Button::new("open-file-location")
+                                .small()
+                                .outline()
+                                .label(t!("notification.open_file_location").to_string())
+                                .on_click(cx.listener(move |notification, _, window, cx| {
+                                    cx.reveal_path(&path);
+                                    notification.dismiss(window, cx);
+                                })),
+                        )
+                        .into_any_element()
+                })
+            });
             window.push_notification(notification, cx);
         }
         let export_progress = self.export_controller.read(cx).export_progress();

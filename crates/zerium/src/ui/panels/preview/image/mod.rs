@@ -97,18 +97,22 @@ impl Preview {
             let _ = preview.update(cx, |preview, cx| {
                 preview.image_task = None;
                 match result {
-                    Ok(Some(exported)) => {
-                        let message = match exported {
-                            ExportedFrame::Saved => t!("preview.image_saved"),
-                            ExportedFrame::Png(png) => {
-                                cx.write_to_clipboard(ClipboardItem::new_image(
-                                    &Image::from_bytes(ImageFormat::Png, png),
-                                ));
-                                t!("preview.image_copied")
-                            }
-                        };
+                    Ok(Some(ExportedFrame::Saved(path))) => {
                         preview.notifications.update(cx, |notifications, cx| {
-                            notifications.push_success(message.to_string(), cx)
+                            notifications.push_success_with_file(
+                                t!("preview.image_saved").to_string(),
+                                path,
+                                cx,
+                            );
+                        });
+                    }
+                    Ok(Some(ExportedFrame::Png(png))) => {
+                        cx.write_to_clipboard(ClipboardItem::new_image(&Image::from_bytes(
+                            ImageFormat::Png,
+                            png,
+                        )));
+                        preview.notifications.update(cx, |notifications, cx| {
+                            notifications.push_success(t!("preview.image_copied").to_string(), cx)
                         });
                     }
                     Ok(None) => {}

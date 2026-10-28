@@ -131,12 +131,13 @@ impl ExportController {
                 };
                 result?;
                 let fps = total_frames as f64 / started.elapsed().as_secs_f64().max(f64::EPSILON);
-                Ok(t!(
+                let message = t!(
                     "export.complete",
                     name = output_name(&output),
                     fps = format!("{fps:.1}")
                 )
-                .to_string())
+                .to_string();
+                Ok((message, output))
             }
             .await;
             let _ = controller.update(cx, |controller, cx| {
@@ -165,7 +166,7 @@ impl ExportController {
     fn finish_export(
         &mut self,
         operation: ProjectOperation,
-        result: Result<String, ExportError>,
+        result: Result<(String, PathBuf), ExportError>,
         cx: &mut Context<Self>,
     ) {
         let ExportState::Running { job, .. } = &self.state else {
@@ -187,9 +188,9 @@ impl ExportController {
         self.state = ExportState::Idle;
         cx.notify();
         match result {
-            Ok(message) => {
+            Ok((message, output)) => {
                 self.notifications.update(cx, |notifications, cx| {
-                    notifications.push_success(message, cx);
+                    notifications.push_success_with_file(message, output, cx);
                 });
             }
             Err(ExportError::Cancelled) => {}

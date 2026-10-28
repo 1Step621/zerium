@@ -78,7 +78,7 @@ pub(crate) enum ExportProgress {
 }
 
 pub(crate) enum ExportedFrame {
-    Saved,
+    Saved(PathBuf),
     Png(Vec<u8>),
 }
 
@@ -112,10 +112,10 @@ pub(crate) fn export_frame(
     scene.background = [0.; 4];
     let png = render_png(&renderer, &scene)?;
     if let Some(path) = output {
-        let transaction = AtomicFileTransaction::new(path).map_err(ExportError::encoding)?;
+        let transaction = AtomicFileTransaction::new(&path).map_err(ExportError::encoding)?;
         transaction.write_all(&png).map_err(ExportError::encoding)?;
         transaction.commit().map_err(ExportError::encoding)?;
-        Ok(ExportedFrame::Saved)
+        Ok(ExportedFrame::Saved(path))
     } else {
         Ok(ExportedFrame::Png(png))
     }

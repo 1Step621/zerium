@@ -9,6 +9,7 @@ _version: 1
 "common.delete": "削除"
 "common.cancel": "キャンセル"
 "common.close": "閉じる"
+"notification.open_file_location": "ファイルの場所を開く"
 "timeline.stop": "停止"
 "timeline.play": "再生"
 "timeline.previous_frame": "前のフレーム"
