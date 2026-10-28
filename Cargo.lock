@@ -2546,7 +2546,7 @@ dependencies = [
 [[package]]
 name = "gpui-ce"
 version = "1.0.0"
-source = "git+https://github.com/1Step621/WGPUI?branch=fix%2Finput-selection-replacement#36a2795d906b7cdfef121825810b9e8927a25b35"
+source = "git+https://github.com/1Step621/WGPUI?rev=187f446db2ae7c3f4754234e7ac496e877a0ca2a#187f446db2ae7c3f4754234e7ac496e877a0ca2a"
 dependencies = [
  "anyhow",
  "arboard",
@@ -7567,13 +7567,14 @@ dependencies = [
 
 [[package]]
 name = "tree-sitter"
-version = "0.24.7"
+version = "0.25.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a5387dffa7ffc7d2dae12b50c6f7aab8ff79d6210147c6613561fc3d474c6f75"
+checksum = "78f873475d258561b06f1c595d93308a7ed124d9977cb26b148c2084a4a3cc87"
 dependencies = [
  "cc",
  "regex",
  "regex-syntax",
+ "serde_json",
  "streaming-iterator",
  "tree-sitter-language",
 ]
@@ -7669,7 +7670,7 @@ dependencies = [
 [[package]]
 name = "ui"
 version = "0.1.0"
-source = "git+https://github.com/1Step621/WGPUI-Component?rev=cd7ccaf6f2a9ab61e8bca444dd22038c90a7586f#cd7ccaf6f2a9ab61e8bca444dd22038c90a7586f"
+source = "git+https://github.com/1Step621/WGPUI-Component?branch=integration%2Fall-changes#ba1a796a43b8a21f35f90d25b233c930f3e9c1a5"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -7725,7 +7726,7 @@ dependencies = [
 [[package]]
 name = "ui-macros"
 version = "0.1.0"
-source = "git+https://github.com/1Step621/WGPUI-Component?rev=cd7ccaf6f2a9ab61e8bca444dd22038c90a7586f#cd7ccaf6f2a9ab61e8bca444dd22038c90a7586f"
+source = "git+https://github.com/1Step621/WGPUI-Component?branch=integration%2Fall-changes#ba1a796a43b8a21f35f90d25b233c930f3e9c1a5"
 dependencies = [
  "proc-macro2",
  "quote",
