@@ -6,9 +6,9 @@ use gpui::{
 use super::*;
 
 impl Preview {
-    fn scalar_controls(
+    fn editor_controls(
         &self,
-        controls: Vec<PreviewScalarControl>,
+        controls: Vec<PreviewControl>,
         resolution: ProjectResolution,
         color: Hsla,
         cx: &Context<Self>,
@@ -19,7 +19,7 @@ impl Preview {
             move |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
             move |bounds, hitbox, window, _| {
                 let hovered = if hitbox.is_hovered(window) {
-                    PreviewScalarControl::at_pointer(
+                    PreviewControl::at_pointer(
                         &controls,
                         window.mouse_position(),
                         bounds,
@@ -29,7 +29,7 @@ impl Preview {
                     Vec::new()
                 };
                 let highlighted = active.as_ref().unwrap_or(&hovered);
-                let cursor = PreviewScalarControl::cursor(highlighted);
+                let cursor = PreviewControl::cursor(highlighted);
                 if active.is_some() {
                     window.set_window_cursor_style(cursor);
                 } else {
@@ -37,30 +37,30 @@ impl Preview {
                 }
                 for control in &controls {
                     let position = control.screen_position(bounds, resolution);
-                    let axis = control.scalar.axis();
-                    let extent = if axis == 0 {
-                        size(px(2.), px(12.))
-                    } else {
-                        size(px(12.), px(2.))
-                    };
+                    let extent = control.handle_size();
                     let handle_bounds = Bounds::new(
                         position - point(extent.width / 2., extent.height / 2.),
                         extent,
                     );
                     let highlighted = highlighted.iter().any(|target| control.same_target(target));
                     if highlighted {
-                        let guide_bounds = if axis == 0 {
-                            Bounds::new(
-                                point(position.x, bounds.origin.y),
-                                size(px(1.), bounds.size.height),
-                            )
-                        } else {
-                            Bounds::new(
-                                point(bounds.origin.x, position.y),
-                                size(bounds.size.width, px(1.)),
-                            )
-                        };
-                        window.paint_quad(fill(guide_bounds, color.opacity(0.6)));
+                        for axis in 0..2 {
+                            if control.axis().is_some_and(|target| target != axis) {
+                                continue;
+                            }
+                            let guide_bounds = if axis == 0 {
+                                Bounds::new(
+                                    point(position.x, bounds.origin.y),
+                                    size(px(1.), bounds.size.height),
+                                )
+                            } else {
+                                Bounds::new(
+                                    point(bounds.origin.x, position.y),
+                                    size(bounds.size.width, px(1.)),
+                                )
+                            };
+                            window.paint_quad(fill(guide_bounds, color.opacity(0.6)));
+                        }
                     }
                     window.paint_quad(fill(handle_bounds, color));
                 }
@@ -75,7 +75,7 @@ impl Preview {
                         {
                             return;
                         }
-                        let targets = PreviewScalarControl::at_pointer(
+                        let targets = PreviewControl::at_pointer(
                             &controls,
                             event.position,
                             bounds,
@@ -119,12 +119,7 @@ impl Preview {
                         return;
                     }
                     let targets = if hitbox.is_hovered(window) {
-                        PreviewScalarControl::at_pointer(
-                            &controls,
-                            event.position,
-                            bounds,
-                            resolution,
-                        )
+                        PreviewControl::at_pointer(&controls, event.position, bounds, resolution)
                     } else {
                         Vec::new()
                     };
@@ -174,7 +169,7 @@ impl Preview {
                     .rounded_full()
                     .bg(color)
             }))
-            .child(self.scalar_controls(overlay.controls, resolution, color, cx))
+            .child(self.editor_controls(overlay.controls, resolution, color, cx))
     }
 }
 

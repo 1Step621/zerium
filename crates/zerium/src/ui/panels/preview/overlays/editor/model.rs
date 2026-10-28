@@ -1,5 +1,6 @@
 use super::*;
 use zerium_core::plugin::EditorCapability;
+use zerium_core::property::ScalarPropertyType;
 
 impl Preview {
     pub(in crate::ui::panels::preview) fn selected_editor_overlay(
@@ -115,10 +116,12 @@ impl Preview {
                 .map(|scalar| {
                     let mut anchor = position;
                     anchor[scalar.axis()] = scalar.value;
-                    PreviewScalarControl {
-                        scalar,
+                    PreviewControl {
                         position: anchor,
-                        units_per_value: 1.,
+                        kind: PreviewControlKind::Scalar {
+                            scalar,
+                            units_per_value: 1.,
+                        },
                     }
                 }),
             );
@@ -139,14 +142,15 @@ impl Preview {
             let origin = item_origin(&current, effect_id, origin);
             let center = [0, 1].map(|axis| position[axis] + (0.5 - origin[axis]) * size[axis]);
             bounds = Some(PreviewBounds { center, size });
-            for scalar in scalar_values(
+            let scalars = scalar_values(
                 selected,
                 &current,
                 effect_id,
                 property,
                 None,
                 TimelineTime::from_frame(frame),
-            ) {
+            );
+            for scalar in &scalars {
                 for side in [0., 1.] {
                     if let Some(control) =
                         size_control(scalar.clone(), position, center, origin, side)
@@ -155,6 +159,9 @@ impl Preview {
                     }
                 }
             }
+            controls.extend(size_corner_controls(
+                selected, &scalars, position, origin, property,
+            ));
         }
 
         let mut points = Vec::new();
@@ -260,7 +267,7 @@ fn size_control(
     center: [f32; 2],
     origin: [f32; 2],
     side: f32,
-) -> Option<PreviewScalarControl> {
+) -> Option<PreviewControl> {
     let axis = scalar.axis();
     let units_per_value = side - origin[axis];
     if units_per_value == 0. {
@@ -268,11 +275,97 @@ fn size_control(
     }
     let mut anchor = center;
     anchor[axis] = position[axis] + units_per_value * scalar.value;
-    Some(PreviewScalarControl {
-        scalar,
+    Some(PreviewControl {
         position: anchor,
-        units_per_value,
+        kind: PreviewControlKind::Scalar {
+            scalar,
+            units_per_value,
+        },
     })
+}
+
+fn size_corner_controls(
+    item: &TimelineItem,
+    scalars: &[PreviewScalarValue],
+    position: [f32; 2],
+    origin: [f32; 2],
+    property: &PropertySchema,
+) -> Vec<PreviewControl> {
+    let [Some(width_bounds), Some(height_bounds)] = [0, 1].map(|axis| {
+        property
+            .configuration_constraints(Some(axis))
+            .numeric_bounds(&ScalarPropertyType::F32)
+    }) else {
+        return Vec::new();
+    };
+    let key_time = |scalar: &PreviewScalarValue| {
+        let address = &scalar.address;
+        let track = item.animation_track(
+            address.effect_id,
+            &address.property_id,
+            address.element_id,
+            address.scalar_index,
+        )?;
+        let stop = track.stops().get(scalar.stop?)?;
+        Some(item.animation_clock(track).key_time_at(stop.frame()))
+    };
+    let [mut widths, mut heights] = [0, 1].map(|axis| {
+        scalars
+            .iter()
+            .filter(move |scalar| scalar.axis() == axis)
+            .peekable()
+    });
+    let mut controls = Vec::new();
+    while let (Some(&width), Some(&height)) = (widths.peek(), heights.peek()) {
+        if let (Some(width_time), Some(height_time)) = (key_time(width), key_time(height)) {
+            match width_time.frames().total_cmp(&height_time.frames()) {
+                std::cmp::Ordering::Less => {
+                    widths.next();
+                    continue;
+                }
+                std::cmp::Ordering::Greater => {
+                    heights.next();
+                    continue;
+                }
+                std::cmp::Ordering::Equal => {}
+            }
+        }
+        let time_distance = match (width.stop, height.stop) {
+            (Some(_), None) => width.time_distance,
+            (None, _) => height.time_distance,
+            _ => width.time_distance.min(height.time_distance),
+        };
+        for corner in [[0, 0], [1, 0], [0, 1], [1, 1]] {
+            let Some(scale) = PreviewSizeScale::new(
+                [width.value, height.value],
+                corner,
+                origin,
+                [width_bounds, height_bounds],
+            ) else {
+                continue;
+            };
+            controls.push(PreviewControl {
+                position: [0, 1].map(|axis| position[axis] + scale.direction[axis] as f32),
+                kind: PreviewControlKind::SizeCorner {
+                    scalars: [width.clone(), height.clone()],
+                    corner,
+                    scale,
+                    time_distance,
+                },
+            });
+        }
+        // Fixed axes are reused for every key on the animated axis.
+        if width.stop.is_some() {
+            widths.next();
+        }
+        if height.stop.is_some() {
+            heights.next();
+        }
+        if width.stop.is_none() && height.stop.is_none() {
+            break;
+        }
+    }
+    controls
 }
 
 fn point_control(
@@ -280,14 +373,16 @@ fn point_control(
     anchor: [f32; 2],
     center: [f32; 2],
     size: [f32; 2],
-) -> PreviewScalarControl {
+) -> PreviewControl {
     let axis = scalar.axis();
     let mut position = anchor;
     position[axis] = center[axis] + (scalar.value / 100. - 0.5) * size[axis];
-    PreviewScalarControl {
-        scalar,
+    PreviewControl {
         position,
-        units_per_value: size[axis] / 100.,
+        kind: PreviewControlKind::Scalar {
+            scalar,
+            units_per_value: size[axis] / 100.,
+        },
     }
 }
 

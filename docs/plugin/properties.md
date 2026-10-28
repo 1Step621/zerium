@@ -130,6 +130,12 @@ array of such tuples expressed as percentages: `[0, 0]` is top-left and
 `spline` with `points` to edit its vertices. Ratio locking affects direct edits;
 animation and bindings remain independent.
 
+Preview size corners preserve the dragged width/height pair's ratio even when
+ratio locking is disabled. Unlocked edge-center handles edit one axis at a time.
+Animated corners pair width and height keys at the same time; an unanimated axis
+supplies its constant value. Unmatched keys remain editable through edge-center
+handles. Overlapping corners choose the keyframe nearest the playhead.
+
 Size, points, spline, and media placement accept an optional `origin`: two enums
 containing exactly `0`, `1`, and `2` for start/center/end on each axis. Omission
 means center. Position identifies that origin and stays fixed when origin or
