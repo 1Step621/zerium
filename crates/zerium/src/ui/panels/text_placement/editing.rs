@@ -84,17 +84,12 @@ impl TextPlacement {
             .editor
             .update(cx, |editor, cx| {
                 let ids = editor.add_items(layer, &target.source, items)?;
-                let next = ids.get(1).copied().unwrap_or(ids[0]);
-                editor.select(next);
+                editor.select(ids[0]);
                 cx.notify();
                 Ok::<_, TimelineEditError>(ids)
             })
             .map_err(|error| error.to_string())?;
-        self.stamp_target = Some(if let Some(id) = ids.get(1) {
-            StampTarget::Start(*id)
-        } else {
-            StampTarget::End(ids[0])
-        });
+        self.stamp_target = Some(StampTarget::Start(ids[0]));
         self.error = None;
         self.scroll.scroll_to_item(
             self.rows(cx)
@@ -153,21 +148,7 @@ impl TextPlacement {
             return;
         };
         let frame = self.editor.read(cx).playhead();
-        let result = match target {
-            StampTarget::Start(_) => self.stamp_start(&rows, index, frame, cx),
-            StampTarget::End(id) => interval(id, rows[index].start, frame).and_then(|update| {
-                self.editor
-                    .update(cx, |editor, cx| {
-                        let result = editor.set_item_intervals(vec![update]);
-                        if result.is_ok() {
-                            cx.notify();
-                        }
-                        result
-                    })
-                    .map(|_| StampTarget::Done(id))
-            }),
-            StampTarget::Done(_) => return,
-        };
+        let result = self.stamp_row(&rows, index, target, frame, cx);
         match result {
             Ok(next) => {
                 self.stamp_target = Some(next);
@@ -188,32 +169,47 @@ impl TextPlacement {
         cx.notify();
     }
 
-    fn stamp_start(
+    fn stamp_row(
         &self,
         rows: &[Row],
         index: usize,
+        target: StampTarget,
         frame: Frame,
         cx: &mut Context<Self>,
     ) -> Result<StampTarget, TimelineEditError> {
         let row = &rows[index];
-        let mut updates = Vec::new();
-        if let Some(previous) = index.checked_sub(1).map(|index| &rows[index])
-            && (previous.end == row.start || previous.end > frame)
-        {
-            updates.push(interval(previous.address.item_id, previous.start, frame)?);
-        }
-        let mut end = if frame < row.end {
-            row.end
-        } else {
-            Frame::new(
-                frame
-                    .get()
-                    .checked_add(row.end.get() - row.start.get())
-                    .ok_or(TimelineEditError::PlacementUnavailable)?,
-            )
+        let (start, mut end, next) = match target {
+            StampTarget::Start(id) => {
+                let previous = index.checked_sub(1).map(|index| rows[index].end);
+                let start = frame.max(previous.unwrap_or(frame));
+                let end = if start < row.end {
+                    row.end
+                } else {
+                    Frame::new(
+                        start
+                            .get()
+                            .checked_add(row.end.get() - row.start.get())
+                            .ok_or(TimelineEditError::PlacementUnavailable)?,
+                    )
+                };
+                (start, end, StampTarget::End(id))
+            }
+            StampTarget::End(id) => {
+                let end = frame.max(Frame::new(
+                    row.start
+                        .get()
+                        .checked_add(1)
+                        .ok_or(TimelineEditError::PlacementUnavailable)?,
+                ));
+                let next = rows.get(index + 1).map_or(StampTarget::Done(id), |next| {
+                    StampTarget::Start(next.address.item_id)
+                });
+                (row.start, end, next)
+            }
+            StampTarget::Done(_) => return Ok(target),
         };
-        updates.push(interval(row.address.item_id, frame, end)?);
-        // Keep following captions in order when the current one moves past them.
+        let mut updates = vec![interval(row.address.item_id, start, end)?];
+        // Keep following captions in order when the stamped interval grows past them.
         for following in &rows[index + 1..] {
             if following.start >= end {
                 break;
@@ -234,11 +230,7 @@ impl TextPlacement {
             }
             result
         })?;
-        Ok(rows
-            .get(index + 1)
-            .map_or(StampTarget::End(row.address.item_id), |next| {
-                StampTarget::Start(next.address.item_id)
-            }))
+        Ok(next)
     }
 }
 
