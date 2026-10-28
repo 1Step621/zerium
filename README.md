@@ -20,17 +20,17 @@ Windows (MSI), macOS (PKG), and Linux (AppImage) downloads are available on
 
 ### Nix
 
-Run Zerium directly with:
+Run Zerium directly from the `release` branch:
 
 ```sh
-nix run github:1Step621/zerium
+nix run github:1Step621/zerium/release
 ```
 
 For NixOS or nix-darwin, add Zerium as a flake input:
 
 ```nix
 {
-  inputs.zerium.url = "github:1Step621/zerium";
+  inputs.zerium.url = "github:1Step621/zerium/release";
   inputs.zerium.inputs.nixpkgs.follows = "nixpkgs";
 }
 ```

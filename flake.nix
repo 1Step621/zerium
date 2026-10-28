@@ -81,10 +81,9 @@
       ];
 
       # Core elements (filesrc, queue, typefind) live in the library output.
-      gstreamerPluginPath = pkgs:
-        lib.makeSearchPath "lib/gstreamer-1.0" (
-          [ pkgs.gst_all_1.gstreamer.out ] ++ gstreamerPlugins pkgs
-        );
+      gstreamerPluginPath =
+        pkgs:
+        lib.makeSearchPath "lib/gstreamer-1.0" ([ pkgs.gst_all_1.gstreamer.out ] ++ gstreamerPlugins pkgs);
 
       buildDeps =
         pkgs:
@@ -99,6 +98,7 @@
 
       workspaceToml = fromTOML (builtins.readFile ./Cargo.toml);
       cargoToml = fromTOML (builtins.readFile ./crates/zerium/Cargo.toml);
+      cargoLockToml = fromTOML (builtins.readFile ./Cargo.lock);
     in
     {
       packages = forAllSystems (
@@ -111,8 +111,6 @@
           craneLib = (crane.mkLib pkgs).overrideToolchain rustToolchain;
 
           commonArgs = {
-            src = ./.;
-
             cargoVendorDir = craneLib.vendorCargoDeps {
               src = ./.;
               overrideVendorGitCheckout =
@@ -133,7 +131,8 @@
             };
 
             pname = cargoToml.package.name;
-            version = workspaceToml.workspace.package.version;
+            # The real package version is set in buildPackage below.
+            version = "0.0.0";
 
             strictDeps = true;
             doCheck = false;
@@ -146,11 +145,35 @@
             buildInputs = buildDeps pkgs;
           };
 
-          cargoArtifacts = craneLib.buildDepsOnly commonArgs;
+          cargoArtifacts = craneLib.buildDepsOnly (
+            commonArgs
+            // {
+              cargoLockParsed = cargoLockToml // {
+                package = map (
+                  package: if package ? source then package else package // { inherit (commonArgs) version; }
+                ) cargoLockToml.package;
+              };
+              dummySrc = craneLib.mkDummySrc {
+                src = lib.cleanSourceWith {
+                  src = ./.;
+                  filter = path: _: baseNameOf path != "Cargo.lock";
+                };
+                cleanCargoTomlFilter =
+                  path:
+                  craneLib.filters.cargoTomlDefault path
+                  && !(builtins.elem (builtins.concatStringsSep "." path) [
+                    "package.version"
+                    "workspace.package.version"
+                  ]);
+              };
+            }
+          );
 
           zerium = craneLib.buildPackage (
             commonArgs
             // {
+              src = ./.;
+              version = workspaceToml.workspace.package.version;
               inherit cargoArtifacts;
 
               nativeBuildInputs =
