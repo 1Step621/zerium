@@ -47,8 +47,8 @@ pub(crate) struct DecodedAudioBlock {
 pub(crate) trait AudioDecoder: Send {
     fn stream_duration(&self) -> Duration;
 
-    /// Configure output speed before reading; seeking uses source time.
-    fn set_playback_rate(&mut self, speed: f64, preserve_pitch: bool) -> Result<(), MediaError>;
+    /// Configure output speed and pitch independently; seeking uses source time.
+    fn set_playback_rate(&mut self, speed: f64, pitch: f64) -> Result<(), MediaError>;
 
     /// Decodes `sample_frames` output frames at the configured playback rate.
     /// `start_seconds` is in source time; one frame has one sample per channel.
@@ -66,7 +66,7 @@ struct AudioDecodeSession {
     pipeline: Option<DecodePipeline>,
     format: Option<AudioFormat>,
     speed: f64,
-    preserve_pitch: bool,
+    pitch: f64,
     pending: VecDeque<f32>,
     next_source_seconds: Option<f64>,
     output_cursor: u64,
@@ -81,7 +81,7 @@ impl AudioDecodeSession {
             pipeline: None,
             format: None,
             speed: 1.,
-            preserve_pitch: true,
+            pitch: 1.,
             pending: VecDeque::new(),
             next_source_seconds: None,
             output_cursor: 0,
@@ -124,26 +124,12 @@ impl AudioDecodeSession {
             .field("channels", i32::from(format.channels))
             .build();
         let mut chain = vec![convert, resample];
-        if self.speed != 1. {
+        if self.speed != 1. || self.pitch != 1. {
             // SoundTouch handles both tempo-only and speed/pitch changes.
             chain.push(
                 gst::ElementFactory::make("pitch")
-                    .property(
-                        "tempo",
-                        if self.preserve_pitch {
-                            self.speed as f32
-                        } else {
-                            1f32
-                        },
-                    )
-                    .property(
-                        "rate",
-                        if self.preserve_pitch {
-                            1f32
-                        } else {
-                            self.speed as f32
-                        },
-                    )
+                    .property("tempo", (self.speed / self.pitch) as f32)
+                    .property("rate", self.pitch as f32)
                     .build()
                     .map_err(MediaError::external)?,
             );
@@ -199,7 +185,11 @@ impl AudioDecodeSession {
             .set_state(gst::State::Paused)
             .map_err(MediaError::external)?;
         // A short history improves the time stretcher's output after a seek.
-        let warmup = if self.speed == 1. { 0. } else { 0.1 };
+        let warmup = if self.speed == 1. && self.pitch == 1. {
+            0.
+        } else {
+            0.1
+        };
         let start = (source_seconds - warmup).max(0.);
         // pitch maps downstream seek times back into source time.
         let position = gst::ClockTime::from_nseconds((start / self.speed * 1e9).round() as u64);
@@ -277,14 +267,18 @@ impl AudioDecoder for AudioDecodeSession {
         self.asset.duration
     }
 
-    fn set_playback_rate(&mut self, speed: f64, preserve_pitch: bool) -> Result<(), MediaError> {
-        if !speed.is_finite() || !(0.25..=4.).contains(&speed) {
+    fn set_playback_rate(&mut self, speed: f64, pitch: f64) -> Result<(), MediaError> {
+        if !speed.is_finite()
+            || !pitch.is_finite()
+            || !(0.1..=10.).contains(&pitch)
+            || !(0.1..=10.).contains(&(speed / pitch))
+        {
             return Err(MediaError::invalid_input("Invalid audio playback rate"));
         }
-        if (self.speed, self.preserve_pitch) != (speed, preserve_pitch) {
+        if (self.speed, self.pitch) != (speed, pitch) {
             self.close();
             self.speed = speed;
-            self.preserve_pitch = preserve_pitch;
+            self.pitch = pitch;
         }
         Ok(())
     }

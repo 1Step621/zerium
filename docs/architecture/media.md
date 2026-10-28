@@ -96,6 +96,13 @@ worker share one output state for clock, levels, cancellation, and events.
 Retired workers keep their completion state until they can be joined without
 blocking the UI.
 
+Holding L during playback temporarily doubles preview speed. Releasing it,
+stopping, entering an input/modal, or deactivating the window restores normal
+speed. Rate changes restart audio preparation at the current continuous position
+and retain the original stop-return frame. The mixer scales its frame clock and
+source decoding together; preview speed preserves the authored audio pitch,
+including clips whose own speed changes pitch. Export uses the normal mixer rate.
+
 ## Preview
 
 [`PreviewFrameScheduler`](../../crates/zerium/src/app/preview/) tracks scene

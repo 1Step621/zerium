@@ -10,7 +10,7 @@ use std::collections::VecDeque;
 
 use thiserror::Error;
 
-use crate::engine::processing::audio::AudioTimelineError;
+use crate::engine::processing::audio::{AudioTimelineError, PlaybackRate};
 use zerium_core::timeline::{AudioTimelineSnapshot, Frame};
 
 const MIX_BLOCK_SAMPLE_FRAMES: usize = 2_048;
@@ -83,15 +83,32 @@ impl AudioPlaybackEngine {
     ) -> Result<PlaybackClock, AudioPlaybackError> {
         self.request_stop();
         self.requested_timeline = Some(timeline.clone());
-        self.start(timeline, PlaybackPosition::Frame(start_frame))
+        self.start(
+            timeline,
+            PlaybackPosition::Frame(start_frame),
+            PlaybackRate::Normal,
+        )
+    }
+
+    pub(crate) fn restart_at(
+        &mut self,
+        timeline: AudioTimelineSnapshot,
+        seconds: f64,
+        rate: PlaybackRate,
+    ) -> Result<PlaybackClock, AudioPlaybackError> {
+        self.request_stop();
+        self.requested_timeline = Some(timeline.clone());
+        self.start(timeline, PlaybackPosition::Seconds(seconds), rate)
     }
 
     fn start(
         &mut self,
         timeline: AudioTimelineSnapshot,
         position: PlaybackPosition,
+        rate: PlaybackRate,
     ) -> Result<PlaybackClock, AudioPlaybackError> {
-        self.state = AudioPlaybackState::Preparing(AudioPreparation::spawn(timeline, position)?);
+        self.state =
+            AudioPlaybackState::Preparing(AudioPreparation::spawn(timeline, position, rate)?);
         Ok(PlaybackClock::Preparing)
     }
 
@@ -115,6 +132,7 @@ impl AudioPlaybackEngine {
         &mut self,
         timeline: AudioTimelineSnapshot,
         seconds: f64,
+        rate: PlaybackRate,
     ) -> Result<PlaybackClock, AudioPlaybackError> {
         self.reap_finished_workers();
         if self.session_stopped() {
@@ -140,7 +158,7 @@ impl AudioPlaybackEngine {
             return match preparation.finish() {
                 Ok(Some(prepared)) => self.start_prepared(prepared, timeline),
                 Ok(None) | Err(_) if superseded => {
-                    self.start(timeline, PlaybackPosition::Seconds(seconds))
+                    self.start(timeline, PlaybackPosition::Seconds(seconds), rate)
                 }
                 Ok(None) => Ok(PlaybackClock::Wall),
                 Err(error) => Err(error),
@@ -150,7 +168,7 @@ impl AudioPlaybackEngine {
             return Ok(self.state.clock());
         }
         let AudioPlaybackState::Playing(session) = &mut self.state else {
-            return self.start(timeline, PlaybackPosition::Seconds(seconds));
+            return self.start(timeline, PlaybackPosition::Seconds(seconds), rate);
         };
         session.update_timeline(timeline);
         Ok(PlaybackClock::Audio)

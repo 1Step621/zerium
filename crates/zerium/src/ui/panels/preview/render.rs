@@ -7,10 +7,12 @@ use crate::{
         workspace::operation_hints::{Hint, OperationHintExt as _},
     },
 };
-use ::ui::{ActiveTheme as _, menu::context_menu::ContextMenuExt as _, slider::Slider};
+use ::ui::{
+    ActiveTheme as _, StyledExt as _, menu::context_menu::ContextMenuExt as _, slider::Slider,
+};
 use gpui::{
-    Context, Hsla, MouseButton, MouseDownEvent, MouseUpEvent, Render, SharedString, Window, div,
-    prelude::*, px, relative, wgpu_surface,
+    Context, Hsla, Modifiers, MouseButton, MouseDownEvent, MouseUpEvent, Render, SharedString,
+    Window, div, prelude::*, px, relative, wgpu_surface,
 };
 
 impl Preview {
@@ -124,6 +126,11 @@ impl Preview {
 
 impl Render for Preview {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
+        if self.transport.read(cx).is_fast_forwarding()
+            && !Self::playback_shortcuts_enabled(window, cx)
+        {
+            self.set_fast_forward(false, window, cx);
+        }
         if self.transport.read(cx).is_playing() {
             let transport = self.transport.clone();
             window.on_next_frame(move |_, cx| {
@@ -240,6 +247,22 @@ impl Render for Preview {
                                         .text_color(colors.danger)
                                         .child(error),
                                 )
+                            })
+                            .when(self.transport.read(cx).is_fast_forwarding(), |this| {
+                                this.child(
+                                    div()
+                                        .absolute()
+                                        .right_2()
+                                        .bottom_2()
+                                        .px_2()
+                                        .py_1()
+                                        .rounded_md()
+                                        .bg(gpui::black().opacity(0.65))
+                                        .text_color(gpui::white())
+                                        .text_sm()
+                                        .font_semibold()
+                                        .child("x2"),
+                                )
                             }),
                     )
                     .child(render_audio_meter(
@@ -249,10 +272,10 @@ impl Render for Preview {
                     )),
             )
             .child(self.render_controls(cx))
-            .operation_hints([Hint::action(
-                HidePreviewOverlay,
-                "hints.hide_preview_overlay",
-            )])
+            .operation_hints([
+                Hint::action(HidePreviewOverlay, "hints.hide_preview_overlay"),
+                Hint::gesture("hints.key_l", "hints.fast_forward", Modifiers::default()),
+            ])
     }
 }
 

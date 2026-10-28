@@ -3,6 +3,7 @@ use std::time::Duration;
 
 use zerium_core::media::MediaPlayback;
 
+use super::PlaybackRate;
 use crate::engine::input::{AudioDecoder, AudioFormat, MediaError};
 
 pub(super) struct AudioSource {
@@ -11,6 +12,7 @@ pub(super) struct AudioSource {
     preserve_pitch: bool,
     duration: Duration,
     format: AudioFormat,
+    playback_rate: PlaybackRate,
 }
 
 impl AudioSource {
@@ -20,6 +22,7 @@ impl AudioSource {
         preserve_pitch: bool,
         duration: Duration,
         format: AudioFormat,
+        playback_rate: PlaybackRate,
     ) -> Self {
         Self {
             duration: decoder.stream_duration().min(duration),
@@ -27,6 +30,7 @@ impl AudioSource {
             playback,
             preserve_pitch,
             format,
+            playback_rate,
         }
     }
 
@@ -40,8 +44,13 @@ impl AudioSource {
         start_frame: u64,
         frame_count: usize,
     ) -> Result<Vec<f32>, MediaError> {
-        self.decoder
-            .set_playback_rate(self.playback.speed(), self.preserve_pitch)?;
+        let speed = self.playback.speed() * f64::from(self.playback_rate.multiplier());
+        let pitch = if self.preserve_pitch {
+            1.
+        } else {
+            self.playback.speed()
+        };
+        self.decoder.set_playback_rate(speed, pitch)?;
         let channels = usize::from(self.format.channels);
         let sample_count = frame_count
             .checked_mul(channels)
@@ -50,7 +59,8 @@ impl AudioSource {
         let mut written = 0;
         while written < frame_count {
             let local_frame = start_frame.saturating_add(written as u64);
-            let local_seconds = local_frame as f64 / f64::from(self.format.sample_rate);
+            let local_seconds = local_frame as f64 * f64::from(self.playback_rate.multiplier())
+                / f64::from(self.format.sample_rate);
             let Some(sample) = self
                 .playback
                 .sample(local_seconds, self.duration)
@@ -59,16 +69,15 @@ impl AudioSource {
                 break;
             };
             let source_seconds = sample.time.as_secs_f64();
-            let until_end = ((self.duration.as_secs_f64() - source_seconds) / self.playback.speed()
+            let until_end = ((self.duration.as_secs_f64() - source_seconds) / speed
                 * f64::from(self.format.sample_rate))
             .ceil()
             .max(1.) as usize;
-            let until_selection_end = ((self.playback.source_span()
-                - local_seconds * self.playback.speed())
-                / self.playback.speed()
-                * f64::from(self.format.sample_rate))
-            .ceil()
-            .max(1.) as usize;
+            let until_selection_end =
+                ((self.playback.source_span() - local_seconds * self.playback.speed()) / speed
+                    * f64::from(self.format.sample_rate))
+                .ceil()
+                .max(1.) as usize;
             let requested = (frame_count - written)
                 .min(until_end)
                 .min(until_selection_end);

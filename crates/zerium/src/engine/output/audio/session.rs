@@ -5,7 +5,7 @@ use super::{
     output::{AudioOutputState, build_output_stream},
     preparation::PreparedAudio,
 };
-use crate::engine::processing::audio::AudioTimelineError;
+use crate::engine::processing::audio::{AudioTimelineError, PlaybackRate};
 use cpal::traits::StreamTrait as _;
 use std::{
     collections::VecDeque,
@@ -20,6 +20,7 @@ pub(super) struct AudioPlaybackSession {
     worker: AudioWorker,
     start_sample_frame: u64,
     sample_rate: u32,
+    rate: PlaybackRate,
     updates: Arc<Mutex<Option<AudioTimelineSnapshot>>>,
 }
 
@@ -34,6 +35,7 @@ impl AudioPlaybackSession {
         timeline: AudioTimelineSnapshot,
     ) -> Result<Self, AudioPlaybackError> {
         let PreparedAudio {
+            rate,
             device,
             supported,
             mut graph,
@@ -97,6 +99,7 @@ impl AudioPlaybackSession {
             },
             start_sample_frame,
             sample_rate: supported.sample_rate(),
+            rate,
             updates,
         })
     }
@@ -134,6 +137,7 @@ impl AudioPlaybackSession {
         }
         Some(
             (self.start_sample_frame as f64 + self.worker.output.played_sample_frames() as f64)
+                * f64::from(self.rate.multiplier())
                 / f64::from(self.sample_rate),
         )
     }

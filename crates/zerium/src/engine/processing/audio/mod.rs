@@ -10,7 +10,7 @@ use std::{
 
 use thiserror::Error;
 use zerium_core::timeline::{
-    AudioClipId, AudioTimelineSnapshot, AudioTimelineSource, EvaluatedAudioGain, Frame,
+    AudioClipId, AudioTimelineSnapshot, AudioTimelineSource, EvaluatedAudioGain, Frame, FrameRate,
 };
 
 use self::source::AudioSource;
@@ -37,6 +37,36 @@ pub(crate) enum AudioTimelineError {
     MissingGain { clip: AudioClipId, sample: u64 },
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum PlaybackRate {
+    Normal,
+    Double,
+}
+
+impl PlaybackRate {
+    pub(crate) fn multiplier(self) -> u32 {
+        match self {
+            Self::Normal => 1,
+            Self::Double => 2,
+        }
+    }
+
+    fn frame_rate(self, rate: FrameRate) -> Result<FrameRate, AudioTimelineError> {
+        let multiplier = self.multiplier();
+        let divisor = if rate.denominator().is_multiple_of(multiplier) {
+            multiplier
+        } else {
+            1
+        };
+        let numerator = rate
+            .numerator()
+            .checked_mul(multiplier / divisor)
+            .ok_or(AudioTimelineError::RangeTooLarge)?;
+        FrameRate::new(numerator, rate.denominator() / divisor)
+            .ok_or(AudioTimelineError::RangeTooLarge)
+    }
+}
+
 struct AudioClip {
     id: AudioClipId,
     start_sample_frame: u64,
@@ -47,6 +77,9 @@ struct AudioClip {
 pub(crate) struct AudioTimelineGraph {
     clips: Vec<AudioClip>,
     format: AudioFormat,
+    // Sample indices follow device time; authored frames advance at this rate.
+    frame_rate: FrameRate,
+    playback_rate: PlaybackRate,
     timeline: AudioTimelineSnapshot,
     calculation_policy: CalculationPolicy,
     active: Vec<usize>,
@@ -61,7 +94,16 @@ impl AudioTimelineGraph {
         format: AudioFormat,
         calculation_policy: CalculationPolicy,
     ) -> Result<Self, AudioTimelineError> {
-        let frame_rate = timeline.frame_rate();
+        Self::with_playback_rate(timeline, format, calculation_policy, PlaybackRate::Normal)
+    }
+
+    pub(crate) fn with_playback_rate(
+        timeline: AudioTimelineSnapshot,
+        format: AudioFormat,
+        calculation_policy: CalculationPolicy,
+        playback_rate: PlaybackRate,
+    ) -> Result<Self, AudioTimelineError> {
+        let frame_rate = playback_rate.frame_rate(timeline.frame_rate())?;
         let mut clips = Vec::new();
         for input in timeline.sources() {
             let start_sample_frame = frame_rate.sample_boundary(input.start, format.sample_rate);
@@ -73,7 +115,7 @@ impl AudioTimelineGraph {
                 continue;
             }
             let id = input.id.clone();
-            let source = open_source(input, format)?;
+            let source = open_source(input, format, playback_rate)?;
             clips.push(AudioClip {
                 id,
                 start_sample_frame,
@@ -85,6 +127,8 @@ impl AudioTimelineGraph {
         Ok(Self {
             clips,
             format,
+            frame_rate,
+            playback_rate,
             timeline,
             calculation_policy,
             active: Vec::new(),
@@ -121,7 +165,7 @@ impl AudioTimelineGraph {
         &mut self,
         timeline: &AudioTimelineSnapshot,
     ) -> Result<(), AudioTimelineError> {
-        let rate = timeline.frame_rate();
+        let rate = self.playback_rate.frame_rate(timeline.frame_rate())?;
         let desired = timeline
             .sources()
             .iter()
@@ -154,7 +198,10 @@ impl AudioTimelineGraph {
                     .get(&input.id)
                     .is_some_and(|old| old.asset == input.asset);
             if !reusable {
-                replacements.insert(input.id.clone(), open_source(input, self.format)?);
+                replacements.insert(
+                    input.id.clone(),
+                    open_source(input, self.format, self.playback_rate)?,
+                );
             }
         }
         let mut previous = std::mem::take(&mut self.clips)
@@ -180,6 +227,7 @@ impl AudioTimelineGraph {
         self.active.clear();
         self.next_clip = 0;
         self.previous_end = None;
+        self.frame_rate = rate;
         Ok(())
     }
 
@@ -209,6 +257,7 @@ impl AudioTimelineGraph {
             &self.timeline,
             block_start..block_end,
             self.format,
+            self.frame_rate,
             &requested,
             &mut self.gains,
             self.calculation_policy,
@@ -261,6 +310,7 @@ impl AudioTimelineGraph {
 fn open_source(
     input: &AudioTimelineSource,
     format: AudioFormat,
+    playback_rate: PlaybackRate,
 ) -> Result<AudioSource, AudioTimelineError> {
     let decoder = open_audio_decoder(&input.asset).map_err(|error| AudioTimelineError::Media {
         clip: input.id.clone(),
@@ -272,6 +322,7 @@ fn open_source(
         input.preserve_pitch,
         input.asset.duration,
         format,
+        playback_rate,
     ))
 }
 
@@ -376,6 +427,7 @@ fn gain_segments(
     timeline: &AudioTimelineSnapshot,
     range: Range<u64>,
     format: AudioFormat,
+    rate: FrameRate,
     requested: &HashSet<AudioClipId>,
     cache: &mut VecDeque<FrameGains>,
     policy: CalculationPolicy,
@@ -384,7 +436,6 @@ fn gain_segments(
     if requested.is_empty() {
         return Ok(values);
     }
-    let rate = timeline.frame_rate();
     let mut sample = range.start;
     while sample < range.end {
         let frame = rate

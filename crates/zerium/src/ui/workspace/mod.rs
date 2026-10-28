@@ -12,7 +12,10 @@ use ::ui::{
     resizable::{ResizableState, h_resizable, resizable_panel, v_resizable},
     tab::Tab,
 };
-use gpui::{Context, FocusHandle, KeyUpEvent, Render, Subscription, Window, div, prelude::*, px};
+use gpui::{
+    Context, FocusHandle, KeyDownEvent, KeyUpEvent, Render, Subscription, Window, div, prelude::*,
+    px,
+};
 
 use self::operation_hints::OperationHintExt as _;
 use crate::{app::actions::*, ui::components::scene_menu::scene_library_menu};
@@ -394,7 +397,25 @@ impl Render for Workspace {
                 });
             }))
             .capture_action(cx.listener(Self::stamp_placement))
-            .capture_key_up(cx.listener(|this, event: &KeyUpEvent, _, cx| {
+            .on_key_down(cx.listener(|this, event: &KeyDownEvent, window, cx| {
+                if !event.is_held
+                    && !event.keystroke.modifiers.modified()
+                    && event.keystroke.key.eq_ignore_ascii_case("l")
+                    && this
+                        .preview
+                        .update(cx, |preview, cx| preview.set_fast_forward(true, window, cx))
+                {
+                    cx.stop_propagation();
+                }
+            }))
+            .capture_key_up(cx.listener(|this, event: &KeyUpEvent, window, cx| {
+                if event.keystroke.key.eq_ignore_ascii_case("l")
+                    && this.preview.update(cx, |preview, cx| {
+                        preview.set_fast_forward(false, window, cx)
+                    })
+                {
+                    cx.stop_propagation();
+                }
                 if event.keystroke.key.eq_ignore_ascii_case("h") {
                     this.preview.update(cx, |preview, cx| {
                         preview.set_editor_overlay_hidden(false, cx);

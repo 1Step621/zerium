@@ -18,7 +18,10 @@ use crate::{
     },
     ui::workspace::notifications::UiNotifications,
 };
-use ::ui::slider::{SliderEvent, SliderState};
+use ::ui::{
+    ContextModal as _,
+    slider::{SliderEvent, SliderState},
+};
 use futures::StreamExt as _;
 use gpui::{
     App, Context, Entity, SharedString, Subscription, Task, WgpuSurfaceHandle, Window, prelude::*,
@@ -107,6 +110,7 @@ impl Preview {
         let transport_subscription = cx.observe(&transport, |_, _, cx| cx.notify());
         let activation_subscription = cx.observe_window_activation(window, |this, window, cx| {
             if !window.is_window_active() {
+                this.set_fast_forward(false, window, cx);
                 this.set_editor_overlay_hidden(false, cx);
                 this.cancel_color_pick(window, cx);
             }
@@ -219,6 +223,28 @@ impl Preview {
             self.editor_overlay_hidden = hidden;
             cx.notify();
         }
+    }
+
+    pub(in crate::ui) fn set_fast_forward(
+        &mut self,
+        enabled: bool,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> bool {
+        if enabled && !Self::playback_shortcuts_enabled(window, cx) {
+            return false;
+        }
+        self.transport
+            .update(cx, |transport, cx| transport.set_fast_forward(enabled, cx))
+    }
+
+    fn playback_shortcuts_enabled(window: &mut Window, cx: &mut App) -> bool {
+        window.is_window_active()
+            && !window.has_active_modal(cx)
+            && !window
+                .context_stack()
+                .iter()
+                .any(|context| context.contains("Input"))
     }
 
     fn seekbar_progress(&self, cx: &App) -> f32 {

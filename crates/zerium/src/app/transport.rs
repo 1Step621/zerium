@@ -4,8 +4,11 @@ use std::time::Instant;
 use gpui::{App, Context, Entity};
 
 use crate::{
-    engine::output::audio::{
-        AudioPlaybackEngine, AudioPlaybackError, AudioPlaybackEvent, PlaybackClock,
+    engine::{
+        output::audio::{
+            AudioPlaybackEngine, AudioPlaybackError, AudioPlaybackEvent, PlaybackClock,
+        },
+        processing::audio::PlaybackRate,
     },
     ui::{TimelineEditorEntityExt, workspace::notifications::UiNotifications},
 };
@@ -24,6 +27,7 @@ struct PlaybackSession {
     start_seconds: f64,
     started_at: Instant,
     clock: PlaybackClock,
+    rate: PlaybackRate,
 }
 
 impl PlaybackSession {
@@ -36,7 +40,9 @@ impl PlaybackSession {
             }),
             PlaybackClock::Preparing => self.start_seconds,
             PlaybackClock::Wall => {
-                self.start_seconds + now.duration_since(self.started_at).as_secs_f64()
+                self.start_seconds
+                    + now.duration_since(self.started_at).as_secs_f64()
+                        * f64::from(self.rate.multiplier())
             }
         }
     }
@@ -80,6 +86,59 @@ impl TransportController {
 
     pub(crate) fn is_playing(&self) -> bool {
         matches!(self.mode, TransportMode::Playing(_))
+    }
+
+    pub(crate) fn is_fast_forwarding(&self) -> bool {
+        matches!(
+            self.mode,
+            TransportMode::Playing(PlaybackSession {
+                rate: PlaybackRate::Double,
+                ..
+            })
+        )
+    }
+
+    pub(crate) fn set_fast_forward(&mut self, enabled: bool, cx: &mut Context<Self>) -> bool {
+        let TransportMode::Playing(mut playback) = self.mode else {
+            return false;
+        };
+        let rate = if enabled {
+            PlaybackRate::Double
+        } else {
+            PlaybackRate::Normal
+        };
+        if playback.rate == rate {
+            return false;
+        }
+        let now = Instant::now();
+        let editor = self.editor.read(cx);
+        let displayed = editor.playhead_seconds();
+        let timeline = editor.audio_snapshot();
+        let seconds = playback.seconds(self.audio.read(cx).playhead_seconds(), displayed, now);
+        let clock = match self
+            .audio
+            .update(cx, |audio, _| audio.restart_at(timeline, seconds, rate))
+        {
+            Ok(clock) => clock,
+            Err(error) => {
+                self.notifications.update(cx, |notifications, cx| {
+                    notifications.push(
+                        t!("transport.start_playback_failed", error = error).to_string(),
+                        cx,
+                    );
+                });
+                PlaybackClock::Wall
+            }
+        };
+        playback.start_seconds = seconds;
+        playback.started_at = now;
+        playback.clock = clock;
+        playback.rate = rate;
+        self.mode = TransportMode::Playing(playback);
+        self.editor
+            .update_if_changed(cx, |editor| editor.set_playback_position(seconds));
+        cx.notify();
+        true
     }
 
     pub(crate) fn is_scrubbing(&self, source: ScrubSource) -> bool {
@@ -139,6 +198,7 @@ impl TransportController {
             start_seconds: frame_rate.frame_to_seconds(start_frame),
             started_at: Instant::now(),
             clock,
+            rate: PlaybackRate::Normal,
         });
         let start_seconds = frame_rate.frame_to_seconds(start_frame);
         self.editor.update(cx, |editor, cx| {
@@ -234,10 +294,9 @@ impl TransportController {
             return;
         }
         let timeline = self.editor.read(cx).audio_snapshot();
-        match self
-            .audio
-            .update(cx, |audio, _| audio.update_timeline(timeline, seconds))
-        {
+        match self.audio.update(cx, |audio, _| {
+            audio.update_timeline(timeline, seconds, playback.rate)
+        }) {
             Ok(clock) => {
                 if clock == PlaybackClock::Audio {
                     seconds = self.audio.read(cx).playhead_seconds().unwrap_or(seconds);

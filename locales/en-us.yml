@@ -305,6 +305,8 @@ _version: 1
 "hints.independent_stop": "Move without synchronization or snapping"
 "hints.independent_curve": "Edit without synchronization"
 "hints.hide_preview_overlay": "Hide overlay while held"
+"hints.key_l": "L"
+"hints.fast_forward": "Hold during playback for 2× speed"
 "hints.stretch": "Stretch"
 "hints.toggle_selection": "Toggle selection"
 "hints.zoom_time": "Zoom time"

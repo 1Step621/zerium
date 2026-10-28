@@ -2,7 +2,10 @@
 use super::{AudioPlaybackError, MIX_BLOCK_SAMPLE_FRAMES};
 use crate::engine::{
     input::AudioFormat,
-    processing::{CalculationPolicy, audio::AudioTimelineGraph},
+    processing::{
+        CalculationPolicy,
+        audio::{AudioTimelineGraph, PlaybackRate},
+    },
 };
 use cpal::traits::{DeviceTrait as _, HostTrait as _};
 use std::{
@@ -24,10 +27,19 @@ pub(super) enum PlaybackPosition {
 }
 
 impl PlaybackPosition {
-    pub(super) fn sample_frame(self, frame_rate: FrameRate, sample_rate: u32) -> u64 {
+    pub(super) fn sample_frame(
+        self,
+        frame_rate: FrameRate,
+        sample_rate: u32,
+        rate: PlaybackRate,
+    ) -> u64 {
         match self {
-            Self::Frame(frame) => frame_rate.sample_boundary(frame, sample_rate),
-            Self::Seconds(seconds) => (seconds * f64::from(sample_rate)).floor() as u64,
+            Self::Frame(frame) => {
+                frame_rate.sample_boundary(frame, sample_rate) / u64::from(rate.multiplier())
+            }
+            Self::Seconds(seconds) => {
+                (seconds * f64::from(sample_rate) / f64::from(rate.multiplier())).floor() as u64
+            }
         }
     }
 }
@@ -39,6 +51,7 @@ pub(super) struct AudioPreparation {
 }
 
 pub(super) struct PreparedAudio {
+    pub(super) rate: PlaybackRate,
     pub(super) device: cpal::Device,
     pub(super) supported: cpal::SupportedStreamConfig,
     pub(super) graph: AudioTimelineGraph,
@@ -51,6 +64,7 @@ pub(super) struct PreparedAudio {
 fn prepare_audio(
     timeline: AudioTimelineSnapshot,
     position: PlaybackPosition,
+    rate: PlaybackRate,
     stop: &AtomicBool,
 ) -> Result<Option<PreparedAudio>, AudioPlaybackError> {
     if stop.load(Ordering::Acquire) {
@@ -72,8 +86,13 @@ fn prepare_audio(
         sample_rate: supported.sample_rate(),
         channels: supported.channels(),
     };
-    let mut graph = AudioTimelineGraph::new(timeline.clone(), format, CalculationPolicy::Fallback)
-        .map_err(AudioPlaybackError::Timeline)?;
+    let mut graph = AudioTimelineGraph::with_playback_rate(
+        timeline.clone(),
+        format,
+        CalculationPolicy::Fallback,
+        rate,
+    )
+    .map_err(AudioPlaybackError::Timeline)?;
     if graph.is_empty() {
         return Ok(None);
     }
@@ -86,7 +105,7 @@ fn prepare_audio(
         .unwrap_or(channels)
         .max(channels);
     let (mut producer, consumer) = rtrb::RingBuffer::<f32>::new(capacity);
-    let start_sample_frame = position.sample_frame(timeline.frame_rate(), format.sample_rate);
+    let start_sample_frame = position.sample_frame(timeline.frame_rate(), format.sample_rate, rate);
     let mut render_cursor = start_sample_frame;
     let mut prebuffered_frames = 0u64;
     let capacity_frames = (capacity / channels.max(1)) as u64;
@@ -113,6 +132,7 @@ fn prepare_audio(
         return Ok(None);
     }
     Ok(Some(PreparedAudio {
+        rate,
         device,
         supported,
         graph,
@@ -148,13 +168,14 @@ impl AudioPreparation {
     pub(super) fn spawn(
         timeline: AudioTimelineSnapshot,
         position: PlaybackPosition,
+        rate: PlaybackRate,
     ) -> Result<Self, AudioPlaybackError> {
         let prepared_timeline = timeline.clone();
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
         let handle = thread::Builder::new()
             .name("zerium-audio-prepare".to_owned())
-            .spawn(move || prepare_audio(timeline, position, &worker_stop))
+            .spawn(move || prepare_audio(timeline, position, rate, &worker_stop))
             .map_err(|error| {
                 AudioPlaybackError::Worker(format!("Failed to prepare audio: {error}"))
             })?;

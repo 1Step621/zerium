@@ -305,6 +305,8 @@ _version: 1
 "hints.independent_stop": "同期・スナップせず移動"
 "hints.independent_curve": "同期せず編集"
 "hints.hide_preview_overlay": "押している間オーバーレイを非表示"
+"hints.key_l": "L"
+"hints.fast_forward": "再生中、押している間2倍速"
 "hints.stretch": "伸縮"
 "hints.toggle_selection": "選択・解除"
 "hints.zoom_time": "時間方向ズーム"
