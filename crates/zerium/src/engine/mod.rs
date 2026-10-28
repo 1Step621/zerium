@@ -4,7 +4,7 @@ pub(crate) mod input;
 pub(crate) mod output;
 pub(crate) mod processing;
 
-use std::sync::OnceLock;
+use std::{sync::OnceLock, time::Instant};
 
 use gpu_video::VideoAdapterExt;
 use gst::prelude::*;
@@ -55,11 +55,16 @@ impl GpuContext {
     }
 }
 
-fn initialize_gstreamer() -> Result<(), String> {
+pub(crate) fn initialize_gstreamer() -> Result<(), String> {
     static INIT: OnceLock<Result<(), String>> = OnceLock::new();
     INIT.get_or_init(|| {
+        let started = Instant::now();
         gstreamer::init().map_err(|error| error.to_string())?;
-        log::info!("GStreamer {} initialized", gstreamer::version_string());
+        log::info!(
+            "GStreamer {} initialized in {:?}",
+            gstreamer::version_string(),
+            started.elapsed()
+        );
         Ok(())
     })
     .clone()

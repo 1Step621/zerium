@@ -63,6 +63,14 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
     application
         .with_assets(::ui::assets::Assets)
         .run(move |cx: &mut App| {
+            // Plugin scanning can take seconds with a cold registry. Start it
+            // before the first import without blocking the UI thread.
+            cx.background_spawn(async {
+                if let Err(error) = crate::engine::initialize_gstreamer() {
+                    log::warn!("GStreamer initialization failed: {error}");
+                }
+            })
+            .detach();
             match config {
                 Ok(store) => cx.set_global(store),
                 Err(error) => log::warn!("Could not load config.json: {error}"),
