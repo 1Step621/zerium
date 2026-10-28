@@ -4,7 +4,7 @@ mod calculation;
 mod variable;
 pub(in crate::timeline) use self::{binding::ResolvedSceneBinding, calculation::VariableEvaluator};
 pub use self::{
-    binding::{SceneBindingOwner, SceneBindingTarget, resolve_scene_binding},
+    binding::{SceneBindingOwner, SceneBindingTarget},
     calculation::{
         CalculationDiagnostic, CalculationFailure, SceneCalculation, SceneCalculationInput,
         SceneEvaluation,
@@ -12,7 +12,7 @@ pub use self::{
     variable::{SceneVariable, SceneVariablePreset, SceneVariableSource},
 };
 
-pub(crate) use self::binding::apply_scene_binding_to_item;
+pub(crate) use self::binding::{apply_scene_binding_to_item, resolve_scene_binding};
 
 use super::project::ProjectSettingsError;
 use crate::timeline::{
@@ -126,7 +126,7 @@ impl SceneDefinition {
         self.variables.iter().find(|variable| variable.id() == id)
     }
 
-    pub fn variable_mut(&mut self, id: &str) -> Option<&mut SceneVariable> {
+    pub(in crate::timeline) fn variable_mut(&mut self, id: &str) -> Option<&mut SceneVariable> {
         self.variables_mut()
             .iter_mut()
             .find(|variable| variable.id() == id)
@@ -169,7 +169,7 @@ impl SceneDefinition {
         Arc::make_mut(&mut self.document)
     }
 
-    pub fn from_project(
+    pub(crate) fn from_project(
         id: SceneId,
         name: String,
         variables: Vec<SceneVariable>,

@@ -134,7 +134,6 @@ impl TimelineEditor {
                 .add_item(
                     layer,
                     plugin_id,
-                    item_id,
                     schema,
                     ItemCreation {
                         start,
@@ -201,15 +200,12 @@ impl TimelineEditor {
             for initial in items {
                 let start = initial.start;
                 let id = match source {
-                    ItemSource::Plugin { plugin_id, item_id } => {
-                        editor.active_document_mut().add_item(
-                            layer,
-                            plugin_id,
-                            item_id,
-                            plugin.clone().expect("resolved plugin"),
-                            initial,
-                        )
-                    }
+                    ItemSource::Plugin { plugin_id, .. } => editor.active_document_mut().add_item(
+                        layer,
+                        plugin_id,
+                        plugin.clone().expect("resolved plugin"),
+                        initial,
+                    ),
                     ItemSource::Scene(scene_id) => {
                         let duration = initial.duration.unwrap_or_else(|| {
                             editor.scene(*scene_id).expect("resolved scene").duration()
@@ -272,7 +268,6 @@ impl TimelineEditor {
                     .add_item(
                         layer,
                         &imported.plugin_id,
-                        &imported.source_id,
                         schema,
                         ItemCreation {
                             start,

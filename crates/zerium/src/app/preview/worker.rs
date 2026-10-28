@@ -1,7 +1,7 @@
 //! One persistent media decode worker per consumer stream, driven by scene demand.
 use super::PreviewFrameEvent;
 use crate::engine::{
-    input::{MediaError, MediaFrameRequest, MediaReaderRegistry, VisualDecodeSession},
+    input::{MediaError, MediaFrameRequest, VisualDecodeSession},
     processing::visual::VideoFrameUploader,
 };
 use futures::channel::mpsc::UnboundedSender;
@@ -25,14 +25,13 @@ pub(super) struct DecodeWorker {
 
 impl DecodeWorker {
     pub(super) fn spawn(
-        media_readers: Arc<MediaReaderRegistry>,
         uploader: Option<Arc<VideoFrameUploader>>,
         events: UnboundedSender<PreviewFrameEvent>,
     ) -> Result<Self, MediaError> {
         let (requests, receiver) = std::sync::mpsc::sync_channel(1);
         let handle = std::thread::Builder::new()
             .name("zerium-media-worker".to_owned())
-            .spawn(move || run_decode_worker(media_readers, uploader, receiver, events))
+            .spawn(move || run_decode_worker(uploader, receiver, events))
             .map_err(|error| {
                 MediaError::external(format!("Failed to start media decoder: {error}"))
             })?;
@@ -122,7 +121,6 @@ impl Drop for DecodeReply<'_> {
 }
 
 fn run_decode_worker(
-    media_readers: Arc<MediaReaderRegistry>,
     uploader: Option<Arc<VideoFrameUploader>>,
     requests: std::sync::mpsc::Receiver<DecodeRequest>,
     events: UnboundedSender<PreviewFrameEvent>,
@@ -135,7 +133,6 @@ fn run_decode_worker(
         };
         let result = decoder
             .decode(
-                &media_readers,
                 &request.frame,
                 uploader.as_ref().map(|uploader| uploader.gpu()),
                 &request.cancel,

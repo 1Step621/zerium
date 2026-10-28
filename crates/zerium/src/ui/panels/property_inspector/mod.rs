@@ -47,10 +47,7 @@ use gpui::{
 
 use super::animation_curve::AnimationSelection;
 use zerium_core::{
-    property::{
-        PropertyDefinition, PropertyElementId, PropertySchema, PropertyValue, ScalarPropertyType,
-        ValueSchema,
-    },
+    property::{PropertyElementId, PropertySchema, PropertyValue, ScalarPropertyType, ValueSchema},
     timeline::{
         AnimationValuePlan, EffectInstanceId, EvaluatedItem, ItemId, PropertyAddress,
         SceneBindingOwner, SceneBindingTarget, SceneVariable, TimelineEditor, TimelineItem,

@@ -453,14 +453,11 @@ impl RenderSession {
             };
             for pass in effects.iter().flat_map(|effect| &effect.passes) {
                 let registered = match &pass.kind {
-                    RenderEffectPassKind::Render => {
+                    RenderEffectPassKind::Render | RenderEffectPassKind::Temporal(_) => {
                         self.shared.effect_pipelines.contains_key(&pass.shader)
                     }
                     RenderEffectPassKind::Compute(_) => {
                         self.shared.compute_pipelines.contains_key(&pass.shader)
-                    }
-                    RenderEffectPassKind::Temporal(_) => {
-                        self.shared.temporal_pipelines.contains_key(&pass.shader)
                     }
                 };
                 if !registered {

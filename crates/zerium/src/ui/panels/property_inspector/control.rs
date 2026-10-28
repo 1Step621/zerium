@@ -74,12 +74,6 @@ pub(super) struct TupleControl {
     pub aspect_ratio_lock: Option<AspectRatioControl>,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(super) enum ElementKind {
-    Scalar,
-    FontFamily,
-}
-
 #[derive(Clone)]
 pub(super) struct ArrayRow {
     pub element_id: PropertyElementId,
@@ -89,11 +83,8 @@ pub(super) struct ArrayRow {
 #[derive(Clone)]
 pub(super) struct ArrayControl {
     pub target: PropertyAddress,
-    pub property: Box<PropertySchema>,
+    pub property: PropertySchema,
     pub rows: Vec<ArrayRow>,
-    pub element_kind: ElementKind,
-    pub min_items: u32,
-    pub max_items: u32,
     pub has_scene_binding: bool,
 }
 
@@ -405,13 +396,13 @@ impl ControlResolution<'_> {
         effect_id: Option<EffectInstanceId>,
         property: &PropertySchema,
     ) -> Option<AspectRatioControl> {
-        let item = self.item;
+        let item = self.editor.item(self.item.source_id)?;
         let declared = item
             .aspect_lock_property(effect_id)
             .filter(|declared| declared.id() == property.id())?;
         Some(AspectRatioControl {
             address: PropertyAddress {
-                item_id: item.source_id,
+                item_id: item.id,
                 effect_id,
                 property_id: property.id().to_owned(),
                 element_id: None,
@@ -464,25 +455,13 @@ impl ControlResolution<'_> {
         if !property.is_visible() {
             return None;
         }
-        let PropertyDefinition::Array {
-            min_items,
-            max_items,
-            ..
-        } = property.definition()
-        else {
-            return None;
-        };
+        property.array()?;
         let value = self
             .item
             .property_values(effect_id)?
             .property(property.id())?;
         let PropertyValue::Array(values) = value else {
             return None;
-        };
-        let element_kind = if property.configuration_ui(None).uses_font_family_editor() {
-            ElementKind::FontFamily
-        } else {
-            ElementKind::Scalar
         };
         let target = PropertyAddress {
             item_id: self.item.source_id,
@@ -514,11 +493,8 @@ impl ControlResolution<'_> {
             .collect();
         Some(Control::Array(Box::new(ArrayControl {
             target,
-            property: Box::new(property.clone()),
+            property: property.clone(),
             rows,
-            element_kind,
-            min_items: *min_items,
-            max_items: *max_items,
             has_scene_binding,
         })))
     }

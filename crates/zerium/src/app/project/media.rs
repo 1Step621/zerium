@@ -1,16 +1,13 @@
 //! Lifetime and scheduling of automatic project metadata refreshes.
 
-use std::{path::PathBuf, sync::Arc, time::Duration};
+use std::{path::PathBuf, time::Duration};
 
 use futures::{FutureExt as _, StreamExt as _, channel::mpsc};
 use gpui::{AppContext as _, Context, Entity, Subscription, Task};
 use zerium_core::timeline::TimelineEditor;
 
 use super::ProjectSession;
-use crate::{
-    engine::input::{MediaMetadataUpdater, MediaReaderRegistry},
-    ui::workspace::notifications::UiNotifications,
-};
+use crate::{engine::input::MediaMetadataUpdater, ui::workspace::notifications::UiNotifications};
 
 enum RefreshRequest {
     Refresh,
@@ -27,7 +24,6 @@ pub(crate) struct MediaMetadataController {
 impl MediaMetadataController {
     pub(crate) fn new(
         editor: Entity<TimelineEditor>,
-        readers: Arc<MediaReaderRegistry>,
         session: Entity<ProjectSession>,
         notifications: Entity<UiNotifications>,
         cx: &mut Context<Self>,
@@ -72,10 +68,9 @@ impl MediaMetadataController {
                     (editor.snapshot(), editor.media_cache().clone())
                 });
                 let project_id = snapshot.project_id();
-                let readers = readers.clone();
                 let (next_updater, refresh) = cx
                     .background_spawn(async move {
-                        let refresh = updater.refresh(&snapshot, &readers);
+                        let refresh = updater.refresh(&snapshot);
                         (updater, refresh)
                     })
                     .await;

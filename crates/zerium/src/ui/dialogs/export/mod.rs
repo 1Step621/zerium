@@ -2,8 +2,6 @@
 mod dialog;
 mod job;
 
-use std::sync::Arc;
-
 use gpui::{Context, Entity, Subscription, Task};
 
 use crate::{
@@ -11,7 +9,6 @@ use crate::{
         project::{ProjectOperation, ProjectSession, ProjectSessionId},
         rendering::RenderRuntime,
     },
-    engine::input::MediaReaderRegistry,
     ui::workspace::notifications::UiNotifications,
 };
 use zerium_core::timeline::TimelineEditor;
@@ -33,7 +30,6 @@ enum ExportState {
 pub(crate) struct ExportController {
     editor: Entity<TimelineEditor>,
     render_runtime: Entity<RenderRuntime>,
-    media_readers: Arc<MediaReaderRegistry>,
     session: Entity<ProjectSession>,
     session_id: ProjectSessionId,
     notifications: Entity<UiNotifications>,
@@ -49,7 +45,6 @@ impl ExportController {
     pub(crate) fn new(
         editor: Entity<TimelineEditor>,
         render_runtime: Entity<RenderRuntime>,
-        media_readers: Arc<MediaReaderRegistry>,
         session: Entity<ProjectSession>,
         notifications: Entity<UiNotifications>,
         cx: &mut Context<Self>,
@@ -67,7 +62,6 @@ impl ExportController {
         Self {
             editor,
             render_runtime,
-            media_readers,
             session,
             session_id,
             notifications,

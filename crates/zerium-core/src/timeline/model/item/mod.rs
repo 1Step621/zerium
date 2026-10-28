@@ -93,11 +93,10 @@ pub struct EffectInstance {
     pub id: EffectInstanceId,
     pub hidden: bool,
     pub plugin_id: String,
-    pub effect_id: String,
     pub properties: PropertyOverrides,
     pub animations: ScalarAnimations,
     pub aspect_ratio: Option<AspectRatio>,
-    pub schema: Arc<EffectSchema>,
+    pub(crate) schema: Arc<EffectSchema>,
 }
 
 impl EffectInstance {
@@ -110,7 +109,6 @@ impl EffectInstance {
 pub enum TimelineItemKind {
     Plugin {
         plugin_id: String,
-        item_id: String,
         schema: Arc<ItemSchema>,
     },
     Scene {
@@ -249,10 +247,7 @@ impl TimelineItem {
     }
 
     pub fn item_id(&self) -> Option<&str> {
-        match &self.kind {
-            TimelineItemKind::Plugin { item_id, .. } => Some(item_id),
-            TimelineItemKind::Scene { .. } => None,
-        }
+        Some(self.schema()?.id())
     }
 
     pub const fn scene_id(&self) -> Option<SceneId> {
@@ -626,7 +621,6 @@ impl TimelineItem {
         &mut self,
         instance_id: EffectInstanceId,
         plugin_id: &str,
-        effect_id: &str,
         schema: Arc<EffectSchema>,
         mut properties: PropertyOverrides,
         frame_rate: FrameRate,
@@ -657,7 +651,6 @@ impl TimelineItem {
             id: instance_id,
             hidden: false,
             plugin_id: plugin_id.to_owned(),
-            effect_id: effect_id.to_owned(),
             properties,
             animations: ScalarAnimations::default(),
             aspect_ratio,

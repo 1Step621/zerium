@@ -111,46 +111,21 @@ impl MediaError {
     }
 }
 
-pub(crate) struct MediaReaderRegistry;
-
-impl MediaReaderRegistry {
-    fn probe(
-        &self,
-        path: &Path,
-        reader: &str,
-        target: MediaTarget,
-    ) -> Result<Option<MediaMetadata>, MediaError> {
-        let metadata = self.reader_for(reader)?.probe(path, target)?;
-        if metadata
-            .as_ref()
-            .is_some_and(|metadata| !metadata.accepts(target))
-        {
-            return Err(MediaError::invalid_input(format!(
-                "Media reader '{reader}' returned invalid metadata"
-            )));
-        }
-        Ok(metadata)
+fn reader_for(reader_id: &str) -> Result<&'static dyn MediaReader, MediaError> {
+    match reader_id {
+        IMAGE_READER_ID => Ok(&ImageReader),
+        SEQUENCE_READER_ID => Ok(&ImageSequenceReader),
+        VIDEO_READER_ID => Ok(&VideoReader),
+        AUDIO_READER_ID => Ok(&AudioReader),
+        SVG_READER_ID => Ok(&SvgMediaReader),
+        _ => Err(MediaError::ReaderUnavailable(format!(
+            "Media reader '{reader_id}' is not registered"
+        ))),
     }
+}
 
-    fn reader_for(&self, reader_id: &str) -> Result<&dyn MediaReader, MediaError> {
-        match reader_id {
-            IMAGE_READER_ID => Ok(&ImageReader),
-            SEQUENCE_READER_ID => Ok(&ImageSequenceReader),
-            VIDEO_READER_ID => Ok(&VideoReader),
-            AUDIO_READER_ID => Ok(&AudioReader),
-            SVG_READER_ID => Ok(&SvgMediaReader),
-            _ => Err(MediaError::ReaderUnavailable(format!(
-                "Media reader '{reader_id}' is not registered"
-            ))),
-        }
-    }
-
-    pub(crate) fn open_audio_decoder(
-        &self,
-        asset: &MediaAsset,
-    ) -> Result<Box<dyn AudioDecoder>, MediaError> {
-        self.reader_for(&asset.reader_id)?.open_audio_decoder(asset)
-    }
+pub(super) fn open_audio_decoder(asset: &MediaAsset) -> Result<Box<dyn AudioDecoder>, MediaError> {
+    reader_for(&asset.reader_id)?.open_audio_decoder(asset)
 }
 
 /// Default observation for readers backed by a single regular file.
@@ -194,11 +169,7 @@ impl MediaMetadataUpdater {
         self.readings.retries.insert(path.to_owned());
     }
 
-    pub(crate) fn refresh(
-        &mut self,
-        snapshot: &TimelineSnapshot,
-        readers: &MediaReaderRegistry,
-    ) -> MediaRefresh {
+    pub(crate) fn refresh(&mut self, snapshot: &TimelineSnapshot) -> MediaRefresh {
         let revision = (
             snapshot.project_id(),
             snapshot.media_dependencies_revision(),
@@ -216,7 +187,7 @@ impl MediaMetadataUpdater {
                 .retain(|source, _| self.readings.sources.contains(source));
             self.revision = Some(revision);
         }
-        refresh_files(&mut self.readings, snapshot.media_cache(), readers)
+        refresh_files(&mut self.readings, snapshot.media_cache())
     }
 }
 
@@ -228,7 +199,6 @@ pub(crate) fn prepare_import(
     plugin_id: &str,
     item_id: &str,
     property_id: &str,
-    readers: &MediaReaderRegistry,
 ) -> Result<ImportedFile, MediaError> {
     let path = path.as_ref();
     let item = plugins.item(plugin_id, item_id).ok_or_else(|| {
@@ -248,7 +218,7 @@ pub(crate) fn prepare_import(
                 target: source.input.target(),
             }),
     );
-    let refresh = refresh_files(&mut readings, &MediaMetadataCache::default(), readers);
+    let refresh = refresh_files(&mut readings, &MediaMetadataCache::default());
     if let Some((_, error)) = refresh.errors.into_iter().next() {
         return Err(error);
     }
@@ -271,7 +241,6 @@ pub(crate) fn prepare_import(
 pub(crate) fn refresh_files(
     readings: &mut MediaReadings,
     cache: &MediaMetadataCache,
-    readers: &MediaReaderRegistry,
 ) -> MediaRefresh {
     let retries = std::mem::take(&mut readings.retries);
     let mut files: BTreeMap<PathBuf, ProbedFile> = BTreeMap::new();
@@ -279,7 +248,7 @@ pub(crate) fn refresh_files(
     for source in &readings.sources {
         let forced = retries.contains(&source.path);
         let previous = cache.reading(source);
-        let reader = readers.reader_for(&source.reader_id);
+        let reader = reader_for(&source.reader_id);
         let revision = reader
             .as_ref()
             .map_err(|error| (*error).clone())
@@ -297,12 +266,20 @@ pub(crate) fn refresh_files(
             continue;
         }
         let result = revision.and_then(|revision| {
-            let metadata = readers.probe(&source.path, &source.reader_id, source.target)?;
-            let after = reader
+            let reader = reader
                 .as_ref()
-                .expect("revision requires an available reader")
-                .revision(&source.path)
-                .ok();
+                .expect("revision requires an available reader");
+            let metadata = reader.probe(&source.path, source.target)?;
+            if metadata
+                .as_ref()
+                .is_some_and(|metadata| !metadata.accepts(source.target))
+            {
+                return Err(MediaError::invalid_input(format!(
+                    "Media reader '{}' returned invalid metadata",
+                    source.reader_id
+                )));
+            }
+            let after = reader.revision(&source.path).ok();
             if after != Some(revision) {
                 return Err(MediaError::external(format!(
                     "'{}' changed while it was being read",

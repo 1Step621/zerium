@@ -118,17 +118,16 @@ impl PlanBuilder<'_> {
                     .set(property, value)
                     .expect("resolved audio source property");
             }
-            let Some((asset, playback, preserve_pitch)) =
-                crate::timeline::evaluation::scene::item::audio_input_for(
-                    schema,
-                    input.id(),
-                    &properties,
-                    source.playback(),
-                    &self.snapshot.media_cache,
-                )
+            let Some(asset) = input
+                .media_source()
+                .asset(&properties, &self.snapshot.media_cache)
             else {
                 continue;
             };
+            let preserve_pitch = properties
+                .property(input.preserve_pitch_property())
+                .and_then(|value| value.as_bool())
+                .expect("validated preserve pitch");
             let id = AudioClipId {
                 item_id: runtime_id,
                 input_id: input.id().to_owned(),
@@ -146,7 +145,7 @@ impl PlanBuilder<'_> {
                 asset,
                 start: Frame::new(clip.start),
                 duration: FrameDuration::new_saturating(clip.end - clip.start),
-                playback,
+                playback: source.playback(),
                 preserve_pitch,
             });
         }

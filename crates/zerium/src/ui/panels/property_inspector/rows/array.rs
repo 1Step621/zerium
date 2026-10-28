@@ -5,7 +5,7 @@ use super::{
 use crate::ui::{
     components::search_picker::{SearchPicker, SearchPickerEntry},
     panels::property_inspector::{
-        control::{ArrayControl, Control, ElementKind},
+        control::{ArrayControl, Control},
         edit_array,
         editing::ArrayEdit,
         push_element,
@@ -72,6 +72,11 @@ pub(in crate::ui::panels::property_inspector) fn elements_section(
     separator_color: gpui::Hsla,
     allow_structure_edit: bool,
 ) -> PropertyRow {
+    let array = group.property.array().expect("array control contract");
+    let font_picker = group
+        .property
+        .configuration_ui(None)
+        .uses_font_family_editor();
     let property_label = group.property.label().to_owned();
     let rows_are_tuples = group.property.value_schema().tuple().is_some();
     let rows_have_scene_binding = group.has_scene_binding;
@@ -82,7 +87,7 @@ pub(in crate::ui::panels::property_inspector) fn elements_section(
             ..group.target.clone()
         };
         let row_controls = row.controls.as_slice();
-        let scene_binding = (group.element_kind == ElementKind::FontFamily)
+        let scene_binding = font_picker
             .then(|| {
                 row_controls
                     .iter()
@@ -105,7 +110,7 @@ pub(in crate::ui::panels::property_inspector) fn elements_section(
         } else {
             div().min_w_0().flex_1().flex().flex_col().gap_1()
         };
-        if group.element_kind != ElementKind::FontFamily {
+        if !font_picker {
             for control in row_controls {
                 if rows_are_tuples {
                     if let Some((row, bound)) = scalar_compact_row(control, ctx) {
@@ -117,68 +122,63 @@ pub(in crate::ui::panels::property_inspector) fn elements_section(
                     value_rows = value_rows.child(row);
                 }
             }
-        }
-
-        match group.element_kind {
-            ElementKind::Scalar => {}
-            ElementKind::FontFamily => {
-                let Some(selected_font) = font_name(row) else {
-                    continue;
-                };
-                let font_choices = ctx
-                    .font_names
-                    .iter()
-                    .filter(|font| {
-                        !group.rows.iter().enumerate().any(|(index, value)| {
-                            index != element_index && font_name(value) == Some(font.as_str())
-                        })
+        } else {
+            let Some(selected_font) = font_name(row) else {
+                continue;
+            };
+            let font_choices = ctx
+                .font_names
+                .iter()
+                .filter(|font| {
+                    !group.rows.iter().enumerate().any(|(index, value)| {
+                        index != element_index && font_name(value) == Some(font.as_str())
                     })
-                    .map(|font| SearchPickerEntry::new(font.clone(), "", font.clone()))
-                    .collect::<Vec<_>>();
-                let picker_inspector = ctx.inspector.clone();
-                let picker_target = key.clone();
-                let label = if selected_font.is_empty() {
-                    t!("rows.choose_font").to_string()
-                } else {
-                    selected_font.to_owned()
-                };
-                let mut trigger = Button::new(SharedString::from(format!("{key:?}-font")))
-                    .small()
-                    .outline()
-                    .w_full()
-                    .label(label)
-                    .dropdown_caret(true);
-                let trigger_style = trigger.style().clone();
-                value_rows = value_rows.child(
-                    Popover::new(SharedString::from(format!("{key:?}-font-picker")))
-                        .trigger_style(trigger_style)
-                        .trigger(trigger)
-                        .content(move |window, cx| {
-                            let inspector = picker_inspector.clone();
-                            let target = picker_target.clone();
-                            let entries = font_choices.clone();
-                            cx.new(|cx| {
-                                SearchPicker::new(
-                                    entries,
-                                    t!("rows.search_font").to_string(),
-                                    move |font, _, cx| {
-                                        inspector.update(cx, |inspector, cx| {
-                                            if inspector.set_scalar(
-                                                &target,
-                                                PropertyValue::String(font),
-                                                cx,
-                                            ) {
-                                                cx.notify();
-                                            }
-                                        });
-                                    },
-                                    window,
-                                    cx,
-                                )
-                            })
-                        }),
-                );
-            }
+                })
+                .map(|font| SearchPickerEntry::new(font.clone(), "", font.clone()))
+                .collect::<Vec<_>>();
+            let picker_inspector = ctx.inspector.clone();
+            let picker_target = key.clone();
+            let label = if selected_font.is_empty() {
+                t!("rows.choose_font").to_string()
+            } else {
+                selected_font.to_owned()
+            };
+            let mut trigger = Button::new(SharedString::from(format!("{key:?}-font")))
+                .small()
+                .outline()
+                .w_full()
+                .label(label)
+                .dropdown_caret(true);
+            let trigger_style = trigger.style().clone();
+            value_rows = value_rows.child(
+                Popover::new(SharedString::from(format!("{key:?}-font-picker")))
+                    .trigger_style(trigger_style)
+                    .trigger(trigger)
+                    .content(move |window, cx| {
+                        let inspector = picker_inspector.clone();
+                        let target = picker_target.clone();
+                        let entries = font_choices.clone();
+                        cx.new(|cx| {
+                            SearchPicker::new(
+                                entries,
+                                t!("rows.search_font").to_string(),
+                                move |font, _, cx| {
+                                    inspector.update(cx, |inspector, cx| {
+                                        if inspector.set_scalar(
+                                            &target,
+                                            PropertyValue::String(font),
+                                            cx,
+                                        ) {
+                                            cx.notify();
+                                        }
+                                    });
+                                },
+                                window,
+                                cx,
+                            )
+                        })
+                    }),
+            );
         }
 
         let element_id = row.element_id;
@@ -196,7 +196,7 @@ pub(in crate::ui::panels::property_inspector) fn elements_section(
         );
         let remove_button = array_edit_button(
             group,
-            group.rows.len() <= group.min_items as usize
+            group.rows.len() <= array.min_items as usize
                 || row_has_binding
                 || rows_have_scene_binding,
             ArrayEdit::Remove(element_id),
@@ -252,7 +252,7 @@ pub(in crate::ui::panels::property_inspector) fn elements_section(
         rows = rows.child(row);
     }
 
-    let add_disabled = group.rows.len() >= group.max_items as usize || rows_have_scene_binding;
+    let add_disabled = group.rows.len() >= array.max_items as usize || rows_have_scene_binding;
     let add_editor = ctx.editor.clone();
     let add_address = group.target.clone();
     let next_value = group

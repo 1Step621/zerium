@@ -165,7 +165,6 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             .expect("bundled plugin shaders must validate");
                     let render_runtime =
                         cx.new(|_| crate::app::rendering::RenderRuntime::new(plugin_shaders));
-                    let media_readers = Arc::new(crate::engine::input::MediaReaderRegistry);
                     let editor = cx.new(|_| {
                         zerium_core::timeline::TimelineEditor::new(
                             zerium_core::timeline::FrameRate::FPS_30,
@@ -175,11 +174,8 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                     let session = cx.new(|_| crate::app::project::ProjectSession::default());
                     let notifications =
                         cx.new(|_| crate::ui::workspace::notifications::UiNotifications::default());
-                    let audio_playback = cx.new(|_| {
-                        crate::engine::output::audio::AudioPlaybackEngine::new(
-                            media_readers.clone(),
-                        )
-                    });
+                    let audio_playback =
+                        cx.new(|_| crate::engine::output::audio::AudioPlaybackEngine::new());
                     let transport = cx.new(|_| {
                         crate::app::transport::TransportController::new(
                             editor.clone(),
@@ -200,7 +196,6 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             animation_selection.clone(),
                             session.clone(),
                             notifications.clone(),
-                            media_readers.clone(),
                             cx,
                         )
                     });
@@ -212,7 +207,6 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                                 session: session.clone(),
                                 notifications: notifications.clone(),
                                 render_runtime: render_runtime.clone(),
-                                media_readers: media_readers.clone(),
                             },
                             window,
                             cx,
@@ -237,7 +231,6 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                     let media_metadata = cx.new(|cx| {
                         crate::app::project::media::MediaMetadataController::new(
                             editor.clone(),
-                            media_readers.clone(),
                             session.clone(),
                             notifications.clone(),
                             cx,
@@ -247,7 +240,6 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                         crate::ui::components::input::file::FileInputController::new(
                             editor.clone(),
                             media_metadata.clone(),
-                            media_readers.clone(),
                             session.clone(),
                             notifications.clone(),
                             cx,
@@ -287,7 +279,6 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                             editor.clone(),
                             transport.clone(),
                             session.clone(),
-                            media_readers.clone(),
                             cx,
                         )
                     });
@@ -295,7 +286,6 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                         crate::ui::dialogs::export::ExportController::new(
                             editor.clone(),
                             render_runtime.clone(),
-                            media_readers.clone(),
                             session.clone(),
                             notifications.clone(),
                             cx,

@@ -18,8 +18,6 @@ use self::{
     viewport::{TimelineViewport, track_viewport_width},
 };
 
-use std::sync::Arc;
-
 use gpui::{
     Context, Entity, FocusHandle, SharedString, SmoothScrollMode, Subscription,
     UniformListScrollHandle,
@@ -30,7 +28,6 @@ use crate::{
         project::{ProjectSession, ProjectSessionId},
         transport::TransportController,
     },
-    engine::input::MediaReaderRegistry,
     ui::workspace::notifications::UiNotifications,
 };
 use zerium_core::timeline::{LayerId, TimelineEditor};
@@ -51,7 +48,6 @@ pub(crate) struct Timeline {
     session: Entity<ProjectSession>,
     session_id: ProjectSessionId,
     notifications: Entity<UiNotifications>,
-    media_readers: Arc<MediaReaderRegistry>,
     layer_scroll: UniformListScrollHandle,
     viewport: TimelineViewport,
     context_target: Option<ContextTarget>,
@@ -73,7 +69,6 @@ impl Timeline {
         animation_selection: Entity<AnimationSelection>,
         session: Entity<ProjectSession>,
         notifications: Entity<UiNotifications>,
-        media_readers: Arc<MediaReaderRegistry>,
         cx: &mut Context<Self>,
     ) -> Self {
         let session_id = session.read(cx).id();
@@ -112,7 +107,6 @@ impl Timeline {
             session,
             session_id,
             notifications,
-            media_readers,
             layer_scroll,
             viewport: TimelineViewport::default(),
             context_target: None,

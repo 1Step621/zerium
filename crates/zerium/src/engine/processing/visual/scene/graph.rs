@@ -7,8 +7,9 @@ use super::{
     geometry::BoundsOperation,
     text::TextFrameRequest,
 };
-use crate::engine::input::{
-    MediaFrameRequest, MediaInputId, RasterSize, SamplingBranch, VisualFrame,
+use crate::engine::{
+    input::{MediaFrameRequest, MediaInputId, RasterSize, SamplingBranch, VisualFrame},
+    processing::CalculationPolicy,
 };
 use std::{collections::HashMap, sync::Arc};
 use zerium_core::{
@@ -197,7 +198,7 @@ impl<'a> InputSource<'a> {
 pub(super) struct SceneGraphBuilder<'a, T> {
     timeline: &'a dyn TimelineView,
     evaluation: RenderEvaluation<'a>,
-    strict_calculations: bool,
+    calculation_policy: CalculationPolicy,
     size: RenderSize,
     nodes: Vec<RenderNode<SourceFrame>>,
     properties: HashMap<(Vec<ItemId>, u64, RenderPropertyTarget), Arc<ResolvedRenderProperties>>,
@@ -216,14 +217,14 @@ where
         timeline: &dyn TimelineView,
         time: TimelineTime,
         size: RenderSize,
-        strict_calculations: bool,
+        calculation_policy: CalculationPolicy,
         media_frame: impl FnMut(MediaFrameRequest) -> Result<Option<Arc<VisualFrame>>, E>,
         text_frame: T,
     ) -> Result<RenderScene, E> {
         let mut builder = SceneGraphBuilder {
             timeline,
             evaluation: timeline.render_evaluation(),
-            strict_calculations,
+            calculation_policy,
             size,
             nodes: Vec::new(),
             properties: HashMap::new(),
@@ -259,7 +260,7 @@ where
         time: TimelineTime,
         diagnostics: &[CalculationDiagnostic],
     ) -> Result<(), RenderError> {
-        if self.strict_calculations
+        if let CalculationPolicy::Report = self.calculation_policy
             && let Some(error) = diagnostics.first()
         {
             return Err(RenderError::Calculation {
@@ -494,11 +495,7 @@ where
                     }
                 };
                 passes.push(RenderEffectPass {
-                    shader: EffectShaderId::plugin_pass(
-                        &effect.plugin_id,
-                        &effect.effect_id,
-                        pass_index,
-                    ),
+                    shader: EffectShaderId::plugin_pass(&effect.plugin_id, schema.id(), pass_index),
                     properties: properties.clone(),
                     kind,
                     output_bounds: BoundsOperation::from_schema(
@@ -532,11 +529,7 @@ where
             return Ok(Some(id));
         }
         let content = match &placement.source.kind {
-            TimelineItemKind::Plugin {
-                plugin_id,
-                item_id,
-                schema,
-            } => {
+            TimelineItemKind::Plugin { plugin_id, schema } => {
                 let Some(render) = schema.render() else {
                     return Ok(None);
                 };
@@ -550,7 +543,7 @@ where
                     demand,
                 )?;
                 RenderNodeContent::Item(RenderItem {
-                    shader: ItemShaderId::plugin_item(plugin_id, item_id),
+                    shader: ItemShaderId::plugin_item(plugin_id, schema.id()),
                     inputs,
                     properties: render
                         .property_layout()

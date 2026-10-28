@@ -4,15 +4,15 @@ use crate::{
     engine::{
         GpuContext,
         input::{
-            AudioFormat, DecodeStreamKey, MediaReaderRegistry, VisualDecodeSession,
-            dependency_readings, refresh_files,
+            AudioFormat, DecodeStreamKey, VisualDecodeSession, dependency_readings, refresh_files,
         },
         output::{
             EncodingError, EncodingSettings, VideoDimensions, VideoEncoderFrame, VideoEncoderInput,
             visual::{MediaWriter, VideoOutput, render_png},
         },
         processing::{
-            audio::{AudioCalculationPolicy, AudioTimelineGraph, sample_boundary},
+            CalculationPolicy,
+            audio::AudioTimelineGraph,
             visual::{RenderScene, RenderSession, RenderSize, SceneEvaluator},
         },
     },
@@ -23,7 +23,6 @@ use std::{
     fmt,
     path::PathBuf,
     sync::{
-        Arc,
         atomic::{AtomicBool, Ordering},
         mpsc,
     },
@@ -92,19 +91,17 @@ enum WriterMessage {
 pub(crate) fn export_frame(
     timeline: TimelineSnapshot,
     renderer: RenderSession,
-    media_readers: Arc<MediaReaderRegistry>,
     output: Option<PathBuf>,
 ) -> Result<ExportedFrame, ExportError> {
-    let timeline = refresh_media(timeline, &media_readers, false)?;
+    let timeline = refresh_media(timeline, false)?;
     let mut decoders = HashMap::<DecodeStreamKey, VisualDecodeSession>::new();
     let cancelled = AtomicBool::new(false);
-    let mut scene = SceneEvaluator::for_export().evaluate(
+    let mut scene = SceneEvaluator::new(CalculationPolicy::Report).evaluate(
         &timeline,
         TimelineTime::from_frame(timeline.playhead()),
         RenderSize::from(timeline.resolution()),
         |request| {
             let decoded = decoders.entry(request.stream.clone()).or_default().decode(
-                &media_readers,
                 &request,
                 Some(renderer.gpu()),
                 &cancelled,
@@ -126,7 +123,6 @@ pub(crate) fn export_frame(
 
 fn refresh_media(
     timeline: TimelineSnapshot,
-    media_readers: &MediaReaderRegistry,
     include_audio: bool,
 ) -> Result<TimelineSnapshot, ExportError> {
     let refresh = refresh_files(
@@ -134,7 +130,6 @@ fn refresh_media(
             include_audio || source.target != zerium_core::media::MediaTarget::Audio
         })),
         timeline.media_cache(),
-        media_readers,
     );
     if let Some((_, error)) = refresh.errors.into_iter().next() {
         return Err(error.into());
@@ -149,7 +144,6 @@ fn refresh_media(
 pub(crate) fn export_timeline(
     timeline: TimelineSnapshot,
     renderer: RenderSession,
-    media_readers: Arc<MediaReaderRegistry>,
     output: PathBuf,
     cancelled: &AtomicBool,
     progress: futures::channel::mpsc::UnboundedSender<ExportProgress>,
@@ -167,7 +161,7 @@ pub(crate) fn export_timeline(
             "There are no items to export on the timeline".to_owned(),
         ));
     }
-    let timeline = refresh_media(timeline, &media_readers, settings.exports_audio())?;
+    let timeline = refresh_media(timeline, settings.exports_audio())?;
     let frame_rate = timeline.frame_rate();
     let size = RenderSize::from(timeline.resolution());
     let output_spec = VideoDimensions {
@@ -184,8 +178,7 @@ pub(crate) fn export_timeline(
         Some(AudioTimelineGraph::new(
             timeline.audio_snapshot(),
             audio_format,
-            &media_readers,
-            AudioCalculationPolicy::Report,
+            CalculationPolicy::Report,
         )?)
         .filter(|graph| !graph.is_empty())
     } else {
@@ -245,7 +238,6 @@ pub(crate) fn export_timeline(
             .spawn_scoped(scope, move || {
                 decode_scenes(
                     timeline,
-                    media_readers,
                     &decode_gpu,
                     size,
                     frame_count,
@@ -311,7 +303,6 @@ pub(crate) fn export_timeline(
 
 fn decode_scenes(
     timeline: TimelineSnapshot,
-    media_readers: Arc<MediaReaderRegistry>,
     gpu: &GpuContext,
     size: RenderSize,
     frame_count: u64,
@@ -319,7 +310,7 @@ fn decode_scenes(
     cancelled: &AtomicBool,
 ) {
     let mut decoders = HashMap::<DecodeStreamKey, VisualDecodeSession>::new();
-    let mut evaluator = SceneEvaluator::for_export();
+    let mut evaluator = SceneEvaluator::new(CalculationPolicy::Report);
     for frame_index in 0..frame_count {
         if cancelled.load(Ordering::Relaxed) {
             break;
@@ -331,7 +322,7 @@ fn decode_scenes(
             .evaluate(&timeline, render_time, size, |request| {
                 active_streams.insert(request.stream.clone());
                 let decoder = decoders.entry(request.stream.clone()).or_default();
-                let decoded = decoder.decode(&media_readers, &request, Some(gpu), cancelled)?;
+                let decoded = decoder.decode(&request, Some(gpu), cancelled)?;
                 Ok::<_, ExportError>(Some(decoded.frame))
             })
             .map(|scene| (frame_index, scene));
@@ -398,8 +389,9 @@ fn write_output(
         encoder.write_video(frame).map_err(ExportError::from)?;
         if let Some(audio_graph) = &mut audio_graph {
             let format = video_settings.audio.expect("audio graph format");
-            let start = sample_boundary(index, frame_rate, format.sample_rate);
-            let end = sample_boundary(index.saturating_add(1), frame_rate, format.sample_rate);
+            let start = frame_rate.sample_boundary(Frame::new(index), format.sample_rate);
+            let end =
+                frame_rate.sample_boundary(Frame::new(index.saturating_add(1)), format.sample_rate);
             let frame_count = usize::try_from(end.saturating_sub(start)).map_err(|_| {
                 ExportError::Audio(
                     crate::engine::processing::audio::AudioTimelineError::RangeTooLarge,

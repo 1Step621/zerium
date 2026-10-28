@@ -121,7 +121,6 @@ impl Timeline {
             .collect::<Vec<_>>();
         let editor = self.editor.clone();
         let scene_id = self.editor.read(cx).active_scene_id();
-        let media_readers = self.media_readers.clone();
         let plugins = self.editor.read(cx).plugin_registry_arc();
         let session = self.session.clone();
         let operation = session.update(cx, |session, cx| {
@@ -139,14 +138,8 @@ impl Timeline {
                                 .file_name()
                                 .map(|name| name.to_string_lossy().into_owned())
                                 .unwrap_or_else(|| path.display().to_string());
-                            let result = prepare_import(
-                                path,
-                                &plugins,
-                                &plugin_id,
-                                &item_id,
-                                &property_id,
-                                &media_readers,
-                            );
+                            let result =
+                                prepare_import(path, &plugins, &plugin_id, &item_id, &property_id);
                             (name, plugin_id, item_id, result)
                         })
                         .collect::<Vec<_>>()

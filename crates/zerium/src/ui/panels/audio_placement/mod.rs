@@ -2,7 +2,7 @@
 mod import;
 mod render;
 
-use std::{path::PathBuf, sync::Arc};
+use std::path::PathBuf;
 
 use gpui::{App, Context, Entity, FocusHandle, ScrollHandle, Subscription, Window, prelude::*};
 use zerium_core::{
@@ -14,12 +14,9 @@ use zerium_core::{
     },
 };
 
-use crate::{
-    app::{
-        project::{ProjectOperation, ProjectSession, ProjectSessionId},
-        transport::TransportController,
-    },
-    engine::input::MediaReaderRegistry,
+use crate::app::{
+    project::{ProjectOperation, ProjectSession, ProjectSessionId},
+    transport::TransportController,
 };
 
 struct Row {
@@ -47,7 +44,6 @@ pub(crate) struct AudioPlacement {
     editor: Entity<TimelineEditor>,
     transport: Entity<TransportController>,
     session: Entity<ProjectSession>,
-    readers: Arc<MediaReaderRegistry>,
     session_id: ProjectSessionId,
     scene_id: SceneId,
     layer: Option<LayerId>,
@@ -64,7 +60,6 @@ impl AudioPlacement {
         editor: Entity<TimelineEditor>,
         transport: Entity<TransportController>,
         session: Entity<ProjectSession>,
-        readers: Arc<MediaReaderRegistry>,
         cx: &mut Context<Self>,
     ) -> Self {
         let subscriptions = vec![
@@ -83,7 +78,6 @@ impl AudioPlacement {
             editor,
             transport,
             session,
-            readers,
             layer: None,
             stamp_target: None,
             import_task: None,

@@ -70,7 +70,6 @@ impl ExportController {
             }
         };
         let snapshot = self.editor.read(cx).snapshot();
-        let media_readers = self.media_readers.clone();
         let session = self.session.clone();
         let operation = session.update(cx, |session, cx| {
             let operation = session.begin(ProjectActivity::Export);
@@ -99,7 +98,6 @@ impl ExportController {
                         let result = export_timeline(
                             snapshot,
                             renderer,
-                            media_readers,
                             destination,
                             &cancelled,
                             progress_tx.clone(),

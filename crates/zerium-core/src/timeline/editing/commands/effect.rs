@@ -43,12 +43,12 @@ impl TimelineEditor {
         for source in sources {
             if self
                 .plugins
-                .effect(&source.plugin_id, &source.effect_id)
+                .effect(&source.plugin_id, source.schema().id())
                 .is_none()
             {
                 return Err(TimelineEditError::PluginEffectNotFound {
                     plugin_id: source.plugin_id.clone(),
-                    effect_id: source.effect_id.clone(),
+                    effect_id: source.schema().id().to_owned(),
                 });
             }
         }
@@ -126,14 +126,7 @@ impl TimelineEditor {
                 .active_document_mut()
                 .item_mut(id)
                 .is_some_and(|item| {
-                    item.add_effect(
-                        instance_id,
-                        plugin_id,
-                        effect_id,
-                        schema,
-                        properties,
-                        frame_rate,
-                    )
+                    item.add_effect(instance_id, plugin_id, schema, properties, frame_rate)
                 })
             {
                 return Err(TimelineEditError::ItemNotFound(id));

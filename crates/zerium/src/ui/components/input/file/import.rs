@@ -28,14 +28,13 @@ impl FileImportTarget {
             return None;
         }
         let plugin_id = item.plugin_id()?;
-        let item_id = item.item_id()?;
-        let schema = editor.plugin_registry().item(plugin_id, item_id)?;
+        let schema = item.schema()?;
         schema
             .media_sources()
             .any(|source| source.file == address.property_id)
             .then(|| Self {
                 plugin_id: plugin_id.to_owned(),
-                item_id: item_id.to_owned(),
+                item_id: schema.id().to_owned(),
                 property_id: address.property_id.clone(),
             })
     }

@@ -5,7 +5,7 @@ use super::{
     output::{AudioOutputState, build_output_stream},
     preparation::PreparedAudio,
 };
-use crate::engine::{input::MediaReaderRegistry, processing::audio::AudioTimelineError};
+use crate::engine::processing::audio::AudioTimelineError;
 use cpal::traits::StreamTrait as _;
 use std::{
     collections::VecDeque,
@@ -32,7 +32,6 @@ impl AudioPlaybackSession {
     pub(super) fn new(
         prepared: PreparedAudio,
         timeline: AudioTimelineSnapshot,
-        media_readers: Arc<MediaReaderRegistry>,
     ) -> Result<Self, AudioPlaybackError> {
         let PreparedAudio {
             device,
@@ -64,9 +63,7 @@ impl AudioPlaybackSession {
                         .unwrap_or_else(|error| error.into_inner())
                         .take();
                     let mixed = update
-                        .map_or(Ok(false), |timeline| {
-                            graph.update_timeline(timeline, &media_readers)
-                        })
+                        .map_or(Ok(false), |timeline| graph.update_timeline(timeline))
                         .and_then(|_| graph.render(cursor, MIX_BLOCK_SAMPLE_FRAMES));
                     let mixed = mixed?;
                     for sample in mixed {

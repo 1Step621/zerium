@@ -73,13 +73,10 @@ impl TimelineEditor {
         self.set_playhead(self.playhead())
     }
 
-    pub fn set_playback_position(&mut self, seconds: f64, frame: Frame) -> bool {
+    pub fn set_playback_position(&mut self, seconds: f64) -> bool {
         let Some(time) = TimelineTime::from_seconds(seconds, self.frame_rate()) else {
             return false;
         };
-        if time.nearest_frame() != frame {
-            return false;
-        }
         let position = PlayheadPosition::Playing(time);
         if self.position == position {
             return false;

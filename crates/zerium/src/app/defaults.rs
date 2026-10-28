@@ -38,7 +38,7 @@ impl DefaultsTarget {
             let effect = item.effects.iter().find(|effect| effect.id == id)?;
             Some(Self::Effect {
                 plugin_id: effect.plugin_id.clone(),
-                effect_id: effect.effect_id.clone(),
+                effect_id: effect.schema().id().to_owned(),
             })
         } else {
             Some(Self::Item {

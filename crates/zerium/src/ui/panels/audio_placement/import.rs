@@ -24,7 +24,6 @@ impl AudioPlacement {
         self.error = None;
         let scope = (self.session_id, self.scene_id, self.layer);
         let plugins = self.editor.read(cx).plugin_registry_arc();
-        let readers = self.readers.clone();
         let operation = self.session.update(cx, |session, cx| {
             let operation = session.begin(ProjectActivity::Import);
             cx.notify();
@@ -40,7 +39,7 @@ impl AudioPlacement {
                 let result = if let Some(folder) = selection.await {
                     let path = folder.path().to_owned();
                     Some(
-                        cx.background_spawn(async move { read_folder(&path, &plugins, &readers) })
+                        cx.background_spawn(async move { read_folder(&path, &plugins) })
                             .await,
                     )
                 } else {
@@ -129,11 +128,7 @@ impl AudioPlacement {
     }
 }
 
-fn read_folder(
-    path: &Path,
-    plugins: &PluginRegistry,
-    readers: &MediaReaderRegistry,
-) -> Result<Vec<ImportedFile>, String> {
+fn read_folder(path: &Path, plugins: &PluginRegistry) -> Result<Vec<ImportedFile>, String> {
     let mut paths = Vec::new();
     for entry in std::fs::read_dir(path).map_err(|error| error.to_string())? {
         let entry = entry.map_err(|error| error.to_string())?;
@@ -159,7 +154,7 @@ fn read_folder(
         let Some((plugin, item, property, reader)) = target else {
             continue;
         };
-        let file = prepare_import(&path, plugins, plugin, item, property, readers)
+        let file = prepare_import(&path, plugins, plugin, item, property)
             .map_err(|error| format!("{}: {error}", path.display()))?;
         if file.file.asset(reader, MediaTarget::Audio).is_none() {
             return Err(t!("audio_placement.invalid_audio", name = path.display()).to_string());

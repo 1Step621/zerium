@@ -2,7 +2,10 @@
 
 use self::{
     interface::{GpuComposite, GpuImage, GpuItem, GpuPass, GpuSurface},
-    shaders::{ComputePipeline, RasterPipeline, raster_pipeline},
+    shaders::{
+        ComputePipeline, RasterPipeline, compute_pipeline, effect_pipeline, item_pipeline,
+        raster_pipeline,
+    },
     video::{VideoPlanePipeline, YuvUploadPipeline},
 };
 use super::{
@@ -26,8 +29,11 @@ pub(super) mod video;
 
 const COMPOSITE: &str = include_str!("wgsl/composite.wgsl");
 
-impl RenderDeviceBuilder {
-    pub(crate) fn new(gpu: GpuContext) -> Result<Self, RenderError> {
+impl RenderDevice {
+    pub(crate) fn create(
+        gpu: GpuContext,
+        shaders: &ValidatedPluginShaders,
+    ) -> Result<Arc<Self>, RenderError> {
         let device = &gpu.device;
         let item_bind_group_layout =
             device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {
@@ -197,6 +203,15 @@ impl RenderDeviceBuilder {
             ],
             immediate_size: 0,
         });
+        let compute_pipeline_layout =
+            device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
+                label: Some("zerium-compute-pipeline-layout"),
+                bind_group_layouts: &[
+                    Some(&compute_bind_group_layout),
+                    Some(&capability_bind_group_layout),
+                ],
+                immediate_size: 0,
+            });
         let composite_pipeline_layout =
             device.create_pipeline_layout(&wgpu::PipelineLayoutDescriptor {
                 label: Some("zerium-composite-pipeline-layout"),
@@ -338,66 +353,56 @@ impl RenderDeviceBuilder {
         );
         let yuv_upload = YuvUploadPipeline::new(device)?;
         let video_planes = VideoPlanePipeline::new(device)?;
-        Ok(Self {
-            render_device: RenderDevice {
-                gpu,
-                pipeline_layout,
-                item_pipelines: HashMap::new(),
-                item_bind_group_layout,
-                capability_bind_group_layout,
-                pass_bind_group_layout,
-                compute_bind_group_layout,
-                pass_pipeline_layout,
-                composite_bind_group_layout,
-                backdrop_bind_group_layout,
-                effect_pipelines: HashMap::new(),
-                temporal_pipelines: HashMap::new(),
-                compute_pipelines: HashMap::new(),
-                composite_pipeline,
-                blend_pipeline,
-                output_pipeline,
-                frame_pipeline,
-                frame_bind_group_layout,
-                sampler,
-                yuv_upload,
-                video_planes,
-            },
-        })
-    }
-
-    pub(crate) fn register_plugins(
-        mut self,
-        shaders: &ValidatedPluginShaders,
-    ) -> Result<Self, RenderError> {
-        for descriptor in &shaders.items {
-            self.render_device
-                .register_item_shader(descriptor.clone())?;
-        }
-        for effect in &shaders.effects {
+        let item_pipelines = shaders
+            .items()
+            .iter()
+            .map(|descriptor| {
+                Ok((
+                    descriptor.id.clone(),
+                    item_pipeline(&gpu, &pipeline_layout, descriptor)?,
+                ))
+            })
+            .collect::<Result<_, RenderError>>()?;
+        let mut effect_pipelines = HashMap::new();
+        let mut compute_pipelines = HashMap::new();
+        for effect in shaders.effects() {
             match effect {
                 ValidatedEffectShader::Render(descriptor) => {
-                    self.render_device
-                        .register_effect_shader(descriptor.clone())?;
+                    effect_pipelines.insert(
+                        descriptor.id.clone(),
+                        effect_pipeline(&gpu, &pass_pipeline_layout, descriptor)?,
+                    );
                 }
                 ValidatedEffectShader::Compute(descriptor) => {
-                    self.render_device
-                        .register_compute_shader(descriptor.clone())?;
-                }
-                ValidatedEffectShader::Temporal(descriptor) => {
-                    self.render_device
-                        .register_temporal_shader(descriptor.clone())?;
+                    compute_pipelines.insert(
+                        descriptor.id.clone(),
+                        compute_pipeline(&gpu, &compute_pipeline_layout, descriptor)?,
+                    );
                 }
             }
         }
-        Ok(self)
+        Ok(Arc::new(Self {
+            gpu,
+            item_pipelines,
+            item_bind_group_layout,
+            capability_bind_group_layout,
+            pass_bind_group_layout,
+            compute_bind_group_layout,
+            composite_bind_group_layout,
+            backdrop_bind_group_layout,
+            effect_pipelines,
+            compute_pipelines,
+            composite_pipeline,
+            blend_pipeline,
+            output_pipeline,
+            frame_pipeline,
+            frame_bind_group_layout,
+            sampler,
+            yuv_upload,
+            video_planes,
+        }))
     }
 
-    pub(crate) fn build(self) -> Arc<RenderDevice> {
-        Arc::new(self.render_device)
-    }
-}
-
-impl RenderDevice {
     /// Creates an independent device for export work.
     ///
     /// The preview surface shares its device with the UI thread, whose frame
@@ -433,9 +438,7 @@ impl RenderDevice {
         .map_err(|error| {
             RenderError::backend(format!("export GPU device is unavailable: {error}"))
         })?;
-        RenderDeviceBuilder::new(gpu)?
-            .register_plugins(shaders)
-            .map(|builder| builder.build())
+        Self::create(gpu, shaders)
     }
 }
 
@@ -443,17 +446,14 @@ impl RenderDevice {
 /// sessions for preview, export, thumbnails, and background jobs.
 pub(crate) struct RenderDevice {
     pub(super) gpu: GpuContext,
-    pub(super) pipeline_layout: wgpu::PipelineLayout,
     pub(super) item_pipelines: HashMap<ItemShaderId, RasterPipeline>,
     pub(super) item_bind_group_layout: wgpu::BindGroupLayout,
     pub(super) capability_bind_group_layout: wgpu::BindGroupLayout,
     pub(super) pass_bind_group_layout: wgpu::BindGroupLayout,
     pub(super) compute_bind_group_layout: wgpu::BindGroupLayout,
-    pub(super) pass_pipeline_layout: wgpu::PipelineLayout,
     pub(super) composite_bind_group_layout: wgpu::BindGroupLayout,
     pub(super) backdrop_bind_group_layout: wgpu::BindGroupLayout,
     pub(super) effect_pipelines: HashMap<EffectShaderId, RasterPipeline>,
-    pub(super) temporal_pipelines: HashMap<EffectShaderId, RasterPipeline>,
     pub(super) compute_pipelines: HashMap<EffectShaderId, ComputePipeline>,
     pub(super) composite_pipeline: wgpu::RenderPipeline,
     pub(super) blend_pipeline: wgpu::RenderPipeline,
@@ -463,10 +463,6 @@ pub(crate) struct RenderDevice {
     pub(super) sampler: wgpu::Sampler,
     pub(super) yuv_upload: YuvUploadPipeline,
     pub(super) video_planes: VideoPlanePipeline,
-}
-
-pub(crate) struct RenderDeviceBuilder {
-    render_device: RenderDevice,
 }
 
 impl RenderDevice {

@@ -14,7 +14,11 @@ use crate::{
 use super::TimelineDocument;
 
 impl TimelineDocument {
-    pub fn import_item_file(&mut self, id: ItemId, imported: ImportedFile) -> bool {
+    pub(in crate::timeline) fn import_item_file(
+        &mut self,
+        id: ItemId,
+        imported: ImportedFile,
+    ) -> bool {
         let Some(item) = self.items.get(&id) else {
             return false;
         };

@@ -136,9 +136,7 @@ impl AtomicFileTransaction {
             .write(true)
             .truncate(true)
             .open(&self.temporary)?;
-        file.write_all(bytes)?;
-        file.flush()?;
-        file.sync_all()
+        file.write_all(bytes)
     }
 
     pub(crate) fn commit(mut self) -> io::Result<()> {

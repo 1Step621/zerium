@@ -7,8 +7,8 @@
 [`engine/input`](../../crates/zerium/src/engine/input/) owns source discovery and
 audio/visual reader contracts. Native-library adapters live with their readers.
 Scene evaluation requests media by asset, source time, and raster size.
-Reader IDs resolve to the bundled implementations through a fixed registry;
-there is no runtime reader registration or mutable lookup table.
+Reader IDs resolve directly to the bundled implementations. Selection is stateless;
+only metadata observations and decoder sessions retain consumer state.
 Preview and export own separate evaluators and decode sessions. Video selection
 uses presentation timestamps; images are rasterized at the requested size.
 Decoded frames retain the same `Arc<VisualFrame>` identity when reusing a

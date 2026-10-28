@@ -9,10 +9,7 @@ use std::{collections::HashMap, sync::Arc};
 use futures::channel::mpsc::{UnboundedReceiver, UnboundedSender, unbounded};
 
 use crate::engine::{
-    input::{
-        DecodeStreamKey, DecodedFrame, MediaError, MediaFrameRequest, MediaReaderRegistry,
-        VisualFrame,
-    },
+    input::{DecodeStreamKey, DecodedFrame, MediaError, MediaFrameRequest, VisualFrame},
     processing::visual::VideoFrameUploader,
 };
 
@@ -29,7 +26,6 @@ pub(crate) struct PreviewFrameStatus {
 }
 
 pub(crate) struct PreviewFrameScheduler {
-    media_readers: Arc<MediaReaderRegistry>,
     uploader: Option<Arc<VideoFrameUploader>>,
     demand: FrameDemand,
     workers: HashMap<DecodeStreamKey, DecodeWorker>,
@@ -39,13 +35,11 @@ pub(crate) struct PreviewFrameScheduler {
 
 impl PreviewFrameScheduler {
     pub(crate) fn new(
-        media_readers: Arc<MediaReaderRegistry>,
         uploader: Option<VideoFrameUploader>,
     ) -> (Self, UnboundedReceiver<PreviewFrameEvent>) {
         let (events, event_receiver) = unbounded();
         (
             Self {
-                media_readers,
                 uploader: uploader.map(Arc::new),
                 demand: FrameDemand::new(),
                 workers: HashMap::new(),
@@ -105,7 +99,6 @@ impl PreviewFrameScheduler {
         match self.workers.entry(stream.clone()) {
             Entry::Occupied(entry) => Ok(entry.into_mut()),
             Entry::Vacant(entry) => Ok(entry.insert(DecodeWorker::spawn(
-                self.media_readers.clone(),
                 self.uploader.clone(),
                 self.events.clone(),
             )?)),

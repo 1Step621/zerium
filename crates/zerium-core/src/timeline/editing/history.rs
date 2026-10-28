@@ -44,31 +44,20 @@ pub(in crate::timeline) struct HistorySnapshot {
     pub(in crate::timeline) project_revision: u64,
 }
 
-pub(in crate::timeline) type ScopedHistoryKey = (SceneId, HistoryKey);
+type ScopedHistoryKey = (SceneId, HistoryKey);
 
-/// Bounded undo/redo storage with explicit edit coalescing.
-///
-/// The history owns no domain state itself. Callers provide snapshots at edit
-/// boundaries, which keeps persistence, selection, and history policy from
-/// becoming coupled to one another.
-pub(in crate::timeline) struct EditHistory<S, K> {
-    undo: VecDeque<S>,
-    redo: VecDeque<S>,
-    last_edit: Option<(K, Instant)>,
-    limit: usize,
+const HISTORY_LIMIT: usize = 100;
+const HISTORY_COALESCE_INTERVAL: Duration = Duration::from_millis(750);
+
+/// Timeline snapshots and their Undo groups for one editing session.
+#[derive(Default)]
+pub(in crate::timeline) struct EditHistory {
+    undo: VecDeque<HistorySnapshot>,
+    redo: VecDeque<HistorySnapshot>,
+    last_edit: Option<(ScopedHistoryKey, Instant)>,
 }
 
-impl<S, K> EditHistory<S, K> {
-    pub(in crate::timeline) fn new(limit: usize) -> Self {
-        assert!(limit > 0, "history limit must be non-zero");
-        Self {
-            undo: VecDeque::new(),
-            redo: VecDeque::new(),
-            last_edit: None,
-            limit,
-        }
-    }
-
+impl EditHistory {
     pub(in crate::timeline) fn can_undo(&self) -> bool {
         !self.undo.is_empty()
     }
@@ -87,58 +76,60 @@ impl<S, K> EditHistory<S, K> {
         self.last_edit = None;
     }
 
-    fn push(limit: usize, history: &mut VecDeque<S>, snapshot: S) {
-        if history.len() == limit {
+    fn push(history: &mut VecDeque<HistorySnapshot>, snapshot: HistorySnapshot) {
+        if history.len() == HISTORY_LIMIT {
             history.pop_front();
         }
         history.push_back(snapshot);
     }
 
-    pub(in crate::timeline) fn record(&mut self, before: Option<S>, key: Option<K>) {
+    pub(in crate::timeline) fn record(
+        &mut self,
+        before: Option<HistorySnapshot>,
+        key: Option<ScopedHistoryKey>,
+    ) {
         if let Some(before) = before {
-            Self::push(self.limit, &mut self.undo, before);
+            Self::push(&mut self.undo, before);
         }
         self.redo.clear();
         self.last_edit = key.map(|key| (key, Instant::now()));
     }
 
-    pub(in crate::timeline) fn undo(&mut self, current: S) -> Option<S> {
+    pub(in crate::timeline) fn undo(
+        &mut self,
+        current: HistorySnapshot,
+    ) -> Option<HistorySnapshot> {
         let previous = self.undo.pop_back()?;
-        Self::push(self.limit, &mut self.redo, current);
+        Self::push(&mut self.redo, current);
         self.finish_group();
         Some(previous)
     }
 
-    pub(in crate::timeline) fn redo(&mut self, current: S) -> Option<S> {
+    pub(in crate::timeline) fn redo(
+        &mut self,
+        current: HistorySnapshot,
+    ) -> Option<HistorySnapshot> {
         let next = self.redo.pop_back()?;
-        Self::push(self.limit, &mut self.undo, current);
+        Self::push(&mut self.undo, current);
         self.finish_group();
         Some(next)
     }
-}
 
-impl<S, K: PartialEq> EditHistory<S, K> {
     /// Explicit gestures stay grouped regardless of pauses between updates.
-    pub(in crate::timeline) fn is_current_group(&self, key: &K) -> bool {
+    pub(in crate::timeline) fn is_current_group(&self, key: &ScopedHistoryKey) -> bool {
         self.last_edit
             .as_ref()
             .is_some_and(|(previous, _)| previous == key)
     }
 
-    pub(in crate::timeline) fn begins_group(
-        &self,
-        key: Option<&K>,
-        max_interval: std::time::Duration,
-    ) -> bool {
+    pub(in crate::timeline) fn begins_group(&self, key: Option<&ScopedHistoryKey>) -> bool {
         !key.is_some_and(|key| {
-            self.last_edit
-                .as_ref()
-                .is_some_and(|(previous, at)| previous == key && at.elapsed() <= max_interval)
+            self.last_edit.as_ref().is_some_and(|(previous, at)| {
+                previous == key && at.elapsed() <= HISTORY_COALESCE_INTERVAL
+            })
         })
     }
 }
-
-const HISTORY_COALESCE_INTERVAL: Duration = Duration::from_millis(750);
 
 impl TimelineEditor {
     pub(in crate::timeline) fn history_snapshot_for_edit(
@@ -158,7 +149,7 @@ impl TimelineEditor {
             return None;
         }
         self.history
-            .begins_group(scoped_key.as_ref(), HISTORY_COALESCE_INTERVAL)
+            .begins_group(scoped_key.as_ref())
             .then(|| self.history_snapshot())
     }
 

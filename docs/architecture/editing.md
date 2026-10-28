@@ -43,8 +43,10 @@ looked up by source address. Reading or selecting items never materializes value
 back into authored items. Copying or detaching connected properties explicitly
 bakes just their resolved fallbacks into a detached authored copy.
 Single-item effect ordering and aspect-ratio mutations belong to `TimelineItem`;
-`TimelineDocument` locates items and maintains document structure, while
-`TimelineEditor` coordinates project validation, bindings, IDs and Undo.
+the internal `TimelineDocument` locates items and maintains document structure,
+while `TimelineEditor` coordinates project validation, bindings, IDs and Undo.
+Inspector editing metadata such as aspect locks is read from authored items;
+evaluated items carry only sampled values and consumer metadata.
 
 An item declares playback once, using ordinary property references. All its
 visual, audio, and effect media inputs share the resolved clock. Sequence inputs

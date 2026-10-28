@@ -1,26 +1,22 @@
 //! Consumer-local text preparation and timeline-to-scene evaluation.
 use super::{RenderError, RenderScene, RenderSize, graph::SceneGraphBuilder, text::TextFrameCache};
-use crate::engine::input::{MediaFrameRequest, VisualFrame};
+use crate::engine::{
+    input::{MediaFrameRequest, VisualFrame},
+    processing::CalculationPolicy,
+};
 use std::sync::Arc;
 use zerium_core::timeline::{TimelineTime, TimelineView};
 
 pub(crate) struct SceneEvaluator {
     text: TextFrameCache,
-    strict_calculations: bool,
+    calculation_policy: CalculationPolicy,
 }
 
 impl SceneEvaluator {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn new(calculation_policy: CalculationPolicy) -> Self {
         Self {
             text: TextFrameCache::new(),
-            strict_calculations: false,
-        }
-    }
-
-    pub(crate) fn for_export() -> Self {
-        Self {
-            strict_calculations: true,
-            ..Self::new()
+            calculation_policy,
         }
     }
 
@@ -36,7 +32,7 @@ impl SceneEvaluator {
             timeline,
             time,
             size,
-            self.strict_calculations,
+            self.calculation_policy,
             media,
             |request| self.text.frame_for(request, composition_size),
         )

@@ -15,11 +15,13 @@ pub use evaluation::{
     RenderEvaluation, RenderPlacement, RenderPropertyTarget, RenderResultSettings,
     ResolvedRenderProperties, TimelineView,
 };
-pub(crate) use model::project::TimelineProject;
+pub(crate) use model::{
+    document::TimelineDocument, project::TimelineProject, scene::resolve_scene_binding,
+};
 
 pub use model::{
     EffectInstanceId, ItemId, LayerId, ProjectId, SceneId,
-    document::{ResizeEdge, ResizeMode, TimelineDocument},
+    document::{ResizeEdge, ResizeMode},
     item::{
         AspectRatio, BlendMode, EffectInstance, ItemCreation, ItemInterval, ItemSource,
         PropertyAddress, TimelineItem, TimelineItemKind,
@@ -32,7 +34,7 @@ pub use model::{
     scene::{
         CalculationDiagnostic, CalculationFailure, SceneBindingOwner, SceneBindingTarget,
         SceneCalculation, SceneCalculationInput, SceneDefinition, SceneEvaluation, SceneVariable,
-        SceneVariablePreset, SceneVariableSource, resolve_scene_binding,
+        SceneVariablePreset, SceneVariableSource,
     },
     time::{Frame, FrameDuration, FrameRate, TimeMapping, TimelineTime},
 };

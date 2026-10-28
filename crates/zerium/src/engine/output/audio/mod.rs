@@ -6,11 +6,11 @@ use self::{
     preparation::{AudioPreparation, PlaybackPosition, PreparedAudio},
     session::{AudioPlaybackSession, AudioWorker},
 };
-use std::{collections::VecDeque, sync::Arc};
+use std::collections::VecDeque;
 
 use thiserror::Error;
 
-use crate::engine::{input::MediaReaderRegistry, processing::audio::AudioTimelineError};
+use crate::engine::processing::audio::AudioTimelineError;
 use zerium_core::timeline::{AudioTimelineSnapshot, Frame};
 
 const MIX_BLOCK_SAMPLE_FRAMES: usize = 2_048;
@@ -63,17 +63,15 @@ pub(crate) struct AudioPlaybackEngine {
     requested_timeline: Option<AudioTimelineSnapshot>,
     state: AudioPlaybackState,
     retiring: Vec<AudioWorker>,
-    media_readers: Arc<MediaReaderRegistry>,
     completed_events: VecDeque<AudioPlaybackEvent>,
 }
 
 impl AudioPlaybackEngine {
-    pub(crate) fn new(media_readers: Arc<MediaReaderRegistry>) -> Self {
+    pub(crate) fn new() -> Self {
         Self {
             requested_timeline: None,
             state: AudioPlaybackState::Idle,
             retiring: Vec::new(),
-            media_readers,
             completed_events: VecDeque::new(),
         }
     }
@@ -93,11 +91,7 @@ impl AudioPlaybackEngine {
         timeline: AudioTimelineSnapshot,
         position: PlaybackPosition,
     ) -> Result<PlaybackClock, AudioPlaybackError> {
-        self.state = AudioPlaybackState::Preparing(AudioPreparation::spawn(
-            timeline,
-            position,
-            self.media_readers.clone(),
-        )?);
+        self.state = AudioPlaybackState::Preparing(AudioPreparation::spawn(timeline, position)?);
         Ok(PlaybackClock::Preparing)
     }
 
@@ -106,7 +100,7 @@ impl AudioPlaybackEngine {
         prepared: PreparedAudio,
         timeline: AudioTimelineSnapshot,
     ) -> Result<PlaybackClock, AudioPlaybackError> {
-        let session = AudioPlaybackSession::new(prepared, timeline, self.media_readers.clone())?;
+        let session = AudioPlaybackSession::new(prepared, timeline)?;
         if let Err(error) = session.play() {
             self.retire_session(session);
             return Err(error);

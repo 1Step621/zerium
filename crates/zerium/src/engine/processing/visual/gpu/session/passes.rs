@@ -194,13 +194,12 @@ impl RenderSession {
                 );
             }
 
-            PassKind::Render | PassKind::Temporal => {
-                let pipeline = if kind == PassKind::Temporal {
-                    self.shared.temporal_pipelines.get(shader)
-                } else {
-                    self.shared.effect_pipelines.get(shader)
-                }
-                .expect("validated raster pass");
+            PassKind::Render => {
+                let pipeline = self
+                    .shared
+                    .effect_pipelines
+                    .get(shader)
+                    .expect("validated raster pass");
                 let mut pass = render_pass(
                     encoder,
                     &resources.target.view,

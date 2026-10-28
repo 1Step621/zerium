@@ -141,12 +141,12 @@ impl SceneBindingTarget {
 /// Keeping this resolution here gives editing, persistence validation, and
 /// evaluation one definition of what a valid scene binding points at.
 #[derive(Clone)]
-pub struct ResolvedSceneBinding {
+pub(crate) struct ResolvedSceneBinding {
     pub schema: PropertySchema,
     pub animated: bool,
 }
 
-pub fn resolve_scene_binding(
+pub(crate) fn resolve_scene_binding(
     scenes: &HashMap<SceneId, SceneDefinition>,
     scene: &SceneDefinition,
     target: &SceneBindingTarget,

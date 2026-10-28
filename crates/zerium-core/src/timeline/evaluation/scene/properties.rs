@@ -226,7 +226,6 @@ fn resolve_item_properties<'a>(
         .map(|effect| crate::timeline::EvaluatedEffect {
             id: effect.id,
             plugin_id: effect.plugin_id.clone(),
-            effect_id: effect.effect_id.clone(),
             properties: resolve_properties(
                 bindings,
                 source,
@@ -236,7 +235,6 @@ fn resolve_item_properties<'a>(
                 &mut diagnostics,
             ),
             schema: effect.schema.clone(),
-            aspect_ratio: effect.aspect_ratio,
         })
         .collect();
     ResolvedItem {
@@ -252,7 +250,6 @@ fn resolve_item_properties<'a>(
             properties,
             playback: source.playback(),
             effects,
-            aspect_ratio: source.aspect_ratio,
         },
         diagnostics,
     }

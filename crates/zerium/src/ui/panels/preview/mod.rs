@@ -10,8 +10,8 @@ use crate::{
     },
     engine::{
         GpuContext,
-        input::MediaReaderRegistry,
         processing::{
+            CalculationPolicy,
             audio::metering::AudioLevelSampler,
             visual::{RenderError, RenderScene, RenderSize, SceneEvaluator},
         },
@@ -24,7 +24,6 @@ use gpui::{
     App, Context, Entity, SharedString, Subscription, Task, WgpuSurfaceHandle, Window, prelude::*,
 };
 use rust_i18n::t;
-use std::sync::Arc;
 use zerium_core::timeline::{Frame, TimelineEditor, TimelineTime};
 
 mod image;
@@ -39,7 +38,6 @@ pub(crate) struct PreviewDependencies {
     pub(crate) session: Entity<ProjectSession>,
     pub(crate) notifications: Entity<UiNotifications>,
     pub(crate) render_runtime: Entity<RenderRuntime>,
-    pub(crate) media_readers: Arc<MediaReaderRegistry>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -60,7 +58,6 @@ pub(crate) struct Preview {
     seekbar: Entity<SliderState>,
     surface: Option<WgpuSurfaceHandle>,
     render_runtime: Entity<RenderRuntime>,
-    media_readers: Arc<MediaReaderRegistry>,
     scene_evaluator: SceneEvaluator,
     error: Option<SharedString>,
     frame_error: Option<SharedString>,
@@ -91,7 +88,6 @@ impl Preview {
             session,
             notifications,
             render_runtime,
-            media_readers,
         } = dependencies;
         let session_id = session.read(cx).id();
         let seekbar = cx.new(|_| SliderState::new().min(0.).max(1.).step(0.001));
@@ -122,7 +118,7 @@ impl Preview {
             }
             this.cancel_color_pick(window, cx);
             this.session_id = session_id;
-            this.scene_evaluator = SceneEvaluator::new();
+            this.scene_evaluator = SceneEvaluator::new(CalculationPolicy::Fallback);
             this.error = None;
             this.frame_error = None;
             this.rendered_frame = None;
@@ -164,13 +160,12 @@ impl Preview {
         render_runtime.update(cx, |runtime, _| {
             runtime.set_preview_session(renderer);
         });
-        let audio_level_sampler = AudioLevelSampler::new(media_readers.clone());
+        let audio_level_sampler = AudioLevelSampler::default();
         let uploader = render_runtime
             .read(cx)
             .preview_session()
             .map(|renderer| renderer.video_uploader());
-        let (frame_scheduler, mut frame_events) =
-            PreviewFrameScheduler::new(media_readers.clone(), uploader);
+        let (frame_scheduler, mut frame_events) = PreviewFrameScheduler::new(uploader);
         let frame_task = cx.spawn(async move |preview, cx| {
             while let Some(event) = frame_events.next().await {
                 let Some(preview) = preview.upgrade() else {
@@ -200,8 +195,7 @@ impl Preview {
             seekbar,
             surface,
             render_runtime,
-            media_readers,
-            scene_evaluator: SceneEvaluator::new(),
+            scene_evaluator: SceneEvaluator::new(CalculationPolicy::Fallback),
             error: None,
             frame_error: None,
             rendered_frame: None,

@@ -85,7 +85,6 @@ pub(super) enum PassKind {
     Compute {
         dispatch: [ComputeDispatchDimension; 3],
     },
-    Temporal,
 }
 
 #[derive(Default)]
@@ -392,7 +391,7 @@ impl RenderGraphBuilder<'_> {
                         accumulation = self.encode_pass(
                             pass_inputs(input, accumulation),
                             pass,
-                            PassKind::Temporal,
+                            PassKind::Render,
                             temporal,
                             bounds,
                         );

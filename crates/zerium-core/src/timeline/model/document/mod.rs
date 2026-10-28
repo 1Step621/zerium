@@ -24,7 +24,7 @@ use super::{
 const DEFAULT_ITEM_SECONDS: f64 = 5.;
 
 #[derive(Clone)]
-pub struct TimelineDocument {
+pub(crate) struct TimelineDocument {
     frame_rate: FrameRate,
     items: HashMap<ItemId, Arc<TimelineItem>>,
     item_layers: HashMap<ItemId, LayerId>,
@@ -33,14 +33,8 @@ pub struct TimelineDocument {
     next_item_id: Option<u64>,
 }
 
-impl Default for TimelineDocument {
-    fn default() -> Self {
-        Self::new(FrameRate::FPS_30)
-    }
-}
-
 impl TimelineDocument {
-    pub fn new(frame_rate: FrameRate) -> Self {
+    pub(crate) fn new(frame_rate: FrameRate) -> Self {
         Self {
             frame_rate,
             items: HashMap::new(),
@@ -51,7 +45,7 @@ impl TimelineDocument {
         }
     }
 
-    pub fn from_items(
+    pub(crate) fn from_items(
         frame_rate: FrameRate,
         items: Vec<(LayerId, TimelineItem)>,
         hidden_layers: impl IntoIterator<Item = LayerId>,
@@ -90,7 +84,7 @@ impl TimelineDocument {
         document
     }
 
-    pub fn frame_rate(&self) -> FrameRate {
+    pub(crate) fn frame_rate(&self) -> FrameRate {
         self.frame_rate
     }
 
@@ -162,7 +156,7 @@ impl TimelineDocument {
         Ok(Self::from_items(frame_rate, items, self.hidden_layer_ids()))
     }
 
-    pub fn item(&self, id: ItemId) -> Option<&TimelineItem> {
+    pub(crate) fn item(&self, id: ItemId) -> Option<&TimelineItem> {
         self.items.get(&id).map(Arc::as_ref)
     }
 
@@ -215,7 +209,7 @@ impl TimelineDocument {
             .any(|item| start < item.end_exclusive(self.frame_rate) && item.start() < end)
     }
 
-    pub fn items_on_layer(&self, layer: LayerId) -> Vec<TimelineItem> {
+    pub(crate) fn items_on_layer(&self, layer: LayerId) -> Vec<TimelineItem> {
         self.layer_items
             .get(&layer)
             .into_iter()
@@ -336,11 +330,10 @@ impl TimelineDocument {
         Some(id)
     }
 
-    pub fn add_item(
+    pub(crate) fn add_item(
         &mut self,
         layer: LayerId,
         plugin_id: &str,
-        item_id: &str,
         schema: Arc<ItemSchema>,
         initial: ItemCreation,
     ) -> Option<ItemId> {
@@ -378,18 +371,13 @@ impl TimelineDocument {
             fixed_duration.expect("fixed clip")
         };
         let plugin_id = plugin_id.to_owned();
-        let item_id = item_id.to_owned();
         self.insert_item(layer, start, duration, move |id, start, _| TimelineItem {
             id,
             hidden: false,
             start,
             fixed_duration,
             blend_mode: crate::timeline::BlendMode::Normal,
-            kind: TimelineItemKind::Plugin {
-                plugin_id,
-                item_id,
-                schema,
-            },
+            kind: TimelineItemKind::Plugin { plugin_id, schema },
             properties,
             animations: ScalarAnimations::default(),
             aspect_ratio,
@@ -419,7 +407,7 @@ impl TimelineDocument {
         item.map(|item| (layer, item))
     }
 
-    pub fn remove_item(&mut self, id: ItemId) -> bool {
+    pub(crate) fn remove_item(&mut self, id: ItemId) -> bool {
         let removed = self.remove_item_entry(id).is_some();
         #[cfg(debug_assertions)]
         self.assert_consistent();

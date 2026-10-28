@@ -98,6 +98,9 @@ coordinates and sampling functions.
 creates preview and export sessions. `RenderDevice` shares pipelines. Each
 `RenderSession` owns its mutable resources in one `RenderState`; planning, input
 preparation, submission, and recycling use the same session lock. Preview and export use separate sessions.
+Device creation consumes read-only shader descriptions produced by validation.
+Temporal sampling is lowered into ordinary render passes with sample metadata;
+it shares raster pipeline creation and storage with other effects.
 Background video preparation uses a `VideoFrameUploader` with independent
 conversion scratch. It shares pipelines and upload code with rendering, and
 submits converted frames before workers publish them.

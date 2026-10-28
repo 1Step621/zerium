@@ -59,7 +59,6 @@ impl Preview {
         let Some(renderer) = self.render_runtime.read(cx).preview_session() else {
             return;
         };
-        let media_readers = self.media_readers.clone();
         let initial_directory = self
             .session
             .read(cx)
@@ -88,7 +87,7 @@ impl Preview {
                     None
                 };
                 cx.background_spawn(async move {
-                    export_frame(snapshot, renderer.fork(), media_readers, output)
+                    export_frame(snapshot, renderer.fork(), output)
                         .map(Some)
                         .map_err(|error| error.to_string())
                 })

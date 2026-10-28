@@ -1,5 +1,5 @@
 //! Visual media: shared frames and decode sessions, with image and video implementations.
-use super::{MediaError, MediaReaderRegistry};
+use super::{MediaError, reader_for};
 use crate::engine::GpuContext;
 use std::{
     collections::{BTreeMap, HashMap},
@@ -82,7 +82,6 @@ pub(crate) struct VisualDecodeSession {
 impl VisualDecodeSession {
     pub(crate) fn decode(
         &mut self,
-        readers: &MediaReaderRegistry,
         request: &MediaFrameRequest,
         gpu: Option<&GpuContext>,
         cancelled: &AtomicBool,
@@ -97,7 +96,7 @@ impl VisualDecodeSession {
         {
             self.session = None;
             let asset = &request.asset;
-            let reader = readers.reader_for(&asset.reader_id)?;
+            let reader = reader_for(&asset.reader_id)?;
             let decoder = match asset.kind {
                 MediaKind::Video { .. } | MediaKind::ImageSequence { .. } => {
                     Decoder::Video(reader.open_video_decoder(asset, gpu)?)

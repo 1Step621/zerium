@@ -10,17 +10,12 @@ use std::{
 
 use thiserror::Error;
 use zerium_core::timeline::{
-    AudioClipId, AudioTimelineSnapshot, AudioTimelineSource, EvaluatedAudioGain, Frame, FrameRate,
+    AudioClipId, AudioTimelineSnapshot, AudioTimelineSource, EvaluatedAudioGain, Frame,
 };
 
 use self::source::AudioSource;
-use crate::engine::input::{AudioFormat, MediaError, MediaReaderRegistry};
-
-#[derive(Clone, Copy)]
-pub(crate) enum AudioCalculationPolicy {
-    Report,
-    Fallback,
-}
+use super::CalculationPolicy;
+use crate::engine::input::{AudioFormat, MediaError, open_audio_decoder};
 
 #[derive(Clone, Debug, Error, PartialEq, Eq)]
 pub(crate) enum AudioTimelineError {
@@ -53,7 +48,7 @@ pub(crate) struct AudioTimelineGraph {
     clips: Vec<AudioClip>,
     format: AudioFormat,
     timeline: AudioTimelineSnapshot,
-    calculation_policy: AudioCalculationPolicy,
+    calculation_policy: CalculationPolicy,
     active: Vec<usize>,
     next_clip: usize,
     previous_end: Option<u64>,
@@ -64,24 +59,21 @@ impl AudioTimelineGraph {
     pub(crate) fn new(
         timeline: AudioTimelineSnapshot,
         format: AudioFormat,
-        media_readers: &MediaReaderRegistry,
-        calculation_policy: AudioCalculationPolicy,
+        calculation_policy: CalculationPolicy,
     ) -> Result<Self, AudioTimelineError> {
         let frame_rate = timeline.frame_rate();
         let mut clips = Vec::new();
         for input in timeline.sources() {
-            let start_sample_frame =
-                sample_boundary(input.start.get(), frame_rate, format.sample_rate);
-            let end_sample_frame = sample_boundary(
-                input.start.get().saturating_add(input.duration.get()),
-                frame_rate,
+            let start_sample_frame = frame_rate.sample_boundary(input.start, format.sample_rate);
+            let end_sample_frame = frame_rate.sample_boundary(
+                Frame::new(input.start.get().saturating_add(input.duration.get())),
                 format.sample_rate,
             );
             if end_sample_frame <= start_sample_frame {
                 continue;
             }
             let id = input.id.clone();
-            let source = open_source(input, format, media_readers)?;
+            let source = open_source(input, format)?;
             clips.push(AudioClip {
                 id,
                 start_sample_frame,
@@ -111,7 +103,6 @@ impl AudioTimelineGraph {
     pub(crate) fn update_timeline(
         &mut self,
         timeline: AudioTimelineSnapshot,
-        media_readers: &MediaReaderRegistry,
     ) -> Result<bool, AudioTimelineError> {
         if self.timeline.same_content(&timeline) {
             return Ok(false);
@@ -119,7 +110,7 @@ impl AudioTimelineGraph {
         if self.timeline.frame_rate() != timeline.frame_rate()
             || self.timeline.sources() != timeline.sources()
         {
-            self.update_sources(&timeline, media_readers)?;
+            self.update_sources(&timeline)?;
         }
         self.gains.clear();
         self.timeline = timeline;
@@ -129,17 +120,15 @@ impl AudioTimelineGraph {
     fn update_sources(
         &mut self,
         timeline: &AudioTimelineSnapshot,
-        media_readers: &MediaReaderRegistry,
     ) -> Result<(), AudioTimelineError> {
         let rate = timeline.frame_rate();
         let desired = timeline
             .sources()
             .iter()
             .filter_map(|input| {
-                let start = sample_boundary(input.start.get(), rate, self.format.sample_rate);
-                let end = sample_boundary(
-                    input.start.get().saturating_add(input.duration.get()),
-                    rate,
+                let start = rate.sample_boundary(input.start, self.format.sample_rate);
+                let end = rate.sample_boundary(
+                    Frame::new(input.start.get().saturating_add(input.duration.get())),
                     self.format.sample_rate,
                 );
                 (end > start).then_some((input, start..end))
@@ -165,10 +154,7 @@ impl AudioTimelineGraph {
                     .get(&input.id)
                     .is_some_and(|old| old.asset == input.asset);
             if !reusable {
-                replacements.insert(
-                    input.id.clone(),
-                    open_source(input, self.format, media_readers)?,
-                );
+                replacements.insert(input.id.clone(), open_source(input, self.format)?);
             }
         }
         let mut previous = std::mem::take(&mut self.clips)
@@ -275,14 +261,11 @@ impl AudioTimelineGraph {
 fn open_source(
     input: &AudioTimelineSource,
     format: AudioFormat,
-    media_readers: &MediaReaderRegistry,
 ) -> Result<AudioSource, AudioTimelineError> {
-    let decoder = media_readers
-        .open_audio_decoder(&input.asset)
-        .map_err(|error| AudioTimelineError::Media {
-            clip: input.id.clone(),
-            error,
-        })?;
+    let decoder = open_audio_decoder(&input.asset).map_err(|error| AudioTimelineError::Media {
+        clip: input.id.clone(),
+        error,
+    })?;
     Ok(AudioSource::new(
         decoder,
         input.playback,
@@ -395,7 +378,7 @@ fn gain_segments(
     format: AudioFormat,
     requested: &HashSet<AudioClipId>,
     cache: &mut VecDeque<FrameGains>,
-    policy: AudioCalculationPolicy,
+    policy: CalculationPolicy,
 ) -> Result<HashMap<AudioClipId, Vec<GainSegment>>, AudioTimelineError> {
     let mut values: HashMap<AudioClipId, Vec<GainSegment>> = HashMap::new();
     if requested.is_empty() {
@@ -433,7 +416,7 @@ fn gain_segments(
                 .get(id)
                 .filter(|_| interpolated.contains(id))
                 .unwrap_or(gain);
-            if let AudioCalculationPolicy::Report = policy
+            if let CalculationPolicy::Report = policy
                 && let Some(error) = gain.diagnostic.as_ref().or(next_gain.diagnostic.as_ref())
             {
                 return Err(AudioTimelineError::Calculation(Box::new(error.clone())));
@@ -448,8 +431,4 @@ fn gain_segments(
         sample = end;
     }
     Ok(values)
-}
-
-pub(crate) fn sample_boundary(frame: u64, frame_rate: FrameRate, sample_rate: u32) -> u64 {
-    frame_rate.sample_boundary(zerium_core::timeline::Frame::new(frame), sample_rate)
 }

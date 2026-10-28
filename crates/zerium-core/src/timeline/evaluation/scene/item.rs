@@ -1,11 +1,11 @@
 //! Sampled values are read models, never editable or serializable timeline items.
 use crate::{
-    media::{MediaAsset, MediaMetadataCache, MediaPlayback},
+    media::MediaPlayback,
     plugin::{EffectSchema, ItemSchema, TextureInput},
-    property::{PropertySchema, PropertyValues},
+    property::PropertyValues,
     timeline::{
-        AspectRatio, BlendMode, EffectInstanceId, EvaluatedClip, FrameRate, ItemId, LayerId,
-        SceneId, TimelineItemKind, TimelineTime,
+        BlendMode, EffectInstanceId, EvaluatedClip, FrameRate, ItemId, LayerId, SceneId,
+        TimelineItemKind, TimelineTime,
     },
 };
 use std::sync::Arc;
@@ -14,10 +14,8 @@ use std::sync::Arc;
 pub struct EvaluatedEffect {
     pub id: EffectInstanceId,
     pub plugin_id: String,
-    pub effect_id: String,
     pub properties: PropertyValues,
     pub(in crate::timeline) schema: Arc<EffectSchema>,
-    pub(in crate::timeline) aspect_ratio: Option<AspectRatio>,
 }
 
 impl EvaluatedEffect {
@@ -38,7 +36,6 @@ pub struct EvaluatedItem {
     pub properties: PropertyValues,
     pub playback: MediaPlayback,
     pub effects: Vec<EvaluatedEffect>,
-    pub(in crate::timeline) aspect_ratio: Option<AspectRatio>,
 }
 
 impl EvaluatedItem {
@@ -53,33 +50,6 @@ impl EvaluatedItem {
         match self.kind {
             TimelineItemKind::Scene { scene_id } => Some(scene_id),
             TimelineItemKind::Plugin { .. } => None,
-        }
-    }
-
-    pub fn aspect_lock_property(
-        &self,
-        effect: Option<EffectInstanceId>,
-    ) -> Option<&PropertySchema> {
-        match effect {
-            Some(id) => self
-                .effects
-                .iter()
-                .find(|effect| effect.id == id)?
-                .schema()
-                .aspect_lock_property(),
-            None => self.schema()?.aspect_lock_property(),
-        }
-    }
-
-    pub fn aspect_ratio(&self, effect: Option<EffectInstanceId>) -> Option<AspectRatio> {
-        match effect {
-            Some(id) => {
-                self.effects
-                    .iter()
-                    .find(|effect| effect.id == id)?
-                    .aspect_ratio
-            }
-            None => self.aspect_ratio,
         }
     }
 
@@ -115,42 +85,6 @@ impl EvaluatedItem {
     pub fn local_seconds(&self, time: TimelineTime, frame_rate: FrameRate) -> f64 {
         (time.frames() - self.placement.start.get() as f64) / frame_rate.frames_per_second()
     }
-
-    pub fn media_input(
-        &self,
-        effect: Option<EffectInstanceId>,
-        input: &str,
-        cache: &MediaMetadataCache,
-    ) -> Option<(MediaAsset, MediaPlayback)> {
-        let (inputs, values) = match effect {
-            Some(id) => {
-                let effect = self.effects.iter().find(|effect| effect.id == id)?;
-                (effect.schema.inputs(), &effect.properties)
-            }
-            None => (self.schema()?.inputs(), &self.properties),
-        };
-        let source = inputs
-            .iter()
-            .find(|source| source.id() == input)?
-            .media_source()?;
-        Some((source.asset(values, cache)?, self.playback))
-    }
-}
-
-pub(in crate::timeline) fn audio_input_for(
-    schema: &ItemSchema,
-    input_id: &str,
-    properties: &PropertyValues,
-    playback: MediaPlayback,
-    cache: &MediaMetadataCache,
-) -> Option<(MediaAsset, MediaPlayback, bool)> {
-    let input = schema.audio_input(input_id)?;
-    let asset = input.media_source().asset(properties, cache)?;
-    let preserve_pitch = properties
-        .property(input.preserve_pitch_property())?
-        .as_bool()
-        .expect("validated preserve pitch");
-    Some((asset, playback, preserve_pitch))
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -205,43 +139,4 @@ fn render_result_settings_for(
         return None;
     };
     RenderResultSettings::from_properties(properties, start_offset, end_offset, hide_original)
-}
-
-impl crate::timeline::PropertyAddress {
-    /// Resolve the corresponding property on another item. Effects and array
-    /// elements match by their position, while retaining each item's own IDs.
-    pub fn on_item(
-        &self,
-        source: &crate::timeline::EvaluatedItem,
-        item: &crate::timeline::EvaluatedItem,
-    ) -> Option<Self> {
-        if source.source_id == item.source_id {
-            return Some(self.clone());
-        }
-        let mut address = self.clone();
-        address.item_id = item.source_id;
-        if let Some(id) = self.effect_id {
-            let index = source.effects.iter().position(|effect| effect.id == id)?;
-            let source_effect = source.effects.get(index)?;
-            let effect = item.effects.get(index)?;
-            if source_effect.plugin_id != effect.plugin_id
-                || source_effect.effect_id != effect.effect_id
-            {
-                return None;
-            }
-            address.effect_id = Some(effect.id);
-        }
-        if let Some(id) = self.element_id {
-            let index = source
-                .property_values(self.effect_id)?
-                .property(&self.property_id)?
-                .element_index(id)?;
-            let elements = item
-                .property_values(address.effect_id)?
-                .property(&self.property_id)?
-                .as_array()?;
-            address.element_id = Some(elements.get(index)?.element_id());
-        }
-        Some(address)
-    }
 }

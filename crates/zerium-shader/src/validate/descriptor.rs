@@ -75,11 +75,20 @@ pub struct ComputeShaderDescriptor {
 pub enum ValidatedEffectShader {
     Render(EffectShaderDescriptor),
     Compute(ComputeShaderDescriptor),
-    Temporal(EffectShaderDescriptor),
 }
 
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug)]
 pub struct ValidatedPluginShaders {
-    pub items: Vec<ItemShaderDescriptor>,
-    pub effects: Vec<ValidatedEffectShader>,
+    pub(super) items: Vec<ItemShaderDescriptor>,
+    pub(super) effects: Vec<ValidatedEffectShader>,
+}
+
+impl ValidatedPluginShaders {
+    pub fn items(&self) -> &[ItemShaderDescriptor] {
+        &self.items
+    }
+
+    pub fn effects(&self) -> &[ValidatedEffectShader] {
+        &self.effects
+    }
 }

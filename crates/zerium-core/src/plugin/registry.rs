@@ -17,14 +17,6 @@ pub struct PluginRegistry {
 }
 
 impl PluginRegistry {
-    pub fn new(plugins: impl IntoIterator<Item = PluginManifest>) -> Result<Self, PluginError> {
-        let mut registry = Self::default();
-        for plugin in plugins {
-            registry.register(plugin)?;
-        }
-        Ok(registry)
-    }
-
     pub fn register(&mut self, plugin: PluginManifest) -> Result<(), PluginError> {
         let plugin = Arc::new(plugin);
         let plugin_id = plugin.id().to_owned();

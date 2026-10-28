@@ -1,8 +1,8 @@
 //! Device discovery, decoder opening and prebuffering, outside the UI thread.
 use super::{AudioPlaybackError, MIX_BLOCK_SAMPLE_FRAMES};
 use crate::engine::{
-    input::{AudioFormat, MediaReaderRegistry},
-    processing::audio::{AudioCalculationPolicy, AudioTimelineGraph},
+    input::AudioFormat,
+    processing::{CalculationPolicy, audio::AudioTimelineGraph},
 };
 use cpal::traits::{DeviceTrait as _, HostTrait as _};
 use std::{
@@ -51,7 +51,6 @@ pub(super) struct PreparedAudio {
 fn prepare_audio(
     timeline: AudioTimelineSnapshot,
     position: PlaybackPosition,
-    media_readers: Arc<MediaReaderRegistry>,
     stop: &AtomicBool,
 ) -> Result<Option<PreparedAudio>, AudioPlaybackError> {
     if stop.load(Ordering::Acquire) {
@@ -73,13 +72,8 @@ fn prepare_audio(
         sample_rate: supported.sample_rate(),
         channels: supported.channels(),
     };
-    let mut graph = AudioTimelineGraph::new(
-        timeline.clone(),
-        format,
-        &media_readers,
-        AudioCalculationPolicy::Fallback,
-    )
-    .map_err(AudioPlaybackError::Timeline)?;
+    let mut graph = AudioTimelineGraph::new(timeline.clone(), format, CalculationPolicy::Fallback)
+        .map_err(AudioPlaybackError::Timeline)?;
     if graph.is_empty() {
         return Ok(None);
     }
@@ -154,14 +148,13 @@ impl AudioPreparation {
     pub(super) fn spawn(
         timeline: AudioTimelineSnapshot,
         position: PlaybackPosition,
-        media_readers: Arc<MediaReaderRegistry>,
     ) -> Result<Self, AudioPlaybackError> {
         let prepared_timeline = timeline.clone();
         let stop = Arc::new(AtomicBool::new(false));
         let worker_stop = stop.clone();
         let handle = thread::Builder::new()
             .name("zerium-audio-prepare".to_owned())
-            .spawn(move || prepare_audio(timeline, position, media_readers, &worker_stop))
+            .spawn(move || prepare_audio(timeline, position, &worker_stop))
             .map_err(|error| {
                 AudioPlaybackError::Worker(format!("Failed to prepare audio: {error}"))
             })?;

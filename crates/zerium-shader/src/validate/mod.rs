@@ -38,7 +38,10 @@ pub fn validate_plugins(plugins: &PluginLibrary) -> Result<ValidatedPluginShader
         }
     }
 
-    let mut validated = ValidatedPluginShaders::default();
+    let mut validated = ValidatedPluginShaders {
+        items: Vec::new(),
+        effects: Vec::new(),
+    };
     for (plugin_id, schema) in registry.items() {
         if let Some(render) = schema.render() {
             let module = validated_module(&modules, plugin_id, render.shader.module());
@@ -70,12 +73,12 @@ pub fn validate_plugins(plugins: &PluginLibrary) -> Result<ValidatedPluginShader
             let label = format!("{} pass {pass_index}", schema.id());
             let effect = match pass {
                 EffectPassSchema::Sample { .. } => unreachable!("sample passes have no shader"),
-                EffectPassSchema::Render { shader, .. } => ValidatedEffectShader::Render(
-                    render_pass(module, id, label, shader, overrides)?,
-                ),
-                EffectPassSchema::Temporal { reducer, .. } => ValidatedEffectShader::Temporal(
-                    render_pass(module, id, label, reducer, overrides)?,
-                ),
+                EffectPassSchema::Render { shader, .. }
+                | EffectPassSchema::Temporal {
+                    reducer: shader, ..
+                } => ValidatedEffectShader::Render(render_pass(
+                    module, id, label, shader, overrides,
+                )?),
                 EffectPassSchema::Compute { shader, .. } => {
                     let workgroup_size = module.validate_compute(&id, shader.entry(), overrides)?;
                     ValidatedEffectShader::Compute(ComputeShaderDescriptor {

@@ -121,7 +121,7 @@ impl TransportController {
         let frame_rate = timeline.frame_rate();
         let clock: Result<PlaybackClock, AudioPlaybackError> = self
             .audio
-            .update(cx, |audio, _| audio.play(timeline.clone(), start_frame));
+            .update(cx, |audio, _| audio.play(timeline, start_frame));
         let clock = match clock {
             Ok(clock) => clock,
             Err(error) => {
@@ -142,7 +142,7 @@ impl TransportController {
         });
         let start_seconds = frame_rate.frame_to_seconds(start_frame);
         self.editor.update(cx, |editor, cx| {
-            if editor.set_playback_position(start_seconds, start_frame) {
+            if editor.set_playback_position(start_seconds) {
                 cx.notify();
             }
         });
@@ -229,8 +229,7 @@ impl TransportController {
         };
         let audio_seconds = self.audio.read(cx).playhead_seconds();
         let mut seconds = playback.seconds(audio_seconds, displayed_seconds, Instant::now());
-        let mut frame = frame_rate.seconds_to_frame(seconds);
-        if frame >= end {
+        if frame_rate.seconds_to_frame(seconds) >= end {
             self.stop(cx);
             return;
         }
@@ -255,14 +254,13 @@ impl TransportController {
                 });
             }
         }
-        frame = frame_rate.seconds_to_frame(seconds);
-        if frame >= end {
+        if frame_rate.seconds_to_frame(seconds) >= end {
             self.stop(cx);
             return;
         }
         self.mode = TransportMode::Playing(playback);
         self.editor
-            .update_if_changed(cx, |editor| editor.set_playback_position(seconds, frame));
+            .update_if_changed(cx, |editor| editor.set_playback_position(seconds));
     }
 
     fn report_audio_events(&mut self, cx: &mut Context<Self>) {

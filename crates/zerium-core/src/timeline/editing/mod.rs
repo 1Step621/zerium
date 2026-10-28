@@ -1,6 +1,6 @@
 //! Timeline editing, session state, and undoable commands.
 use self::{
-    history::{EditHistory, EditImpact, HistoryKey, HistorySnapshot, ScopedHistoryKey},
+    history::{EditHistory, EditImpact, HistoryKey, HistorySnapshot},
     selection::SelectionState,
 };
 use super::{
@@ -42,8 +42,6 @@ pub use self::{
     },
     gesture::{EditContext, EditSession},
 };
-
-const HISTORY_LIMIT: usize = 100;
 
 /// A stopped cursor is frame-exact; playback keeps its continuous sample time.
 /// The displayed frame is derived so these positions cannot drift apart.
@@ -89,7 +87,7 @@ pub struct TimelineEditor {
     /// Monotonic edit lifetime; unlike project_revision, Undo never restores it.
     edit_revision: u64,
     next_media_dependencies_revision: u64,
-    pub(super) history: EditHistory<HistorySnapshot, ScopedHistoryKey>,
+    pub(super) history: EditHistory,
     /// Override individual command keys while applying a gesture update.
     pub(super) history_group: Option<HistoryKey>,
 }
@@ -151,7 +149,7 @@ impl TimelineEditor {
         )
     }
 
-    pub fn from_document(
+    fn from_document(
         document: TimelineDocument,
         resolution: ProjectResolution,
         plugins: Arc<PluginRegistry>,
@@ -184,7 +182,7 @@ impl TimelineEditor {
             project_revision: 0,
             edit_revision: 0,
             next_media_dependencies_revision: 1,
-            history: EditHistory::new(HISTORY_LIMIT),
+            history: EditHistory::default(),
             history_group: None,
         }
     }
@@ -314,7 +312,7 @@ impl TimelineEditor {
         self.history.can_redo()
     }
 
-    pub fn replace_document(
+    fn replace_document(
         &mut self,
         document: TimelineDocument,
         resolution: ProjectResolution,
@@ -579,15 +577,38 @@ impl TimelineEditor {
         self.resolve_property_value(address, Some(time))
     }
 
-    /// Match an owner and array position using authored values, including inherited defaults.
+    /// Match effects and array elements by their authored position, retaining the target IDs.
     pub fn corresponding_property_address(
         &self,
         address: &crate::timeline::PropertyAddress,
         item_id: ItemId,
     ) -> Option<crate::timeline::PropertyAddress> {
-        let source = self.resolved_item(self.item(address.item_id)?);
-        let item = self.resolved_item(self.item(item_id)?);
-        address.on_item(&source, &item)
+        let source = self.item(address.item_id)?;
+        let item = self.item(item_id)?;
+        if source.id == item.id {
+            return Some(address.clone());
+        }
+        let mut target = address.clone();
+        target.item_id = item.id;
+        if let Some(id) = address.effect_id {
+            let index = source.effects.iter().position(|effect| effect.id == id)?;
+            let source_effect = &source.effects[index];
+            let effect = item.effects.get(index)?;
+            if source_effect.plugin_id != effect.plugin_id
+                || source_effect.schema().id() != effect.schema().id()
+            {
+                return None;
+            }
+            target.effect_id = Some(effect.id);
+        }
+        if let Some(id) = address.element_id {
+            let source_value =
+                source.authored_property(address.effect_id, self.property_schema(address)?)?;
+            let value = item.authored_property(target.effect_id, self.property_schema(&target)?)?;
+            let index = source_value.element_index(id)?;
+            target.element_id = Some(value.as_array()?.get(index)?.element_id());
+        }
+        Some(target)
     }
 
     fn resolve_property_value(

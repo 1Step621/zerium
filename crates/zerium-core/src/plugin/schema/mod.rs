@@ -15,8 +15,7 @@ const SUPPORTED_API_VERSION: u32 = 1;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct PluginManifest {
-    pub api_version: u32,
-    pub id: String,
+    id: String,
     items: Vec<Arc<ItemSchema>>,
     effects: Vec<Arc<EffectSchema>>,
 }
@@ -39,9 +38,14 @@ impl PluginManifest {
         let raw = serde_json::from_str::<RawPluginManifest>(source).map_err(|error| {
             PluginError::invalid_manifest(format!("invalid plugin manifest: {error}"), error)
         })?;
+        if raw.api_version != SUPPORTED_API_VERSION {
+            return Err(PluginError::invalid_definition(format!(
+                "unsupported plugin API version {}; expected {SUPPORTED_API_VERSION}",
+                raw.api_version
+            )));
+        }
         let _schema = raw.schema;
         let manifest = Self {
-            api_version: raw.api_version,
             id: raw.id,
             items: raw.items.into_iter().map(Arc::new).collect(),
             effects: raw.effects.into_iter().map(Arc::new).collect(),
@@ -51,12 +55,6 @@ impl PluginManifest {
     }
 
     fn validate(&self) -> Result<(), PluginError> {
-        if self.api_version != SUPPORTED_API_VERSION {
-            return Err(PluginError::invalid_definition(format!(
-                "unsupported plugin API version {}; expected {SUPPORTED_API_VERSION}",
-                self.api_version
-            )));
-        }
         validate_logical_id("plugin", &self.id)?;
         if self.items.is_empty() && self.effects.is_empty() {
             return Err(PluginError::invalid_definition(

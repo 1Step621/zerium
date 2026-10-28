@@ -1,7 +1,7 @@
 //! Device ownership and render sessions for preview and export.
 use crate::engine::{
     GpuContext,
-    processing::visual::{RenderDevice, RenderDeviceBuilder, RenderError, RenderSession},
+    processing::visual::{RenderDevice, RenderError, RenderSession},
 };
 use std::sync::Arc;
 use zerium_shader::ValidatedPluginShaders;
@@ -10,7 +10,7 @@ use zerium_shader::ValidatedPluginShaders;
 pub(crate) struct RenderRuntime {
     preview: Option<Result<Arc<RenderSession>, String>>,
     export_device: Option<Arc<RenderDevice>>,
-    plugin_shaders: Arc<ValidatedPluginShaders>,
+    plugin_shaders: ValidatedPluginShaders,
 }
 
 impl RenderRuntime {
@@ -18,7 +18,7 @@ impl RenderRuntime {
         Self {
             preview: None,
             export_device: None,
-            plugin_shaders: Arc::new(plugin_shaders),
+            plugin_shaders,
         }
     }
 
@@ -61,7 +61,7 @@ impl RenderRuntime {
         &self,
         gpu: GpuContext,
     ) -> Result<Arc<RenderSession>, RenderError> {
-        let builder = RenderDeviceBuilder::new(gpu)?.register_plugins(&self.plugin_shaders)?;
-        Ok(Arc::new(builder.build().create_session()))
+        let device = RenderDevice::create(gpu, &self.plugin_shaders)?;
+        Ok(Arc::new(device.create_session()))
     }
 }

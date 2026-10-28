@@ -6,7 +6,7 @@ use crate::{
     app::project::{
         ProjectActivity, ProjectOperation, ProjectSession, media::MediaMetadataController,
     },
-    engine::input::{MediaError, MediaReaderRegistry, prepare_import},
+    engine::input::{MediaError, prepare_import},
     ui::workspace::notifications::UiNotifications,
 };
 use ::ui::{
@@ -15,10 +15,7 @@ use ::ui::{
 };
 use gpui::{Context, Div, Entity, SharedString, Subscription, Task, Window, div, prelude::*};
 use rust_i18n::t;
-use std::{
-    path::{Path, PathBuf},
-    sync::Arc,
-};
+use std::path::{Path, PathBuf};
 use zerium_core::{
     media::ImportedFile,
     property::{PropertyUi, PropertyValue, ScalarPropertyType},
@@ -168,7 +165,6 @@ struct FileSelection {
 pub(crate) struct FileInputController {
     editor: Entity<TimelineEditor>,
     metadata: Entity<MediaMetadataController>,
-    readers: Arc<MediaReaderRegistry>,
     session: Entity<ProjectSession>,
     notifications: Entity<UiNotifications>,
     selection: Option<FileSelection>,
@@ -179,7 +175,6 @@ impl FileInputController {
     pub(crate) fn new(
         editor: Entity<TimelineEditor>,
         metadata: Entity<MediaMetadataController>,
-        readers: Arc<MediaReaderRegistry>,
         session: Entity<ProjectSession>,
         notifications: Entity<UiNotifications>,
         cx: &mut Context<Self>,
@@ -203,7 +198,6 @@ impl FileInputController {
         Self {
             editor,
             metadata,
-            readers,
             session,
             notifications,
             selection: None,
@@ -247,7 +241,6 @@ impl FileInputController {
             FileTarget::Argument { .. } => None,
         };
         let plugins = editor.plugin_registry_arc();
-        let readers = self.readers.clone();
         let mut dialog = rfd::AsyncFileDialog::new().set_parent(window).set_title(
             if directory {
                 t!("inspector.choose_folder")
@@ -287,7 +280,6 @@ impl FileInputController {
                                 &import.plugin_id,
                                 &import.item_id,
                                 &import.property_id,
-                                &readers,
                             )
                             .map(|file| Some(SelectedFile::Import(file)))
                         })

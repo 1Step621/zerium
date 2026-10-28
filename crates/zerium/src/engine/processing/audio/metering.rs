@@ -1,7 +1,5 @@
-use std::sync::Arc;
-
-use super::{AudioCalculationPolicy, AudioTimelineGraph, sample_boundary};
-use crate::engine::input::{AudioFormat, MediaReaderRegistry};
+use super::{super::CalculationPolicy, AudioTimelineGraph};
+use crate::engine::input::AudioFormat;
 use zerium_core::timeline::{AudioTimelineSnapshot, Frame, TimelineEditor};
 
 const SAMPLE_FRAMES: usize = 2_048;
@@ -10,23 +8,14 @@ const FORMAT: AudioFormat = AudioFormat {
     channels: 2,
 };
 
+#[derive(Default)]
 pub(crate) struct AudioLevelSampler {
-    media_readers: Arc<MediaReaderRegistry>,
     timeline: Option<AudioTimelineSnapshot>,
     graph: Option<AudioTimelineGraph>,
     cached: Option<(Frame, [f32; 2])>,
 }
 
 impl AudioLevelSampler {
-    pub(crate) fn new(media_readers: Arc<MediaReaderRegistry>) -> Self {
-        Self {
-            media_readers,
-            timeline: None,
-            graph: None,
-            cached: None,
-        }
-    }
-
     pub(crate) fn clear(&mut self) {
         self.timeline = None;
         self.graph = None;
@@ -49,20 +38,13 @@ impl AudioLevelSampler {
         }
         if !unchanged {
             if let Some(graph) = &mut self.graph {
-                if graph
-                    .update_timeline(timeline.clone(), &self.media_readers)
-                    .is_err()
-                {
+                if graph.update_timeline(timeline.clone()).is_err() {
                     self.graph = None;
                 }
             } else {
-                self.graph = AudioTimelineGraph::new(
-                    timeline.clone(),
-                    FORMAT,
-                    &self.media_readers,
-                    AudioCalculationPolicy::Fallback,
-                )
-                .ok();
+                self.graph =
+                    AudioTimelineGraph::new(timeline.clone(), FORMAT, CalculationPolicy::Fallback)
+                        .ok();
             }
             self.timeline = Some(timeline);
             self.cached = None;
@@ -73,7 +55,7 @@ impl AudioLevelSampler {
             .and_then(|graph| {
                 graph
                     .render(
-                        sample_boundary(frame.get(), frame_rate, FORMAT.sample_rate),
+                        frame_rate.sample_boundary(frame, FORMAT.sample_rate),
                         SAMPLE_FRAMES,
                     )
                     .ok()

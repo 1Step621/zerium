@@ -145,11 +145,9 @@ impl ProjectItem {
                     project_low: scene_id.project().low(),
                     scene_id: scene_id.get(),
                 },
-                TimelineItemKind::Plugin {
-                    plugin_id, item_id, ..
-                } => ProjectItemKind::Plugin {
+                TimelineItemKind::Plugin { plugin_id, schema } => ProjectItemKind::Plugin {
                     plugin_id: plugin_id.clone(),
-                    item_id: item_id.clone(),
+                    item_id: schema.id().to_owned(),
                 },
             },
             properties: capture_property_overrides(&item.properties, project_path),
@@ -179,11 +177,7 @@ impl ProjectItem {
                         plugin_id, item_id
                     ))
                 })?;
-                TimelineItemKind::Plugin {
-                    plugin_id,
-                    item_id,
-                    schema,
-                }
+                TimelineItemKind::Plugin { plugin_id, schema }
             }
             ProjectItemKind::Scene {
                 project_high,
@@ -297,7 +291,7 @@ impl ProjectEffect {
             id: effect.id.get(),
             hidden: effect.hidden,
             plugin_id: effect.plugin_id.clone(),
-            effect_id: effect.effect_id.clone(),
+            effect_id: effect.schema().id().to_owned(),
             properties: capture_property_overrides(&effect.properties, project_path),
             animations: capture_animations(&effect.animations),
             aspect_ratio: effect.aspect_ratio,
@@ -335,7 +329,6 @@ impl ProjectEffect {
             id: EffectInstanceId::new(self.id),
             hidden: self.hidden,
             plugin_id: self.plugin_id,
-            effect_id: self.effect_id,
             properties,
             animations,
             aspect_ratio: self.aspect_ratio,
