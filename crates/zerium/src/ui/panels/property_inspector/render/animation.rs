@@ -1,6 +1,7 @@
 use ::ui::{
     Icon, IconName, Selectable as _, Sizable as _,
     button::{Button, ButtonVariants as _},
+    menu::context_menu::ContextMenuExt as _,
 };
 use gpui::{Div, SharedString, div, prelude::*, px};
 
@@ -29,8 +30,18 @@ fn focused_animation_label(
     let target = common.target.clone();
     let focused = animation_address_is_focused(common, ctx);
     let inspector = ctx.inspector.clone();
+    let menu_inspector = ctx.inspector.clone();
+    let menu_target = common.target.clone();
     animation_label_base(label.into(), width, focused, ctx)
         .id(id)
+        .when(common.animatable, |this| {
+            this.context_menu(move |menu, _, cx| {
+                menu_inspector.update(cx, |inspector, cx| {
+                    let menu = inspector.animation_timing_menu(menu, menu_target.clone(), cx);
+                    inspector.property_reset_menu(menu.separator(), menu_target.clone(), cx)
+                })
+            })
+        })
         .when(common.animation_enabled, |this| {
             this.cursor_pointer().on_click(move |_, _, cx| {
                 inspector.update(cx, |inspector, cx| {

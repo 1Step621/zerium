@@ -28,7 +28,7 @@ impl AnimationCurveEditor {
                     Self::GRAPH_INSET_TOP + plot_height * (1. - stop[1]),
                 ];
                 ((pointer[0] - point[0]).hypot(pointer[1] - point[1]) <= HIT_RADIUS)
-                    .then_some(index)
+                    .then_some(selected.source_segment + index)
             })
     }
 
@@ -189,11 +189,21 @@ impl AnimationCurveEditor {
         let screen = self.graph_screen_position(position)?;
         let progress = screen[0].clamp(0., 1.);
         let selected = self.selected_curve(cx)?;
-        let from = selected.source_stop_frames[selected.source_segment].get();
-        let to = selected.source_stop_frames[selected.source_segment + 1].get();
-        let frame =
-            Frame::new((from as f64 + (to - from) as f64 * f64::from(progress)).round() as u64);
-        selected.frame_at_pattern_frame(frame)
+        selected.frame_at_pattern_frame(selected.segment_frame_at_progress(progress))
+    }
+
+    pub(in crate::ui::panels::animation_curve) fn time_at_graph_position(
+        &self,
+        position: gpui::Point<Pixels>,
+        cx: &App,
+    ) -> Option<TimelineTime> {
+        let progress = self.graph_screen_position(position)?[0].clamp(0., 1.);
+        let selected = self.selected_curve(cx)?;
+        Some(
+            selected
+                .clock
+                .key_time_at(selected.segment_frame_at_progress(progress)),
+        )
     }
 
     pub(in crate::ui::panels::animation_curve) fn time_at_overview_position(

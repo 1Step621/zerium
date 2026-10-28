@@ -1,15 +1,14 @@
 use rust_i18n::t;
 
-use ::ui::{
-    IconName, ThemeColor,
-    menu::{PopupMenu, PopupMenuItem},
-};
+use ::ui::{IconName, ThemeColor, menu::PopupMenu};
 use gpui::{
     Context, Corner, DismissEvent, Entity, Focusable as _, Pixels, Window, anchored, deferred, div,
     prelude::*, px,
 };
 
-use zerium_core::timeline::{Frame, ItemId, LayerId, SceneId, TimelineEditError, TimelineTime};
+use zerium_core::timeline::{
+    Frame, ItemId, LayerId, PropertyAddress, SceneId, TimelineEditError, TimelineTime,
+};
 
 use crate::{
     app::actions::SplitSelectedItems,
@@ -21,6 +20,40 @@ use crate::{
 };
 
 impl Timeline {
+    pub(in crate::ui::panels::timeline) fn animation_stop_menu(
+        &self,
+        menu: PopupMenu,
+        address: &PropertyAddress,
+        stop: usize,
+        cx: &Context<Self>,
+    ) -> PopupMenu {
+        let editor = self.editor.read(cx);
+        let removable = editor.is_item_selected(address.item_id)
+            && editor
+                .property_schema(address)
+                .is_some_and(|schema| schema.is_editable(address.scalar_index))
+            && editor
+                .animation_track(address)
+                .is_some_and(|track| stop > 0 && stop < track.stops().len().saturating_sub(1));
+        let context = editor.edit_context();
+        let address = address.clone();
+        let timeline = cx.entity();
+        menu.action_context(self.focus_handle.clone())
+            .menu_handler_with_icon_and_disabled(
+                t!("curve.delete_stop").to_string(),
+                IconName::Delete,
+                !removable,
+                move |_, cx| {
+                    timeline.update(cx, |timeline, cx| {
+                        timeline.editor.update_if_changed(cx, |editor| {
+                            context.is_current(editor)
+                                && editor.remove_animation_stop(&address, stop)
+                        });
+                    });
+                },
+            )
+    }
+
     fn prepare_context_target(
         &mut self,
         layer_index: usize,
@@ -230,34 +263,39 @@ impl Timeline {
                 let cut_timeline = timeline.clone();
                 let paste_timeline = timeline.clone();
                 let add_stop_timeline = timeline.clone();
-                menu.item(PopupMenuItem::new(t!("context.copy").to_string()).on_click(
-                    move |_, _, cx| {
+                menu.menu_handler_with_icon(
+                    t!("context.copy").to_string(),
+                    IconName::Copy,
+                    move |_, cx| {
                         copy_timeline.update(cx, |timeline, cx| {
                             timeline.copy_selected_items(cx);
                         });
                     },
-                ))
-                .item(PopupMenuItem::new(t!("context.cut").to_string()).on_click(
-                    move |_, _, cx| {
+                )
+                .menu_handler_with_icon(
+                    t!("context.cut").to_string(),
+                    IconName::Cut,
+                    move |_, cx| {
                         cut_timeline.update(cx, |timeline, cx| {
                             timeline.cut_selected_items(cx);
                         });
                     },
-                ))
+                )
                 .when(can_paste, |menu| {
-                    menu.item(
-                        PopupMenuItem::new(t!("context.paste").to_string()).on_click(
-                            move |_, _, cx| {
-                                paste_timeline.update(cx, |timeline, cx| {
-                                    timeline.paste_items_at(paste_target, cx);
-                                });
-                            },
-                        ),
+                    menu.menu_handler_with_icon(
+                        t!("context.paste").to_string(),
+                        IconName::PasteClipboard,
+                        move |_, cx| {
+                            paste_timeline.update(cx, |timeline, cx| {
+                                timeline.paste_items_at(paste_target, cx);
+                            });
+                        },
                     )
                 })
                 .separator()
-                .menu_with_disabled(
+                .menu_with_icon_and_disabled(
                     t!("menu.split_items").to_string(),
+                    IconName::VerticalSplit,
                     Box::new(SplitSelectedItems),
                     !can_split,
                 )
@@ -276,25 +314,25 @@ impl Timeline {
                 .separator()
                 .when(can_group, |menu| {
                     let group_timeline = timeline.clone();
-                    menu.item(
-                        PopupMenuItem::new(t!("context.group_scene").to_string()).on_click(
-                            move |_, _, cx| {
-                                group_timeline.update(cx, |timeline, cx| {
-                                    timeline.group_selected_as_scene(cx);
-                                });
-                            },
-                        ),
+                    menu.menu_handler_with_icon(
+                        t!("context.group_scene").to_string(),
+                        IconName::Group,
+                        move |_, cx| {
+                            group_timeline.update(cx, |timeline, cx| {
+                                timeline.group_selected_as_scene(cx);
+                            });
+                        },
                     )
                     .separator()
                 })
-                .item(
-                    PopupMenuItem::new(t!("common.delete").to_string()).on_click(
-                        move |_, _, cx| {
-                            timeline.update(cx, |timeline, cx| {
-                                timeline.remove_item(item_id, cx);
-                            });
-                        },
-                    ),
+                .menu_handler_with_icon(
+                    t!("common.delete").to_string(),
+                    IconName::Delete,
+                    move |_, cx| {
+                        timeline.update(cx, |timeline, cx| {
+                            timeline.remove_item(item_id, cx);
+                        });
+                    },
                 )
                 .action_context(action_context)
             })

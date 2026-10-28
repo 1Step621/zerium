@@ -34,18 +34,8 @@ pub(in crate::ui::panels::property_inspector) fn number_full_row(
     let is_bound = common.is_bound();
     let select_inspector = ctx.inspector.clone();
     let select_target = common.target.clone();
-    let animation_button = (common.animatable && !is_bound).then(|| {
-        number_animation_toggle(
-            &common.target,
-            common.animation_enabled,
-            if common.animation_enabled {
-                t!("rows.unanimate").to_string()
-            } else {
-                t!("rows.animate_axis").to_string()
-            },
-            &ctx.inspector,
-        )
-    });
+    let animation_button = (common.animatable && !is_bound)
+        .then(|| number_animation_toggle(&common.target, common.animation_enabled, &ctx.inspector));
     let publish_button = control_binding_button(common, ctx);
     let value_input = number_editor(common, spec, input, common.read_only, ctx);
     PropertyRow::new(
@@ -196,18 +186,8 @@ pub(in crate::ui::panels::property_inspector) fn element_number(
     let component_is_bound = common.is_bound();
     let component_binding_button = control_binding_button(common, ctx);
     let value_input = number_editor(common, spec, &input, common.read_only, ctx);
-    let animation_button = (common.animatable && !component_is_bound).then(|| {
-        number_animation_toggle(
-            &common.target,
-            animation_enabled,
-            if animation_enabled {
-                t!("rows.unanimate_axis").to_string()
-            } else {
-                t!("rows.animate_element").to_string()
-            },
-            &ctx.inspector,
-        )
-    });
+    let animation_button = (common.animatable && !component_is_bound)
+        .then(|| number_animation_toggle(&common.target, animation_enabled, &ctx.inspector));
     let select_inspector = ctx.inspector.clone();
     let select_target = common.target.clone();
     let row = div()
@@ -240,7 +220,6 @@ pub(in crate::ui::panels::property_inspector) fn element_number(
 fn number_animation_toggle(
     target: &PropertyAddress,
     enabled: bool,
-    tooltip: String,
     inspector: &Entity<PropertyInspector>,
 ) -> Button {
     let inspector = inspector.clone();
@@ -248,7 +227,11 @@ fn number_animation_toggle(
     keyframe_base(
         SharedString::from(format!("toggle-animation-{:?}", target)),
         enabled,
-        tooltip,
+        if enabled {
+            t!("rows.unanimate").to_string()
+        } else {
+            t!("rows.animate").to_string()
+        },
     )
     .on_click(move |_, window, cx| {
         inspector.update(cx, |inspector, cx| {
@@ -272,9 +255,9 @@ fn coordinate_animation_toggle(
         if disabled {
             t!("rows.aspect_auto").to_string()
         } else if enabled {
-            t!("rows.unanimate_axis").to_string()
+            t!("rows.unanimate").to_string()
         } else {
-            t!("rows.animate_axis").to_string()
+            t!("rows.animate").to_string()
         },
     )
     .tab_stop(!disabled)

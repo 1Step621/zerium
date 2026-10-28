@@ -1,5 +1,7 @@
 use crate::{
-    animation::{AnimationRepeat, ScalarAnimations, ScalarTrack, SegmentInterpolation},
+    animation::{
+        AnimationRepeat, AnimationTiming, ScalarAnimations, ScalarTrack, SegmentInterpolation,
+    },
     timeline::{
         EffectInstanceId, Frame, ItemId, PropertyAddress, TimelineEditor, TimelineItem,
         TimelineTime,
@@ -15,26 +17,42 @@ use std::{
 };
 
 impl TimelineEditor {
+    pub fn can_animate_property(&self, target: &PropertyAddress) -> bool {
+        self.is_item_selected(target.item_id)
+            && self.property_schema(target).is_some_and(|schema| {
+                schema.is_editable(target.scalar_index)
+                    && schema.is_animatable(target.scalar_index)
+                    && schema
+                        .scalar_type(target.element_id, target.scalar_index)
+                        .is_some()
+            })
+            && !self.active_scene_has_binding(
+                target.item_id,
+                target.effect_id,
+                &target.property_id,
+                |binding| {
+                    binding.conflicts_with_animation(
+                        &target.property_id,
+                        target.element_id,
+                        target.scalar_index,
+                    )
+                },
+            )
+    }
+
     pub fn set_property_animation_enabled(
         &mut self,
         target: &PropertyAddress,
         enabled: bool,
     ) -> bool {
-        if !self.is_item_selected(target.item_id) {
+        if !self.is_item_selected(target.item_id) || (enabled && !self.can_animate_property(target))
+        {
             return false;
         }
         let item_id = target.item_id;
         let effect_id = target.effect_id;
-        let property_id = &target.property_id;
         let element_id = target.element_id;
         let scalar_index = target.scalar_index;
-        if enabled
-            && self.active_scene_has_binding(item_id, effect_id, property_id, |binding| {
-                binding.conflicts_with_animation(property_id, element_id, scalar_index)
-            })
-        {
-            return false;
-        }
         self.edit_project_if_changed(EditImpact::Values, None, |editor| {
             let Some(schema) = editor.property_schema(target).cloned() else {
                 return false;
@@ -48,9 +66,6 @@ impl TimelineEditor {
                     .animation_store_mut(item_id, effect_id)
                     .is_some_and(|animations| animations.remove(&path))
             } else {
-                if !schema.is_animatable(scalar_index) {
-                    return false;
-                }
                 let Some(item) = editor.active_document().item(item_id) else {
                     return false;
                 };
@@ -67,6 +82,50 @@ impl TimelineEditor {
                 editor
                     .animation_store_mut(item_id, effect_id)
                     .is_some_and(|animations| animations.insert(path, track))
+            }
+        })
+    }
+
+    /// Replace an animation's timing while keeping the current displayed value at every key.
+    pub fn paste_property_animation_timing(
+        &mut self,
+        target: &PropertyAddress,
+        timing: &AnimationTiming,
+    ) -> bool {
+        if !self.can_animate_property(target) {
+            return false;
+        }
+        self.edit_project_if_changed(EditImpact::Values, None, |editor| {
+            let Some(item) = editor.item(target.item_id) else {
+                return false;
+            };
+            let Some(schema) = editor.property_schema(target) else {
+                return false;
+            };
+            let value = editor
+                .evaluated_property_value(target, TimelineTime::from_frame(editor.playhead()));
+            let Some((value, ty)) =
+                value.zip(schema.scalar_type(target.element_id, target.scalar_index))
+            else {
+                return false;
+            };
+            let Some(track) =
+                ScalarTrack::from_timing(timing, value, ty, item.duration(editor.frame_rate()))
+            else {
+                return false;
+            };
+            let Some(animations) = editor.animation_store_mut(target.item_id, target.effect_id)
+            else {
+                return false;
+            };
+            let path = target.path();
+            match animations.track_mut(&path) {
+                Some(current) if *current == track => false,
+                Some(current) => {
+                    *current = track;
+                    true
+                }
+                None => animations.insert(path, track),
             }
         })
     }

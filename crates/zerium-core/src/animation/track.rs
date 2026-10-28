@@ -34,6 +34,15 @@ pub struct ScalarTrack {
     interpolations: Vec<SegmentInterpolation>,
 }
 
+/// Value-independent key timing, interpolation curves, and repeat settings.
+#[derive(Clone, Debug)]
+pub struct AnimationTiming {
+    span_frames: FrameDuration,
+    repeat: AnimationRepeat,
+    frames: Vec<Frame>,
+    interpolations: Vec<SegmentInterpolation>,
+}
+
 impl ScalarTrack {
     pub(crate) fn from_value(
         value: PropertyValue,
@@ -58,6 +67,40 @@ impl ScalarTrack {
                 },
             ],
             interpolations: vec![SegmentInterpolation::default()],
+        })
+    }
+
+    pub fn timing(&self) -> AnimationTiming {
+        AnimationTiming {
+            span_frames: self.span_frames,
+            repeat: self.repeat,
+            frames: self.stops.iter().map(AnimationStop::frame).collect(),
+            interpolations: self.interpolations.clone(),
+        }
+    }
+
+    pub(crate) fn from_timing(
+        timing: &AnimationTiming,
+        value: PropertyValue,
+        ty: &ScalarPropertyType,
+        duration: FrameDuration,
+    ) -> Option<Self> {
+        (ty.is_interpolatable() && ty.allows(&value)).then(|| {
+            let mut track = Self {
+                span_frames: timing.span_frames,
+                repeat: timing.repeat,
+                stops: timing
+                    .frames
+                    .iter()
+                    .map(|frame| AnimationStop {
+                        frame: *frame,
+                        value: value.clone(),
+                    })
+                    .collect(),
+                interpolations: timing.interpolations.clone(),
+            };
+            track.set_repeat(timing.repeat, duration);
+            track
         })
     }
 

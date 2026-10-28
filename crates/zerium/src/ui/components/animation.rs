@@ -85,7 +85,7 @@ impl AnimationSynchronization {
             .text_xs()
             .whitespace_nowrap()
             .bg(if self.is_linked() {
-                color.opacity(0.12)
+                colors.background.blend(color.opacity(0.12))
             } else {
                 colors.background
             })

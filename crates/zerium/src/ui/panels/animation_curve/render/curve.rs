@@ -143,6 +143,15 @@ impl SelectedCurve {
         }
     }
 
+    pub(in crate::ui::panels::animation_curve) fn segment_frame_at_progress(
+        &self,
+        progress: f32,
+    ) -> Frame {
+        let from = self.source_stop_frames[self.source_segment].get();
+        let to = self.source_stop_frames[self.source_segment + 1].get();
+        Frame::new((from as f64 + (to - from) as f64 * f64::from(progress)).round() as u64)
+    }
+
     pub(in crate::ui::panels::animation_curve) fn frame_at_pattern_frame(
         &self,
         frame: Frame,

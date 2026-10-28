@@ -542,32 +542,16 @@ impl Render for AnimationCurveEditor {
             );
         let context_menu_editor = curve_editor.clone();
         let graph = graph.context_menu(move |menu, window, cx| {
-            let menu = context_menu_editor.update(cx, |this, cx| this.curve_menu(menu, cx));
             let position = window.mouse_position();
-            let Some(index) = context_menu_editor
-                .read(cx)
-                .graph_stop_at_position(position, cx)
-            else {
-                return menu;
-            };
-            let view = context_menu_editor.read(cx);
-            let Some(selected) = view.selected_curve(cx) else {
-                return menu;
-            };
-            let target = AnimationActionTarget::new(selected.address.clone(), view.editor.read(cx));
-            let source_stop = selected.source_segment + index;
-            let source_stop_count = selected.source_stop_frames.len();
-            let remove_editor = context_menu_editor.clone();
-            menu.separator().menu_handler_with_icon_and_disabled(
-                t!("curve.delete_stop").to_string(),
-                IconName::Delete,
-                source_stop == 0 || source_stop + 1 == source_stop_count,
-                move |_, cx| {
-                    remove_editor.update(cx, |editor, cx| {
-                        editor.remove_source_stop(&target, source_stop, cx);
-                    });
-                },
-            )
+            context_menu_editor.update(cx, |view, cx| {
+                let menu = view.stop_menu(
+                    menu,
+                    view.graph_stop_at_position(position, cx),
+                    view.time_at_graph_position(position, cx),
+                    cx,
+                );
+                view.curve_menu(menu, cx)
+            })
         });
         let overview_drag_editor = curve_editor.clone();
         let overview_context_menu_editor = curve_editor.clone();
@@ -739,59 +723,17 @@ impl Render for AnimationCurveEditor {
                         }
                     }))
                     .context_menu(move |menu, window, cx| {
-                        let action_context =
-                            overview_context_menu_editor.read(cx).focus_handle.clone();
-                        let menu = menu.action_context(action_context);
                         let position = window.mouse_position();
-                        let (selected, source_stop, frame) = {
-                            let editor = overview_context_menu_editor.read(cx);
-                            (
-                                editor.selected_curve(cx),
-                                editor.overview_stop_at_position(position, cx),
-                                editor.time_at_overview_position(position, cx),
-                            )
-                        };
-                        let Some(selected) = selected else {
-                            return menu;
-                        };
-                        let source_stop_count = selected.source_stop_frames.len();
-                        let view = overview_context_menu_editor.read(cx);
-                        let target =
-                            AnimationActionTarget::new(selected.address, view.editor.read(cx));
-                        if let Some(source_stop) = source_stop {
-                            let remove_editor = overview_context_menu_editor.clone();
-                            return menu.menu_handler_with_icon_and_disabled(
-                                t!("curve.delete_stop").to_string(),
-                                IconName::Delete,
-                                source_stop == 0 || source_stop + 1 == source_stop_count,
-                                move |_, cx| {
-                                    remove_editor.update(cx, |editor, cx| {
-                                        editor.remove_source_stop(&target, source_stop, cx);
-                                    });
-                                },
+                        overview_context_menu_editor.update(cx, |view, cx| {
+                            let menu = menu.action_context(view.focus_handle.clone());
+                            let menu = view.stop_menu(
+                                menu,
+                                view.overview_stop_at_position(position, cx),
+                                view.time_at_overview_position(position, cx),
+                                cx,
                             );
-                        }
-                        let Some(frame) = frame else {
-                            return menu;
-                        };
-                        if !overview_context_menu_editor
-                            .read(cx)
-                            .can_add_stop_at_time(&target, frame, cx)
-                        {
-                            return menu.item(PopupMenuItem::Label(
-                                t!("curve.stop_add_error").to_string().into(),
-                            ));
-                        }
-                        let add_stop_editor = overview_context_menu_editor.clone();
-                        menu.item(
-                            PopupMenuItem::new(t!("curve.add_stop").to_string()).on_click(
-                                move |_, _, cx| {
-                                    add_stop_editor.update(cx, |editor, cx| {
-                                        editor.add_stop_at_time(&target, frame, cx);
-                                    });
-                                },
-                            ),
-                        )
+                            view.animation_timing_menu(menu, cx)
+                        })
                     }),
             );
         let graph = graph.child(graph_controls);

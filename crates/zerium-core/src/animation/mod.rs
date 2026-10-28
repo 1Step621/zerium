@@ -13,7 +13,7 @@ pub use self::interpolation::{
     BezierHandle, EasingDirection, EasingFamily, SegmentInterpolation, interpolate_scalar,
 };
 pub use timing::{AnimationClock, AnimationRepeat, RepeatMode};
-pub use track::ScalarTrack;
+pub use track::{AnimationTiming, ScalarTrack};
 
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct ScalarAnimations {

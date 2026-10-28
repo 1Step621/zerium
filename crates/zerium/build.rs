@@ -1,5 +1,6 @@
 fn main() -> std::io::Result<()> {
     println!("cargo:rerun-if-changed=build.rs");
+    println!("cargo:rerun-if-changed=../../locales");
     match std::env::var("CARGO_CFG_TARGET_OS").as_deref() {
         Ok("macos") => {
             // Leave room to expand dependency paths when packaging the app.

@@ -114,7 +114,7 @@ fn color_animation_toggle(
         if enabled {
             t!("rows.unanimate").to_string()
         } else {
-            t!("rows.animate_color").to_string()
+            t!("rows.animate").to_string()
         },
     )
     .on_click(move |_, window, cx| {

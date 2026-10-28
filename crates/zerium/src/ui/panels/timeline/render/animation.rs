@@ -1,4 +1,5 @@
 //! Timeline dots show all keys; only the displayed scalar property's interior keys are movable.
+use ::ui::menu::context_menu::ContextMenuExt as _;
 use gpui::{Context, MouseButton, div, prelude::*, px};
 use zerium_core::timeline::{AnimationEditTarget, PropertyAddress, TimelineItem, TimelineTime};
 
@@ -130,6 +131,7 @@ pub(super) fn key_markers(
             let linked = synchronization
                 .as_ref()
                 .is_some_and(|scope| scope.is_linked());
+            let menu_source = source.clone();
             let drag = source.filter(|_| synchronization.is_some());
             let color = state.colors.primary;
             let is_focused = marker.stop.is_some();
@@ -177,8 +179,16 @@ pub(super) fn key_markers(
             let movable = drag.is_some();
             let press_source = drag.clone();
             let press_timeline = timeline.clone();
+            let menu_timeline = timeline.clone();
             let transport = state.transport.clone();
             dot.id(id)
+                .when_some(menu_source, |dot, source| {
+                    dot.context_menu(move |menu, _, cx| {
+                        menu_timeline.update(cx, |timeline, cx| {
+                            timeline.animation_stop_menu(menu, &source.address, source.stop, cx)
+                        })
+                    })
+                })
                 .when_some(synchronization, |dot, scope| {
                     dot.tooltip(move |window, cx| scope.tooltip(window, cx))
                 })

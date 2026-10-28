@@ -7,6 +7,59 @@ use crate::app::copy_buffer::CopyBuffer;
 use ::ui::menu::PopupMenu;
 
 impl PropertyInspector {
+    pub(super) fn animation_timing_menu(
+        &self,
+        menu: PopupMenu,
+        address: PropertyAddress,
+        cx: &Context<Self>,
+    ) -> PopupMenu {
+        let editor = self.editor.read(cx);
+        let copy = editor
+            .animation_track(&address)
+            .map(|track| Rc::new(track.timing()));
+        let paste = cx
+            .try_global::<CopyBuffer>()
+            .and_then(|buffer| buffer.animation_timing.clone());
+        let paste_disabled = paste.is_none() || !editor.can_animate_property(&address);
+        let context = editor.edit_context();
+        let session_id = self.session_id;
+        let inspector = cx.entity();
+        menu.action_context(self.focus_handle.clone())
+            .menu_handler_with_icon_and_disabled(
+                t!("clipboard.copy_animation_timing").to_string(),
+                IconName::Copy,
+                copy.is_none(),
+                move |_, cx| {
+                    if let Some(copy) = &copy {
+                        cx.default_global::<CopyBuffer>().animation_timing = Some(copy.clone());
+                    }
+                },
+            )
+            .menu_handler_with_icon_and_disabled(
+                t!("clipboard.paste_animation_timing").to_string(),
+                IconName::PasteClipboard,
+                paste_disabled,
+                move |_, cx| {
+                    let Some(paste) = &paste else { return };
+                    inspector.update(cx, |this, cx| {
+                        if !this.session.read(cx).is_current(session_id)
+                            || !context.is_current(this.editor.read(cx))
+                            || this.inspector_item_id(cx) != Some(address.item_id)
+                        {
+                            return;
+                        }
+                        let changed = this.editor.update_if_changed(cx, |editor| {
+                            editor.paste_property_animation_timing(&address, paste)
+                        });
+                        if changed {
+                            this.select_animation(&address, cx);
+                            cx.notify();
+                        }
+                    });
+                },
+            )
+    }
+
     pub(super) fn effect_menu(
         &self,
         menu: PopupMenu,

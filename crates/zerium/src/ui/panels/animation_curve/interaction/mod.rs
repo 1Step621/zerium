@@ -6,6 +6,7 @@ use crate::{
 };
 use ::ui::menu::PopupMenu;
 use rust_i18n::t;
+use std::rc::Rc;
 use zerium_core::timeline::EditContext;
 
 /// Menu commands retain their original property and authored document state.
@@ -415,6 +416,48 @@ impl AnimationCurveEditor {
         });
     }
 
+    /// Key editing is always the first group, followed by clipboard commands.
+    pub(super) fn stop_menu(
+        &self,
+        menu: PopupMenu,
+        stop: Option<usize>,
+        time: Option<TimelineTime>,
+        cx: &Context<Self>,
+    ) -> PopupMenu {
+        let Some(selected) = self.selected_curve(cx) else {
+            return menu;
+        };
+        let target = AnimationActionTarget::new(selected.address.clone(), self.editor.read(cx));
+        let view = cx.entity();
+        let menu = if let Some(stop) = stop {
+            menu.menu_handler_with_icon_and_disabled(
+                t!("curve.delete_stop").to_string(),
+                IconName::Delete,
+                stop == 0 || stop + 1 == selected.source_stop_frames.len(),
+                move |_, cx| {
+                    view.update(cx, |view, cx| view.remove_source_stop(&target, stop, cx));
+                },
+            )
+        } else if let Some(time) = time {
+            if self.can_add_stop_at_time(&target, time, cx) {
+                menu.menu_handler_with_icon(
+                    t!("curve.add_stop").to_string(),
+                    IconName::Plus,
+                    move |_, cx| {
+                        view.update(cx, |view, cx| view.add_stop_at_time(&target, time, cx));
+                    },
+                )
+            } else {
+                menu.item(PopupMenuItem::Label(
+                    t!("curve.stop_add_error").to_string().into(),
+                ))
+            }
+        } else {
+            return menu;
+        };
+        menu.separator()
+    }
+
     pub(super) fn curve_menu(&self, menu: PopupMenu, cx: &Context<Self>) -> PopupMenu {
         let action_context = self.focus_handle.clone();
         let selected = self.selected_curve(cx);
@@ -440,7 +483,8 @@ impl AnimationCurveEditor {
             ))
         });
         let paste_editor = cx.entity();
-        menu.action_context(action_context)
+        let menu = menu
+            .action_context(action_context)
             .menu_handler_with_icon_and_disabled(
                 t!("clipboard.copy_curve").to_string(),
                 IconName::Copy,
@@ -462,6 +506,50 @@ impl AnimationCurveEditor {
                         });
                     }
                 },
-            )
+            );
+        self.animation_timing_menu(menu.separator(), cx)
+    }
+
+    pub(super) fn animation_timing_menu(&self, menu: PopupMenu, cx: &Context<Self>) -> PopupMenu {
+        let editor = self.editor.read(cx);
+        let address = self.selection.read(cx).address();
+        let copy = address
+            .and_then(|address| editor.animation_track(address))
+            .map(|track| Rc::new(track.timing()));
+        let paste = cx
+            .try_global::<CopyBuffer>()
+            .and_then(|buffer| buffer.animation_timing.clone())
+            .and_then(|timing| {
+                let address = address?;
+                editor
+                    .can_animate_property(address)
+                    .then(|| (AnimationActionTarget::new(address.clone(), editor), timing))
+            });
+        let paste_editor = cx.entity();
+        menu.menu_handler_with_icon_and_disabled(
+            t!("clipboard.copy_animation_timing").to_string(),
+            IconName::Copy,
+            copy.is_none(),
+            move |_, cx| {
+                if let Some(copy) = &copy {
+                    cx.default_global::<CopyBuffer>().animation_timing = Some(copy.clone());
+                }
+            },
+        )
+        .menu_handler_with_icon_and_disabled(
+            t!("clipboard.paste_animation_timing").to_string(),
+            IconName::PasteClipboard,
+            paste.is_none(),
+            move |_, cx| {
+                if let Some((target, timing)) = &paste {
+                    paste_editor.update(cx, |view, cx| {
+                        view.editor.update_if_changed(cx, |editor| {
+                            target.context.is_current(editor)
+                                && editor.paste_property_animation_timing(&target.address, timing)
+                        });
+                    });
+                }
+            },
+        )
     }
 }

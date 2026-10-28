@@ -44,8 +44,9 @@ impl PropertyInspector {
             .collect::<BTreeMap<_, _>>();
         let context = editor.edit_context();
         let inspector = cx.entity();
-        menu.menu_handler(
+        menu.menu_handler_with_icon(
             t!("inspector.set_type_defaults").to_string(),
+            IconName::FloppyDisk,
             move |_, cx| {
                 inspector.update(cx, |this, cx| {
                     if !context.is_current(this.editor.read(cx)) {
