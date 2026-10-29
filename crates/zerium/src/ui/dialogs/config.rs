@@ -85,6 +85,8 @@ impl Render for ConfigSettings {
             (t!("settings.system_language").to_string(), None),
             (t!("app.japanese").to_string(), Some("ja-JP".to_owned())),
             (t!("english").to_string(), Some("en-US".to_owned())),
+            (t!("app.chinese").to_string(), Some("zh-CN".to_owned())),
+            (t!("app.russian").to_string(), Some("ru-RU".to_owned())),
         ];
         let language = self
             .draft

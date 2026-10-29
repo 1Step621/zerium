@@ -1,6 +1,9 @@
 //! Application translations and locale selection.
 
+use ::ui as components;
+
 pub(crate) fn initialize(language: Option<&str>) {
+    rust_i18n::extend!(components);
     let locale = language
         .map(str::trim)
         .filter(|language| !language.is_empty())

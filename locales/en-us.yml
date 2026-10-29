@@ -4,6 +4,8 @@ _version: 1
 "app.choose_language": "Language"
 "app.japanese": "日本語"
 "english": "English"
+"app.chinese": "简体中文"
+"app.russian": "Русский"
 "common.move_up": "Move up"
 "common.move_down": "Move down"
 "common.delete": "Delete"
