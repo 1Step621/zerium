@@ -30,6 +30,10 @@ pub(super) mod video;
 const COMPOSITE: &str = include_str!("wgsl/composite.wgsl");
 
 impl RenderDevice {
+    pub(crate) fn is_lost(&self) -> bool {
+        self.gpu.is_lost()
+    }
+
     pub(crate) fn create(
         gpu: GpuContext,
         shaders: &ValidatedPluginShaders,

@@ -138,6 +138,11 @@ impl VideoFrameUploader {
         let FrameData::Video(_) = frame.data else {
             return Ok(());
         };
+        let gpu = self.gpu();
+        let _submission_guard = gpu.surface.as_ref().map(|surface| surface.submit_guard());
+        if gpu.is_lost() {
+            return Err(RenderError::backend("GPU device was lost"));
+        }
         let mut scratch = self
             .scratch
             .lock()
@@ -146,11 +151,6 @@ impl VideoFrameUploader {
         // Converted pixels are consumed on this same queue. Publication needs
         // submission ordering, not a wait for GPU completion.
         self.shared.gpu.queue.submit([]);
-        self.shared
-            .gpu
-            .device
-            .poll(wgpu::PollType::Poll)
-            .map_err(|error| RenderError::backend(error.to_string()))?;
         Ok(())
     }
 }

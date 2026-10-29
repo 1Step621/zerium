@@ -151,6 +151,15 @@ impl Preview {
         let Some(renderer) = self.render_runtime.read(cx).preview_session() else {
             return;
         };
+        let Some(surface) = self.surface.clone() else {
+            return;
+        };
+        let Some(_submission_guard) = surface.try_submit_guard() else {
+            return;
+        };
+        if surface.is_device_lost() {
+            return;
+        }
         let readback = match renderer.read_color(position) {
             Ok(readback) => readback,
             Err(error) => {

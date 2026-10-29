@@ -138,11 +138,27 @@ impl Render for Preview {
             });
             window.request_animation_frame();
         }
+        self.recover_gpu(window, cx);
+        // Resizing replaces the surface textures after layout. Paint their new
+        // extent even when playback is stopped and no editor change follows.
+        if window.is_window_resizing()
+            || self
+                .surface
+                .as_ref()
+                .is_some_and(|surface| !surface.is_device_lost() && surface.is_resize_pending())
+        {
+            let preview = cx.entity();
+            window.on_next_frame(move |_, cx| preview.update(cx, |_, cx| cx.notify()));
+            window.request_animation_frame();
+        }
         self.validate_color_pick(window, cx);
         self.render_latest_frame(cx);
 
         let colors = cx.theme().colors;
-        let surface = self.surface.clone();
+        let surface = self
+            .surface
+            .clone()
+            .filter(|surface| !surface.is_device_lost());
         let preview = cx.entity();
         let (frame, resolution) = {
             let editor = self.editor.read(cx);

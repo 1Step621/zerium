@@ -4,7 +4,13 @@ pub(crate) mod input;
 pub(crate) mod output;
 pub(crate) mod processing;
 
-use std::{sync::OnceLock, time::Instant};
+use std::{
+    sync::{
+        Arc, OnceLock,
+        atomic::{AtomicBool, Ordering},
+    },
+    time::Instant,
+};
 
 use gpu_video::VideoAdapterExt;
 use gst::prelude::*;
@@ -14,14 +20,46 @@ use gstreamer as gst;
 pub(crate) struct GpuContext {
     pub(crate) device: wgpu::Device,
     pub(crate) queue: wgpu::Queue,
+    pub(crate) surface: Option<gpui::WgpuSurfaceHandle>,
+    lost: Arc<AtomicBool>,
 }
 
 impl GpuContext {
-    pub(crate) fn new(device: wgpu::Device, queue: wgpu::Queue) -> Self {
-        device.set_device_lost_callback(|reason, message| {
+    fn new(device: wgpu::Device, queue: wgpu::Queue) -> Self {
+        let lost = Arc::new(AtomicBool::new(false));
+        let flag = lost.clone();
+        device.set_device_lost_callback(move |reason, message| {
+            flag.store(true, Ordering::Release);
             log::error!("GPU device lost ({reason:?}): {message}");
         });
-        Self { device, queue }
+        let flag = lost.clone();
+        device.on_uncaptured_error(Arc::new(move |error: wgpu::Error| {
+            if flag.load(Ordering::Acquire) {
+                log::debug!("GPU error after the device was lost: {error}");
+            } else {
+                panic!("wgpu error: {error}");
+            }
+        }));
+        Self {
+            device,
+            queue,
+            surface: None,
+            lost,
+        }
+    }
+
+    pub(crate) fn from_surface(surface: &gpui::WgpuSurfaceHandle) -> Self {
+        // WGPUI owns the shared device's callbacks and uses them for recovery.
+        Self {
+            device: surface.device().clone(),
+            queue: surface.queue().clone(),
+            surface: Some(surface.clone()),
+            lost: surface.device_lost_flag(),
+        }
+    }
+
+    pub(crate) fn is_lost(&self) -> bool {
+        self.lost.load(Ordering::Acquire)
     }
 
     pub(crate) fn request(

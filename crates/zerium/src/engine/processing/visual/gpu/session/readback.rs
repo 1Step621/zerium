@@ -14,6 +14,9 @@ pub(crate) struct ColorReadback {
 impl RenderSession {
     /// Copy the displayed pixel before another preview frame can replace it.
     pub(crate) fn read_color(&self, position: [f32; 2]) -> Result<ColorReadback, RenderError> {
+        if self.gpu().is_lost() {
+            return Err(RenderError::backend("GPU device was lost"));
+        }
         if position
             .iter()
             .any(|value| !value.is_finite() || !(0. ..1.).contains(value))

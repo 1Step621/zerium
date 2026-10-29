@@ -155,4 +155,9 @@ impl PreviewFrameScheduler {
         self.workers.clear();
         self.demand.reset();
     }
+
+    pub(crate) fn set_uploader(&mut self, uploader: Option<VideoFrameUploader>) {
+        self.reset();
+        self.uploader = uploader.map(Arc::new);
+    }
 }

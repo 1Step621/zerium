@@ -8,13 +8,10 @@ use crate::{
         rendering::RenderRuntime,
         transport::TransportController,
     },
-    engine::{
-        GpuContext,
-        processing::{
-            CalculationPolicy,
-            audio::metering::AudioLevelSampler,
-            visual::{RenderError, RenderScene, RenderSize, SceneEvaluator},
-        },
+    engine::processing::{
+        CalculationPolicy,
+        audio::metering::AudioLevelSampler,
+        visual::{RenderError, RenderScene, RenderSize, SceneEvaluator},
     },
     ui::workspace::notifications::UiNotifications,
 };
@@ -141,14 +138,7 @@ impl Preview {
             .ok_or_else(|| {
                 RenderError::backend("Cannot create a WGPUI GPU surface on this platform")
             })
-            .and_then(|surface| {
-                render_runtime
-                    .read(cx)
-                    .create_preview_session(GpuContext::new(
-                        surface.device().clone(),
-                        surface.queue().clone(),
-                    ))
-            });
+            .and_then(|surface| render_runtime.read(cx).create_preview_session(surface));
         let error: Option<SharedString> = renderer
             .as_ref()
             .err()
@@ -275,6 +265,62 @@ impl Preview {
 }
 
 impl Preview {
+    fn recover_gpu(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        let Some(previous) = self
+            .surface
+            .as_ref()
+            .filter(|surface| surface.is_device_lost())
+        else {
+            return;
+        };
+        let (width, height) = previous.size();
+        if self.render_runtime.read(cx).preview_session().is_some() {
+            log::warn!("Preview GPU was lost; waiting for WGPUI to replace it");
+            self.cancel_color_pick(window, cx);
+            self.image_task = None;
+            self.frame_scheduler.set_uploader(None);
+            self.render_runtime
+                .update(cx, |runtime, _| runtime.clear_preview_session());
+            self.rendered_frame = None;
+            self.frame_error = None;
+        }
+        let Some(surface) = window
+            .create_wgpu_surface(
+                width.max(1),
+                height.max(1),
+                wgpu::TextureFormat::Rgba8UnormSrgb,
+            )
+            .filter(|surface| !surface.is_device_lost())
+        else {
+            return;
+        };
+        let renderer = self
+            .render_runtime
+            .read(cx)
+            .create_preview_session(&surface);
+        if surface.is_device_lost() {
+            return;
+        }
+        match renderer {
+            Ok(renderer) => {
+                self.frame_scheduler
+                    .set_uploader(Some(renderer.video_uploader()));
+                self.render_runtime
+                    .update(cx, |runtime, _| runtime.set_preview_session(Ok(renderer)));
+                self.surface = Some(surface);
+                self.error = None;
+                log::info!("Preview rebuilt on the replacement GPU device");
+            }
+            Err(error) => {
+                self.surface = Some(surface);
+                self.report_error(
+                    t!("preview.initialize_failed", error = error).to_string(),
+                    cx,
+                );
+            }
+        }
+    }
+
     fn prepare_scene(
         &mut self,
         render_time: TimelineTime,
@@ -314,6 +360,12 @@ impl Preview {
         let Some(surface) = self.surface.clone() else {
             return;
         };
+        let Some(_submission_guard) = surface.try_submit_guard() else {
+            return;
+        };
+        if surface.is_device_lost() {
+            return;
+        }
         let (width, height) = surface.size();
         let size = RenderSize { width, height };
         let (render_time, revision) = {

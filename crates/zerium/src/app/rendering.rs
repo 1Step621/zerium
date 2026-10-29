@@ -29,6 +29,10 @@ impl RenderRuntime {
         self.preview = Some(renderer.map_err(|error| error.to_string()));
     }
 
+    pub(crate) fn clear_preview_session(&mut self) {
+        self.preview = None;
+    }
+
     pub(crate) fn preview_session(&self) -> Option<Arc<RenderSession>> {
         self.preview
             .as_ref()
@@ -46,7 +50,11 @@ impl RenderRuntime {
     /// Creates the dedicated export device lazily, then gives each export an
     /// independent mutable rendering session.
     pub(crate) fn export_session(&mut self) -> Result<RenderSession, RenderError> {
-        let device = match &self.export_device {
+        let device = match self
+            .export_device
+            .as_ref()
+            .filter(|device| !device.is_lost())
+        {
             Some(device) => device.clone(),
             None => {
                 let device = RenderDevice::create_headless(&self.plugin_shaders)?;
@@ -59,9 +67,9 @@ impl RenderRuntime {
 
     pub(crate) fn create_preview_session(
         &self,
-        gpu: GpuContext,
+        surface: &gpui::WgpuSurfaceHandle,
     ) -> Result<Arc<RenderSession>, RenderError> {
-        let device = RenderDevice::create(gpu, &self.plugin_shaders)?;
+        let device = RenderDevice::create(GpuContext::from_surface(surface), &self.plugin_shaders)?;
         Ok(Arc::new(device.create_session()))
     }
 }

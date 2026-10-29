@@ -543,6 +543,9 @@ impl RenderSession {
         scene: &RenderScene,
         target_view: &wgpu::TextureView,
     ) -> Result<wgpu::SubmissionIndex, RenderError> {
+        if self.gpu().is_lost() {
+            return Err(RenderError::backend("GPU device was lost"));
+        }
         if ![super::OUTPUT_FORMAT, super::SCENE_FORMAT].contains(&target_view.texture().format()) {
             return Err(RenderError::backend("Unsupported output surface format"));
         }

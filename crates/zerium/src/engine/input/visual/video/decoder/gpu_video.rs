@@ -39,6 +39,10 @@ struct SampleMetadata {
 
 impl GpuVideoDecoder {
     pub(super) fn new(gpu: &GpuContext) -> Result<Self, MediaError> {
+        let _submission_guard = gpu.surface.as_ref().map(|surface| surface.submit_guard());
+        if gpu.is_lost() {
+            return Err(MediaError::external("GPU device was lost"));
+        }
         let device = &gpu.device;
         let queue = &gpu.queue;
         let video = device.video().map_err(MediaError::external)?;
@@ -71,9 +75,13 @@ impl GpuVideoDecoder {
         input: &VideoInput,
         cancelled: &AtomicBool,
     ) -> Result<Option<DecodedFrame>, MediaError> {
+        let gpu = self.gpu.clone();
         loop {
             if cancelled.load(Ordering::Relaxed) {
                 return Err(MediaError::Cancelled);
+            }
+            if gpu.is_lost() {
+                return Err(MediaError::external("GPU device was lost"));
             }
             match self.frames.try_recv() {
                 Ok(frame) => {
@@ -92,6 +100,10 @@ impl GpuVideoDecoder {
             }
             let Some(sample) = input.read_sample(cancelled)? else {
                 // Publish pictures retained for presentation-order reordering.
+                let _submission_guard = gpu.surface.as_ref().map(|surface| surface.submit_guard());
+                if gpu.is_lost() {
+                    return Err(MediaError::external("GPU device was lost"));
+                }
                 self.decoder.flush().map_err(MediaError::external)?;
                 self.finished = true;
                 continue;
@@ -149,6 +161,10 @@ impl GpuVideoDecoder {
                 ));
             }
             let bytes = buffer.map_readable().map_err(MediaError::external)?;
+            let _submission_guard = gpu.surface.as_ref().map(|surface| surface.submit_guard());
+            if gpu.is_lost() {
+                return Err(MediaError::external("GPU device was lost"));
+            }
             self.decoder
                 .decode(gpu_video::EncodedInputChunk {
                     data: bytes.as_slice(),
@@ -163,6 +179,14 @@ impl GpuVideoDecoder {
     }
 
     pub(super) fn seek(&mut self) -> Result<(), MediaError> {
+        let _submission_guard = self
+            .gpu
+            .surface
+            .as_ref()
+            .map(|surface| surface.submit_guard());
+        if self.gpu.is_lost() {
+            return Err(MediaError::external("GPU device was lost"));
+        }
         // Finish and discard the old presentation sequence before reading a new keyframe.
         // Keep the decoder's video session and surfaces allocated across seeks.
         self.decoder.flush().map_err(MediaError::external)?;

@@ -32,6 +32,9 @@ pub(crate) fn render_png(
     renderer: &RenderSession,
     scene: &RenderScene,
 ) -> Result<Vec<u8>, EncodingError> {
+    if renderer.gpu().is_lost() {
+        return Err(EncodingError::backend("GPU device was lost"));
+    }
     let device = &renderer.gpu().device;
     validate_size(device, scene.size)?;
     let dimensions = VideoDimensions {
@@ -45,7 +48,17 @@ pub(crate) fn render_png(
         VideoPixelFormat::Rgba,
     );
     let mut readback = backend::Readback::new(device, dimensions, VideoPixelFormat::Rgba)?;
-    readback.submit(0, renderer, &conversion, scene)?;
+    {
+        let _submission_guard = renderer
+            .gpu()
+            .surface
+            .as_ref()
+            .map(|surface| surface.submit_guard());
+        if renderer.gpu().is_lost() {
+            return Err(EncodingError::backend("GPU device was lost"));
+        }
+        readback.submit(0, renderer, &conversion, scene)?;
+    }
     let cancelled = AtomicBool::new(false);
     let frame = readback
         .finish_next(
@@ -199,6 +212,15 @@ impl VideoOutput {
         }
         if scene.size != self.size {
             return Err(EncodingError::Invalid("Export dimensions changed"));
+        }
+        let _submission_guard = self
+            .renderer
+            .gpu()
+            .surface
+            .as_ref()
+            .map(|surface| surface.submit_guard());
+        if self.renderer.gpu().is_lost() {
+            return Err(EncodingError::backend("GPU device was lost"));
         }
         match &mut self.backend {
             Backend::Readback(readback) => {
