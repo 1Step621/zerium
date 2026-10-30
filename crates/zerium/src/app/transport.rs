@@ -28,6 +28,7 @@ struct PlaybackSession {
     started_at: Instant,
     clock: PlaybackClock,
     rate: PlaybackRate,
+    audio_recovery_attempted: bool,
 }
 
 impl PlaybackSession {
@@ -199,6 +200,7 @@ impl TransportController {
             started_at: Instant::now(),
             clock,
             rate: PlaybackRate::Normal,
+            audio_recovery_attempted: false,
         });
         let start_seconds = frame_rate.frame_to_seconds(start_frame);
         self.editor.update(cx, |editor, cx| {
@@ -300,6 +302,11 @@ impl TransportController {
             Ok(clock) => {
                 if clock == PlaybackClock::Audio {
                     seconds = self.audio.read(cx).playhead_seconds().unwrap_or(seconds);
+                    // After one second of output, allow recovery from a later
+                    // failure without looping on a broken device.
+                    if seconds - playback.start_seconds >= f64::from(playback.rate.multiplier()) {
+                        playback.audio_recovery_attempted = false;
+                    }
                 }
                 playback.set_clock(clock, seconds, Instant::now());
             }
@@ -330,6 +337,12 @@ impl TransportController {
                     t!("transport.audio_decode_failed", error = error).to_string()
                 }
                 AudioPlaybackEvent::DeviceFailed(error) => {
+                    if self.recover_audio(cx) {
+                        log::warn!(
+                            "Audio output failed; reopening at the current position: {error}"
+                        );
+                        continue;
+                    }
                     t!("transport.audio_device_failed", error = error).to_string()
                 }
                 AudioPlaybackEvent::WorkerPanicked => {
@@ -338,6 +351,39 @@ impl TransportController {
             };
             self.notifications
                 .update(cx, |notifications, cx| notifications.push(message, cx));
+        }
+    }
+
+    fn recover_audio(&mut self, cx: &mut Context<Self>) -> bool {
+        let TransportMode::Playing(mut playback) = self.mode else {
+            return false;
+        };
+        if playback.audio_recovery_attempted || playback.clock != PlaybackClock::Audio {
+            return false;
+        }
+        // An event from a retired stream must not restart a healthy replacement.
+        if self.audio.read(cx).playhead_seconds().is_some() {
+            return false;
+        }
+        let editor = self.editor.read(cx);
+        let seconds = editor.playhead_seconds();
+        let timeline = editor.audio_snapshot();
+        playback.audio_recovery_attempted = true;
+        let now = Instant::now();
+        match self.audio.update(cx, |audio, _| {
+            audio.restart_at(timeline, seconds, playback.rate)
+        }) {
+            Ok(clock) => {
+                playback.set_clock(clock, seconds, now);
+                self.mode = TransportMode::Playing(playback);
+                true
+            }
+            Err(error) => {
+                log::warn!("Failed to reopen audio output: {error}");
+                playback.set_clock(PlaybackClock::Wall, seconds, now);
+                self.mode = TransportMode::Playing(playback);
+                false
+            }
         }
     }
 

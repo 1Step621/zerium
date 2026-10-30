@@ -60,9 +60,29 @@ impl AudioOutputState {
         );
     }
 
-    fn device_failed(&self, error: String) {
-        self.push_event(AudioPlaybackEvent::DeviceFailed(error));
-        self.request_stop();
+    fn handle_stream_error(&self, error: cpal::Error) {
+        if self.is_stopped() {
+            return;
+        }
+        match error.kind() {
+            cpal::ErrorKind::Xrun
+            | cpal::ErrorKind::DeviceChanged
+            | cpal::ErrorKind::RealtimeDenied => {
+                // CPAL keeps these streams active and handles xrun recovery.
+                log::debug!("Audio stream notification: {error}");
+            }
+            _ => {
+                // A backend may keep reporting the same failure until the UI
+                // drops its stream. Stop the mixer and queue just the first error.
+                let mut events = self
+                    .events
+                    .lock()
+                    .unwrap_or_else(|error| error.into_inner());
+                if !self.stopped.swap(true, Ordering::AcqRel) {
+                    events.push_back(AudioPlaybackEvent::DeviceFailed(error.to_string()));
+                }
+            }
+        }
     }
 }
 
@@ -114,7 +134,7 @@ fn build_output_stream_for_format<T: cpal::SizedSample + cpal::FromSample<f32>>(
                 })
             },
             move |error| {
-                errors.device_failed(error.to_string());
+                errors.handle_stream_error(error);
             },
             None,
         )
@@ -130,6 +150,10 @@ fn fill_output<T: Copy>(
     state: &AudioOutputState,
     convert: impl Fn(f32) -> T,
 ) {
+    if state.is_stopped() {
+        output.fill(convert(0.));
+        return;
+    }
     let queued_samples = consumer.slots().min(output.len());
     let queued_samples = queued_samples - queued_samples % channels;
     let mut peak = [0_f32; 2];
