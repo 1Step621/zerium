@@ -349,10 +349,8 @@ fn item_header(
                             PopupMenuItem::new(t!(format!("blend_mode.{}", mode.id())).to_string())
                                 .checked(blend_mode == mode)
                                 .on_click(move |_, _, cx| {
-                                    editor.update(cx, |editor, cx| {
-                                        if editor.set_item_blend_mode(item_id, mode) {
-                                            cx.notify();
-                                        }
+                                    editor.update_if_changed(cx, |editor| {
+                                        editor.set_item_blend_mode(item_id, mode)
                                     });
                                 }),
                         )
@@ -375,11 +373,7 @@ fn item_header(
                     t!("inspector.hide_item").to_string()
                 })
                 .on_click(move |_, _, cx| {
-                    editor.update(cx, |editor, cx| {
-                        if editor.toggle_item_visibility(item_id) {
-                            cx.notify();
-                        }
-                    });
+                    editor.update_if_changed(cx, |editor| editor.toggle_item_visibility(item_id));
                 }),
         )
 }
@@ -389,11 +383,7 @@ fn activate_edit_target(
     effect_id: Option<EffectInstanceId>,
     cx: &mut App,
 ) {
-    editor.update(cx, |editor, cx| {
-        if editor.set_active_edit_effect(effect_id) {
-            cx.notify();
-        }
-    });
+    editor.update_if_changed(cx, |editor| editor.set_active_edit_effect(effect_id));
 }
 
 fn effect_header(
@@ -531,10 +521,8 @@ fn effect_header(
                     .icon(IconName::Delete)
                     .tooltip(t!("common.delete").to_string())
                     .on_click(move |_, _, cx| {
-                        remove_editor.update(cx, |editor, cx| {
-                            if editor.remove_item_effect(item_id, effect_id) {
-                                cx.notify();
-                            }
+                        remove_editor.update_if_changed(cx, |editor| {
+                            editor.remove_item_effect(item_id, effect_id)
                         });
                     }),
                 ),

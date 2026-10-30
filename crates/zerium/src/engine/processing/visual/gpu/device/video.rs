@@ -6,7 +6,7 @@ use zerium_shader::WgslModule;
 use super::shaders::raster_pipeline;
 use crate::engine::{
     input::{PixelPlane, YuvFormat},
-    processing::visual::RenderError,
+    processing::visual::{RenderError, RenderSize, texture_2d},
 };
 
 pub(in crate::engine::processing::visual::gpu) struct YuvUploadPipeline(YuvConversionPipeline);
@@ -43,20 +43,13 @@ impl YuvUploadPipeline {
         };
         let planes = std::array::from_fn(|plane| {
             let [width, height] = yuv.plane_size(width, height, plane);
-            device.create_texture(&wgpu::TextureDescriptor {
-                label: Some("zerium-yuv-input-plane"),
-                size: wgpu::Extent3d {
-                    width,
-                    height,
-                    depth_or_array_layers: 1,
-                },
-                mip_level_count: 1,
-                sample_count: 1,
-                dimension: wgpu::TextureDimension::D2,
+            texture_2d(
+                device,
+                RenderSize { width, height },
                 format,
-                usage: wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                view_formats: &[],
-            })
+                wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
+                "zerium-yuv-input-plane",
+            )
         });
         let views: [_; 3] =
             std::array::from_fn(|plane| planes[plane].create_view(&Default::default()));

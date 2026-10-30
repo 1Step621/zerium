@@ -1,5 +1,5 @@
 use super::*;
-use crate::ui::components::input::set_input_text;
+use crate::ui::{TimelineEditorEntityExt as _, components::input::set_input_text};
 
 pub(super) struct NumericArgument {
     pub number: NumericInput,
@@ -49,24 +49,19 @@ impl SceneSettings {
             self.sync_inputs(window, cx);
             return;
         }
-        self.editor.update(cx, |editor, cx| {
-            let changed = match key {
-                ControlId::Name(scene_id) => editor.rename_scene(*scene_id, value),
-                ControlId::CalculationScript { variable_id, .. } => {
-                    editor.update_scene_calculation_script(variable_id, value)
-                }
-                ControlId::ArgumentName { argument_id, .. } => {
-                    editor.rename_scene_variable(argument_id, &value)
-                }
-                ControlId::ArgumentDefault { argument_id, .. } => {
-                    editor.update_scene_argument_default(argument_id, PropertyValue::String(value))
-                        == Ok(true)
-                }
-                _ => false,
-            };
-            if changed {
-                cx.notify();
+        self.editor.update_if_changed(cx, |editor| match key {
+            ControlId::Name(scene_id) => editor.rename_scene(*scene_id, value),
+            ControlId::CalculationScript { variable_id, .. } => {
+                editor.update_scene_calculation_script(variable_id, value)
             }
+            ControlId::ArgumentName { argument_id, .. } => {
+                editor.rename_scene_variable(argument_id, &value)
+            }
+            ControlId::ArgumentDefault { argument_id, .. } => {
+                editor.update_scene_argument_default(argument_id, PropertyValue::String(value))
+                    == Ok(true)
+            }
+            _ => false,
         });
     }
 
@@ -120,12 +115,8 @@ impl SceneSettings {
         let Some(settings) = values.to_domain(&argument.number) else {
             return;
         };
-        let changed = self.editor.update(cx, |editor, cx| {
-            let changed = editor.update_scene_argument_numeric_settings(argument_id, settings);
-            if changed {
-                cx.notify();
-            }
-            changed
+        let changed = self.editor.update_if_changed(cx, |editor| {
+            editor.update_scene_argument_numeric_settings(argument_id, settings)
         });
         if changed {
             for (input, text) in argument

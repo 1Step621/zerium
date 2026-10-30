@@ -196,7 +196,9 @@ pub(super) type BindingIndex =
     HashMap<(ItemId, Option<EffectInstanceId>), HashMap<String, Vec<(usize, usize)>>>;
 
 impl SceneDefinition {
-    pub(in crate::timeline) fn bindings_for<'a>(
+    /// Connections to this property, in variable order. Element and scalar
+    /// coordinates can be filtered by the caller when needed.
+    pub fn bindings_for<'a>(
         &'a self,
         address: &crate::timeline::PropertyAddress,
     ) -> impl Iterator<

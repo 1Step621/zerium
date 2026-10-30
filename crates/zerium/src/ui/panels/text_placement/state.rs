@@ -1,6 +1,7 @@
 use std::collections::HashSet;
 
 use super::*;
+use crate::ui::TimelineEditorEntityExt as _;
 
 impl TextPlacement {
     pub(super) fn set_target(&mut self, target: Target, cx: &mut Context<Self>) {
@@ -64,14 +65,9 @@ impl TextPlacement {
                 };
                 let bound = editor
                     .active_scene()
-                    .variables()
-                    .iter()
-                    .flat_map(|variable| &variable.bindings)
-                    .any(|binding| {
-                        binding.item_id() == item.id
-                            && binding.owner().effect_id().is_none()
-                            && binding.property_id() == field.id()
-                    });
+                    .bindings_for(&address)
+                    .next()
+                    .is_some();
                 Some(Row {
                     address,
                     start: item.start(),
@@ -158,11 +154,8 @@ impl TextPlacement {
             return;
         };
         self.stamp_target = Some(StampTarget::Start(id));
-        self.editor.update(cx, |editor, cx| {
-            if editor.select(id) {
-                cx.notify();
-            }
-        });
+        self.editor
+            .update_if_changed(cx, |editor| editor.select(id));
         self.transport
             .update(cx, |transport, cx| transport.set_playhead(row.start, cx));
         cx.notify();

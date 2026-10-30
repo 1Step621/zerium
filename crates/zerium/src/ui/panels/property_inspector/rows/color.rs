@@ -1,21 +1,17 @@
 use crate::ui::panels::{
     preview::color_input,
     property_inspector::{
-        PropertyInspector,
         control::ValueControl,
         render::{
-            animation::{animation_stop_inputs, keyframe_base},
+            animation::{animation_toggle, animation_value_inputs},
             binding::control_binding_button,
         },
     },
 };
-use ::ui::{button::Button, color_picker::ColorPickerState};
-use gpui::{Entity, MouseButton, SharedString, div, prelude::*, px};
-
-use zerium_core::timeline::PropertyAddress;
+use ::ui::color_picker::ColorPickerState;
+use gpui::{Entity, MouseButton, div, prelude::*, px};
 
 use super::{PropertyRow, RenderCtx};
-use rust_i18n::t;
 
 pub(in crate::ui::panels::property_inspector) fn color_row(
     color: &ValueControl<[f32; 4]>,
@@ -26,8 +22,7 @@ pub(in crate::ui::panels::property_inspector) fn color_row(
     let common = &color.common;
     let is_bound = common.is_bound();
     let binding_button = control_binding_button(common, ctx);
-    let animation_button = (common.animatable && !is_bound)
-        .then(|| color_animation_toggle(&common.target, common.animation_enabled, &ctx.inspector));
+    let animation_button = animation_toggle(common, ctx);
     let value = color_editor(color, picker, ctx);
     let select_inspector = ctx.inspector.clone();
     let select_target = common.target.clone();
@@ -82,44 +77,10 @@ fn color_editor(
             )
             .into_any_element();
     }
-    let mut stop_inputs = common
-        .animation_stops
-        .iter()
-        .filter_map(|stop| {
-            let picker = ctx.store.inputs.color(&stop.id)?;
-            Some(color_input(&picker).into_any_element())
-        })
-        .collect::<Vec<_>>();
-    if stop_inputs.len() == 1 {
-        return stop_inputs.remove(0);
-    }
-    if stop_inputs.len() == 2 {
-        let end = stop_inputs.pop().expect("two stop inputs");
-        let start = stop_inputs.pop().expect("two stop inputs");
-        return animation_stop_inputs(start, end, ctx.colors.muted_foreground).into_any_element();
-    }
-    color_input(picker).into_any_element()
-}
-
-fn color_animation_toggle(
-    target: &PropertyAddress,
-    enabled: bool,
-    inspector: &Entity<PropertyInspector>,
-) -> Button {
-    let inspector = inspector.clone();
-    let target = target.clone();
-    keyframe_base(
-        SharedString::from(format!("toggle-animation-{:?}", target)),
-        enabled,
-        if enabled {
-            t!("rows.unanimate").to_string()
-        } else {
-            t!("rows.animate").to_string()
-        },
-    )
-    .on_click(move |_, window, cx| {
-        inspector.update(cx, |inspector, cx| {
-            inspector.set_animation_enabled(&target, !enabled, window, cx);
-        });
-    })
+    let stop_inputs = common.animation_stops.iter().filter_map(|stop| {
+        let picker = ctx.store.inputs.color(&stop.id)?;
+        Some(color_input(&picker).into_any_element())
+    });
+    animation_value_inputs(stop_inputs, ctx.colors.muted_foreground)
+        .unwrap_or_else(|| color_input(picker).into_any_element())
 }

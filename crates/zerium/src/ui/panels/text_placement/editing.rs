@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::TimelineEditorEntityExt as _;
 use zerium_core::timeline::{FrameDuration, ItemInterval, TimelineEditError};
 
 const INITIAL_DURATION_SECONDS: f64 = 3.;
@@ -15,11 +16,8 @@ impl TextPlacement {
         }
         self.transport
             .update(cx, |transport, cx| transport.stop_in_place(cx));
-        self.editor.update(cx, |editor, cx| {
-            if editor.remove_items(ids) {
-                cx.notify();
-            }
-        });
+        self.editor
+            .update_if_changed(cx, |editor| editor.remove_items(ids));
         self.inputs = InputStore::default();
         self.stamp_target = None;
         self.error = None;
@@ -152,11 +150,8 @@ impl TextPlacement {
         match result {
             Ok(next) => {
                 self.stamp_target = Some(next);
-                self.editor.update(cx, |editor, cx| {
-                    if editor.select(next.item()) {
-                        cx.notify();
-                    }
-                });
+                self.editor
+                    .update_if_changed(cx, |editor| editor.select(next.item()));
                 self.scroll.scroll_to_item(
                     rows.iter()
                         .position(|row| row.address.item_id == next.item())

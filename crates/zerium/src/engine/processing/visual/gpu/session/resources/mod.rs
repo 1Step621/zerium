@@ -7,6 +7,7 @@ use crate::engine::processing::visual::{
         PROPERTY_WORD_SIZE, SCENE_FORMAT,
         device::interface::{GpuComposite, GpuItem},
         plan::{PassKind, execution::RenderData},
+        texture_2d,
     },
     scene::{
         RenderEffect, RenderEffectPassKind, RenderError, RenderNodeContent, RenderScene,
@@ -54,20 +55,7 @@ impl RenderTarget {
         usage: wgpu::TextureUsages,
         label: &str,
     ) -> Self {
-        let texture = device.create_texture(&wgpu::TextureDescriptor {
-            label: Some(label),
-            size: wgpu::Extent3d {
-                width: size.width,
-                height: size.height,
-                depth_or_array_layers: 1,
-            },
-            mip_level_count: 1,
-            sample_count: 1,
-            dimension: wgpu::TextureDimension::D2,
-            format: SCENE_FORMAT,
-            usage,
-            view_formats: &[],
-        });
+        let texture = texture_2d(device, size, SCENE_FORMAT, usage, label);
         Self {
             view: texture.create_view(&Default::default()),
             texture,

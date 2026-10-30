@@ -8,6 +8,7 @@ use super::{
     },
     state::ControlStore,
 };
+use crate::ui::TimelineEditorEntityExt as _;
 use crate::ui::components::input::file::FileInputController;
 use ::ui::{
     Disableable as _, IconName, Sizable as _, ThemeColor,
@@ -279,10 +280,8 @@ fn aspect_ratio_control(control: &AspectRatioControl, ctx: &RenderCtx) -> Div {
                     t!("edit.lock_ratio")
                 })
                 .on_click(move |checked, _, cx| {
-                    editor.update(cx, |editor, cx| {
-                        if editor.update_aspect_ratio_locked(item_id, effect_id, *checked) {
-                            cx.notify();
-                        }
+                    editor.update_if_changed(cx, |editor| {
+                        editor.update_aspect_ratio_locked(item_id, effect_id, *checked)
                     });
                 }),
         )

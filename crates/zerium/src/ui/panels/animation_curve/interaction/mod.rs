@@ -6,7 +6,6 @@ use crate::{
 };
 use ::ui::menu::PopupMenu;
 use rust_i18n::t;
-use std::rc::Rc;
 use zerium_core::timeline::EditContext;
 
 /// Menu commands retain their original property and authored document state.
@@ -513,35 +512,14 @@ impl AnimationCurveEditor {
     pub(super) fn animation_timing_menu(&self, menu: PopupMenu, cx: &Context<Self>) -> PopupMenu {
         let editor = self.editor.read(cx);
         let address = self.selection.read(cx).address();
-        let copy = address
-            .and_then(|address| editor.animation_track(address))
-            .map(|track| Rc::new(track.timing()));
-        let paste = cx
-            .try_global::<CopyBuffer>()
-            .and_then(|buffer| buffer.animation_timing.clone())
-            .and_then(|timing| {
-                let address = address?;
-                editor
-                    .can_animate_property(address)
-                    .then(|| (AnimationActionTarget::new(address.clone(), editor), timing))
-            });
+        let target = address.map(|address| AnimationActionTarget::new(address.clone(), editor));
         let paste_editor = cx.entity();
-        menu.menu_handler_with_icon_and_disabled(
-            t!("clipboard.copy_animation_timing").to_string(),
-            IconName::Copy,
-            copy.is_none(),
-            move |_, cx| {
-                if let Some(copy) = &copy {
-                    cx.default_global::<CopyBuffer>().animation_timing = Some(copy.clone());
-                }
-            },
-        )
-        .menu_handler_with_icon_and_disabled(
-            t!("clipboard.paste_animation_timing").to_string(),
-            IconName::PasteClipboard,
-            paste.is_none(),
-            move |_, cx| {
-                if let Some((target, timing)) = &paste {
+        crate::ui::components::animation::animation_timing_menu(
+            menu,
+            editor,
+            address.cloned(),
+            move |timing, cx| {
+                if let Some(target) = &target {
                     paste_editor.update(cx, |view, cx| {
                         view.editor.update_if_changed(cx, |editor| {
                             target.context.is_current(editor)
@@ -550,6 +528,7 @@ impl AnimationCurveEditor {
                     });
                 }
             },
+            cx,
         )
     }
 }

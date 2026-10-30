@@ -179,50 +179,29 @@ impl NumericSettings {
         min: Option<PropertyValue>,
         max: Option<PropertyValue>,
     ) -> Option<Self> {
-        macro_rules! settings {
-            ($variant:ident, $default:expr) => {{
-                let min = match min {
-                    Some(PropertyValue::$variant(value)) => Some(value),
-                    None => None,
-                    _ => return None,
-                };
-                let max = match max {
-                    Some(PropertyValue::$variant(value)) => Some(value),
-                    None => None,
-                    _ => return None,
-                };
-                let (default, constraints) = validate_numeric_settings($default, min, max)?;
-                Some(Self {
-                    default: PropertyValue::$variant(default),
-                    constraints,
-                })
-            }};
+        let ty = match &default {
+            PropertyValue::F32(_) => ScalarPropertyType::F32,
+            PropertyValue::I32(_) => ScalarPropertyType::I32,
+            PropertyValue::U32(_) => ScalarPropertyType::U32,
+            _ => return None,
+        };
+        if !ty.allows(&default)
+            || min.as_ref().is_some_and(|value| !ty.allows(value))
+            || max.as_ref().is_some_and(|value| !ty.allows(value))
+        {
+            return None;
         }
-        match default {
-            PropertyValue::F32(value) => settings!(F32, value),
-            PropertyValue::I32(value) => settings!(I32, value),
-            PropertyValue::U32(value) => settings!(U32, value),
-            _ => None,
-        }
+        let constraints = PropertyConstraints::from_bounds(
+            min.as_ref().and_then(PropertyValue::numeric_scalar),
+            max.as_ref().and_then(PropertyValue::numeric_scalar),
+        );
+        constraints.bounds_valid().then_some(Self {
+            default,
+            constraints,
+        })
     }
 
     pub(crate) fn into_parts(self) -> (PropertyValue, PropertyConstraints) {
         (self.default, self.constraints)
     }
-}
-
-fn validate_numeric_settings<T: Copy + PartialOrd + Into<f64>>(
-    default: T,
-    min: Option<T>,
-    max: Option<T>,
-) -> Option<(T, PropertyConstraints)> {
-    if !default.into().is_finite()
-        || min.is_some_and(|value| !value.into().is_finite())
-        || max.is_some_and(|value| !value.into().is_finite())
-        || matches!((min, max), (Some(min), Some(max)) if min > max)
-    {
-        return None;
-    }
-    let constraints = PropertyConstraints::from_bounds(min.map(Into::into), max.map(Into::into));
-    Some((default, constraints))
 }

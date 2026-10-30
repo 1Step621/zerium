@@ -1,8 +1,8 @@
 use crate::{
     property::PropertyValue,
     timeline::{
-        EffectInstanceId, ItemId, ProjectId, SceneBindingOwner, SceneBindingTarget,
-        SceneDefinition, SceneId, SceneVariable, SceneVariablePreset, TimelineEditor, TimelineItem,
+        ItemId, ProjectId, PropertyAddress, SceneBindingOwner, SceneBindingTarget, SceneDefinition,
+        SceneId, SceneVariable, SceneVariablePreset, TimelineEditor, TimelineItem,
         editing::{
             commands::SceneVariableEditError,
             history::{EditImpact, HistoryKey},
@@ -44,35 +44,18 @@ fn remove_bindings_for_nested_argument(
 }
 
 impl TimelineEditor {
-    pub(in crate::timeline::editing::commands) fn active_scene_has_binding(
-        &self,
-        item_id: ItemId,
-        effect_id: Option<EffectInstanceId>,
-        property_id: &str,
-        predicate: impl Fn(&SceneBindingTarget) -> bool,
-    ) -> bool {
-        self.active_scene()
-            .variables()
-            .iter()
-            .flat_map(|argument| &argument.bindings)
-            .any(|binding| binding.matches(item_id, effect_id, property_id) && predicate(binding))
-    }
-
     pub(in crate::timeline::editing::commands) fn value_preserves_active_bindings(
         &self,
-        item_id: ItemId,
-        effect_id: Option<EffectInstanceId>,
-        property_id: &str,
+        address: &PropertyAddress,
         value: &PropertyValue,
     ) -> bool {
-        !self.active_scene_has_binding(item_id, effect_id, property_id, |binding| {
-            binding.element_id().is_some_and(|id| match value {
-                PropertyValue::Array(values) => {
-                    !values.iter().any(|element| element.element_id() == id)
-                }
-                _ => true,
+        self.active_scene()
+            .bindings_for(address)
+            .all(|(_, binding)| {
+                binding
+                    .element_id()
+                    .is_none_or(|id| value.element(Some(id)).is_some())
             })
-        })
     }
 
     fn for_each_scene_instance_mut(
@@ -306,10 +289,8 @@ impl TimelineEditor {
         let scene_id = self.active_scene_id();
         let scene = self.active_scene();
         if scene
-            .variables()
-            .iter()
-            .flat_map(|argument| &argument.bindings)
-            .any(|binding| binding == &target)
+            .bindings_for(target.address())
+            .any(|(_, binding)| binding == &target)
         {
             return Err(SceneVariableEditError::TargetAlreadyBound);
         }

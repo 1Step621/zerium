@@ -81,8 +81,6 @@ impl AudioPlaybackEngine {
         timeline: AudioTimelineSnapshot,
         start_frame: Frame,
     ) -> Result<PlaybackClock, AudioPlaybackError> {
-        self.request_stop();
-        self.requested_timeline = Some(timeline.clone());
         self.start(
             timeline,
             PlaybackPosition::Frame(start_frame),
@@ -96,8 +94,6 @@ impl AudioPlaybackEngine {
         seconds: f64,
         rate: PlaybackRate,
     ) -> Result<PlaybackClock, AudioPlaybackError> {
-        self.request_stop();
-        self.requested_timeline = Some(timeline.clone());
         self.start(timeline, PlaybackPosition::Seconds(seconds), rate)
     }
 
@@ -107,6 +103,8 @@ impl AudioPlaybackEngine {
         position: PlaybackPosition,
         rate: PlaybackRate,
     ) -> Result<PlaybackClock, AudioPlaybackError> {
+        self.request_stop();
+        self.requested_timeline = Some(timeline.clone());
         self.state =
             AudioPlaybackState::Preparing(AudioPreparation::spawn(timeline, position, rate)?);
         Ok(PlaybackClock::Preparing)

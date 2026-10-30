@@ -14,9 +14,12 @@ use zerium_core::{
     },
 };
 
-use crate::app::{
-    project::{ProjectOperation, ProjectSession, ProjectSessionId},
-    transport::TransportController,
+use crate::{
+    app::{
+        project::{ProjectOperation, ProjectSession, ProjectSessionId},
+        transport::TransportController,
+    },
+    ui::TimelineEditorEntityExt as _,
 };
 
 struct Row {
@@ -177,11 +180,8 @@ impl AudioPlacement {
             return;
         };
         self.stamp_target = Some(StampTarget::Start(id));
-        self.editor.update(cx, |editor, cx| {
-            if editor.select(id) {
-                cx.notify();
-            }
-        });
+        self.editor
+            .update_if_changed(cx, |editor| editor.select(id));
         self.transport
             .update(cx, |transport, cx| transport.set_playhead(row.start, cx));
         self.error = None;
@@ -201,11 +201,8 @@ impl AudioPlacement {
                     .get(index + 1)
                     .map_or(StampTarget::Done(id), |row| StampTarget::Start(row.id));
                 self.stamp_target = Some(next);
-                self.editor.update(cx, |editor, cx| {
-                    if editor.select(next.item()) {
-                        cx.notify();
-                    }
-                });
+                self.editor
+                    .update_if_changed(cx, |editor| editor.select(next.item()));
                 self.scroll.scroll_to_item((index + 1).min(rows.len() - 1));
                 self.error = None;
             }
@@ -253,11 +250,8 @@ impl AudioPlacement {
         let ids = self.rows(cx).iter().map(|row| row.id).collect::<Vec<_>>();
         self.transport
             .update(cx, |transport, cx| transport.stop_in_place(cx));
-        self.editor.update(cx, |editor, cx| {
-            if editor.remove_items(ids) {
-                cx.notify();
-            }
-        });
+        self.editor
+            .update_if_changed(cx, |editor| editor.remove_items(ids));
         self.stamp_target = None;
         self.error = None;
         self.scroll.scroll_to_item(0);

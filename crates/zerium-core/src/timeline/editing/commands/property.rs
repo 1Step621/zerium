@@ -125,9 +125,7 @@ impl TimelineEditor {
             };
             next = constrained;
         }
-        if !schema.accepts_value(&next)
-            || !self.value_preserves_active_bindings(id, effect, &address.property_id, &next)
-        {
+        if !schema.accepts_value(&next) || !self.value_preserves_active_bindings(address, &next) {
             return false;
         }
         if root_reset

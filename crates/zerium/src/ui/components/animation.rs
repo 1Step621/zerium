@@ -1,12 +1,54 @@
-//! Animation property labels and synchronization presentation shared by the UI.
+//! Animation labels, timing clipboard menus, and synchronization presentation.
+use crate::app::copy_buffer::CopyBuffer;
 use ::ui::{
     ActiveTheme as _, Colorize as _, Icon, IconName, Sizable as _, ThemeColor, ThemeMode,
-    tooltip::Tooltip,
+    menu::PopupMenu, tooltip::Tooltip,
 };
 use gpui::{App, Entity, Hsla, Window, div, prelude::*, px};
 use rust_i18n::t;
 use std::rc::Rc;
+use zerium_core::animation::AnimationTiming;
 use zerium_core::timeline::{AnimationEdit, PropertyAddress, TimelineEditor, TimelineItem};
+
+pub(crate) fn animation_timing_menu(
+    menu: PopupMenu,
+    editor: &TimelineEditor,
+    address: Option<PropertyAddress>,
+    on_paste: impl Fn(&AnimationTiming, &mut App) + 'static,
+    cx: &App,
+) -> PopupMenu {
+    let copy = address
+        .as_ref()
+        .and_then(|address| editor.animation_track(address))
+        .map(|track| Rc::new(track.timing()));
+    let paste = cx
+        .try_global::<CopyBuffer>()
+        .and_then(|buffer| buffer.animation_timing.clone());
+    let paste_disabled = paste.is_none()
+        || address
+            .as_ref()
+            .is_none_or(|address| !editor.can_animate_property(address));
+    menu.menu_handler_with_icon_and_disabled(
+        t!("clipboard.copy_animation_timing").to_string(),
+        IconName::Copy,
+        copy.is_none(),
+        move |_, cx| {
+            if let Some(copy) = &copy {
+                cx.default_global::<CopyBuffer>().animation_timing = Some(copy.clone());
+            }
+        },
+    )
+    .menu_handler_with_icon_and_disabled(
+        t!("clipboard.paste_animation_timing").to_string(),
+        IconName::PasteClipboard,
+        paste_disabled,
+        move |_, cx| {
+            if let Some(paste) = &paste {
+                on_paste(paste, cx);
+            }
+        },
+    )
+}
 
 #[derive(Clone)]
 pub(crate) struct AnimationSynchronization {

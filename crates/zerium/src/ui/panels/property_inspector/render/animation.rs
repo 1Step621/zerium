@@ -4,6 +4,7 @@ use ::ui::{
     menu::context_menu::ContextMenuExt as _,
 };
 use gpui::{Div, SharedString, div, prelude::*, px};
+use rust_i18n::t;
 
 use crate::ui::panels::property_inspector::{
     control::{Control, ControlMeta},
@@ -144,36 +145,67 @@ pub(in crate::ui::panels::property_inspector) fn control_contains_focused_animat
             .any(|child| control_contains_focused_animation(child, ctx))
 }
 
-pub(in crate::ui::panels::property_inspector) fn keyframe_base(
-    id: SharedString,
-    selected: bool,
-    tooltip: String,
-) -> Button {
-    Button::new(id)
-        .icon(Icon::new(IconName::Keyframe))
-        .small()
-        .compact()
-        .ghost()
-        .selected(selected)
-        .tooltip(tooltip)
+pub(in crate::ui::panels::property_inspector) fn animation_toggle(
+    common: &ControlMeta,
+    ctx: &RenderCtx,
+) -> Option<Button> {
+    if !common.animatable || common.is_bound() {
+        return None;
+    }
+    let target = common.target.clone();
+    let inspector = ctx.inspector.clone();
+    let enabled = common.animation_enabled;
+    let tooltip = if enabled {
+        t!("rows.unanimate")
+    } else {
+        t!("rows.animate")
+    };
+    Some(
+        Button::new(SharedString::from(format!("toggle-animation-{target:?}")))
+            .icon(Icon::new(IconName::Keyframe))
+            .small()
+            .compact()
+            .ghost()
+            .selected(enabled)
+            .tooltip(tooltip)
+            .tab_stop(!common.read_only)
+            .when(!common.read_only, |button| {
+                button.on_click(move |_, window, cx| {
+                    cx.stop_propagation();
+                    inspector.update(cx, |inspector, cx| {
+                        inspector.set_animation_enabled(&target, !enabled, window, cx);
+                    });
+                })
+            }),
+    )
 }
 
-pub(in crate::ui::panels::property_inspector) fn animation_stop_inputs(
-    start: gpui::AnyElement,
-    end: gpui::AnyElement,
+pub(in crate::ui::panels::property_inspector) fn animation_value_inputs(
+    inputs: impl IntoIterator<Item = gpui::AnyElement>,
     foreground: gpui::Hsla,
-) -> Div {
-    div()
-        .min_w_0()
-        .flex_1()
-        .flex()
-        .items_center()
-        .gap_1()
-        .child(div().w_0().min_w_0().flex_1().flex().child(start))
-        .child(
-            Icon::new(IconName::ArrowRight)
-                .xsmall()
-                .text_color(foreground),
-        )
-        .child(div().w_0().min_w_0().flex_1().flex().child(end))
+) -> Option<gpui::AnyElement> {
+    let mut inputs = inputs.into_iter();
+    let start = inputs.next()?;
+    let Some(end) = inputs.next() else {
+        return Some(start);
+    };
+    if inputs.next().is_some() {
+        return None;
+    }
+    Some(
+        div()
+            .min_w_0()
+            .flex_1()
+            .flex()
+            .items_center()
+            .gap_1()
+            .child(div().w_0().min_w_0().flex_1().flex().child(start))
+            .child(
+                Icon::new(IconName::ArrowRight)
+                    .xsmall()
+                    .text_color(foreground),
+            )
+            .child(div().w_0().min_w_0().flex_1().flex().child(end))
+            .into_any_element(),
+    )
 }

@@ -283,10 +283,8 @@ impl PropertyInspector {
         {
             return;
         }
-        self.editor.update(cx, |editor, cx| {
-            if editor.set_active_edit_effect(address.effect_id) {
-                cx.notify();
-            }
+        self.editor.update_if_changed(cx, |editor| {
+            editor.set_active_edit_effect(address.effect_id)
         });
         self.animation_selection
             .update(cx, |selection, cx| selection.select(address.clone(), cx));
@@ -302,12 +300,8 @@ impl PropertyInspector {
         if self.inspector_item_id(cx) != Some(address.item_id) {
             return;
         }
-        let changed = self.editor.update(cx, |editor, cx| {
-            let changed = editor.set_property_animation_enabled(address, enabled);
-            if changed {
-                cx.notify();
-            }
-            changed
+        let changed = self.editor.update_if_changed(cx, |editor| {
+            editor.set_property_animation_enabled(address, enabled)
         });
         if !changed {
             return;

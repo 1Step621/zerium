@@ -26,18 +26,16 @@ impl TimelineEditor {
                         .scalar_type(target.element_id, target.scalar_index)
                         .is_some()
             })
-            && !self.active_scene_has_binding(
-                target.item_id,
-                target.effect_id,
-                &target.property_id,
-                |binding| {
+            && !self
+                .active_scene()
+                .bindings_for(target)
+                .any(|(_, binding)| {
                     binding.conflicts_with_animation(
                         &target.property_id,
                         target.element_id,
                         target.scalar_index,
                     )
-                },
-            )
+                })
     }
 
     pub fn set_property_animation_enabled(

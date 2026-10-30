@@ -116,21 +116,10 @@ impl TransportController {
         let displayed = editor.playhead_seconds();
         let timeline = editor.audio_snapshot();
         let seconds = playback.seconds(self.audio.read(cx).playhead_seconds(), displayed, now);
-        let clock = match self
+        let result = self
             .audio
-            .update(cx, |audio, _| audio.restart_at(timeline, seconds, rate))
-        {
-            Ok(clock) => clock,
-            Err(error) => {
-                self.notifications.update(cx, |notifications, cx| {
-                    notifications.push(
-                        t!("transport.start_playback_failed", error = error).to_string(),
-                        cx,
-                    );
-                });
-                PlaybackClock::Wall
-            }
-        };
+            .update(cx, |audio, _| audio.restart_at(timeline, seconds, rate));
+        let clock = self.audio_clock(result, cx);
         playback.start_seconds = seconds;
         playback.started_at = now;
         playback.clock = clock;
@@ -167,7 +156,6 @@ impl TransportController {
     }
 
     fn play(&mut self, cx: &mut Context<Self>) {
-        self.stop_audio(cx);
         let (start_frame, timeline) = {
             let editor = self.editor.read(cx);
             let playhead = editor.playhead();
@@ -179,35 +167,21 @@ impl TransportController {
             (start, editor.audio_snapshot())
         };
         let frame_rate = timeline.frame_rate();
-        let clock: Result<PlaybackClock, AudioPlaybackError> = self
+        let start_seconds = frame_rate.frame_to_seconds(start_frame);
+        let result = self
             .audio
             .update(cx, |audio, _| audio.play(timeline, start_frame));
-        let clock = match clock {
-            Ok(clock) => clock,
-            Err(error) => {
-                self.notifications.update(cx, |notifications, cx| {
-                    notifications.push(
-                        t!("transport.start_playback_failed", error = error).to_string(),
-                        cx,
-                    );
-                });
-                PlaybackClock::Wall
-            }
-        };
+        let clock = self.audio_clock(result, cx);
         self.mode = TransportMode::Playing(PlaybackSession {
             start_frame,
-            start_seconds: frame_rate.frame_to_seconds(start_frame),
+            start_seconds,
             started_at: Instant::now(),
             clock,
             rate: PlaybackRate::Normal,
             audio_recovery_attempted: false,
         });
-        let start_seconds = frame_rate.frame_to_seconds(start_frame);
-        self.editor.update(cx, |editor, cx| {
-            if editor.set_playback_position(start_seconds) {
-                cx.notify();
-            }
-        });
+        self.editor
+            .update_if_changed(cx, |editor| editor.set_playback_position(start_seconds));
         cx.notify();
     }
 
@@ -229,11 +203,8 @@ impl TransportController {
         }
         self.stop_audio(cx);
         self.mode = TransportMode::Stopped;
-        self.editor.update(cx, |editor, cx| {
-            if editor.clear_playback_time() {
-                cx.notify();
-            }
-        });
+        self.editor
+            .update_if_changed(cx, |editor| editor.clear_playback_time());
         cx.notify();
         true
     }
@@ -254,13 +225,7 @@ impl TransportController {
         if !self.is_scrubbing(source) {
             return;
         }
-        self.mode = TransportMode::Stopped;
-        self.editor.update(cx, |editor, cx| {
-            if editor.clear_playback_time() {
-                cx.notify();
-            }
-        });
-        cx.notify();
+        self.stop_in_place(cx);
     }
 
     pub(crate) fn set_playhead(&mut self, frame: Frame, cx: &mut Context<Self>) -> bool {
@@ -296,30 +261,19 @@ impl TransportController {
             return;
         }
         let timeline = self.editor.read(cx).audio_snapshot();
-        match self.audio.update(cx, |audio, _| {
+        let result = self.audio.update(cx, |audio, _| {
             audio.update_timeline(timeline, seconds, playback.rate)
-        }) {
-            Ok(clock) => {
-                if clock == PlaybackClock::Audio {
-                    seconds = self.audio.read(cx).playhead_seconds().unwrap_or(seconds);
-                    // After one second of output, allow recovery from a later
-                    // failure without looping on a broken device.
-                    if seconds - playback.start_seconds >= f64::from(playback.rate.multiplier()) {
-                        playback.audio_recovery_attempted = false;
-                    }
-                }
-                playback.set_clock(clock, seconds, Instant::now());
-            }
-            Err(error) => {
-                playback.set_clock(PlaybackClock::Wall, seconds, Instant::now());
-                self.notifications.update(cx, |notifications, cx| {
-                    notifications.push(
-                        t!("transport.start_playback_failed", error = error).to_string(),
-                        cx,
-                    );
-                });
+        });
+        let clock = self.audio_clock(result, cx);
+        if clock == PlaybackClock::Audio {
+            seconds = self.audio.read(cx).playhead_seconds().unwrap_or(seconds);
+            // After one second of output, allow recovery from a later
+            // failure without looping on a broken device.
+            if seconds - playback.start_seconds >= f64::from(playback.rate.multiplier()) {
+                playback.audio_recovery_attempted = false;
             }
         }
+        playback.set_clock(clock, seconds, Instant::now());
         if frame_rate.seconds_to_frame(seconds) >= end {
             self.stop(cx);
             return;
@@ -327,6 +281,25 @@ impl TransportController {
         self.mode = TransportMode::Playing(playback);
         self.editor
             .update_if_changed(cx, |editor| editor.set_playback_position(seconds));
+    }
+
+    fn audio_clock(
+        &self,
+        result: Result<PlaybackClock, AudioPlaybackError>,
+        cx: &mut Context<Self>,
+    ) -> PlaybackClock {
+        match result {
+            Ok(clock) => clock,
+            Err(error) => {
+                self.notifications.update(cx, |notifications, cx| {
+                    notifications.push(
+                        t!("transport.start_playback_failed", error = error).to_string(),
+                        cx,
+                    );
+                });
+                PlaybackClock::Wall
+            }
+        }
     }
 
     fn report_audio_events(&mut self, cx: &mut Context<Self>) {

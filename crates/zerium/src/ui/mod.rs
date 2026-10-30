@@ -1,5 +1,5 @@
 use ::ui::{Icon, assets::Assets};
-use gpui::{Context, Entity};
+use gpui::{App, Entity};
 
 use zerium_core::timeline::TimelineEditor;
 
@@ -22,17 +22,17 @@ fn icon_path(id: &str) -> String {
 }
 
 pub(crate) trait TimelineEditorEntityExt {
-    fn update_if_changed<T>(
+    fn update_if_changed(
         &self,
-        cx: &mut Context<T>,
+        cx: &mut App,
         update: impl FnOnce(&mut TimelineEditor) -> bool,
     ) -> bool;
 }
 
 impl TimelineEditorEntityExt for Entity<TimelineEditor> {
-    fn update_if_changed<T>(
+    fn update_if_changed(
         &self,
-        cx: &mut Context<T>,
+        cx: &mut App,
         update: impl FnOnce(&mut TimelineEditor) -> bool,
     ) -> bool {
         self.update(cx, |editor, cx| {

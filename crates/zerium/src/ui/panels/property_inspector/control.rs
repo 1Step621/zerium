@@ -470,14 +470,11 @@ impl ControlResolution<'_> {
             element_id: None,
             scalar_index: None,
         };
-        let has_scene_binding = self.variables.iter().any(|argument| {
-            argument.bindings.iter().any(|binding| {
-                binding.item_id() == self.item.source_id
-                    && binding.owner() == SceneBindingOwner::from_effect(target.effect_id)
-                    && binding.property_id() == target.property_id
-                    && binding.element_id().is_some()
-            })
-        });
+        let has_scene_binding = self
+            .editor
+            .active_scene()
+            .bindings_for(&target)
+            .any(|(_, binding)| binding.element_id().is_some());
         let rows = values
             .iter()
             .enumerate()
@@ -535,12 +532,12 @@ impl ControlResolution<'_> {
         if animation_enabled || !scene_bindable {
             return None;
         }
-        let connected = self.variables.iter().find_map(|argument| {
-            argument
-                .bindings
-                .contains(&target)
-                .then(|| (argument.id().to_owned(), argument.label().to_owned()))
-        });
+        let connected = self
+            .editor
+            .active_scene()
+            .bindings_for(target.address())
+            .find(|(_, binding)| *binding == &target)
+            .map(|(variable, _)| (variable.id().to_owned(), variable.label().to_owned()));
         let compatible = self
             .variables
             .iter()

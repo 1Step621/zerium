@@ -1,5 +1,8 @@
 use super::*;
-use crate::ui::components::input::{InputStore, TextOptions, TextSync, color_to_hsla};
+use crate::ui::{
+    TimelineEditorEntityExt as _,
+    components::input::{InputStore, TextOptions, TextSync, color_to_hsla},
+};
 
 #[derive(Default)]
 pub(super) struct SettingsStore {
@@ -173,10 +176,8 @@ impl SceneSettings {
                     };
                     let color = Rgba::from(*color);
                     let value = PropertyValue::Color([color.r, color.g, color.b, color.a]);
-                    this.editor.update(cx, |editor, cx| {
-                        if editor.update_scene_argument_default(&edited_id, value) == Ok(true) {
-                            cx.notify();
-                        }
+                    this.editor.update_if_changed(cx, |editor| {
+                        editor.update_scene_argument_default(&edited_id, value) == Ok(true)
                     });
                 })
             },

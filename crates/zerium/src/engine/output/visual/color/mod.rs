@@ -1,10 +1,9 @@
 //! Scene-linear RGB conversion to the output's pixel format.
 use zerium_core::timeline::{ExportColorRange, ExportColorSettings, ExportColorSpace};
 
-use super::texture;
 use crate::engine::{
     output::{EncodingError, VideoPixelFormat},
-    processing::visual::{RenderScene, RenderSession, RenderSize, SCENE_FORMAT},
+    processing::visual::{RenderScene, RenderSession, RenderSize, SCENE_FORMAT, texture_2d},
 };
 
 pub(super) fn plane_formats(format: VideoPixelFormat) -> &'static [wgpu::TextureFormat] {
@@ -29,11 +28,12 @@ impl ColorConversion {
         color: ExportColorSettings,
         format: VideoPixelFormat,
     ) -> Self {
-        let source = texture(
+        let source = texture_2d(
             device,
             size,
             SCENE_FORMAT,
             wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::TEXTURE_BINDING,
+            "zerium-export-surface",
         );
         let view = source.create_view(&Default::default());
         let layout = device.create_bind_group_layout(&wgpu::BindGroupLayoutDescriptor {

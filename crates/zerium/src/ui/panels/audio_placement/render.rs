@@ -2,10 +2,10 @@ use ::ui::{
     ActiveTheme as _, Disableable as _, IconName, Sizable as _,
     button::{Button, ButtonVariants as _},
 };
-use gpui::{Render, div, px};
+use gpui::{Render, div};
 use rust_i18n::t;
 
-use crate::ui::components::placement::stamp_marker;
+use crate::ui::components::placement::{placement_row, row_selector, stamp_marker, timing_done};
 
 use super::*;
 
@@ -72,31 +72,18 @@ impl Render for AudioPlacement {
                                     ))
                                 })
                                 .child(
-                                    div()
-                                        .flex()
-                                        .items_center()
-                                        .gap_2()
-                                        .p_1()
-                                        .border_l_2()
-                                        .border_color(gpui::transparent_black())
-                                        .when(selected, |view| {
-                                            view.bg(colors.primary.opacity(0.04))
-                                        })
-                                        .when(starting, |view| {
-                                            view.border_color(colors.primary)
-                                                .bg(colors.primary.opacity(0.08))
-                                        })
+                                    placement_row(selected, starting, colors)
                                         .child(
-                                            Button::new(("audio-placement-select", id.get()))
-                                                .small()
-                                                .ghost()
-                                                .w(px(24.))
-                                                .label((index + 1).to_string())
-                                                .when(selected, |button| button.primary())
-                                                .tooltip(t!("placement.select_row").to_string())
-                                                .on_click(cx.listener(move |this, _, _, cx| {
+                                            row_selector(
+                                                ("audio-placement-select", id.get()),
+                                                index,
+                                                selected,
+                                            )
+                                            .on_click(
+                                                cx.listener(move |this, _, _, cx| {
                                                     this.select_row(id, cx)
-                                                })),
+                                                }),
+                                            ),
                                         )
                                         .child(
                                             div()
@@ -120,14 +107,7 @@ impl Render for AudioPlacement {
                                 )
                         }))
                         .when(matches!(stamp, Some(StampTarget::Done(_))), |view| {
-                            view.child(
-                                div()
-                                    .px_2()
-                                    .py_1()
-                                    .text_xs()
-                                    .text_color(colors.muted_foreground)
-                                    .child(t!("placement.timing_done").to_string()),
-                            )
+                            view.child(timing_done(colors))
                         }),
                 )
                 .child(

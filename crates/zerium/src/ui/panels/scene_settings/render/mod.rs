@@ -1,6 +1,9 @@
 mod calculation;
 use super::*;
-use crate::ui::components::pane::{settings_section, settings_section_header};
+use crate::ui::{
+    TimelineEditorEntityExt as _,
+    components::pane::{settings_section, settings_section_header},
+};
 use zerium_core::property::ScalarPropertyType;
 
 pub(super) struct SceneVariableRow {
@@ -562,12 +565,9 @@ fn scene_bool_input(argument_id: String, checked: bool, editor: &Entity<Timeline
     .small()
     .checked(checked)
     .on_click(move |checked, _, cx| {
-        editor.update(cx, |editor, cx| {
-            if editor.update_scene_argument_default(&argument_id, PropertyValue::Bool(*checked))
+        editor.update_if_changed(cx, |editor| {
+            editor.update_scene_argument_default(&argument_id, PropertyValue::Bool(*checked))
                 == Ok(true)
-            {
-                cx.notify();
-            }
         });
     })
 }

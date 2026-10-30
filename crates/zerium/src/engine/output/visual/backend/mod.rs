@@ -3,11 +3,11 @@ use crate::engine::{
     output::{
         EncodingSettings, VideoDimensions, VideoEncoderInput, VideoPixelFormat,
         visual::{
-            Cancellation, ColorConversion, EncodingError, PendingFrame, VideoEncoderFrame, texture,
+            Cancellation, ColorConversion, EncodingError, PendingFrame, VideoEncoderFrame,
             wait_for_submission,
         },
     },
-    processing::visual::{RenderScene, RenderSession, RenderSize},
+    processing::visual::{RenderScene, RenderSession, RenderSize, texture_2d},
 };
 use std::{
     collections::VecDeque,
@@ -113,11 +113,12 @@ impl Readback {
                         height: size.height / 2,
                     }
                 };
-                texture(
+                texture_2d(
                     device,
                     size,
                     format,
                     wgpu::TextureUsages::RENDER_ATTACHMENT | wgpu::TextureUsages::COPY_SRC,
+                    "zerium-export-surface",
                 )
             })
             .collect();
