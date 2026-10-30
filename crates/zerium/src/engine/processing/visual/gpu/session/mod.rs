@@ -531,6 +531,18 @@ impl RenderSession {
         scene: &RenderScene,
         target_view: &wgpu::TextureView,
     ) -> Result<wgpu::SubmissionIndex, RenderError> {
+        self.submit_scene_with(scene, target_view, |_| ())
+            .map(|(submission, ())| submission)
+    }
+
+    /// Append output work and submit it with the scene before releasing session
+    /// resources or publishing cached results for the next frame.
+    pub(in crate::engine) fn submit_scene_with<T>(
+        &self,
+        scene: &RenderScene,
+        target_view: &wgpu::TextureView,
+        encode_output: impl FnOnce(&mut wgpu::CommandEncoder) -> T,
+    ) -> Result<(wgpu::SubmissionIndex, T), RenderError> {
         if self.gpu().is_lost() {
             return Err(RenderError::backend("GPU device was lost"));
         }
@@ -581,14 +593,15 @@ impl RenderSession {
                 .gpu
                 .device
                 .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("zerium-preview-frame-encoder"),
+                    label: Some("zerium-frame-encoder"),
                 });
         let surfaces = self.encode_frame(&mut encoder, frame, &frame_images, &execution, cache)?;
         self.encode_output_pass(&mut encoder, target_view, &frame.output_input);
+        let output = encode_output(&mut encoder);
         let submission = self.shared.gpu.queue.submit([encoder.finish()]);
         drop(frame_images);
         cache.finish_frame(surfaces);
-        Ok(submission)
+        Ok((submission, output))
     }
 }
 

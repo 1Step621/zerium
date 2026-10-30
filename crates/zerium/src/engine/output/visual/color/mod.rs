@@ -129,43 +129,38 @@ impl ColorConversion {
         }
     }
 
-    pub(super) fn render(
+    pub(super) fn submit<T>(
         &self,
         renderer: &RenderSession,
         scene: &RenderScene,
         views: &[wgpu::TextureView],
-    ) -> Result<wgpu::CommandEncoder, EncodingError> {
+        encode_output: impl FnOnce(&mut wgpu::CommandEncoder) -> T,
+    ) -> Result<(wgpu::SubmissionIndex, T), EncodingError> {
         renderer
-            .submit_scene(scene, &self.view)
-            .map_err(EncodingError::backend)?;
-        let mut encoder =
-            renderer
-                .gpu()
-                .device
-                .create_command_encoder(&wgpu::CommandEncoderDescriptor {
-                    label: Some("zerium-export-color"),
-                });
-        for (pipeline, view) in self.pipelines.iter().zip(views) {
-            let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
-                label: Some("zerium-export-color"),
-                color_attachments: &[Some(wgpu::RenderPassColorAttachment {
-                    view,
-                    resolve_target: None,
-                    ops: wgpu::Operations {
-                        load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
-                        store: wgpu::StoreOp::Store,
-                    },
-                    depth_slice: None,
-                })],
-                depth_stencil_attachment: None,
-                timestamp_writes: None,
-                occlusion_query_set: None,
-                multiview_mask: None,
-            });
-            pass.set_pipeline(pipeline);
-            pass.set_bind_group(0, &self.binding, &[]);
-            pass.draw(0..3, 0..1);
-        }
-        Ok(encoder)
+            .submit_scene_with(scene, &self.view, |encoder| {
+                for (pipeline, view) in self.pipelines.iter().zip(views) {
+                    let mut pass = encoder.begin_render_pass(&wgpu::RenderPassDescriptor {
+                        label: Some("zerium-export-color"),
+                        color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                            view,
+                            resolve_target: None,
+                            ops: wgpu::Operations {
+                                load: wgpu::LoadOp::Clear(wgpu::Color::BLACK),
+                                store: wgpu::StoreOp::Store,
+                            },
+                            depth_slice: None,
+                        })],
+                        depth_stencil_attachment: None,
+                        timestamp_writes: None,
+                        occlusion_query_set: None,
+                        multiview_mask: None,
+                    });
+                    pass.set_pipeline(pipeline);
+                    pass.set_bind_group(0, &self.binding, &[]);
+                    pass.draw(0..3, 0..1);
+                }
+                encode_output(encoder)
+            })
+            .map_err(EncodingError::backend)
     }
 }

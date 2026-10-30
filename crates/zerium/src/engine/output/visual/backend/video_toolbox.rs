@@ -198,10 +198,9 @@ impl Encoder {
             .free
             .pop()
             .ok_or(EncodingError::Invalid("No free export surface"))?;
-        let commands = conversion.render(renderer, scene, &surface.views())?;
         let retained = surface.pixel.clone();
         let queue = &renderer.gpu().queue;
-        let submission = queue.submit([commands.finish()]);
+        let (submission, ()) = conversion.submit(renderer, scene, &surface.views(), |_| ())?;
         queue.on_submitted_work_done(move || drop(retained));
         self.pending.push_back(PendingFrame {
             index,

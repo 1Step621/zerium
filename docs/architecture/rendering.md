@@ -98,6 +98,8 @@ coordinates and sampling functions.
 creates preview and export sessions. `RenderDevice` shares pipelines. Each
 `RenderSession` owns its mutable resources in one `RenderState`; planning, input
 preparation, submission, and recycling use the same session lock. Preview and export use separate sessions.
+Export appends color conversion and any readback copies to the scene's command
+encoder, then submits them together before releasing session resources.
 Device creation consumes read-only shader descriptions produced by validation.
 Temporal sampling is lowered into ordinary render passes with sample metadata;
 it shares raster pipeline creation and storage with other effects.

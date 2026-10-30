@@ -150,9 +150,9 @@ impl Readback {
             .iter()
             .map(|plane| plane.create_view(&Default::default()))
             .collect::<Vec<_>>();
-        let mut encoder = conversion.render(renderer, scene, &views)?;
-        let data = self.copy(&renderer.gpu().device, &mut encoder);
-        let submission = renderer.gpu().queue.submit([encoder.finish()]);
+        let (submission, data) = conversion.submit(renderer, scene, &views, |encoder| {
+            self.copy(&renderer.gpu().device, encoder)
+        })?;
         self.pending.push_back(PendingFrame {
             index,
             data,

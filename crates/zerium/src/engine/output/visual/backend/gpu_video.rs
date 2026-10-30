@@ -203,8 +203,7 @@ impl Encoder {
                 plane.create_view_with_usage(None, Some(wgpu::TextureUsages::RENDER_ATTACHMENT))
             })
             .collect();
-        let commands = conversion.render(renderer, scene, &views)?;
-        renderer.gpu().queue.submit([commands.finish()]);
+        conversion.submit(renderer, scene, &views, |_| ())?;
         self.encoder
             .encode(gpu_video::InputFrame {
                 data: texture,
