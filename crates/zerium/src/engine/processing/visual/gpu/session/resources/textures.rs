@@ -1,10 +1,10 @@
 //! Consumer-local input texture preparation and scratch resource reuse.
 use crate::engine::{
-    input::{FrameData, PixelPlane, VideoPixels, VisualFrame},
+    input::{FrameData, VideoPixels, VisualFrame},
     processing::visual::{
         RenderError,
         gpu::{
-            INPUT_FRAME_FORMAT,
+            INPUT_FRAME_FORMAT, SCENE_FORMAT,
             device::{RenderDevice, video::YuvUpload},
             session::RenderSession,
         },
@@ -178,7 +178,7 @@ impl RenderDevice {
         let extent = self.frame_extent(frame)?;
         if let FrameData::Video(video) = &frame.data
             && let Some(texture) = video
-                .rgba_texture(&self.gpu.device)
+                .linear_texture(&self.gpu.device)
                 .map_err(|e| RenderError::backend(e.to_string()))?
         {
             return Ok(texture);
@@ -189,11 +189,15 @@ impl RenderDevice {
             mip_level_count: 1,
             sample_count: 1,
             dimension: wgpu::TextureDimension::D2,
-            format: INPUT_FRAME_FORMAT,
+            format: if let FrameData::Video(_) = &frame.data {
+                SCENE_FORMAT
+            } else {
+                INPUT_FRAME_FORMAT
+            },
             usage: wgpu::TextureUsages::COPY_DST
                 | wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::RENDER_ATTACHMENT,
-            view_formats: &[wgpu::TextureFormat::Rgba8Unorm],
+            view_formats: &[],
         });
         self.write_frame(&texture, frame, extent, yuv_upload)?;
         Ok(texture)
@@ -207,15 +211,16 @@ impl RenderDevice {
         yuv_upload: &mut Option<YuvUpload>,
     ) -> Result<(), RenderError> {
         match &frame.data {
-            FrameData::Rgba(bytes) => self.write_pixels(
-                texture,
+            FrameData::Rgba(bytes) => self.gpu.queue.write_texture(
+                texture.as_image_copy(),
+                bytes,
+                wgpu::TexelCopyBufferLayout {
+                    offset: 0,
+                    bytes_per_row: Some(frame.width * 4),
+                    rows_per_image: Some(extent.height),
+                },
                 extent,
-                VideoPixels::Rgba(PixelPlane {
-                    bytes,
-                    stride: frame.width * 4,
-                }),
-                yuv_upload,
-            )?,
+            ),
             FrameData::Video(video) => {
                 match video
                     .gpu_planes(&self.gpu.device)
@@ -235,10 +240,10 @@ impl RenderDevice {
                         let pixels = mapped
                             .pixels()
                             .map_err(|e| RenderError::backend(e.to_string()))?;
-                        self.write_pixels(texture, extent, pixels, yuv_upload)?;
+                        self.write_pixels(texture, extent, pixels, yuv_upload);
                     }
                 }
-                video.store_rgba_texture(&self.gpu.device, texture);
+                video.store_linear_texture(&self.gpu.device, texture);
             }
         }
         Ok(())
@@ -250,9 +255,12 @@ impl RenderDevice {
         extent: wgpu::Extent3d,
         pixels: VideoPixels<'_>,
         yuv_upload: &mut Option<YuvUpload>,
-    ) -> Result<(), RenderError> {
-        let plane = match pixels {
-            VideoPixels::Rgba(plane) => plane,
+    ) {
+        match pixels {
+            VideoPixels::Rgba { plane, color } => {
+                self.rgba_upload
+                    .convert(&self.gpu.device, &self.gpu.queue, plane, color, texture);
+            }
             VideoPixels::Yuv { format, planes } => {
                 let pipeline = &self.yuv_upload;
                 if yuv_upload
@@ -274,25 +282,8 @@ impl RenderDevice {
                     &planes,
                     texture,
                 );
-                return Ok(());
             }
-        };
-        self.gpu.queue.write_texture(
-            wgpu::TexelCopyTextureInfo {
-                texture,
-                mip_level: 0,
-                origin: wgpu::Origin3d::ZERO,
-                aspect: wgpu::TextureAspect::All,
-            },
-            plane.bytes,
-            wgpu::TexelCopyBufferLayout {
-                offset: 0,
-                bytes_per_row: Some(plane.stride),
-                rows_per_image: Some(extent.height),
-            },
-            extent,
-        );
-        Ok(())
+        }
     }
 
     /// Validate before either worker upload or scene submission can allocate.

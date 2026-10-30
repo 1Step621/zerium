@@ -42,8 +42,8 @@ pub(crate) use self::{
     audio::{AudioDecoder, AudioFormat},
     visual::{
         DecodeStreamKey, DecodedFrame, FrameCache, FrameData, MediaFrameRequest, MediaInputId,
-        PixelPlane, RASTER_CACHE_BYTES, RasterSize, SamplingBranch, VideoFrame, VideoPixels,
-        VisualDecodeSession, VisualFrame, YuvFormat, YuvMatrix, yuv_format,
+        PixelPlane, RASTER_CACHE_BYTES, RasterSize, SamplingBranch, VideoColor, VideoFrame,
+        VideoPixels, VisualDecodeSession, VisualFrame, YuvFormat, yuv_format,
     },
 };
 

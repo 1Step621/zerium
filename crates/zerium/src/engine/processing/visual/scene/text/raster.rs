@@ -4,7 +4,10 @@ use cosmic_text::{
 };
 use unicode_segmentation::UnicodeSegmentation;
 
-use crate::engine::input::VisualFrame;
+use crate::engine::{
+    color::{linear_to_srgb, srgb_to_linear},
+    input::VisualFrame,
+};
 
 use super::{RenderError, TextSignature};
 
@@ -331,22 +334,6 @@ fn distance_transform_1d(
 }
 
 fn colorize(fill: &[u8], outline: &[u8], color: [f32; 4], outline_color: [f32; 4]) -> Vec<u8> {
-    let srgb_to_linear = |value: f32| {
-        let value = value.clamp(0., 1.);
-        if value <= 0.04045 {
-            value / 12.92
-        } else {
-            ((value + 0.055) / 1.055).powf(2.4)
-        }
-    };
-    let linear_to_srgb = |value: f32| {
-        let value = value.max(0.);
-        if value <= 0.0031308 {
-            value * 12.92
-        } else {
-            1.055 * value.powf(1. / 2.4) - 0.055
-        }
-    };
     let fill_rgb = [
         srgb_to_linear(color[0]),
         srgb_to_linear(color[1]),

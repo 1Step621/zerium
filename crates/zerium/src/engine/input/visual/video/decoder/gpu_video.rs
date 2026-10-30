@@ -15,9 +15,7 @@ use {
     super::gstreamer::VideoInput,
     crate::engine::{
         GpuContext,
-        input::{
-            DecodedFrame, FrameData, MediaError, VideoFrame, VisualFrame, YuvMatrix, yuv_format,
-        },
+        input::{DecodedFrame, FrameData, MediaError, VideoFrame, VisualFrame, yuv_format},
     },
 };
 
@@ -217,22 +215,36 @@ impl GpuVideoDecoder {
         };
         let width = output.data.width();
         let height = output.data.height();
-        let mut info = video::VideoInfo::builder(video::VideoFormat::Nv12, width, height)
-            .chroma_site(sample.chroma_site);
-        if let Some(color) = &sample.color {
-            info = info.colorimetry(color);
-        }
-        let info = info.build().map_err(MediaError::external)?;
-        let mut format = yuv_format(&info, [2, 2], 8)
+        let color = sample.color.unwrap_or_else(|| {
+            let bt709 = output.metadata.color_space == gpu_video::parameters::ColorSpace::BT709;
+            video::VideoColorimetry::new(
+                if output.metadata.color_range == gpu_video::parameters::ColorRange::Full {
+                    video::VideoColorRange::Range0_255
+                } else {
+                    video::VideoColorRange::Range16_235
+                },
+                if bt709 {
+                    video::VideoColorMatrix::Bt709
+                } else {
+                    video::VideoColorMatrix::Bt601
+                },
+                video::VideoTransferFunction::Bt709,
+                if bt709 {
+                    video::VideoColorPrimaries::Bt709
+                } else if height > 525 {
+                    video::VideoColorPrimaries::Bt470bg
+                } else {
+                    video::VideoColorPrimaries::Smpte170m
+                },
+            )
+        });
+        let info = video::VideoInfo::builder(video::VideoFormat::Nv12, width, height)
+            .chroma_site(sample.chroma_site)
+            .colorimetry(&color)
+            .build()
+            .map_err(MediaError::external)?;
+        let format = yuv_format(&info, [2, 2], 8)
             .ok_or_else(|| MediaError::external("Unsupported GPU video color metadata"))?;
-        if sample.color.is_none() {
-            format.matrix = match output.metadata.color_space {
-                gpu_video::parameters::ColorSpace::BT709 => YuvMatrix::Bt709,
-                _ => YuvMatrix::Bt601,
-            };
-            format.full_range =
-                output.metadata.color_range == gpu_video::parameters::ColorRange::Full;
-        }
         Ok(Some(DecodedFrame {
             presentation_time: Duration::from_nanos(presentation_time.nseconds()),
             duration: sample.duration,

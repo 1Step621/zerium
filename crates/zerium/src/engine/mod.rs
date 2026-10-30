@@ -1,5 +1,6 @@
 //! Media engine stages and the native resources shared by their consumers.
 
+mod color;
 pub(crate) mod input;
 pub(crate) mod output;
 pub(crate) mod processing;

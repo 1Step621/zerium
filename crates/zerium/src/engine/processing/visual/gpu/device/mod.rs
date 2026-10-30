@@ -6,7 +6,7 @@ use self::{
         ComputePipeline, RasterPipeline, compute_pipeline, effect_pipeline, item_pipeline,
         raster_pipeline,
     },
-    video::{VideoPlanePipeline, YuvUploadPipeline},
+    video::{RgbaUploadPipeline, VideoPlanePipeline, YuvUploadPipeline},
 };
 use super::{
     OUTPUT_FORMAT, PROPERTY_WORD_SIZE, SCENE_FORMAT,
@@ -355,6 +355,7 @@ impl RenderDevice {
             "zerium-frame-image-pipeline",
             &[],
         );
+        let rgba_upload = RgbaUploadPipeline::new(device)?;
         let yuv_upload = YuvUploadPipeline::new(device)?;
         let video_planes = VideoPlanePipeline::new(device)?;
         let item_pipelines = shaders
@@ -402,6 +403,7 @@ impl RenderDevice {
             frame_pipeline,
             frame_bind_group_layout,
             sampler,
+            rgba_upload,
             yuv_upload,
             video_planes,
         }))
@@ -465,6 +467,7 @@ pub(crate) struct RenderDevice {
     pub(super) frame_pipeline: wgpu::RenderPipeline,
     pub(super) frame_bind_group_layout: wgpu::BindGroupLayout,
     pub(super) sampler: wgpu::Sampler,
+    pub(super) rgba_upload: RgbaUploadPipeline,
     pub(super) yuv_upload: YuvUploadPipeline,
     pub(super) video_planes: VideoPlanePipeline,
 }

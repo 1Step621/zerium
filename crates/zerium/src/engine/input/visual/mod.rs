@@ -19,7 +19,7 @@ mod image;
 mod video;
 
 pub(crate) use self::video::{
-    PixelPlane, VideoFrame, VideoPixels, YuvFormat, YuvMatrix, yuv_format,
+    PixelPlane, VideoColor, VideoFrame, VideoPixels, YuvFormat, yuv_format,
 };
 pub(super) use self::{
     image::{

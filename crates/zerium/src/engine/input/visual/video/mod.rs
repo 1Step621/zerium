@@ -9,7 +9,9 @@ use std::{path::Path, sync::Mutex};
 use video::prelude::*;
 use zerium_core::media::{MediaAsset, MediaKind, MediaMetadata, MediaTarget};
 
+mod color;
 mod decoder;
+pub(crate) use color::{ColorConversion as VideoColorConversion, VideoColor};
 
 pub(in crate::engine::input) const READER_ID: &str = "zerium.video";
 
@@ -54,7 +56,7 @@ enum FrameStorage {
         planes: gpu_video::VideoTexture,
         format: YuvFormat,
     },
-    RgbaTexture {
+    LinearTexture {
         device: wgpu::Device,
         texture: wgpu::Texture,
     },
@@ -124,28 +126,28 @@ impl VideoFrame {
     fn buffer(&self) -> Option<gst::Buffer> {
         match &*self.storage.lock().unwrap_or_else(|e| e.into_inner()) {
             FrameStorage::Cpu(buffer) => Some(buffer.clone()),
-            FrameStorage::GpuPlanes { .. } | FrameStorage::RgbaTexture { .. } => None,
+            FrameStorage::GpuPlanes { .. } | FrameStorage::LinearTexture { .. } => None,
         }
     }
 
-    pub(crate) fn rgba_texture(
+    pub(crate) fn linear_texture(
         &self,
         device: &wgpu::Device,
     ) -> Result<Option<wgpu::Texture>, MediaError> {
         match &*self.storage.lock().unwrap_or_else(|e| e.into_inner()) {
             FrameStorage::Cpu(_) | FrameStorage::GpuPlanes { .. } => Ok(None),
-            FrameStorage::RgbaTexture {
+            FrameStorage::LinearTexture {
                 device: owner,
                 texture,
             } if owner == device => Ok(Some(texture.clone())),
-            FrameStorage::RgbaTexture { .. } => Err(MediaError::external(
+            FrameStorage::LinearTexture { .. } => Err(MediaError::external(
                 "A video frame cannot be reused on a different GPU device",
             )),
         }
     }
 
-    pub(crate) fn store_rgba_texture(&self, device: &wgpu::Device, texture: &wgpu::Texture) {
-        *self.storage.lock().unwrap_or_else(|e| e.into_inner()) = FrameStorage::RgbaTexture {
+    pub(crate) fn store_linear_texture(&self, device: &wgpu::Device, texture: &wgpu::Texture) {
+        *self.storage.lock().unwrap_or_else(|e| e.into_inner()) = FrameStorage::LinearTexture {
             device: device.clone(),
             texture: texture.clone(),
         };
@@ -159,10 +161,11 @@ impl VideoFrame {
     }
 
     pub(crate) fn byte_len(&self) -> usize {
-        // Include the owned RGBA texture as well as source padding.
+        // Budget for either the source planes (including padding) or the owned
+        // linear RGBA16Float texture that replaces them after conversion.
         self.info
             .size()
-            .max(self.info.width() as usize * self.info.height() as usize * 4)
+            .max(self.info.width() as usize * self.info.height() as usize * 8)
     }
 }
 
@@ -184,11 +187,10 @@ impl MappedVideoFrame {
                 planes: [plane(0)?, plane(1)?, plane(2)?],
             })
         } else {
-            Ok(VideoPixels::Rgba(self.plane(
-                0,
-                frame.width() * 4,
-                frame.height(),
-            )?))
+            Ok(VideoPixels::Rgba {
+                plane: self.plane(0, frame.width() * 4, frame.height())?,
+                color: VideoColor::from_info(frame.info()),
+            })
         }
     }
 
@@ -246,7 +248,15 @@ fn map_pixels(
         _ => F::Rgba,
     };
     let mut builder = video::VideoInfo::builder(format, mapped.width(), mapped.height());
-    if format != F::Rgba {
+    if format == F::Rgba {
+        let color = info.colorimetry();
+        builder = builder.colorimetry(&video::VideoColorimetry::new(
+            video::VideoColorRange::Range0_255,
+            video::VideoColorMatrix::Rgb,
+            color.transfer(),
+            color.primaries(),
+        ));
+    } else {
         builder = builder
             .colorimetry(&info.colorimetry())
             .chroma_site(info.chroma_site());
@@ -279,6 +289,7 @@ pub(crate) fn yuv_format(
         subsampling,
         bit_depth,
         matrix,
+        color: VideoColor::from_info(info),
         full_range: color.range() == video::VideoColorRange::Range0_255,
         chroma_location: match (
             chroma.contains(video::VideoChromaSite::H_COSITED),
@@ -298,6 +309,7 @@ pub(crate) struct YuvFormat {
     pub subsampling: [u32; 2],
     pub bit_depth: u32,
     pub matrix: YuvMatrix,
+    pub color: VideoColor,
     pub full_range: bool,
     pub chroma_location: ChromaLocation,
 }
@@ -309,7 +321,10 @@ pub(crate) struct PixelPlane<'a> {
 }
 
 pub(crate) enum VideoPixels<'a> {
-    Rgba(PixelPlane<'a>),
+    Rgba {
+        plane: PixelPlane<'a>,
+        color: VideoColor,
+    },
     Yuv {
         format: YuvFormat,
         planes: [PixelPlane<'a>; 3],
@@ -382,6 +397,7 @@ impl YuvFormat {
             red: [1., 0., 2. * (1. - kr), 0.],
             green: [1., -2. * kb * (1. - kb) / kg, -2. * kr * (1. - kr) / kg, 0.],
             blue: [1., 2. * (1. - kb), 0., 0.],
+            color: self.color.conversion(),
             chroma: [
                 self.subsampling[0] as f32,
                 self.subsampling[1] as f32,
@@ -409,4 +425,5 @@ pub(crate) struct YuvConversion {
     pub green: [f32; 4],
     pub blue: [f32; 4],
     pub chroma: [f32; 4],
+    pub color: VideoColorConversion,
 }

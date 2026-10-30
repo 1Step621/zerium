@@ -76,8 +76,14 @@ GPU encoding follows the plan's dependency and composition order.
 
 Effects and blending use scene-linear, premultiplied color. Intermediate surfaces
 are RGBA16Float; presentation uses RGBA8 sRGB. Export requests the scene-linear
-format directly, preserving precision and highlight values for its output transform. Item effects run before blending
-into the parent; scene-instance effects run after their children are composited.
+format directly, preserving precision and highlight values for its output transform.
+Video inputs decode their transfer function and transform their primaries into
+linear BT.709 in RGBA16Float. CPU and GPU decoding use the same color transform;
+PQ and HLG use the output transform's reference luminance. Images and text enter
+as straight sRGB. Raster downscaling filters linear, premultiplied color a row at
+a time, without retaining a float copy of the source image.
+Item effects run before blending into the parent; scene-instance effects run
+after their children are composited.
 
 Each shader pass has logical output bounds. Scene bounds are their children's
 union. Shader nodes render complete images; composition and camera nodes choose

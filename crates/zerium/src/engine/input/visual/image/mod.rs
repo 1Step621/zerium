@@ -1,5 +1,6 @@
 //! Raster and vector still-image readers.
 mod raster;
+mod resize;
 mod sequence;
 mod svg;
 

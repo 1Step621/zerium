@@ -1,6 +1,3 @@
-// Import display-encoded YUV to the existing RGBA8 sRGB input texture.
-// Write through its non-sRGB attachment view so encoding is applied once,
-// when the effect/media pipeline samples the sRGB view.
 struct Conversion {
     offset: vec4<f32>,
     scale: vec4<f32>,
@@ -8,11 +5,13 @@ struct Conversion {
     green: vec4<f32>,
     blue: vec4<f32>,
     chroma: vec4<f32>,
+    color: VideoColor,
 };
 @group(0) @binding(0) var y_plane: texture_2d<u32>;
 @group(0) @binding(1) var u_plane: texture_2d<u32>;
 @group(0) @binding(2) var v_plane: texture_2d<u32>;
-@group(0) @binding(3) var<uniform> conversion: Conversion;
+@group(0) @binding(3) var<storage, read> color_lut: array<f32>;
+@group(0) @binding(4) var<uniform> conversion: Conversion;
 
 @vertex
 fn vertex_main(@builtin(vertex_index) index: u32) -> @builtin(position) vec4<f32> {
@@ -45,5 +44,5 @@ fn fragment_main(@builtin(position) position: vec4<f32>) -> @location(0) vec4<f3
     );
     let yuv = (samples - conversion.offset.xyz) * conversion.scale.xyz;
     let rgb = vec3(dot(conversion.red.xyz, yuv), dot(conversion.green.xyz, yuv), dot(conversion.blue.xyz, yuv));
-    return vec4(clamp(rgb, vec3(0.0), vec3(1.0)), 1.0);
+    return vec4(scene_rgb(rgb, conversion.color), 1.0);
 }
