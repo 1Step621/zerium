@@ -240,7 +240,6 @@ fn outline_from_distance(source: &[u8], width: usize, height: usize, radius: f32
             }
         })
         .collect::<Vec<_>>();
-    let mut intermediate = vec![INFINITY; source.len()];
     let scratch_len = width.max(height);
     let mut line = vec![INFINITY; scratch_len];
     let mut transformed = vec![INFINITY; scratch_len];
@@ -258,13 +257,14 @@ fn outline_from_distance(source: &[u8], width: usize, height: usize, radius: f32
             &mut boundaries[..=height],
         );
         for y in 0..height {
-            intermediate[y * width + x] = transformed[y];
+            distances[y * width + x] = transformed[y];
         }
     }
     for y in 0..height {
         let row = y * width..(y + 1) * width;
+        line[..width].copy_from_slice(&distances[row.clone()]);
         distance_transform_1d(
-            &intermediate[row.clone()],
+            &line[..width],
             &mut distances[row],
             &mut sites[..width],
             &mut boundaries[..=width],

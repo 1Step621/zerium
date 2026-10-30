@@ -1,5 +1,4 @@
 //! Consumer-local input texture preparation and scratch resource reuse.
-use super::RenderTarget;
 use crate::engine::{
     input::{FrameData, PixelPlane, VideoPixels, VisualFrame},
     processing::visual::{
@@ -14,7 +13,6 @@ use crate::engine::{
 use std::sync::{Arc, Mutex};
 
 pub(in crate::engine::processing::visual::gpu) struct FrameImage {
-    pub(in crate::engine::processing::visual::gpu) target: Option<RenderTarget>,
     pub(in crate::engine::processing::visual::gpu) uploaded: Arc<FrameTexture>,
     pub(in crate::engine::processing::visual::gpu) binding: wgpu::BindGroup,
 }
@@ -33,18 +31,9 @@ pub(in crate::engine::processing::visual::gpu) struct TextureResources {
     // Upload planes are scratch resources; converted frames keep only their
     // final texture. Queue ordering lets consecutive frames reuse this slot.
     yuv_upload: Option<YuvUpload>,
-    // Conversion targets from the previous scene; unmatched sizes are dropped.
-    targets: Vec<RenderTarget>,
 }
 
 impl TextureResources {
-    pub(in crate::engine::processing::visual::gpu) fn recycle(&mut self, images: Vec<FrameImage>) {
-        self.targets = images
-            .into_iter()
-            .filter_map(|image| image.target)
-            .collect();
-    }
-
     /// The logical DAG has already interned frames by Arc identity.
     pub(in crate::engine::processing::visual::gpu) fn prepare(
         &mut self,
@@ -61,14 +50,18 @@ impl TextureResources {
                 .map(Ok)
                 .unwrap_or_else(|| {
                     let reusable = self.previous_scene.iter().position(|uploaded| {
-                        uploaded.frame.width == frame.width
-                            && uploaded.frame.height == frame.height
-                            && !matches!(uploaded.frame.data, FrameData::Video(_))
-                            && !matches!(frame.data, FrameData::Video(_))
-                            && Arc::strong_count(uploaded) == 1
-                            && !frames
-                                .iter()
-                                .any(|desired| Arc::ptr_eq(&uploaded.frame, desired))
+                        if let (FrameData::Rgba(_), FrameData::Rgba(_)) =
+                            (&uploaded.frame.data, &frame.data)
+                        {
+                            uploaded.frame.width == frame.width
+                                && uploaded.frame.height == frame.height
+                                && Arc::strong_count(uploaded) == 1
+                                && !frames
+                                    .iter()
+                                    .any(|desired| Arc::ptr_eq(&uploaded.frame, desired))
+                        } else {
+                            false
+                        }
                     });
                     let Some(reusable) = reusable else {
                         return device.upload_frame(frame.clone(), &mut self.yuv_upload);
@@ -79,12 +72,6 @@ impl TextureResources {
                     device.update_frame_texture(slot, frame.clone(), &mut self.yuv_upload)?;
                     Ok(uploaded)
                 })?;
-            let extent = device.frame_extent(frame)?;
-            let target = self
-                .targets
-                .iter()
-                .position(|target| target.texture.size() == extent)
-                .map(|index| self.targets.swap_remove(index));
             let binding = device
                 .gpu
                 .device
@@ -102,11 +89,7 @@ impl TextureResources {
                         },
                     ],
                 });
-            images.push(FrameImage {
-                target,
-                uploaded,
-                binding,
-            });
+            images.push(FrameImage { uploaded, binding });
         }
         self.previous_scene = images.iter().map(|image| image.uploaded.clone()).collect();
         Ok(images)

@@ -42,6 +42,8 @@ pub(crate) enum ExportError {
     Cancelled,
     #[error("Export input closed before rendering completed")]
     InputClosed,
+    #[error("There is not enough GPU memory to export this project")]
+    GpuOutOfMemory,
     #[error("{0}")]
     InvalidTimeline(String),
     #[error(transparent)]
@@ -71,6 +73,29 @@ impl From<EncodingError> for ExportError {
 
 const EXPORT_PIPELINE_DEPTH: usize = 3;
 const DECODE_PREFETCH_FRAMES: usize = 3;
+
+/// Allocation failure also produces invalid handles. Capture the resulting
+/// validation errors together, and report the original OOM before those errors.
+fn gpu_operation<T>(
+    gpu: &GpuContext,
+    operation: impl FnOnce() -> Result<T, ExportError>,
+) -> Result<T, ExportError> {
+    let memory = gpu.device.push_error_scope(wgpu::ErrorFilter::OutOfMemory);
+    let validation = gpu.device.push_error_scope(wgpu::ErrorFilter::Validation);
+    let internal = gpu.device.push_error_scope(wgpu::ErrorFilter::Internal);
+    let result = operation();
+    let internal = pollster::block_on(internal.pop());
+    let validation = pollster::block_on(validation.pop());
+    let memory = pollster::block_on(memory.pop());
+    if let Some(error) = memory.or(validation).or(internal) {
+        log::error!("GPU export operation failed: {error:?}");
+        return Err(match error {
+            wgpu::Error::OutOfMemory { .. } => ExportError::GpuOutOfMemory,
+            error => ExportError::encoding(error),
+        });
+    }
+    result
+}
 
 pub(crate) enum ExportProgress {
     Frame(u64),
@@ -205,8 +230,10 @@ pub(crate) fn export_timeline(
             .clamp(1., f64::from(u32::MAX)) as u32,
         audio: audio_graph.as_ref().map(|_| audio_format),
     };
-    let decode_gpu = renderer.gpu().clone();
-    let (mut frames, encoding) = VideoOutput::new(renderer, EXPORT_PIPELINE_DEPTH, video_settings)?;
+    let gpu = renderer.gpu().clone();
+    let (mut frames, encoding) = gpu_operation(&gpu, || {
+        VideoOutput::new(renderer, EXPORT_PIPELINE_DEPTH, video_settings).map_err(Into::into)
+    })?;
     thread::scope(|scope| {
         let (frames_to_write, video_frames) = mpsc::sync_channel(EXPORT_PIPELINE_DEPTH);
         let writer_failed = frames.failure_signal();
@@ -233,6 +260,7 @@ pub(crate) fn export_timeline(
         // Scene evaluation, video decoding, and text rasterization run ahead on a
         // worker so the render thread only waits on the GPU, never on the CPU.
         let (decoded_scenes_tx, decoded_scenes_rx) = mpsc::sync_channel(DECODE_PREFETCH_FRAMES);
+        let decode_gpu = gpu.clone();
         let decode_worker = thread::Builder::new()
             .name("zerium-export-decode".to_owned())
             .spawn_scoped(scope, move || {
@@ -258,21 +286,28 @@ pub(crate) fn export_timeline(
                     ExportError::encoding("Video decoding thread terminated unexpectedly")
                 })??;
                 if frames.is_full()
-                    && let Some(frame) = frames.finish_next(cancelled)?
+                    && let Some(frame) =
+                        gpu_operation(&gpu, || frames.finish_next(cancelled).map_err(Into::into))?
                 {
                     send_frame(&frames_to_write, frame)?;
                 }
-                frames.submit(frame_index, &scene, cancelled)?;
+                gpu_operation(&gpu, || {
+                    frames
+                        .submit(frame_index, &scene, cancelled)
+                        .map_err(Into::into)
+                })?;
                 let _ =
                     progress.unbounded_send(ExportProgress::Frame(frame_index.saturating_add(1)));
             }
-            while let Some(frame) = frames.finish_next(cancelled)? {
+            while let Some(frame) =
+                gpu_operation(&gpu, || frames.finish_next(cancelled).map_err(Into::into))?
+            {
                 if cancelled.load(Ordering::Relaxed) {
                     return Err(ExportError::Cancelled);
                 }
                 send_frame(&frames_to_write, frame)?;
             }
-            frames.finish()?;
+            gpu_operation(&gpu, || frames.finish().map_err(Into::into))?;
             frames_to_write
                 .send(WriterMessage::Complete)
                 .map_err(|_| ExportError::encoding("Video encoder terminated unexpectedly"))?;
@@ -318,14 +353,15 @@ fn decode_scenes(
         let frame = Frame::new(frame_index);
         let render_time = TimelineTime::from_frame(frame);
         let mut active_streams = std::collections::HashSet::new();
-        let result = evaluator
-            .evaluate(&timeline, render_time, size, |request| {
+        let result = gpu_operation(gpu, || {
+            evaluator.evaluate(&timeline, render_time, size, |request| {
                 active_streams.insert(request.stream.clone());
                 let decoder = decoders.entry(request.stream.clone()).or_default();
                 let decoded = decoder.decode(&request, Some(gpu), cancelled)?;
                 Ok::<_, ExportError>(Some(decoded.frame))
             })
-            .map(|scene| (frame_index, scene));
+        })
+        .map(|scene| (frame_index, scene));
         decoders.retain(|stream, _| active_streams.contains(stream));
         let failed = result.is_err();
         if scenes.send(result).is_err() || failed {

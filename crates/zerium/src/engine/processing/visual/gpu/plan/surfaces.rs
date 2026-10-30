@@ -154,6 +154,13 @@ pub(in crate::engine::processing::visual::gpu) struct SurfaceCache {
 }
 
 impl SurfaceCache {
+    pub(in crate::engine::processing::visual::gpu) fn retained_bytes(&self) -> usize {
+        self.retained
+            .values()
+            .map(|entry| entry.resources.size_bytes())
+            .sum()
+    }
+
     pub(in crate::engine::processing::visual::gpu) fn size_bytes(
         &self,
         key: SurfaceKey,

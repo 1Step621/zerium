@@ -435,14 +435,16 @@ impl RenderGraphBuilder<'_> {
         temporal: [u32; 4],
         bounds: SurfaceRect,
     ) -> RenderNodeId {
+        // Build a temporal pass's accumulated result before its next sample.
+        // Otherwise recursive lowering keeps every sample alive at once.
         let mut images = vec![
-            ImageInput {
-                node: inputs.input,
-                binding: ImageBinding::INPUT,
-            },
             ImageInput {
                 node: inputs.source,
                 binding: ImageBinding::SOURCE,
+            },
+            ImageInput {
+                node: inputs.input,
+                binding: ImageBinding::INPUT,
             },
         ];
         images.extend(

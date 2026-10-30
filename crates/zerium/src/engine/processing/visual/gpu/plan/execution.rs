@@ -21,8 +21,6 @@ use crate::engine::{
 use zerium_core::timeline::BlendMode;
 use zerium_shader::{EffectShaderId, ImageBinding, ItemShaderId};
 
-const RETAINED_SURFACE_BUDGET: usize = 128 * 1024 * 1024;
-
 /// Only data needed by physical tasks that survive cache lookup is packed here.
 #[derive(Default)]
 pub(in crate::engine::processing::visual::gpu) struct RenderData {
@@ -417,6 +415,7 @@ impl ExecutionPlan {
         scene: &RenderScene,
         limit: u32,
         cached_size: impl Fn(SurfaceKey) -> Option<usize>,
+        retention_budget: usize,
     ) -> Result<Self, RenderError> {
         let mut output = {
             let mut planner = ExecutionPlanner {
@@ -454,7 +453,7 @@ impl ExecutionPlan {
             }
             planner.output
         };
-        output.schedule_releases();
+        output.schedule_releases(retention_budget);
         Ok(output)
     }
 
@@ -466,7 +465,7 @@ impl ExecutionPlan {
         }
     }
 
-    fn schedule_releases(&mut self) {
+    fn schedule_releases(&mut self, mut budget: usize) {
         let mut usage = vec![SurfaceUsage::default(); self.surfaces.len()];
         let commands = std::mem::take(&mut self.commands);
         // The first consumer seen backwards is the final use. Record its release
@@ -507,7 +506,6 @@ impl ExecutionPlan {
                 *id,
             )
         });
-        let mut budget = RETAINED_SURFACE_BUDGET;
         for id in candidates {
             if let Some((key, bytes)) = self.surfaces[id].retention()
                 && bytes <= budget

@@ -177,14 +177,18 @@ impl VideoOutput {
             }
         };
         log::info!(
-            "Video export backend: {}",
+            "Video export backend: {}; {}x{} at {}/{} fps, pipeline depth {depth}",
             match &backend {
                 Backend::Readback(_) => "CPU readback",
                 #[cfg(any(target_os = "linux", target_os = "windows"))]
                 Backend::GpuVideo(_) => "Vulkan Video",
                 #[cfg(target_os = "macos")]
                 Backend::VideoToolbox(_) => "VideoToolbox",
-            }
+            },
+            dimensions.width,
+            dimensions.height,
+            settings.frame_rate.numerator(),
+            settings.frame_rate.denominator(),
         );
         let conversion = ColorConversion::new(device, size, settings.color, format);
         Ok((

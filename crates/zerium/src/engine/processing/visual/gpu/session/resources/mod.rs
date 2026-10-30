@@ -1,18 +1,18 @@
+pub(in crate::engine::processing::visual::gpu) mod cache;
 pub(in crate::engine::processing::visual::gpu) mod textures;
 
-use super::{RenderSession, RenderState};
+use super::RenderSession;
 use crate::engine::processing::visual::{
     gpu::{
         PROPERTY_WORD_SIZE, SCENE_FORMAT,
         device::interface::{GpuComposite, GpuItem},
-        plan::{execution::RenderData, surfaces::SurfaceCache},
+        plan::{PassKind, execution::RenderData},
     },
     scene::{
         RenderEffect, RenderEffectPassKind, RenderError, RenderNodeContent, RenderScene,
         RenderSize, RenderView, SurfaceRect,
     },
 };
-use std::collections::HashMap;
 use zerium_core::timeline::BlendMode;
 
 /// Immutable data shared by all draws in one frame.
@@ -25,10 +25,8 @@ pub(in crate::engine::processing::visual::gpu) struct FrameResources {
     pub(in crate::engine::processing::visual::gpu) composition_size: RenderSize,
     pub(in crate::engine::processing::visual::gpu) buffers: FrameBuffers,
     pub(in crate::engine::processing::visual::gpu) scene: RenderTarget,
-    pub(in crate::engine::processing::visual::gpu) backdrops: Vec<RenderTarget>,
     pub(in crate::engine::processing::visual::gpu) output_input: wgpu::BindGroup,
     pub(in crate::engine::processing::visual::gpu) transparent: RenderTarget,
-    pub(in crate::engine::processing::visual::gpu) surfaces: SurfaceCache,
 }
 
 /// Render targets and the small uniform that varies with the node's raster extent.
@@ -93,65 +91,10 @@ impl FrameResources {
     }
 }
 
-const LOCAL_RESOURCE_CACHE_BUDGET: usize = 256 * 1024 * 1024;
-
 pub(in crate::engine::processing::visual::gpu) fn surface_size_bytes(size: RenderSize) -> usize {
     (size.width as usize)
         .saturating_mul(size.height as usize)
         .saturating_mul(8)
-}
-
-/// Queue ordering lets all compositions of the same size share one scratch backdrop.
-pub(in crate::engine::processing::visual::gpu) struct BackdropPool {
-    available: Vec<RenderTarget>,
-    used: HashMap<RenderSize, RenderTarget>,
-}
-
-impl BackdropPool {
-    pub(in crate::engine::processing::visual::gpu) fn new(available: Vec<RenderTarget>) -> Self {
-        Self {
-            available,
-            used: HashMap::new(),
-        }
-    }
-
-    pub(in crate::engine::processing::visual::gpu) fn get(
-        &mut self,
-        device: &wgpu::Device,
-        size: RenderSize,
-    ) -> &RenderTarget {
-        self.used.entry(size).or_insert_with(|| {
-            if let Some(index) = self
-                .available
-                .iter()
-                .position(|target| target.size() == size)
-            {
-                self.available.swap_remove(index)
-            } else {
-                RenderTarget::new(
-                    device,
-                    size,
-                    wgpu::TextureUsages::TEXTURE_BINDING | wgpu::TextureUsages::COPY_DST,
-                    "zerium-composite-backdrop",
-                )
-            }
-        })
-    }
-
-    pub(in crate::engine::processing::visual::gpu) fn finish(self) -> Vec<RenderTarget> {
-        let mut remaining = LOCAL_RESOURCE_CACHE_BUDGET;
-        self.used
-            .into_values()
-            .filter(|target| {
-                let bytes = surface_size_bytes(target.size());
-                if bytes > remaining {
-                    return false;
-                }
-                remaining -= bytes;
-                true
-            })
-            .collect()
-    }
 }
 
 impl NodeResources {
@@ -173,21 +116,6 @@ impl NodeResources {
                 .as_ref()
                 .map_or(0, |buffer| buffer.size() as usize),
         )
-    }
-}
-
-impl RenderState {
-    pub(in crate::engine::processing::visual::gpu) fn trim_local_resources(&mut self) {
-        let mut retained_bytes = 0_usize;
-        self.local_resources.retain(|resource| {
-            let bytes = resource.size_bytes();
-            if retained_bytes.saturating_add(bytes) <= LOCAL_RESOURCE_CACHE_BUDGET {
-                retained_bytes += bytes;
-                true
-            } else {
-                false
-            }
-        });
     }
 }
 
@@ -265,7 +193,7 @@ impl RenderSession {
         &self,
         properties: &wgpu::Buffer,
         resources: &NodeResources,
-        compute: bool,
+        kind: PassKind,
     ) -> wgpu::BindGroup {
         let mut entries = vec![
             wgpu::BindGroupEntry {
@@ -281,22 +209,21 @@ impl RenderSession {
                 resource: properties.as_entire_binding(),
             },
         ];
-        if compute {
+        let layout = if let PassKind::Compute { .. } = kind {
             entries.push(wgpu::BindGroupEntry {
                 binding: 2,
                 resource: wgpu::BindingResource::TextureView(&resources.target.view),
             });
-        }
+            &self.shared.compute_bind_group_layout
+        } else {
+            &self.shared.pass_bind_group_layout
+        };
         self.shared
             .gpu
             .device
             .create_bind_group(&wgpu::BindGroupDescriptor {
                 label: Some("zerium-pass-bindings"),
-                layout: if compute {
-                    &self.shared.compute_bind_group_layout
-                } else {
-                    &self.shared.pass_bind_group_layout
-                },
+                layout,
                 entries: &entries,
             })
     }
@@ -372,10 +299,8 @@ impl RenderSession {
             composition_size: scene.composition_size,
             buffers,
             scene: target,
-            backdrops: Vec::new(),
             output_input,
             transparent: empty,
-            surfaces: SurfaceCache::default(),
         })
     }
 
@@ -399,7 +324,8 @@ impl RenderSession {
             wgpu::TextureUsages::RENDER_ATTACHMENT
                 | wgpu::TextureUsages::TEXTURE_BINDING
                 | wgpu::TextureUsages::STORAGE_BINDING
-                | wgpu::TextureUsages::COPY_SRC,
+                | wgpu::TextureUsages::COPY_SRC
+                | wgpu::TextureUsages::COPY_DST,
             "zerium-node-target",
         );
         NodeResources { uniform, target }

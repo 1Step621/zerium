@@ -15,6 +15,8 @@ use super::{RenderError, RenderSize};
 
 mod raster;
 
+const GLYPH_CACHE_BYTES: usize = 16 * 1024 * 1024;
+
 pub(crate) struct TextFrameRequest<'a> {
     pub capability: &'a TextureInput,
     pub properties: &'a PropertyValues,
@@ -76,6 +78,19 @@ impl TextFrameCache {
             &signature,
             self.frames.byte_budget(),
         )?);
+        // Font-size animation creates a distinct raster for every glyph size.
+        // Bound that cache separately from the completed text images.
+        let mut remaining = GLYPH_CACHE_BYTES;
+        self.swash_cache.image_cache.retain(|_, image| {
+            let bytes = size_of::<cosmic_text::CacheKey>()
+                + size_of::<Option<cosmic_text::SwashImage>>()
+                + image.as_ref().map_or(0, |image| image.data.len());
+            if bytes > remaining {
+                return false;
+            }
+            remaining -= bytes;
+            true
+        });
         self.frames.insert(signature, frame.clone());
         Ok(frame)
     }
