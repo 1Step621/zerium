@@ -184,6 +184,7 @@ impl Render for Explorer {
                             .size_full()
                             .flex()
                             .flex_col()
+                            .bg(colors.background)
                             .overflow_y_scroll()
                             .track_scroll(&self.scroll_handle)
                             .p_1()
