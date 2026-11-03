@@ -277,7 +277,10 @@ in the layer header can collapse them until the selection changes again. An expa
 shows animated scalar rows for selected items directly beneath the layer, ordered
 by item start time, including effect and array-element labels. These rows share
 the timeline's virtualized row list, time axis, zoom,
-scrolling, and playhead. Pointer scrubbing keeps the horizontal viewport fixed,
+scrolling, and playhead. Opening a project or switching scenes initially fits the
+active scene's full duration with a small trailing margin; an empty scene shows
+about ten seconds. Subsequent edits preserve manual zoom. Layer and animation
+rows have a fixed height, and Ctrl+wheel zooms only the time axis. Pointer scrubbing keeps the horizontal viewport fixed,
 including on release, so edge seeks cannot feed scrolling back into pointer time.
 Pointer time and zoom anchors use the actual timeline pane bounds. Layer hit testing
 and clip movement use this same row layout. Clip movement and resizing temporarily hide animation rows until release,

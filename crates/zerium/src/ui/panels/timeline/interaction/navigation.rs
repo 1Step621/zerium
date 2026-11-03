@@ -52,26 +52,6 @@ impl Timeline {
         }
     }
 
-    pub(in crate::ui::panels::timeline) fn zoom_vertical(
-        &mut self,
-        event: &ScrollWheelEvent,
-        window: &Window,
-        cx: &mut Context<Self>,
-    ) {
-        let Some(factor) = zoom_factor(event, window) else {
-            return;
-        };
-
-        let Some(scroll_ratio) = self.viewport.zoom_vertical(factor) else {
-            return;
-        };
-
-        let old_offset = layer_scroll_base(&self.layer_scroll).offset();
-        layer_scroll_base(&self.layer_scroll)
-            .set_offset(point(old_offset.x, old_offset.y * scroll_ratio));
-        cx.notify();
-    }
-
     pub(in crate::ui::panels::timeline) fn scroll_layers(
         &mut self,
         event: &ScrollWheelEvent,
@@ -95,11 +75,7 @@ impl Timeline {
         cx: &mut Context<Self>,
     ) {
         if event.modifiers.control {
-            if event.modifiers.shift {
-                self.zoom_vertical(event, window, cx);
-            } else {
-                self.zoom_horizontal(event, window, cx);
-            }
+            self.zoom_horizontal(event, window, cx);
         } else if event.modifiers.alt {
             self.scroll_layers(event, window, cx);
         } else {
@@ -120,11 +96,7 @@ impl Timeline {
         cx: &mut Context<Self>,
     ) {
         if event.modifiers.control {
-            if event.modifiers.shift {
-                self.zoom_vertical(event, window, cx);
-            } else {
-                self.zoom_horizontal(event, window, cx);
-            }
+            self.zoom_horizontal(event, window, cx);
         } else {
             self.scroll_layers(event, window, cx);
         }

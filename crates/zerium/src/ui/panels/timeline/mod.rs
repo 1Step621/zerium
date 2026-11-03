@@ -39,6 +39,7 @@ use zerium_core::timeline::{ItemId, LayerId, TimelineEditor};
 use super::animation_curve::AnimationSelection;
 
 const LAYER_HEADER_WIDTH: f32 = 200.;
+const LAYER_HEIGHT: f32 = 30.;
 
 fn layer_scroll_base(handle: &UniformListScrollHandle) -> gpui::ScrollHandle {
     handle.0.borrow().base_handle.clone()

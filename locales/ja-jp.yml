@@ -309,7 +309,6 @@ _version: 1
 "hints.stretch": "伸縮"
 "hints.toggle_selection": "選択・解除"
 "hints.zoom_time": "時間方向ズーム"
-"hints.zoom_layers": "レイヤー高さ変更"
 "hints.scroll_layers": "レイヤー方向スクロール"
 
 "calc.title": "計算"

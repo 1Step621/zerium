@@ -1,4 +1,5 @@
 use crate::ui::components::animation::animation_stop_marker;
+use crate::ui::panels::timeline::LAYER_HEIGHT;
 use crate::ui::panels::timeline::Timeline;
 use crate::ui::panels::timeline::{
     LAYER_HEADER_WIDTH,
@@ -54,7 +55,7 @@ pub(in crate::ui::panels::timeline) fn animation_row(
                 div()
                     .absolute()
                     .left(px(x - 2.))
-                    .top(px(state.layer_height * 0.5 - 2.))
+                    .top(px(LAYER_HEIGHT * 0.5 - 2.))
                     .size(px(4.))
                     .bg(state.colors.muted_foreground.opacity(0.3)),
             );
@@ -79,7 +80,7 @@ pub(in crate::ui::panels::timeline) fn animation_row(
             .id(("dope-stop", index))
             .absolute()
             .left(px(x - 7.))
-            .top(px(state.layer_height * 0.5 - 7.))
+            .top(px(LAYER_HEIGHT * 0.5 - 7.))
             .size(px(14.))
             .flex()
             .items_center()
@@ -141,7 +142,7 @@ pub(in crate::ui::panels::timeline) fn animation_row(
     div()
         .id(SharedString::from(format!("dope-row-{address:?}")))
         .relative()
-        .h(px(state.layer_height))
+        .h(px(LAYER_HEIGHT))
         .w_full()
         .flex()
         .bg(state.layer_background(layer.get() as usize))

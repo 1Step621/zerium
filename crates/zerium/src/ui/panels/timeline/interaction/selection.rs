@@ -1,3 +1,4 @@
+use crate::ui::panels::timeline::LAYER_HEIGHT;
 use std::collections::HashSet;
 
 use ::ui::ThemeColor;
@@ -166,11 +167,11 @@ impl Timeline {
                     .viewport
                     .x_at_seconds(editor.frame_rate().frame_to_seconds(end));
             let top = f32::from(list_bounds.origin.y)
-                + self.rows.layer_row(layer) as f32 * self.viewport.layer_height
+                + self.rows.layer_row(layer) as f32 * LAYER_HEIGHT
                 + layer_offset;
             let item_bounds = Bounds {
                 origin: point(px(left), px(top)),
-                size: size(px((right - left).max(1.)), px(self.viewport.layer_height)),
+                size: size(px((right - left).max(1.)), px(LAYER_HEIGHT)),
             };
             if item_bounds.intersects(&track_bounds) && item_bounds.intersects(&selection_bounds) {
                 selected.insert(item_id);

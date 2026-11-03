@@ -46,7 +46,6 @@ pub(super) struct LayerRenderState {
     pub(super) selected_stops: Rc<super::dope_sheet::StopKeys>,
     pub(super) focused_animation: Option<PropertyAddress>,
     pub(super) colors: ThemeColor,
-    pub(super) layer_height: f32,
     pub(super) viewport: TimelineViewport,
     pub(super) viewport_width: f32,
     pub(super) frame_rate: FrameRate,
@@ -85,11 +84,6 @@ pub(super) fn navigation_hints() -> Vec<Hint> {
         ),
         Hint::gesture(
             "hints.scroll",
-            "hints.zoom_layers",
-            gpui::Modifiers::control_shift(),
-        ),
-        Hint::gesture(
-            "hints.scroll",
             "hints.scroll_layers",
             gpui::Modifiers::alt(),
         ),
@@ -106,7 +100,6 @@ impl Render for Timeline {
         let rows = self.rows.clone();
         let colors = cx.theme().colors;
         let viewport_width = self.track_viewport_width(window);
-        let layer_height = self.viewport.layer_height;
         let (
             frame_rate,
             playhead,
@@ -146,7 +139,6 @@ impl Render for Timeline {
             ),
             focused_animation: self.animation_selection.read(cx).address().cloned(),
             colors,
-            layer_height,
             viewport: self.viewport,
             viewport_width,
             frame_rate,
@@ -163,10 +155,16 @@ impl Render for Timeline {
             colors.primary,
         );
         let timeline = cx.entity();
+        let timeline_for_geometry = timeline.clone();
         let file_drop_error = self.file_drop_error.clone();
         let focus_handle = self.focus_handle.clone();
 
         div()
+            .on_frame(move |geometry: gpui::ElementGeometry, _, cx| {
+                timeline_for_geometry.update(cx, |this, cx| {
+                    this.fit_initial_viewport(f32::from(geometry.bounds.size.width), cx);
+                });
+            })
             .id("timeline-root")
             .relative()
             .track_focus(&self.focus_handle)

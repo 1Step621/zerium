@@ -1,4 +1,5 @@
 use super::Timeline;
+use crate::ui::panels::timeline::LAYER_HEIGHT;
 use crate::ui::{
     components::pane::PANE_HEADER_HEIGHT,
     panels::timeline::{LAYER_HEADER_WIDTH, layer_scroll_base},
@@ -36,13 +37,13 @@ impl Timeline {
                         px(self
                             .viewport
                             .x_at_seconds(frame_rate.frame_to_seconds(item.start()))),
-                        px(top_row as f32 * self.viewport.layer_height),
+                        px(top_row as f32 * LAYER_HEIGHT),
                     ),
                     point(
                         px(self.viewport.x_at_seconds(
                             frame_rate.frame_to_seconds(item.end_exclusive(frame_rate)),
                         )),
-                        px(end_row as f32 * self.viewport.layer_height),
+                        px(end_row as f32 * LAYER_HEIGHT),
                     ),
                 );
                 if !ranges.contains(&range) {

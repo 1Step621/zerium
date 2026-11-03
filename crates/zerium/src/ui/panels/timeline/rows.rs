@@ -1,4 +1,5 @@
 //! Animation rows are inserted into an otherwise implicit sequence of layer rows.
+use crate::ui::panels::timeline::LAYER_HEIGHT;
 use std::{collections::HashSet, rc::Rc};
 
 use gpui::{Context, point, px};
@@ -159,12 +160,9 @@ impl Timeline {
         let offset = scroll.offset();
         scroll.set_offset(point(
             offset.x,
-            px(self.rows.anchored_offset(
-                &rows,
-                f32::from(offset.y),
-                self.viewport.layer_height,
-                anchor,
-            )),
+            px(self
+                .rows
+                .anchored_offset(&rows, f32::from(offset.y), LAYER_HEIGHT, anchor)),
         ));
         self.rows = Rc::new(rows);
     }

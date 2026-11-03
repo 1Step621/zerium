@@ -202,11 +202,6 @@ impl Timeline {
                         ),
                         Hint::gesture(
                             "hints.scroll",
-                            "hints.zoom_layers",
-                            gpui::Modifiers::control_shift(),
-                        ),
-                        Hint::gesture(
-                            "hints.scroll",
                             "hints.scroll_layers",
                             gpui::Modifiers::alt(),
                         ),

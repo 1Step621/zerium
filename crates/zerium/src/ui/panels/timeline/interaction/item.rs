@@ -1,3 +1,4 @@
+use crate::ui::panels::timeline::LAYER_HEIGHT;
 use std::{cell::Cell, rc::Rc};
 
 use gpui::{App, Context, Empty, EntityId, Modifiers, MouseDownEvent, Render, Window, prelude::*};
@@ -65,7 +66,6 @@ impl ItemMoveDrag {
         pointer_y: f32,
         pixels_per_second: f64,
         frame_rate: FrameRate,
-        layer_height: f32,
         constrain_axis: bool,
     ) -> (i64, i64, Option<MoveAxis>) {
         let delta_x = pointer_x - self.pointer_x;
@@ -85,7 +85,7 @@ impl ItemMoveDrag {
         let layer_delta = if axis == Some(MoveAxis::Time) {
             0
         } else {
-            (delta_y / layer_height).round() as i64
+            (delta_y / LAYER_HEIGHT).round() as i64
         };
         let (frame_delta, layer_delta) =
             self.edit.clamp_delta(delta_frames, layer_delta, frame_rate);
@@ -228,7 +228,6 @@ impl Timeline {
             pointer_y,
             self.viewport.pixels_per_second(),
             frame_rate,
-            self.viewport.layer_height,
             modifiers.shift,
         );
         if !modifiers.alt && axis != Some(MoveAxis::Layer) {

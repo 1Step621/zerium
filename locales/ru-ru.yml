@@ -306,7 +306,6 @@ _version: 1
 "hints.stretch": "Растянуть"
 "hints.toggle_selection": "Переключить выделение"
 "hints.zoom_time": "Масштаб времени"
-"hints.zoom_layers": "Масштаб слоёв"
 "hints.scroll_layers": "Прокрутка слоёв"
 "calc.title": "Вычисления"
 "calc.create": "Добавить вычисление"

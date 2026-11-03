@@ -1,4 +1,5 @@
 use crate::app::actions::{OpenPlacement, PlacementKind};
+use crate::ui::panels::timeline::LAYER_HEIGHT;
 use crate::ui::{
     components::input::file::import::FileImportTarget,
     panels::{
@@ -123,18 +124,11 @@ fn layer_header(
                 .rounded_full()
                 .bg(state.colors.muted_foreground),
         )
-        .operation_hints([
-            Hint::gesture(
-                "hints.scroll",
-                "hints.zoom_time",
-                gpui::Modifiers::control(),
-            ),
-            Hint::gesture(
-                "hints.scroll",
-                "hints.zoom_layers",
-                gpui::Modifiers::control_shift(),
-            ),
-        ])
+        .operation_hints([Hint::gesture(
+            "hints.scroll",
+            "hints.zoom_time",
+            gpui::Modifiers::control(),
+        )])
 }
 
 pub(in crate::ui::panels::timeline) fn timeline_track(
@@ -215,8 +209,8 @@ pub(in crate::ui::panels::timeline) fn layer_row(
     cx: &mut Context<Timeline>,
 ) -> Stateful<Div> {
     let layer_number = layer_index + 1;
-    let clip_top = (state.layer_height * 0.1).max(3.);
-    let clip_height = (state.layer_height - clip_top * 2.).max(16.);
+    let clip_top = (LAYER_HEIGHT * 0.1).max(3.);
+    let clip_height = (LAYER_HEIGHT - clip_top * 2.).max(16.);
     let visible_range = state.viewport.visible_time_range(state.viewport_width);
     let file_drop_x = state
         .file_drop_target
@@ -231,7 +225,7 @@ pub(in crate::ui::panels::timeline) fn layer_row(
     div()
         .id(("timeline-layer", layer_index))
         .relative()
-        .h(px(state.layer_height))
+        .h(px(LAYER_HEIGHT))
         .w_full()
         .flex_none()
         .flex()

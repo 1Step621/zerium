@@ -306,7 +306,6 @@ _version: 1
 "hints.stretch": "伸缩"
 "hints.toggle_selection": "切换选择"
 "hints.zoom_time": "缩放时间轴"
-"hints.zoom_layers": "缩放图层"
 "hints.scroll_layers": "滚动图层"
 "calc.title": "计算"
 "calc.create": "添加计算"

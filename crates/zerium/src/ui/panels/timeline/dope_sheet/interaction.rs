@@ -1,3 +1,4 @@
+use crate::ui::panels::timeline::LAYER_HEIGHT;
 use crate::ui::{
     TimelineEditorEntityExt as _,
     panels::timeline::{Timeline, layer_scroll_base},
@@ -71,7 +72,7 @@ impl Timeline {
                         px(self.viewport.x_at_seconds(
                             clock.key_time_at(stop.frame()).seconds(editor.frame_rate()),
                         )),
-                        px((row.index as f32 + 0.5) * self.viewport.layer_height),
+                        px((row.index as f32 + 0.5) * LAYER_HEIGHT),
                     );
                 if bounds.contains(&position) {
                     selection.keys.insert((address.clone(), index));
