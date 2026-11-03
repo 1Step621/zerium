@@ -118,5 +118,5 @@ pub(crate) fn property(
         .creation_defaults
         .get(target)?
         .get(schema.id())?;
-    (schema.is_editable(None) && schema.accepts_value(value)).then(|| value.clone())
+    schema.accepts_value(value).then(|| value.clone())
 }

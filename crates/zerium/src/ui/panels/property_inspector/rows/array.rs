@@ -70,7 +70,6 @@ pub(in crate::ui::panels::property_inspector) fn elements_section(
     group: &ArrayControl,
     ctx: &RenderCtx,
     separator_color: gpui::Hsla,
-    allow_structure_edit: bool,
 ) -> PropertyRow {
     let array = group.property.array().expect("array control contract");
     let font_picker = group
@@ -234,7 +233,7 @@ pub(in crate::ui::panels::property_inspector) fn elements_section(
                             AnimationLabelWidth::Fill,
                             format!("element-label-{key:?}").into(),
                         ))
-                        .when(allow_structure_edit, |this| this.child(structure_buttons))
+                        .child(structure_buttons)
                         .when_some(binding_button, |this, button| this.child(button)),
                 )
                 .when(!is_scene_bound, |this| this.child(value_rows))
@@ -247,7 +246,7 @@ pub(in crate::ui::panels::property_inspector) fn elements_section(
                 .gap_1()
                 .when(!is_scene_bound, |this| this.child(value_rows))
                 .when_some(binding_button, |this, button| this.child(button))
-                .when(allow_structure_edit, |this| this.child(structure_buttons))
+                .child(structure_buttons)
         };
         rows = rows.child(row);
     }
@@ -298,9 +297,7 @@ pub(in crate::ui::panels::property_inspector) fn elements_section(
             .flex_col()
             .gap_1()
             .child(rows)
-            .when(allow_structure_edit, |this| {
-                this.child(div().pt_1().child(add_control))
-            }),
+            .child(div().pt_1().child(add_control)),
     )
 }
 

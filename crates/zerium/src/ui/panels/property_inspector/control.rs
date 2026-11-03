@@ -100,7 +100,6 @@ pub(super) struct EffectControl {
 pub(super) struct AspectRatioControl {
     pub address: PropertyAddress,
     pub locked: bool,
-    pub read_only: bool,
 }
 
 #[derive(Clone)]
@@ -243,7 +242,7 @@ impl ControlResolution<'_> {
             label,
             scalar_label: property.configuration_label(scalar_index),
             animatable: property.is_animatable(scalar_index),
-            read_only: !property.is_editable(scalar_index) || stops.is_none(),
+            read_only: stops.is_none(),
             animation_enabled,
             animation_stops: stops.unwrap_or_default(),
             binding,
@@ -397,8 +396,7 @@ impl ControlResolution<'_> {
         property: &PropertySchema,
     ) -> Option<AspectRatioControl> {
         let item = self.editor.item(self.item.source_id)?;
-        let declared = item
-            .aspect_lock_property(effect_id)
+        item.aspect_lock_property(effect_id)
             .filter(|declared| declared.id() == property.id())?;
         Some(AspectRatioControl {
             address: PropertyAddress {
@@ -409,7 +407,6 @@ impl ControlResolution<'_> {
                 scalar_index: None,
             },
             locked: item.aspect_ratio(effect_id).is_some(),
-            read_only: !declared.is_editable(None),
         })
     }
 

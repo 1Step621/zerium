@@ -27,7 +27,6 @@ impl PropertyInspector {
         let time = TimelineTime::from_frame(editor.playhead());
         let values = editor
             .property_schemas(item, effect_id)
-            .filter(|schema| schema.is_editable(None))
             .filter_map(|schema| {
                 let address = PropertyAddress {
                     item_id: item.id,
@@ -80,16 +79,15 @@ impl PropertyInspector {
         if editor.item(address.item_id).is_none() {
             return menu;
         }
-        let Some(schema) = editor.property_schema(&address) else {
+        if editor.property_schema(&address).is_none() {
             return menu;
-        };
-        let disabled = !schema.is_editable(None)
-            || self
-                .store
-                .tree
-                .roots
-                .iter()
-                .any(|control| property_is_driven(control, &address));
+        }
+        let disabled = self
+            .store
+            .tree
+            .roots
+            .iter()
+            .any(|control| property_is_driven(control, &address));
         let context = editor.edit_context();
         let inspector = cx.entity();
         menu.menu_handler_with_icon_and_disabled(

@@ -61,9 +61,8 @@ impl FileTarget {
                 )
             }
         };
-        (schema.scalar_type(element_id, scalar_index) == Some(&ScalarPropertyType::File)
-            && schema.is_editable(scalar_index))
-        .then(|| schema.configuration_ui(scalar_index))
+        (schema.scalar_type(element_id, scalar_index) == Some(&ScalarPropertyType::File))
+            .then(|| schema.configuration_ui(scalar_index))
     }
 }
 

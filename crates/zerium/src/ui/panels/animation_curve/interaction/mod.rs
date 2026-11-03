@@ -469,12 +469,7 @@ impl AnimationCurveEditor {
         let paste = copied.and_then(|interpolation| {
             let selected = selected.as_ref()?;
             let editor = self.editor.read(cx);
-            if !editor
-                .property_schema(&selected.address)?
-                .is_editable(selected.address.scalar_index)
-            {
-                return None;
-            }
+            editor.property_schema(&selected.address)?;
             Some((
                 AnimationActionTarget::new(selected.address.clone(), editor),
                 selected.source_segment,

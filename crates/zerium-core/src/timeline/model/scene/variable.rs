@@ -89,7 +89,6 @@ impl SceneVariable {
         if !schema.allows_type(&schema.default_value()) {
             return None;
         }
-        schema.configuration_mut(None).editable = true;
         schema.configuration_mut(None).scene_bindable = true;
         let variable = Self {
             source: SceneVariableSource::Argument { schema, limits },

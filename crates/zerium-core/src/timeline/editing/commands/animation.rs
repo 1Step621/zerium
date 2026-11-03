@@ -20,8 +20,7 @@ impl TimelineEditor {
     pub fn can_animate_property(&self, target: &PropertyAddress) -> bool {
         self.is_item_selected(target.item_id)
             && self.property_schema(target).is_some_and(|schema| {
-                schema.is_editable(target.scalar_index)
-                    && schema.is_animatable(target.scalar_index)
+                schema.is_animatable(target.scalar_index)
                     && schema
                         .scalar_type(target.element_id, target.scalar_index)
                         .is_some()
@@ -52,18 +51,15 @@ impl TimelineEditor {
         let element_id = target.element_id;
         let scalar_index = target.scalar_index;
         self.edit_project_if_changed(EditImpact::Values, None, |editor| {
-            let Some(schema) = editor.property_schema(target).cloned() else {
-                return false;
-            };
-            if !schema.is_editable(scalar_index) {
-                return false;
-            }
             let path = target.path();
             if !enabled {
                 editor
                     .animation_store_mut(item_id, effect_id)
                     .is_some_and(|animations| animations.remove(&path))
             } else {
+                let Some(schema) = editor.property_schema(target) else {
+                    return false;
+                };
                 let Some(item) = editor.active_document().item(item_id) else {
                     return false;
                 };
@@ -133,11 +129,7 @@ impl TimelineEditor {
         address: &PropertyAddress,
         time: TimelineTime,
     ) -> Option<Frame> {
-        if !self.is_item_selected(address.item_id)
-            || !self
-                .property_schema(address)?
-                .is_editable(address.scalar_index)
-        {
+        if !self.is_item_selected(address.item_id) {
             return None;
         }
         let item = self.item(address.item_id)?;
@@ -189,11 +181,7 @@ impl TimelineEditor {
         address: &PropertyAddress,
         repeat: AnimationRepeat,
     ) -> bool {
-        if !self.is_item_selected(address.item_id)
-            || self
-                .property_schema(address)
-                .is_none_or(|schema| !schema.is_editable(address.scalar_index))
-        {
+        if !self.is_item_selected(address.item_id) {
             return false;
         }
         let key = HistoryKey::AnimationRepeat(address.clone());
@@ -211,11 +199,7 @@ impl TimelineEditor {
     }
 
     pub fn remove_animation_stop(&mut self, address: &PropertyAddress, stop: usize) -> bool {
-        if !self.is_item_selected(address.item_id)
-            || self
-                .property_schema(address)
-                .is_none_or(|schema| !schema.is_editable(address.scalar_index))
-        {
+        if !self.is_item_selected(address.item_id) {
             return false;
         }
         self.edit_project_if_changed(EditImpact::Values, None, |editor| {
@@ -348,12 +332,6 @@ impl TimelineEditor {
     ) -> Option<AnimationEdit> {
         let source = self.item(address.item_id)?;
         let track = self.animation_track(address)?;
-        if !self
-            .property_schema(address)?
-            .is_editable(address.scalar_index)
-        {
-            return None;
-        }
         let times = part.times(source, track)?;
         let (interpolation, mut kind) = match part {
             AnimationEditTarget::Stop(index) => (
@@ -380,11 +358,7 @@ impl TimelineEditor {
             for item_id in item_ids {
                 let item = self.item(item_id)?;
                 for (candidate, track) in item.animation_tracks() {
-                    if candidate == *address
-                        || self
-                            .property_schema(&candidate)
-                            .is_none_or(|schema| !schema.is_editable(candidate.scalar_index))
-                    {
+                    if candidate == *address {
                         continue;
                     }
                     let clock = item.animation_clock(track);

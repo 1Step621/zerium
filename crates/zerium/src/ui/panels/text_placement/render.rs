@@ -98,7 +98,7 @@ impl Render for TextPlacement {
                                                         .expect("row input"),
                                                 )
                                                 .small()
-                                                .disabled(!row.editable),
+                                                .disabled(row.bound),
                                             ),
                                         ),
                                 )

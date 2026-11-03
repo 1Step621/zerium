@@ -250,11 +250,7 @@ pub(super) fn group_box(
 }
 
 fn aspect_ratio_control(control: &AspectRatioControl, ctx: &RenderCtx) -> Div {
-    let AspectRatioControl {
-        address,
-        locked,
-        read_only,
-    } = control;
+    let AspectRatioControl { address, locked } = control;
     let editor = ctx.editor.clone();
     let effect_id = address.effect_id;
     let item_id = address.item_id;
@@ -273,7 +269,6 @@ fn aspect_ratio_control(control: &AspectRatioControl, ctx: &RenderCtx) -> Div {
             Switch::new(SharedString::from(format!("aspect-ratio-lock-{address:?}")))
                 .small()
                 .checked(checked)
-                .disabled(*read_only)
                 .tooltip(if checked {
                     t!("edit.unlock_ratio")
                 } else {

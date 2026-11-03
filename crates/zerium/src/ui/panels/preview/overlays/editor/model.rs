@@ -215,9 +215,6 @@ fn scalar_values(
 ) -> Vec<PreviewScalarValue> {
     let mut values = Vec::new();
     for axis in 0..2 {
-        if !property.is_editable(Some(axis)) {
-            continue;
-        }
         let address = PropertyAddress {
             item_id: item.id,
             effect_id,

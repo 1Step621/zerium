@@ -24,11 +24,11 @@ nest further.
 }
 ```
 
-Settings belong on each scalar, including tuple and array-element scalars:
+Property values can be edited directly. Settings belong on each scalar, including
+tuple and array-element scalars:
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| `editable` | `true` | Allow direct and animation edits |
 | `animatable` | `false` | Allow numeric or color animation |
 | `scene_bindable` | `true` | Allow connections to scene variables |
 | `constraints` | Unrestricted | Bounds for defaults, edits, loaded values, and animation keys |

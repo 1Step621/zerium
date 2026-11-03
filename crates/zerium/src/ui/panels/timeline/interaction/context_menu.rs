@@ -30,9 +30,6 @@ impl Timeline {
         let editor = self.editor.read(cx);
         let removable = editor.is_item_selected(address.item_id)
             && editor
-                .property_schema(address)
-                .is_some_and(|schema| schema.is_editable(address.scalar_index))
-            && editor
                 .animation_track(address)
                 .is_some_and(|track| stop > 0 && stop < track.stops().len().saturating_sub(1));
         let context = editor.edit_context();

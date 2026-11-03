@@ -12,7 +12,7 @@ pub(in crate::ui::panels::property_inspector) fn file_row(
 ) -> PropertyRow {
     let common = &file.common;
     let address = common.target.clone();
-    let disabled = render.selecting_file || common.read_only || common.is_bound();
+    let disabled = render.selecting_file || common.is_bound();
     PropertyRow::new(
         label,
         div()

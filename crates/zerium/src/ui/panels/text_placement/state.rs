@@ -59,7 +59,6 @@ impl TextPlacement {
                     element_id: None,
                     scalar_index: None,
                 };
-                let schema = editor.property_schema(&address)?;
                 let PropertyValue::String(text) = editor.property_value(&address)? else {
                     return None;
                 };
@@ -73,7 +72,7 @@ impl TextPlacement {
                     start: item.start(),
                     end: item.end_exclusive(editor.frame_rate()),
                     text,
-                    editable: schema.is_editable(None) && !bound,
+                    bound,
                 })
             })
             .collect::<Vec<_>>();

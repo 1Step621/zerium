@@ -777,7 +777,6 @@
       "type": "object",
       "properties": {
         "scene_bindable": { "type": "boolean", "default": true },
-        "editable": { "type": "boolean", "default": true },
         "animatable": { "type": "boolean", "default": false },
         "constraints": { "$ref": "#/$defs/propertyConstraints" },
         "ui": { "$ref": "#/$defs/scalarUi" }

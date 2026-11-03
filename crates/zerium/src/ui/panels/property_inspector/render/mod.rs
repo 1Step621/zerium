@@ -292,12 +292,7 @@ fn control_element(
             tuple.aspect_ratio_lock.as_ref(),
             render,
         )),
-        Control::Array(array) => Some(elements_section(
-            &array,
-            render,
-            render.colors.border,
-            array.property.is_editable(None),
-        )),
+        Control::Array(array) => Some(elements_section(&array, render, render.colors.border)),
         Control::Effect(_) => None,
         leaf => scalar_full_row(&leaf, render),
     }?;

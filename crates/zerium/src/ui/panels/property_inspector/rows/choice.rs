@@ -2,7 +2,7 @@ use crate::ui::panels::property_inspector::{
     PropertyInspector, control::ControlMeta, render::binding::control_binding_button,
 };
 use ::ui::{
-    Disableable as _, Sizable as _,
+    Sizable as _,
     button::Button,
     menu::{PopupMenuItem, popup_menu::PopupMenuExt as _},
     switch::Switch,
@@ -22,7 +22,7 @@ pub(in crate::ui::panels::property_inspector) fn toggle_row(
 ) -> PropertyRow {
     let is_bound = common.is_bound();
     let binding_button = control_binding_button(common, ctx);
-    let switch = bool_switch(&common.target, value, common.read_only, &ctx.inspector);
+    let switch = bool_switch(&common.target, value, &ctx.inspector);
     PropertyRow::new(
         label,
         div()
@@ -38,7 +38,6 @@ pub(in crate::ui::panels::property_inspector) fn toggle_row(
 fn bool_switch(
     target: &PropertyAddress,
     value: bool,
-    read_only: bool,
     inspector: &Entity<PropertyInspector>,
 ) -> Switch {
     let checked = value;
@@ -47,7 +46,6 @@ fn bool_switch(
     Switch::new(SharedString::from(format!("{target:?}")))
         .small()
         .checked(checked)
-        .disabled(read_only)
         .tooltip(if checked {
             t!("edit.turn_off")
         } else {
@@ -84,7 +82,6 @@ pub(in crate::ui::panels::property_inspector) fn dropdown_row(
                     &common.target,
                     current,
                     options,
-                    common.read_only,
                     &ctx.inspector,
                 ))
             })
@@ -96,7 +93,6 @@ fn choice_dropdown(
     target: &PropertyAddress,
     current: u32,
     options: &[(String, u32)],
-    read_only: bool,
     inspector: &Entity<PropertyInspector>,
 ) -> impl IntoElement {
     let selected_label = options
@@ -111,7 +107,6 @@ fn choice_dropdown(
         .small()
         .outline()
         .w_full()
-        .disabled(read_only)
         .label(selected_label)
         .dropdown_caret(true)
         .popup_menu(move |menu, _, _| {

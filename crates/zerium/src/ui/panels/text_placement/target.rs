@@ -145,5 +145,5 @@ impl Target {
 }
 
 fn is_string(schema: &PropertySchema) -> bool {
-    schema.scalar_type(None, None) == Some(&ScalarPropertyType::String) && schema.is_editable(None)
+    schema.scalar_type(None, None) == Some(&ScalarPropertyType::String)
 }

@@ -70,7 +70,7 @@ pub(in crate::timeline) fn validate_initial_properties(
         let valid = schemas
             .iter()
             .find(|schema| schema.id() == id)
-            .is_some_and(|schema| schema.is_editable(None) && schema.accepts_value(value));
+            .is_some_and(|schema| schema.accepts_value(value));
         if !valid {
             return Err(crate::timeline::TimelineEditError::InvalidPropertyValue(
                 id.to_owned(),

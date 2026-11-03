@@ -30,7 +30,7 @@ struct Row {
     start: Frame,
     end: Frame,
     text: String,
-    editable: bool,
+    bound: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]

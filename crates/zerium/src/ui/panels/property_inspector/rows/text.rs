@@ -25,17 +25,14 @@ pub(in crate::ui::panels::property_inspector) fn text_row(
             .flex()
             .items_center()
             .gap_1()
-            .when(!is_bound, |this| {
-                this.child(text_editor(input, multiline, common.read_only))
-            })
+            .when(!is_bound, |this| this.child(text_editor(input, multiline)))
             .when_some(binding_button, |this, button| this.child(button)),
     )
 }
 
-fn text_editor(input: &Entity<InputState>, multiline: bool, read_only: bool) -> impl IntoElement {
+fn text_editor(input: &Entity<InputState>, multiline: bool) -> impl IntoElement {
     Input::new(input)
         .small()
         .w_full()
-        .disabled(read_only)
         .when(multiline, |input| input.h(px(72.)))
 }

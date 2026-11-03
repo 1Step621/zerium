@@ -17,8 +17,6 @@ const MAX_ARRAY_ITEMS: u32 = 1_000_000;
 pub struct PropertyConfiguration {
     #[serde(skip_serializing_if = "is_true")]
     pub(crate) scene_bindable: bool,
-    #[serde(skip_serializing_if = "is_true")]
-    pub(crate) editable: bool,
     #[serde(skip_serializing_if = "is_false")]
     pub(crate) animatable: bool,
     #[serde(skip_serializing_if = "PropertyConstraints::is_default")]
@@ -39,7 +37,6 @@ impl Default for PropertyConfiguration {
     fn default() -> Self {
         Self {
             scene_bindable: true,
-            editable: true,
             animatable: false,
             constraints: PropertyConstraints::default(),
             ui: PropertyUi::default(),
@@ -418,22 +415,10 @@ impl PropertySchema {
         }
     }
 
-    pub fn is_editable(&self, scalar_index: Option<usize>) -> bool {
-        scalar_index.map_or_else(
-            || {
-                self.value_schema()
-                    .scalars()
-                    .iter()
-                    .all(|scalar| scalar.configuration.editable)
-            },
-            |index| self.configuration(Some(index)).editable,
-        )
-    }
-
     pub fn is_animatable(&self, scalar_index: Option<usize>) -> bool {
         self.value_schema()
             .scalar(scalar_index)
-            .is_some_and(|scalar| scalar.configuration.editable && scalar.configuration.animatable)
+            .is_some_and(|scalar| scalar.configuration.animatable)
     }
 
     pub fn is_scene_bindable(&self, scalar_index: Option<usize>) -> bool {

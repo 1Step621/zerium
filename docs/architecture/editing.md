@@ -70,7 +70,7 @@ including defaults, bindings, and animation. Playback properties use the same
 Inspector and authored override storage as other properties.
 
 User creation defaults are app preferences keyed by plugin and item/effect type.
-Inspector section menus capture evaluated editable properties at the playhead;
+Inspector section menus capture evaluated properties at the playhead;
 curves, connections, effect stacks, placement, and IDs are not preferences.
 File references in preferences use absolute paths, independent of project location.
 New items and effects receive the saved properties as authored overrides before

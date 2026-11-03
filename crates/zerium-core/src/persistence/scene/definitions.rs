@@ -84,7 +84,6 @@ impl StoredScene {
                 schema.validate("scene", &self.name).map_err(|error| {
                     ProjectError::invalid_data(format!("Scene '{}': {error}", self.name))
                 })?;
-                schema.configuration_mut(None).editable = true;
                 schema.configuration_mut(None).scene_bindable = true;
                 schemas.push(schema.clone());
             }

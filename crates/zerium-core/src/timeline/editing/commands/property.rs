@@ -106,9 +106,6 @@ impl TimelineEditor {
         else {
             return false;
         };
-        if !schema.is_editable(address.scalar_index) {
-            return false;
-        }
         if let Some(ratio) = item
             .aspect_ratio(effect)
             .filter(|_| !root_reset)
@@ -117,9 +114,6 @@ impl TimelineEditor {
                     .is_some_and(|property| property.id() == address.property_id)
             })
         {
-            if !schema.is_editable(None) {
-                return false;
-            }
             let Some(constrained) = ratio.constrain(schema, &next, address.scalar_index) else {
                 return false;
             };
@@ -156,10 +150,7 @@ impl TimelineEditor {
             return false;
         }
         let item = self.item(id).expect("selected item must exist");
-        let Some(property) = item
-            .aspect_lock_property(effect)
-            .filter(|property| property.is_editable(None))
-        else {
+        let Some(property) = item.aspect_lock_property(effect) else {
             return false;
         };
         let ratio = if locked {
@@ -219,10 +210,9 @@ impl AnimationValuePlan {
     ) -> bool {
         let address = &self.address;
         if !editor.property_schema(address).is_some_and(|schema| {
-            schema.is_editable(address.scalar_index)
-                && schema
-                    .scalar_type(address.element_id, address.scalar_index)
-                    .is_some_and(|ty| ty.allows(value))
+            schema
+                .scalar_type(address.element_id, address.scalar_index)
+                .is_some_and(|ty| ty.allows(value))
                 && schema
                     .configuration_constraints(address.scalar_index)
                     .allows(value)

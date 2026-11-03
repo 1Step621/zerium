@@ -108,7 +108,7 @@ impl TextPlacement {
         if !self
             .rows(cx)
             .iter()
-            .any(|row| row.address == *address && row.editable)
+            .any(|row| row.address == *address && !row.bound)
         {
             return false;
         }
