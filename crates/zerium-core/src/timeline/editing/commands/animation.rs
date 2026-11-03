@@ -134,7 +134,13 @@ impl TimelineEditor {
         }
         let item = self.item(address.item_id)?;
         let track = self.animation_track(address)?;
-        let frame = item.animation_clock(track).pattern_frame_at(time);
+        let clock = item.animation_clock(track);
+        if time < clock.key_time_at(Frame::new(0))
+            || time > clock.key_time_at(Frame::new(track.span().get()))
+        {
+            return None;
+        }
+        let frame = clock.pattern_frame_at(time);
         if frame.get() == 0
             || frame.get() >= track.span().get()
             || track.stop_index_at(frame).is_some()
@@ -144,20 +150,14 @@ impl TimelineEditor {
         Some(frame)
     }
 
-    /// Insert within the editable forward pattern, inheriting the nearest stop's value.
+    /// Insert within the authored pattern using its evaluated value at this time.
     pub fn insert_animation_stop_at_time(
         &mut self,
         address: &PropertyAddress,
         time: TimelineTime,
     ) -> Option<usize> {
         let frame = self.animation_stop_insertion_frame(address, time)?;
-        let value = self
-            .animation_track(address)?
-            .stops()
-            .iter()
-            .min_by_key(|stop| stop.frame().get().abs_diff(frame.get()))?
-            .value()
-            .clone();
+        let value = self.evaluated_property_value(address, time)?;
         let schema = self.property_schema(address)?;
         if !schema
             .configuration_constraints(address.scalar_index)
@@ -199,14 +199,7 @@ impl TimelineEditor {
     }
 
     pub fn remove_animation_stop(&mut self, address: &PropertyAddress, stop: usize) -> bool {
-        if !self.is_item_selected(address.item_id) {
-            return false;
-        }
-        self.edit_project_if_changed(EditImpact::Values, None, |editor| {
-            editor
-                .animation_track_mut(address)
-                .is_some_and(|track| track.remove_stop(stop))
-        })
+        self.remove_animation_stops(&[(address.clone(), stop)])
     }
 
     fn animation_store_mut(
@@ -251,13 +244,6 @@ impl AnimationEditTarget {
         }
     }
 
-    fn with_index(self, index: usize) -> Self {
-        match self {
-            Self::Stop(_) => Self::Stop(index),
-            Self::Segment(_) => Self::Segment(index),
-        }
-    }
-
     fn times(
         self,
         item: &TimelineItem,
@@ -280,14 +266,18 @@ impl AnimationEditTarget {
 struct Target {
     address: PropertyAddress,
     index: usize,
+    time: TimelineTime,
 }
 
 enum AnimationEditKind {
-    Stop(RangeInclusive<TimelineTime>),
+    Stop {
+        origin: TimelineTime,
+        range: RangeInclusive<TimelineTime>,
+    },
     Segment,
 }
 
-/// Fixed edit scope and Undo session, also used to preview synchronization.
+/// Explicit edit scope and Undo session.
 /// Creating an edit is read-only; history starts with its first mutation.
 pub struct AnimationEdit {
     targets: Vec<Target>,
@@ -300,27 +290,12 @@ impl AnimationEdit {
         self.gesture.is_current(editor)
     }
 
-    /// Each affected scalar property occurs exactly once.
-    pub fn properties(&self) -> impl Iterator<Item = &PropertyAddress> {
-        self.targets.iter().map(|target| &target.address)
-    }
-
     pub fn time_range(&self) -> Option<&RangeInclusive<TimelineTime>> {
         match &self.kind {
-            AnimationEditKind::Stop(range) => Some(range),
+            AnimationEditKind::Stop { range, .. } => Some(range),
             AnimationEditKind::Segment => None,
         }
     }
-}
-
-fn stop_move_range(
-    item: &TimelineItem,
-    track: &ScalarTrack,
-    index: usize,
-) -> Option<RangeInclusive<TimelineTime>> {
-    let clock = item.animation_clock(track);
-    let range = track.stop_move_range(index)?;
-    Some(clock.key_time_at(*range.start())..=clock.key_time_at(*range.end()))
 }
 
 impl TimelineEditor {
@@ -328,91 +303,154 @@ impl TimelineEditor {
         &self,
         address: &PropertyAddress,
         part: AnimationEditTarget,
-        synchronize: bool,
     ) -> Option<AnimationEdit> {
+        if let AnimationEditTarget::Stop(index) = part {
+            return self.begin_animation_stop_edit(&[(address.clone(), index)]);
+        }
         let source = self.item(address.item_id)?;
         let track = self.animation_track(address)?;
-        let times = part.times(source, track)?;
-        let (interpolation, mut kind) = match part {
-            AnimationEditTarget::Stop(index) => (
-                None,
-                AnimationEditKind::Stop(stop_move_range(source, track, index)?),
-            ),
-            AnimationEditTarget::Segment(index) => (
-                Some(*track.interpolations().get(index)?),
-                AnimationEditKind::Segment,
-            ),
-        };
-        let mut targets = vec![Target {
-            address: address.clone(),
-            index: part.index(),
-        }];
-        // Direct manipulation always includes the source item. Only a selected
-        // source extends the gesture to the other selected items.
-        if synchronize {
-            let include_selection = self.is_item_selected(address.item_id);
-            let item_ids = std::iter::once(address.item_id).chain(
-                self.selected_item_ids()
-                    .filter(|item_id| include_selection && *item_id != address.item_id),
-            );
-            for item_id in item_ids {
-                let item = self.item(item_id)?;
-                for (candidate, track) in item.animation_tracks() {
-                    if candidate == *address {
-                        continue;
-                    }
-                    let clock = item.animation_clock(track);
-                    let Some(index) = track.stop_index_at(clock.pattern_frame_at(times.0)) else {
-                        continue;
-                    };
-                    if part.with_index(index).times(item, track) != Some(times)
-                        || interpolation.is_some_and(|interpolation| {
-                            track.interpolations().get(index) != Some(&interpolation)
-                        })
-                    {
-                        continue;
-                    }
-                    if let AnimationEditKind::Stop(range) = &mut kind {
-                        let Some(other) = stop_move_range(item, track, index) else {
-                            continue;
-                        };
-                        let minimum = range.start().frames().max(other.start().frames());
-                        let maximum = range.end().frames().min(other.end().frames());
-                        if minimum > maximum {
-                            return None;
-                        }
-                        *range =
-                            TimelineTime::from_frames(minimum)..=TimelineTime::from_frames(maximum);
-                    }
-                    targets.push(Target {
-                        address: candidate,
-                        index,
-                    });
-                }
+        let time = part.times(source, track)?.0;
+        Some(AnimationEdit {
+            targets: vec![Target {
+                address: address.clone(),
+                index: part.index(),
+                time,
+            }],
+            kind: AnimationEditKind::Segment,
+            gesture: self.begin_edit_gesture(),
+        })
+    }
+
+    /// Move only the explicitly selected interior keys, preserving their time offsets.
+    pub fn begin_animation_stop_edit(
+        &self,
+        selected: &[(PropertyAddress, usize)],
+    ) -> Option<AnimationEdit> {
+        let (anchor, index) = selected.first()?;
+        let origin = AnimationEditTarget::Stop(*index)
+            .times(self.item(anchor.item_id)?, self.animation_track(anchor)?)?
+            .0;
+        let mut minimum = f64::NEG_INFINITY;
+        let mut maximum = f64::INFINITY;
+        let mut targets = Vec::new();
+        for (address, index) in selected {
+            if targets
+                .iter()
+                .any(|target: &Target| target.address == *address && target.index == *index)
+            {
+                continue;
             }
+            let item = self.item(address.item_id)?;
+            let track = self.animation_track(address)?;
+            let stops = track.stops();
+            if *index == 0 || index.checked_add(1)? >= stops.len() {
+                return None;
+            }
+            let clock = item.animation_clock(track);
+            let time = clock.key_time_at(stops[*index].frame());
+            let unselected = |i| !selected.iter().any(|(a, j)| a == address && *j == i);
+            let left = (0..*index).rev().find(|i| unselected(*i))?;
+            let right = (*index + 1..stops.len()).find(|i| unselected(*i))?;
+            let lower = clock.key_time_at(Frame::new(stops[left].frame().get() + 1));
+            let upper = clock.key_time_at(Frame::new(stops[right].frame().get() - 1));
+            minimum = minimum.max(lower.frames() - time.frames());
+            maximum = maximum.min(upper.frames() - time.frames());
+            targets.push(Target {
+                address: address.clone(),
+                index: *index,
+                time,
+            });
+        }
+        if minimum > maximum {
+            return None;
         }
         Some(AnimationEdit {
             targets,
-            kind,
+            kind: AnimationEditKind::Stop {
+                origin,
+                range: TimelineTime::from_frames(origin.frames() + minimum)
+                    ..=TimelineTime::from_frames(origin.frames() + maximum),
+            },
             gesture: self.begin_edit_gesture(),
         })
     }
 
     pub fn move_animation_stop(&mut self, edit: &mut AnimationEdit, time: TimelineTime) -> bool {
-        let Some(range) = edit.time_range() else {
+        let AnimationEditKind::Stop { origin, range } = &edit.kind else {
             return false;
         };
-        let time = TimelineTime::from_frames(
-            time.frames()
-                .round()
-                .clamp(range.start().frames(), range.end().frames()),
-        );
-        self.apply_animation_edit(edit, |item, index, track| {
+        let time = time
+            .frames()
+            .round()
+            .clamp(range.start().frames(), range.end().frames());
+        let delta = time - origin.frames();
+        // Move the leading key first so selected neighbors cannot block each other.
+        let Some(first) = edit.targets.first() else {
+            return false;
+        };
+        let Some(item) = self.item(first.address.item_id) else {
+            return false;
+        };
+        let Some(track) = self.animation_track(&first.address) else {
+            return false;
+        };
+        let Some(stop) = track.stops().get(first.index) else {
+            return false;
+        };
+        let forward = first.time.frames() + delta
+            >= item
+                .animation_clock(track)
+                .key_time_at(stop.frame())
+                .frames();
+        edit.targets.sort_by(|a, b| {
+            if forward {
+                b.index.cmp(&a.index)
+            } else {
+                a.index.cmp(&b.index)
+            }
+        });
+        self.apply_animation_edit(edit, |item, target, track| {
+            let time = TimelineTime::from_frames(target.time.frames() + delta);
             let frame = item.animation_clock(track).pattern_frame_at(time);
-            let changed = track.move_stop(index, frame);
-            (changed || AnimationEditTarget::Stop(index).times(item, track)?.0 == time)
-                .then_some(changed)
+            let changed = track.move_stop(target.index, frame);
+            (changed || track.stops().get(target.index)?.frame() == frame).then_some(changed)
         })
+    }
+
+    pub fn remove_animation_stops(&mut self, selected: &[(PropertyAddress, usize)]) -> bool {
+        let mut targets = selected.to_vec();
+        targets.sort_by_key(|target| std::cmp::Reverse(target.1));
+        let mut seen = std::collections::HashSet::new();
+        targets.retain(|target| seen.insert(target.clone()));
+        let mut candidates = HashMap::new();
+        let mut changed = false;
+        for (address, index) in targets {
+            if !self.is_item_selected(address.item_id) {
+                return false;
+            }
+            let candidate = match candidates.entry(address.item_id) {
+                Entry::Occupied(entry) => entry.into_mut(),
+                Entry::Vacant(entry) => {
+                    let Ok(candidate) = self.active_document().prepare_item_edit(address.item_id)
+                    else {
+                        return false;
+                    };
+                    entry.insert(candidate)
+                }
+            };
+            let Some(track) = candidate
+                .item
+                .animations_mut(address.effect_id)
+                .and_then(|animations| animations.track_mut(&address.path()))
+            else {
+                return false;
+            };
+            changed |= track.remove_stop(index);
+        }
+        changed
+            && self
+                .commit_item_edits(None, candidates.into_values())
+                .unwrap_or(false)
     }
 
     pub fn set_animation_interpolation(
@@ -426,15 +464,15 @@ impl TimelineEditor {
         if !interpolation.is_valid() {
             return false;
         }
-        self.apply_animation_edit(edit, |_, index, track| {
-            Some(track.set_segment_interpolation(index, interpolation))
+        self.apply_animation_edit(edit, |_, target, track| {
+            Some(track.set_segment_interpolation(target.index, interpolation))
         })
     }
 
     fn apply_animation_edit(
         &mut self,
         edit: &mut AnimationEdit,
-        update: impl Fn(&TimelineItem, usize, &mut ScalarTrack) -> Option<bool>,
+        update: impl Fn(&TimelineItem, &Target, &mut ScalarTrack) -> Option<bool>,
     ) -> bool {
         if !edit.is_current(self) {
             return false;
@@ -461,7 +499,7 @@ impl TimelineEditor {
             else {
                 return false;
             };
-            let Some(updated) = update(item, target.index, track) else {
+            let Some(updated) = update(item, target, track) else {
                 return false;
             };
             changed |= updated;

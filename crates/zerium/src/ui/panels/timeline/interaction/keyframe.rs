@@ -1,8 +1,6 @@
 use gpui::{Context, Empty, EntityId, MouseButton, Render, Window, prelude::*};
 
-use zerium_core::timeline::{
-    AnimationEdit, AnimationEditTarget, Frame, PropertyAddress, TimelineEditor, TimelineTime,
-};
+use zerium_core::timeline::{AnimationEdit, Frame, PropertyAddress, TimelineEditor, TimelineTime};
 
 use crate::ui::{TimelineEditorEntityExt as _, components::time_grid, panels::timeline::Timeline};
 
@@ -22,31 +20,18 @@ pub(in crate::ui::panels::timeline) struct AnimationStopDrag {
 }
 
 impl AnimationStopDrag {
-    pub(in crate::ui::panels::timeline) fn new(
+    fn new(
         source: MoveAnimationStop,
+        selected: &[(PropertyAddress, usize)],
         editor: &TimelineEditor,
-        synchronize: bool,
     ) -> Option<Self> {
-        let edit = editor.begin_animation_edit(
-            &source.address,
-            AnimationEditTarget::Stop(source.stop),
-            synchronize,
-        )?;
+        let edit = editor.begin_animation_stop_edit(selected)?;
         let snap_playhead = editor.playhead();
         Some(Self {
             source,
             edit,
             snap_playhead,
         })
-    }
-
-    pub(in crate::ui::panels::timeline) fn current_edit(
-        &self,
-        editor: &TimelineEditor,
-    ) -> Option<(&MoveAnimationStop, &AnimationEdit)> {
-        self.edit
-            .is_current(editor)
-            .then_some((&self.source, &self.edit))
     }
 }
 
@@ -57,22 +42,17 @@ impl Render for MoveAnimationStop {
 }
 
 impl Timeline {
-    pub(in crate::ui::panels::timeline) fn add_animation_stop_at_time(
+    pub(in crate::ui::panels::timeline) fn begin_stop_drag(
         &mut self,
-        address: &PropertyAddress,
-        time: TimelineTime,
+        source: MoveAnimationStop,
         cx: &mut Context<Self>,
     ) {
-        let changed = self.editor.update_if_changed(cx, |editor| {
-            editor
-                .insert_animation_stop_at_time(address, time)
-                .is_some()
-        });
-        if changed {
-            self.transport.update(cx, |transport, cx| {
-                transport.set_playhead(time.nearest_frame(), cx)
-            });
-        }
+        let anchor = (source.address.clone(), source.stop);
+        let selection = self.edit_stops(cx);
+        selection.keys.insert(anchor.clone());
+        let mut selected = vec![anchor.clone()];
+        selected.extend(selection.keys.iter().filter(|key| **key != anchor).cloned());
+        self.animation_drag = AnimationStopDrag::new(source, &selected, self.editor.read(cx));
     }
 
     pub(in crate::ui::panels::timeline) fn move_animation_stop_from_pointer(
@@ -124,5 +104,8 @@ impl Timeline {
         self.editor.update_if_changed(cx, |editor| {
             editor.move_animation_stop(edit, TimelineTime::from_frame(frame))
         });
+        if let Some(selection) = &mut self.stop_selection {
+            selection.context = self.editor.read(cx).edit_context();
+        }
     }
 }

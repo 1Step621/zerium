@@ -1,8 +1,8 @@
-use gpui::{Context, Window, point, px};
+use gpui::{Bounds, Context, Pixels, Point, Window, point, px};
 
-use zerium_core::timeline::{Frame, FrameRate};
+use zerium_core::timeline::{Frame, FrameRate, LayerId};
 
-use super::{LAYER_HEADER_WIDTH, Timeline, layer_scroll_base};
+use super::{LAYER_HEADER_WIDTH, Timeline, TimelineRow, layer_scroll_base};
 
 pub(super) const INITIAL_LAYER_HEIGHT: f32 = 30.;
 const MIN_LAYER_HEIGHT: f32 = 28.;
@@ -124,14 +124,42 @@ impl TimelineViewport {
 }
 
 impl Timeline {
-    pub(super) fn dynamic_layer_count(&self, window: &Window, cx: &Context<Self>) -> usize {
-        let highest_occupied_layer = self
+    pub(super) fn row_at_position(&self, position: Point<Pixels>) -> Option<TimelineRow<'_>> {
+        let scroll = layer_scroll_base(&self.layer_scroll);
+        if !scroll.bounds().contains(&position) {
+            return None;
+        }
+        let content_y = f32::from(position.y - scroll.bounds().origin.y - scroll.offset().y);
+        Some(
+            self.rows
+                .row((content_y / self.viewport.layer_height).floor().max(0.) as usize),
+        )
+    }
+
+    pub(super) fn layer_at_content_y(&self, y: f32) -> LayerId {
+        self.rows
+            .row((y / self.viewport.layer_height).floor().max(0.) as usize)
+            .layer()
+    }
+
+    pub(super) fn track_bounds(&self) -> Bounds<Pixels> {
+        let bounds = layer_scroll_base(&self.layer_scroll).bounds();
+        Bounds::from_corners(
+            bounds.origin + point(px(LAYER_HEADER_WIDTH), px(0.)),
+            bounds.bottom_right(),
+        )
+    }
+
+    pub(super) fn row_count(&self, window: &Window, cx: &Context<Self>) -> usize {
+        let occupied_end = self
             .editor
             .read(cx)
             .item_layouts()
             .map(|(_, layer, _, _)| layer.get())
             .max()
-            .and_then(|layer| usize::try_from(layer).ok());
+            .map_or(0, |layer| {
+                self.rows.layer_row(LayerId::new(layer.saturating_add(1)))
+            });
         let scroll = layer_scroll_base(&self.layer_scroll);
         let measured_height = f32::from(scroll.bounds().size.height);
         let viewport_height = if measured_height > 0. {
@@ -140,23 +168,15 @@ impl Timeline {
             f32::from(window.viewport_size().height)
         };
         let scroll_top = (-f32::from(scroll.offset().y)).max(0.);
-        let viewport_end = ((scroll_top + viewport_height) / self.viewport.layer_height)
-            .ceil()
-            .max(1.) as usize;
-        virtual_layer_count(highest_occupied_layer, viewport_end)
+        let viewport_end =
+            ((scroll_top + viewport_height) / self.viewport.layer_height).ceil() as usize;
+        occupied_end.max(viewport_end).saturating_add(1)
     }
 
     pub(super) fn reset_viewport(&mut self) {
         self.viewport = TimelineViewport::default();
         layer_scroll_base(&self.layer_scroll).set_offset(point(px(0.), px(0.)));
     }
-}
-
-fn virtual_layer_count(highest_occupied_layer: Option<usize>, viewport_end: usize) -> usize {
-    highest_occupied_layer
-        .map_or(0, |layer| layer.saturating_add(1))
-        .max(viewport_end)
-        .saturating_add(1)
 }
 
 pub(super) fn track_viewport_width(window: &Window) -> f32 {

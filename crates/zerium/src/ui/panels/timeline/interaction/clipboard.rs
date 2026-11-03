@@ -99,7 +99,7 @@ impl Timeline {
         }
         let offset_y = f32::from(scroll.offset().y);
         let content_y = f32::from(position.y - bounds.origin.y) - offset_y;
-        (content_y >= 0.).then(|| LayerId::new((content_y / self.viewport.layer_height) as u64))
+        (content_y >= 0.).then(|| self.layer_at_content_y(content_y))
     }
 
     pub(in crate::ui::panels::timeline) fn paste_items_at(

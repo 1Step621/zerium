@@ -3,22 +3,16 @@ use std::{cell::RefCell, rc::Rc};
 
 use ::ui::ThemeColor;
 use gpui::{
-    Bounds, Context, CursorStyle, Empty, EntityId, Hsla, MouseButton, MouseMoveEvent, PathBuilder,
-    Render, Window, canvas, div, fill, point, prelude::*, px, size,
+    Bounds, ContentMask, Context, CursorStyle, Empty, EntityId, MouseButton, MouseMoveEvent,
+    PathBuilder, Pixels, Render, Window, canvas, div, fill, point, prelude::*, px, size,
 };
 
 use zerium_core::timeline::{EditSession, SceneId};
 
 use crate::ui::{
-    panels::timeline::Timeline,
+    components::pane::PANE_HEADER_HEIGHT,
+    panels::timeline::{LAYER_HEADER_WIDTH, Timeline},
     workspace::operation_hints::{Hint, OperationHintExt as _},
-};
-
-pub(in crate::ui::panels::timeline) const STRETCH_COLOR: Hsla = Hsla {
-    h: 200. / 360.,
-    s: 0.9,
-    l: 0.65,
-    a: 1.,
 };
 
 #[derive(Clone)]
@@ -35,12 +29,7 @@ impl Render for StretchPointDrag {
 }
 
 impl Timeline {
-    pub(in crate::ui::panels::timeline) fn stretch_marker(
-        &self,
-        colors: ThemeColor,
-        viewport_width: f32,
-        cx: &mut Context<Self>,
-    ) -> Option<impl IntoElement> {
+    fn stretch_position(&self, viewport_width: f32, cx: &Context<Self>) -> Option<(SceneId, f32)> {
         let editor = self.editor.read(cx);
         let scene_id = editor.active_scene_id();
         if scene_id == editor.main_scene_id() {
@@ -54,6 +43,47 @@ impl Timeline {
         if x < -7. || x > viewport_width + 7. {
             return None;
         }
+        Some((scene_id, x))
+    }
+
+    pub(in crate::ui::panels::timeline) fn stretch_overlay(
+        &self,
+        colors: ThemeColor,
+        viewport_width: f32,
+        cx: &Context<Self>,
+    ) -> Option<impl IntoElement> {
+        let (_, x) = self.stretch_position(viewport_width, cx)?;
+        Some(
+            canvas(
+                |_, _, _| (),
+                move |bounds, _, window, _| {
+                    window.with_content_mask(Some(ContentMask { bounds }), |window| {
+                        paint_stretch_indicator(
+                            Bounds::new(
+                                bounds.origin + point(px(x - 7.), px(0.)),
+                                size(px(14.), bounds.size.height),
+                            ),
+                            colors,
+                            window,
+                        );
+                    });
+                },
+            )
+            .absolute()
+            .top(px(PANE_HEADER_HEIGHT))
+            .left(px(LAYER_HEADER_WIDTH))
+            .right_0()
+            .bottom_0(),
+        )
+    }
+
+    pub(in crate::ui::panels::timeline) fn stretch_marker(
+        &self,
+        colors: ThemeColor,
+        viewport_width: f32,
+        cx: &mut Context<Self>,
+    ) -> Option<impl IntoElement> {
+        let (scene_id, x) = self.stretch_position(viewport_width, cx)?;
         let drag = StretchPointDrag {
             timeline_id: cx.entity_id(),
             scene_id,
@@ -69,8 +99,8 @@ impl Timeline {
                 .left(px(x - 7.))
                 .w(px(14.))
                 .cursor(CursorStyle::ResizeLeftRight)
-                .hover(|style| style.bg(STRETCH_COLOR.opacity(0.12)))
-                .child(stretch_indicator(colors.background))
+                .hover(move |style| style.bg(colors.primary.opacity(0.12)))
+                .child(stretch_indicator(colors))
                 .tooltip(|window, cx| {
                     ::ui::tooltip::Tooltip::new(t!("timeline.stretch_point_tooltip").to_string())
                         .build(window, cx)
@@ -128,30 +158,29 @@ impl Timeline {
     }
 }
 
-pub(in crate::ui::panels::timeline) fn stretch_indicator(background: Hsla) -> impl IntoElement {
+fn stretch_indicator(colors: ThemeColor) -> impl IntoElement {
     canvas(
         |_, _, _| (),
-        move |bounds, _, window, _| {
-            window.paint_quad(fill(
-                Bounds::new(
-                    point(bounds.origin.x + px(4.), bounds.origin.y),
-                    size(px(6.), bounds.size.height),
-                ),
-                background,
-            ));
-            let mut lines = PathBuilder::stroke(px(1.5));
-            for offset in [4., 10.] {
-                lines.move_to(point(bounds.origin.x + px(offset), bounds.origin.y));
-                lines.line_to(point(
-                    bounds.origin.x + px(offset),
-                    bounds.origin.y + bounds.size.height,
-                ));
-            }
-            if let Ok(path) = lines.build() {
-                window.paint_path(path, STRETCH_COLOR.opacity(0.4));
-            }
-        },
+        move |bounds, _, window, _| paint_stretch_indicator(bounds, colors, window),
     )
     .absolute()
     .size_full()
+}
+
+fn paint_stretch_indicator(bounds: Bounds<Pixels>, colors: ThemeColor, window: &mut Window) {
+    window.paint_quad(fill(
+        Bounds::new(
+            point(bounds.origin.x + px(4.), bounds.origin.y),
+            size(px(6.), bounds.size.height),
+        ),
+        colors.background,
+    ));
+    let mut lines = PathBuilder::stroke(px(1.5));
+    for offset in [4., 10.] {
+        lines.move_to(point(bounds.origin.x + px(offset), bounds.origin.y));
+        lines.line_to(point(bounds.origin.x + px(offset), bounds.bottom_right().y));
+    }
+    if let Ok(path) = lines.build() {
+        window.paint_path(path, colors.primary.opacity(0.4));
+    }
 }

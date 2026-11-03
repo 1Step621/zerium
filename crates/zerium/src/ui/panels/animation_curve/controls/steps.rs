@@ -38,13 +38,6 @@ impl StepInput {
         }
     }
 
-    pub(in crate::ui::panels::animation_curve) fn edit_for(
-        &self,
-        selected: &SelectedCurve,
-    ) -> Option<&AnimationEdit> {
-        self.edit.as_ref().filter(|_| self.target.matches(selected))
-    }
-
     pub(in crate::ui::panels::animation_curve) fn discard_stale_edit(
         &mut self,
         editor: &TimelineEditor,
@@ -72,7 +65,6 @@ impl AnimationCurveEditor {
         &mut self,
         input: &Entity<InputState>,
         value: f64,
-        synchronize: bool,
         cx: &mut Context<Self>,
     ) {
         if !value.is_finite() {
@@ -93,7 +85,6 @@ impl AnimationCurveEditor {
             state.edit = self.editor.read(cx).begin_animation_edit(
                 &state.target.address,
                 AnimationEditTarget::Segment(state.target.source_segment),
-                synchronize,
             );
         }
         let Some(edit) = &mut state.edit else {
@@ -149,7 +140,7 @@ impl AnimationCurveEditor {
             cx,
             |this, input, edit, window, cx| match edit {
                 NumberEdit::Value(value) => {
-                    this.set_step_count(input, value, !window.modifiers().alt, cx);
+                    this.set_step_count(input, value, cx);
                 }
                 NumberEdit::Step(NumberInputEvent::Step { action, .. }) => {
                     let Some(count) = this.step_count_for_input(input, cx) else {
@@ -161,7 +152,7 @@ impl AnimationCurveEditor {
                         -1.
                     };
                     let value = f64::from(count.get()) + delta;
-                    this.set_step_count(input, value, !window.modifiers().alt, cx);
+                    this.set_step_count(input, value, cx);
                     this.sync_step_text(input, window, cx);
                 }
                 NumberEdit::Commit => {
@@ -200,7 +191,6 @@ impl AnimationCurveEditor {
         let Some(edit) = self.editor.read(cx).begin_animation_edit(
             &state.target.address,
             AnimationEditTarget::Segment(state.target.source_segment),
-            !event.modifiers.alt,
         ) else {
             return;
         };

@@ -2,79 +2,97 @@ use std::collections::HashSet;
 
 use ::ui::ThemeColor;
 use gpui::{
-    Bounds, ClickEvent, Context, Div, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    Pixels, Window, div, point, prelude::*, px, size,
+    Bounds, ClickEvent, Context, DispatchPhase, MouseButton, MouseDownEvent, MouseMoveEvent,
+    MouseUpEvent, Pixels, Point, Window, canvas, point, prelude::*, px, quad, size,
 };
 
-use zerium_core::timeline::{ItemId, LayerId};
+use zerium_core::timeline::{ItemId, LayerId, PropertyAddress};
 
 use crate::ui::{
     TimelineEditorEntityExt as _,
-    components::pane::PANE_HEADER_HEIGHT,
-    panels::timeline::{LAYER_HEADER_WIDTH, Timeline, layer_scroll_base},
+    panels::timeline::{StopSelection, Timeline, TimelineRow, layer_scroll_base},
 };
 
-#[derive(Clone, Debug)]
+enum MarqueeBaseline {
+    Items(HashSet<ItemId>),
+    Stops(StopSelection),
+}
+
 pub(in crate::ui::panels::timeline) struct MarqueeSelection {
-    pub(in crate::ui::panels::timeline) layer_index: usize,
-    pub(in crate::ui::panels::timeline) button: MouseButton,
-    pub(in crate::ui::panels::timeline) origin: [f32; 2],
-    pub(in crate::ui::panels::timeline) current: [f32; 2],
-    pub(in crate::ui::panels::timeline) baseline: HashSet<ItemId>,
-    pub(in crate::ui::panels::timeline) active: bool,
+    layer_index: usize,
+    button: MouseButton,
+    stop: Option<(PropertyAddress, usize)>,
+    origin: Point<Pixels>,
+    current: Point<Pixels>,
+    baseline: MarqueeBaseline,
+    active: bool,
 }
 
 impl MarqueeSelection {
-    const ACTIVATION_DISTANCE: f32 = 4.;
+    const ACTIVATION_DISTANCE: f64 = 4.;
 
-    pub(in crate::ui::panels::timeline) fn bounds(&self) -> Bounds<Pixels> {
+    fn bounds(&self) -> Bounds<Pixels> {
         Bounds::from_corners(
-            point(
-                px(self.origin[0].min(self.current[0])),
-                px(self.origin[1].min(self.current[1])),
-            ),
-            point(
-                px(self.origin[0].max(self.current[0])),
-                px(self.origin[1].max(self.current[1])),
-            ),
+            self.origin.min(&self.current),
+            self.origin.max(&self.current),
         )
     }
 
-    pub(in crate::ui::panels::timeline) fn update(&mut self, position: gpui::Point<Pixels>) {
-        self.current = [f32::from(position.x), f32::from(position.y)];
-        let distance = (self.current[0] - self.origin[0]).hypot(self.current[1] - self.origin[1]);
-        self.active |= distance >= Self::ACTIVATION_DISTANCE;
+    fn update(&mut self, position: Point<Pixels>) {
+        self.current = position;
+        self.active |= (self.current - self.origin).magnitude() >= Self::ACTIVATION_DISTANCE;
     }
 }
 
-pub(in crate::ui::panels::timeline) fn is_marquee_pointer_drag(event: &MouseMoveEvent) -> bool {
-    event.pressed_button == Some(MouseButton::Right)
-        || (event.pressed_button == Some(MouseButton::Left) && event.modifiers.control)
-}
-
-pub(in crate::ui::panels::timeline) fn is_marquee_pointer_down(event: &MouseDownEvent) -> bool {
+fn is_marquee_pointer_down(event: &MouseDownEvent) -> bool {
     event.button == MouseButton::Right
         || (event.button == MouseButton::Left && event.modifiers.control)
 }
 
 impl Timeline {
-    pub(in crate::ui::panels::timeline) fn begin_marquee_selection(
+    pub(in crate::ui::panels::timeline) fn begin_stop_context_menu(
+        &mut self,
+        address: PropertyAddress,
+        stop: usize,
+        event: &MouseDownEvent,
+        cx: &mut Context<Self>,
+    ) {
+        let Some(layer) = self.editor.read(cx).item_layer(address.item_id) else {
+            return;
+        };
+        self.begin_marquee_selection(layer.get() as usize, event, cx);
+        if let Some(marquee) = self.marquee_selection.as_mut() {
+            marquee.stop = Some((address, stop));
+        }
+    }
+
+    fn begin_marquee_selection(
         &mut self,
         layer_index: usize,
         event: &MouseDownEvent,
         cx: &mut Context<Self>,
     ) {
         self.context_menu = None;
-        let additive = event.modifiers.shift;
-        let baseline = if additive {
-            self.editor.read(cx).selected_item_ids().collect()
+        let baseline = if let Some(TimelineRow::Property(_)) = self.row_at_position(event.position)
+        {
+            let mut selection = self.edit_stops(cx).clone();
+            if !event.modifiers.shift {
+                selection.keys.clear();
+            }
+            MarqueeBaseline::Stops(selection)
         } else {
-            HashSet::new()
+            self.stop_selection = None;
+            MarqueeBaseline::Items(if event.modifiers.shift {
+                self.editor.read(cx).selected_item_ids().collect()
+            } else {
+                HashSet::new()
+            })
         };
-        let position = [f32::from(event.position.x), f32::from(event.position.y)];
+        let position = event.position;
         self.marquee_selection = Some(MarqueeSelection {
             layer_index,
             button: event.button,
+            stop: None,
             origin: position,
             current: position,
             baseline,
@@ -84,7 +102,7 @@ impl Timeline {
         cx.stop_propagation();
     }
 
-    pub(in crate::ui::panels::timeline) fn begin_primary_track_interaction(
+    pub(in crate::ui::panels::timeline) fn begin_track_interaction(
         &mut self,
         layer_index: usize,
         event: &MouseDownEvent,
@@ -95,45 +113,26 @@ impl Timeline {
         if is_marquee_pointer_down(event) {
             self.begin_marquee_selection(layer_index, event, cx);
         } else {
+            self.stop_selection = None;
             self.begin_playhead_scrub(event, window, cx);
         }
     }
 
-    pub(in crate::ui::panels::timeline) fn update_marquee_selection(
-        &mut self,
-        event: &MouseMoveEvent,
-        _: &mut Window,
-        cx: &mut Context<Self>,
-    ) {
-        if !is_marquee_pointer_drag(event) || self.marquee_selection.is_none() {
-            return;
+    fn update_marquee_selection(&mut self, event: &MouseMoveEvent, cx: &mut Context<Self>) -> bool {
+        let Some(marquee) = &mut self.marquee_selection else {
+            return false;
+        };
+        if event.pressed_button != Some(marquee.button) {
+            self.marquee_selection = None;
+            cx.notify();
+            return true;
         }
-        self.update_marquee_selection_at(event.position, cx);
-    }
-
-    fn update_marquee_selection_at(
-        &mut self,
-        position: gpui::Point<Pixels>,
-        cx: &mut Context<Self>,
-    ) {
-        let was_active = self
-            .marquee_selection
-            .as_ref()
-            .is_some_and(|marquee| marquee.active);
-        self.marquee_selection
-            .as_mut()
-            .expect("marquee selection was checked above")
-            .update(position);
-        let is_active = self
-            .marquee_selection
-            .as_ref()
-            .is_some_and(|marquee| marquee.active);
-        if is_active {
+        marquee.update(event.position);
+        if marquee.active {
             self.apply_marquee_selection(cx);
-        }
-        if is_active || was_active != is_active {
             cx.notify();
         }
+        true
     }
 
     fn apply_marquee_selection(&mut self, cx: &mut Context<Self>) {
@@ -145,19 +144,17 @@ impl Timeline {
             return;
         };
         let selection_bounds = marquee.bounds();
-        let list_bounds = layer_scroll_base(&self.layer_scroll).bounds();
-        let track_bounds = Bounds {
-            origin: point(
-                list_bounds.origin.x + px(LAYER_HEADER_WIDTH),
-                list_bounds.origin.y,
-            ),
-            size: size(
-                (list_bounds.size.width - px(LAYER_HEADER_WIDTH)).max(px(0.)),
-                list_bounds.size.height,
-            ),
+        let mut selected = match &marquee.baseline {
+            MarqueeBaseline::Stops(baseline) => {
+                self.apply_stop_marquee(selection_bounds, baseline.clone(), cx);
+                return;
+            }
+            MarqueeBaseline::Items(baseline) => baseline.clone(),
         };
+        self.stop_selection = None;
+        let list_bounds = layer_scroll_base(&self.layer_scroll).bounds();
+        let track_bounds = self.track_bounds();
         let layer_offset = f32::from(layer_scroll_base(&self.layer_scroll).offset().y);
-        let mut selected = marquee.baseline.clone();
         let editor = self.editor.read(cx);
         for (item_id, layer, start, end) in editor.item_layouts() {
             let left = f32::from(track_bounds.origin.x)
@@ -169,7 +166,7 @@ impl Timeline {
                     .viewport
                     .x_at_seconds(editor.frame_rate().frame_to_seconds(end));
             let top = f32::from(list_bounds.origin.y)
-                + layer.get() as f32 * self.viewport.layer_height
+                + self.rows.layer_row(layer) as f32 * self.viewport.layer_height
                 + layer_offset;
             let item_bounds = Bounds {
                 origin: point(px(left), px(top)),
@@ -183,14 +180,21 @@ impl Timeline {
             .update_if_changed(cx, |editor| editor.select_items(selected));
     }
 
-    pub(in crate::ui::panels::timeline) fn finish_marquee_selection(
+    fn finish_marquee_selection(
         &mut self,
         event: &MouseUpEvent,
         window: &mut Window,
         cx: &mut Context<Self>,
-    ) {
+    ) -> bool {
+        if self
+            .marquee_selection
+            .as_ref()
+            .is_none_or(|marquee| marquee.button != event.button)
+        {
+            return false;
+        }
         let Some(mut marquee) = self.marquee_selection.take() else {
-            return;
+            return false;
         };
         marquee.update(event.position);
         if marquee.active {
@@ -198,46 +202,69 @@ impl Timeline {
             self.apply_marquee_selection(cx);
             self.marquee_selection = None;
         } else if marquee.button == MouseButton::Right {
-            self.open_context_menu(
-                marquee.layer_index,
-                px(marquee.origin[0]),
-                point(px(marquee.origin[0]), px(marquee.origin[1])),
-                window,
-                cx,
-            );
+            let position = marquee.origin;
+            if let Some((address, stop)) = marquee.stop {
+                self.open_animation_context_menu(&address, Some(stop), position, window, cx);
+            } else {
+                self.open_context_menu(marquee.layer_index, position.x, position, window, cx);
+            }
+        } else if let MarqueeBaseline::Stops(baseline) = marquee.baseline {
+            self.stop_selection = Some(baseline);
         }
         cx.notify();
+        true
     }
 
     pub(in crate::ui::panels::timeline) fn marquee_overlay(
         &self,
         colors: ThemeColor,
-    ) -> Option<Div> {
-        let marquee = self
+        cx: &Context<Self>,
+    ) -> impl IntoElement {
+        let selection = self
             .marquee_selection
             .as_ref()
-            .filter(|marquee| marquee.active)?;
-        let list_bounds = layer_scroll_base(&self.layer_scroll).bounds();
-        let track_bounds = Bounds::from_corners(
-            list_bounds.origin + point(px(LAYER_HEADER_WIDTH), px(0.)),
-            list_bounds.bottom_right(),
-        );
-        let bounds = marquee.bounds().intersect(&track_bounds);
-        if bounds.is_empty() {
-            return None;
-        }
-
-        Some(
-            div()
-                .absolute()
-                .left(bounds.origin.x - list_bounds.origin.x)
-                .top(bounds.origin.y - list_bounds.origin.y + px(PANE_HEADER_HEIGHT))
-                .w(bounds.size.width)
-                .h(bounds.size.height)
-                .border_1()
-                .border_color(colors.primary)
-                .bg(colors.primary.opacity(0.12)),
+            .filter(|marquee| marquee.active)
+            .map(|marquee| marquee.bounds().intersect(&self.track_bounds()))
+            .filter(|bounds| !bounds.is_empty());
+        let timeline = cx.entity();
+        canvas(
+            |_, _, _| (),
+            move |_, _, window, _| {
+                if let Some(bounds) = selection {
+                    window.paint_quad(quad(
+                        bounds,
+                        px(0.),
+                        colors.primary.opacity(0.12),
+                        px(1.),
+                        colors.primary,
+                        Default::default(),
+                    ));
+                }
+                // Register before a press so short gestures do not depend on a repaint.
+                let moving = timeline.clone();
+                window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                    if phase == DispatchPhase::Capture
+                        && moving.read(cx).marquee_selection.is_some()
+                        && moving.update(cx, |this, cx| this.update_marquee_selection(event, cx))
+                    {
+                        cx.stop_propagation();
+                    }
+                });
+                let releasing = timeline.clone();
+                window.on_mouse_event(move |event: &MouseUpEvent, phase, window, cx| {
+                    if phase == DispatchPhase::Capture
+                        && releasing.read(cx).marquee_selection.is_some()
+                        && releasing.update(cx, |this, cx| {
+                            this.finish_marquee_selection(event, window, cx)
+                        })
+                    {
+                        cx.stop_propagation();
+                    }
+                });
+            },
         )
+        .absolute()
+        .inset_0()
     }
 
     pub(in crate::ui::panels::timeline) fn clear_selection_on_double_click(
@@ -249,6 +276,7 @@ impl Timeline {
         if event.click_count() < 2 {
             return;
         }
+        self.stop_selection = None;
         self.editor.update_if_changed(cx, |editor| {
             editor.select_items(std::iter::empty::<ItemId>())
         });

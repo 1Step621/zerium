@@ -1,6 +1,9 @@
 //! Timeline pane composition and per-frame render state.
 pub(super) mod ruler;
-pub(super) use self::{item::timeline_item, layer::layer_row};
+pub(super) use self::{
+    item::timeline_item,
+    layer::{layer_row, timeline_track},
+};
 use super::{
     Timeline,
     interaction::{
@@ -12,13 +15,11 @@ use super::{
     timeline_grid, track_viewport_width,
     viewport::TimelineViewport,
 };
-use crate::{
-    app::transport::TransportController,
-    ui::{components::animation::AnimationSynchronization, workspace::operation_hints::Hint},
-};
-mod animation;
+use crate::ui::workspace::operation_hints::Hint;
+mod capture;
 mod item;
 mod layer;
+mod playhead;
 
 use rust_i18n::t;
 use std::{collections::HashSet, rc::Rc};
@@ -33,39 +34,36 @@ use gpui::{
 };
 
 use zerium_core::timeline::{
-    Frame, FrameRate, ItemId, LayerId, PropertyAddress, TimelineEditor, TimelineItem,
+    FrameRate, ItemId, LayerId, PropertyAddress, TimelineEditor, TimelineItem,
 };
 
 use self::ruler::TimelineGrid;
 
-#[derive(Clone, Copy)]
-pub(super) struct RenderResultHighlight {
-    pub(super) top_layer: LayerId,
-    pub(super) bottom_layer: LayerId,
-    pub(super) start: Frame,
-    pub(super) end: Frame,
-}
-
 #[derive(Clone)]
 pub(super) struct LayerRenderState {
     pub(super) editor: Entity<TimelineEditor>,
-    pub(super) transport: Entity<TransportController>,
-    pub(super) animation_address: Option<PropertyAddress>,
-    pub(super) synchronize_animation_keys: bool,
-    pub(super) animation_drag_synchronization:
-        Option<(MoveAnimationStop, AnimationSynchronization)>,
+    pub(super) expanded_layers: Rc<HashSet<LayerId>>,
+    pub(super) selected_stops: Rc<super::dope_sheet::StopKeys>,
+    pub(super) focused_animation: Option<PropertyAddress>,
     pub(super) colors: ThemeColor,
     pub(super) layer_height: f32,
     pub(super) viewport: TimelineViewport,
     pub(super) viewport_width: f32,
     pub(super) frame_rate: FrameRate,
-    pub(super) playhead_seconds: f64,
-    pub(super) stretch_point: Option<Frame>,
     pub(super) selected_item_ids: Rc<HashSet<ItemId>>,
     pub(super) hidden_layers: Rc<HashSet<LayerId>>,
-    pub(super) render_result_highlights: Rc<Vec<RenderResultHighlight>>,
     pub(super) file_drop_target: Option<FileDropTarget>,
     pub(super) grid: TimelineGrid,
+}
+
+impl LayerRenderState {
+    pub(super) fn layer_background(&self, layer: usize) -> gpui::Hsla {
+        if layer.is_multiple_of(2) {
+            self.colors.background
+        } else {
+            self.colors.table_even
+        }
+    }
 }
 
 pub(super) struct TimelineItemRenderData {
@@ -103,7 +101,9 @@ impl Render for Timeline {
         if !cx.has_active_drag() {
             self.file_drop_target = None;
         }
-        let layer_count = self.dynamic_layer_count(window, cx);
+        self.rebuild_rows(cx);
+        let row_count = self.row_count(window, cx);
+        let rows = self.rows.clone();
         let colors = cx.theme().colors;
         let viewport_width = track_viewport_width(window);
         let layer_height = self.viewport.layer_height;
@@ -112,45 +112,18 @@ impl Render for Timeline {
             playhead,
             playhead_seconds,
             selected_item_ids,
-            render_result_highlights,
             hidden_layers,
             active_scene_is_empty,
-            stretch_point,
         ) = {
             let editor = self.editor.read(cx);
-            let selected_items = editor.selected_items();
-            let render_result_highlights = selected_items
-                .iter()
-                .flat_map(|item| {
-                    let Some(source_layer) = editor.item_layer(item.id) else {
-                        return Vec::new();
-                    };
-                    editor
-                        .resolved_item(item)
-                        .render_result_ranges()
-                        .filter_map(|settings| {
-                            let (top_layer, bottom_layer) = settings.layer_bounds(source_layer)?;
-                            Some(RenderResultHighlight {
-                                top_layer,
-                                bottom_layer,
-                                start: item.start(),
-                                end: item.end_exclusive(editor.frame_rate()),
-                            })
-                        })
-                        .collect::<Vec<_>>()
-                })
-                .collect();
             (
                 editor.frame_rate(),
                 editor.playhead(),
                 editor.playhead_seconds(),
-                Rc::new(selected_items.iter().map(|item| item.id).collect()),
-                Rc::new(render_result_highlights),
+                Rc::new(editor.selected_item_ids().collect()),
                 Rc::new(editor.hidden_layer_ids().collect()),
                 editor.active_scene_id() != editor.main_scene_id()
                     && editor.active_scene().is_empty(),
-                (editor.active_scene_id() != editor.main_scene_id())
-                    .then(|| editor.active_scene().stretch_point()),
             )
         };
         self.viewport
@@ -162,37 +135,34 @@ impl Render for Timeline {
             self.editor.read(cx).beat_guide(),
         );
         let ruler = self.ruler(colors, viewport_width, grid.ruler_ticks.clone(), cx);
-        let animation_selection = self.animation_selection.read(cx);
         let row_state = LayerRenderState {
             editor: self.editor.clone(),
-            transport: self.transport.clone(),
-            animation_address: animation_selection.address().cloned(),
-            synchronize_animation_keys: !window.modifiers().alt,
-            animation_drag_synchronization: self
-                .animation_drag
-                .as_ref()
-                .and_then(|drag| drag.current_edit(self.editor.read(cx)))
-                .map(|(source, edit)| {
-                    (
-                        source.clone(),
-                        AnimationSynchronization::from_edit(&self.editor, edit),
-                    )
-                }),
+            expanded_layers: Rc::new(self.expanded_layers.clone()),
+            selected_stops: Rc::new(
+                self.stop_selection
+                    .as_ref()
+                    .map(|selection| selection.keys.clone())
+                    .unwrap_or_default(),
+            ),
+            focused_animation: self.animation_selection.read(cx).address().cloned(),
             colors,
             layer_height,
             viewport: self.viewport,
             viewport_width,
             frame_rate,
-            playhead_seconds,
-            stretch_point,
             selected_item_ids,
-            render_result_highlights,
             hidden_layers,
             file_drop_target: self.file_drop_target,
             grid,
         };
+        let capture_ranges = self.capture_ranges(colors, cx);
+        let stretch_overlay = self.stretch_overlay(colors, viewport_width, cx);
+        let playhead_overlay = playhead::playhead_overlay(
+            self.viewport.x_at_seconds(playhead_seconds),
+            viewport_width,
+            colors.primary,
+        );
         let timeline = cx.entity();
-        let timeline_for_mouse_leave = timeline.clone();
         let file_drop_error = self.file_drop_error.clone();
         let focus_handle = self.focus_handle.clone();
 
@@ -219,32 +189,41 @@ impl Render for Timeline {
                         cx.notify();
                     }
                     this.update_playhead_scrub(event, window, cx);
-                    this.update_marquee_selection(event, window, cx);
                 }),
             )
-            .on_mouse_leave(move |_, cx| {
-                timeline_for_mouse_leave.update(cx, |timeline, cx| {
-                    if timeline.marquee_selection.take().is_some() {
-                        cx.notify();
+            .on_action(
+                cx.listener(|this, _: &crate::app::actions::DeleteSelectedItem, _, cx| {
+                    if this.stop_selection.is_none() {
+                        cx.propagate();
+                    } else {
+                        this.delete_selected_stops(cx);
                     }
-                });
-            })
+                }),
+            )
+            .on_key_down(cx.listener(|this, event: &gpui::KeyDownEvent, _, cx| {
+                if event.keystroke.key == "escape"
+                    && let Some(selection) = &mut this.stop_selection
+                    && !selection.keys.is_empty()
+                {
+                    selection.keys.clear();
+                    cx.stop_propagation();
+                    cx.notify();
+                }
+            }))
             .on_click(cx.listener(Self::clear_selection_on_double_click))
-            .capture_any_mouse_up(cx.listener(|this, event: &MouseUpEvent, window, cx| {
+            .capture_any_mouse_up(cx.listener(|this, event: &MouseUpEvent, _, cx| {
                 if event.button == MouseButton::Left {
                     if this.animation_drag.take().is_some() {
                         cx.notify();
                     }
                     this.finish_playhead_scrub(cx);
                     this.finish_item_move(cx);
-                    this.finish_marquee_selection(event, window, cx);
-                } else if event.button == MouseButton::Right {
-                    this.finish_marquee_selection(event, window, cx);
                 }
             }))
             .on_drag_move(cx.listener(
                 |this, event: &DragMoveEvent<MoveTimelineItem>, window, cx| {
                     let drag = event.drag(cx).clone();
+                    cx.notify();
                     cx.set_active_drag_cursor_style(CursorStyle::ClosedHand, window);
                     this.move_item_from_pointer(
                         &drag,
@@ -258,6 +237,7 @@ impl Render for Timeline {
             .on_drag_move(cx.listener(
                 |this, event: &DragMoveEvent<ResizeTimelineItem>, window, cx| {
                     let drag = event.drag(cx).clone();
+                    cx.notify();
                     this.resize_item_from_pointer(
                         &drag,
                         f32::from(event.event.position.x),
@@ -293,11 +273,24 @@ impl Render for Timeline {
             .child(
                 uniform_list(
                     "timeline-layers",
-                    layer_count,
+                    row_count,
                     move |visible_range, _window, cx| {
                         timeline.update(cx, |timeline, cx| {
                             visible_range
-                                .map(|layer_index| {
+                                .map(|row_index| {
+                                    let layer_index = match rows.row(row_index) {
+                                        super::TimelineRow::Property(row) => {
+                                            let last_in_layer =
+                                                rows.row(row_index + 1).layer() != row.layer;
+                                            return super::dope_sheet::animation_row(
+                                                row,
+                                                last_in_layer,
+                                                &row_state,
+                                                cx,
+                                            );
+                                        }
+                                        super::TimelineRow::Layer(layer) => layer.get() as usize,
+                                    };
                                     let items = {
                                         let editor = timeline.editor.read(cx);
                                         editor
@@ -313,6 +306,7 @@ impl Render for Timeline {
                                             .collect()
                                     };
                                     layer_row(layer_index, row_state.clone(), items, cx)
+                                        .into_any_element()
                                 })
                                 .collect::<Vec<_>>()
                         })
@@ -323,9 +317,10 @@ impl Render for Timeline {
                 .min_h_0()
                 .w_full(),
             )
-            .when_some(self.marquee_overlay(colors), |this, marquee| {
-                this.child(marquee)
-            })
+            .when_some(capture_ranges, |this, ranges| this.child(ranges))
+            .when_some(stretch_overlay, |this, marker| this.child(marker))
+            .child(self.marquee_overlay(colors, cx))
+            .when_some(playhead_overlay, |this, playhead| this.child(playhead))
             .when_some(
                 self.context_menu_overlay(colors, cx.entity()),
                 |this, menu| this.child(menu),

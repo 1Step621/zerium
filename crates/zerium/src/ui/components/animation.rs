@@ -1,14 +1,82 @@
-//! Animation labels, timing clipboard menus, and synchronization presentation.
+//! Animation markers, labels, and timing clipboard menus.
 use crate::app::copy_buffer::CopyBuffer;
-use ::ui::{
-    ActiveTheme as _, Colorize as _, Icon, IconName, Sizable as _, ThemeColor, ThemeMode,
-    menu::PopupMenu, tooltip::Tooltip,
-};
-use gpui::{App, Entity, Hsla, Window, div, prelude::*, px};
+use ::ui::{Icon, IconName, ThemeColor, menu::PopupMenu};
+use gpui::{AnyElement, App, PathBuilder, canvas, div, point, prelude::*, px};
 use rust_i18n::t;
 use std::rc::Rc;
 use zerium_core::animation::AnimationTiming;
-use zerium_core::timeline::{AnimationEdit, PropertyAddress, TimelineEditor, TimelineItem};
+use zerium_core::timeline::{PropertyAddress, TimelineEditor, TimelineItem};
+
+pub(crate) fn animation_stop_marker(fixed: bool, selected: bool, colors: ThemeColor) -> AnyElement {
+    if fixed {
+        div()
+            .size(px(6.))
+            .rounded_sm()
+            .bg(colors.muted_foreground)
+            .into_any_element()
+    } else {
+        let background = canvas(
+            |_, _, _| (),
+            move |bounds, _, window, _| {
+                let position = |x: f32, y: f32| {
+                    bounds.origin
+                        + point(
+                            bounds.size.width * (x / 24.),
+                            bounds.size.height * (y / 24.),
+                        )
+                };
+                // Fill the icon's interior; the original SVG still draws its outline.
+                let mut path = PathBuilder::fill();
+                path.move_to(position(20.777, 13.3453));
+                path.line_to(position(13.4799, 21.3721));
+                path.cubic_bezier_to(
+                    position(10.5201, 21.3721),
+                    position(12.6864, 22.245),
+                    position(11.3136, 22.245),
+                );
+                path.line_to(position(3.22304, 13.3453));
+                path.cubic_bezier_to(
+                    position(3.22304, 10.6547),
+                    position(2.52955, 12.5825),
+                    position(2.52955, 11.4175),
+                );
+                path.line_to(position(10.5201, 2.62787));
+                path.cubic_bezier_to(
+                    position(13.4799, 2.62787),
+                    position(11.3136, 1.755),
+                    position(12.6864, 1.755),
+                );
+                path.line_to(position(20.777, 10.6547));
+                path.cubic_bezier_to(
+                    position(20.777, 13.3453),
+                    position(21.4705, 11.4175),
+                    position(21.4705, 12.5825),
+                );
+                path.close();
+                if let Ok(path) = path.build() {
+                    window.paint_path(path, colors.background);
+                }
+            },
+        )
+        .absolute()
+        .size_full();
+        div()
+            .relative()
+            .size(px(11.))
+            .flex_none()
+            .child(background)
+            .child(
+                Icon::new(IconName::Keyframe)
+                    .size(px(11.))
+                    .text_color(if selected {
+                        colors.primary
+                    } else {
+                        colors.foreground
+                    }),
+            )
+            .into_any_element()
+    }
+}
 
 pub(crate) fn animation_timing_menu(
     menu: PopupMenu,
@@ -50,102 +118,6 @@ pub(crate) fn animation_timing_menu(
     )
 }
 
-#[derive(Clone)]
-pub(crate) struct AnimationSynchronization {
-    editor: Entity<TimelineEditor>,
-    properties: Rc<[PropertyAddress]>,
-}
-
-impl AnimationSynchronization {
-    pub(crate) fn from_edit(editor: &Entity<TimelineEditor>, edit: &AnimationEdit) -> Self {
-        Self {
-            editor: editor.clone(),
-            properties: edit.properties().cloned().collect(),
-        }
-    }
-
-    pub(crate) fn is_linked(&self) -> bool {
-        self.properties.len() > 1
-    }
-
-    pub(crate) fn color(&self, colors: &ThemeColor, mode: ThemeMode) -> Hsla {
-        match (self.is_linked(), mode) {
-            (false, _) => colors.primary,
-            (true, ThemeMode::Dark) => colors.primary.lighten(0.12),
-            (true, ThemeMode::Light) => colors.primary.darken(0.12),
-        }
-    }
-
-    fn label(&self) -> String {
-        if self.is_linked() {
-            t!("curve.synchronized_count", count = self.properties.len())
-        } else {
-            t!("curve.independent")
-        }
-        .to_string()
-    }
-
-    pub(crate) fn tooltip(&self, window: &mut Window, cx: &mut App) -> gpui::AnyView {
-        let label = self.label();
-        // Marker rendering only needs the count. Resolve labels when a tooltip
-        // is requested, rather than formatting every target for every key/frame.
-        let editor = self.editor.read(cx);
-        let mut properties = self
-            .properties
-            .iter()
-            .map(|address| synchronized_property_label(editor, address))
-            .collect::<Vec<_>>();
-        properties.sort();
-        Tooltip::element(move |_, cx| {
-            div()
-                .flex()
-                .flex_col()
-                .gap_1()
-                .max_w(px(480.))
-                .child(label.clone())
-                .children(properties.iter().map(|label| {
-                    div()
-                        .text_color(cx.theme().colors.muted_foreground)
-                        .child(label.clone())
-                }))
-        })
-        .build(window, cx)
-    }
-
-    pub(crate) fn indicator(&self, cx: &App) -> gpui::AnyElement {
-        let colors = cx.theme().colors;
-        let color = self.color(&colors, cx.theme().mode);
-        let synchronization = self.clone();
-        div()
-            .id("animation-synchronization")
-            .flex()
-            .items_center()
-            .gap_1()
-            .px_2()
-            .py_1()
-            .rounded_md()
-            .text_xs()
-            .whitespace_nowrap()
-            .bg(if self.is_linked() {
-                colors.background.blend(color.opacity(0.12))
-            } else {
-                colors.background
-            })
-            .text_color(color)
-            .child(
-                Icon::new(if self.is_linked() {
-                    IconName::Link
-                } else {
-                    IconName::LinkSlash
-                })
-                .small(),
-            )
-            .child(self.label())
-            .tooltip(move |window, cx| synchronization.tooltip(window, cx))
-            .into_any_element()
-    }
-}
-
 pub(crate) fn animation_property_label(
     editor: &TimelineEditor,
     item: &TimelineItem,
@@ -165,31 +137,4 @@ pub(crate) fn animation_property_label(
         Some(scalar_label) => format!("{label} {scalar_label}"),
         None => label,
     })
-}
-
-fn synchronized_property_label(editor: &TimelineEditor, address: &PropertyAddress) -> String {
-    let Some(item) = editor.item(address.item_id) else {
-        return address.property_id.clone();
-    };
-    let property = animation_property_label(editor, item, address)
-        .unwrap_or_else(|| address.property_id.clone());
-    let property = if let Some((index, effect)) = address.effect_id.and_then(|id| {
-        item.effects
-            .iter()
-            .enumerate()
-            .find(|(_, effect)| effect.id == id)
-    }) {
-        format!("{}. {} › {property}", index + 1, effect.schema().label())
-    } else {
-        property
-    };
-    let item_label = t!(
-        "inspector.item_option",
-        name = editor.item_label(item.id).unwrap_or_default(),
-        layer = editor
-            .item_layer(item.id)
-            .map_or(0, |layer| layer.get() + 1),
-        frame = item.start().get(),
-    );
-    format!("{item_label} › {property}")
 }

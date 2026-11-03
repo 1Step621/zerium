@@ -15,40 +15,86 @@ use crate::{
     ui::{
         TimelineEditorEntityExt as _,
         components::search_picker::{SearchPicker, SearchPickerEntry},
-        panels::timeline::{Timeline, layer_scroll_base},
+        panels::timeline::{Timeline, TimelineRow, layer_scroll_base},
     },
 };
 
 impl Timeline {
-    pub(in crate::ui::panels::timeline) fn animation_stop_menu(
-        &self,
-        menu: PopupMenu,
+    pub(in crate::ui::panels::timeline) fn open_animation_context_menu(
+        &mut self,
         address: &PropertyAddress,
-        stop: usize,
-        cx: &Context<Self>,
-    ) -> PopupMenu {
-        let editor = self.editor.read(cx);
-        let removable = editor.is_item_selected(address.item_id)
-            && editor
+        stop: Option<usize>,
+        position: gpui::Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        self.edit_stops(cx);
+        let time = TimelineTime::from_frame(self.pointer_frame(f32::from(position.x), window, cx));
+        let enabled = if let Some(stop) = stop {
+            let removable = self
+                .editor
+                .read(cx)
                 .animation_track(address)
-                .is_some_and(|track| stop > 0 && stop < track.stops().len().saturating_sub(1));
-        let context = editor.edit_context();
-        let address = address.clone();
+                .is_some_and(|track| stop > 0 && stop + 1 < track.stops().len());
+            if removable && !self.edit_stops(cx).keys.contains(&(address.clone(), stop)) {
+                self.select_stop(address.clone(), stop, false, cx);
+            }
+            removable
+        } else {
+            self.editor
+                .read(cx)
+                .animation_stop_insertion_frame(address, time)
+                .is_some()
+        };
+        let context = self.editor.read(cx).edit_context();
+        let target = address.clone();
+        let curve_address = address.clone();
         let timeline = cx.entity();
-        menu.action_context(self.focus_handle.clone())
-            .menu_handler_with_icon_and_disabled(
-                t!("curve.delete_stop").to_string(),
-                IconName::Delete,
-                !removable,
-                move |_, cx| {
-                    timeline.update(cx, |timeline, cx| {
-                        timeline.editor.update_if_changed(cx, |editor| {
-                            context.is_current(editor)
-                                && editor.remove_animation_stop(&address, stop)
+        let curve_timeline = timeline.clone();
+        let action_context = self.focus_handle.clone();
+        let menu = PopupMenu::build(window, cx, move |menu, _, _| {
+            menu.action_context(action_context)
+                .menu_handler_with_icon_and_disabled(
+                    if stop.is_some() {
+                        t!("curve.delete_stop")
+                    } else {
+                        t!("curve.add_stop")
+                    }
+                    .to_string(),
+                    if stop.is_some() {
+                        IconName::Delete
+                    } else {
+                        IconName::Plus
+                    },
+                    !enabled,
+                    move |_, cx| {
+                        timeline.update(cx, |this, cx| {
+                            if !context.is_current(this.editor.read(cx)) {
+                                return;
+                            }
+                            if stop.is_some() {
+                                this.delete_selected_stops(cx);
+                            } else {
+                                this.add_animation_stop(&target, time, cx);
+                            }
                         });
-                    });
-                },
-            )
+                    },
+                )
+                .separator()
+                .menu_handler_with_icon_and_disabled(
+                    t!("timeline.edit_curve").to_string(),
+                    IconName::Keyframe,
+                    false,
+                    move |_, cx| {
+                        curve_timeline.update(cx, |this, cx| {
+                            if context.is_current(this.editor.read(cx)) {
+                                this.open_animation_curve(curve_address.clone(), cx);
+                            }
+                        });
+                    },
+                )
+        });
+        self.show_context_menu(menu, position, window, cx);
     }
 
     fn prepare_context_target(
@@ -108,7 +154,7 @@ impl Timeline {
         let scroll = layer_scroll_base(&self.layer_scroll);
         if scroll.bounds().contains(&position) {
             let content_y = f32::from(position.y - scroll.bounds().origin.y - scroll.offset().y);
-            LayerId::new((content_y / self.viewport.layer_height).floor().max(0.) as u64)
+            self.layer_at_content_y(content_y)
         } else {
             let selected_layer = self.editor.read(cx).selected_items_layer();
             self.cursor_layer
@@ -233,19 +279,13 @@ impl Timeline {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        if let Some(TimelineRow::Property(row)) = self.row_at_position(position) {
+            let address = row.address.clone();
+            self.open_animation_context_menu(&address, None, position, window, cx);
+            return;
+        }
         self.prepare_context_target(layer_index, pointer_x, window, cx);
         let target_item = self.context_target.and_then(|target| target.item);
-        let stop_target = self.context_target.and_then(|target| {
-            let address = self.animation_selection.read(cx).address()?;
-            if Some(address.item_id) != target.item {
-                return None;
-            }
-            let time = TimelineTime::from_frame(target.start);
-            self.editor
-                .read(cx)
-                .animation_stop_insertion_frame(address, time)?;
-            Some((address.clone(), time))
-        });
         let can_group = self.editor.read(cx).selected_item_ids().count() >= 1;
         let can_paste = self.can_paste_items(cx);
         let can_split = self.can_split_selected_items(cx);
@@ -259,7 +299,6 @@ impl Timeline {
                 let copy_timeline = timeline.clone();
                 let cut_timeline = timeline.clone();
                 let paste_timeline = timeline.clone();
-                let add_stop_timeline = timeline.clone();
                 menu.menu_handler_with_icon(
                     t!("context.copy").to_string(),
                     IconName::Copy,
@@ -296,18 +335,6 @@ impl Timeline {
                     Box::new(SplitSelectedItems),
                     !can_split,
                 )
-                .menu_handler_with_icon_and_disabled(
-                    t!("curve.add_stop").to_string(),
-                    IconName::Plus,
-                    stop_target.is_none(),
-                    move |_, cx| {
-                        if let Some((address, time)) = &stop_target {
-                            add_stop_timeline.update(cx, |timeline, cx| {
-                                timeline.add_animation_stop_at_time(address, *time, cx);
-                            });
-                        }
-                    },
-                )
                 .separator()
                 .when(can_group, |menu| {
                     let group_timeline = timeline.clone();
@@ -337,6 +364,16 @@ impl Timeline {
             self.open_item_picker(position, window, cx);
             return;
         };
+        self.show_context_menu(menu, position, window, cx);
+    }
+
+    fn show_context_menu(
+        &mut self,
+        menu: Entity<PopupMenu>,
+        position: gpui::Point<Pixels>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
         cx.subscribe(&menu, |this, _, _: &DismissEvent, cx| {
             this.context_menu = None;
             cx.notify();

@@ -221,7 +221,7 @@ editor state cancels sampling.
 ## Selection and editor targets
 
 Selection stores explicit item IDs. Seeking and playback do not change it.
-Clipboard, deletion, grouping, movement, visibility, and synchronization use this
+Clipboard, deletion, grouping, movement, and visibility use this
 selection. Preview and the inspector derive its active subset at the current
 frame. Inspector target and animation focus are separate from timeline selection
 and survive seeking outside the item's interval.
@@ -265,25 +265,71 @@ content and is restored by Undo, preserving dirty-state comparisons.
 ### Curve interactions
 
 The curve pane displays one segment while retaining the full track for navigation.
-`AnimationEdit` resolves eligibility, affected properties and movement limits for
-both editing and synchronization feedback. Creating an edit is read-only. Gestures
-keep their targets fixed until release and use `EditSession` to reject updates
-after unrelated document changes. Their first mutation begins the Undo entry.
-Menu commands retain their original property and document context; interpolation
-changes and curve paste resolve synchronization targets when they execute.
+`AnimationEdit` keeps explicit targets and movement limits. Creating an edit is
+read-only; its first mutation begins the Undo entry. Gestures keep their targets
+fixed until release and use `EditSession` to reject updates after unrelated edits.
+Curve interpolation and handle edits affect only the displayed scalar property.
 
-Curve edits synchronize segments with matching start and end times and
-interpolation settings. Keyframe moves synchronize interior keys at the same
-timeline time. The source item participates even when unselected; synchronization
-extends to other selected items only when the source is selected.
-Timeline markers show authored keys, including fixed endpoints; only interior
-keys of the inspector's displayed scalar property can be dragged. Repeat
-occurrences are display-only.
+### Dope sheet
+
+Selection changes automatically expand the selected items' layers. The arrow
+in the layer header can collapse them until the selection changes again. An expanded layer
+shows animated scalar rows for selected items directly beneath the layer, ordered
+by item start time, including effect and array-element labels. These rows share
+the timeline's virtualized row list, time axis, zoom,
+scrolling, and playhead. Layer hit testing and clip movement use this same row
+layout. Clip movement and resizing temporarily hide animation rows until release,
+without changing expansion state. Item box selection freezes the row layout until release.
+Expansion is view state and resets on document navigation.
+Changes to expanded rows preserve the visible row's viewport position. Hidden
+property rows fall back to their layer header; collapsing for an item drag anchors
+the dragged item's layer. `TimelineRows` stores only inserted animation rows;
+layer rows are implicit. Rendering, hit testing, capture ranges, and scroll
+anchoring all use this layout. The virtual list's row count covers both occupied
+layers and the viewport after anchoring, so closing animation rows cannot shorten
+the list below the visible area and clamp its scroll position.
+Selected render-result inputs show their capture ranges as continuous rectangles
+across the timeline's displayed rows, including expanded animation rows. The
+range overlay clips to the track viewport and does not intercept pointer input.
+Identical ranges share one outline and tint.
+The scene stretch point also draws continuously across clip and animation rows,
+using the theme's background as an opaque fill and the accent color for the same
+double line as its draggable ruler marker. The playhead line and ruler cap draw
+once above these overlays, without intercepting pointer input.
+
+Key selection is independent of item selection, so selecting keys does not hide
+other selected items' rows. Clicks and Shift-clicks select interior keys;
+key markers handle direct selection and movement. Row backgrounds
+share the clip rows' input handlers, including immediate seeking, continuous
+scrubbing, box selection with Right-drag or Ctrl+left-drag, double-click to
+clear selection, scrolling, and file drops. Right-clicking a key opens its deletion
+menu; right-clicking an animation row offers insertion at the pointer time using
+the property's evaluated value. Both menus open on release. Starting a box in an
+animation row selects interior keys across the displayed property rows; starting
+in a clip row selects items. Box selection keeps tracking outside the timeline
+until the initiating button is released; its overlay clips to the track viewport.
+Shift adds to the existing selection. Key box
+selection preserves item selection and excludes fixed endpoints and repeat ghosts.
+With key editing focused, Delete acts only on keys, including when the key
+selection is empty. An optional key-selection state owns both its keys and edit
+context; an empty state retains key focus, and unrelated edits invalidate its keys.
+Dragging keys preserves their timeline-time offsets,
+prevents collisions with unselected keys, and keeps a single Undo entry.
+The timeline and curve editor share marker rendering: diamonds for interior keys,
+small muted squares for fixed endpoints, and the theme accent for selected keys.
+Diamond interiors use an opaque theme background so curves and grid lines do not show through.
+Delete removes the selection in one operation. Fixed endpoints remain visible;
+repeat occurrences are display-only. Clicking a property label focuses its animation;
+the key context menu also opens the curve editor. Focusing an animation uses the
+clip selection's seek behavior: move to the item's start only when the playhead
+is outside that item.
+Clips no longer overlay animation markers. No animation edit automatically
+recruits properties with matching key times or curves.
 
 Steps interpolation divides a segment into a positive number of equal intervals,
 holding `floor(t * count) / count` of the value transition within each interval.
 The endpoint retains its authored value; a count of one matches Hold. Step counts
-are segment settings and use the same synchronized editing and Undo as curves.
+are segment settings and use the same explicit editing and Undo as curves.
 
 ### Resizing and scene expansion
 

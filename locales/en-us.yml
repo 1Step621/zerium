@@ -164,8 +164,6 @@ _version: 1
 "curve.step_count": "Count"
 "curve.step_count_hint": "Number of equal steps"
 "curve.edit_scope_hint": "Linked editing"
-"curve.synchronized_count": "%{count} properties linked"
-"curve.independent": "Independent"
 "curve.value_view": "Value range"
 "curve.fit_curve": "Fit curve"
 "curve.fit_handles": "Include handles"
@@ -382,3 +380,6 @@ _version: 1
 "export.loop": "Loop playback"
 "common.on": "On"
 "common.off": "Off"
+
+"timeline.animation_rows": "Expand or collapse animation"
+"timeline.edit_curve": "Edit curve"

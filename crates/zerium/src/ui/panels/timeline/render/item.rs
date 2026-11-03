@@ -53,15 +53,6 @@ pub(in crate::ui::panels::timeline) fn timeline_item(
         .frame_to_seconds(Frame::new(item.duration(state.frame_rate).get()))
         * state.viewport.pixels_per_second()) as f32;
     let is_selected = state.selected_item_ids.contains(&item_id);
-    let animation_markers = crate::ui::panels::timeline::render::animation::key_markers(
-        &item,
-        state,
-        item_left,
-        item_width,
-        visible_range,
-        cx,
-    );
-
     let move_drag = MoveTimelineItem {
         timeline_id,
         item_id,
@@ -112,20 +103,7 @@ pub(in crate::ui::panels::timeline) fn timeline_item(
                     this.editor
                         .update_if_changed(cx, |editor| editor.select(item_id));
                 }
-                let seek_frame = {
-                    let editor = this.editor.read(cx);
-                    editor
-                        .item(item_id)
-                        .filter(|item| {
-                            editor.is_item_selected(item_id)
-                                && !item.contains(editor.playhead(), editor.frame_rate())
-                        })
-                        .map(|item| item.start())
-                };
-                if let Some(frame) = seek_frame {
-                    this.transport
-                        .update(cx, |transport, cx| transport.set_playhead(frame, cx));
-                }
+                this.seek_to_item_if_outside(item_id, cx);
                 this.open_scene_item(item_id, event, cx);
                 cx.stop_propagation();
             }))
@@ -241,7 +219,6 @@ pub(in crate::ui::panels::timeline) fn timeline_item(
                             .operation_hints(resize_hints()),
                     ),
             )
-            .children(animation_markers)
             .operation_hints([
                 Hint::gesture(
                     "hints.click",

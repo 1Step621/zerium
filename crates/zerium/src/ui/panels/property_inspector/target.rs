@@ -68,7 +68,7 @@ impl PropertyInspector {
         self.item_id = Some(item_id);
         self.effect_picker = None;
         self.reset_input_state();
-        // Follow the same property without changing timeline selection or synchronization.
+        // Follow the same property without changing timeline selection.
         self.animation_selection.update(cx, |selection, cx| {
             selection.select_item(item_id, &self.editor, cx)
         });

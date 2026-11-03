@@ -164,8 +164,6 @@ _version: 1
 "curve.step_count": "Количество"
 "curve.step_count_hint": "Число равных ступеней"
 "curve.edit_scope_hint": "Связанное редактирование"
-"curve.synchronized_count": "Связано свойств: %{count}"
-"curve.independent": "Независимо"
 "curve.value_view": "Диапазон значений"
 "curve.fit_curve": "По кривой"
 "curve.fit_handles": "Включить маркеры управления"
@@ -511,3 +509,6 @@ _version: 1
 "components.Replication.LockedBy": "Заблокировано: %{user}"
 "components.Replication.Plus": "+%{count}"
 "components.Window.Title.FileManager": "Файловый менеджер"
+
+"timeline.animation_rows": "Развернуть или свернуть анимацию"
+"timeline.edit_curve": "Редактировать кривую"

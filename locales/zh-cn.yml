@@ -164,8 +164,6 @@ _version: 1
 "curve.step_count": "级数"
 "curve.step_count_hint": "等分阶梯数"
 "curve.edit_scope_hint": "联动编辑"
-"curve.synchronized_count": "%{count} 个属性联动"
-"curve.independent": "独立"
 "curve.value_view": "数值范围"
 "curve.fit_curve": "适应曲线"
 "curve.fit_handles": "包含控制柄"
@@ -511,3 +509,6 @@ _version: 1
 "components.Replication.LockedBy": "已被 %{user} 锁定"
 "components.Replication.Plus": "+%{count}"
 "components.Window.Title.FileManager": "文件管理器"
+
+"timeline.animation_rows": "展开或折叠动画"
+"timeline.edit_curve": "编辑曲线"

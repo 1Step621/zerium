@@ -4,8 +4,8 @@ use self::value::NumericInput;
 use crate::ui::workspace::operation_hints::{Hint, OperationHintExt as _};
 use ::ui::input::{InputEvent, InputState, NumberInput, NumberInputEvent};
 use gpui::{
-    Context, Empty, Entity, EntityId, Modifiers, MouseButton, Pixels, Point, Render, Subscription,
-    Window, div, prelude::*,
+    Context, Empty, Entity, EntityId, MouseButton, Pixels, Point, Render, Subscription, Window,
+    div, prelude::*,
 };
 use std::rc::Rc;
 
@@ -64,7 +64,6 @@ impl Render for NumberValueDrag {
 
 pub(in crate::ui) struct NumberDragStart {
     pub position: Point<Pixels>,
-    pub modifiers: Modifiers,
 }
 
 pub(in crate::ui) fn number_input_drag<T: 'static>(
@@ -91,7 +90,6 @@ pub(in crate::ui) fn number_input_drag<T: 'static>(
                 cx.stop_propagation();
                 let start = NumberDragStart {
                     position: window.mouse_position(),
-                    modifiers: window.modifiers(),
                 };
                 if window.pressed_mouse_button() == Some(MouseButton::Left) {
                     owner.update(cx, |this, cx| prepare(this, &start, cx));

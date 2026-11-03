@@ -4,11 +4,32 @@ use crate::{
 };
 use gpui::{Context, MouseDownEvent, MouseMoveEvent, ScrollWheelEvent, Window, point, px};
 
-use zerium_core::timeline::Frame;
+use zerium_core::timeline::{Frame, ItemId};
 
 const ZOOM_STEP: f32 = 1.05;
 
 impl Timeline {
+    pub(in crate::ui::panels::timeline) fn seek_to_item_if_outside(
+        &mut self,
+        item_id: ItemId,
+        cx: &mut Context<Self>,
+    ) {
+        let frame = {
+            let editor = self.editor.read(cx);
+            editor
+                .item(item_id)
+                .filter(|item| {
+                    editor.is_item_selected(item_id)
+                        && !item.contains(editor.playhead(), editor.frame_rate())
+                })
+                .map(|item| item.start())
+        };
+        if let Some(frame) = frame {
+            self.transport
+                .update(cx, |transport, cx| transport.set_playhead(frame, cx));
+        }
+    }
+
     pub(in crate::ui::panels::timeline) fn zoom_horizontal(
         &mut self,
         event: &ScrollWheelEvent,

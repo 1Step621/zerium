@@ -38,11 +38,9 @@ impl Timeline {
         ruler_ticks: Rc<Vec<(f64, f32)>>,
         cx: &mut Context<Self>,
     ) -> Div {
-        let viewport = self.viewport;
-        let (playhead_seconds, active_scene_name, scenes) = {
+        let (active_scene_name, scenes) = {
             let editor = self.editor.read(cx);
             (
-                editor.playhead_seconds(),
                 editor.active_scene().name.clone(),
                 editor
                     .scenes()
@@ -50,7 +48,6 @@ impl Timeline {
                     .collect::<Vec<_>>(),
             )
         };
-        let playhead_x = viewport.x_at_seconds(playhead_seconds);
         let ruler_ticks = ruler_ticks.as_ref().clone();
         let mut label_width = 0;
         let active_scene_label = active_scene_name
@@ -191,35 +188,7 @@ impl Timeline {
                                     .text_sm()
                                     .text_color(colors.muted_foreground)
                                     .child(ruler_tick_label(seconds))
-                            }))
-                            .when(
-                                playhead_x >= -4. && playhead_x <= viewport_width + 4.,
-                                |this| {
-                                    this.child(
-                                        div()
-                                            .absolute()
-                                            .top_0()
-                                            .bottom_0()
-                                            .left(px(playhead_x))
-                                            .w(px(2.))
-                                            .bg(colors.primary),
-                                    )
-                                },
-                            )
-                            .when(
-                                playhead_x >= -4. && playhead_x <= viewport_width + 4.,
-                                |this| {
-                                    this.child(
-                                        div()
-                                            .absolute()
-                                            .top_0()
-                                            .left(px(playhead_x - 4.))
-                                            .size(px(8.))
-                                            .rounded_b_sm()
-                                            .bg(colors.primary),
-                                    )
-                                },
-                            ),
+                            })),
                     )
                     .when_some(
                         self.stretch_marker(colors, viewport_width, cx),

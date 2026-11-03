@@ -3,7 +3,8 @@ use std::{cell::Cell, rc::Rc};
 use gpui::{App, Context, Empty, EntityId, Modifiers, MouseDownEvent, Render, Window, prelude::*};
 
 use zerium_core::timeline::{
-    Frame, FrameRate, ItemId, ItemMoveEdit, ResizeEdge, ResizeMode, TimelineEditor, TimelineItem,
+    Frame, FrameRate, ItemId, ItemMoveEdit, LayerId, ResizeEdge, ResizeMode, TimelineEditor,
+    TimelineItem,
 };
 
 use crate::ui::{TimelineEditorEntityExt as _, components::time_grid, panels::timeline::Timeline};
@@ -51,6 +52,13 @@ pub(in crate::ui::panels::timeline) struct ItemMoveDrag {
 }
 
 impl ItemMoveDrag {
+    pub(in crate::ui::panels::timeline) fn origin_layer(&self) -> Option<LayerId> {
+        self.edit
+            .origins()
+            .iter()
+            .find_map(|(layer, item)| (item.id == self.item_id).then_some(*layer))
+    }
+
     fn delta_at(
         &self,
         pointer_x: f32,
@@ -120,6 +128,7 @@ impl Timeline {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
+        self.stop_selection = None;
         self.focus_handle.focus(window, cx);
         self.cursor_layer = self.editor.read(cx).item_layer(item_id);
         self.editor
@@ -147,6 +156,7 @@ impl Timeline {
         item_id: ItemId,
         cx: &mut Context<Self>,
     ) {
+        self.stop_selection = None;
         self.cursor_layer = self.editor.read(cx).item_layer(item_id);
         self.editor.update(cx, |editor, cx| {
             editor.finish_history_group();
@@ -292,6 +302,7 @@ impl Timeline {
         self.item_drag.take();
         self.editor
             .update(cx, |editor, _| editor.finish_history_group());
+        cx.notify();
     }
 
     pub(crate) fn can_split_selected_items(&self, cx: &App) -> bool {

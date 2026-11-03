@@ -137,7 +137,6 @@ impl Render for StopPositionDrag {
 #[derive(Clone)]
 struct CurvePaintState {
     curve: GraphSegment,
-    curve_width: Pixels,
     playhead_progress: f32,
     grid: CurveGrid,
     colors: CurvePaintColors,

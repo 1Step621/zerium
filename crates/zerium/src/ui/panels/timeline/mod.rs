@@ -1,6 +1,8 @@
 //! Timeline pane wiring; rendering and interactions live with their feature modules.
+mod dope_sheet;
 mod interaction;
 mod render;
+mod rows;
 mod viewport;
 
 use self::{
@@ -9,7 +11,6 @@ use self::{
         drop::FileDropTarget,
         item::ItemMoveDrag,
         selection::MarqueeSelection,
-        stretch::stretch_indicator,
     },
     render::{
         ruler::{grid_canvas, timeline_grid},
@@ -30,7 +31,10 @@ use crate::{
     },
     ui::workspace::notifications::UiNotifications,
 };
-use zerium_core::timeline::{LayerId, TimelineEditor};
+use dope_sheet::StopSelection;
+use rows::{TimelineRow, TimelineRows};
+use std::{collections::HashSet, rc::Rc};
+use zerium_core::timeline::{ItemId, LayerId, TimelineEditor};
 
 use super::animation_curve::AnimationSelection;
 
@@ -58,6 +62,11 @@ pub(crate) struct Timeline {
     marquee_selection: Option<MarqueeSelection>,
     context_menu: Option<TimelineContextMenu>,
     animation_drag: Option<interaction::keyframe::AnimationStopDrag>,
+    expanded_layers: HashSet<LayerId>,
+    last_item_selection: HashSet<(ItemId, LayerId)>,
+    rows: Rc<TimelineRows>,
+    // Some(empty) keeps key editing focused so Delete never falls through to clips.
+    stop_selection: Option<StopSelection>,
     focus_handle: FocusHandle,
     _subscriptions: Vec<Subscription>,
 }
@@ -117,6 +126,10 @@ impl Timeline {
             marquee_selection: None,
             context_menu: None,
             animation_drag: None,
+            expanded_layers: HashSet::new(),
+            last_item_selection: HashSet::new(),
+            rows: Rc::default(),
+            stop_selection: None,
             focus_handle: cx.focus_handle(),
             _subscriptions: subscriptions,
         }
@@ -133,5 +146,9 @@ impl Timeline {
         self.marquee_selection = None;
         self.context_menu = None;
         self.animation_drag = None;
+        self.expanded_layers.clear();
+        self.last_item_selection.clear();
+        self.rows = Rc::default();
+        self.stop_selection = None;
     }
 }

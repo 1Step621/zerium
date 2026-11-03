@@ -5,7 +5,6 @@ pub(in crate::ui::panels::animation_curve) fn graph_canvas(
     playhead_progress: f32,
     grid: CurveGrid,
     colors: CurvePaintColors,
-    curve_width: Pixels,
     editor: Entity<AnimationCurveEditor>,
 ) -> impl IntoElement {
     canvas(
@@ -18,7 +17,6 @@ pub(in crate::ui::panels::animation_curve) fn graph_canvas(
             });
             CurvePaintState {
                 curve: curve.clone(),
-                curve_width,
                 playhead_progress,
                 grid: grid.clone(),
                 colors,
@@ -98,7 +96,7 @@ pub(in crate::ui::panels::animation_curve) fn graph_canvas(
                         window.paint_path(path, state.colors.handle);
                     }
 
-                    let mut curve_path = PathBuilder::stroke(state.curve_width);
+                    let mut curve_path = PathBuilder::stroke(px(2.));
                     let mut points = state.curve.polyline(plot_width);
                     if let Some(start) = points.next() {
                         curve_path.move_to(to_point(start));
