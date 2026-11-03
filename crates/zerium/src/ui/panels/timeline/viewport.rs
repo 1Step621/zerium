@@ -101,6 +101,11 @@ impl TimelineViewport {
         ((seconds - self.horizontal_offset_seconds) * self.pixels_per_second()) as f32
     }
 
+    pub(super) fn scrub_playhead(&mut self, frame: Frame) {
+        // Following a pointer seek changes the time under that same pointer on its next move.
+        self.followed_playhead = Some(frame);
+    }
+
     pub(super) fn follow_playhead(
         &mut self,
         frame: Frame,
@@ -177,8 +182,14 @@ impl Timeline {
         self.viewport = TimelineViewport::default();
         layer_scroll_base(&self.layer_scroll).set_offset(point(px(0.), px(0.)));
     }
-}
 
-pub(super) fn track_viewport_width(window: &Window) -> f32 {
-    (f32::from(window.viewport_size().width) - LAYER_HEADER_WIDTH).max(1.)
+    pub(super) fn track_viewport_width(&self, window: &Window) -> f32 {
+        let measured_width = layer_scroll_base(&self.layer_scroll).bounds().size.width;
+        let width = if measured_width > px(0.) {
+            measured_width
+        } else {
+            window.viewport_size().width
+        };
+        (f32::from(width) - LAYER_HEADER_WIDTH).max(1.)
+    }
 }

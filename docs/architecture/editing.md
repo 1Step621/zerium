@@ -277,8 +277,10 @@ in the layer header can collapse them until the selection changes again. An expa
 shows animated scalar rows for selected items directly beneath the layer, ordered
 by item start time, including effect and array-element labels. These rows share
 the timeline's virtualized row list, time axis, zoom,
-scrolling, and playhead. Layer hit testing and clip movement use this same row
-layout. Clip movement and resizing temporarily hide animation rows until release,
+scrolling, and playhead. Pointer scrubbing keeps the horizontal viewport fixed,
+including on release, so edge seeks cannot feed scrolling back into pointer time.
+Pointer time and zoom anchors use the actual timeline pane bounds. Layer hit testing
+and clip movement use this same row layout. Clip movement and resizing temporarily hide animation rows until release,
 without changing expansion state. Item box selection freezes the row layout until release.
 Expansion is view state and resets on document navigation.
 Changes to expanded rows preserve the visible row's viewport position. Hidden

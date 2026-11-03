@@ -12,7 +12,7 @@ use super::{
         keyframe::MoveAnimationStop,
         stretch::StretchPointDrag,
     },
-    timeline_grid, track_viewport_width,
+    timeline_grid,
     viewport::TimelineViewport,
 };
 use crate::ui::workspace::operation_hints::Hint;
@@ -105,7 +105,7 @@ impl Render for Timeline {
         let row_count = self.row_count(window, cx);
         let rows = self.rows.clone();
         let colors = cx.theme().colors;
-        let viewport_width = track_viewport_width(window);
+        let viewport_width = self.track_viewport_width(window);
         let layer_height = self.viewport.layer_height;
         let (
             frame_rate,

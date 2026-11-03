@@ -16,7 +16,7 @@ use self::{
         ruler::{grid_canvas, timeline_grid},
         timeline_item,
     },
-    viewport::{TimelineViewport, track_viewport_width},
+    viewport::TimelineViewport,
 };
 
 use gpui::{

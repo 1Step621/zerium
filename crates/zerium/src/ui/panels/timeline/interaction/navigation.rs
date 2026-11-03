@@ -1,6 +1,6 @@
 use crate::{
     app::transport::ScrubSource,
-    ui::panels::timeline::{LAYER_HEADER_WIDTH, Timeline, layer_scroll_base, track_viewport_width},
+    ui::panels::timeline::{LAYER_HEADER_WIDTH, Timeline, layer_scroll_base},
 };
 use gpui::{Context, MouseDownEvent, MouseMoveEvent, ScrollWheelEvent, Window, point, px};
 
@@ -40,8 +40,10 @@ impl Timeline {
             return;
         };
 
-        let viewport_width = track_viewport_width(window);
-        let cursor_x = (f32::from(event.position.x) - LAYER_HEADER_WIDTH).clamp(0., viewport_width);
+        let viewport_width = self.track_viewport_width(window);
+        let origin_x = layer_scroll_base(&self.layer_scroll).bounds().origin.x;
+        let cursor_x =
+            (f32::from(event.position.x - origin_x) - LAYER_HEADER_WIDTH).clamp(0., viewport_width);
         if self
             .viewport
             .zoom_horizontal(factor, cursor_x, self.editor.read(cx).frame_rate())
@@ -137,9 +139,9 @@ impl Timeline {
         window: &Window,
         cx: &Context<Self>,
     ) -> Frame {
-        let viewport_width = track_viewport_width(window);
+        let viewport_width = self.track_viewport_width(window);
         self.viewport.frame_at_x(
-            position_x,
+            position_x - f32::from(layer_scroll_base(&self.layer_scroll).bounds().origin.x),
             LAYER_HEADER_WIDTH,
             viewport_width,
             self.editor.read(cx).frame_rate(),
@@ -148,6 +150,7 @@ impl Timeline {
 
     fn seek_to_x(&mut self, position_x: f32, window: &mut Window, cx: &mut Context<Self>) {
         let frame = self.pointer_frame(position_x, window, cx);
+        self.viewport.scrub_playhead(frame);
         self.transport
             .update(cx, |transport, cx| transport.set_playhead(frame, cx));
     }
