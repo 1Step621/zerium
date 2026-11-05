@@ -2546,7 +2546,7 @@ dependencies = [
 [[package]]
 name = "gpui-ce"
 version = "1.0.0"
-source = "git+https://github.com/1Step621/WGPUI?rev=187f446db2ae7c3f4754234e7ac496e877a0ca2a#187f446db2ae7c3f4754234e7ac496e877a0ca2a"
+source = "git+https://github.com/1Step621/WGPUI?rev=fa2765193dc937742647570bb378908fdcd4bb7a#fa2765193dc937742647570bb378908fdcd4bb7a"
 dependencies = [
  "anyhow",
  "arboard",
@@ -7670,7 +7670,7 @@ dependencies = [
 [[package]]
 name = "ui"
 version = "0.1.0"
-source = "git+https://github.com/1Step621/WGPUI-Component?branch=integration%2Fall-changes#ba1a796a43b8a21f35f90d25b233c930f3e9c1a5"
+source = "git+https://github.com/1Step621/WGPUI-Component?branch=integration%2Fall-changes#d0df4cfbef3910310eee10d7a14ab808dcfd206a"
 dependencies = [
  "aho-corasick",
  "anyhow",
@@ -7726,7 +7726,7 @@ dependencies = [
 [[package]]
 name = "ui-macros"
 version = "0.1.0"
-source = "git+https://github.com/1Step621/WGPUI-Component?branch=integration%2Fall-changes#ba1a796a43b8a21f35f90d25b233c930f3e9c1a5"
+source = "git+https://github.com/1Step621/WGPUI-Component?branch=integration%2Fall-changes#d0df4cfbef3910310eee10d7a14ab808dcfd206a"
 dependencies = [
  "proc-macro2",
  "quote",
