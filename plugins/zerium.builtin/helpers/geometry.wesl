@@ -23,6 +23,12 @@ fn segment_distance(point: vec2<f32>, start: vec2<f32>, end: vec2<f32>) -> f32 {
     return distance(point, start + fraction * direction);
 }
 
+fn rounded_rectangle_distance(point: vec2<f32>, half_size: vec2<f32>, radius: f32) -> f32 {
+    let r = clamp(radius, 0.0, max(min(half_size.x, half_size.y), 0.0));
+    let corner = abs(point) - (half_size - vec2(r));
+    return length(max(corner, vec2(0.0))) + min(max(corner.x, corner.y), 0.0) - r;
+}
+
 fn distance_coverage(distance: f32, minimum_width: f32) -> f32 {
     let width = max(fwidth(distance), minimum_width);
     return 1.0 - smoothstep(-width * 0.5, width * 0.5, distance);

@@ -83,6 +83,26 @@ without `icons/` or `.svg`, and is case-sensitive. The application checks that t
 icon exists when loading plugins and through `zerium plugin validate`. The same
 icon is used in the addition picker and, for items, on the timeline.
 
+## Catalog categories
+
+Categories describe the operation's purpose. Their order is shared by every plugin
+in the addition picker. Item categories are `shape`, `text`, `media`, `scene`
+(cameras and render-result references), and `other`.
+
+| Effect category | Purpose | Built-in examples |
+| --- | --- | --- |
+| `transform` | Placement, size, orientation, and arrangement | Translate, rotation, follow spline, tile layers |
+| `distortion` | Warp image geometry | Wave warp, fisheye, corner pin, displacement map |
+| `color` | Adjust or remap colors and tones | Exposure, levels, gradient map, posterize |
+| `fill` | Apply a fill or outline | Color gradients, noise fill, outline |
+| `blur` | Blur image details | Gaussian blur, motion blur, lens blur |
+| `light` | Add light, shading, or shadows | Glow, bloom, light rays, drop shadow, vignette |
+| `texture` | Change image detail or simulate a visual texture | Pixelate, dither, sharpen, halftone, glitch, grunge |
+| `mask` | Remove image regions or change transparency | Crop, rounded corners, opacity, layer mask, chroma key |
+| `transition` | Reveal or hide the image for an entrance or exit | Wipe, noise dissolve |
+| `time` | Change which source time is sampled | Time remap |
+| `other` | Operations outside the categories above | Custom plugin operations |
+
 ## Authoring guides
 
 | Guide | Contents |

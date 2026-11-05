@@ -43,11 +43,11 @@
     },
     "itemCategory": {
       "type": "string",
-      "enum": ["shape", "text", "media", "composite", "other"]
+      "enum": ["shape", "text", "media", "scene", "other"]
     },
     "effectCategory": {
       "type": "string",
-      "enum": ["transform", "color", "style", "filter", "composite", "other"]
+      "enum": ["transform", "distortion", "color", "fill", "blur", "light", "texture", "mask", "transition", "time", "other"]
     },
     "wgslId": {
       "type": "string",

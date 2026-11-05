@@ -5680,7 +5680,7 @@
         "zh-CN": "渲染结果",
         "ru-RU": "Результат рендеринга"
       },
-      "category": "composite",
+      "category": "scene",
       "tags": ["レイヤー", "範囲", "render", "composite"],
       "render": {
         "properties": ["start_offset", "end_offset", "hide_original"],
@@ -5747,7 +5747,7 @@
         "zh-CN": "摄像机",
         "ru-RU": "Камера"
       },
-      "category": "composite",
+      "category": "scene",
       "tags": ["撮影", "移動", "ズーム", "camera", "zoom"],
       "render": {
         "properties": [
@@ -6790,7 +6790,7 @@
         "zh-CN": "极坐标",
         "ru-RU": "Полярные координаты"
       },
-      "category": "transform",
+      "category": "distortion",
       "tags": [],
       "render": {
         "passes": [
@@ -7096,7 +7096,7 @@
         "zh-CN": "湍流置换",
         "ru-RU": "Турбулентное искажение"
       },
-      "category": "transform",
+      "category": "distortion",
       "tags": [
         "乱流",
         "歪み",
@@ -7196,7 +7196,7 @@
         "zh-CN": "鱼眼",
         "ru-RU": "Рыбий глаз"
       },
-      "category": "transform",
+      "category": "distortion",
       "tags": ["レンズ", "歪み", "lens", "distortion"],
       "render": {
         "passes": [
@@ -7292,7 +7292,7 @@
         "zh-CN": "波形扭曲",
         "ru-RU": "Волновое искажение"
       },
-      "category": "transform",
+      "category": "distortion",
       "tags": ["波", "歪み", "wave", "distortion"],
       "render": {
         "passes": [
@@ -7993,7 +7993,7 @@
         "zh-CN": "不透明度",
         "ru-RU": "Непрозрачность"
       },
-      "category": "color",
+      "category": "mask",
       "tags": ["透明", "透過", "alpha", "transparency"],
       "render": {
         "passes": [
@@ -8195,7 +8195,7 @@
         "zh-CN": "线性渐变",
         "ru-RU": "Линейный градиент"
       },
-      "category": "color",
+      "category": "fill",
       "tags": ["グラデ", "gradient", "fill"],
       "render": {
         "passes": [
@@ -8284,7 +8284,7 @@
         "zh-CN": "噪声渐变",
         "ru-RU": "Шумовой градиент"
       },
-      "category": "color",
+      "category": "fill",
       "tags": [
         "グラデーション",
         "粒",
@@ -8464,7 +8464,7 @@
         "zh-CN": "辉光",
         "ru-RU": "Свечение"
       },
-      "category": "style",
+      "category": "light",
       "tags": ["発光", "ネオン", "bloom", "neon"],
       "render": {
         "passes": [
@@ -8592,7 +8592,7 @@
         "zh-CN": "泛光",
         "ru-RU": "Блум"
       },
-      "category": "style",
+      "category": "light",
       "tags": ["ブルーム", "明部", "light", "発光"],
       "render": {
         "passes": [
@@ -8714,7 +8714,7 @@
         "zh-CN": "轮廓",
         "ru-RU": "Контур"
       },
-      "category": "style",
+      "category": "fill",
       "tags": ["縁取り", "ストローク", "border", "stroke"],
       "render": {
         "passes": [
@@ -8830,7 +8830,7 @@
         "zh-CN": "暗角",
         "ru-RU": "Виньетка"
       },
-      "category": "style",
+      "category": "light",
       "tags": ["周辺減光", "vignette"],
       "render": {
         "passes": [
@@ -8897,7 +8897,7 @@
         "zh-CN": "投影",
         "ru-RU": "Тень"
       },
-      "category": "style",
+      "category": "light",
       "tags": ["影", "shadow"],
       "render": {
         "passes": [
@@ -9038,7 +9038,7 @@
         "zh-CN": "长阴影",
         "ru-RU": "Длинная тень"
       },
-      "category": "style",
+      "category": "light",
       "tags": ["影", "shadow"],
       "render": {
         "passes": [
@@ -9127,7 +9127,7 @@
         "zh-CN": "高斯模糊",
         "ru-RU": "Размытие по Гауссу"
       },
-      "category": "filter",
+      "category": "blur",
       "tags": ["ぼかし", "ブラー", "soft focus", "blur"],
       "render": {
         "passes": [
@@ -9207,7 +9207,7 @@
         "zh-CN": "运动模糊",
         "ru-RU": "Размытие в движении"
       },
-      "category": "filter",
+      "category": "blur",
       "tags": ["残像", "動き", "速度", "motion blur", "temporal"],
       "render": {
         "passes": [
@@ -9279,7 +9279,7 @@
         "zh-CN": "时间重映射",
         "ru-RU": "Переназначение времени"
       },
-      "category": "filter",
+      "category": "time",
       "tags": [
         "時間",
         "進捗",
@@ -9323,7 +9323,7 @@
         "zh-CN": "像素化",
         "ru-RU": "Пикселизация"
       },
-      "category": "filter",
+      "category": "texture",
       "tags": ["モザイク", "ドット", "mosaic", "pixel"],
       "render": {
         "passes": [
@@ -9362,7 +9362,7 @@
         "zh-CN": "色差",
         "ru-RU": "Хроматическая аберрация"
       },
-      "category": "filter",
+      "category": "texture",
       "tags": ["色ずれ", "RGBずれ", "chromatic", "fringing"],
       "render": {
         "passes": [
@@ -9415,7 +9415,7 @@
         "zh-CN": "抖色",
         "ru-RU": "Дизеринг"
       },
-      "category": "filter",
+      "category": "texture",
       "tags": ["減色", "ハーフトーン", "halftone", "ディザ", "Dither"],
       "render": {
         "passes": [
@@ -9523,7 +9523,7 @@
         "zh-CN": "像素排序",
         "ru-RU": "Сортировка пикселей"
       },
-      "category": "filter",
+      "category": "texture",
       "tags": ["グリッチ", "並べ替え", "glitch", "sort"],
       "render": {
         "passes": [
@@ -9585,7 +9585,7 @@
         "zh-CN": "NTSC 噪声",
         "ru-RU": "Шум NTSC"
       },
-      "category": "filter",
+      "category": "texture",
       "tags": ["VHS", "アナログ", "テレビ", "analog", "television"],
       "render": {
         "passes": [
@@ -9693,7 +9693,7 @@
         "zh-CN": "浮雕",
         "ru-RU": "Тиснение"
       },
-      "category": "filter",
+      "category": "texture",
       "tags": ["浮き彫り", "relief"],
       "render": {
         "passes": [
@@ -9771,7 +9771,7 @@
         "zh-CN": "图层蒙版",
         "ru-RU": "Маска слоя"
       },
-      "category": "composite",
+      "category": "mask",
       "tags": ["切り抜き", "アルファ", "範囲", "mask", "layers"],
       "render": {
         "passes": [
@@ -10154,7 +10154,7 @@
         "zh-CN": "扫光",
         "ru-RU": "Световой блик"
       },
-      "category": "style",
+      "category": "light",
       "tags": ["反射", "光", "艶", "shine", "light sweep"],
       "render": {
         "passes": [
@@ -10290,7 +10290,7 @@
         "zh-CN": "星芒",
         "ru-RU": "Звёздные лучи"
       },
-      "category": "style",
+      "category": "light",
       "tags": [
         "クロスフィルター",
         "きらめき",
@@ -10417,7 +10417,7 @@
         "zh-CN": "光芒",
         "ru-RU": "Световые лучи"
       },
-      "category": "style",
+      "category": "light",
       "tags": ["ライトレイ", "ゴッドレイ", "光線", "light rays"],
       "render": {
         "passes": [
@@ -10527,7 +10527,7 @@
         "zh-CN": "镜头模糊",
         "ru-RU": "Размытие объектива"
       },
-      "category": "filter",
+      "category": "blur",
       "tags": ["玉ボケ", "絞り", "bokeh", "lens blur"],
       "render": {
         "passes": [
@@ -10688,7 +10688,7 @@
         "zh-CN": "光晕",
         "ru-RU": "Ореол"
       },
-      "category": "style",
+      "category": "light",
       "tags": ["フィルム", "にじみ", "halation"],
       "render": {
         "passes": [
@@ -10759,6 +10759,131 @@
       ]
     },
     {
+      "id": "crop",
+      "icon": "crop",
+      "label": {
+        "ja-JP": "クロップ",
+        "en-US": "Crop",
+        "zh-CN": "裁剪",
+        "ru-RU": "Обрезка"
+      },
+      "category": "mask",
+      "tags": [
+        "切り抜き",
+        "トリミング",
+        "crop",
+        "trim"
+      ],
+      "render": {
+        "passes": [
+          {
+            "type": "render",
+            "shader": { "module": "effects::crop::render" },
+            "bounds": {
+              "script": "let x = min(input.min.x + max(p.left, 0.0), input.max.x); let y = min(input.min.y + max(p.top, 0.0), input.max.y); #{ min: [x, y], max: [max(x, input.max.x - max(p.right, 0.0)), max(y, input.max.y - max(p.bottom, 0.0))] }"
+            }
+          }
+        ]
+      },
+      "properties": [
+        {
+          "id": "top",
+          "label": {
+            "ja-JP": "上",
+            "en-US": "Top",
+            "zh-CN": "上",
+            "ru-RU": "Сверху"
+          },
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 1000000 },
+          "ui": { "unit": "px", "step": 1 }
+        },
+        {
+          "id": "bottom",
+          "label": {
+            "ja-JP": "下",
+            "en-US": "Bottom",
+            "zh-CN": "下",
+            "ru-RU": "Снизу"
+          },
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 1000000 },
+          "ui": { "unit": "px", "step": 1 }
+        },
+        {
+          "id": "left",
+          "label": {
+            "ja-JP": "左",
+            "en-US": "Left",
+            "zh-CN": "左",
+            "ru-RU": "Слева"
+          },
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 1000000 },
+          "ui": { "unit": "px", "step": 1 }
+        },
+        {
+          "id": "right",
+          "label": {
+            "ja-JP": "右",
+            "en-US": "Right",
+            "zh-CN": "右",
+            "ru-RU": "Справа"
+          },
+          "type": "f32",
+          "default": 0,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 1000000 },
+          "ui": { "unit": "px", "step": 1 }
+        }
+      ]
+    },
+    {
+      "id": "rounded_corners",
+      "icon": "radius",
+      "label": {
+        "ja-JP": "角丸",
+        "en-US": "Rounded Corners",
+        "zh-CN": "圆角",
+        "ru-RU": "Скругление углов"
+      },
+      "category": "mask",
+      "tags": ["角丸", "切り抜き", "rounded corners", "radius"],
+      "render": {
+        "passes": [
+          {
+            "type": "render",
+            "shader": { "module": "effects::rounded_corners::render" },
+            "bounds": {
+              "script": "#{ min: [input.min.x, input.min.y], max: [input.max.x, input.max.y] }"
+            }
+          }
+        ]
+      },
+      "properties": [
+        {
+          "id": "radius",
+          "label": {
+            "ja-JP": "半径",
+            "en-US": "Radius",
+            "zh-CN": "半径",
+            "ru-RU": "Радиус"
+          },
+          "type": "f32",
+          "default": 20,
+          "animatable": true,
+          "constraints": { "min": 0, "max": 1000000 },
+          "ui": { "unit": "px", "step": 1 }
+        }
+      ]
+    },
+    {
       "id": "wipe",
       "icon": "erase",
       "label": {
@@ -10767,7 +10892,7 @@
         "zh-CN": "擦除",
         "ru-RU": "Вытеснение"
       },
-      "category": "composite",
+      "category": "transition",
       "tags": ["登場", "退場", "放射", "wipe"],
       "render": {
         "passes": [
@@ -10885,7 +11010,7 @@
         "zh-CN": "噪声溶解",
         "ru-RU": "Шумовое растворение"
       },
-      "category": "composite",
+      "category": "transition",
       "tags": ["消失", "出現", "ノイズ", "noise dissolve"],
       "render": {
         "passes": [
@@ -10993,7 +11118,7 @@
         "zh-CN": "边角定位",
         "ru-RU": "Привязка углов"
       },
-      "category": "transform",
+      "category": "distortion",
       "tags": ["四隅", "遠近変形", "perspective", "corner pin"],
       "render": {
         "passes": [
@@ -11186,7 +11311,7 @@
         "zh-CN": "弯曲",
         "ru-RU": "Изгиб"
       },
-      "category": "transform",
+      "category": "distortion",
       "tags": ["湾曲", "曲げ", "bend"],
       "render": {
         "passes": [
@@ -11256,7 +11381,7 @@
         "zh-CN": "置换贴图",
         "ru-RU": "Карта смещения"
       },
-      "category": "transform",
+      "category": "distortion",
       "tags": ["変位", "歪み", "マップ", "displacement map"],
       "render": {
         "passes": [
@@ -11498,7 +11623,7 @@
         "zh-CN": "色度键",
         "ru-RU": "Хромакей"
       },
-      "category": "composite",
+      "category": "mask",
       "tags": ["色抜き", "背景抜き", "グリーンバック", "chroma key"],
       "render": {
         "passes": [
@@ -11577,7 +11702,7 @@
         "zh-CN": "透明度扩展／收缩",
         "ru-RU": "Расширение / сжатие альфа-канала"
       },
-      "category": "filter",
+      "category": "mask",
       "tags": ["膨張", "収縮", "太さ", "dilate", "erode"],
       "render": {
         "passes": [
@@ -11625,7 +11750,7 @@
         "zh-CN": "边缘检测",
         "ru-RU": "Выделение краёв"
       },
-      "category": "filter",
+      "category": "texture",
       "tags": ["輪郭", "線画", "sobel", "edge detect"],
       "render": {
         "passes": [
@@ -11702,7 +11827,7 @@
         "zh-CN": "半色调",
         "ru-RU": "Полутоновый растр"
       },
-      "category": "style",
+      "category": "texture",
       "tags": ["網点", "漫画", "印刷", "halftone"],
       "render": {
         "passes": [
@@ -11824,7 +11949,7 @@
         "zh-CN": "故障效果",
         "ru-RU": "Глитч"
       },
-      "category": "style",
+      "category": "texture",
       "tags": ["デジタルノイズ", "RGB", "glitch"],
       "render": {
         "passes": [
@@ -11932,7 +12057,7 @@
         "zh-CN": "锐化",
         "ru-RU": "Резкость"
       },
-      "category": "filter",
+      "category": "texture",
       "tags": ["輪郭強調", "鮮明", "sharpen"],
       "render": {
         "passes": [
@@ -11985,7 +12110,7 @@
         "zh-CN": "噪声填充",
         "ru-RU": "Шумовая заливка"
       },
-      "category": "color",
+      "category": "fill",
       "tags": ["フラクタル", "雲", "粒", "セル", "noise"],
       "render": {
         "passes": [
@@ -12157,7 +12282,7 @@
         "zh-CN": "污渍",
         "ru-RU": "Потёртости"
       },
-      "category": "style",
+      "category": "texture",
       "tags": ["汚れ", "傷", "かすれ", "grunge"],
       "render": {
         "passes": [

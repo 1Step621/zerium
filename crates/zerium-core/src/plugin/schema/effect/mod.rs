@@ -209,10 +209,15 @@ impl crate::plugin::PluginCatalogEntry for EffectSchema {
 #[serde(rename_all = "snake_case")]
 pub enum EffectCategory {
     Transform,
+    Distortion,
     Color,
-    Style,
-    Filter,
-    Composite,
+    Fill,
+    Blur,
+    Light,
+    Texture,
+    Mask,
+    Transition,
+    Time,
     Other,
 }
 
@@ -220,10 +225,15 @@ impl EffectCategory {
     pub const fn id(self) -> &'static str {
         match self {
             Self::Transform => "transform",
+            Self::Distortion => "distortion",
             Self::Color => "color",
-            Self::Style => "style",
-            Self::Filter => "filter",
-            Self::Composite => "composite",
+            Self::Fill => "fill",
+            Self::Blur => "blur",
+            Self::Light => "light",
+            Self::Texture => "texture",
+            Self::Mask => "mask",
+            Self::Transition => "transition",
+            Self::Time => "time",
             Self::Other => "other",
         }
     }

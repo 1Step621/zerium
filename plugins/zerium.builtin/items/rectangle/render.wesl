@@ -1,5 +1,6 @@
 import package::generated::rectangle::props;
 import package::helpers::shape::{outlined_quad, shape_color};
+import package::helpers::geometry::rounded_rectangle_distance;
 
 struct VertexOutput {
     @builtin(position) position: vec4<f32>,
@@ -35,10 +36,7 @@ fn vertex_main(
 fn fragment_main(input: VertexOutput) -> @location(0) vec4<f32> {
     let properties = props(input.instance_index);
     let half_size = vec2(properties.size.v0, properties.size.v1) * 0.5;
-    let radius = clamp(properties.corner_radius, 0.0, min(half_size.x, half_size.y));
-    let point = input.local * half_size;
-    let corner = abs(point) - (half_size - vec2(radius));
-    let distance = length(max(corner, vec2(0.0))) + min(max(corner.x, corner.y), 0.0) - radius;
+    let distance = rounded_rectangle_distance(input.local * half_size, half_size, properties.corner_radius);
     return shape_color(
         distance,
         properties.fill_enabled,

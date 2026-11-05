@@ -334,7 +334,7 @@ pub enum ItemCategory {
     Shape,
     Text,
     Media,
-    Composite,
+    Scene,
     Other,
 }
 
@@ -344,7 +344,7 @@ impl ItemCategory {
             Self::Shape => "shape",
             Self::Text => "text",
             Self::Media => "media",
-            Self::Composite => "composite",
+            Self::Scene => "scene",
             Self::Other => "other",
         }
     }
