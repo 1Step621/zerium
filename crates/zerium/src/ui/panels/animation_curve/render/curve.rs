@@ -235,7 +235,6 @@ impl AnimationCurveEditor {
     fn source_curve(&self, cx: &App) -> Option<SelectedCurve> {
         let selection = self.selection.read(cx);
         let address = selection.address()?.clone();
-        let focused_segment = selection.focused_segment();
         let editor = self.editor.read(cx);
         let item = editor.item(address.item_id)?;
         if !editor.is_item_selected(item.id) {
@@ -250,9 +249,7 @@ impl AnimationCurveEditor {
             .iter()
             .map(|stop| stop.frame())
             .collect::<Vec<_>>();
-        let source_segment =
-            source_segment_for_frame(&source_stop_frames, source_frame, focused_segment)?;
-        self.selection.read(cx).focus_segment(source_segment);
+        let source_segment = selection.focused_segment(editor)?;
         let source_frame_start = track.stops().get(source_segment)?.frame();
         let source_frame_end = track.stops().get(source_segment + 1)?.frame();
         let segment_span = (source_frame_end.get() - source_frame_start.get()) as f64;
@@ -329,30 +326,6 @@ impl AnimationCurveEditor {
         };
         cx.notify();
     }
-}
-
-fn source_segment_for_frame(
-    stop_frames: &[Frame],
-    frame: f64,
-    focused_segment: Option<usize>,
-) -> Option<usize> {
-    if !frame.is_finite() {
-        return None;
-    }
-    let last_segment = stop_frames.len().checked_sub(2)?;
-    if let Some(segment) = focused_segment.filter(|segment| *segment <= last_segment) {
-        let start = stop_frames.get(segment)?.get() as f64;
-        let end = stop_frames.get(segment + 1)?.get() as f64;
-        if frame >= start && frame <= end {
-            return Some(segment);
-        }
-    }
-    Some(
-        stop_frames
-            .partition_point(|stop| (stop.get() as f64) < frame)
-            .saturating_sub(1)
-            .min(last_segment),
-    )
 }
 
 pub(in crate::ui::panels::animation_curve) fn format_number(value: impl Into<f64>) -> String {

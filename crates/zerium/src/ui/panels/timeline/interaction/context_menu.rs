@@ -88,7 +88,7 @@ impl Timeline {
                     move |_, cx| {
                         curve_timeline.update(cx, |this, cx| {
                             if context.is_current(this.editor.read(cx)) {
-                                this.open_animation_curve(curve_address.clone(), cx);
+                                this.open_animation_curve(curve_address.clone(), None, cx);
                             }
                         });
                     },

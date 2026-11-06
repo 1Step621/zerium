@@ -141,12 +141,20 @@ impl Timeline {
     pub(in crate::ui::panels::timeline) fn open_animation_curve(
         &mut self,
         address: PropertyAddress,
+        segment: Option<usize>,
         cx: &mut Context<Self>,
     ) {
         self.edit_stops(cx);
-        self.seek_to_item_if_outside(address.item_id, cx);
-        self.animation_selection
-            .update(cx, |selection, cx| selection.select(address, cx));
+        if let Some(segment) = segment {
+            let frame = self.editor.read(cx).playhead();
+            self.animation_selection.update(cx, |selection, cx| {
+                selection.focus_segment(address, segment, frame, &self.editor, &self.transport, cx);
+            });
+        } else {
+            self.seek_to_item_if_outside(address.item_id, cx);
+            self.animation_selection
+                .update(cx, |selection, cx| selection.select(address, cx));
+        }
     }
 
     pub(in crate::ui::panels::timeline) fn delete_selected_stops(

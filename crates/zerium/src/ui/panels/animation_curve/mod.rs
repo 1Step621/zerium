@@ -258,7 +258,7 @@ impl AnimationCurveEditor {
 
 pub(crate) struct AnimationSelection {
     address: Option<PropertyAddress>,
-    // The focused interval follows the playhead while the curve is queried,
+    // The focused interval follows the playhead while either view is rendered,
     // so it intentionally does not trigger a second render notification.
     focused_segment: Cell<Option<usize>>,
     _editor_subscription: Subscription,
@@ -327,12 +327,61 @@ impl AnimationSelection {
         self.address.as_ref()
     }
 
-    pub(crate) fn focused_segment(&self) -> Option<usize> {
-        self.focused_segment.get()
+    pub(crate) fn focused_segment(&self, editor: &TimelineEditor) -> Option<usize> {
+        let address = self.address()?;
+        let item = editor.item(address.item_id)?;
+        let track = editor.animation_track(address)?;
+        let frame = item
+            .animation_clock(track)
+            .local_frame_at(TimelineTime::from_frame(editor.playhead()));
+        if !frame.is_finite() {
+            return None;
+        }
+        let stops = track.stops();
+        let last_segment = stops.len().checked_sub(2)?;
+        if let Some(segment) = self
+            .focused_segment
+            .get()
+            .filter(|segment| *segment <= last_segment)
+        {
+            let start = stops[segment].frame().get() as f64;
+            let end = stops[segment + 1].frame().get() as f64;
+            if frame >= start && frame <= end {
+                return Some(segment);
+            }
+        }
+        let segment = stops
+            .partition_point(|stop| (stop.frame().get() as f64) < frame)
+            .saturating_sub(1)
+            .min(last_segment);
+        self.focused_segment.set(Some(segment));
+        Some(segment)
     }
 
-    pub(crate) fn focus_segment(&self, segment: usize) {
+    pub(crate) fn focus_segment(
+        &mut self,
+        address: PropertyAddress,
+        segment: usize,
+        frame: Frame,
+        editor: &Entity<TimelineEditor>,
+        transport: &Entity<TransportController>,
+        cx: &mut Context<Self>,
+    ) {
+        let valid = {
+            let editor = editor.read(cx);
+            editor.is_item_selected(address.item_id)
+                && editor
+                    .animation_track(&address)
+                    .is_some_and(|track| track.interpolations().get(segment).is_some())
+        };
+        if !valid {
+            return;
+        }
+        editor.update(cx, |editor, _| editor.finish_history_group());
+        self.select(address, cx);
         self.focused_segment.set(Some(segment));
+        transport.update(cx, |transport, cx| transport.set_playhead(frame, cx));
+        cx.notify();
     }
 
     pub(crate) fn select(&mut self, address: PropertyAddress, cx: &mut Context<Self>) {

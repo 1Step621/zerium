@@ -44,7 +44,44 @@ pub(in crate::ui::panels::timeline) fn animation_row(
     let mut ghosts = Vec::new();
     let mut keys = Vec::new();
     let timeline = cx.entity();
-    let focused = state.focused_animation.as_ref() == Some(&address);
+    let focused_segment = state
+        .focused_animation
+        .as_ref()
+        .filter(|(target, _)| target == &address)
+        .map(|(_, segment)| *segment);
+    let mut segments = Vec::new();
+    for (index, stops) in track.stops().windows(2).enumerate() {
+        let [left, right] = [&stops[0], &stops[1]].map(|stop| {
+            state
+                .viewport
+                .x_at_seconds(clock.key_time_at(stop.frame()).seconds(state.frame_rate))
+        });
+        let (left, right) = (left.max(0.), right.min(state.viewport_width));
+        if right <= left {
+            continue;
+        }
+        let selected = focused_segment == Some(index);
+        let color = state.colors.primary;
+        let segment_address = address.clone();
+        segments.push(
+            div()
+                .id(("dope-segment", index))
+                .absolute()
+                .left(px(left))
+                .w(px(right - left))
+                .top(px(5.))
+                .bottom(px(5.))
+                .rounded_sm()
+                .bg(color.opacity(if selected { 0.25 } else { 0.08 }))
+                .hover(move |style| style.bg(color.opacity(if selected { 0.35 } else { 0.16 })))
+                .cursor_pointer()
+                .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
+                    if event.standard_click() && !event.modifiers().control {
+                        this.open_animation_curve(segment_address.clone(), Some(index), cx);
+                    }
+                })),
+        );
+    }
     for (index, stop) in track.stops().iter().enumerate() {
         for time in clock
             .occurrences(stop.frame(), visible_start, visible_end)
@@ -159,7 +196,7 @@ pub(in crate::ui::panels::timeline) fn animation_row(
                 .border_r_1()
                 .border_color(state.colors.border)
                 .text_sm()
-                .when(focused, |label| {
+                .when(focused_segment.is_some(), |label| {
                     label.text_color(state.colors.accent_foreground)
                 })
                 .overflow_hidden()
@@ -169,7 +206,7 @@ pub(in crate::ui::panels::timeline) fn animation_row(
                 .child(label.clone())
                 .on_scroll_wheel(cx.listener(Timeline::on_label_scroll))
                 .on_click(cx.listener(move |this, _, _, cx| {
-                    this.open_animation_curve(label_address.clone(), cx);
+                    this.open_animation_curve(label_address.clone(), None, cx);
                     cx.stop_propagation();
                 })),
         )
@@ -199,6 +236,7 @@ pub(in crate::ui::panels::timeline) fn animation_row(
                         state.colors.border.opacity(0.14),
                     )),
             )
+            .children(segments)
             .children(ghosts)
             .children(keys)
             .operation_hints(navigation_hints()),

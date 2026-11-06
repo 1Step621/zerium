@@ -44,7 +44,7 @@ pub(super) struct LayerRenderState {
     pub(super) editor: Entity<TimelineEditor>,
     pub(super) expanded_layers: Rc<HashSet<LayerId>>,
     pub(super) selected_stops: Rc<super::dope_sheet::StopKeys>,
-    pub(super) focused_animation: Option<PropertyAddress>,
+    pub(super) focused_animation: Option<(PropertyAddress, usize)>,
     pub(super) colors: ThemeColor,
     pub(super) viewport: TimelineViewport,
     pub(super) viewport_width: f32,
@@ -137,7 +137,13 @@ impl Render for Timeline {
                     .map(|selection| selection.keys.clone())
                     .unwrap_or_default(),
             ),
-            focused_animation: self.animation_selection.read(cx).address().cloned(),
+            focused_animation: {
+                let selection = self.animation_selection.read(cx);
+                selection
+                    .address()
+                    .cloned()
+                    .zip(selection.focused_segment(self.editor.read(cx)))
+            },
             colors,
             viewport: self.viewport,
             viewport_width,

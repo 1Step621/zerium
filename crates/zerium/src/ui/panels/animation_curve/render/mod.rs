@@ -572,11 +572,17 @@ impl Render for AnimationCurveEditor {
                                             .hover(move |style| style.bg(fill.lighten(0.12)))
                                             .active(move |style| style.bg(fill.darken(0.12)))
                                             .cursor_pointer()
-                                            .on_click(move |_, _, cx| {
-                                                cx.stop_propagation();
-                                                segment_editor.update(cx, |editor, cx| {
-                                                    editor.focus_source_segment(segment, cx);
-                                                });
+                                            .on_click(move |event, _, cx| {
+                                                if event.standard_click() {
+                                                    cx.stop_propagation();
+                                                    segment_editor.update(cx, |editor, cx| {
+                                                        editor.focus_source_segment(
+                                                            segment,
+                                                            event.position(),
+                                                            cx,
+                                                        );
+                                                    });
+                                                }
                                             })
                                     },
                                 )

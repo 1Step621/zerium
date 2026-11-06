@@ -78,23 +78,30 @@ impl AnimationCurveEditor {
     pub(in crate::ui::panels::animation_curve) fn focus_source_segment(
         &mut self,
         segment: usize,
+        position: gpui::Point<Pixels>,
         cx: &mut Context<Self>,
     ) {
         let Some(selected) = self.selected_curve(cx) else {
             return;
         };
-        let Some(pattern_frame) = selected.source_stop_frames.get(segment).copied() else {
+        let Some(screen) = self.graph_screen_position(position) else {
             return;
         };
-        let Some(frame) = selected.frame_at_pattern_frame(pattern_frame) else {
+        let Some(frame) =
+            selected.frame_at_pattern_frame(selected.clock.frame_at_progress(f64::from(screen[0])))
+        else {
             return;
         };
-        self.editor
-            .update(cx, |editor, _| editor.finish_history_group());
-        self.selection.read(cx).focus_segment(segment);
-        self.transport
-            .update(cx, |transport, cx| transport.set_playhead(frame, cx));
-        cx.notify();
+        self.selection.update(cx, |selection, cx| {
+            selection.focus_segment(
+                selected.address,
+                segment,
+                frame,
+                &self.editor,
+                &self.transport,
+                cx,
+            );
+        });
     }
 
     /// Seek on press; while playing, suspend playback until release.
