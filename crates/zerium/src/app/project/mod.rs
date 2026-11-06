@@ -14,7 +14,7 @@ use gpui::{App, AppContext as _, Context, Entity, PathPromptOptions, Task, Windo
 use self::file as project_files;
 use super::transport::TransportController;
 use crate::ui::{
-    dialogs::project as project_dialog, panels::animation_curve::AnimationSelection,
+    animation_selection::AnimationSelection, dialogs::project as project_dialog,
     workspace::notifications::UiNotifications,
 };
 use zerium_core::{

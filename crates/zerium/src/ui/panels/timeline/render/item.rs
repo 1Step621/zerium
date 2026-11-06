@@ -2,7 +2,7 @@ use std::{cell::Cell, rc::Rc};
 
 use gpui::{ClickEvent, Context, EntityId, MouseButton, div, prelude::*, px};
 
-use zerium_core::timeline::{Frame, ResizeEdge, ResizeMode, TimelineItem};
+use zerium_core::timeline::{Frame, ResizeEdge, ResizeMode};
 
 use crate::ui::{
     TimelineEditorEntityExt as _, icon,
@@ -57,12 +57,11 @@ pub(in crate::ui::panels::timeline) fn timeline_item(
         timeline_id,
         item_id,
     };
-    let resize_origins =
-        Rc::<[TimelineItem]>::from(if state.selected_item_ids.contains(&item_id) {
-            state.editor.read(cx).selected_items()
-        } else {
-            vec![item.clone()]
-        });
+    let resize_origins = if is_selected {
+        state.selected_items.clone()
+    } else {
+        Rc::from([item.clone()])
+    };
     let left_drag = ResizeTimelineItem {
         timeline_id,
         origins: resize_origins.clone(),

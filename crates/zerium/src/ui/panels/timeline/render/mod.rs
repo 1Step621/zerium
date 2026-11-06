@@ -50,6 +50,7 @@ pub(super) struct LayerRenderState {
     pub(super) viewport_width: f32,
     pub(super) frame_rate: FrameRate,
     pub(super) selected_item_ids: Rc<HashSet<ItemId>>,
+    pub(super) selected_items: Rc<[TimelineItem]>,
     pub(super) hidden_layers: Rc<HashSet<LayerId>>,
     pub(super) file_drop_target: Option<FileDropTarget>,
     pub(super) grid: TimelineGrid,
@@ -105,15 +106,18 @@ impl Render for Timeline {
             playhead,
             playhead_seconds,
             selected_item_ids,
+            selected_items,
             hidden_layers,
             active_scene_is_empty,
         ) = {
             let editor = self.editor.read(cx);
+            let selected_items: Rc<[TimelineItem]> = editor.selected_items().into();
             (
                 editor.frame_rate(),
                 editor.playhead(),
                 editor.playhead_seconds(),
-                Rc::new(editor.selected_item_ids().collect()),
+                Rc::new(selected_items.iter().map(|item| item.id).collect()),
+                selected_items,
                 Rc::new(editor.hidden_layer_ids().collect()),
                 editor.active_scene_id() != editor.main_scene_id()
                     && editor.active_scene().is_empty(),
@@ -149,6 +153,7 @@ impl Render for Timeline {
             viewport_width,
             frame_rate,
             selected_item_ids,
+            selected_items,
             hidden_layers,
             file_drop_target: self.file_drop_target,
             grid,

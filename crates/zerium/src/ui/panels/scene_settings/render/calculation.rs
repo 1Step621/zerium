@@ -2,39 +2,6 @@ use super::{SceneSettingsRenderCtx, SceneVariableRow};
 use crate::ui::panels::scene_settings::*;
 
 impl SceneSettings {
-    pub(in crate::ui::panels::scene_settings) fn edit_calculation_inputs(
-        &mut self,
-        id: &str,
-        edit: impl FnOnce(&mut Vec<SceneCalculationInput>),
-        cx: &mut Context<Self>,
-    ) -> bool {
-        let Some(mut inputs) = self
-            .editor
-            .read(cx)
-            .active_scene()
-            .variable(id)
-            .and_then(|variable| variable.calculation())
-            .map(|calculation| calculation.inputs.clone())
-        else {
-            return false;
-        };
-        edit(&mut inputs);
-        let result = self.editor.update(cx, |editor, cx| {
-            let result = editor.update_scene_calculation_inputs(id, inputs);
-            if result == Ok(true) {
-                cx.notify();
-            }
-            result
-        });
-        if let Err(error) = result {
-            self.notifications.update(cx, |notifications, cx| {
-                notifications.push(t!("calc.edit_failed", error = error).to_string(), cx);
-            });
-            return false;
-        }
-        true
-    }
-
     pub(in crate::ui::panels::scene_settings) fn calculation_details(
         &self,
         row: &SceneVariableRow,

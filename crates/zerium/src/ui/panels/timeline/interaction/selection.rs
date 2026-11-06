@@ -1,10 +1,11 @@
+use crate::ui::components::selection::SelectionMarquee;
 use crate::ui::panels::timeline::LAYER_HEIGHT;
 use std::collections::HashSet;
 
 use ::ui::ThemeColor;
 use gpui::{
     Bounds, ClickEvent, Context, DispatchPhase, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Pixels, Point, Window, canvas, point, prelude::*, px, quad, size,
+    MouseUpEvent, Window, canvas, point, prelude::*, px, quad, size,
 };
 
 use zerium_core::timeline::{ItemId, LayerId, PropertyAddress};
@@ -23,26 +24,8 @@ pub(in crate::ui::panels::timeline) struct MarqueeSelection {
     layer_index: usize,
     button: MouseButton,
     stop: Option<(PropertyAddress, usize)>,
-    origin: Point<Pixels>,
-    current: Point<Pixels>,
+    geometry: SelectionMarquee,
     baseline: MarqueeBaseline,
-    active: bool,
-}
-
-impl MarqueeSelection {
-    const ACTIVATION_DISTANCE: f64 = 4.;
-
-    fn bounds(&self) -> Bounds<Pixels> {
-        Bounds::from_corners(
-            self.origin.min(&self.current),
-            self.origin.max(&self.current),
-        )
-    }
-
-    fn update(&mut self, position: Point<Pixels>) {
-        self.current = position;
-        self.active |= (self.current - self.origin).magnitude() >= Self::ACTIVATION_DISTANCE;
-    }
 }
 
 fn is_marquee_pointer_down(event: &MouseDownEvent) -> bool {
@@ -94,10 +77,8 @@ impl Timeline {
             layer_index,
             button: event.button,
             stop: None,
-            origin: position,
-            current: position,
+            geometry: SelectionMarquee::new(position),
             baseline,
-            active: false,
         });
         cx.notify();
         cx.stop_propagation();
@@ -128,8 +109,8 @@ impl Timeline {
             cx.notify();
             return true;
         }
-        marquee.update(event.position);
-        if marquee.active {
+        marquee.geometry.update(event.position);
+        if marquee.geometry.is_active() {
             self.apply_marquee_selection(cx);
             cx.notify();
         }
@@ -140,11 +121,11 @@ impl Timeline {
         let Some(marquee) = self
             .marquee_selection
             .as_ref()
-            .filter(|marquee| marquee.active)
+            .filter(|marquee| marquee.geometry.is_active())
         else {
             return;
         };
-        let selection_bounds = marquee.bounds();
+        let selection_bounds = marquee.geometry.bounds();
         let mut selected = match &marquee.baseline {
             MarqueeBaseline::Stops(baseline) => {
                 self.apply_stop_marquee(selection_bounds, baseline.clone(), cx);
@@ -197,13 +178,13 @@ impl Timeline {
         let Some(mut marquee) = self.marquee_selection.take() else {
             return false;
         };
-        marquee.update(event.position);
-        if marquee.active {
+        marquee.geometry.update(event.position);
+        if marquee.geometry.is_active() {
             self.marquee_selection = Some(marquee);
             self.apply_marquee_selection(cx);
             self.marquee_selection = None;
         } else if marquee.button == MouseButton::Right {
-            let position = marquee.origin;
+            let position = marquee.geometry.origin();
             if let Some((address, stop)) = marquee.stop {
                 self.open_animation_context_menu(&address, Some(stop), position, window, cx);
             } else {
@@ -224,8 +205,8 @@ impl Timeline {
         let selection = self
             .marquee_selection
             .as_ref()
-            .filter(|marquee| marquee.active)
-            .map(|marquee| marquee.bounds().intersect(&self.track_bounds()))
+            .filter(|marquee| marquee.geometry.is_active())
+            .map(|marquee| marquee.geometry.bounds().intersect(&self.track_bounds()))
             .filter(|bounds| !bounds.is_empty());
         let timeline = cx.entity();
         canvas(

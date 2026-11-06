@@ -3,6 +3,7 @@ use gpui::{App, Entity};
 
 use zerium_core::timeline::TimelineEditor;
 
+pub(crate) mod animation_selection;
 pub(crate) mod components;
 pub(crate) mod dialogs;
 pub(crate) mod panels;

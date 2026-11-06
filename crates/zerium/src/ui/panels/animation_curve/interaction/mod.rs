@@ -148,16 +148,14 @@ impl AnimationCurveEditor {
         let Some(selected) = self.selected_curve(cx) else {
             return;
         };
-        let Some(bounds) = self.graph_bounds else {
+        let Some(geometry) = self.graph_geometry() else {
             return;
         };
-        let plot_left = f32::from(bounds.origin.x) + Self::GRAPH_INSET_LEFT;
-        let plot_width =
-            f32::from(bounds.size.width) - Self::GRAPH_INSET_LEFT - Self::GRAPH_INSET_RIGHT;
+        let plot_width = f32::from(geometry.plot.size.width);
         if plot_width <= 0. {
             return;
         }
-        let requested = ((pointer_x - plot_left) / plot_width).clamp(0., 1.);
+        let requested = geometry.progress_at_x(pointer_x).clamp(0., 1.);
         let requested_time = selected
             .clock
             .key_time_at(selected.clock.frame_at_progress(f64::from(requested)))
@@ -285,10 +283,9 @@ impl AnimationCurveEditor {
     }
 
     pub(super) fn graph_pixels_per_second(&self, duration_seconds: f32) -> f64 {
-        let plot_width = self.graph_bounds.map_or(220., |bounds| {
-            f32::from(bounds.size.width - px(Self::GRAPH_INSET_LEFT + Self::GRAPH_INSET_RIGHT))
-                .max(1.)
-        });
+        let plot_width = self
+            .graph_geometry()
+            .map_or(220., |geometry| f32::from(geometry.plot.size.width).max(1.));
         f64::from(plot_width / duration_seconds.max(f32::EPSILON))
     }
 
@@ -361,17 +358,57 @@ impl AnimationCurveEditor {
         });
     }
 
+    pub(super) fn graph_menu(
+        &self,
+        menu: PopupMenu,
+        position: gpui::Point<Pixels>,
+        cx: &Context<Self>,
+    ) -> PopupMenu {
+        let selected = self.selected_curve(cx);
+        let menu = if let Some(selected) = &selected {
+            self.stop_menu(
+                menu,
+                selected,
+                self.graph_stop_at_position(position, selected),
+                self.time_at_graph_position(position, selected),
+                cx,
+            )
+        } else {
+            menu
+        };
+        self.curve_menu(menu, selected.as_ref(), cx)
+    }
+
+    pub(super) fn overview_menu(
+        &self,
+        menu: PopupMenu,
+        position: gpui::Point<Pixels>,
+        cx: &Context<Self>,
+    ) -> PopupMenu {
+        let menu = menu.action_context(self.focus_handle.clone());
+        let menu = if let Some(selected) = self.selected_curve(cx) {
+            self.stop_menu(
+                menu,
+                &selected,
+                self.overview_stop_at_position(position, &selected),
+                self.time_at_overview_position(position, &selected),
+                cx,
+            )
+        } else {
+            menu
+        };
+        self.animation_timing_menu(menu, cx)
+    }
+
     /// Key editing is always the first group, followed by clipboard commands.
     pub(super) fn stop_menu(
         &self,
         menu: PopupMenu,
+        selected: &SelectedCurve,
         stop: Option<usize>,
         time: Option<TimelineTime>,
         cx: &Context<Self>,
     ) -> PopupMenu {
-        let Some(selected) = self.selected_curve(cx) else {
-            return menu;
-        };
         let target = AnimationActionTarget::new(selected.address.clone(), self.editor.read(cx));
         let view = cx.entity();
         let menu = if let Some(stop) = stop {
@@ -403,17 +440,19 @@ impl AnimationCurveEditor {
         menu.separator()
     }
 
-    pub(super) fn curve_menu(&self, menu: PopupMenu, cx: &Context<Self>) -> PopupMenu {
+    fn curve_menu(
+        &self,
+        menu: PopupMenu,
+        selected: Option<&SelectedCurve>,
+        cx: &Context<Self>,
+    ) -> PopupMenu {
         let action_context = self.focus_handle.clone();
-        let selected = self.selected_curve(cx);
-        let interpolation = selected
-            .as_ref()
-            .map(|selected| selected.curve.interpolation);
+        let interpolation = selected.map(|selected| selected.curve.interpolation);
         let copied = cx
             .try_global::<CopyBuffer>()
             .and_then(|buffer| buffer.curve);
         let paste = copied.and_then(|interpolation| {
-            let selected = selected.as_ref()?;
+            let selected = selected?;
             let editor = self.editor.read(cx);
             editor.property_schema(&selected.address)?;
             Some((

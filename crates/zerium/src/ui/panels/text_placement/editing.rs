@@ -136,7 +136,7 @@ impl TextPlacement {
 
     pub(crate) fn stamp(&mut self, cx: &mut Context<Self>) {
         let rows = self.rows(cx);
-        let Some(target) = self.current_stamp(&rows, cx) else {
+        let Some(target) = self.current_stamp(&rows) else {
             return;
         };
         let Some(index) = rows

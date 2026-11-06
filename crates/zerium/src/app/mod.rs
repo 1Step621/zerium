@@ -192,10 +192,7 @@ pub(crate) fn run(initial_project: Option<PathBuf>) {
                         )
                     });
                     let animation_selection = cx.new(|cx| {
-                        crate::ui::panels::animation_curve::AnimationSelection::new(
-                            editor.clone(),
-                            cx,
-                        )
+                        crate::ui::animation_selection::AnimationSelection::new(editor.clone(), cx)
                     });
                     let timeline = cx.new(|cx| {
                         crate::ui::panels::timeline::Timeline::new(

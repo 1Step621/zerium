@@ -187,3 +187,16 @@ pub(in crate::ui) fn color_to_hsla(color: [f32; 4]) -> Hsla {
     }
     .into()
 }
+
+/// Decode picker events once at the input boundary; editors only apply the value.
+pub(in crate::ui) fn color_input_value(
+    event: &::ui::color_picker::ColorPickerEvent,
+) -> Option<zerium_core::property::PropertyValue> {
+    let ::ui::color_picker::ColorPickerEvent::Change(Some(color)) = event else {
+        return None;
+    };
+    let color = gpui::Rgba::from(*color);
+    Some(zerium_core::property::PropertyValue::Color([
+        color.r, color.g, color.b, color.a,
+    ]))
+}

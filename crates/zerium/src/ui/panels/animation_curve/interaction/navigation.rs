@@ -4,30 +4,18 @@ impl AnimationCurveEditor {
     pub(in crate::ui::panels::animation_curve) fn graph_stop_at_position(
         &self,
         position: gpui::Point<Pixels>,
-        cx: &App,
+        selected: &SelectedCurve,
     ) -> Option<usize> {
         const HIT_RADIUS: f32 = 10.;
-        let bounds = self.graph_bounds?;
-        let selected = self.selected_curve(cx)?;
-        let plot_width =
-            f32::from(bounds.size.width) - Self::GRAPH_INSET_LEFT - Self::GRAPH_INSET_RIGHT;
-        let plot_height =
-            f32::from(bounds.size.height) - Self::GRAPH_INSET_TOP - Self::GRAPH_INSET_BOTTOM;
-        let pointer = [
-            f32::from(position.x - bounds.origin.x),
-            f32::from(position.y - bounds.origin.y),
-        ];
+        let geometry = self.graph_geometry()?;
         selected
             .curve
             .endpoints
             .iter()
             .enumerate()
             .find_map(|(index, stop)| {
-                let point = [
-                    Self::GRAPH_INSET_LEFT + plot_width * stop[0],
-                    Self::GRAPH_INSET_TOP + plot_height * (1. - stop[1]),
-                ];
-                ((pointer[0] - point[0]).hypot(pointer[1] - point[1]) <= HIT_RADIUS)
+                let distance = position - geometry.position(*stop);
+                (distance.magnitude() <= f64::from(HIT_RADIUS))
                     .then_some(selected.source_segment + index)
             })
     }
@@ -35,14 +23,10 @@ impl AnimationCurveEditor {
     pub(in crate::ui::panels::animation_curve) fn overview_stop_at_position(
         &self,
         position: gpui::Point<Pixels>,
-        cx: &App,
+        selected: &SelectedCurve,
     ) -> Option<usize> {
-        let bounds = self.graph_bounds?;
-        let selected = self.selected_curve(cx)?;
-        let plot_left = f32::from(bounds.origin.x) + Self::GRAPH_INSET_LEFT;
-        let plot_width =
-            f32::from(bounds.size.width) - Self::GRAPH_INSET_LEFT - Self::GRAPH_INSET_RIGHT;
-        if plot_width <= 0. {
+        let geometry = self.graph_geometry()?;
+        if geometry.plot.size.width <= px(0.) {
             return None;
         }
         let pointer_x = f32::from(position.x);
@@ -50,7 +34,7 @@ impl AnimationCurveEditor {
             .stop_positions()
             .enumerate()
             .map(|(index, progress)| {
-                let stop_x = plot_left + plot_width * progress.clamp(0., 1.);
+                let stop_x = f32::from(geometry.position([progress.clamp(0., 1.), 0.]).x);
                 (index, (pointer_x - stop_x).abs())
             })
             .filter(|(_, distance)| *distance <= Self::OVERVIEW_STOP_HANDLE_WIDTH * 0.5)
@@ -62,17 +46,7 @@ impl AnimationCurveEditor {
         &self,
         position: gpui::Point<Pixels>,
     ) -> Option<[f32; 2]> {
-        let bounds = self.graph_bounds?;
-        let width =
-            f32::from(bounds.size.width - px(Self::GRAPH_INSET_LEFT + Self::GRAPH_INSET_RIGHT))
-                .max(1.);
-        let height =
-            f32::from(bounds.size.height - px(Self::GRAPH_INSET_TOP + Self::GRAPH_INSET_BOTTOM))
-                .max(1.);
-        Some([
-            (f32::from(position.x - bounds.origin.x) - Self::GRAPH_INSET_LEFT) / width,
-            1. - (f32::from(position.y - bounds.origin.y) - Self::GRAPH_INSET_TOP) / height,
-        ])
+        Some(self.graph_geometry()?.normalized(position))
     }
 
     pub(in crate::ui::panels::animation_curve) fn focus_source_segment(
@@ -93,15 +67,10 @@ impl AnimationCurveEditor {
             return;
         };
         self.selection.update(cx, |selection, cx| {
-            selection.focus_segment(
-                selected.address,
-                segment,
-                frame,
-                &self.editor,
-                &self.transport,
-                cx,
-            );
+            selection.focus_segment(selected.address, segment, &self.editor, cx);
         });
+        self.transport
+            .update(cx, |transport, cx| transport.set_playhead(frame, cx));
     }
 
     /// Seek on press; while playing, suspend playback until release.
@@ -202,10 +171,9 @@ impl AnimationCurveEditor {
     pub(in crate::ui::panels::animation_curve) fn time_at_graph_position(
         &self,
         position: gpui::Point<Pixels>,
-        cx: &App,
+        selected: &SelectedCurve,
     ) -> Option<TimelineTime> {
         let progress = self.graph_screen_position(position)?[0].clamp(0., 1.);
-        let selected = self.selected_curve(cx)?;
         Some(
             selected
                 .clock
@@ -216,10 +184,9 @@ impl AnimationCurveEditor {
     pub(in crate::ui::panels::animation_curve) fn time_at_overview_position(
         &self,
         position: gpui::Point<Pixels>,
-        cx: &App,
+        selected: &SelectedCurve,
     ) -> Option<TimelineTime> {
         let progress = self.graph_screen_position(position)?[0].clamp(0., 1.);
-        let selected = self.selected_curve(cx)?;
         let frame = selected.clock.frame_at_progress(f64::from(progress));
         Some(selected.clock.key_time_at(frame))
     }

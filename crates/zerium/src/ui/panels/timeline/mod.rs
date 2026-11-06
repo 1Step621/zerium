@@ -36,7 +36,7 @@ use rows::{TimelineRow, TimelineRows};
 use std::{collections::HashSet, rc::Rc};
 use zerium_core::timeline::{ItemId, LayerId, TimelineEditor};
 
-use super::animation_curve::AnimationSelection;
+use crate::ui::animation_selection::AnimationSelection;
 
 const LAYER_HEADER_WIDTH: f32 = 200.;
 const LAYER_HEIGHT: f32 = 30.;

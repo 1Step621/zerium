@@ -17,7 +17,7 @@ impl TextPlacement {
 
     pub(crate) fn can_stamp(&self, cx: &App) -> bool {
         matches!(
-            self.current_stamp(&self.rows(cx), cx),
+            self.current_stamp(&self.rows(cx)),
             Some(StampTarget::Start(_) | StampTarget::End(_))
         )
     }
@@ -68,6 +68,7 @@ impl TextPlacement {
                     .next()
                     .is_some();
                 Some(Row {
+                    selected: editor.is_item_selected(item.id),
                     address,
                     start: item.start(),
                     end: item.end_exclusive(editor.frame_rate()),
@@ -160,10 +161,10 @@ impl TextPlacement {
         cx.notify();
     }
 
-    pub(super) fn current_stamp(&self, rows: &[Row], cx: &App) -> Option<StampTarget> {
+    pub(super) fn current_stamp(&self, rows: &[Row]) -> Option<StampTarget> {
         let selected = rows
             .iter()
-            .find(|row| self.editor.read(cx).is_item_selected(row.address.item_id))
+            .find(|row| row.selected)
             .or_else(|| rows.first())?;
         match self.stamp_target {
             Some(target) if target.item() == selected.address.item_id => Some(target),

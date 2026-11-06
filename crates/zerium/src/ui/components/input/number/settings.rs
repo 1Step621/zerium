@@ -5,7 +5,7 @@ use super::{
 use crate::ui::components::input::set_input_text;
 use ::ui::{
     Sizable as _,
-    input::{InputState, NumberInput, NumberInputEvent, StepAction},
+    input::{InputState, NumberInput, NumberInputEvent},
 };
 use gpui::{
     App, Context, DragMoveEvent, Entity, MouseButton, Render, SharedString, Subscription, Window,
@@ -40,13 +40,7 @@ impl SettingsNumberInput {
                 let Some(value) = this.number.parse_number(&input.read(cx).value()) else {
                     return;
                 };
-                let NumberInputEvent::Step { action, fine } = event;
-                let step = this.number.step(this.step * if *fine { 0.1 } else { 1. });
-                let delta = if *action == StepAction::Increment {
-                    step
-                } else {
-                    -step
-                };
+                let delta = this.number.step_delta(this.number.step(this.step), event);
                 this.set_number(value + delta, window, cx);
             },
         );

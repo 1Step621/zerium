@@ -11,7 +11,7 @@ use crate::ui::{
     },
     panels::animation_curve::{format_number, *},
 };
-use ::ui::input::{InputState, NumberInput, NumberInputEvent, StepAction};
+use ::ui::input::{InputState, NumberInput};
 use gpui::{Div, Stateful};
 use rust_i18n::t;
 
@@ -145,17 +145,12 @@ impl AnimationCurveEditor {
                     NumberEdit::Value(value) => {
                         this.set_repeat_number(&address, parameter, value, cx)
                     }
-                    NumberEdit::Step(NumberInputEvent::Step { action, fine }) => {
+                    NumberEdit::Step(event) => {
                         let Some(repeat) = this.repeat_for(&address, cx) else {
                             return;
                         };
-                        let step = if *fine { 0.1 } else { 1. };
-                        let value = parameter.value(repeat)
-                            + if *action == StepAction::Increment {
-                                step
-                            } else {
-                                -step
-                            };
+                        let value =
+                            parameter.value(repeat) + NumericInput::F32.step_delta(1., event);
                         this.set_repeat_number(&address, parameter, value, cx);
                     }
                     NumberEdit::Commit => {

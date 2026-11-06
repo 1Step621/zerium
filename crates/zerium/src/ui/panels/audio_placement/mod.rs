@@ -23,6 +23,7 @@ use crate::{
 };
 
 struct Row {
+    selected: bool,
     id: ItemId,
     start: Frame,
     end: Frame,
@@ -146,6 +147,7 @@ impl AudioPlacement {
                 };
                 let value = editor.property_value(&address)?;
                 Some(Row {
+                    selected: editor.is_item_selected(item.id),
                     id: item.id,
                     start: item.start(),
                     end: item.end_exclusive(editor.frame_rate()),
@@ -157,10 +159,10 @@ impl AudioPlacement {
         rows
     }
 
-    fn current_stamp(&self, rows: &[Row], cx: &App) -> Option<StampTarget> {
+    fn current_stamp(&self, rows: &[Row]) -> Option<StampTarget> {
         let selected = rows
             .iter()
-            .find(|row| self.editor.read(cx).is_item_selected(row.id))
+            .find(|row| row.selected)
             .or_else(|| rows.first())?;
         match self.stamp_target {
             Some(target) if target.item() == selected.id => Some(target),
@@ -170,7 +172,7 @@ impl AudioPlacement {
 
     pub(crate) fn can_stamp(&self, cx: &App) -> bool {
         matches!(
-            self.current_stamp(&self.rows(cx), cx),
+            self.current_stamp(&self.rows(cx)),
             Some(StampTarget::Start(_))
         )
     }
@@ -190,7 +192,7 @@ impl AudioPlacement {
 
     pub(crate) fn stamp(&mut self, cx: &mut Context<Self>) {
         let rows = self.rows(cx);
-        let Some(StampTarget::Start(id)) = self.current_stamp(&rows, cx) else {
+        let Some(StampTarget::Start(id)) = self.current_stamp(&rows) else {
             return;
         };
         let index = rows.iter().position(|row| row.id == id).expect("stamp row");

@@ -201,12 +201,8 @@ impl PreviewControl {
         bounds: Bounds<Pixels>,
         resolution: ProjectResolution,
     ) -> Point<Pixels> {
-        point(
-            bounds.origin.x
-                + bounds.size.width * (self.position[0] / resolution.width() as f32 + 0.5),
-            bounds.origin.y
-                + bounds.size.height * (self.position[1] / resolution.height() as f32 + 0.5),
-        )
+        let [x, y] = normalized_position(self.position, resolution);
+        bounds.origin + point(bounds.size.width * x, bounds.size.height * y)
     }
 
     fn at_pointer(
@@ -287,3 +283,11 @@ pub(in crate::ui::panels::preview) struct PreviewEditorDrag {
 mod editing;
 mod model;
 mod render;
+
+/// Scene coordinates are centered; overlay positions use the preview's unit square.
+fn normalized_position(position: [f32; 2], resolution: ProjectResolution) -> [f32; 2] {
+    [
+        position[0] / resolution.width() as f32 + 0.5,
+        position[1] / resolution.height() as f32 + 0.5,
+    ]
+}

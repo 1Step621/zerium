@@ -1,42 +1,15 @@
 use std::{collections::HashSet, path::PathBuf};
 
 use ::ui::ThemeColor;
-use gpui::{
-    Bounds, Context, Div, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Pixels, Window, div, point,
-    prelude::*, px,
-};
+use gpui::{Context, Div, MouseDownEvent, MouseMoveEvent, MouseUpEvent, Window, div, prelude::*};
 
 use super::Explorer;
+use crate::ui::components::selection::SelectionMarquee;
 
 #[derive(Clone, Debug)]
 pub(super) struct ExplorerMarquee {
-    origin: [f32; 2],
-    current: [f32; 2],
+    geometry: SelectionMarquee,
     baseline: HashSet<PathBuf>,
-    active: bool,
-}
-
-impl ExplorerMarquee {
-    const ACTIVATION_DISTANCE: f32 = 4.;
-
-    fn update(&mut self, position: gpui::Point<Pixels>) {
-        self.current = [f32::from(position.x), f32::from(position.y)];
-        self.active |= (self.current[0] - self.origin[0]).hypot(self.current[1] - self.origin[1])
-            >= Self::ACTIVATION_DISTANCE;
-    }
-
-    fn bounds(&self) -> Bounds<Pixels> {
-        Bounds::from_corners(
-            point(
-                px(self.origin[0].min(self.current[0])),
-                px(self.origin[1].min(self.current[1])),
-            ),
-            point(
-                px(self.origin[0].max(self.current[0])),
-                px(self.origin[1].max(self.current[1])),
-            ),
-        )
-    }
 }
 
 impl Explorer {
@@ -72,12 +45,9 @@ impl Explorer {
             self.selected_paths.clear();
             HashSet::new()
         };
-        let position = [f32::from(event.position.x), f32::from(event.position.y)];
         self.marquee = Some(ExplorerMarquee {
-            origin: position,
-            current: position,
+            geometry: SelectionMarquee::new(event.position),
             baseline,
-            active: false,
         });
         cx.notify();
     }
@@ -88,14 +58,14 @@ impl Explorer {
         _: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        if !event.dragging() || self.marquee.is_none() {
+        if !event.dragging() {
             return;
         }
-        self.marquee
-            .as_mut()
-            .expect("explorer marquee was checked above")
-            .update(event.position);
-        if !self.marquee.as_ref().is_some_and(|marquee| marquee.active) {
+        let Some(marquee) = &mut self.marquee else {
+            return;
+        };
+        marquee.geometry.update(event.position);
+        if !marquee.geometry.is_active() {
             return;
         }
         self.apply_marquee();
@@ -103,10 +73,14 @@ impl Explorer {
     }
 
     fn apply_marquee(&mut self) {
-        let Some(marquee) = self.marquee.as_ref().filter(|marquee| marquee.active) else {
+        let Some(marquee) = self
+            .marquee
+            .as_ref()
+            .filter(|marquee| marquee.geometry.is_active())
+        else {
             return;
         };
-        let selection_bounds = marquee.bounds();
+        let selection_bounds = marquee.geometry.bounds();
         let viewport = self.scroll_handle.bounds();
         let scroll_offset = self.scroll_handle.offset();
         let mut selected = marquee.baseline.clone();
@@ -127,8 +101,8 @@ impl Explorer {
         let Some(mut marquee) = self.marquee.take() else {
             return;
         };
-        marquee.update(event.position);
-        if marquee.active {
+        marquee.geometry.update(event.position);
+        if marquee.geometry.is_active() {
             self.marquee = Some(marquee);
             self.apply_marquee();
             self.marquee = None;
@@ -137,9 +111,12 @@ impl Explorer {
     }
 
     pub(super) fn marquee_overlay(&self, colors: ThemeColor) -> Option<Div> {
-        let marquee = self.marquee.as_ref().filter(|marquee| marquee.active)?;
+        let marquee = self
+            .marquee
+            .as_ref()
+            .filter(|marquee| marquee.geometry.is_active())?;
         let viewport = self.scroll_handle.bounds();
-        let bounds = marquee.bounds().intersect(&viewport);
+        let bounds = marquee.geometry.bounds().intersect(&viewport);
         if bounds.is_empty() {
             return None;
         }

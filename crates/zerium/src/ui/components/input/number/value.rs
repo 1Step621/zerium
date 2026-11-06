@@ -44,14 +44,7 @@ impl NumericInputSpec {
         if let Some(step) = self.drag_step {
             return step;
         }
-        let range = self.max - self.min;
-        if range == 0. {
-            return 0.;
-        }
-        if !range.is_finite() || range < 0. {
-            return self.step;
-        }
-        (range / 200.).clamp(self.step * 0.1, self.step * 2.)
+        range_drag_sensitivity(self.min, self.max, self.step)
     }
 
     pub(in crate::ui) fn parse_number(&self, text: &str) -> Option<f64> {
@@ -59,21 +52,7 @@ impl NumericInputSpec {
     }
 
     pub(in crate::ui) fn stepped_value(&self, value: f64, event: &NumberInputEvent) -> f64 {
-        let NumberInputEvent::Step { action, fine } = event;
-        let step = self.adjustment_step(*fine);
-        let delta = match action {
-            StepAction::Increment => step,
-            StepAction::Decrement => -step,
-        };
-        (value + delta).clamp(self.min, self.max)
-    }
-
-    pub(in crate::ui) fn adjustment_step(&self, fine: bool) -> f64 {
-        let step = self.step * if fine { 0.1 } else { 1. };
-        match self.number {
-            NumericInput::I32 | NumericInput::U32 => step.max(1.),
-            NumericInput::F32 => step,
-        }
+        (value + self.number.step_delta(self.step, event)).clamp(self.min, self.max)
     }
 }
 
@@ -112,6 +91,19 @@ pub(in crate::ui) enum NumericInput {
 }
 
 impl NumericInput {
+    pub(in crate::ui) fn step_delta(&self, step: f64, event: &NumberInputEvent) -> f64 {
+        let NumberInputEvent::Step { action, fine } = event;
+        let step = step * if *fine { 0.1 } else { 1. };
+        let step = match self {
+            Self::F32 => step,
+            Self::I32 | Self::U32 => step.max(1.),
+        };
+        match action {
+            StepAction::Increment => step,
+            StepAction::Decrement => -step,
+        }
+    }
+
     pub(in crate::ui) fn from_scalar(scalar: &ScalarPropertyType) -> Option<Self> {
         match scalar {
             ScalarPropertyType::F32 => Some(Self::F32),
@@ -173,5 +165,17 @@ impl NumericInput {
                     .flatten()
             }
         }
+    }
+}
+
+/// Keep range-based drags responsive without making large ranges jump too far.
+pub(in crate::ui) fn range_drag_sensitivity(min: f64, max: f64, step: f64) -> f64 {
+    let range = max - min;
+    if range == 0. {
+        0.
+    } else if !range.is_finite() || range < 0. {
+        step
+    } else {
+        (range / 200.).clamp(step * 0.1, step * 2.)
     }
 }

@@ -16,18 +16,11 @@ use crate::ui::components::input::file::import::FileImport;
 
 #[derive(Clone)]
 pub(crate) struct ExplorerFileDrag {
-    files: Rc<Vec<FileImport>>,
+    files: Rc<[FileImport]>,
     label: SharedString,
 }
 
 impl ExplorerFileDrag {
-    fn new(files: Vec<FileImport>, label: SharedString) -> Self {
-        Self {
-            files: Rc::new(files),
-            label,
-        }
-    }
-
     pub(crate) fn files(&self) -> &[FileImport] {
         &self.files
     }
@@ -152,7 +145,7 @@ impl Render for Explorer {
         let colors = cx.theme().colors;
         let entries = self.entries.clone();
         let selected_paths = self.selected_paths.clone();
-        let selected_files = Rc::new(self.selected_drag_files());
+        let selected_files: Rc<[FileImport]> = self.selected_drag_files().into();
         let error = self.error.clone();
         let directory = self.current_directory.clone();
         div()
@@ -230,7 +223,7 @@ impl Render for Explorer {
 fn entry_row(
     entry: ExplorerEntry,
     selected: bool,
-    selected_files: Rc<Vec<FileImport>>,
+    selected_files: Rc<[FileImport]>,
     colors: ThemeColor,
     cx: &mut Context<Explorer>,
 ) -> Stateful<Div> {
@@ -302,16 +295,16 @@ fn entry_row(
                 target,
             };
             let files = if selected {
-                selected_files.as_ref().clone()
+                selected_files
             } else {
-                vec![file]
+                Rc::from([file])
             };
             let label = if files.len() == 1 {
                 drag_label
             } else {
                 SharedString::from(t!("explorer.drag_count", count = files.len()).to_string())
             };
-            let drag = ExplorerFileDrag::new(files, label);
+            let drag = ExplorerFileDrag { files, label };
             row.cursor_grab()
                 .on_drag(drag, |drag, _, _, cx| cx.new(|_| drag.clone()))
         })

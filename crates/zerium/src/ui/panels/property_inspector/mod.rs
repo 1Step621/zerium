@@ -41,11 +41,11 @@ use ::ui::{
 };
 use gpui::{
     App, Context, CursorStyle, DismissEvent, Div, DragMoveEvent, Entity, FocusHandle,
-    Focusable as _, MouseButton, Render, Rgba, ScrollHandle, SharedString, Subscription, Window,
-    div, prelude::*, px,
+    Focusable as _, MouseButton, Render, ScrollHandle, SharedString, Subscription, Window, div,
+    prelude::*, px,
 };
 
-use super::animation_curve::AnimationSelection;
+use crate::ui::animation_selection::AnimationSelection;
 use zerium_core::{
     property::{PropertyElementId, PropertySchema, PropertyValue, ScalarPropertyType, ValueSchema},
     timeline::{

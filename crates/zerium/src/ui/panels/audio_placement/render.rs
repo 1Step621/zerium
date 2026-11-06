@@ -12,7 +12,7 @@ use super::*;
 impl Render for AudioPlacement {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let rows = self.rows(cx);
-        let stamp = self.current_stamp(&rows, cx);
+        let stamp = self.current_stamp(&rows);
         let colors = cx.theme().colors;
         div()
             .id("audio-placement")
@@ -52,7 +52,7 @@ impl Render for AudioPlacement {
                         .track_scroll(&self.scroll)
                         .children(rows.iter().enumerate().map(|(index, row)| {
                             let id = row.id;
-                            let selected = self.editor.read(cx).is_item_selected(id);
+                            let selected = row.selected;
                             let starting = stamp == Some(StampTarget::Start(id));
                             let name = row
                                 .path

@@ -10,7 +10,7 @@ use crate::ui::{
     },
     panels::animation_curve::*,
 };
-use ::ui::input::{InputState, NumberInput, NumberInputEvent, StepAction};
+use ::ui::input::{InputState, NumberInput};
 use rust_i18n::t;
 use std::num::NonZeroU32;
 
@@ -142,16 +142,11 @@ impl AnimationCurveEditor {
                 NumberEdit::Value(value) => {
                     this.set_step_count(input, value, cx);
                 }
-                NumberEdit::Step(NumberInputEvent::Step { action, .. }) => {
+                NumberEdit::Step(event) => {
                     let Some(count) = this.step_count_for_input(input, cx) else {
                         return;
                     };
-                    let delta = if *action == StepAction::Increment {
-                        1.
-                    } else {
-                        -1.
-                    };
-                    let value = f64::from(count.get()) + delta;
+                    let value = f64::from(count.get()) + NumericInput::U32.step_delta(1., event);
                     this.set_step_count(input, value, cx);
                     this.sync_step_text(input, window, cx);
                 }

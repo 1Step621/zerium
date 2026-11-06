@@ -159,10 +159,11 @@ impl Preview {
                 this.child(size_overlay(bounds, resolution, color))
             })
             .children(overlay.points.into_iter().map(|point| {
+                let [x, y] = normalized_position(point, resolution);
                 div()
                     .absolute()
-                    .left(relative(point[0] / resolution.width() as f32 + 0.5))
-                    .top(relative(point[1] / resolution.height() as f32 + 0.5))
+                    .left(relative(x))
+                    .top(relative(y))
                     .ml(px(-2.5))
                     .mt(px(-2.5))
                     .size(px(5.))
@@ -178,17 +179,16 @@ fn size_overlay(
     resolution: zerium_core::timeline::ProjectResolution,
     color: Hsla,
 ) -> impl IntoElement {
-    let resolution = [resolution.width() as f32, resolution.height() as f32];
+    let [x, y] = normalized_position(
+        [0, 1].map(|axis| bounds.center[axis] - bounds.size[axis] * 0.5),
+        resolution,
+    );
     div()
         .absolute()
-        .left(relative(
-            (bounds.center[0] - bounds.size[0] * 0.5) / resolution[0] + 0.5,
-        ))
-        .top(relative(
-            (bounds.center[1] - bounds.size[1] * 0.5) / resolution[1] + 0.5,
-        ))
-        .w(relative(bounds.size[0] / resolution[0]))
-        .h(relative(bounds.size[1] / resolution[1]))
+        .left(relative(x))
+        .top(relative(y))
+        .w(relative(bounds.size[0] / resolution.width() as f32))
+        .h(relative(bounds.size[1] / resolution.height() as f32))
         .border_1()
         .border_color(color.opacity(0.6))
 }
@@ -198,16 +198,19 @@ fn path_overlay(
     resolution: zerium_core::timeline::ProjectResolution,
     color: Hsla,
 ) -> impl IntoElement {
+    let positions = positions
+        .into_iter()
+        .map(|position| normalized_position(position, resolution))
+        .collect::<Vec<_>>();
     canvas(
-        move |_, _, _| positions.clone(),
-        move |bounds, positions, window, _| {
+        |_, _, _| (),
+        move |bounds, _, window, _| {
             let to_point = |position: [f32; 2]| {
-                point(
-                    bounds.origin.x
-                        + bounds.size.width * (position[0] / resolution.width() as f32 + 0.5),
-                    bounds.origin.y
-                        + bounds.size.height * (position[1] / resolution.height() as f32 + 0.5),
-                )
+                bounds.origin
+                    + point(
+                        bounds.size.width * position[0],
+                        bounds.size.height * position[1],
+                    )
             };
             let mut builder = PathBuilder::stroke(px(1.5));
             let mut positions = positions.iter().copied();

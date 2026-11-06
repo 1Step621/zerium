@@ -111,13 +111,6 @@ impl<T> SearchPickerEntry<T> {
                     .chain(schema.tags().iter().map(String::as_str)),
             )
     }
-
-    fn matches(&self, query: &str) -> bool {
-        query
-            .split_whitespace()
-            .map(str::to_lowercase)
-            .all(|token| self.searchable_text.contains(&token))
-    }
 }
 
 struct SearchPickerSection {
@@ -133,11 +126,7 @@ struct SearchPickerDelegate<T> {
 
 impl<T> SearchPickerDelegate<T> {
     fn new(mut entries: Vec<SearchPickerEntry<T>>) -> Self {
-        entries.sort_by(|left, right| {
-            left.category
-                .cmp(&right.category)
-                .then_with(|| left.label.to_lowercase().cmp(&right.label.to_lowercase()))
-        });
+        entries.sort_by_cached_key(|entry| (entry.category.clone(), entry.label.to_lowercase()));
         let visible_sections = Self::matching_sections(&entries, "");
         Self {
             entries,
@@ -150,12 +139,16 @@ impl<T> SearchPickerDelegate<T> {
         entries: &[SearchPickerEntry<T>],
         query: &str,
     ) -> Vec<SearchPickerSection> {
+        let tokens = query
+            .split_whitespace()
+            .map(str::to_lowercase)
+            .collect::<Vec<_>>();
         let mut sections = Vec::<SearchPickerSection>::new();
-        for (index, entry) in entries
-            .iter()
-            .enumerate()
-            .filter(|(_, entry)| entry.matches(query))
-        {
+        for (index, entry) in entries.iter().enumerate().filter(|(_, entry)| {
+            tokens
+                .iter()
+                .all(|token| entry.searchable_text.contains(token))
+        }) {
             if sections
                 .last()
                 .is_none_or(|section| section.category != entry.category)

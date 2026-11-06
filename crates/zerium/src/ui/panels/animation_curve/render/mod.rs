@@ -163,6 +163,9 @@ impl Render for AnimationCurveEditor {
                         .flex()
                         .items_center()
                         .justify_center()
+                        .when(!fixed, |stop| {
+                            stop.cursor(gpui::CursorStyle::ResizeLeftRight)
+                        })
                         .child(animation_stop_marker(
                             fixed,
                             dragging_stop == Some(source_stop),
@@ -483,15 +486,7 @@ impl Render for AnimationCurveEditor {
         let context_menu_editor = curve_editor.clone();
         let graph = graph.context_menu(move |menu, window, cx| {
             let position = window.mouse_position();
-            context_menu_editor.update(cx, |view, cx| {
-                let menu = view.stop_menu(
-                    menu,
-                    view.graph_stop_at_position(position, cx),
-                    view.time_at_graph_position(position, cx),
-                    cx,
-                );
-                view.curve_menu(menu, cx)
-            })
+            context_menu_editor.update(cx, |view, cx| view.graph_menu(menu, position, cx))
         });
         let overview_drag_editor = curve_editor.clone();
         let overview_context_menu_editor = curve_editor.clone();
@@ -572,18 +567,19 @@ impl Render for AnimationCurveEditor {
                                             .hover(move |style| style.bg(fill.lighten(0.12)))
                                             .active(move |style| style.bg(fill.darken(0.12)))
                                             .cursor_pointer()
-                                            .on_click(move |event, _, cx| {
-                                                if event.standard_click() {
+                                            .on_mouse_down(
+                                                MouseButton::Left,
+                                                move |event, _, cx| {
                                                     cx.stop_propagation();
                                                     segment_editor.update(cx, |editor, cx| {
                                                         editor.focus_source_segment(
                                                             segment,
-                                                            event.position(),
+                                                            event.position,
                                                             cx,
                                                         );
                                                     });
-                                                }
-                                            })
+                                                },
+                                            )
                                     },
                                 )
                             })
@@ -626,7 +622,7 @@ impl Render for AnimationCurveEditor {
                                     .items_center()
                                     .justify_center()
                                     .rounded_sm()
-                                    .cursor_col_resize()
+                                    .cursor(gpui::CursorStyle::ResizeLeftRight)
                                     .when(dragging_stop == Some(stop), |style| {
                                         style.bg(color.opacity(0.12))
                                     })
@@ -658,16 +654,8 @@ impl Render for AnimationCurveEditor {
                     }))
                     .context_menu(move |menu, window, cx| {
                         let position = window.mouse_position();
-                        overview_context_menu_editor.update(cx, |view, cx| {
-                            let menu = menu.action_context(view.focus_handle.clone());
-                            let menu = view.stop_menu(
-                                menu,
-                                view.overview_stop_at_position(position, cx),
-                                view.time_at_overview_position(position, cx),
-                                cx,
-                            );
-                            view.animation_timing_menu(menu, cx)
-                        })
+                        overview_context_menu_editor
+                            .update(cx, |view, cx| view.overview_menu(menu, position, cx))
                     }),
             );
         let graph = graph.child(graph_controls);

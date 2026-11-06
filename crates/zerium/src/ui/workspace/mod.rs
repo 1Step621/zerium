@@ -52,7 +52,7 @@ pub(crate) struct Workspace {
         gpui::Entity<crate::ui::panels::animation_curve::AnimationCurveEditor>,
     pub(crate) animation_curve_layout: gpui::Entity<ResizableState>,
     pub(crate) animation_selection:
-        gpui::Entity<crate::ui::panels::animation_curve::AnimationSelection>,
+        gpui::Entity<crate::ui::animation_selection::AnimationSelection>,
     pub(crate) project_controller: gpui::Entity<crate::app::project::ProjectController>,
     pub(crate) export_controller: gpui::Entity<crate::ui::dialogs::export::ExportController>,
     pub(crate) notifications: gpui::Entity<crate::ui::workspace::notifications::UiNotifications>,

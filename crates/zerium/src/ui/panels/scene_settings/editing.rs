@@ -1,4 +1,5 @@
 use super::*;
+use crate::ui::components::input::number::value::range_drag_sensitivity;
 use crate::ui::{TimelineEditorEntityExt as _, components::input::set_input_text};
 
 pub(super) struct NumericArgument {
@@ -8,6 +9,39 @@ pub(super) struct NumericArgument {
 }
 
 impl SceneSettings {
+    pub(in crate::ui::panels::scene_settings) fn edit_calculation_inputs(
+        &mut self,
+        id: &str,
+        edit: impl FnOnce(&mut Vec<SceneCalculationInput>),
+        cx: &mut Context<Self>,
+    ) -> bool {
+        let Some(mut inputs) = self
+            .editor
+            .read(cx)
+            .active_scene()
+            .variable(id)
+            .and_then(|variable| variable.calculation())
+            .map(|calculation| calculation.inputs.clone())
+        else {
+            return false;
+        };
+        edit(&mut inputs);
+        let result = self.editor.update(cx, |editor, cx| {
+            let result = editor.update_scene_calculation_inputs(id, inputs);
+            if result == Ok(true) {
+                cx.notify();
+            }
+            result
+        });
+        if let Err(error) = result {
+            self.notifications.update(cx, |notifications, cx| {
+                notifications.push(t!("calc.edit_failed", error = error).to_string(), cx);
+            });
+            return false;
+        }
+        true
+    }
+
     pub(super) fn apply_text_input(
         &mut self,
         key: &ControlId,
@@ -156,14 +190,7 @@ impl SceneSettings {
         let Some(mut argument) = self.read_numeric_argument(scene_id, argument_id, cx) else {
             return;
         };
-        let NumberInputEvent::Step { action, fine } = event;
-        let step = argument.number.step(if *fine { 0.1 } else { 1. });
-        let delta = if *action == StepAction::Increment {
-            step
-        } else {
-            -step
-        };
-        let value = argument.values.value(setting) + delta;
+        let value = argument.values.value(setting) + argument.number.step_delta(1., event);
         argument.values.set(setting, value);
         self.commit_numeric_argument(argument_id, argument, setting, window, cx);
     }
@@ -210,7 +237,8 @@ impl SceneSettings {
                 start_x: f32::from(event.position.x),
                 start_value: argument.values.value(setting),
                 step,
-                sensitivity: ((max - min) / 200.).clamp(step * 0.1, step * 2.),
+                // Bounds themselves remain draggable when the range is zero.
+                sensitivity: range_drag_sensitivity(min, max, step).max(step * 0.1),
             },
         }));
     }

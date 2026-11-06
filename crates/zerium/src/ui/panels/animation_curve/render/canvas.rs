@@ -23,22 +23,9 @@ pub(in crate::ui::panels::animation_curve) fn graph_canvas(
             }
         },
         move |bounds, state, window, _| {
-            let origin = point(
-                bounds.origin.x + px(AnimationCurveEditor::GRAPH_INSET_LEFT),
-                bounds.origin.y + px(AnimationCurveEditor::GRAPH_INSET_TOP),
-            );
-            let width = bounds.size.width
-                - px(AnimationCurveEditor::GRAPH_INSET_LEFT
-                    + AnimationCurveEditor::GRAPH_INSET_RIGHT);
-            let height = bounds.size.height
-                - px(AnimationCurveEditor::GRAPH_INSET_TOP
-                    + AnimationCurveEditor::GRAPH_INSET_BOTTOM);
-            let to_point = |position: [f32; 2]| {
-                point(
-                    origin.x + width * position[0],
-                    origin.y + height * (1. - position[1]),
-                )
-            };
+            let geometry = GraphGeometry::new(bounds);
+            let width = geometry.plot.size.width;
+            let to_point = |position| geometry.position(position);
             let scale = window.scale_factor();
             let pixel = px(1. / scale);
             let to_grid_point = |position| {
@@ -51,7 +38,7 @@ pub(in crate::ui::panels::animation_curve) fn graph_canvas(
 
             window.with_content_mask(
                 Some(gpui::ContentMask {
-                    bounds: Bounds::new(origin, gpui::size(width.max(px(0.)), height.max(px(0.)))),
+                    bounds: geometry.plot,
                 }),
                 |window| {
                     let mut minor_grid_path = PathBuilder::stroke(pixel);

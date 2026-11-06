@@ -1,3 +1,4 @@
+use crate::ui::components::input::color_input_value;
 use rust_i18n::t;
 
 use super::*;
@@ -235,15 +236,9 @@ impl PropertyInspector {
         event: &ColorPickerEvent,
         cx: &mut Context<Self>,
     ) {
-        let ColorPickerEvent::Change(Some(color)) = event else {
-            return;
-        };
-        let color = Rgba::from(*color);
-        self.set_animation_stop_value(
-            id,
-            PropertyValue::Color([color.r, color.g, color.b, color.a]),
-            cx,
-        );
+        if let Some(value) = color_input_value(event) {
+            self.set_animation_stop_value(id, value, cx);
+        }
     }
 
     /// Single update channel for string text input.
@@ -269,12 +264,9 @@ impl PropertyInspector {
         event: &ColorPickerEvent,
         cx: &mut Context<Self>,
     ) {
-        let ColorPickerEvent::Change(Some(color)) = event else {
-            return;
-        };
-        let color = Rgba::from(*color);
-        let value = PropertyValue::Color([color.r, color.g, color.b, color.a]);
-        self.set_scalar(target, value, cx);
+        if let Some(value) = color_input_value(event) {
+            self.set_scalar(target, value, cx);
+        }
     }
 
     pub(super) fn select_animation(&mut self, address: &PropertyAddress, cx: &mut Context<Self>) {

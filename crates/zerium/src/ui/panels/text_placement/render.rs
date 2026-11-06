@@ -15,7 +15,7 @@ impl Render for TextPlacement {
         let rows = self.rows(cx);
         self.sync_inputs(&rows, window, cx);
         let colors = cx.theme().colors;
-        let stamp = self.current_stamp(&rows, cx);
+        let stamp = self.current_stamp(&rows);
         div()
             .id("text-placement")
             .track_focus(&self.focus)
@@ -65,7 +65,7 @@ impl Render for TextPlacement {
                         .track_scroll(&self.scroll)
                         .children(rows.iter().enumerate().map(|(index, row)| {
                             let id = row.address.item_id;
-                            let selected = self.editor.read(cx).is_item_selected(id);
+                            let selected = row.selected;
                             let starting = stamp == Some(StampTarget::Start(id));
                             let ending = stamp == Some(StampTarget::End(id));
                             div()

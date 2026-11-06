@@ -1,7 +1,7 @@
 use super::*;
 use crate::ui::{
     TimelineEditorEntityExt as _,
-    components::input::{InputStore, TextOptions, TextSync, color_to_hsla},
+    components::input::{InputStore, TextOptions, TextSync, color_input_value, color_to_hsla},
 };
 
 #[derive(Default)]
@@ -171,11 +171,9 @@ impl SceneSettings {
             color,
             |picker, window, cx| {
                 cx.subscribe_in(picker, window, move |this, _, event, _, cx| {
-                    let ColorPickerEvent::Change(Some(color)) = event else {
+                    let Some(value) = color_input_value(event) else {
                         return;
                     };
-                    let color = Rgba::from(*color);
-                    let value = PropertyValue::Color([color.r, color.g, color.b, color.a]);
                     this.editor.update_if_changed(cx, |editor| {
                         editor.update_scene_argument_default(&edited_id, value) == Ok(true)
                     });

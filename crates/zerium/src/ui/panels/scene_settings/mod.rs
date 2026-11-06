@@ -17,13 +17,12 @@ use crate::ui::{
 use ::ui::{
     ActiveTheme as _, Disableable as _, IconName, Sizable as _, ThemeColor,
     button::{Button, ButtonVariants as _},
-    color_picker::ColorPickerEvent,
-    input::{Input, InputEvent, InputState, NumberInput, NumberInputEvent, StepAction},
+    input::{Input, InputEvent, InputState, NumberInput, NumberInputEvent},
     menu::{PopupMenuItem, popup_menu::PopupMenuExt as _},
     switch::Switch,
 };
 use gpui::{
-    App, Context, CursorStyle, Div, DragMoveEvent, Entity, FocusHandle, MouseButton, Render, Rgba,
+    App, Context, CursorStyle, Div, DragMoveEvent, Entity, FocusHandle, MouseButton, Render,
     ScrollHandle, SharedString, Subscription, Window, div, prelude::*, px,
 };
 use rust_i18n::t;

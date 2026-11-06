@@ -26,6 +26,7 @@ use target::Target;
 
 /// A read projection; text input state is held separately by the shared input store.
 struct Row {
+    selected: bool,
     address: PropertyAddress,
     start: Frame,
     end: Frame,

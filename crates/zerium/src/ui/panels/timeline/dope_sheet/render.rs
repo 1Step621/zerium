@@ -22,6 +22,7 @@ pub(in crate::ui::panels::timeline) fn animation_row(
         label,
         ..
     } = row;
+    let layer_index = layer.get() as usize;
     let address = address.clone();
     let editor = state.editor.read(cx);
     let Some(item) = editor.item(address.item_id) else {
@@ -75,11 +76,17 @@ pub(in crate::ui::panels::timeline) fn animation_row(
                 .bg(color.opacity(if selected { 0.25 } else { 0.08 }))
                 .hover(move |style| style.bg(color.opacity(if selected { 0.35 } else { 0.16 })))
                 .cursor_pointer()
-                .on_click(cx.listener(move |this, event: &ClickEvent, _, cx| {
-                    if event.standard_click() && !event.modifiers().control {
+                .on_mouse_down(
+                    MouseButton::Left,
+                    cx.listener(move |this, event: &MouseDownEvent, window, cx| {
+                        if event.modifiers.control {
+                            return;
+                        }
+                        this.begin_track_interaction(layer_index, event, window, cx);
                         this.open_animation_curve(segment_address.clone(), Some(index), cx);
-                    }
-                })),
+                        cx.stop_propagation();
+                    }),
+                ),
         );
     }
     for (index, stop) in track.stops().iter().enumerate() {
@@ -123,6 +130,7 @@ pub(in crate::ui::panels::timeline) fn animation_row(
             .items_center()
             .justify_center()
             .cursor_pointer()
+            .when(!fixed, |key| key.cursor(gpui::CursorStyle::ResizeLeftRight))
             .child(animation_stop_marker(fixed, selected, state.colors))
             .on_mouse_down(
                 MouseButton::Left,

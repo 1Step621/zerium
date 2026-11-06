@@ -146,9 +146,8 @@ impl Timeline {
     ) {
         self.edit_stops(cx);
         if let Some(segment) = segment {
-            let frame = self.editor.read(cx).playhead();
             self.animation_selection.update(cx, |selection, cx| {
-                selection.focus_segment(address, segment, frame, &self.editor, &self.transport, cx);
+                selection.focus_segment(address, segment, &self.editor, cx);
             });
         } else {
             self.seek_to_item_if_outside(address.item_id, cx);

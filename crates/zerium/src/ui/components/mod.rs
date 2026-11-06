@@ -6,4 +6,5 @@ pub(crate) mod pane;
 pub(crate) mod placement;
 pub(crate) mod scene_menu;
 pub(crate) mod search_picker;
+pub(crate) mod selection;
 pub(crate) mod time_grid;
