@@ -1,10 +1,10 @@
 //! Animation markers, labels, and timing clipboard menus.
 use crate::app::copy_buffer::CopyBuffer;
 use ::ui::{Icon, IconName, ThemeColor, menu::PopupMenu};
-use gpui::{AnyElement, App, PathBuilder, canvas, div, point, prelude::*, px};
+use gpui::{AnyElement, App, Context, PathBuilder, Window, canvas, div, point, prelude::*, px};
 use rust_i18n::t;
 use std::rc::Rc;
-use zerium_core::animation::AnimationTiming;
+use zerium_core::animation::{AnimationTiming, StopValueSource};
 use zerium_core::timeline::{PropertyAddress, TimelineEditor, TimelineItem};
 
 pub(crate) fn animation_stop_marker(fixed: bool, selected: bool, colors: ThemeColor) -> AnyElement {
@@ -137,4 +137,33 @@ pub(crate) fn animation_property_label(
         Some(scalar_label) => format!("{label} {scalar_label}"),
         None => label,
     })
+}
+
+/// Shared insertion choices for the timeline and both curve-editor menus.
+pub(crate) fn animation_stop_add_menu(
+    menu: PopupMenu,
+    enabled: bool,
+    window: &mut Window,
+    cx: &mut Context<PopupMenu>,
+    on_add: impl Fn(StopValueSource, &mut App) + 'static,
+) -> PopupMenu {
+    let on_add = Rc::new(on_add);
+    menu.submenu_with_icon_with_disabled(
+        Some(Icon::new(IconName::Plus)),
+        t!("curve.add_stop").to_string(),
+        !enabled,
+        window,
+        cx,
+        move |menu, _, _| {
+            [
+                (StopValueSource::Previous, "curve.stop_from_previous"),
+                (StopValueSource::Next, "curve.stop_from_next"),
+            ]
+            .into_iter()
+            .fold(menu, |menu, (source, label)| {
+                let on_add = on_add.clone();
+                menu.menu_handler(t!(label).to_string(), move |_, cx| on_add(source, cx))
+            })
+        },
+    )
 }

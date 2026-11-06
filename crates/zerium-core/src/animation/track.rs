@@ -34,6 +34,13 @@ pub struct ScalarTrack {
     interpolations: Vec<SegmentInterpolation>,
 }
 
+/// Existing key whose value is copied when inserting a new stop.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StopValueSource {
+    Previous,
+    Next,
+}
+
 /// Value-independent key timing, interpolation curves, and repeat settings.
 #[derive(Clone, Debug)]
 pub struct AnimationTiming {
@@ -285,6 +292,18 @@ impl ScalarTrack {
         }
         self.stops[index].value = value;
         true
+    }
+
+    pub fn value_for_new_stop(
+        &self,
+        frame: Frame,
+        source: StopValueSource,
+    ) -> Option<PropertyValue> {
+        let stop = match source {
+            StopValueSource::Previous => self.stops.iter().rev().find(|stop| stop.frame < frame),
+            StopValueSource::Next => self.stops.iter().find(|stop| stop.frame > frame),
+        }?;
+        Some(stop.value.clone())
     }
 
     pub fn insert_stop(&mut self, frame: Frame, value: PropertyValue) -> Option<usize> {

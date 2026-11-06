@@ -172,6 +172,8 @@ _version: 1
 "curve.frame_time": "%{frame}f / %{seconds} sec"
 "curve.delete_stop": "Delete stop"
 "curve.add_stop": "Add stop"
+"curve.stop_from_previous": "From previous stop"
+"curve.stop_from_next": "From next stop"
 "args.scene_settings": "Scene settings"
 "args.scene_name": "Scene name"
 "args.scene_arguments": "Scene arguments"

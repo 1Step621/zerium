@@ -5,6 +5,7 @@ use crate::ui::{
 };
 use gpui::{Bounds, Context, Pixels, point, px};
 use std::collections::HashSet;
+use zerium_core::animation::StopValueSource;
 use zerium_core::timeline::{PropertyAddress, TimelineTime};
 
 pub(in crate::ui::panels::timeline) type StopKeys = HashSet<(PropertyAddress, usize)>;
@@ -86,10 +87,11 @@ impl Timeline {
         &mut self,
         address: &PropertyAddress,
         time: TimelineTime,
+        source: StopValueSource,
         cx: &mut Context<Self>,
     ) {
         let stop = self.editor.update(cx, |editor, cx| {
-            let stop = editor.insert_animation_stop_at_time(address, time);
+            let stop = editor.insert_animation_stop_at_time(address, time, source);
             if stop.is_some() {
                 cx.notify();
             }

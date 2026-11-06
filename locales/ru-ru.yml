@@ -172,6 +172,8 @@ _version: 1
 "curve.frame_time": "%{frame}f / %{seconds} с"
 "curve.delete_stop": "Удалить ключевую точку"
 "curve.add_stop": "Добавить ключевую точку"
+"curve.stop_from_previous": "Из предыдущей точки"
+"curve.stop_from_next": "Из следующей точки"
 "args.scene_settings": "Настройки сцены"
 "args.scene_name": "Название сцены"
 "args.scene_arguments": "Параметры сцены"

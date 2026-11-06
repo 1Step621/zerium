@@ -172,6 +172,8 @@ _version: 1
 "curve.frame_time": "%{frame}f / %{seconds} 秒"
 "curve.delete_stop": "删除关键点"
 "curve.add_stop": "添加关键点"
+"curve.stop_from_previous": "复制前一关键点的值"
+"curve.stop_from_next": "复制后一关键点的值"
 "args.scene_settings": "场景设置"
 "args.scene_name": "场景名称"
 "args.scene_arguments": "场景参数"

@@ -1,3 +1,4 @@
+use zerium_core::animation::StopValueSource;
 pub(super) mod navigation;
 use super::*;
 use crate::{app::copy_buffer::CopyBuffer, ui::TimelineEditorEntityExt as _};
@@ -58,6 +59,7 @@ impl AnimationCurveEditor {
         &mut self,
         target: &AnimationActionTarget,
         time: TimelineTime,
+        source: StopValueSource,
         cx: &mut Context<Self>,
     ) {
         let editor = self.editor.read(cx);
@@ -88,7 +90,7 @@ impl AnimationCurveEditor {
             .map(TimelineTime::nearest_frame);
         let changed = self.editor.update_if_changed(cx, |editor| {
             editor
-                .insert_animation_stop_at_time(&target.address, time)
+                .insert_animation_stop_at_time(&target.address, time, source)
                 .is_some()
         });
         if !changed {
@@ -359,58 +361,54 @@ impl AnimationCurveEditor {
     }
 
     pub(super) fn graph_menu(
-        &self,
+        view: Entity<Self>,
         menu: PopupMenu,
         position: gpui::Point<Pixels>,
-        cx: &Context<Self>,
+        window: &mut Window,
+        cx: &mut Context<PopupMenu>,
     ) -> PopupMenu {
-        let selected = self.selected_curve(cx);
+        let selected = view.read(cx).selected_curve(cx);
         let menu = if let Some(selected) = &selected {
-            self.stop_menu(
-                menu,
-                selected,
-                self.graph_stop_at_position(position, selected),
-                self.time_at_graph_position(position, selected),
-                cx,
-            )
+            let stop = view.read(cx).graph_stop_at_position(position, selected);
+            let time = view.read(cx).time_at_graph_position(position, selected);
+            Self::stop_menu(menu, selected, stop, time, view.clone(), window, cx)
         } else {
             menu
         };
-        self.curve_menu(menu, selected.as_ref(), cx)
+        view.read(cx)
+            .curve_menu(menu, selected.as_ref(), view.clone(), cx)
     }
 
     pub(super) fn overview_menu(
-        &self,
+        view: Entity<Self>,
         menu: PopupMenu,
         position: gpui::Point<Pixels>,
-        cx: &Context<Self>,
+        window: &mut Window,
+        cx: &mut Context<PopupMenu>,
     ) -> PopupMenu {
-        let menu = menu.action_context(self.focus_handle.clone());
-        let menu = if let Some(selected) = self.selected_curve(cx) {
-            self.stop_menu(
-                menu,
-                &selected,
-                self.overview_stop_at_position(position, &selected),
-                self.time_at_overview_position(position, &selected),
-                cx,
-            )
+        let menu = menu.action_context(view.read(cx).focus_handle.clone());
+        let menu = if let Some(selected) = view.read(cx).selected_curve(cx) {
+            let stop = view.read(cx).overview_stop_at_position(position, &selected);
+            let time = view.read(cx).time_at_overview_position(position, &selected);
+            Self::stop_menu(menu, &selected, stop, time, view.clone(), window, cx)
         } else {
             menu
         };
-        self.animation_timing_menu(menu, cx)
+        view.read(cx).animation_timing_menu(menu, view.clone(), cx)
     }
 
     /// Key editing is always the first group, followed by clipboard commands.
-    pub(super) fn stop_menu(
-        &self,
+    fn stop_menu(
         menu: PopupMenu,
         selected: &SelectedCurve,
         stop: Option<usize>,
         time: Option<TimelineTime>,
-        cx: &Context<Self>,
+        view: Entity<Self>,
+        window: &mut Window,
+        cx: &mut Context<PopupMenu>,
     ) -> PopupMenu {
-        let target = AnimationActionTarget::new(selected.address.clone(), self.editor.read(cx));
-        let view = cx.entity();
+        let target =
+            AnimationActionTarget::new(selected.address.clone(), view.read(cx).editor.read(cx));
         let menu = if let Some(stop) = stop {
             menu.menu_handler_with_icon_and_disabled(
                 t!("curve.delete_stop").to_string(),
@@ -421,12 +419,16 @@ impl AnimationCurveEditor {
                 },
             )
         } else if let Some(time) = time {
-            if self.can_add_stop_at_time(&target, time, cx) {
-                menu.menu_handler_with_icon(
-                    t!("curve.add_stop").to_string(),
-                    IconName::Plus,
-                    move |_, cx| {
-                        view.update(cx, |view, cx| view.add_stop_at_time(&target, time, cx));
+            if view.read(cx).can_add_stop_at_time(&target, time, cx) {
+                crate::ui::components::animation::animation_stop_add_menu(
+                    menu,
+                    true,
+                    window,
+                    cx,
+                    move |source, cx| {
+                        view.update(cx, |view, cx| {
+                            view.add_stop_at_time(&target, time, source, cx)
+                        });
                     },
                 )
             } else {
@@ -444,7 +446,8 @@ impl AnimationCurveEditor {
         &self,
         menu: PopupMenu,
         selected: Option<&SelectedCurve>,
-        cx: &Context<Self>,
+        view: Entity<Self>,
+        cx: &App,
     ) -> PopupMenu {
         let action_context = self.focus_handle.clone();
         let interpolation = selected.map(|selected| selected.curve.interpolation);
@@ -461,7 +464,7 @@ impl AnimationCurveEditor {
                 interpolation,
             ))
         });
-        let paste_editor = cx.entity();
+        let paste_editor = view.clone();
         let menu = menu
             .action_context(action_context)
             .menu_handler_with_icon_and_disabled(
@@ -486,14 +489,14 @@ impl AnimationCurveEditor {
                     }
                 },
             );
-        self.animation_timing_menu(menu.separator(), cx)
+        self.animation_timing_menu(menu.separator(), view, cx)
     }
 
-    pub(super) fn animation_timing_menu(&self, menu: PopupMenu, cx: &Context<Self>) -> PopupMenu {
+    fn animation_timing_menu(&self, menu: PopupMenu, view: Entity<Self>, cx: &App) -> PopupMenu {
         let editor = self.editor.read(cx);
         let address = self.selection.read(cx).address();
         let target = address.map(|address| AnimationActionTarget::new(address.clone(), editor));
-        let paste_editor = cx.entity();
+        let paste_editor = view.clone();
         crate::ui::components::animation::animation_timing_menu(
             menu,
             editor,

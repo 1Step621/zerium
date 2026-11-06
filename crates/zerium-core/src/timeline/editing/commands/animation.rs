@@ -1,6 +1,7 @@
 use crate::{
     animation::{
         AnimationRepeat, AnimationTiming, ScalarAnimations, ScalarTrack, SegmentInterpolation,
+        StopValueSource,
     },
     timeline::{
         EffectInstanceId, Frame, ItemId, PropertyAddress, TimelineEditor, TimelineItem,
@@ -150,14 +151,17 @@ impl TimelineEditor {
         Some(frame)
     }
 
-    /// Insert within the authored pattern using its evaluated value at this time.
+    /// Insert within the authored pattern, copying the requested existing stop's value.
     pub fn insert_animation_stop_at_time(
         &mut self,
         address: &PropertyAddress,
         time: TimelineTime,
+        source: StopValueSource,
     ) -> Option<usize> {
         let frame = self.animation_stop_insertion_frame(address, time)?;
-        let value = self.evaluated_property_value(address, time)?;
+        let value = self
+            .animation_track(address)?
+            .value_for_new_stop(frame, source)?;
         let schema = self.property_schema(address)?;
         if !schema
             .configuration_constraints(address.scalar_index)

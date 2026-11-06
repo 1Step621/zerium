@@ -52,47 +52,48 @@ impl Timeline {
         let timeline = cx.entity();
         let curve_timeline = timeline.clone();
         let action_context = self.focus_handle.clone();
-        let menu = PopupMenu::build(window, cx, move |menu, _, _| {
-            menu.action_context(action_context)
-                .menu_handler_with_icon_and_disabled(
-                    if stop.is_some() {
-                        t!("curve.delete_stop")
-                    } else {
-                        t!("curve.add_stop")
-                    }
-                    .to_string(),
-                    if stop.is_some() {
-                        IconName::Delete
-                    } else {
-                        IconName::Plus
-                    },
+        let menu = PopupMenu::build(window, cx, move |menu, window, cx| {
+            let menu = menu.action_context(action_context);
+            let menu = if stop.is_some() {
+                menu.menu_handler_with_icon_and_disabled(
+                    t!("curve.delete_stop").to_string(),
+                    IconName::Delete,
                     !enabled,
                     move |_, cx| {
                         timeline.update(cx, |this, cx| {
-                            if !context.is_current(this.editor.read(cx)) {
-                                return;
-                            }
-                            if stop.is_some() {
-                                this.delete_selected_stops(cx);
-                            } else {
-                                this.add_animation_stop(&target, time, cx);
-                            }
-                        });
-                    },
-                )
-                .separator()
-                .menu_handler_with_icon_and_disabled(
-                    t!("timeline.edit_curve").to_string(),
-                    IconName::Keyframe,
-                    false,
-                    move |_, cx| {
-                        curve_timeline.update(cx, |this, cx| {
                             if context.is_current(this.editor.read(cx)) {
-                                this.open_animation_curve(curve_address.clone(), None, cx);
+                                this.delete_selected_stops(cx);
                             }
                         });
                     },
                 )
+            } else {
+                crate::ui::components::animation::animation_stop_add_menu(
+                    menu,
+                    enabled,
+                    window,
+                    cx,
+                    move |source, cx| {
+                        timeline.update(cx, |this, cx| {
+                            if context.is_current(this.editor.read(cx)) {
+                                this.add_animation_stop(&target, time, source, cx);
+                            }
+                        });
+                    },
+                )
+            };
+            menu.separator().menu_handler_with_icon_and_disabled(
+                t!("timeline.edit_curve").to_string(),
+                IconName::Keyframe,
+                false,
+                move |_, cx| {
+                    curve_timeline.update(cx, |this, cx| {
+                        if context.is_current(this.editor.read(cx)) {
+                            this.open_animation_curve(curve_address.clone(), None, cx);
+                        }
+                    });
+                },
+            )
         });
         self.show_context_menu(menu, position, window, cx);
     }
@@ -391,9 +392,11 @@ impl Timeline {
         timeline: Entity<Self>,
     ) -> Option<impl IntoElement> {
         let context_menu = self.context_menu.as_ref()?;
-        let content = match &context_menu.content {
-            TimelineContextMenuContent::Commands(menu) => menu.clone().into_any_element(),
-            TimelineContextMenuContent::ItemPicker(picker) => picker.clone().into_any_element(),
+        let (content, dismiss_on_outside) = match &context_menu.content {
+            TimelineContextMenuContent::Commands(menu) => (menu.clone().into_any_element(), false),
+            TimelineContextMenuContent::ItemPicker(picker) => {
+                (picker.clone().into_any_element(), true)
+            }
         };
         Some(
             deferred(
@@ -409,11 +412,13 @@ impl Timeline {
                             .border_color(colors.border)
                             .rounded_md()
                             .shadow_md()
-                            .on_mouse_down_out(move |_, _, cx| {
-                                timeline.update(cx, |timeline, cx| {
-                                    timeline.context_menu = None;
-                                    cx.notify();
-                                });
+                            .when(dismiss_on_outside, |overlay| {
+                                overlay.on_mouse_down_out(move |_, _, cx| {
+                                    timeline.update(cx, |timeline, cx| {
+                                        timeline.context_menu = None;
+                                        cx.notify();
+                                    });
+                                })
                             })
                             .child(content),
                     ),

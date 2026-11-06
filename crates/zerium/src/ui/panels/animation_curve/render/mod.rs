@@ -486,7 +486,7 @@ impl Render for AnimationCurveEditor {
         let context_menu_editor = curve_editor.clone();
         let graph = graph.context_menu(move |menu, window, cx| {
             let position = window.mouse_position();
-            context_menu_editor.update(cx, |view, cx| view.graph_menu(menu, position, cx))
+            Self::graph_menu(context_menu_editor.clone(), menu, position, window, cx)
         });
         let overview_drag_editor = curve_editor.clone();
         let overview_context_menu_editor = curve_editor.clone();
@@ -654,8 +654,13 @@ impl Render for AnimationCurveEditor {
                     }))
                     .context_menu(move |menu, window, cx| {
                         let position = window.mouse_position();
-                        overview_context_menu_editor
-                            .update(cx, |view, cx| view.overview_menu(menu, position, cx))
+                        Self::overview_menu(
+                            overview_context_menu_editor.clone(),
+                            menu,
+                            position,
+                            window,
+                            cx,
+                        )
                     }),
             );
         let graph = graph.child(graph_controls);

@@ -172,6 +172,8 @@ _version: 1
 "curve.frame_time": "%{frame}f / %{seconds} sec"
 "curve.delete_stop": "中間点を削除"
 "curve.add_stop": "中間点を追加"
+"curve.stop_from_previous": "前の中間点と同じ値"
+"curve.stop_from_next": "次の中間点と同じ値"
 "args.scene_settings": "シーン設定"
 "args.scene_name": "シーン名"
 "args.scene_arguments": "シーン引数"
