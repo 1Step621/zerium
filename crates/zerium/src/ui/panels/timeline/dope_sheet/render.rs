@@ -7,8 +7,11 @@ use crate::ui::panels::timeline::{
     render::{LayerRenderState, navigation_hints, timeline_track},
 };
 use crate::ui::workspace::operation_hints::OperationHintExt as _;
-use gpui::{ClickEvent, MouseButton, MouseDownEvent, SharedString, div, prelude::*, px};
-use zerium_core::timeline::TimelineTime;
+use gpui::{
+    Bounds, ClickEvent, DispatchPhase, HitboxBehavior, MouseButton, MouseDownEvent, MouseMoveEvent,
+    SharedString, canvas, div, fill, point, prelude::*, px, size,
+};
+use zerium_core::timeline::{PropertyAddress, TimelineTime};
 
 pub(in crate::ui::panels::timeline) fn animation_row(
     row: &crate::ui::panels::timeline::rows::AnimationRow,
@@ -245,6 +248,7 @@ pub(in crate::ui::panels::timeline) fn animation_row(
                     )),
             )
             .children(segments)
+            .child(stop_insertion_guide(&address, state, cx))
             .children(ghosts)
             .children(keys)
             .operation_hints(navigation_hints()),
@@ -260,4 +264,65 @@ pub(in crate::ui::panels::timeline) fn animation_row(
             )
         })
         .into_any_element()
+}
+
+fn stop_insertion_guide(
+    address: &PropertyAddress,
+    state: &LayerRenderState,
+    cx: &Context<Timeline>,
+) -> gpui::AnyElement {
+    let timeline = cx.entity_id();
+    let viewport = state.viewport;
+    let frame_rate = state.frame_rate;
+    let color = state.colors.muted_foreground.opacity(0.65);
+    let follow_pointer = !state.context_menu_open;
+    let menu_frame = state
+        .stop_insertion
+        .as_ref()
+        .filter(|(target, _)| target == address)
+        .map(|(_, frame)| *frame);
+    canvas(
+        |bounds, window, _| window.insert_hitbox(bounds, HitboxBehavior::Normal),
+        move |bounds, hitbox, window, cx| {
+            let hovered = hitbox.is_hovered(window);
+            let frame = menu_frame.or_else(|| {
+                (follow_pointer
+                    && hovered
+                    && window.pressed_mouse_button().is_none()
+                    && !cx.has_active_drag())
+                .then(|| {
+                    viewport.frame_at_x(
+                        f32::from(window.mouse_position().x - bounds.origin.x),
+                        0.,
+                        f32::from(bounds.size.width),
+                        frame_rate,
+                    )
+                })
+            });
+            if let Some(frame) = frame {
+                let x = viewport.x_at_seconds(frame_rate.frame_to_seconds(frame));
+                let bottom = f32::from(bounds.size.height) - 5.;
+                for y in (5..bottom.max(5.) as usize).step_by(6) {
+                    window.paint_quad(fill(
+                        Bounds::new(
+                            bounds.origin + point(px(x - 0.5), px(y as f32)),
+                            size(px(1.), px(3_f32.min(bottom - y as f32))),
+                        ),
+                        color,
+                    ));
+                }
+            }
+            window.on_mouse_event(move |event: &MouseMoveEvent, phase, _, cx| {
+                if follow_pointer
+                    && phase == DispatchPhase::Capture
+                    && (hovered || bounds.contains(&event.position))
+                {
+                    cx.notify(timeline);
+                }
+            });
+        },
+    )
+    .absolute()
+    .inset_0()
+    .into_any_element()
 }

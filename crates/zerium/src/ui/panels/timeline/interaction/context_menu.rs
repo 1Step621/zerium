@@ -48,13 +48,11 @@ impl Timeline {
         };
         let context = self.editor.read(cx).edit_context();
         let target = address.clone();
-        let curve_address = address.clone();
         let timeline = cx.entity();
-        let curve_timeline = timeline.clone();
         let action_context = self.focus_handle.clone();
         let menu = PopupMenu::build(window, cx, move |menu, window, cx| {
             let menu = menu.action_context(action_context);
-            let menu = if stop.is_some() {
+            if stop.is_some() {
                 menu.menu_handler_with_icon_and_disabled(
                     t!("curve.delete_stop").to_string(),
                     IconName::Delete,
@@ -81,21 +79,12 @@ impl Timeline {
                         });
                     },
                 )
-            };
-            menu.separator().menu_handler_with_icon_and_disabled(
-                t!("timeline.edit_curve").to_string(),
-                IconName::Keyframe,
-                false,
-                move |_, cx| {
-                    curve_timeline.update(cx, |this, cx| {
-                        if context.is_current(this.editor.read(cx)) {
-                            this.open_animation_curve(curve_address.clone(), None, cx);
-                        }
-                    });
-                },
-            )
+            }
         });
-        self.show_context_menu(menu, position, window, cx);
+        let stop_insertion = stop
+            .is_none()
+            .then(|| (address.clone(), time.nearest_frame()));
+        self.show_context_menu(menu, position, stop_insertion, window, cx);
     }
 
     fn prepare_context_target(
@@ -244,6 +233,7 @@ impl Timeline {
         self.context_menu = Some(TimelineContextMenu {
             content: TimelineContextMenuContent::ItemPicker(picker),
             position,
+            stop_insertion: None,
         });
         cx.notify();
     }
@@ -365,13 +355,14 @@ impl Timeline {
             self.open_item_picker(position, window, cx);
             return;
         };
-        self.show_context_menu(menu, position, window, cx);
+        self.show_context_menu(menu, position, None, window, cx);
     }
 
     fn show_context_menu(
         &mut self,
         menu: Entity<PopupMenu>,
         position: gpui::Point<Pixels>,
+        stop_insertion: Option<(PropertyAddress, Frame)>,
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
@@ -382,7 +373,11 @@ impl Timeline {
         .detach();
         menu.read(cx).focus_handle(cx).focus(window, cx);
         let content = TimelineContextMenuContent::Commands(menu);
-        self.context_menu = Some(TimelineContextMenu { content, position });
+        self.context_menu = Some(TimelineContextMenu {
+            content,
+            position,
+            stop_insertion,
+        });
         cx.notify();
     }
 
@@ -503,6 +498,7 @@ pub(in crate::ui::panels::timeline) struct ContextTarget {
 pub(in crate::ui::panels::timeline) struct TimelineContextMenu {
     pub(in crate::ui::panels::timeline) content: TimelineContextMenuContent,
     pub(in crate::ui::panels::timeline) position: gpui::Point<Pixels>,
+    pub(in crate::ui::panels::timeline) stop_insertion: Option<(PropertyAddress, Frame)>,
 }
 
 #[derive(Clone)]

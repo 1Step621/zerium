@@ -34,7 +34,7 @@ use gpui::{
 };
 
 use zerium_core::timeline::{
-    FrameRate, ItemId, LayerId, PropertyAddress, TimelineEditor, TimelineItem,
+    Frame, FrameRate, ItemId, LayerId, PropertyAddress, TimelineEditor, TimelineItem,
 };
 
 use self::ruler::TimelineGrid;
@@ -45,6 +45,8 @@ pub(super) struct LayerRenderState {
     pub(super) expanded_layers: Rc<HashSet<LayerId>>,
     pub(super) selected_stops: Rc<super::dope_sheet::StopKeys>,
     pub(super) focused_animation: Option<(PropertyAddress, usize)>,
+    pub(super) context_menu_open: bool,
+    pub(super) stop_insertion: Option<(PropertyAddress, Frame)>,
     pub(super) colors: ThemeColor,
     pub(super) viewport: TimelineViewport,
     pub(super) viewport_width: f32,
@@ -148,6 +150,11 @@ impl Render for Timeline {
                     .cloned()
                     .zip(selection.focused_segment(self.editor.read(cx)))
             },
+            context_menu_open: self.context_menu.is_some(),
+            stop_insertion: self
+                .context_menu
+                .as_ref()
+                .and_then(|menu| menu.stop_insertion.clone()),
             colors,
             viewport: self.viewport,
             viewport_width,
