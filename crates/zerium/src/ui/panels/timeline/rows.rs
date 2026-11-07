@@ -6,7 +6,7 @@ use gpui::{Context, point, px};
 
 use super::{
     Timeline,
-    interaction::item::{ItemMoveDrag, MoveTimelineItem, ResizeTimelineItem},
+    interaction::item::{ItemMoveDrag, MoveTimelineItem},
     layer_scroll_base,
 };
 
@@ -122,20 +122,16 @@ impl Timeline {
     pub(super) fn rebuild_rows(&mut self, cx: &Context<Self>) {
         let moving = cx
             .active_drag_value::<MoveTimelineItem>()
-            .filter(|drag| drag.timeline_id == cx.entity_id());
-        let resizing = cx
-            .active_drag_value::<ResizeTimelineItem>()
-            .filter(|drag| drag.timeline_id == cx.entity_id());
-        let dragging = moving.is_some() || resizing.is_some();
+            .is_some_and(|drag| drag.timeline_id == cx.entity_id());
         // Presses and box selection keep their original hit geometry until release.
-        if !dragging && (self.item_drag.is_some() || self.marquee_selection.is_some()) {
+        if !moving && (self.item_drag.is_some() || self.marquee_selection.is_some()) {
             return;
         }
         let editor = self.editor.read(cx);
         if let Some(selection) = &mut self.stop_selection {
             selection.validate(editor);
         }
-        let rows = if dragging {
+        let rows = if moving {
             TimelineRows::default()
         } else {
             let selection = editor
@@ -149,10 +145,8 @@ impl Timeline {
             }
             TimelineRows::new(editor, &self.expanded_layers)
         };
-        let anchor = if dragging {
-            resizing
-                .and_then(|drag| editor.item_layer(drag.anchor_id))
-                .or_else(|| self.item_drag.as_ref().and_then(ItemMoveDrag::origin_layer))
+        let anchor = if moving {
+            self.item_drag.as_ref().and_then(ItemMoveDrag::origin_layer)
         } else {
             None
         };
