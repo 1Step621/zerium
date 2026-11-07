@@ -140,8 +140,8 @@ impl DecodeBackend {
     }
 }
 
-// Consume nearby forward requests sequentially; distant requests use keyframe seeks.
-const MAX_FORWARD_DECODE_FRAMES: u32 = 10;
+// Bound extra forward decoding in source time, independent of the video's FPS.
+const MAX_FORWARD_DECODE_AHEAD: Duration = Duration::from_secs(1);
 
 struct PlaybackCursor {
     backend: DecodeBackend,
@@ -242,9 +242,10 @@ impl PlaybackCursor {
             CursorPosition::Frame(last) => (
                 time < last.presentation_time
                     || time
-                        > last.presentation_time.saturating_add(
-                            last.duration.saturating_mul(MAX_FORWARD_DECODE_FRAMES),
-                        ),
+                        > last
+                            .presentation_time
+                            .saturating_add(last.duration)
+                            .saturating_add(MAX_FORWARD_DECODE_AHEAD),
                 last.presentation_time,
             ),
             CursorPosition::StartedAt(origin) => (time != *origin, Duration::ZERO),
