@@ -28,8 +28,22 @@ impl Timeline {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) {
-        self.edit_stops(cx);
         let time = TimelineTime::from_frame(self.pointer_frame(f32::from(position.x), window, cx));
+        let editor = self.editor.read(cx);
+        if stop.is_none()
+            && editor
+                .item(address.item_id)
+                .zip(editor.animation_track(address))
+                .is_none_or(|(item, track)| {
+                    !item
+                        .animation_clock(track)
+                        .pattern_time_range()
+                        .contains(&time)
+                })
+        {
+            return;
+        }
+        self.edit_stops(cx);
         let enabled = if let Some(stop) = stop {
             let removable = self
                 .editor

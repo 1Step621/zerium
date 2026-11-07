@@ -11,6 +11,7 @@ use gpui::{
     Bounds, ClickEvent, DispatchPhase, HitboxBehavior, MouseButton, MouseDownEvent, MouseMoveEvent,
     SharedString, canvas, div, fill, point, prelude::*, px, size,
 };
+use std::ops::RangeInclusive;
 use zerium_core::timeline::{PropertyAddress, TimelineTime};
 
 pub(in crate::ui::panels::timeline) fn animation_row(
@@ -35,6 +36,7 @@ pub(in crate::ui::panels::timeline) fn animation_row(
         return div().into_any_element();
     };
     let clock = item.animation_clock(track);
+    let pattern_time_range = clock.pattern_time_range();
     let (start, end) = state.viewport.visible_time_range(state.viewport_width);
     let (visible_start, visible_end) = (
         TimelineTime::from_frames(start * state.frame_rate.frames_per_second()),
@@ -248,7 +250,12 @@ pub(in crate::ui::panels::timeline) fn animation_row(
                     )),
             )
             .children(segments)
-            .child(stop_insertion_guide(&address, state, cx))
+            .child(stop_insertion_guide(
+                &address,
+                pattern_time_range,
+                state,
+                cx,
+            ))
             .children(ghosts)
             .children(keys)
             .operation_hints(navigation_hints()),
@@ -268,6 +275,7 @@ pub(in crate::ui::panels::timeline) fn animation_row(
 
 fn stop_insertion_guide(
     address: &PropertyAddress,
+    pattern_time_range: RangeInclusive<TimelineTime>,
     state: &LayerRenderState,
     cx: &Context<Timeline>,
 ) -> gpui::AnyElement {
@@ -299,7 +307,9 @@ fn stop_insertion_guide(
                     )
                 })
             });
-            if let Some(frame) = frame {
+            if let Some(frame) =
+                frame.filter(|frame| pattern_time_range.contains(&TimelineTime::from_frame(*frame)))
+            {
                 let x = viewport.x_at_seconds(frame_rate.frame_to_seconds(frame));
                 let bottom = f32::from(bounds.size.height) - 5.;
                 for y in (5..bottom.max(5.) as usize).step_by(6) {

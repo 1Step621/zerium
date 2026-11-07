@@ -136,9 +136,7 @@ impl TimelineEditor {
         let item = self.item(address.item_id)?;
         let track = self.animation_track(address)?;
         let clock = item.animation_clock(track);
-        if time < clock.key_time_at(Frame::new(0))
-            || time > clock.key_time_at(Frame::new(track.span().get()))
-        {
+        if !clock.pattern_time_range().contains(&time) {
             return None;
         }
         let frame = clock.pattern_frame_at(time);

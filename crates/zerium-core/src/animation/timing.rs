@@ -1,6 +1,7 @@
 //! Integer authored clocks and continuous playback sampling.
 use crate::timeline::{Frame, FrameDuration, TimelineTime};
 use serde::{Deserialize, Serialize};
+use std::ops::RangeInclusive;
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq, Default)]
 #[serde(rename_all = "snake_case")]
@@ -231,5 +232,9 @@ impl AnimationClock {
 
     pub fn key_time_at(self, frame: Frame) -> TimelineTime {
         TimelineTime::from_frames((self.start + i128::from(frame.get())) as f64)
+    }
+
+    pub fn pattern_time_range(self) -> RangeInclusive<TimelineTime> {
+        self.key_time_at(Frame::new(0))..=self.key_time_at(Frame::new(self.span.get()))
     }
 }
